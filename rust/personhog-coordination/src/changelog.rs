@@ -13,6 +13,12 @@ use crate::store::PersonhogStore;
 use crate::types::ChangelogConfig;
 use crate::util;
 
+/// Whether boot keeps polling through `err`: any etcd error, since there is
+/// nothing to do before the config loads, but not a malformed config value.
+fn waits_at_boot(err: &Error) -> bool {
+    err.etcd_error().is_some()
+}
+
 /// Polls until `config/changelog` is seeded; it is the only source of the topic and count.
 /// Keeps polling through etcd being unreachable, and returns `None` once `shutdown` fires.
 pub async fn load_changelog_config(
@@ -31,7 +37,7 @@ pub async fn load_changelog_config(
             Ok(None) if polls.is_multiple_of(10) => {
                 tracing::warn!("config/changelog is not seeded; waiting for the control plane");
             }
-            Err(e) if util::is_etcd_unavailable(&e) => {
+            Err(e) if waits_at_boot(&e) => {
                 if polls.is_multiple_of(10) {
                     tracing::warn!(error = %e, "etcd is unreachable; waiting to load config/changelog");
                 }
@@ -378,6 +384,17 @@ where
 mod tests {
     use super::*;
     use crate::types::Generation;
+
+    #[test]
+    fn boot_waits_through_any_etcd_error_but_not_a_malformed_config() {
+        let not_member_level: Error =
+            etcd_client::Error::WatchError("member stopping".to_string()).into();
+        assert!(waits_at_boot(&not_member_level));
+        let malformed: Error = serde_json::from_str::<ChangelogConfig>("{")
+            .unwrap_err()
+            .into();
+        assert!(!waits_at_boot(&malformed));
+    }
 
     fn config(partitions: u32, draining: Vec<(u32, u64)>) -> ChangelogConfig {
         ChangelogConfig {

@@ -260,8 +260,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let boot_shutdown = changelog_handle
             .as_ref()
-            .map(|handle| handle.shutdown_token())
-            .unwrap_or_default();
+            .expect("changelog handle must be registered in leader mode")
+            .shutdown_token();
         let Some(loaded) =
             load_changelog_config(&store, CHANGELOG_BOOT_POLL_INTERVAL, &boot_shutdown)
                 .await

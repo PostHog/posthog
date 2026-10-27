@@ -29,7 +29,7 @@ pub fn new_handoff_id() -> String {
 pub(crate) struct RunFailures {
     /// Every failure; paces the backoff.
     consecutive: u32,
-    /// Failures etcd answered; spends the budget.
+    /// Failures that spend the budget.
     budgeted: u32,
 }
 
@@ -40,15 +40,20 @@ impl RunFailures {
 }
 
 /// Whether a coordination failure only says etcd could not be reached.
-/// A restart cannot fix that, so it does not spend the retry budget.
 pub(crate) fn is_etcd_unavailable(err: &Error) -> bool {
     err.etcd_error()
         .is_some_and(assignment_coordination::failover::is_member_level)
 }
 
+/// Whether a restart would fix nothing a new attempt does not: etcd could
+/// not be reached, or a lease was lost. These do not spend the budget.
+fn spends_budget(err: &Error) -> bool {
+    !(is_etcd_unavailable(err) || err.is_lease_lost())
+}
+
 /// Records one supervisor failure; returns `false` once the budget is spent.
 /// INVARIANT: only applied work resets the counts, never a read that changed
-/// nothing. Failures that only say etcd is unreachable spend no budget.
+/// nothing. Failures a restart cannot fix spend no budget: see `spends_budget`.
 pub(crate) fn note_run_failure(
     failures: &mut RunFailures,
     progress: &AtomicBool,
@@ -61,8 +66,8 @@ pub(crate) fn note_run_failure(
         *failures = RunFailures::default();
     }
     failures.consecutive += 1;
-    let etcd_unavailable = is_etcd_unavailable(err);
-    if !etcd_unavailable {
+    let spends_budget = spends_budget(err);
+    if spends_budget {
         failures.budgeted += 1;
     }
     counter!(
@@ -77,7 +82,7 @@ pub(crate) fn note_run_failure(
         consecutive = failures.consecutive,
         budget_spent = failures.budgeted,
         budget,
-        etcd_unavailable,
+        spends_budget,
         "coordination run failed; rebuilding in place while the data plane keeps serving"
     );
     failures.budgeted < budget
@@ -157,11 +162,7 @@ pub async fn run_lease_keepalive(
     // however long registration took.
     let mut last_renewed = granted_at;
 
-    let margin_exhausted = || {
-        Error::invalid_state(format!(
-            "lease renewal margin exhausted: no confirmed renewal in {renewal_margin:?}"
-        ))
-    };
+    let margin_exhausted = || Error::LeaseMarginExhausted(renewal_margin);
 
     'stream: loop {
         // (Re)establish the keepalive stream, bounded by the margin.
@@ -327,13 +328,32 @@ pub(crate) fn live_watch_response(
 ) -> Result<etcd_client::WatchResponse> {
     let resp = resp.ok_or_else(|| Error::invalid_state(format!("{what} watch stream ended")))?;
     if resp.canceled() {
-        return Err(Error::invalid_state(format!(
-            "{what} watcher cancelled by etcd (reason: {:?}, compact_revision: {})",
+        return Err(watch_cancelled(
+            what,
             resp.cancel_reason(),
             resp.compact_revision(),
-        )));
+        ));
     }
     Ok(resp)
+}
+
+/// The cancel reason etcd sends when the member serving a require-leader
+/// watch loses its leader (rpctypes.ErrNoLeader).
+const NO_LEADER_CANCEL_REASON: &str = "etcdserver: no leader";
+
+/// A member without a leader cancels the watch rather than failing it, so
+/// that case maps to the same Unavailable status etcd answers a
+/// require-leader request with.
+fn watch_cancelled(what: &str, reason: &str, compact_revision: i64) -> Error {
+    if reason == NO_LEADER_CANCEL_REASON {
+        return assignment_coordination::failover::no_leader_error(format!(
+            "{what} watcher cancelled by etcd: {reason}"
+        ))
+        .into();
+    }
+    Error::invalid_state(format!(
+        "{what} watcher cancelled by etcd (reason: {reason:?}, compact_revision: {compact_revision})"
+    ))
 }
 
 /// Count one resolution that found no record — not one record lost: a
@@ -551,7 +571,7 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    use super::{new_handoff_id, note_run_failure, RunFailures};
+    use super::{new_handoff_id, note_run_failure, watch_cancelled, RunFailures};
     use crate::error::Error;
 
     /// Losing the election lease ends a leadership term but says nothing
@@ -616,39 +636,65 @@ mod tests {
     }
 
     #[test]
-    fn an_unreachable_etcd_backs_off_without_spending_the_budget() {
-        let progress = AtomicBool::new(false);
-        let unavailable: Error = etcd_client::Error::IoError(std::io::Error::from(
-            std::io::ErrorKind::ConnectionRefused,
-        ))
-        .into();
-        let mut failures = RunFailures::default();
+    fn failures_a_restart_cannot_fix_back_off_without_spending_the_budget() {
+        let unfixable_by_restart: Vec<(&str, Error)> = vec![
+            (
+                "etcd unreachable",
+                etcd_client::Error::IoError(std::io::Error::from(
+                    std::io::ErrorKind::ConnectionRefused,
+                ))
+                .into(),
+            ),
+            ("lease expired in etcd", Error::leadership_lost()),
+            (
+                "renewal margin exhausted",
+                Error::LeaseMarginExhausted(std::time::Duration::from_secs(20)),
+            ),
+            (
+                "watch cancelled for no leader",
+                watch_cancelled("routing table", "etcdserver: no leader", 0),
+            ),
+        ];
+        for (case, err) in unfixable_by_restart {
+            let progress = AtomicBool::new(false);
+            let mut failures = RunFailures::default();
+            for _ in 0..50 {
+                assert!(
+                    note_run_failure(&mut failures, &progress, 2, "pod", "p", &err),
+                    "{case} spent the budget"
+                );
+            }
+            assert_eq!(
+                failures.consecutive(),
+                50,
+                "{case}: the backoff still grows"
+            );
+        }
 
-        for _ in 0..50 {
+        let wedges = [
+            Error::invalid_state("list_handoffs failed"),
+            watch_cancelled(
+                "routing table",
+                "etcdserver: mvcc: required revision has been compacted",
+                42,
+            ),
+        ];
+        for wedge in wedges {
+            let progress = AtomicBool::new(false);
+            let mut failures = RunFailures::default();
             assert!(note_run_failure(
                 &mut failures,
                 &progress,
                 2,
                 "pod",
                 "p",
-                &unavailable
+                &wedge
             ));
+            assert!(
+                !note_run_failure(&mut failures, &progress, 2, "pod", "p", &wedge),
+                "{wedge} must still exhaust the budget"
+            );
         }
-        assert_eq!(failures.consecutive(), 50, "the backoff still grows");
-
-        let wedge = Error::invalid_state("list_handoffs failed");
-        assert!(note_run_failure(
-            &mut failures,
-            &progress,
-            2,
-            "pod",
-            "p",
-            &wedge
-        ));
-        assert!(
-            !note_run_failure(&mut failures, &progress, 2, "pod", "p", &wedge),
-            "failures etcd answered still exhaust the budget"
-        );
     }
 
     /// Quorum correlation and cancellation detection hang off id
