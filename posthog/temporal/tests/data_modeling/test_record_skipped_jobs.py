@@ -1,6 +1,9 @@
+import datetime as dt
 import dataclasses
 
 import pytest
+
+from django.utils import timezone
 
 import pytest_asyncio
 from temporalio.testing import ActivityEnvironment
@@ -223,6 +226,7 @@ class TestCheckUpstreamReloads:
             ("idle", None, False),
             ("idle", DataModelingJobStatus.RUNNING, True),
             ("idle", DataModelingJobStatus.FAILED, False),
+            ("idle_with_abandoned_run", DataModelingJobStatus.RUNNING, False),
         ],
     )
     async def test_a_node_waits_on_a_reload_or_on_another_run_of_it(
@@ -232,9 +236,13 @@ class TestCheckUpstreamReloads:
         idle, idle_query = await _make_node(ateam, adag_local, "idle")
         await database_sync_to_async(_start_full_refresh_upstream_of)(ateam, adag_local, reloading)
         if other_run_status is not None:
-            await database_sync_to_async(DataModelingJob.objects.create)(
+            other_run = await database_sync_to_async(DataModelingJob.objects.create)(
                 team=ateam, saved_query=idle_query, status=other_run_status, engine=DataModelingJobEngine.CLICKHOUSE
             )
+            if node_name == "idle_with_abandoned_run":
+                await database_sync_to_async(DataModelingJob.objects.filter(id=other_run.id).update)(
+                    created_at=timezone.now() - dt.timedelta(days=1)
+                )
         node = reloading if node_name == "reloading" else idle
 
         result = await ActivityEnvironment().run(

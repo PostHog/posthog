@@ -24,6 +24,9 @@ LOGGER = get_logger(__name__)
 
 # A sync run that is still Running after this long has stopped without finishing its job row.
 STALE_RELOAD_AGE = dt.timedelta(days=3)
+# Longer than any materialization runs (the Trino activity allows 365 minutes), so an older Running
+# row belongs to a workflow that died without finishing it.
+STALE_MATERIALIZATION_AGE = dt.timedelta(hours=8)
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -154,7 +157,10 @@ def _any_node_waiting(inputs: NodesWaitingOnUpstreamReloadsInputs) -> bool:
         )
     )
     # A node that another run is materializing waits too, so the follow-up never preempts that run.
-    if _jobs(inputs.team_id, nodes, inputs.engine).filter(status=DataModelingJobStatus.RUNNING).exists():
+    running = _jobs(inputs.team_id, nodes, inputs.engine).filter(
+        status=DataModelingJobStatus.RUNNING, created_at__gte=timezone.now() - STALE_MATERIALIZATION_AGE
+    )
+    if running.exists():
         return True
     built_saved_query_ids = _built_saved_query_ids(inputs.team_id, nodes, inputs.engine)
     # Stops at the first node still waiting, so a poll during a long reload reads little.
