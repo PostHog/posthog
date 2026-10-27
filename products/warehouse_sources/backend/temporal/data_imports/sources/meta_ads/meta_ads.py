@@ -481,7 +481,8 @@ META_REFUSED_CREATIVE_ERROR_SUBCODES = frozenset({2446211, 1443048})
 META_BATCH_MAX_SUBREQUESTS = 50
 
 META_AUTH_ERROR_MESSAGE = (
-    "Meta Ads access token is invalid, expired, or lacks the required permissions. Please re-authorize the integration."
+    "Your Meta Ads connection has expired or is missing permissions. Reconnect with a Facebook account that can "
+    "access your ad accounts, and allow all permissions."
 )
 
 # Code 190 / subcode 459: Meta has checkpointed the user behind the token. The token stays refused

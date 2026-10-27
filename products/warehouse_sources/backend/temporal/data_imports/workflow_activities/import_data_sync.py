@@ -230,6 +230,18 @@ CONTINUABLE_SYNC_TYPES = frozenset(
 MAX_CONTINUED_JOBS = 20
 
 
+def _graceful_shutdown_timeout_seconds() -> float:
+    grace = settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS
+    return float(grace) if grace is not None else DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT.total_seconds()
+
+
+def _import_shutdown_grace_seconds() -> float:
+    # At most half the SDK's graceful shutdown timeout, so the hand-off after the grace always has
+    # time to finish before the SDK cancels the activity.
+    grace = min(settings.DATA_WAREHOUSE_IMPORT_SHUTDOWN_GRACE_SECONDS, _graceful_shutdown_timeout_seconds() / 2)
+    return max(grace, 0.0)
+
+
 @database_sync_to_async_pool
 def _jobs_to_continue(job: ExternalDataJob, schema: ExternalDataSchema) -> list[ExternalDataJob]:
     """The jobs before this one that worker restarts stopped, newest first, when this job can continue their cursor.
@@ -526,7 +538,8 @@ async def _run_import_attempt(inputs: ImportDataActivityInputs) -> PipelineResul
 async def _import_data_with_reporting(
     inputs: ImportDataActivityInputs, logger: FilteringBoundLogger, progress: DurableProgress
 ) -> PipelineResult:
-    async with Heartbeater(factor=30), ShutdownMonitor() as shutdown_monitor:
+    shutdown_grace_seconds = _import_shutdown_grace_seconds()
+    async with Heartbeater(factor=30), ShutdownMonitor(grace_seconds=shutdown_grace_seconds) as shutdown_monitor:
         await setup_row_tracking(inputs.team_id, inputs.schema_id)
 
         try:
@@ -692,9 +705,9 @@ async def _import_data_with_reporting(
         if inputs.handoffs_are_free and await database_sync_to_async_pool(is_schema_flag_enabled)(
             schema, IMPORT_RIDE_OUT_FLAG
         ):
-            grace = settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS
+            # The ride-out's stopwatch starts when the monitor reports the shutdown, after the shutdown grace.
             ride_out = RideOutConfig(
-                grace_seconds=float(grace) if grace is not None else DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT.total_seconds(),
+                grace_seconds=_graceful_shutdown_timeout_seconds() - shutdown_grace_seconds,
                 max_seconds=settings.DATA_WAREHOUSE_IMPORT_RIDE_OUT_MAX_SECONDS,
             )
 
@@ -914,6 +927,7 @@ async def _import_data_with_reporting(
                 continued_job_ids=continued_job_ids,
                 ride_out=ride_out,
                 progress=progress,
+                shutdown_grace_seconds=shutdown_grace_seconds,
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
@@ -988,9 +1002,9 @@ POSTHOG_DATABASE_UNAVAILABLE_MESSAGE = (
 
 
 def _log_worker_shutdown_during_import(logger: FilteringBoundLogger) -> None:
-    # One line per import still running when the worker got SIGTERM. A matching hand-off line from
-    # _handle_import_error means the import moved to another pod; without one, the import held
-    # this pod until it finished or the graceful shutdown timeout ran out.
+    # One line per import still running when the shutdown grace after SIGTERM ended. A matching
+    # hand-off line from _handle_import_error means the import moved to another pod; without one,
+    # the import held this pod until it finished or the graceful shutdown timeout ran out.
     info = activity.info()
     logger.info(
         "Worker shutdown detected while import is running",
@@ -1306,6 +1320,7 @@ async def _run(
     continued_job_ids: tuple[str, ...] = (),
     ride_out: RideOutConfig | None = None,
     progress: DurableProgress | None = None,
+    shutdown_grace_seconds: float = 0.0,
 ) -> PipelineResult:
     try:
         reset_pipeline = (
@@ -1331,6 +1346,7 @@ async def _run(
             continued_job_ids=continued_job_ids,
             ride_out=ride_out,
             progress=progress,
+            shutdown_grace_seconds=shutdown_grace_seconds,
         )
 
         result = await pipeline.run()

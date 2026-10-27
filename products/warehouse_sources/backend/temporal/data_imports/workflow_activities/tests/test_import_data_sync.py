@@ -2149,25 +2149,33 @@ async def test_the_pipeline_preempts_only_with_the_setting_on_and_free_handoffs(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "flag_enabled,handoffs_are_free,grace,expected",
+    "flag_enabled,handoffs_are_free,grace,shutdown_grace,expected",
     [
-        pytest.param(True, True, 7200, RideOutConfig(grace_seconds=7200.0, max_seconds=1800.0), id="on"),
+        pytest.param(True, True, 7200, 0.0, RideOutConfig(grace_seconds=7200.0, max_seconds=1800.0), id="on"),
+        # The ride-out starts when the shutdown grace ends, so its deadline leaves that time out.
+        pytest.param(
+            True, True, 7200, 60.0, RideOutConfig(grace_seconds=7140.0, max_seconds=1800.0), id="after_shutdown_grace"
+        ),
         # The worker falls back to a five-minute graceful shutdown when the setting is unset.
-        pytest.param(True, True, None, RideOutConfig(grace_seconds=300.0, max_seconds=1800.0), id="no_grace_period"),
+        pytest.param(
+            True, True, None, 0.0, RideOutConfig(grace_seconds=300.0, max_seconds=1800.0), id="no_grace_period"
+        ),
         # Holding the worker past the deadline on the retry path would cost an attempt at the hand-off.
-        pytest.param(True, False, 7200, None, id="off_when_a_handoff_uses_a_retry_attempt"),
-        pytest.param(False, True, 7200, None, id="off_when_the_flag_is_off"),
+        pytest.param(True, False, 7200, 0.0, None, id="off_when_a_handoff_uses_a_retry_attempt"),
+        pytest.param(False, True, 7200, 0.0, None, id="off_when_the_flag_is_off"),
     ],
 )
 async def test_the_pipeline_rides_out_only_with_the_flag_on_and_free_handoffs(
     flag_enabled: bool,
     handoffs_are_free: bool,
     grace: int | None,
+    shutdown_grace: float,
     expected: RideOutConfig | None,
     settings,
 ):
     settings.DATA_WAREHOUSE_IMPORT_RIDE_OUT_MAX_SECONDS = 1800.0
     settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS = grace
+    settings.DATA_WAREHOUSE_IMPORT_SHUTDOWN_GRACE_SECONDS = shutdown_grace
     source = mock.MagicMock(spec=SimpleSource)
     source.parse_config.return_value = {}
     source.source_for_pipeline.return_value = mock.MagicMock()
@@ -2183,6 +2191,37 @@ async def test_the_pipeline_rides_out_only_with_the_flag_on_and_free_handoffs(
     if handoffs_are_free:
         flag_check.assert_called_once_with(schema, IMPORT_RIDE_OUT_FLAG)
     assert isinstance(run_mock.await_args.kwargs["progress"], DurableProgress)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "grace_setting,graceful_timeout,expected",
+    [
+        pytest.param(60.0, 7200, 60.0, id="default"),
+        pytest.param(0.0, 7200, 0.0, id="zero_hands_off_at_the_signal"),
+        # The hand-off after the grace keeps at least half the graceful shutdown timeout.
+        pytest.param(600.0, None, 150.0, id="capped_at_half_the_default_timeout"),
+        pytest.param(-5.0, 7200, 0.0, id="negative_is_no_grace"),
+    ],
+)
+async def test_the_shutdown_grace_reaches_the_monitor_and_the_pipeline(
+    grace_setting: float, graceful_timeout: int | None, expected: float, settings
+):
+    settings.DATA_WAREHOUSE_IMPORT_SHUTDOWN_GRACE_SECONDS = grace_setting
+    settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS = graceful_timeout
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    schema = _incremental_schema(is_incremental=True, lookback_seconds=None)
+
+    with (
+        _patched_activity_reaching_run(source, schema, workflow_run_id="wfrun-1") as run_mock,
+        mock.patch.object(module, "ShutdownMonitor", return_value=_FakeAsyncCM()) as monitor_cls,
+    ):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    monitor_cls.assert_called_once_with(grace_seconds=expected)
+    assert run_mock.await_args.kwargs["shutdown_grace_seconds"] == expected
 
 
 @parameterized.expand(

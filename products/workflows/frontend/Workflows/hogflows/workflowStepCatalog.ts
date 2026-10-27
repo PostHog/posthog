@@ -70,7 +70,7 @@ const AI_TASK_ACTION_NODE: CreateActionType = {
 const RUN_SCOUT_ACTION_NODE: CreateActionType = {
     type: 'function',
     name: 'Run scout',
-    description: 'Start a Signals scout run. The scout explores as it does on its schedule.',
+    description: 'Start a Signals scout run. With a note, the scout handles what the note names first.',
     config: {
         template_id: 'template-posthog-run-scout',
         // Same reason as the AI-task node above: 409 (run in flight, scout paused, cooldown,

@@ -2,6 +2,7 @@ import dagster
 
 from posthog.dags import (
     add_index_to_materialized_column,
+    apply_deleted_mask,
     backfill_materialized_column,
     ch_examples,
     clickhouse_cleanup,
@@ -34,11 +35,13 @@ defs = dagster.Definitions(
     ],
     jobs=[
         add_index_to_materialized_column.add_index_to_materialized_column,
+        apply_deleted_mask.apply_deleted_mask_job,
         clickhouse_cleanup.clickhouse_deletion_sweep_job,
         create_materialized_column.create_materialized_column,
         drop_materialized_column.drop_materialized_column,
         deletes.deletes_job,
         deletes.manual_deletes_job,
+        deletes.delete_team_product_documents_job,
         deletes.monthly_retention_events_cleanup_job,
         export_query_log_archive_to_s3.export_query_log_archive_to_s3,
         backfill_materialized_column.backfill_materialized_column,

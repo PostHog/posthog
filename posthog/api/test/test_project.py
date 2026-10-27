@@ -665,6 +665,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             response = self.client.delete(f"/api/projects/{self.project.id}")
 
         self.assertEqual(response.status_code, expected_status)
+        if project_count > 1:
+            mock_get_billing.assert_not_called()
         if expected_status == status.HTTP_400_BAD_REQUEST:
             self.assertIn("active subscription", response.json()["detail"])
             self.assertTrue(Project.objects.filter(id=self.project.id).exists())

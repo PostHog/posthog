@@ -909,46 +909,46 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.assertTrue(response["attr"].startswith("groups"), response)
 
-    @parameterized.expand([("horizontal",), ("stable",)])
-    def test_dashboard_layout_compaction_is_saved_and_duplicated(self, layout_compaction: str) -> None:
+    @parameterized.expand(
+        [
+            ("layout_compaction", "horizontal"),
+            ("layout_compaction", "stable"),
+            ("group_display", "tabs"),
+        ]
+    )
+    def test_dashboard_display_mode_is_saved_and_duplicated(self, setting: str, mode: str) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
-        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"layout_compaction": layout_compaction})
-        self.assertEqual(updated["customization"], {"layout_compaction": layout_compaction})
+        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {setting: mode})
+        self.assertEqual(updated["customization"], {setting: mode})
 
         copied_id, copied = self.dashboard_api.create_dashboard({"name": "copy", "use_dashboard": dashboard_id})
-        self.assertEqual(copied["customization"], {"layout_compaction": layout_compaction})
-        self.assertEqual(Dashboard.objects.get(id=copied_id).customization, {"layout_compaction": layout_compaction})
+        self.assertEqual(copied["customization"], {setting: mode})
+        self.assertEqual(Dashboard.objects.get(id=copied_id).customization, {setting: mode})
 
+    @parameterized.expand(
+        [
+            ("layout_compaction", "dashboard grid compaction configured", "vertical", "horizontal"),
+            ("group_display", "dashboard group display configured", "sections", "tabs"),
+        ]
+    )
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
-    def test_dashboard_layout_compaction_reports_every_mode_change(self, mock_report_user_action: MagicMock) -> None:
+    def test_dashboard_display_mode_reports_every_mode_change(
+        self, setting: str, event: str, default_mode: str, other_mode: str, mock_report_user_action: MagicMock
+    ) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         mock_report_user_action.reset_mock()
 
-        self.dashboard_api.update_dashboard(dashboard_id, {"layout_compaction": "horizontal"})
-        self.dashboard_api.update_dashboard(dashboard_id, {"layout_compaction": "vertical"})
+        self.dashboard_api.update_dashboard(dashboard_id, {setting: other_mode})
+        self.dashboard_api.update_dashboard(dashboard_id, {setting: default_mode})
 
-        compaction_calls = [
-            call
-            for call in mock_report_user_action.call_args_list
-            if call.args[1] == "dashboard grid compaction configured"
-        ]
-        self.assertEqual(len(compaction_calls), 2)
+        mode_calls = [call for call in mock_report_user_action.call_args_list if call.args[1] == event]
         self.assertEqual(
-            compaction_calls[0].args[2],
-            {
-                "dashboard_id": dashboard_id,
-                "previous_layout_compaction": "vertical",
-                "layout_compaction": "horizontal",
-            },
-        )
-        self.assertEqual(
-            compaction_calls[1].args[2],
-            {
-                "dashboard_id": dashboard_id,
-                "previous_layout_compaction": "horizontal",
-                "layout_compaction": "vertical",
-            },
+            [call.args[2] for call in mode_calls],
+            [
+                {"dashboard_id": dashboard_id, f"previous_{setting}": default_mode, setting: other_mode},
+                {"dashboard_id": dashboard_id, f"previous_{setting}": other_mode, setting: default_mode},
+            ],
         )
 
     def test_dashboard_tile_spacing_recovers_from_malformed_customization(self):
@@ -970,15 +970,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response["attr"], "grid_spacing")
 
-    def test_dashboard_layout_compaction_requires_a_known_mode(self) -> None:
+    @parameterized.expand([("layout_compaction",), ("group_display",)])
+    def test_dashboard_display_mode_requires_a_known_mode(self, setting: str) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
         _, response = self.dashboard_api.update_dashboard(
             dashboard_id,
-            {"layout_compaction": "none"},
+            {setting: "none"},
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(response["attr"], "layout_compaction")
+        self.assertEqual(response["attr"], setting)
 
     @patch("products.product_analytics.backend.presentation.insight.record_dashboard_cache_outcome")
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
@@ -2152,6 +2153,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         ]
         self.assertEqual(len(marking_calls), 1)
         self.assertEqual(marking_calls[0].args[2]["badge"], "winner")
+        group_created_calls = [
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "dashboard tile group created"
+        ]
+        self.assertEqual(
+            [call.args[2] for call in group_created_calls],
+            [{"dashboard_id": dashboard_id, "group_display": "sections", "group_count": 1}],
+        )
 
         _, copied = self.dashboard_api.create_dashboard(
             {"name": "copy", "use_dashboard": dashboard_id, "duplicate_tiles": duplicate_tiles}
@@ -2201,6 +2209,77 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual([tile["badge"] for tile in dashboard["tiles"]], [None, None])
         self.assertEqual(dashboard["customization"], {})
 
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_dashboard_tile_group_created_is_reported_once_per_new_group_for_content_tiles(
+        self, mock_report_user_action: MagicMock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {
+                "tiles": [
+                    {"text": {"body": "a"}, "layouts": {}, "group_key": "plans"},
+                    {"text": {"body": "b"}, "layouts": {}, "group_key": "plans"},
+                ]
+            },
+        )
+
+        group_created_calls = [
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "dashboard tile group created"
+        ]
+        self.assertEqual(
+            [call.args[2] for call in group_created_calls],
+            [{"dashboard_id": dashboard_id, "group_display": "sections", "group_count": 1}],
+        )
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_dashboard_tile_group_created_ignores_tiles_hidden_by_a_deleted_insight(
+        self, mock_report_user_action: MagicMock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": "insight"})
+        tile_id = self.dashboard_api.get_dashboard(dashboard_id)["tiles"][0]["id"]
+        self.dashboard_api.update_dashboard(dashboard_id, {"tiles": [{"id": tile_id, "group_key": "plans"}]})
+        Insight.objects.filter(team=self.team).update(deleted=True)
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.update_dashboard(
+            dashboard_id, {"tiles": [{"text": {"body": "a"}, "layouts": {}, "group_key": "plans"}]}
+        )
+
+        group_created_calls = [
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "dashboard tile group created"
+        ]
+        self.assertEqual(
+            [call.args[2] for call in group_created_calls],
+            [{"dashboard_id": dashboard_id, "group_display": "sections", "group_count": 1}],
+        )
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_dashboard_tile_group_created_is_not_reported_when_the_update_rolls_back(
+        self, mock_report_user_action: MagicMock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {
+                "tiles": [
+                    {"text": {"body": "a"}, "layouts": {}, "group_key": "plans"},
+                    {"id": 999999, "group_key": "plans"},
+                ]
+            },
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertEqual(
+            [call for call in mock_report_user_action.call_args_list if call.args[1] == "dashboard tile group created"],
+            [],
+        )
+
     @parameterized.expand(
         [
             ("unknown_badge", {"badge": "Winner"}, "badge"),
@@ -2247,6 +2326,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "duplicated": False,
                 "duplicated_from_dashboard_id": None,
                 "from_template": True,
+                "group_count": 0,
+                "group_display": "sections",
                 "has_description": True,
                 "is_shared": False,
                 "item_count": 6,
@@ -2293,6 +2374,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "created_at": mock.ANY,
                 "creation_mode": "default",
                 "dashboard_id": dashboard_id,
+                "group_count": 0,
+                "group_display": "sections",
                 "has_description": False,
                 "is_shared": False,
                 "item_count": 0,
@@ -3610,6 +3693,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "dashboard_id": dashboard["id"],
                 "duplicated": False,
                 "from_template": True,
+                "group_count": 0,
+                "group_display": "sections",
                 "has_description": True,
                 "is_shared": False,
                 "item_count": 1,
