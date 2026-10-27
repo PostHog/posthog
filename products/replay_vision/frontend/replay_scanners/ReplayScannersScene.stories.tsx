@@ -5,6 +5,7 @@ import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { App } from 'scenes/App'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
@@ -1230,11 +1231,70 @@ export const HomeWatchFeedJevArm: StoryObj = {
     ],
 }
 
-// The embedding ranker arm: each pick names its category, and the first stands for three similar sessions.
+// The other sessions in the first embedding card's duplicate group, as the scanner's observation list returns them.
+const checkoutGroupMembers = [
+    {
+        email: 'bob@example.com',
+        reasoning: 'The card form rejected a valid card twice, then the user switched cards.',
+        hoursAgo: 2,
+        keyMomentMs: 98000,
+    },
+    {
+        email: 'carol@example.com',
+        reasoning: 'A valid card failed with a generic error before the user gave up.',
+        hoursAgo: 5,
+        keyMomentMs: 212000,
+    },
+    {
+        email: 'dan@example.com',
+        reasoning: 'The card form cleared itself after a failed charge and the user retyped it.',
+        hoursAgo: 9,
+        keyMomentMs: 41000,
+    },
+    {
+        email: 'erin@example.com',
+        reasoning: 'The payment step rejected the card and the user left checkout.',
+        hoursAgo: 26,
+        keyMomentMs: 305000,
+    },
+    {
+        email: 'frank@example.com',
+        reasoning: 'The user retried a declined card three times in a row.',
+        hoursAgo: 50,
+        keyMomentMs: null,
+    },
+].map(({ email, reasoning, hoursAgo, keyMomentMs }, index) =>
+    observation({
+        id: `00000000-0000-0000-0000-0000000000c${index}`,
+        scanner_id: scanners.results[0].id,
+        recording_subject_email: email,
+        created_at: dayjs('2026-05-11T09:00:00Z').subtract(hoursAgo, 'hour').toISOString(),
+        scanner_snapshot: { ...observation().scanner_snapshot!, name: 'Confused checkout', scanner_type: 'monitor' },
+        scanner_result: {
+            model_output: {
+                scanner_type: 'monitor',
+                verdict: 'yes',
+                confidence: 0.9,
+                reasoning,
+                ...(keyMomentMs !== null ? { key_moment_ms: keyMomentMs } : {}),
+            },
+            signals_count: 0,
+        },
+    })
+)
+
+// The embedding ranker arm: each pick names its category, and the first stands for seven similar sessions.
 export const HomeWatchFeedEmbeddingArm: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/vision/scanners/:id/observations/': {
+                    // The group holds seven other sessions, so the preview of five ends with a link to the rest.
+                    count: 7,
+                    next: null,
+                    previous: null,
+                    results: checkoutGroupMembers,
+                },
                 '/api/projects/:team_id/vision/scanners/watch_feed/': {
                     ranker: 'embedding',
                     has_more: false,
@@ -1269,8 +1329,8 @@ export const HomeWatchFeedEmbeddingArm: StoryObj = {
                             reason: {
                                 kind: 'embedding_pick',
                                 watch_category: 'failure',
-                                similar_count: 3,
-                                affected_people: 3,
+                                similar_count: 7,
+                                affected_people: 6,
                             },
                         },
                         {

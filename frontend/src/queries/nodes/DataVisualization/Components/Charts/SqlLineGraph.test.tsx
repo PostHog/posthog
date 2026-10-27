@@ -106,7 +106,7 @@ it.each([
         ),
     })
     await screen.findByLabelText(/chart with 2 data series/i)
-    await sqlChart.hoverTooltip(1, 3)
+    await sqlChart.hoverTooltip(1)
     fireEvent.click(getChart().element)
     fireEvent.click(screen.getByText('b', { selector: '[data-attr="hog-chart-tooltip-series"]' }))
     expect(onPointClick).toHaveBeenCalledWith('b-1', 1, 'Tue')
@@ -296,7 +296,7 @@ describe('SqlLineGraph', () => {
                 lineFixture([{ name: 'pageviews', valueAt: (i) => (i + 1) * 100 }])
             )
 
-            const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
+            const tooltip = await sqlChart.hoverTooltip(HOVER)
 
             expect(tooltip.value('pageviews')).toBe('300')
             expect(tooltip.label()).toBe('Dec 1, 2025')
@@ -307,7 +307,7 @@ describe('SqlLineGraph', () => {
             renderLine({ yAxis: [{ column: 'a' }, { column: 'b' }] }, twoSeries())
 
             await screen.findByLabelText(/chart with 2 data series/i)
-            const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
+            const tooltip = await sqlChart.hoverTooltip(HOVER)
 
             expect(tooltip.rows()).toEqual(['a', 'b'])
             expect(tooltip.value('a')).toBe('300')
@@ -327,7 +327,7 @@ describe('SqlLineGraph', () => {
                 lineFixture([{ name: 'a', type: 'Float64', valueAt: (i) => (i === HOVER ? value : value / 2) }])
             )
 
-            const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
+            const tooltip = await sqlChart.hoverTooltip(HOVER)
 
             // compactNumber separates magnitude with a non-breaking space; normalize for comparison.
             expect(tooltip.value('a')?.replace(/\u00a0/g, ' ')).toBe(expected)
@@ -340,7 +340,7 @@ describe('SqlLineGraph', () => {
             renderLine({ yAxis: [{ column: 'a' }, { column: 'b' }], showTotalRow }, twoSeries())
 
             await screen.findByLabelText(/chart with 2 data series/i)
-            const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
+            const tooltip = await sqlChart.hoverTooltip(HOVER)
 
             expect(tooltip.total()).toBe(expectedTotal)
         })
@@ -359,7 +359,7 @@ describe('SqlLineGraph', () => {
             )
 
             await screen.findByLabelText(/chart with 2 data series/i)
-            const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
+            const tooltip = await sqlChart.hoverTooltip(HOVER)
 
             expect(tooltip.swatchColors()).toEqual(['rgb(255, 0, 0)', 'rgb(0, 255, 0)'])
         })
@@ -407,7 +407,7 @@ describe('SqlLineGraph', () => {
             fireEvent.click(bButton, { metaKey: additive })
 
             await waitFor(() => expect(getChart().seriesCount).toBe(1))
-            const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
+            const tooltip = await sqlChart.hoverTooltip(HOVER)
             expect(tooltip.rows()).toEqual(expectedRows)
         })
     })
@@ -486,7 +486,7 @@ describe('SqlLineGraph', () => {
             // One data series + one trend line = 2 rendered series.
             await waitFor(() => expect(getChart().seriesCount).toBe(2))
 
-            const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
+            const tooltip = await sqlChart.hoverTooltip(HOVER)
             expect(tooltip.rows()).toEqual(['a'])
         })
     })
@@ -535,7 +535,7 @@ describe('SqlLineGraph', () => {
             })
 
             await screen.findByLabelText(/chart with 2 data series/i)
-            const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
+            const tooltip = await sqlChart.hoverTooltip(HOVER)
             expect(tooltip.value('a')).toBe('300')
         })
     })
@@ -554,7 +554,7 @@ describe('SqlLineGraph', () => {
         ])('$name', async ({ showNullsAsZero, expected }) => {
             renderLine({ yAxis: [{ column: 'a' }], showNullsAsZero }, withGap())
 
-            const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
+            const tooltip = await sqlChart.hoverTooltip(HOVER)
             expect(tooltip.value('a')).toBe(expected)
         })
     })

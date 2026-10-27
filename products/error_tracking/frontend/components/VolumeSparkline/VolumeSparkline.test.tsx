@@ -1,6 +1,13 @@
 import { cleanup, fireEvent, render } from '@testing-library/react'
 
-import { dragSelection, getChart, hoverAtIndex, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import {
+    dragSelection,
+    getChart,
+    hoverAtIndex,
+    hoverUntilTooltip,
+    setupJsdom,
+    setupSyncRaf,
+} from '@posthog/quill-charts/testing'
 
 import { initKeaTests } from '~/test/init'
 
@@ -217,6 +224,21 @@ describe('VolumeSparkline', () => {
             expect(parseFloat(first.style.left)).toBeLessThan(parseFloat(second.style.left))
             expect(parseFloat(first.style.width)).toBeGreaterThan(0)
             expect(parseFloat(first.style.height)).toBeGreaterThan(0)
+        })
+    })
+
+    describe('spike tooltip', () => {
+        it.each([
+            { index: 2, expected: "Spike detected1 Jan 02:00 (UTC)10 occurrences4.5x this issue's baseline" },
+            { index: 1, expected: null },
+        ])('shows spike details only when hovering a spike bucket ($index)', async ({ index, expected }) => {
+            const data = buildData({ 2: { isSpike: true, color: 'var(--brand-yellow)', spikeMultiplier: 4.5 } })
+            const wrapper = renderChart({ data, layout: 'compact', xAxis: 'minimal' })
+
+            const tooltip = await hoverUntilTooltip(wrapper, index, data.length)
+
+            const spikeTooltip = tooltip.querySelector('[data-attr="error-tracking-volume-spike-tooltip"]')
+            expect(spikeTooltip?.textContent ?? null).toEqual(expected)
         })
     })
 

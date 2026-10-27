@@ -2,9 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSegmentedButton, Link } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { modelPickerLogic } from '../../modelPickerLogic'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 
@@ -31,7 +28,6 @@ const METHOD_HINTS: Record<Method, React.ReactNode> = {
 export function EvaluationMethodPanel(): JSX.Element | null {
     const { evaluation, usesDecisionModel, isNewEvaluation } = useValues(llmEvaluationLogic)
     const { setEvaluationType, setJudgeMethod } = useActions(llmEvaluationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { byokModelsLoading, providerKeysLoading } = useValues(modelPickerLogic)
 
     if (!evaluation) {
@@ -67,16 +63,7 @@ export function EvaluationMethodPanel(): JSX.Element | null {
                     onChange={setMethod}
                     options={[
                         { value: 'llm_judge', label: 'LLM judge', disabledReason: judgeDisabledReason },
-                        // A stored decision evaluation keeps the option, so it can still switch back to an LLM judge.
-                        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SYSTEM_ONE_EVALUATIONS] || method === 'decision'
-                            ? [
-                                  {
-                                      value: 'decision' as const,
-                                      label: 'Decision model',
-                                      disabledReason: judgeDisabledReason,
-                                  },
-                              ]
-                            : []),
+                        { value: 'decision', label: 'Decision model', disabledReason: judgeDisabledReason },
                         { value: 'hog', label: 'Code' },
                         {
                             value: 'sentiment',

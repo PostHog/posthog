@@ -513,6 +513,12 @@ export const VisionObservationsRetrieveQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
+    watch_group: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
+        ),
 })
 
 /**
@@ -1583,6 +1589,12 @@ export const VisionScannersObservationsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
+    watch_group: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
+        ),
 })
 
 /**
@@ -1667,6 +1679,12 @@ export const VisionScannersObservationsRetrieveQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
+    watch_group: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
+        ),
 })
 
 /**
@@ -1750,6 +1768,12 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = () => zod.obje
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
+    watch_group: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
+        ),
 })
 
 /**

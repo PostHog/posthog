@@ -75,7 +75,6 @@ rules:
                               |AgentArtifact
                               |AgentIdentityCredential
                               |AgentIdentityLinkState
-                              |AgentPeerMessage
                               |AgentRevision
                               |AgentSandboxInstance
                               |AgentSession
@@ -87,6 +86,7 @@ rules:
                               |AITrainingDeletionRequest
                               |Alert
                               |AlertConfiguration
+                              |InsightAlertInvestigation
                               |Annotation
                               |Announcement
                               |AnnouncementDelivery
@@ -327,6 +327,7 @@ rules:
                               |ObjectMediaPreview
                               |OfflineEvaluationResult
                               |OfflineEvaluationResultPayload
+                              |OfflineEvaluationUsageLedger
                               |OfflineExperiment
                               |OfflineExperimentItem
                               |OfflineExperimentItemPayload
@@ -349,6 +350,7 @@ rules:
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
+                              |ReplayObservationAnchorSimilarity
                               |ReplayObservationFeedDismissal
                               |ReplayObservationFeedImpression
                               |ReplayObservationLabel
@@ -358,6 +360,9 @@ rules:
                               |ReplayObservationView
                               |ReplayScanner
                               |ReplayScannerBackfill
+                              |ReplayScannerFeedGroup
+                              |ReplayScannerSearchTheme
+                              |ReplayScannerSemanticCenter
                               |ReplayVisionLearnedRuleset
                               |Repo
                               |RepoRoutingRule
@@ -427,6 +432,7 @@ rules:
                               |SubscriptionDelivery
                               |PlatformAlert
                               |PlatformAlertConfiguration
+                              |PlatformAlertDeliveryHold
                               |PlatformAlertDeliveryPath
                               |PlatformAlertThread
                               |AlertDestination
@@ -563,7 +569,6 @@ rules:
                         |AgentArtifact
                         |AgentIdentityCredential
                         |AgentIdentityLinkState
-                        |AgentPeerMessage
                         |AgentRevision
                         |AgentSandboxInstance
                         |AgentSession
@@ -575,6 +580,7 @@ rules:
                         |AITrainingDeletionRequest
                         |Alert
                         |AlertConfiguration
+                        |InsightAlertInvestigation
                         |Annotation
                         |Announcement
                         |AnnouncementDelivery
@@ -805,6 +811,7 @@ rules:
                         |ObjectMediaPreview
                         |OfflineEvaluationResult
                         |OfflineEvaluationResultPayload
+                        |OfflineEvaluationUsageLedger
                         |OfflineExperiment
                         |OfflineExperimentItem
                         |OfflineExperimentItemPayload
@@ -827,6 +834,7 @@ rules:
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
+                        |ReplayObservationAnchorSimilarity
                         |ReplayObservationFeedDismissal
                         |ReplayObservationFeedImpression
                         |ReplayObservationLabel
@@ -836,6 +844,9 @@ rules:
                         |ReplayObservationView
                         |ReplayScanner
                         |ReplayScannerBackfill
+                        |ReplayScannerFeedGroup
+                        |ReplayScannerSearchTheme
+                        |ReplayScannerSemanticCenter
                         |ReplayVisionLearnedRuleset
                         |Repo
                         |RepoRoutingRule
@@ -905,6 +916,7 @@ rules:
                         |SubscriptionDelivery
                         |PlatformAlert
                         |PlatformAlertConfiguration
+                        |PlatformAlertDeliveryHold
                         |PlatformAlertDeliveryPath
                         |PlatformAlertThread
                         |AlertDestination
@@ -1171,6 +1183,7 @@ rules:
                         |ObjectMediaPreview
                         |OfflineEvaluationResult
                         |OfflineEvaluationResultPayload
+                        |OfflineEvaluationUsageLedger
                         |OfflineExperiment
                         |OfflineExperimentItem
                         |OfflineExperimentItemPayload

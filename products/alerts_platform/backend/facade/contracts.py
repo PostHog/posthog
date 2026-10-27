@@ -8,7 +8,7 @@ contract check watches this file to decide whether they must retest.
 from __future__ import annotations
 
 from collections.abc import Callable, Collection, Mapping, Sequence
-from dataclasses import field
+from dataclasses import asdict, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Final, NotRequired, Protocol, TypedDict
@@ -29,6 +29,9 @@ if TYPE_CHECKING:
 class SourceKind(StrEnum):
     LOGS = "logs"
     INSIGHT = "insight"
+    BILLING = "billing"
+    WAREHOUSE_SOURCE = "warehouse_source"
+    WAREHOUSE_DESTINATION = "warehouse_destination"
 
 
 @frozen
@@ -268,6 +271,12 @@ class PlatformAlertCheckInput:
     # The calendar half of the schedule, so a source can tell when its own cadence has moved.
     recurrence_unit: str | None = None
     anchor_time: str | None = None
+
+    @property
+    def destination_alert_id(self) -> UUID:
+        """The id the alert's destinations are matched on: the source row's for a copy, and the
+        configuration's own for an alert whose source keeps no row."""
+        return self.legacy_configuration_id or self.id
 
     def admit(self, grouping_keys: Sequence[str], *, now: datetime) -> GroupAdmission:
         """The groups a check may report, from keys in the source's priority order.
@@ -633,6 +642,9 @@ class PlatformAlertOutcome:
     # groups of a stale check are keyed for a grouping the configuration no longer has, so they are
     # dropped. None when the outcome carries no groups to drop.
     grouping: Grouping | None = None
+    # The delivery this check decided on, held back until its source or the safety net releases it.
+    # The source leaves it out of the deliveries it starts.
+    held_delivery: HeldDelivery | None = None
 
     @classmethod
     def ungrouped(
@@ -706,6 +718,12 @@ class PlatformAlertOutcome:
             raise ValueError("an outcome names each group once")
         if set(self.evicted) & set(keys):
             raise ValueError("an outcome cannot evict a group it reports")
+        held = self.held_delivery
+        if held is not None and (
+            held.request.configuration_id != str(self.configuration_id)
+            or held.request.evaluation_key != self.evaluation_key
+        ):
+            raise ValueError("an outcome can only hold its own delivery")
 
 
 @frozen
@@ -824,6 +842,50 @@ class AlertDeliveryRequest:
     parts: int = 1
     part: int = 0
 
+    def to_stored(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_stored(cls, stored: Mapping[str, Any]) -> AlertDeliveryRequest:
+        # The converter Temporal decodes this type with, so the stored form loads the way the wire form does.
+        import temporalio.converter  # noqa: PLC0415 — keeps temporalio off django.setup(), which loads this via the models
+
+        return temporalio.converter.value_to_type(cls, dict(stored))
+
+
+MAX_HOLD_REASON_LENGTH: Final = 64
+
+
+@frozen
+class HeldDelivery:
+    """A delivery a check decided on and held back until something releases it.
+
+    The source releases it with a verdict, or with the request's send when it cannot run what it
+    held for. The platform's safety net sends it once `release_after_seconds` have passed since the
+    check was recorded, so a release that never comes still delivers.
+    """
+
+    request: AlertDeliveryRequest
+    # Why it is held, which the platform stores and does not read.
+    reason: str
+    release_after_seconds: int
+
+    def __post_init__(self) -> None:
+        # Rejected here rather than by the hold's column, where it would roll back the whole batch's record.
+        if len(self.reason) > MAX_HOLD_REASON_LENGTH:
+            raise ValueError(f"a hold reason is at most {MAX_HOLD_REASON_LENGTH} characters")
+        if self.release_after_seconds < 0:
+            raise ValueError("a hold cannot release before it is recorded")
+
+
+@frozen
+class HeldDeliveryAddress:
+    """The one hold an evaluation of a configuration can have."""
+
+    team_id: int
+    configuration_id: str
+    evaluation_key: str
+
 
 @frozen
 class SourceBatchEvaluation:
@@ -901,6 +963,14 @@ class PlatformAlertConfigurationView:
     created_at: datetime
     updated_at: datetime
     alerts: tuple[PlatformAlertSnapshot, ...]
+    labels: dict[str, str] = field(default_factory=dict)
+    annotations: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def destination_alert_id(self) -> UUID:
+        """The id the alert's destinations are matched on: the source row's for a copy, and the
+        configuration's own for an alert whose source keeps no row."""
+        return self.legacy_configuration_id or self.id
 
 
 @frozen
@@ -919,6 +989,8 @@ class PlatformAlertConfigurationEdit:
     evaluation_periods: int
     datapoints_to_alarm: int
     cooldown_minutes: int
+    labels: dict[str, str] = field(default_factory=dict)
+    annotations: dict[str, str] = field(default_factory=dict)
 
 
 class InvalidPlatformAlertEdit(ValueError):

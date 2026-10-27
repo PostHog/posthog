@@ -184,6 +184,17 @@ def increment_deliveries_previewed(source: str) -> None:
     ).add(1)
 
 
+def increment_holds_expired(source: str) -> None:
+    """Held deliveries the safety net sent because nothing released them before their deadline.
+
+    Each one is a source that held a delivery and never answered, so a rise means a stalled source.
+    """
+    get_metric_meter({"source": source}).create_counter(
+        "alerts_platform_holds_expired_total",
+        "Held deliveries the safety net sent after their deadline passed",
+    ).add(1)
+
+
 def increment_outcomes_recorded(count: int) -> None:
     get_metric_meter().create_counter(
         "alerts_platform_outcomes_recorded_total",

@@ -2,9 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { modelPickerLogic } from '../../modelPickerLogic'
 import { booleanOutputConfigError, decisionModelHint } from '../constants'
@@ -17,8 +15,6 @@ export function EvaluationModelPicker(): JSX.Element {
     const { byokModelsLoading, providerKeysLoading } = useValues(modelPickerLogic)
     const { evaluation, usesDecisionModel, judgeMethod } = useValues(llmEvaluationLogic)
     const { setJudgeMethod } = useActions(llmEvaluationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const decisionModelsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SYSTEM_ONE_EVALUATIONS]
 
     const loading = byokModelsLoading || providerKeysLoading
 
@@ -28,40 +24,35 @@ export function EvaluationModelPicker(): JSX.Element {
                 <div>
                     <h3 className="text-lg font-semibold mb-2">Judge model</h3>
                     <p className="text-muted text-sm mb-0">
-                        {decisionModelsEnabled
-                            ? 'Choose how to judge responses, then select a model from your configured AI providers.'
-                            : 'Select a model from your configured AI providers.'}
+                        Choose how to judge responses, then select a model from your configured AI providers.
                     </p>
                 </div>
-                {/* Without decision models there is no choice, unless a stored evaluation still uses one and needs a way back. */}
-                {(decisionModelsEnabled || judgeMethod === 'decision') && (
-                    <LemonField.Pure label="Judge method">
-                        <LemonSegmentedButton<JudgeMethod>
-                            value={judgeMethod}
-                            onChange={setJudgeMethod}
-                            className="max-w-full"
-                            disabledReason={loading ? 'Loading model capabilities.' : undefined}
-                            options={[
-                                {
-                                    value: 'llm',
-                                    label: (
-                                        <span className="whitespace-normal @min-[24rem]/judge-model:whitespace-nowrap">
-                                            LLM with explanation
-                                        </span>
-                                    ),
-                                },
-                                {
-                                    value: 'decision',
-                                    label: (
-                                        <span className="whitespace-normal @min-[24rem]/judge-model:whitespace-nowrap">
-                                            Decision model
-                                        </span>
-                                    ),
-                                },
-                            ]}
-                        />
-                    </LemonField.Pure>
-                )}
+                <LemonField.Pure label="Judge method">
+                    <LemonSegmentedButton<JudgeMethod>
+                        value={judgeMethod}
+                        onChange={setJudgeMethod}
+                        className="max-w-full"
+                        disabledReason={loading ? 'Loading model capabilities.' : undefined}
+                        options={[
+                            {
+                                value: 'llm',
+                                label: (
+                                    <span className="whitespace-normal @min-[24rem]/judge-model:whitespace-nowrap">
+                                        LLM with explanation
+                                    </span>
+                                ),
+                            },
+                            {
+                                value: 'decision',
+                                label: (
+                                    <span className="whitespace-normal @min-[24rem]/judge-model:whitespace-nowrap">
+                                        Decision model
+                                    </span>
+                                ),
+                            },
+                        ]}
+                    />
+                </LemonField.Pure>
                 <LemonField.Pure label="Model">
                     <div>
                         <EvaluationJudgeModelPicker />
