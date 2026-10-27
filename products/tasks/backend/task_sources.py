@@ -24,6 +24,8 @@ def apply_task_source(
 
 
 def source_from_columns(*, signal_report_id: str | None, hog_flow_id: UUID | None) -> TaskSource | None:
+    if signal_report_id and hog_flow_id:
+        raise TaskSourceError("A task has one source. Pass signal_report_id or hog_flow_id, not both")
     if signal_report_id:
         return TaskSource(kind=SourceKind.SIGNAL_REPORT, id=str(signal_report_id))
     if hog_flow_id:

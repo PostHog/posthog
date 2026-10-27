@@ -1580,10 +1580,11 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         """
         origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=internal)
         columns = apply_task_source(source, signal_report_id=signal_report_id, hog_flow_id=None)
-        check_task_source(
-            profile=profile,
-            source=source_from_columns(signal_report_id=columns.signal_report_id, hog_flow_id=columns.hog_flow_id),
-        )
+        if profile is not None:
+            check_task_source(
+                profile=profile,
+                source=source_from_columns(signal_report_id=columns.signal_report_id, hog_flow_id=columns.hog_flow_id),
+            )
         runtime = Task.Runtime.ACP.value
         if options is not None:
             settings = apply_run_options(
@@ -1715,9 +1716,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         columns = apply_task_source(source, signal_report_id=signal_report_id, hog_flow_id=hog_flow_id)
         signal_report_id = columns.signal_report_id
         hog_flow_id = columns.hog_flow_id
-        check_task_source(
-            profile=profile, source=source_from_columns(signal_report_id=signal_report_id, hog_flow_id=hog_flow_id)
-        )
+        if profile is not None:
+            check_task_source(
+                profile=profile, source=source_from_columns(signal_report_id=signal_report_id, hog_flow_id=hog_flow_id)
+            )
         if options is not None:
             settings = apply_run_options(
                 options,
