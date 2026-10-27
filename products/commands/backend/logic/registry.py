@@ -11,7 +11,9 @@ from posthog.dataclasses import frozen
 
 from .commands import SUBJECT_NAMES, Answer, CommandContext, CommandOutcome, CommandTarget, SubjectKind, SubjectRef
 from .handlers import (
+    docs_target,
     handle_assign,
+    handle_docs,
     handle_loop,
     handle_qa,
     handle_resolve,
@@ -23,6 +25,7 @@ from .handlers import (
 from .schema import (
     ASSIGN,
     COMMAND_DECLARATIONS,
+    DOCS,
     LOOP,
     QA,
     RESOLVE,
@@ -75,6 +78,7 @@ COMMANDS: Mapping[str, CommandSpec[Any]] = _index(
         CommandSpec(declaration=REVIEW, handler=handle_review, target=review_target),
         CommandSpec(declaration=STAMP, handler=handle_stamp, target=stamp_target),
         CommandSpec(declaration=QA, handler=handle_qa),
+        CommandSpec(declaration=DOCS, handler=handle_docs, target=docs_target),
         CommandSpec(declaration=LOOP, handler=handle_loop),
         CommandSpec(declaration=RESOLVE, handler=handle_resolve),
         CommandSpec(declaration=ASSIGN, handler=handle_assign),

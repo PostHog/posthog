@@ -97,6 +97,11 @@ class QaArgs:
 
 
 @frozen
+class DocsArgs:
+    note: str = text("What should change in the docs. The writer gets it as your instruction.")
+
+
+@frozen
 class LoopArgs:
     name: str = text("The loop's name.", required=True)
 
@@ -254,6 +259,7 @@ class CommandDeclaration[A]:
     # A fork's head is code nobody with write access has vetted. Commands that run or approve it
     # must refuse forks; only a command that reads nothing from the head may allow them.
     allows_forks: bool = False
+    pull_request_states: tuple[str, ...] = ("open",)
 
     def __post_init__(self) -> None:
         for verb in (self.verb, *self.aliases):
@@ -307,6 +313,14 @@ ASSIGN = CommandDeclaration(
     access=ResourceAccess(resource="error_tracking", level="editor"),
     subject_kinds=("error_tracking_issue",),
 )
+DOCS = CommandDeclaration(
+    verb="docs",
+    summary="Ask the knowledge writer to open a posthog.com docs pull request for this change.",
+    args=DocsArgs,
+    dispatches_to="Knowledge writer",
+    access=ResourceAccess(resource="task", level="editor"),
+    pull_request_states=("merged",),
+)
 # Answered by dispatch itself: it needs no PostHog account, project or pull request state.
 HELP = CommandDeclaration(
     verb=HELP_VERB,
@@ -317,7 +331,7 @@ HELP = CommandDeclaration(
     subject_kinds=get_args(SubjectKind),
 )
 
-COMMAND_DECLARATIONS: tuple[CommandDeclaration[Any], ...] = (REVIEW, STAMP, QA, LOOP, RESOLVE, ASSIGN)
+COMMAND_DECLARATIONS: tuple[CommandDeclaration[Any], ...] = (REVIEW, STAMP, QA, DOCS, LOOP, RESOLVE, ASSIGN)
 
 
 def _canonical_verbs(declarations: tuple[CommandDeclaration[Any], ...]) -> Mapping[str, str]:

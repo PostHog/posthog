@@ -19,6 +19,10 @@ from posthog.models.user import User
 from posthog.utils import absolute_uri
 
 from products.error_tracking.backend.facade import issues as error_tracking_issues
+from products.knowledge_writer.backend.facade import (
+    api as knowledge_writer_facade,
+    contracts as knowledge_writer_contracts,
+)
 from products.review_hog.backend.facade import (
     github as review_hog_github,
     reviews as review_hog_facade,
@@ -36,7 +40,7 @@ from products.tasks.backend.facade import (
 
 from . import follow_ups
 from .commands import Answer, CommandContext, CommandOutcome, CommandTarget, PullRequestRef, SubjectRef
-from .schema import AssignArgs, LoopArgs, QaArgs, ResolveArgs, ReviewArgs, StampArgs
+from .schema import AssignArgs, DocsArgs, LoopArgs, QaArgs, ResolveArgs, ReviewArgs, StampArgs
 
 logger = structlog.get_logger(__name__)
 
@@ -77,6 +81,48 @@ def stamp_target(subject: SubjectRef, team_ids: tuple[int, ...]) -> CommandTarge
         team_ids=tuple(reviewing),
         not_member_message="You aren't a member of the PostHog project where Stamphog reviews this repository.",
     )
+
+
+def docs_target(subject: SubjectRef, team_ids: tuple[int, ...]) -> CommandTarget | Answer:
+    _pull_request_ref(subject)
+    writer_team_id = knowledge_writer_facade.writer_team_id()
+    if writer_team_id is None:
+        return Answer(outcome="refused", message="The knowledge writer isn't set up.")
+    return CommandTarget(
+        team_ids=tuple(team_id for team_id in team_ids if team_id == writer_team_id),
+        not_member_message="You aren't a member of the PostHog project the knowledge writer runs in.",
+    )
+
+
+DOCS_REPLIES: dict[knowledge_writer_contracts.IntakeStatus, CommandOutcome] = {
+    "started": CommandOutcome(
+        accepted=True, message="Queued. The knowledge writer will open a docs pull request for this change."
+    ),
+    "joined": CommandOutcome(
+        accepted=True, message="Queued. The knowledge writer will add this change to its open docs pull request."
+    ),
+    "duplicate": CommandOutcome(accepted=True, message="The knowledge writer already has this pull request."),
+    "shadow": CommandOutcome(accepted=False, message="The knowledge writer isn't starting runs yet."),
+    "capped": CommandOutcome(accepted=False, message="The knowledge writer hit its run limit. Try again tomorrow."),
+    "unconfigured": CommandOutcome(accepted=False, message="The knowledge writer isn't set up."),
+    "no_docs": CommandOutcome(accepted=False, message="The knowledge writer found no docs to change."),
+}
+
+
+def handle_docs(context: CommandContext, args: DocsArgs) -> CommandOutcome:
+    pull_request = context.pull_request
+    outcome = knowledge_writer_facade.request_docs_for_pull_request(
+        knowledge_writer_contracts.DocsCommandRequest(
+            repository=pull_request.repository,
+            pull_request_number=pull_request.number,
+            pull_request_url=pull_request.url,
+            head_sha=pull_request.head_sha,
+            note=args.note,
+            requested_by=context.request.requester,
+        ),
+        team_id=context.members[0].team_id,
+    )
+    return DOCS_REPLIES[outcome.status]
 
 
 def _follow_up(context: CommandContext) -> follow_ups.FollowUp | None:
