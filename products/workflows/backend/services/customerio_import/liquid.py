@@ -1,9 +1,10 @@
 """Customer.io Liquid rewritten for PostHog's Liquid globals."""
 
 import re
-from dataclasses import dataclass
 
 from posthog.dataclasses import frozen
+
+from products.workflows.backend.facade.contracts import SnippetRoom
 
 # Tag bodies are capped, so text full of unclosed `{{` scans in linear time.
 _TAG = re.compile(r"\{\{.{0,1000}?\}\}|\{%.{0,1000}?%\}", re.DOTALL)
@@ -41,16 +42,6 @@ class RewrittenLiquid:
     unsupported_globals: tuple[str, ...] = ()
     # Snippets the text includes that the import was not given.
     missing_snippets: tuple[str, ...] = ()
-
-
-@dataclass(frozen=False)
-class SnippetRoom:
-    """How many more bytes of snippet content one automation may inline.
-
-    Snippets are inlined by copy, so a short template that repeats a large one could grow without bound.
-    """
-
-    remaining: int = 2_000_000
 
 
 def rewrite(text: str | None, snippets: dict[str, str], room: SnippetRoom | None = None) -> RewrittenLiquid:
