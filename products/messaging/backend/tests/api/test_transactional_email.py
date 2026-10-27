@@ -261,6 +261,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("sending_suspended", 422, 422, "sending_suspended"),
             ("sending_paused", 422, 422, "sending_paused"),
             ("recipient_suppressed", 422, 422, "recipient_suppressed"),
+            ("recipient_unreachable", 422, 422, "recipient_unreachable"),
             ("not_sendable", 400, 400, "transactional_email_paused"),
         ]
     )

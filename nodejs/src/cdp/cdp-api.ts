@@ -66,6 +66,7 @@ import { TeamWorkflowsConfigService } from './services/managers/team-workflows-c
 import { EMAIL_QUEUE_PRIORITY } from './services/messaging/email-priority'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
+import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
@@ -198,6 +199,7 @@ export class CdpApi {
     private transactionalEmailJwt: ScopedServiceJwt
     private transactionalEmailIdempotencyKeys: IdempotencyKeys
     private emailSuppressionService: EmailSuppressionService
+    private emailValidationService: EmailValidationService
     private teamWorkflowsConfigService: TeamWorkflowsConfigService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private resumeBatchJwt: ScopedServiceJwt
@@ -214,6 +216,7 @@ export class CdpApi {
         this.hogFlowManager = services.hogFlowManager
         this.recipientTokensService = services.recipientTokensService
         this.emailSuppressionService = services.emailSuppressionService
+        this.emailValidationService = services.emailValidationService
         this.teamWorkflowsConfigService = services.teamWorkflowsConfigService
         this.hogExecutorAsync = services.hogExecutorAsync
         this.hogInputsService = services.hogInputsService
@@ -1301,6 +1304,10 @@ export class CdpApi {
         const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
         if (isLimited) {
             return { outcome: 'quota_limited', status: 429 }
+        }
+        // Last, because a cache miss costs a DNS lookup. A DNS failure lets the send through.
+        if (await this.emailValidationService.getRecipientSkipReason(teamId, to)) {
+            return { outcome: 'recipient_unreachable', status: 422 }
         }
         return null
     }
