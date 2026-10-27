@@ -68,31 +68,25 @@ export interface RunningTimeOutlook {
 
 /**
  * The backend's projection of what the experiment can detect over time, with the target for the effect on hand placed
- * on it. The target lands on the remaining days the header shows.
+ * on it. The target sits where the projection reaches its sample, so it shares the origin of the week marks.
  */
 export function buildRunningTimeOutlook({
     projection,
     targetSampleSize,
     minimumDetectableEffect,
-    currentExposures,
-    remainingDays,
 }: {
     projection: RunningTimeOutlookApi | null
     targetSampleSize: number | null
     minimumDetectableEffect: number
-    currentExposures: number | null
-    remainingDays: number | null
 }): RunningTimeOutlook | null {
     if (!projection || !targetSampleSize || targetSampleSize <= 0) {
         return null
     }
     const { days_since_launch: elapsed, exposures_per_day: rate } = projection
     const daysToTarget = targetSampleSize / rate
-    const isReached = currentExposures !== null && currentExposures >= targetSampleSize
-    const daysLeft = isReached ? 0 : (remainingDays ?? Math.ceil(Math.max(0, daysToTarget - elapsed)))
     const target: DetectableEffectCheckpoint = {
         kind: 'target',
-        days: isReached ? daysToTarget : elapsed + daysLeft,
+        days: daysToTarget,
         detectableEffect: minimumDetectableEffect,
     }
     const weeks = projection.upcoming_checkpoints.map(

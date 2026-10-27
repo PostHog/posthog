@@ -60,16 +60,14 @@ describe('running time calculations', () => {
                 projection: PROJECTION,
                 targetSampleSize: 35556,
                 minimumDetectableEffect: 30,
-                currentExposures: 2000,
-                remainingDays: null,
                 ...overrides,
             })
 
-        it('places the target on the remaining days, among today and the week marks', () => {
-            const result = outlook({ remainingDays: 235 })!
+        it('places the target where the projection reaches its sample, among today and the week marks', () => {
+            const result = outlook({})!
 
             expect(
-                result.checkpoints.map(({ kind, days, detectableEffect }) => [kind, days, detectableEffect])
+                result.checkpoints.map(({ kind, days, detectableEffect }) => [kind, Math.round(days), detectableEffect])
             ).toEqual([
                 ['now', 14, 126.5],
                 ['week', 28, 89.4],

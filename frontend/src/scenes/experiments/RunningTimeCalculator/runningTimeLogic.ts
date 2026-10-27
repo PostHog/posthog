@@ -4,6 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectsEqual } from 'lib/utils/objects'
 
@@ -236,20 +237,19 @@ export interface runningTimeLogicMeta {
             targetSampleSize: number | null,
             currentExposures: number | null,
             dailyExposureRate: number | null,
-            experiment: Experiment
+            experiment: Experiment,
+            isManualEstimate: boolean
         ) => number | null
         outlook: (
             isManualEstimate: boolean,
             automaticTarget: RunningTimeTargetApi | null,
             targetSampleSize: number | null,
-            targetEffect: number,
-            currentExposures: number | null,
-            remainingDays: number | null
+            targetEffect: number
         ) => RunningTimeOutlook | null
         canIncludeMoreUsers: (experiment: Experiment) => boolean
         estimateMetric: (experiment: Experiment, metricsWithResults: MetricWithResult[]) => EstimateMetric | null
         isComplete: (currentExposures: number | null, targetSampleSize: number | null) => boolean
-        isCalculating: (isManualMode: boolean, isRecalculating: boolean, automaticTargetLoading: boolean) => boolean
+        isCalculating: (isManualEstimate: boolean, isRecalculating: boolean, automaticTargetLoading: boolean) => boolean
         manualFormPreview: (
             manualPreviewInput: RunningTimeCalculationInputApi | null,
             manualPreview: ManualPreview
@@ -563,7 +563,17 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 }
                 // The automatic rate comes from the backend's outlook, which projects from the first 0.1 days on.
                 if (!isManualEstimate) {
-                    return current !== null && current >= target ? 0 : Math.ceil((target - (current ?? 0)) / rate)
+                    if (current !== null && current >= target) {
+                        return 0
+                    }
+                    if (!experiment?.start_date) {
+                        return Math.ceil(target / rate)
+                    }
+                    // The projection reaches the target `target / rate` days after launch. Calendar days to that date
+                    // keep the header, the table's date and its "in N days" in step, also when the results end before
+                    // today.
+                    const reachedAt = dayjs(experiment.start_date).add((target / rate) * 24, 'hour')
+                    return Math.max(1, reachedAt.startOf('day').diff(dayjs().startOf('day'), 'day'))
                 }
 
                 // The manual estimate counts down from the exposures so far once there are a day and 100 of them.
@@ -586,21 +596,12 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         ],
         // What the experiment can detect over time, for the automatic estimate.
         outlook: [
-            (s) => [
-                s.isManualEstimate,
-                s.automaticTarget,
-                s.targetSampleSize,
-                s.targetEffect,
-                s.currentExposures,
-                s.remainingDays,
-            ],
+            (s) => [s.isManualEstimate, s.automaticTarget, s.targetSampleSize, s.targetEffect],
             (
                 isManualEstimate: boolean,
                 automaticTarget: RunningTimeTargetApi | null,
                 targetSampleSize: number | null,
-                targetEffect: number,
-                currentExposures: number | null,
-                remainingDays: number | null
+                targetEffect: number
             ): RunningTimeOutlook | null =>
                 isManualEstimate
                     ? null
@@ -608,8 +609,6 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                           projection: automaticTarget?.outlook ?? null,
                           targetSampleSize,
                           minimumDetectableEffect: targetEffect,
-                          currentExposures,
-                          remainingDays,
                       }),
         ],
         canIncludeMoreUsers: [

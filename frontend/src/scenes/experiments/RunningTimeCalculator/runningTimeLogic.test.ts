@@ -240,12 +240,13 @@ describe('runningTimeLogic', () => {
             expect(logic.values.currentExposures).toEqual(1100)
         })
 
-        it('counts the days left from the exposures so far, also before 100 exposures', async () => {
+        it('counts the days left on the projection, also before 100 exposures and with results from before today', async () => {
+            // 90 exposures in results that end on day 9 make 10 a day, so the 180 of the target arrive on day 18.
             runningTimeTargetMock.mockResolvedValue({
                 recommended_sample_size: 180,
                 minimum_detectable_effect: 30,
                 current_sample_size: 90,
-                outlook: { ...PROJECTION, exposures_per_day: 3 },
+                outlook: { ...PROJECTION, days_since_launch: 10, exposures_per_day: 10 },
             })
             api.update.mockResolvedValue({ ...experiment, version: 4 })
 
@@ -253,7 +254,7 @@ describe('runningTimeLogic', () => {
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadAutomaticTargetSuccess']).toFinishAllListeners()
 
-            expect(logic.values.remainingDays).toEqual(30)
+            expect(logic.values.remainingDays).toEqual(8)
         })
 
         it('asks again when the metric sums change without new exposures', async () => {
