@@ -19,22 +19,31 @@ import { userEvent } from 'storybook/test'
 
 import { RecommendationsSection } from './RecommendationsSection'
 
-function source(id: string, sourceType: string, prefix: string, schemas: string[]): Record<string, unknown> {
+function source(
+    id: string,
+    sourceType: string,
+    prefix: string,
+    schemas: string[],
+    disabled: string[] = []
+): Record<string, unknown> {
     return {
         id,
         source_type: sourceType,
         description: prefix,
         prefix,
         status: 'Completed',
-        schemas: schemas.map((name) => ({
-            id: `${id}-${name}`,
-            name,
-            should_sync: true,
-            sync_frequency: '24hour',
-            last_synced_at: '2025-02-14T12:00:00Z',
-            status: 'Completed',
-            table: { name: `${prefix}_${name}`, hogql_name: `${prefix}.${name}` },
-        })),
+        schemas: [
+            ...schemas.map((name) => ({
+                id: `${id}-${name}`,
+                name,
+                should_sync: true,
+                sync_frequency: '24hour',
+                last_synced_at: '2025-02-14T12:00:00Z',
+                status: 'Completed',
+                table: { name: `${prefix}_${name}`, hogql_name: `${prefix}.${name}` },
+            })),
+            ...disabled.map((name) => ({ id: `${id}-${name}`, name, should_sync: false, table: null })),
+        ],
     }
 }
 
@@ -272,7 +281,13 @@ export const NoSources: Story = {
 }
 
 const SOURCES_WITH_GAPS = [
-    source('example-ads', 'GoogleAds', 'example', ['campaign', 'campaign_stats', 'customer', 'search_term_stats']),
+    source(
+        'example-ads',
+        'GoogleAds',
+        'example',
+        ['campaign', 'campaign_stats', 'customer', 'search_term_stats'],
+        ['search_term_keyword_stats', 'campaign_impression_share_stats']
+    ),
     SOURCES[1],
 ]
 

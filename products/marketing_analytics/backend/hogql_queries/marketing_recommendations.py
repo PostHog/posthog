@@ -145,6 +145,25 @@ def brands_from_site_urls(site_urls: Iterable[str]) -> frozenset[str]:
     return frozenset(brand for url in site_urls if (brand := _site_brand(url)))
 
 
+def _merge_organic(queries: Iterable[OrganicQueryStats]) -> dict[str, OrganicQueryStats]:
+    merged: dict[str, OrganicQueryStats] = {}
+    for query in queries:
+        current = merged.get(query.query)
+        if current is None:
+            merged[query.query] = query
+            continue
+        impressions = current.impressions + query.impressions
+        merged[query.query] = OrganicQueryStats(
+            query=query.query,
+            clicks=current.clicks + query.clicks,
+            impressions=impressions,
+            position=(current.position * current.impressions + query.position * query.impressions) / impressions
+            if impressions
+            else current.position,
+        )
+    return merged
+
+
 def recommend(inputs: RecommendationInputs) -> list[MarketingAnalyticsRecommendation]:
     return _Recommender(inputs).run()
 
@@ -155,7 +174,7 @@ class _Recommender:
         self.per_month = 30 / max(inputs.days, 1)
         self.brands = brands_from_site_urls(inputs.site_urls)
         self.campaigns = {campaign.id: campaign for campaign in inputs.campaigns}
-        self.organic = {query.query: query for query in inputs.organic_queries}
+        self.organic = _merge_organic(inputs.organic_queries)
         self.term_cost_by_campaign: dict[str, float] = defaultdict(float)
         for row in inputs.search_terms:
             self.term_cost_by_campaign[row.campaign_id] += row.cost
@@ -408,6 +427,7 @@ class _Recommender:
                 and term.conversions == 0
                 and term.cost >= 2 * cpa
                 and term.status in ("NONE", "")
+                and self._serving(term)
             ]
         if self.organic:
             if average_cpc:
@@ -460,7 +480,13 @@ class _Recommender:
         recommendations = []
         for term in terms:
             organic = term.organic
-            if term.term not in self.brand_terms or not organic or organic.position > 3 or term.cost < cpa:
+            if (
+                term.term not in self.brand_terms
+                or not organic
+                or organic.position > 3
+                or term.cost < cpa
+                or not self._serving(term)
+            ):
                 continue
             reason = (
                 f"Ranks #{organic.position:.1f} organically with {organic.clicks:.0f} clicks. "
@@ -657,6 +683,11 @@ class _Recommender:
     @staticmethod
     def _mentions(query: str, competitors: set[str]) -> bool:
         return any(DOMAIN_SUFFIX.sub("", word) in competitors for word in query.split())
+
+    def _serving(self, term: _Term) -> bool:
+        # Advice to cut or pause a term is moot when its campaign no longer serves.
+        campaign = self.campaigns.get(term.top_campaign_id)
+        return campaign is None or campaign.primary_status not in INACTIVE_STATUSES
 
     def _term_recommendation(
         self,

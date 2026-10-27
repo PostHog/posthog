@@ -74,6 +74,13 @@ export const IMPACT_DIRECTION_LABELS: Record<MarketingAnalyticsRecommendation['i
     keep: 'Keep',
 }
 
+export const IMPACT_DIRECTION_DESCRIPTIONS: Record<MarketingAnalyticsRecommendation['impactDirection'], string> = {
+    save: 'Spend you can cut each month',
+    gain: 'Value you can add each month, from more conversions or organic clicks',
+    invest: 'Extra spend these recommendations suggest each month, at most',
+    keep: 'Spend these recommendations advise you to keep each month',
+}
+
 const DIRECTION_ORDER: MarketingAnalyticsRecommendation['impactDirection'][] = ['save', 'gain', 'invest', 'keep']
 
 export interface RecommendationTotal {
@@ -143,7 +150,7 @@ export interface RecommendationDataGap {
 const DATA_GAP_TABLES: Omit<RecommendationDataGap, 'sourceId' | 'sourceName'>[] = [
     {
         table: 'search_term_stats',
-        description: 'Turn on search_term_stats to get recommendations about the searches that trigger your ads.',
+        description: 'Turn on the search terms table to get recommendations about the searches that trigger your ads.',
         rules: [
             'brand_leak',
             'brand_overlap',
@@ -156,22 +163,26 @@ const DATA_GAP_TABLES: Omit<RecommendationDataGap, 'sourceId' | 'sourceName'>[] 
     {
         table: 'search_term_keyword_stats',
         description:
-            'Turn on search_term_keyword_stats to see which keyword matched each search term that wastes spend.',
+            'Turn on the search term keywords table to see which keyword matched each search term that wastes spend.',
         rules: ['spend_without_conversions'],
     },
     {
         table: 'campaign_impression_share_stats',
-        description: 'Turn on campaign_impression_share_stats to tell budget limits from ad rank limits.',
+        description: 'Turn on the campaign impression share table to tell budget limits from ad rank limits.',
         rules: ['budget_constrained', 'scale_campaign'],
     },
 ]
 
-// Tables a Google Ads source could sync to get more or better recommendations.
+// Tables a Google Ads source could turn on to get more or better recommendations. A table that is on but has
+// not synced yet, or that the source does not list, gives the person nothing to do, so it is left out.
 export function recommendationDataGaps(source: ExternalDataSource): RecommendationDataGap[] {
     if (source.source_type !== 'GoogleAds' || !recommendationsSource(source)) {
         return []
     }
-    return DATA_GAP_TABLES.filter((gap) => !syncedTable(source, gap.table)).map((gap) => ({
+    return DATA_GAP_TABLES.filter((gap) => {
+        const schema = source.schemas.find((schema) => schema.name === gap.table)
+        return !!schema && !schema.should_sync
+    }).map((gap) => ({
         ...gap,
         sourceId: source.id,
         sourceName: source.prefix || 'Google Ads',

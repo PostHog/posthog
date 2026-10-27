@@ -1,6 +1,16 @@
 import { BindLogic } from 'kea'
+import { useRef } from 'react'
 
-import { LemonBadge, LemonBanner, LemonButton, LemonModal, LemonTable, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import {
+    LemonBadge,
+    LemonBanner,
+    LemonButton,
+    LemonModal,
+    LemonTable,
+    LemonTag,
+    LemonTagType,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -10,6 +20,7 @@ import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { MarketingAnalyticsRecommendation } from '~/queries/schema/schema-general'
 
 import {
+    IMPACT_DIRECTION_DESCRIPTIONS,
     IMPACT_DIRECTION_LABELS,
     RECOMMENDATION_CATEGORY_LABELS,
     RECOMMENDATION_RULE_DESCRIPTIONS,
@@ -23,7 +34,7 @@ import {
 
 const DIRECTION_TAG: Record<MarketingAnalyticsRecommendation['impactDirection'], LemonTagType> = {
     save: 'success',
-    gain: 'primary',
+    gain: 'info',
     invest: 'warning',
     keep: 'muted',
 }
@@ -43,11 +54,16 @@ function ImpactTotals({ totals }: { totals: RecommendationTotal[] }): JSX.Elemen
     return (
         <span className="flex flex-wrap items-center gap-1">
             {totals.map((total) => (
-                <LemonTag key={`${total.direction}-${total.currency}`} type={DIRECTION_TAG[total.direction]}>
-                    <span translate="no">
-                        {`${IMPACT_DIRECTION_LABELS[total.direction]} ${formatMoney(total.amount, total.currency, true)}/mo`}
-                    </span>
-                </LemonTag>
+                <Tooltip
+                    key={`${total.direction}-${total.currency}`}
+                    title={IMPACT_DIRECTION_DESCRIPTIONS[total.direction]}
+                >
+                    <LemonTag type={DIRECTION_TAG[total.direction]}>
+                        <span translate="no">
+                            {`${IMPACT_DIRECTION_LABELS[total.direction]} ${formatMoney(total.amount, total.currency, true)}/mo`}
+                        </span>
+                    </LemonTag>
+                </Tooltip>
             ))}
         </span>
     )
@@ -128,6 +144,15 @@ export function RecommendationsModal({
     dataNodeProps: DataNodeLogicProps
     dataGaps: RecommendationDataGap[]
 }): JSX.Element {
+    const navRef = useRef<HTMLElement>(null)
+    const detailRef = useRef<HTMLElement>(null)
+    const selectRule = (rule: string): void => {
+        onSelect(rule)
+        // In a narrow modal the rule list sits above the table, so the table has to come into view.
+        if ((detailRef.current?.offsetTop ?? 0) > (navRef.current?.offsetTop ?? 0) + 8) {
+            requestAnimationFrame(() => detailRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }))
+        }
+    }
     return (
         <LemonModal
             isOpen={isOpen}
@@ -159,7 +184,10 @@ export function RecommendationsModal({
         >
             <div className="@container">
                 <div className="grid gap-4 @min-[44rem]:grid-cols-[15rem_minmax(0,1fr)]">
-                    <nav className="flex flex-col self-start @min-[44rem]:sticky @min-[44rem]:top-0 @min-[44rem]:border-r @min-[44rem]:pr-3">
+                    <nav
+                        ref={navRef}
+                        className="flex flex-col self-start @min-[44rem]:sticky @min-[44rem]:top-0 @min-[44rem]:border-r @min-[44rem]:pr-3"
+                    >
                         {sections.map((section) => (
                             <div
                                 key={section.category}
@@ -174,7 +202,7 @@ export function RecommendationsModal({
                                         size="small"
                                         fullWidth
                                         active={group.rule === selectedGroup?.rule}
-                                        onClick={() => onSelect(group.rule)}
+                                        onClick={() => selectRule(group.rule)}
                                         sideIcon={
                                             <LemonBadge.Number
                                                 count={group.recommendations.length}
@@ -191,7 +219,7 @@ export function RecommendationsModal({
                         ))}
                     </nav>
                     {selectedGroup ? (
-                        <section className="flex flex-col gap-3 min-w-0">
+                        <section ref={detailRef} className="flex flex-col gap-3 min-w-0">
                             <div className="flex flex-wrap items-start justify-between gap-2">
                                 <div className="flex flex-col gap-1 min-w-0">
                                     <h3 className="mb-0">
@@ -218,7 +246,8 @@ export function RecommendationsModal({
                                             'data-attr': 'marketing-recommendations-rule-data-gap-manage-source',
                                         }}
                                     >
-                                        {`${gap.sourceName}: ${gap.description}`}
+                                        <div className="font-semibold">{gap.sourceName}</div>
+                                        <div>{gap.description}</div>
                                     </LemonBanner>
                                 ))}
                             <RecommendationRows rows={selectedGroup.recommendations} />

@@ -225,6 +225,20 @@ class TestMarketingRecommendations(SimpleTestCase):
 
         assert actions == [expected]
 
+    @parameterized.expand([("serving", "ELIGIBLE", 1), ("paused", "PAUSED", 0), ("removed", "REMOVED", 0)])
+    def test_spend_without_conversions_skips_campaigns_that_do_not_serve(
+        self, _name: str, status: str, expected: int
+    ) -> None:
+        campaigns = (_campaign(primary_status=status), _campaign(id="c2", name="Other"))
+        terms = (
+            _term("free analytics template", "c1", cost=500, conversions=0),
+            _term("product analytics", "c2", cost=500, conversions=10),
+        )
+
+        rows = [rec for rec in recommend(_inputs(campaigns, terms)) if rec.rule == "spend_without_conversions"]
+
+        assert len(rows) == expected
+
     def test_category_words_are_not_treated_as_competitors(self) -> None:
         terms = (
             _term("trackly logs", "c1", cost=500, conversions=0),

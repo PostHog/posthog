@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconInfo, IconLightBulb } from '@posthog/icons'
-import { LemonBadge, LemonBanner, LemonButton, LemonDropdown, LemonSkeleton, Popover } from '@posthog/lemon-ui'
+import { LemonBadge, LemonBanner, LemonButton, LemonDropdown, LemonSkeleton, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -11,6 +11,7 @@ import { MarketingAnalyticsRecommendationsQueryResponse } from '~/queries/schema
 import { MarketingQueryError } from '../dashboard/MarketingQueryError'
 import { RecommendationDataGapList } from './RecommendationDataGapList'
 import {
+    IMPACT_DIRECTION_DESCRIPTIONS,
     IMPACT_DIRECTION_LABELS,
     RecommendationTotal,
     formatMoney,
@@ -25,12 +26,17 @@ function ImpactSummary({ totals }: { totals: RecommendationTotal[] }): JSX.Eleme
     return (
         <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-secondary">
             {totals.map((total) => (
-                <span key={`${total.direction}-${total.currency}`}>
-                    {`${IMPACT_DIRECTION_LABELS[total.direction]} `}
-                    <span className="font-semibold text-primary" translate="no">
-                        {`${formatMoney(total.amount, total.currency, true)}/mo`}
+                <Tooltip
+                    key={`${total.direction}-${total.currency}`}
+                    title={IMPACT_DIRECTION_DESCRIPTIONS[total.direction]}
+                >
+                    <span className="cursor-help">
+                        {`${IMPACT_DIRECTION_LABELS[total.direction]} `}
+                        <span className="font-semibold text-primary" translate="no">
+                            {`${formatMoney(total.amount, total.currency, true)}/mo`}
+                        </span>
                     </span>
-                </span>
+                </Tooltip>
             ))}
         </span>
     )
@@ -78,36 +84,36 @@ export function RecommendationsSection(): JSX.Element {
 
     return (
         <div className="@container flex flex-col gap-3 pt-2" data-attr="marketing-recommendations">
-            <div className="flex flex-wrap items-center gap-2 min-w-0">
-                {showGroups ? (
-                    <>
-                        <Popover
-                            visible={!introSeen}
-                            placement="bottom-start"
-                            showArrow
-                            overlay={
-                                <div className="flex max-w-80 flex-col gap-2 p-2">
-                                    <strong>New: recommendations</strong>
-                                    <p className="mb-0">
-                                        Built from your Google Ads and Google Search Console data. They show where to
-                                        cut wasted spend, where to grow, and which pages to improve for organic search.
-                                    </p>
-                                    <div className="flex justify-end gap-2">
-                                        <LemonButton size="small" onClick={dismissIntro}>
-                                            Got it
-                                        </LemonButton>
-                                        <LemonButton
-                                            type="primary"
-                                            size="small"
-                                            onClick={() => setSelectedRule(firstRule ?? null)}
-                                            data-attr="marketing-recommendations-intro-open"
-                                        >
-                                            See recommendations
-                                        </LemonButton>
-                                    </div>
-                                </div>
-                            }
-                        >
+            <Popover
+                visible={showGroups && !introSeen}
+                placement="bottom-start"
+                showArrow
+                overlay={
+                    <div className="flex max-w-80 flex-col gap-2 p-2">
+                        <strong>New: recommendations</strong>
+                        <p className="mb-0">
+                            Built from your Google Ads and Google Search Console data. They show where to cut wasted
+                            spend, where to grow, and which pages to improve for organic search.
+                        </p>
+                        <div className="flex justify-end gap-2">
+                            <LemonButton size="small" onClick={dismissIntro}>
+                                Got it
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={() => setSelectedRule(firstRule ?? null)}
+                                data-attr="marketing-recommendations-intro-open"
+                            >
+                                See recommendations
+                            </LemonButton>
+                        </div>
+                    </div>
+                }
+            >
+                <div className="flex flex-wrap items-center gap-2 min-w-0">
+                    {showGroups ? (
+                        <>
                             <LemonButton
                                 type="secondary"
                                 size="small"
@@ -118,31 +124,31 @@ export function RecommendationsSection(): JSX.Element {
                             >
                                 Recommendations
                             </LemonButton>
-                        </Popover>
-                        <ImpactSummary totals={sumImpact(results)} />
-                        {dataGaps.length > 0 && (
-                            <LemonDropdown
-                                closeOnClickInside={false}
-                                overlay={<RecommendationDataGapList gaps={dataGaps} />}
-                            >
-                                <LemonButton
-                                    size="small"
-                                    type="tertiary"
-                                    icon={<IconInfo />}
-                                    sideIcon={<LemonBadge.Number count={dataGaps.length} status="muted" />}
-                                    data-attr="marketing-recommendations-data-gaps"
+                            <ImpactSummary totals={sumImpact(results)} />
+                            {dataGaps.length > 0 && (
+                                <LemonDropdown
+                                    closeOnClickInside={false}
+                                    overlay={<RecommendationDataGapList gaps={dataGaps} />}
                                 >
-                                    Improve recommendations
-                                </LemonButton>
-                            </LemonDropdown>
-                        )}
-                    </>
-                ) : sourcesLoading || (responseLoading && sources.length > 0) ? (
-                    <LemonSkeleton className="h-6 w-60" />
-                ) : (
-                    <span className="font-semibold">Recommendations</span>
-                )}
-            </div>
+                                    <LemonButton
+                                        size="small"
+                                        type="tertiary"
+                                        icon={<IconInfo />}
+                                        sideIcon={<LemonBadge.Number count={dataGaps.length} status="muted" />}
+                                        data-attr="marketing-recommendations-data-gaps"
+                                    >
+                                        Improve recommendations
+                                    </LemonButton>
+                                </LemonDropdown>
+                            )}
+                        </>
+                    ) : sourcesLoading || (responseLoading && sources.length > 0) ? (
+                        <LemonSkeleton className="h-6 w-60" />
+                    ) : (
+                        <span className="font-semibold">Recommendations</span>
+                    )}
+                </div>
+            </Popover>
             {!hasAdsSource && sources.length > 0 && (
                 <LemonBanner
                     type="info"

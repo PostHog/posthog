@@ -5,6 +5,8 @@ from typing import Any
 
 from posthog.schema import (
     CachedMarketingAnalyticsRecommendationsQueryResponse,
+    MarketingAnalyticsRecommendation,
+    MarketingAnalyticsRecommendationRule,
     MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsRecommendationsQueryResponse,
     MarketingAnalyticsRecommendationsSource,
@@ -88,7 +90,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 )
             )
         ]
-        return MarketingAnalyticsRecommendationsQueryResponse(results=results)
+        return MarketingAnalyticsRecommendationsQueryResponse(results=_dedupe_organic_only(results))
 
     def _readable(self, table: str | None) -> bool:
         if not table:
@@ -134,7 +136,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 SELECT toString(campaign_id), any(campaign_name), any(campaign_advertising_channel_type),
                     any({primary_status}), any(toString({status_reasons})),
                     any(campaign_budget_amount_micros) / 1000000, any({recommended_budget}) / 1000000,
-                    any(toString({budget_id}))
+                    any(toString({budget_id})), any(toString({serving_status}))
                 FROM {table} GROUP BY campaign_id
                 """,
                 source.campaignTable,
@@ -144,6 +146,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                     source.campaignTable, "campaign_budget_recommended_budget_amount_micros"
                 ),
                 budget_id=self._field(source.campaignTable, "campaign_campaign_budget"),
+                serving_status=self._field(source.campaignTable, "campaign_status"),
             )
         }
         spend = {
@@ -170,7 +173,8 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                     id=campaign_id,
                     name=definition[1] or campaign_id,
                     channel_type=definition[2],
-                    primary_status=definition[3],
+                    # Older syncs lack primary_status, and campaign_status still tells paused and removed apart.
+                    primary_status=definition[3] or definition[8] or None,
                     status_reasons=_parse_reasons(definition[4]),
                     daily_budget=definition[5],
                     recommended_daily_budget=definition[6] or None,
@@ -198,9 +202,12 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         rows = self._select(
             """
             SELECT toString(campaign_id),
-                sum(toFloat({impression_share}) * metrics_impressions) / nullIf(sum(metrics_impressions), 0),
-                sum(toFloat({budget_lost_impression_share}) * metrics_impressions) / nullIf(sum(metrics_impressions), 0),
-                sum(toFloat({rank_lost_impression_share}) * metrics_impressions) / nullIf(sum(metrics_impressions), 0)
+                sumIf(toFloat({impression_share}) * metrics_impressions, {impression_share} IS NOT NULL)
+                    / nullIf(sumIf(metrics_impressions, {impression_share} IS NOT NULL), 0),
+                sumIf(toFloat({budget_lost_impression_share}) * metrics_impressions, {budget_lost_impression_share} IS NOT NULL)
+                    / nullIf(sumIf(metrics_impressions, {budget_lost_impression_share} IS NOT NULL), 0),
+                sumIf(toFloat({rank_lost_impression_share}) * metrics_impressions, {rank_lost_impression_share} IS NOT NULL)
+                    / nullIf(sumIf(metrics_impressions, {rank_lost_impression_share} IS NOT NULL), 0)
             FROM {table}
             WHERE toDate(segments_date) >= toDate({date_from}) AND toDate(segments_date) <= toDate({date_to})
             GROUP BY campaign_id
@@ -228,7 +235,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
                 WHERE toDate(segments_date) >= toDate({{date_from}}) AND toDate(segments_date) <= toDate({{date_to}})
                     AND notEmpty(term)
                 GROUP BY term, campaign_id
-                ORDER BY sum(metrics_impressions) DESC
+                ORDER BY sum(metrics_cost_micros) DESC
                 LIMIT {ROW_LIMIT}
                 """,
                 table,
@@ -329,3 +336,16 @@ def _parse_reasons(value: str | None) -> tuple[str, ...]:
     except ValueError:
         return tuple(part.strip(" '\"") for part in value.strip("[]").split(",") if part.strip(" '\""))
     return tuple(str(reason) for reason in parsed) if isinstance(parsed, list) else ()
+
+
+def _dedupe_organic_only(results: list[MarketingAnalyticsRecommendation]) -> list[MarketingAnalyticsRecommendation]:
+    # Keyword gap reads only the shared Search Console data, so each ad account would repeat the same query.
+    seen: set[str] = set()
+    deduped = []
+    for recommendation in results:
+        if recommendation.rule == MarketingAnalyticsRecommendationRule.KEYWORD_GAP:
+            if recommendation.subject in seen:
+                continue
+            seen.add(recommendation.subject)
+        deduped.append(recommendation)
+    return deduped
