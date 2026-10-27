@@ -337,6 +337,7 @@ export function MetricsTab(): JSX.Element {
     const approvedColumns = [...baseColumns.filter((column) => column.key !== 'status'), menuColumn]
 
     const bulkSelection = (
+        tableMetrics: DataCatalogMetricApi[],
         barPortalTarget: HTMLDivElement | null,
         withApprove: boolean
     ): BulkSelectionConfig<DataCatalogMetricApi> => ({
@@ -349,11 +350,12 @@ export function MetricsTab(): JSX.Element {
         headerAriaLabel: 'Select all metrics on this page',
         barPortalTarget,
         renderActions: (ctx) => {
-            // Selection spans pages, so resolve the keys against every metric rather
-            // than ctx.selectedRecords, which only covers the page on screen. Resolving
-            // by id also drops any selected metric that has since left the list.
+            // Selection spans pages, so resolve the keys against every row of this table rather
+            // than ctx.selectedRecords, which only covers the page on screen. Resolving by id also
+            // drops any selected metric that has since left the table, e.g. one approved inline
+            // that moved from the review queue to the approved table.
             const selected = new Set(ctx.selectedKeys)
-            const selectedMetrics = allMetrics.filter((metric) => selected.has(metric.id))
+            const selectedMetrics = tableMetrics.filter((metric) => selected.has(metric.id))
             const approvableNames = selectedMetrics.filter(isApprovable).map((metric) => metric.name)
             const selectedNames = selectedMetrics.map((metric) => metric.name)
             return (
@@ -465,7 +467,10 @@ export function MetricsTab(): JSX.Element {
                     {showReviewQueue && (
                         <section className="flex flex-col gap-2" data-attr="data-catalog-review-queue">
                             <div className="flex flex-wrap items-baseline gap-x-2">
-                                <h3 className="m-0">Needs review ({reviewQueue.length})</h3>
+                                <h3 className="m-0">
+                                    <span>Needs review </span>
+                                    <span>{`(${reviewQueue.length})`}</span>
+                                </h3>
                                 <span className="text-xs text-secondary">
                                     Drifted metrics come first, then your proposals, then AI proposals by confidence.
                                 </span>
@@ -481,14 +486,17 @@ export function MetricsTab(): JSX.Element {
                                 emptyState={metricsLoadState === 'failed' ? LOAD_FAILED : 'Nothing to review.'}
                                 nouns={['metric', 'metrics']}
                                 onSort={(sorting) => reportCatalogTableSorted('metrics', sorting)}
-                                bulkSelection={bulkSelection(bulkBarTarget, true)}
+                                bulkSelection={bulkSelection(reviewQueue, bulkBarTarget, true)}
                             />
                             <div ref={setBulkBarTarget} className={BULK_BAR_CLASS} />
                         </section>
                     )}
                     {showApproved && (
                         <section className="flex flex-col gap-2" data-attr="data-catalog-approved">
-                            <h3 className="m-0">Approved ({approvedMetrics.length})</h3>
+                            <h3 className="m-0">
+                                <span>Approved </span>
+                                <span>{`(${approvedMetrics.length})`}</span>
+                            </h3>
                             <LemonTable
                                 id="data-catalog-approved"
                                 data-attr="data-catalog-approved-table"
@@ -500,7 +508,7 @@ export function MetricsTab(): JSX.Element {
                                 emptyState={metricsLoadState === 'failed' ? LOAD_FAILED : 'No approved metrics yet.'}
                                 nouns={['metric', 'metrics']}
                                 onSort={(sorting) => reportCatalogTableSorted('metrics', sorting)}
-                                bulkSelection={bulkSelection(approvedBulkBarTarget, false)}
+                                bulkSelection={bulkSelection(approvedMetrics, approvedBulkBarTarget, false)}
                             />
                             <div ref={setApprovedBulkBarTarget} className={BULK_BAR_CLASS} />
                         </section>
@@ -521,7 +529,7 @@ export function MetricsTab(): JSX.Element {
                         }
                         nouns={['metric', 'metrics']}
                         onSort={(sorting) => reportCatalogTableSorted('metrics', sorting)}
-                        bulkSelection={bulkSelection(bulkBarTarget, true)}
+                        bulkSelection={bulkSelection(allMetrics, bulkBarTarget, true)}
                     />
                     <div ref={setBulkBarTarget} className={BULK_BAR_CLASS} />
                 </>
