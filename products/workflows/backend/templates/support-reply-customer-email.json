@@ -16,6 +16,20 @@
                     "name": "Ticket message sent",
                     "type": "events"
                 }
+            ],
+            "properties": [
+                {
+                    "key": "customer_email_verified",
+                    "value": ["true"],
+                    "operator": "exact",
+                    "type": "event"
+                },
+                {
+                    "key": "channel_source",
+                    "value": ["email"],
+                    "operator": "is_not",
+                    "type": "event"
+                }
             ]
         }
     },
@@ -42,7 +56,7 @@
         {
             "id": "trigger_node",
             "name": "Support team replies on a ticket",
-            "description": "A teammate has replied to a customer on a support ticket.",
+            "description": "A teammate has replied to a customer on a support ticket. Runs only when the customer's email is verified, and skips email tickets because those replies already go out by email.",
             "on_error": null,
             "created_at": 0,
             "updated_at": 0,
@@ -57,6 +71,20 @@
                             "id": "$conversation_message_sent",
                             "name": "Ticket message sent",
                             "type": "events"
+                        }
+                    ],
+                    "properties": [
+                        {
+                            "key": "customer_email_verified",
+                            "value": ["true"],
+                            "operator": "exact",
+                            "type": "event"
+                        },
+                        {
+                            "key": "channel_source",
+                            "value": ["email"],
+                            "operator": "is_not",
+                            "type": "event"
                         }
                     ]
                 }
@@ -86,8 +114,8 @@
                                 "name": "",
                                 "email": ""
                             },
-                            "html": "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional //EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\n<head>\n  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title></title>\n  <style type=\"text/css\">body{margin:0;padding:0}table,td,tr{border-collapse:collapse;vertical-align:top}p{margin:0}</style>\n</head>\n<body class=\"clean-body u_body\" style=\"margin: 0;padding: 0;-webkit-text-size-adjust: 100%;background-color: #F7F8F9;color: #000000\">\n  <table role=\"presentation\" style=\"border-collapse: collapse;table-layout: fixed;border-spacing: 0;vertical-align: top;min-width: 320px;Margin: 0 auto;background-color: #F7F8F9;width:100%\" cellpadding=\"0\" cellspacing=\"0\">\n  <tbody>\n  <tr style=\"vertical-align: top\">\n    <td style=\"word-break: break-word;border-collapse: collapse !important;vertical-align: top\">\n      <div style=\"margin: 0 auto;min-width: 320px;max-width: 500px;\">\n        <table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n          <tbody>\n            <tr>\n              <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n                <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n                  <p style=\"line-height: 140%;\">Hi {{ event.properties.customer_name | default: 'there' }},<br><br>Our support team replied to your ticket #{{ event.properties.ticket_number }}:<br><br>{{ event.properties.message_content }}</p>\n                </div>\n              </td>\n            </tr>\n          </tbody>\n        </table>\n      </div>\n    </td>\n  </tr>\n  </tbody>\n  </table>\n</body>\n</html>\n",
-                            "text": "Hi {{ event.properties.customer_name | default: 'there' }},\n\nOur support team replied to your ticket #{{ event.properties.ticket_number }}:\n\n{{ event.properties.message_content }}",
+                            "html": "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional //EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\n<head>\n  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title></title>\n  <style type=\"text/css\">body{margin:0;padding:0}table,td,tr{border-collapse:collapse;vertical-align:top}p{margin:0}</style>\n</head>\n<body class=\"clean-body u_body\" style=\"margin: 0;padding: 0;-webkit-text-size-adjust: 100%;background-color: #F7F8F9;color: #000000\">\n  <table role=\"presentation\" style=\"border-collapse: collapse;table-layout: fixed;border-spacing: 0;vertical-align: top;min-width: 320px;Margin: 0 auto;background-color: #F7F8F9;width:100%\" cellpadding=\"0\" cellspacing=\"0\">\n  <tbody>\n  <tr style=\"vertical-align: top\">\n    <td style=\"word-break: break-word;border-collapse: collapse !important;vertical-align: top\">\n      <div style=\"margin: 0 auto;min-width: 320px;max-width: 500px;\">\n        <table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n          <tbody>\n            <tr>\n              <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n                <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n                  <p style=\"line-height: 140%;\">Hi {{ event.properties.customer_name | default: 'there' }},<br><br>Our support team replied to your ticket #{{ event.properties.ticket_number }}:<br><br>{{ event.properties.message_content }}{% if event.properties.message_content.size >= 1000 %}…<br><br>This is the start of a longer reply. Read the full reply in your support conversation.{% endif %}</p>\n                </div>\n              </td>\n            </tr>\n          </tbody>\n        </table>\n      </div>\n    </td>\n  </tr>\n  </tbody>\n  </table>\n</body>\n</html>\n",
+                            "text": "Hi {{ event.properties.customer_name | default: 'there' }},\n\nOur support team replied to your ticket #{{ event.properties.ticket_number }}:\n\n{{ event.properties.message_content }}{% if event.properties.message_content.size >= 1000 %}…\n\nThis is the start of a longer reply. Read the full reply in your support conversation.{% endif %}",
                             "design": {
                                 "body": {
                                     "id": "URm0NvJQHB",
@@ -143,7 +171,7 @@
                                                             "id": "-KDAT9u9Y5",
                                                             "type": "text",
                                                             "values": {
-                                                                "text": "<p style=\"line-height: 140%;\">Hi {{ event.properties.customer_name | default: 'there' }},<br><br>Our support team replied to your ticket #{{ event.properties.ticket_number }}:<br><br>{{ event.properties.message_content }}</p>",
+                                                                "text": "<p style=\"line-height: 140%;\">Hi {{ event.properties.customer_name | default: 'there' }},<br><br>Our support team replied to your ticket #{{ event.properties.ticket_number }}:<br><br>{{ event.properties.message_content }}{% if event.properties.message_content.size >= 1000 %}…<br><br>This is the start of a longer reply. Read the full reply in your support conversation.{% endif %}</p>",
                                                                 "_meta": {
                                                                     "htmlID": "u_content_text_1",
                                                                     "htmlClassNames": "u_content_text"
