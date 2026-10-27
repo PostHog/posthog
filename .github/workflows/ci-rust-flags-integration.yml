@@ -53,6 +53,8 @@ env:
 
 jobs:
     rust-flags-integration:
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
+        if: github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')
         name: Rust /flags Integration Tests (depot-ubuntu-24.04)
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
