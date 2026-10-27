@@ -3388,9 +3388,10 @@ export const WorkflowEmailDraftsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Turns Customer.io automations into draft workflows. Pass each automation as Customer.io's Journeys UI API returns it, with the templates its messages use. Each result lists what the import changed or left out. Importing an automation again updates its draft, unless that workflow is no longer a draft. Set dry_run to preview without saving.
+ * Turns Customer.io automations into draft workflows. Pass each automation as Customer.io's Journeys UI API returns it. Pass the templates its messages use, or leave them out when the project stored a Customer.io App API key, and PostHog reads them. Each result lists what the import changed or left out. Importing an automation again updates its draft, unless that workflow is no longer a draft. Set dry_run to preview without saving.
  * @summary Import Customer.io automations as draft workflows
  */
+export const workflowImportsCreateBodySenderIdentitiesItemNameDefault = ``
 export const workflowImportsCreateBodyDryRunDefault = false
 
 export const WorkflowImportsCreateBody = /* @__PURE__ */ zod.object({
@@ -3413,7 +3414,7 @@ export const WorkflowImportsCreateBody = /* @__PURE__ */ zod.object({
                     .unknown()
                     .optional()
                     .describe(
-                        'The message templates the actions point at, from `GET \/v1\/environments\/{environment_id}\/templates\/{template_id}`: a list of template objects, or an object keyed by template id. Without them, messages import with empty content.'
+                        'The message templates the actions point at, from `GET \/v1\/environments\/{environment_id}\/templates\/{template_id}`: a list of template objects, or an object keyed by template id. Leave them out when the project stored a Customer.io App API key: PostHog then reads the content from Customer.io itself. Without either, messages import with empty content.'
                     ),
             })
         )
@@ -3427,6 +3428,39 @@ export const WorkflowImportsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Customer.io segment id to the PostHog cohort that replaces it. Segment triggers and segment conditions with no cohort here are left for the team to set.'
+        ),
+    layouts: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Customer.io layout id to the layout's `body`, from `GET \/v1\/environments\/{environment_id}\/layouts\/{layout_id}`. An email whose template names a `layout_id` is wrapped in that layout at `{{ content }}`."
+        ),
+    sender_identities: zod
+        .array(
+            zod.object({
+                id: zod.string().describe("The sender identity's id, which templates name in `from_identity_id`."),
+                email: zod.email().describe('The address the sender sends from.'),
+                name: zod
+                    .string()
+                    .default(workflowImportsCreateBodySenderIdentitiesItemNameDefault)
+                    .describe("The sender's display name."),
+            })
+        )
+        .optional()
+        .describe(
+            'Customer.io sender identities, from `GET \/v1\/environments\/{environment_id}\/identities?type=email`. Each email gets the PostHog sender with the same address.'
+        ),
+    segments: zod
+        .array(
+            zod.object({
+                id: zod.string().describe("The segment's id."),
+                name: zod.string().describe("The segment's name."),
+                type: zod.string().describe("The segment's type: `dynamic`, or `static` for a hand-made list."),
+            })
+        )
+        .optional()
+        .describe(
+            'Customer.io segment ids, names and types, without members, so the notes can name each segment and flag static ones.'
         ),
     dry_run: zod
         .boolean()

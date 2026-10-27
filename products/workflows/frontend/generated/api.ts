@@ -1540,7 +1540,7 @@ export const getWorkflowImportsCreateUrl = (projectId: string) => {
 }
 
 /**
- * Turns Customer.io automations into draft workflows. Pass each automation as Customer.io's Journeys UI API returns it, with the templates its messages use. Each result lists what the import changed or left out. Importing an automation again updates its draft, unless that workflow is no longer a draft. Set dry_run to preview without saving.
+ * Turns Customer.io automations into draft workflows. Pass each automation as Customer.io's Journeys UI API returns it. Pass the templates its messages use, or leave them out when the project stored a Customer.io App API key, and PostHog reads them. Each result lists what the import changed or left out. Importing an automation again updates its draft, unless that workflow is no longer a draft. Set dry_run to preview without saving.
  * @summary Import Customer.io automations as draft workflows
  */
 export const workflowImportsCreate = async (
