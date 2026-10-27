@@ -63,6 +63,7 @@ class SavedQueryDefinition:
     created_at: datetime
     refreshes_incrementally: bool = False
     calls_decision_functions: bool = False
+    created_by_id: int | None = None
 
 
 @dataclass(frozen=True)

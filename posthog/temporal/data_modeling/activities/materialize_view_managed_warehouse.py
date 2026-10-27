@@ -3,6 +3,7 @@ import time
 import typing
 import datetime as dt
 import dataclasses
+from uuid import UUID
 
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
@@ -23,9 +24,12 @@ from products.data_modeling.backend.facade.api import (
     clear_incremental_state,
     resolve_write_plan,
     set_incremental_state,
+    unbuilt_upstream_saved_query_ids,
 )
 from products.data_modeling.backend.facade.models import (
+    TERMINAL_JOB_STATUSES,
     DataModelingJob,
+    DataModelingJobEngine,
     DataModelingJobRunMode,
     DataModelingJobStatus,
     DataWarehouseSavedQuery,
@@ -108,6 +112,24 @@ class ManagedWarehouseShadowResult:
     run_mode: str = UNKNOWN_RUN_MODE
     read_bytes: int | None = None
     cpu_microseconds: int | None = None
+    # The run read an upstream model that has never been built on Trino. That says nothing about the
+    # view itself, so the job is skipped rather than failed and does not count toward suspension.
+    skipped: bool = False
+
+
+_TABLE_MISSING_ERROR_NAMES = frozenset({"CATALOG_NOT_FOUND", "SCHEMA_NOT_FOUND", "TABLE_NOT_FOUND"})
+
+
+def _upstream_model_unbuilt(missing_object_error_name: str | None, team_id: int, saved_query_id: UUID) -> bool:
+    """Whether a missing Trino table is explained by an upstream model that has never been built there.
+
+    A missing imported table or events table is a sync or provisioning fault, so it still fails the job.
+    """
+    if missing_object_error_name not in _TABLE_MISSING_ERROR_NAMES:
+        return False
+    return bool(
+        unbuilt_upstream_saved_query_ids(team_id, saved_query_id, engine=DataModelingJobEngine.MANAGED_WAREHOUSE)
+    )
 
 
 def _failed_run_mode(plan: WritePlan | None, use_trino: bool) -> str:
@@ -235,12 +257,16 @@ async def check_managed_warehouse_shadow_eligibility_activity(
 def _resolve_managed_warehouse_job(job_id: str, result: "ManagedWarehouseShadowResult") -> str:
     """Update the managed warehouse job to its terminal state based on the result."""
     job = DataModelingJob.objects.get(id=job_id)
-    if job.status in (DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED, DataModelingJobStatus.COMPLETED):
+    if job.status in TERMINAL_JOB_STATUSES:
         return job.engine
     if result.error is None:
         job.status = DataModelingJobStatus.COMPLETED
         job.rows_materialized = result.row_count
         job.error = None
+    elif result.skipped:
+        job.status = DataModelingJobStatus.SKIPPED
+        job.rows_materialized = 0
+        job.error = result.error
     else:
         job.status = DataModelingJobStatus.FAILED
         job.rows_materialized = 0
@@ -411,6 +437,9 @@ async def _materialize_view_managed_warehouse(
             run_mode=_failed_run_mode(plan, inputs.use_trino),
             read_bytes=_total_read_bytes(processed_bytes),
             cpu_microseconds=_total_cpu_microseconds(cpu_milliseconds),
+            skipped=await database_sync_to_async_pool(_upstream_model_unbuilt)(
+                missing_object_error_name, team.pk, saved_query.id
+            ),
         )
         if plan is not None and plan.incremental:
             # The merge may have stopped partway or failed on a schema change. Rebuilding next run
@@ -420,6 +449,8 @@ async def _materialize_view_managed_warehouse(
             except Exception as clear_error:
                 capture_exception(clear_error)
         job_engine = await _resolve_managed_warehouse_job(inputs.job_id, shadow_result)
+        if shadow_result.skipped:
+            return shadow_result
         suspended = await maybe_suspend_node_for_engine(
             node_id=inputs.node_id,
             team_id=inputs.team_id,
