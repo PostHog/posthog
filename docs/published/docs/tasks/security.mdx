@@ -1,83 +1,35 @@
 ---
-title: Tasks and self-driving security
+title: Cloud Tasks security
 sidebarTitle: Security
 sidebar: Docs
 showTitle: true
 ---
 
-Use this page to review how PostHog cloud tasks and self-driving agents access your code, keep data, and handle untrusted input.
+Cloud Tasks run agents in isolated cloud sandboxes. This page describes their access to code, snapshot storage, and network controls.
 
 Last reviewed: October 27, 2026.
 
 ## Code access and storage
 
-Agents clone the repositories they need into an isolated cloud sandbox. They can send relevant code and product data to large language model (LLM) providers during a run.
+Repository cloning is optional. When a task needs code access, it can clone the selected repository into its sandbox. Agents can send relevant code and product data to large language model (LLM) providers during a run.
 
-Sandbox lifetime, saved snapshots, and LLM request retention have separate limits:
+Sandbox lifetime and saved snapshots have separate limits:
 
-| Data or environment                                    | Retention                                                                                                                                                        |
-| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Running sandbox                                        | Each sandbox has a maximum lifetime of 6 hours. PostHog terminates it when the run ends.                                                                         |
-| Repository snapshots from self-driving background runs | Background runs do not save repository snapshots for later resume.                                                                                               |
-| Repository snapshots from interactive cloud runs       | Runs started through PostHog AI, PostHog Desktop, or MCP can save snapshots for resume. These snapshots have no automatic expiry and remain stored indefinitely. |
-| LLM requests sent to OpenAI or Anthropic               | Up to 30 days.                                                                                                                                                   |
-| LLM requests sent to Baseten, Modal, or Fireworks      | Zero data retention.                                                                                                                                             |
+| Data or environment                              | Retention                                                                                                      |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| Running sandbox                                  | Each sandbox has a maximum lifetime of 6 hours. PostHog terminates it when the run ends.                       |
+| Repository snapshots from interactive cloud runs | Some tasks save snapshots for resume. These snapshots have no automatic expiry and remain stored indefinitely. |
 
-A snapshot preserves files so an interactive run can resume after its sandbox stops. The 6-hour sandbox limit does not delete a saved snapshot.
+Snapshot creation depends on the task and its execution mode. A snapshot preserves files so an interactive run can resume after its sandbox stops. The 6-hour sandbox limit does not delete a saved snapshot.
 
-These limits describe cloud execution. A task that runs locally in PostHog Desktop also uses your local storage.
+[Self-Driving agents](/docs/self-driving/security) do not create repository snapshots.
 
-The absence of a repository snapshot does not mean that a run leaves no stored data. Reports, conversations, run logs, and output files are separate records. Code that an agent includes in a report or model request is subject to the retention for that record or provider.
+Reports, conversations, execution records, and output files are separate records. Code that an agent includes in a report or model request is subject to the retention for that record or provider.
 
 Review [AI data processing access](/docs/posthog-ai/allow-access) before you enable agents for your organization. See [data storage](/docs/privacy/data-storage) for general PostHog storage and deletion information.
 
-## Prompt injection controls
+## Execution controls
 
-Prompt injection occurs when content that an agent reads tries to change its instructions. Events, error messages, feedback, repository files, and connected sources can contain such content.
+Cloud Tasks use isolated sandboxes and shell execution policies. Network access depends on the task environment. A restricted environment allows approved destinations. An environment with full network access permits unrestricted outbound connections.
 
-Self-driving uses controls at several stages:
-
-1. **Incoming signals.** An LLM safety filter checks ingested signals before further processing.
-2. **Agent execution.** Agents run in isolated sandboxes. Restricted runs use outbound network rules and shell execution policies to limit access.
-3. **Instructions and tools.** Agent prompts identify external content as untrusted input. Each agent type receives the capabilities and access needed for its work.
-4. **Generated reports.** A safety judge checks reports before further research or implementation.
-5. **Code changes.** Agents submit changes through pull requests. Your review process and GitHub branch protections control whether those changes merge.
-
-These controls reduce risk. They do not guarantee that an agent will detect every prompt injection attempt. LLM safety checks can make mistakes.
-
-Network access depends on the task environment. A restricted environment allows approved destinations; an environment with full network access permits unrestricted outbound connections. See [sandbox network access](/handbook/engineering/ai/sandboxed-agents#network-access) for the available settings.
-
-## GitHub permissions
-
-During [GitHub installation](/docs/libraries/github#all-repositories-or-selected-repositories), choose **Only select repositories** to limit the repositories that PostHog can access.
-
-The self-driving GitHub integration does not support a read-only installation. It requests write access so agents can create branches and pull requests.
-
-You can turn off automatic pull request generation in the inbox settings under **PR generation**. Reports continue to arrive. This setting controls automatic implementation; it does not change the GitHub app's permissions to read-only.
-
-Review the permissions shown by GitHub before you approve the installation. Apply your required reviews, status checks, and branch protections to agent pull requests.
-
-## Security review checklist
-
-- [ ] Select only the repositories that agents need.
-- [ ] Review the GitHub app permissions, including write access.
-- [ ] Decide whether to enable automatic pull request generation.
-- [ ] Confirm that your required reviews and branch protections apply to agent pull requests.
-- [ ] Review sandbox lifetime separately from snapshot retention.
-- [ ] Account for indefinite snapshot storage when you start interactive cloud runs.
-- [ ] Review LLM provider retention before agents process your code or product data.
-- [ ] Check the network policy for each task environment.
-- [ ] Treat external content and generated changes as untrusted until reviewed.
-
-## Keep this page current
-
-The source of this page is [`docs/published/docs/tasks/security.mdx`](https://github.com/PostHog/posthog/blob/master/docs/published/docs/tasks/security.mdx) in the PostHog monorepo. The website loads this file during its build. Update this file rather than creating a second copy in the website repository.
-
-When behavior changes, update the relevant statement, checklist item, and review date in the same pull request. Check provider retention against the current processing agreements before changing those limits.
-
-The relevant code and technical documentation are:
-
-- [Task execution and sandbox infrastructure](https://github.com/PostHog/posthog/tree/master/products/tasks).
-- [Self-driving signals, research, and safety checks](https://github.com/PostHog/posthog/tree/master/products/signals).
-- [Sandboxed agents](/handbook/engineering/ai/sandboxed-agents), including network settings and task capabilities.
-- [Task infrastructure](/docs/tasks), including agent instructions and environment detection.
+See [sandbox network access](/handbook/engineering/ai/sandboxed-agents#network-access) for the available settings. For the additional safety checks used by Self-Driving agents, see [Self-Driving security](/docs/self-driving/security).
