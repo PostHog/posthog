@@ -206,14 +206,6 @@ class ReplayObservation(UUIDModel):
                 name="rlo_ranked_feed_group_idx",
                 condition=models.Q(status="succeeded", watch_rank__isnull=False),
             ),
-            # Serves releases that still group by `duplicate_of`, until a later migration drops it.
-            models.Index(
-                Coalesce(
-                    KeyTextTransform("duplicate_of", "watch_rank"), Cast("id", CharField()), output_field=CharField()
-                ),
-                name="rlo_ranked_group_idx",
-                condition=models.Q(status="succeeded", watch_rank__isnull=False),
-            ),
             # Serves the per-backfill observation filter and progress counts; partial since live rows never match.
             models.Index(
                 fields=["backfill"],
