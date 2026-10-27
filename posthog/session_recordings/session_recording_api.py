@@ -16,6 +16,7 @@ from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
 from django.http import HttpResponse, JsonResponse
+from django.utils import timezone
 
 import requests
 import structlog
@@ -56,6 +57,7 @@ from posthog.schema import (
 
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
@@ -94,6 +96,12 @@ from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.openai_client import get_openai_client
+from posthog.session_recordings.queries.console_logs import (
+    MAX_CONSOLE_LOGS_PAGE_SIZE,
+    MAX_CONSOLE_MESSAGE_LENGTH,
+    ConsoleLogLevel,
+    get_console_logs,
+)
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import (
     SessionReplayEvents,
@@ -560,6 +568,62 @@ class SessionRecordingBulkDeleteResponseSerializer(serializers.Serializer):
     )
 
 
+class SessionRecordingConsoleLogsRequestSerializer(serializers.Serializer):
+    level = serializers.ChoiceField(
+        choices=ConsoleLogLevel.choices,
+        required=False,
+        help_text="Only return entries at this level. Omit to return every level.",
+    )
+    after = serializers.DateTimeField(
+        required=False,
+        help_text="Only return entries at or after this ISO 8601 timestamp. "
+        "The results never extend outside the recording's own start and end time.",
+    )
+    before = serializers.DateTimeField(
+        required=False,
+        help_text="Only return entries at or before this ISO 8601 timestamp. "
+        "The results never extend outside the recording's own start and end time.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=MAX_CONSOLE_LOGS_PAGE_SIZE,
+        help_text=f"Maximum number of entries to return (1-{MAX_CONSOLE_LOGS_PAGE_SIZE}, default 100).",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        help_text="Number of entries to skip. Use with `limit` to page through a long recording.",
+    )
+
+
+class SessionRecordingConsoleLogEntrySerializer(serializers.Serializer):
+    timestamp = serializers.DateTimeField(help_text="When the browser logged the message.")
+    level = serializers.ChoiceField(choices=ConsoleLogLevel.choices, help_text="Console level of the message.")
+    message = serializers.CharField(
+        help_text=f"The logged text. String arguments are joined with spaces, and non-string arguments are left out. "
+        f"Cut to {MAX_CONSOLE_MESSAGE_LENGTH} characters."
+    )
+    truncated = serializers.BooleanField(help_text="True when the message was cut to fit the length limit.")
+
+
+class SessionRecordingConsoleLogsResponseSerializer(serializers.Serializer):
+    results = SessionRecordingConsoleLogEntrySerializer(
+        many=True, help_text="Console log entries in chronological order."
+    )
+    has_more = serializers.BooleanField(help_text="True when more entries exist after this page.")
+    console_log_capture_enabled = serializers.BooleanField(
+        help_text="Whether the project captures console logs now. When false, an empty result means that nothing "
+        "was captured, not that the session had no console output."
+    )
+    logs_expired = serializers.BooleanField(
+        help_text="True when the recording started longer ago than the console log retention period. "
+        "The recording can still exist after its console log entries are deleted."
+    )
+
+
 @frozen
 class RecordingsListingResult:
     recordings: list[SessionRecording]
@@ -885,7 +949,7 @@ class SessionRecordingViewSet(
     authentication_classes = [ExportRendererAuthentication]
     permission_classes = [ExportRendererRecordingPermission]
     scope_object = "session_recording"
-    scope_object_read_actions = ["list", "retrieve", "snapshots"]
+    scope_object_read_actions = ["list", "retrieve", "snapshots", "console_logs"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = SessionRecordingSerializer
     # We don't use this
@@ -1079,6 +1143,43 @@ class SessionRecordingViewSet(
             capture_exception(e)
             properties = None
         return Response({"properties": properties})
+
+    @validated_request(
+        query_serializer=SessionRecordingConsoleLogsRequestSerializer,
+        responses={200: SessionRecordingConsoleLogsResponseSerializer},
+        summary="List console logs of a session recording",
+        description="Returns the browser console messages captured during a recording, oldest first.",
+    )
+    @action(methods=["GET"], detail=True, url_path="console_logs", pagination_class=None)
+    def console_logs(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
+        recording = self.get_object()
+        if not recording.load_metadata() or recording.start_time is None or recording.end_time is None:
+            raise exceptions.NotFound("Recording not found")
+
+        params = request.validated_query_data
+        page = get_console_logs(
+            team=self.team,
+            user=request.user if isinstance(request.user, User) else None,
+            session_id=str(recording.session_id),
+            recording_start=recording.start_time,
+            recording_end=recording.end_time,
+            now=timezone.now(),
+            level=params.get("level"),
+            after=params.get("after"),
+            before=params.get("before"),
+            limit=params["limit"],
+            offset=params["offset"],
+        )
+        serializer = SessionRecordingConsoleLogsResponseSerializer(
+            {
+                "results": page.results,
+                "has_more": page.has_more,
+                "console_log_capture_enabled": bool(self.team.capture_console_log_opt_in),
+                "logs_expired": page.logs_expired,
+            }
+        )
+        return Response(serializer.data)
 
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
