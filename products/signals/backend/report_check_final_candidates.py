@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, TypedDict
+from uuid import UUID
 
 from django.db.models import DateTimeField, ExpressionWrapper, F, Func, QuerySet, TextField, Value
 from django.db.models.functions import Cast
@@ -8,8 +10,20 @@ from django.db.models.functions import Cast
 from products.signals.backend.models import SignalReport, SignalReportCheck
 from products.signals.backend.report_monitoring_results import MONITORING_RESULT_ELIGIBLE_STATUSES
 
+if TYPE_CHECKING:
+    from django_stubs_ext import WithAnnotations
 
-def due_final_checks(kind: SignalReportCheck.Kind, now: datetime) -> QuerySet[SignalReportCheck]:
+
+class FinalCheckAnnotations(TypedDict):
+    _attempt_id: UUID
+    _member_version: str
+    _window_end: datetime
+
+
+# django-stubs types SQL annotations through its mypy plugin, which ty does not support.
+def due_final_checks(
+    kind: SignalReportCheck.Kind, now: datetime
+) -> QuerySet[WithAnnotations[SignalReportCheck, FinalCheckAnnotations]]:  # ty: ignore[invalid-type-arguments]
     return (
         SignalReportCheck.all_teams.filter(
             kind=kind,
