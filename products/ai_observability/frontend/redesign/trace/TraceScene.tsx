@@ -10,6 +10,7 @@ type ReadyValues = Pick<
     traceViewAdapterLogicValues,
     | 'header'
     | 'summary'
+    | 'clustersChip'
     | 'mode'
     | 'tree'
     | 'selectedNodeId'
@@ -36,7 +37,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
     }
     return {
         header: values.header,
-        summary: values.summary,
+        summary: { ...values.summary, clusters: values.clustersChip },
         mode: values.mode,
         onModeChange: actions.setMode,
         tree: values.tree,
@@ -68,6 +69,7 @@ export function TraceScene(): JSX.Element {
         backLink,
         header,
         summary,
+        clustersChip,
         mode,
         tree,
         selectedNodeId,
@@ -86,6 +88,7 @@ export function TraceScene(): JSX.Element {
                   {
                       header,
                       summary,
+                      clustersChip,
                       mode,
                       tree,
                       selectedNodeId,

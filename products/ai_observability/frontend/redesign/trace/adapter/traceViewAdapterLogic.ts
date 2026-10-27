@@ -8,11 +8,19 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
 import type { SaveToDatasetButtonProps } from '../../../datasets/SaveToDatasetButton'
-import type { TraceEvaluationResultApi, TraceNodeApi, TraceTimelineRowApi } from '../../../generated/api.schemas'
+import type {
+    TraceClusterApi,
+    TraceEvaluationResultApi,
+    TraceNodeApi,
+    TraceTimelineRowApi,
+} from '../../../generated/api.schemas'
+import { TraceClustersChipProps } from '../components/TraceClustersChip'
 import { TraceHeaderProps } from '../components/TraceHeader'
 import { TraceSummaryBarProps } from '../components/TraceSummaryBar'
+import { traceClustersLogic } from '../traceClustersLogic'
 import { TraceViewStatus, traceViewLogic } from '../traceViewLogic'
 import { ConversationState, LabeledLink, NodeDetailTab, NodeLoad, TraceMode } from '../types'
+import { toClustersChip } from './toClustersChip'
 import { toDatasetItemSource } from './toDatasetItemSource'
 import { toBackLink, toHeader } from './toHeader'
 import { NodeDetailData, toNodeDetail } from './toNodeDetail'
@@ -35,6 +43,7 @@ export interface traceViewAdapterLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     searchParams: Record<string, any> // router
     currentTeamId: number | null // teamLogic
+    clusters: TraceClusterApi[] | null // traceClustersLogic
     createdAt: string | null // traceViewLogic
     defaultNodeId: string // traceViewLogic
     errorMessage: string // traceViewLogic
@@ -56,6 +65,7 @@ export interface traceViewAdapterLogicValues {
     tree: TraceNodeApi[] // traceViewLogic
     backLink: LabeledLink
     canViewInThread: boolean
+    clustersChip: TraceClustersChipProps | null
     datasetItemSource: SaveToDatasetButtonProps | null
     detailData: NodeDetailData | null
     detailTab: NodeDetailTab
@@ -80,6 +90,7 @@ export interface traceViewAdapterLogicActions {
     setEventId: (eventId: string | null) => {
         eventId: string | null
     } // aiObservabilityTraceLogic
+    loadClusters: (createdAt: string) => string // traceClustersLogic
     loadNode: (
         nodeId: string,
         trigger: import('../types').NodeLoadTrigger
@@ -164,6 +175,7 @@ export interface traceViewAdapterLogicMeta {
             currentTeamId: number | null,
             traceId: string
         ) => ConversationState
+        clustersChip: (clusters: TraceClusterApi[] | null) => TraceClustersChipProps | null
         canViewInThread: (selectedNodeId: string, threadNodeIds: string[], traceId: string) => boolean
     }
 }
@@ -212,12 +224,16 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             ['searchParams'],
             featureFlagLogic,
             ['featureFlags'],
+            traceClustersLogic({ traceId: props.traceId }),
+            ['clusters'],
         ],
         actions: [
             aiObservabilityTraceLogic,
             ['setEventId', 'loadNeighbors'],
             traceViewLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
             ['loadNode', 'loadTraceSuccess'],
+            traceClustersLogic({ traceId: props.traceId }),
+            ['loadClusters'],
         ],
     })),
     actions({
@@ -370,6 +386,10 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 return toThread({ traceId, createdAt, load, teamId })
             },
         ],
+        clustersChip: [
+            (s) => [s.clusters],
+            (clusters: TraceClusterApi[] | null): TraceClustersChipProps | null => toClustersChip(clusters),
+        ],
         canViewInThread: [
             (s, p) => [s.selectedNodeId, s.threadNodeIds, p.traceId],
             (selectedNodeId: string, threadNodeIds: string[], traceId: string): boolean =>
@@ -391,7 +411,10 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 await breakpoint(PREFETCH_DELAY_MS)
                 actions.loadNode(id, 'prefetch')
             },
-            loadTraceSuccess: ({ trace }) => actions.loadNeighbors(props.traceId, trace.createdAt),
+            loadTraceSuccess: ({ trace }) => {
+                actions.loadNeighbors(props.traceId, trace.createdAt)
+                actions.loadClusters(trace.createdAt)
+            },
         }
     }),
     subscriptions(({ actions }) => ({

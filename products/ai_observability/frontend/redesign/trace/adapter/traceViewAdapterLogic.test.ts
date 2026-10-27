@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -11,7 +12,7 @@ import { initKeaTests } from '~/test/init'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
 import type { TraceApi } from '../../../generated/api.schemas'
-import { decodeIdSegment, makeNodeDetail, makeTraceResource } from './testFixtures'
+import { decodeIdSegment, makeNodeDetail, makeTraceCluster, makeTraceResource } from './testFixtures'
 import { traceViewAdapterLogic } from './traceViewAdapterLogic'
 
 jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), performQuery: jest.fn() }))
@@ -19,6 +20,8 @@ jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), 
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
+const CLUSTERS_URL = '/api/projects/:team_id/ai_observability/traces/:id/clusters/'
+const CREATED_AT = '2026-09-01T10:15:00Z'
 
 const answeredGeneration = makeNodeDetail({
     id: 'gen-2',
@@ -35,6 +38,8 @@ describe('traceViewAdapterLogic', () => {
     let traceGate: Promise<void>
     let nodeRequests: string[]
     let failingNodeId: string | null
+    let clusterRequests: string[]
+    let clustersStatus: number
 
     function mountAt(params: Record<string, string> = {}): void {
         router.actions.push(urls.aiObservabilityTrace('trace-1', params))
@@ -47,6 +52,8 @@ describe('traceViewAdapterLogic', () => {
         traceGate = Promise.resolve()
         nodeRequests = []
         failingNodeId = null
+        clusterRequests = []
+        clustersStatus = 200
         useMocks({
             get: {
                 [TRACE_URL]: async () => {
@@ -54,6 +61,12 @@ describe('traceViewAdapterLogic', () => {
                     return [200, traceResource]
                 },
                 [EVALUATIONS_URL]: () => [200, { results: [] }],
+                [CLUSTERS_URL]: ({ request }) => {
+                    clusterRequests.push(String(new URL(request.url).searchParams.get('created_at')))
+                    return clustersStatus === 200
+                        ? [200, { clusters: [makeTraceCluster()] }]
+                        : [clustersStatus, { detail: 'Server error.' }]
+                },
                 [NODE_URL]: ({ params }) => {
                     const nodeId = decodeIdSegment(String(params.node_id))
                     nodeRequests.push(nodeId)
@@ -117,6 +130,34 @@ describe('traceViewAdapterLogic', () => {
         await expectLogic(logic).toDispatchActions([
             aiObservabilityTraceLogic.actionCreators.loadNeighbors('trace-1', '2026-09-01T10:15:00Z'),
         ])
+    })
+
+    it('asks for the clusters with the trace start once the trace arrives', async () => {
+        let releaseTrace = (): void => {}
+        traceGate = new Promise<void>((resolve) => {
+            releaseTrace = resolve
+        })
+        mountAt()
+
+        await waitFor(() => expect(nodeRequests).toEqual(['trace-1']))
+        expect(clusterRequests).toEqual([])
+        expect(logic.values.clustersChip).toBeNull()
+
+        releaseTrace()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(clusterRequests).toEqual([CREATED_AT])
+        expect(logic.values.clustersChip?.first.label).toBe('Billing questions')
+    })
+
+    it('shows no clusters chip and no toast when the clusters read fails', async () => {
+        const toast = jest.spyOn(lemonToast, 'error')
+        clustersStatus = 500
+        mountAt()
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'ready', clustersChip: null })
+        expect(clusterRequests).toEqual([CREATED_AT])
+        expect(toast).not.toHaveBeenCalled()
     })
 
     it('reports the reads that open the view as navigation and a click on an unread step as a selection', async () => {

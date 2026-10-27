@@ -16,6 +16,7 @@ import type {
     AiObservabilityOfflineExperimentsResultCellsRetrieveParams,
     AiObservabilityOfflineExperimentsScorerSummariesListParams,
     AiObservabilityOfflineScorersHistoryListParams,
+    AiObservabilityTracesClustersRetrieveParams,
     AiObservabilityTracesNodesRetrieveParams,
     AiObservabilityTracesRetrieveParams,
     BatchCheckRequestApi,
@@ -149,6 +150,7 @@ import type {
     TextReprRequestApi,
     TextReprResponseApi,
     TraceApi,
+    TraceClustersApi,
     TraceEvaluationResultsApi,
     TraceNodeDetailApi,
     TraceReviewApi,
@@ -677,6 +679,41 @@ export const aiObservabilityTracesRetrieve = async (
     options?: RequestInit
 ): Promise<TraceApi> => {
     return apiMutator<TraceApi>(getAiObservabilityTracesRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesClustersRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: AiObservabilityTracesClustersRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/clusters/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/clusters/`
+}
+
+/**
+ * The clusters that list this trace, from the newest run of each clustering job that lists it.
+ */
+export const aiObservabilityTracesClustersRetrieve = async (
+    projectId: string,
+    id: string,
+    params: AiObservabilityTracesClustersRetrieveParams,
+    options?: RequestInit
+): Promise<TraceClustersApi> => {
+    return apiMutator<TraceClustersApi>(getAiObservabilityTracesClustersRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
     })

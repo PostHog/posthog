@@ -21,7 +21,7 @@ from products.access_control.backend.models.property_access_control import Prope
 from products.ai_observability.backend.models.review_queues import ReviewQueue
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
-from .logic.traces.rows import make_evaluation_result_event
+from .logic.traces.rows import make_cluster, make_cluster_run_event, make_evaluation_result_event
 
 T0 = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
 GENERATION = "00000000-0000-0000-0000-000000000001"
@@ -156,6 +156,7 @@ class TestTraceViewSet(ClickhouseTestMixin, APIBaseTest):
                 ("trace", ""),
                 ("node", f"nodes/{_encode('trace-1')}/"),
                 ("evaluations", "evaluations/"),
+                ("clusters", "clusters/?created_at=2026-09-01T10:00:00Z"),
             ]
         ]
     )
@@ -314,6 +315,73 @@ class TestTraceEvaluationsView(ClickhouseTestMixin, APIBaseTest):
         result = self.client.get(self._url(_encode("trace-1"))).json()["results"][0]
 
         assert (result["reasoning"], result["outcome"]) == (None, "pass")
+
+
+class TestTraceClustersView(ClickhouseTestMixin, APIBaseTest):
+    def _url(self, segment: str) -> str:
+        return f"/api/projects/{self.team.id}/ai_observability/traces/{segment}/clusters/"
+
+    def _create_cluster_run(self) -> None:
+        bulk_create_events(
+            [
+                make_cluster_run_event(
+                    uuid="00000000-0000-0000-0000-0000000c4001",
+                    team=self.team,
+                    timestamp=T0 + timedelta(days=1),
+                    clusters=[
+                        make_cluster(3, ["trace-1"], title="Billing questions", description="Users ask about invoices.")
+                    ],
+                )
+            ]
+        )
+
+    def test_returns_the_clusters_in_camel_case(self) -> None:
+        self._create_cluster_run()
+
+        response = self.client.get(self._url(_encode("trace-1")), {"created_at": T0.isoformat()})
+
+        assert response.status_code == 200
+        assert response.json()["clusters"][0] | {"runAt": None} == {
+            "runId": "1_trace_20260902_030000",
+            "runAt": None,
+            "jobId": None,
+            "jobName": None,
+            "clusterId": 3,
+            "title": "Billing questions",
+            "description": "Users ask about invoices.",
+            "isOutlier": False,
+        }
+
+    @parameterized.expand(
+        [
+            ("an unencoded id", "trace-1", {"created_at": "2026-09-01T10:00:00Z"}),
+            ("no created_at", _encode("trace-1"), {}),
+            ("a malformed created_at", _encode("trace-1"), {"created_at": "yesterday"}),
+            ("an out-of-range created_at", _encode("trace-1"), {"created_at": "9999-12-31T00:00:00Z"}),
+        ]
+    )
+    def test_rejects_a_malformed_request(self, _name: str, segment: str, query: dict[str, str]) -> None:
+        assert self.client.get(self._url(segment), query).status_code == 400
+
+    def test_masks_clusters_the_viewer_may_not_read(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="$ai_clusters", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=definition,
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        self._create_cluster_run()
+
+        response = self.client.get(self._url(_encode("trace-1")), {"created_at": T0.isoformat()})
+
+        assert (response.status_code, response.json()) == (200, {"clusters": []})
 
 
 class TestTraceViewSetResourceLevelAccess(ClickhouseTestMixin, APIBaseTest):

@@ -1,6 +1,7 @@
 import type { Decorator } from '@storybook/react'
 
 import type { TraceNodeApi, TraceNodeStatsApi, TraceTimelineRowApi } from '../../generated/api.schemas'
+import type { ClusterChipItem, TraceClustersChipProps } from './components/TraceClustersChip'
 import { SampleNodeDetail, SampleTraceFixture } from './sampleFixtures/sampleTraceFixture'
 import { ConversationTurn, EvalResult, MessagePart, NodeProperties, ThreadMessage } from './types'
 
@@ -393,4 +394,34 @@ export function withWidth(px: number): Decorator {
             <Story />
         </div>
     )
+}
+
+export const FIXTURE_CLUSTER: ClusterChipItem = {
+    label: 'Billing questions',
+    description: 'Users ask why an invoice changed after adding seats.',
+    jobName: 'Support conversations',
+    isOutlier: false,
+    href: '/ai-observability/clusters/1_trace_20260902_030000/3',
+}
+
+export const FIXTURE_OUTLIER_CLUSTER: ClusterChipItem = {
+    label: 'Outliers',
+    description: null,
+    jobName: 'Agent runs',
+    isOutlier: true,
+    href: '/ai-observability/clusters/1_trace_20260901_030000/-1',
+}
+
+export const FIXTURE_CLUSTERS_CHIP: TraceClustersChipProps = {
+    first: FIXTURE_CLUSTER,
+    others: [
+        FIXTURE_OUTLIER_CLUSTER,
+        {
+            label: 'Refund requests',
+            description: 'Users ask for money back on an annual plan.',
+            jobName: null,
+            isOutlier: false,
+            href: '/ai-observability/clusters/1_trace_20260902_040000/5',
+        },
+    ],
 }

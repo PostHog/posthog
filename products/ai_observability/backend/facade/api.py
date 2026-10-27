@@ -16,6 +16,8 @@ from ..logic.evaluations.period import (
 )
 from ..logic.evaluations.runs import RunOutcome, load_runs
 from ..logic.evaluations.score_distribution import load_score_distribution, score_buckets
+from ..logic.traces.cluster_queries import ClusterRunWindow, can_read_clusters, load_cluster_runs
+from ..logic.traces.clusters import ClusterMemberships, TraceCluster
 from ..logic.traces.evaluation_result import EvaluationResult
 from ..logic.traces.evaluation_result_queries import load_evaluation_results, load_output_configs
 from ..logic.traces.events_fallback import fallback_window
@@ -221,6 +223,36 @@ def _to_evaluation_result(result: EvaluationResult) -> contracts.TraceEvaluation
         reasoning=result.reasoning,
         timestamp=result.timestamp,
         is_backfill=result.is_backfill,
+    )
+
+
+def is_usable_trace_start(created_at: datetime) -> bool:
+    try:
+        ClusterRunWindow.for_trace(created_at)
+    except OverflowError:
+        return False
+    return True
+
+
+def get_trace_clusters(team: Team, user: User | None, trace_id: str, created_at: datetime) -> contracts.TraceClusters:
+    if not can_read_clusters(team, user):
+        return contracts.TraceClusters(clusters=[])
+    runs = load_cluster_runs(team, user, trace_id, ClusterRunWindow.for_trace(created_at))
+    return contracts.TraceClusters(
+        clusters=[_to_trace_cluster(cluster) for cluster in ClusterMemberships.of(trace_id, runs).clusters]
+    )
+
+
+def _to_trace_cluster(cluster: TraceCluster) -> contracts.TraceCluster:
+    return contracts.TraceCluster(
+        run_id=cluster.run_id,
+        run_at=cluster.run_at,
+        job_id=cluster.job_id,
+        job_name=cluster.job_name,
+        cluster_id=cluster.cluster_id,
+        title=cluster.title,
+        description=cluster.description,
+        is_outlier=cluster.is_outlier,
     )
 
 

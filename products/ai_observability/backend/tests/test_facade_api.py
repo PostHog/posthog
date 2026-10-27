@@ -17,7 +17,13 @@ from products.ai_observability.backend.logic.traces.trace_queries import LoadedT
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
-from .logic.traces.rows import make_evaluation_result_event, make_row
+from .logic.traces.rows import (
+    CLUSTERING_JOB_ID,
+    make_cluster,
+    make_cluster_run_event,
+    make_evaluation_result_event,
+    make_row,
+)
 
 T0 = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
 
@@ -145,3 +151,66 @@ class TestGetTraceEvaluationResults(ClickhouseTestMixin, BaseTest):
         results = api.get_trace_evaluation_results(self.team, None, "trace-1").results
 
         assert [(result.id, result.is_backfill) for result in results] == [(live, False), (backfill, True)]
+
+
+class TestGetTraceClusters(ClickhouseTestMixin, BaseTest):
+    def _run(
+        self,
+        uuid: str,
+        clusters: list[dict[str, object]],
+        *,
+        days_after: int = 1,
+        run_id: str = "1_trace_20260902_030000",
+        job_id: str = "",
+        job_name: str = "",
+    ) -> dict[str, object]:
+        return make_cluster_run_event(
+            uuid=uuid,
+            team=self.team,
+            timestamp=T0 + timedelta(days=days_after),
+            clusters=clusters,
+            run_id=run_id,
+            job_id=job_id,
+            job_name=job_name,
+        )
+
+    def test_returns_the_clusters_that_list_the_trace(self) -> None:
+        bulk_create_events(
+            [
+                self._run(
+                    "00000000-0000-0000-0000-0000000c3001",
+                    [make_cluster(3, ["trace-1"], title="Billing questions")],
+                    run_id="1_trace_20260902_030000_job",
+                    job_id=CLUSTERING_JOB_ID,
+                    job_name="Support conversations",
+                ),
+                self._run(
+                    "00000000-0000-0000-0000-0000000c3002",
+                    [make_cluster(0, ["trace-2"]), make_cluster(-1, ["trace-1"], title="Outliers")],
+                    days_after=2,
+                    run_id="1_trace_20260903_030000",
+                ),
+            ]
+        )
+
+        clusters = api.get_trace_clusters(self.team, self.user, "trace-1", T0).clusters
+
+        assert [(c.cluster_id, c.title, c.job_name, c.is_outlier) for c in clusters] == [
+            (3, "Billing questions", "Support conversations", False),
+            (-1, "Outliers", None, True),
+        ]
+
+    def test_a_viewer_without_cluster_access_gets_no_clusters(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="ai_observability_clusters",
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
+        bulk_create_events([self._run("00000000-0000-0000-0000-0000000c3004", [make_cluster(3, ["trace-1"])])])
+
+        assert api.get_trace_clusters(self.team, self.user, "trace-1", T0).clusters == []
