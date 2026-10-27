@@ -483,7 +483,7 @@ function InsightCardInternal(
                 <BindLogic logic={insightLogic} props={insightLogicProps}>
                     <InsightMeta
                         headerStatus={
-                            biDashboardTileId !== undefined && dashboardId && isCrossFilterWorksheet(insight.query) ? (
+                            biDashboardTileId !== undefined && dashboardId ? (
                                 <BIDashboardFilterStatus dashboardId={dashboardId} tileId={biDashboardTileId} />
                             ) : undefined
                         }

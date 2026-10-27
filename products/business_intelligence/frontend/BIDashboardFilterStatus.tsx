@@ -20,11 +20,24 @@ export function BIDashboardFilterStatus({
         return null
     }
     const filtered = !!targets[tileId]
-    const status = filtered ? 'Filtered by selection' : selection.tileId === tileId ? 'Filter source' : 'Not filtered'
+    const isSource = selection.tileId === tileId
+    const active = filtered || isSource
+    const filterStatus = filtered ? 'filtered' : isSource ? 'source' : 'unaffected'
+    const status = filtered ? 'Filtered by selection' : isSource ? 'Filter source' : 'Not filtered'
     return todayRailNav ? (
-        <Badge className="shrink-0 whitespace-nowrap">{status}</Badge>
+        <Badge
+            className="shrink-0 whitespace-nowrap border-current"
+            variant={active ? 'info' : 'default'}
+            data-bi-filter-status={filterStatus}
+        >
+            {status}
+        </Badge>
     ) : (
-        <LemonTag className="shrink-0 whitespace-nowrap" type={filtered ? 'highlight' : 'default'}>
+        <LemonTag
+            className="shrink-0 whitespace-nowrap"
+            type={active ? 'info' : 'default'}
+            data-bi-filter-status={filterStatus}
+        >
             {status}
         </LemonTag>
     )
