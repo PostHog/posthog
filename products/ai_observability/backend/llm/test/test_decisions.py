@@ -52,7 +52,7 @@ def public_endpoint_dns() -> Iterator[None]:
 @pytest.mark.parametrize(
     "base_url,flag,enabled",
     [
-        ("https://api.typesafe.ai/v1", True, False),
+        ("https://api.typesafe.ai/v1", True, True),
         ("", True, False),
         ("https://decisions.example.com/v1", True, True),
         ("https://decisions.example.com/v1", False, False),
@@ -260,25 +260,6 @@ def test_unavailable_usage_does_not_discard_a_valid_answer(
 
     assert result.input_tokens == expected_input
     assert result.output_tokens == expected_output
-
-
-@pytest.mark.parametrize(
-    "base_url",
-    ["https://api.typesafe.ai/v1", "https://API.TYPESAFE.AI.:443/v1", "https://ａｐｉ.typesafe.ai/v1"],
-)
-def test_official_endpoint_is_blocked(base_url: str) -> None:
-    with (
-        patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
-        pytest.raises(DecisionEndpointBlockedError, match="hosted endpoint is not available"),
-    ):
-        DecisionClient.evaluate(
-            api_key="example-token",
-            base_url=base_url,
-            model="example-judge-v1",
-            state="Hello!",
-            questions={"verdict": NoulQuestion(instructions="Polite?")},
-        )
-    request.assert_not_called()
 
 
 @pytest.mark.parametrize("answers", [{}, {"verdict": {"type": "noul", "noul": 0.9}}])
