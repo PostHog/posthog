@@ -371,6 +371,25 @@ class TestTtlRefreshSelection(BaseTest):
             self._emitted_doc(emitted_days_ago=EMBEDDING_TTL_REFRESH_WINDOW.days + 5)
         assert len(logic.list_documents_for_embedding_refresh(limit=2)) == 2
 
+    def test_stops_at_content_budget(self) -> None:
+        docs = []
+        for index in range(3):
+            source = logic.create_text_source(
+                team_id=self.team.id, created_by_id=self.user.id, name=f"Doc {index}", text="a" * 100
+            )
+            emitted_at = timezone.now() - datetime.timedelta(days=EMBEDDING_TTL_REFRESH_WINDOW.days + 5 + index)
+            with team_scope(self.team.id, canonical=True):
+                KnowledgeDocument.objects.filter(source_id=source.id).update(
+                    safety_verdict=SafetyVerdict.SAFE, embeddings_emitted_at=emitted_at
+                )
+                docs.append(KnowledgeDocument.objects.get(source_id=source.id))
+        mine = {doc.id for doc in docs}
+        with patch.object(logic, "COORDINATOR_PASS_CONTENT_BYTES", 250):
+            pending = [
+                item.document_id for item in logic.list_documents_for_embedding_refresh() if item.document_id in mine
+            ]
+        assert len(pending) == 2
+
     def test_orders_oldest_emitted_first(self) -> None:
         older = self._emitted_doc(emitted_days_ago=EMBEDDING_TTL_REFRESH_WINDOW.days + 30)
         newer = self._emitted_doc(emitted_days_ago=EMBEDDING_TTL_REFRESH_WINDOW.days + 5)

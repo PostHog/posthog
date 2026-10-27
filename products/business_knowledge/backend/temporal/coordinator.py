@@ -28,6 +28,8 @@ from datetime import timedelta
 from typing import Any, TypeVar
 from uuid import UUID
 
+from django.conf import settings
+
 import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -115,6 +117,9 @@ async def classify_pending_documents_activity(exclude_ids: list[str] | None = No
     tried_ids = [str(doc.document_id) for doc in docs]
     if not docs:
         return {"classified": 0, "unsafe": 0, "scanned": 0, "tried_ids": tried_ids}
+    recorded = bool(getattr(settings, "GEMINI_API_KEY", ""))
+    if recorded:
+        await database_sync_to_async(logic.record_classification_attempts, thread_sensitive=False)(docs)
     async with Heartbeater():
         results = await safety.classify_documents(docs)
         for result in results:
@@ -124,6 +129,7 @@ async def classify_pending_documents_activity(exclude_ids: list[str] | None = No
                 verdict=result.verdict,
                 reason=result.reason,
                 content_hash=result.content_hash,
+                attempt_already_recorded=recorded,
             )
     unsafe = sum(1 for r in results if r.verdict == SafetyVerdict.UNSAFE)
     return {

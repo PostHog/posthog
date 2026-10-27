@@ -284,14 +284,24 @@ def chunk_text(text: str) -> list[_Chunk]:
 
     for paragraph in paragraphs:
         # Hard-split any mega paragraph before we try to pack it.
-        while len(paragraph) > CHUNK_HARD_MAX_CHARS:
-            cut = paragraph.rfind(" ", 0, CHUNK_HARD_MAX_CHARS)
-            if cut <= 0:
-                cut = CHUNK_HARD_MAX_CHARS
-            head, paragraph = paragraph[:cut].rstrip(), paragraph[cut:].lstrip()
+        # Walk indexes. Slicing off the tail copies the rest of the paragraph,
+        # which is quadratic on a file with no spaces.
+        start = 0
+        length = len(paragraph)
+        while length - start > CHUNK_HARD_MAX_CHARS:
+            cut = paragraph.rfind(" ", start, start + CHUNK_HARD_MAX_CHARS)
+            if cut <= start:
+                cut = start + CHUNK_HARD_MAX_CHARS
+            head = paragraph[start:cut].rstrip()
             if current:
                 flush()
             buckets.append(head)
+            start = cut
+            while start < length and paragraph[start].isspace():
+                start += 1
+        paragraph = paragraph[start:]
+        if not paragraph:
+            continue
 
         if not current:
             current = paragraph
@@ -3290,8 +3300,34 @@ def list_documents_pending_classification(
     return documents
 
 
+def record_classification_attempts(docs: list[PendingDocument]) -> None:
+    """Count a classification pass before the model runs.
+
+    A pass that dies in the activity writes no verdict. The document would stay
+    at zero attempts and stay first in the queue on every later run.
+    """
+    for doc in docs:
+        KnowledgeDocument.objects.unscoped().filter(
+            team_id=doc.team_id,
+            id=doc.document_id,
+            content_hash=doc.content_hash,
+            safety_verdict=SafetyVerdict.UNKNOWN,
+        ).update(
+            classification_attempts=F("classification_attempts") + 1,
+            updated_at=timezone.now(),
+        )
+
+
 @with_team_scope(canonical=True)
-def set_document_safety(*, team_id: int, document_id: UUID, verdict: str, content_hash: str, reason: str = "") -> None:
+def set_document_safety(
+    *,
+    team_id: int,
+    document_id: UUID,
+    verdict: str,
+    content_hash: str,
+    reason: str = "",
+    attempt_already_recorded: bool = False,
+) -> None:
     """
     Persist a classifier outcome on a single document (team-scoped write).
 
@@ -3318,10 +3354,11 @@ def set_document_safety(*, team_id: int, document_id: UUID, verdict: str, conten
         safety_verdict=SafetyVerdict.UNKNOWN,
     )
     if verdict == SafetyVerdict.UNKNOWN:
-        base.update(
-            classification_attempts=F("classification_attempts") + 1,
-            updated_at=timezone.now(),
-        )
+        if not attempt_already_recorded:
+            base.update(
+                classification_attempts=F("classification_attempts") + 1,
+                updated_at=timezone.now(),
+            )
         return
     base.update(
         safety_verdict=verdict,
@@ -3566,13 +3603,23 @@ def list_documents_for_embedding_refresh(
     """
     now = now or timezone.now()
     cutoff = now - window
-    rows = list(
-        _embeddable_documents_qs()
-        .filter(embeddings_emitted_at__isnull=False, embeddings_emitted_at__lt=cutoff)
+    pending = _embeddable_documents_qs().filter(embeddings_emitted_at__isnull=False, embeddings_emitted_at__lt=cutoff)
+    sized = list(
+        pending.annotate(content_bytes=_content_num_bytes())
         .order_by("embeddings_emitted_at")
-        .values_list("team_id", "id", "source_id", "source__source_type")[:limit]
+        .values_list("id", "content_bytes")[:limit]
     )
-    chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id, *_rest in rows])
+    chosen = _ids_within_byte_budget(sized, COORDINATOR_PASS_CONTENT_BYTES)
+    if not chosen:
+        return []
+    rows = {
+        document_id: (team_id, document_id, source_id, source_type)
+        for team_id, document_id, source_id, source_type in pending.filter(id__in=chosen).values_list(
+            "team_id", "id", "source_id", "source__source_type"
+        )
+    }
+    ordered = [rows[document_id] for document_id in chosen if document_id in rows]
+    chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id, *_rest in ordered])
     return [
         DocumentToEmbed(
             team_id=team_id,
@@ -3582,7 +3629,7 @@ def list_documents_for_embedding_refresh(
             timestamp=now,
             chunks=chunks_by_doc.get(document_id, []),
         )
-        for team_id, document_id, source_id, source_type in rows
+        for team_id, document_id, source_id, source_type in ordered
     ]
 
 
