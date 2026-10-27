@@ -2,11 +2,35 @@ import { Message } from 'node-rdkafka'
 
 import { eventDroppedCounter } from '~/common/metrics'
 import { TeamManager } from '~/common/utils/team-manager'
-import { tokenOrTeamPresentCounter } from '~/ingestion/common/metrics'
-import { drop, ok } from '~/ingestion/framework/results'
+import { tokenOrTeamPresentCounter, tokenResolvedAsTeamIdCounter } from '~/ingestion/common/metrics'
+import { TopHogMetricFactory } from '~/ingestion/framework/extensions/tophog'
+import { drop, isOkResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, IncomingEvent, Team } from '~/types'
+
+// TeamManager caches teams by id and by token in one key space, so a numeric token loads the team with that id.
+function isResolvedAsTeamId(token: string | undefined, team: Team): boolean {
+    return team.api_token !== token
+}
+
+export function resolveTeamTopHogMetrics<
+    TInput extends { headers: EventHeaders },
+    TOutput extends { team: Team },
+>(): TopHogMetricFactory<TInput, TOutput>[] {
+    return [
+        (registry) => {
+            const recorder = registry.registerSum('token_resolved_as_team_id', { topN: 100 })
+            return {
+                start: (input) => (result) => {
+                    if (isOkResult(result) && isResolvedAsTeamId(input.headers.token, result.value.team)) {
+                        recorder.record({ team_id: String(result.value.team.id) }, 1)
+                    }
+                },
+            }
+        },
+    ]
+}
 
 export interface ResolveTeamStepInput {
     message: Message
@@ -50,6 +74,10 @@ async function resolveTeam(
             })
             .inc()
         return { error: true, cause: 'invalid_token' }
+    }
+
+    if (isResolvedAsTeamId(token, team)) {
+        tokenResolvedAsTeamIdCounter.inc()
     }
 
     return { error: false, team }

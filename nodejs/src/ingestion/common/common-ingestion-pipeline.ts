@@ -32,6 +32,7 @@ import {
     createParseKafkaMessageStep,
     createResolveTeamStep,
     parseMessageTopHogMetrics,
+    resolveTeamTopHogMetrics,
 } from './steps/event-preprocessing'
 import { addTeamToContext } from './subpipelines/helpers'
 
@@ -334,8 +335,10 @@ export class CommonPreTeamStage<
      * open the team-aware scope: every step piped after this runs inside
      * `handleIngestionWarnings`, with warnings routed to the resolved team.
      *
-     * `options.topHog` records metric factories around the team-resolution
-     * step (e.g. a per-team resolved counter).
+     * Teams resolved through a team id sent as the token are always recorded
+     * to topHog (`resolveTeamTopHogMetrics`); `options.topHog` appends
+     * metric factories around the team-resolution step (e.g. a per-team
+     * resolved counter).
      */
     resolveTeam(
         this: CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & { event: IncomingEvent }>,
@@ -345,8 +348,12 @@ export class CommonPreTeamStage<
     ): CommonTeamStage<TInput, TContext, ROut, CBatch, TeamResolved<TCurrent>, TeamResolved<TCurrent>> {
         const step = createResolveTeamStep<TCurrent & { event: IncomingEvent }>(this.config.teamManager)
         const topHog = createTopHogWrapper(this.config.topHog)
-        const metrics = options?.topHog
-        const resolved = this.chain.extend(metrics?.length ? topHog(step, metrics) : step)
+        const resolved = this.chain.extend(
+            topHog(step, [
+                ...resolveTeamTopHogMetrics<TCurrent & { event: IncomingEvent }, TeamResolved<TCurrent>>(),
+                ...(options?.topHog ?? []),
+            ])
+        )
         return new CommonTeamStage(
             this.config,
             this.beforeBatchCallback,
