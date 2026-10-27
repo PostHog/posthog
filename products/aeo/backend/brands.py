@@ -13,6 +13,7 @@ import tldextract
 from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.aeo.backend.facade.contracts import (
+    BRAND_DOMAIN_MAX_LENGTH,
     BRAND_NAME_MAX_LENGTH,
     BrandKind,
     BrandSource,
@@ -54,9 +55,11 @@ def registrable_domain(url: str) -> str | None:
         return None
     parts = _DOMAIN_PARTS(host.lower())
     # news.ycombinator.com is a site of its own; every other subdomain belongs to its registrable domain.
-    if host.lower() in PUBLISHER_DOMAINS:
-        return host.lower()
-    return parts.top_domain_under_public_suffix or None
+    domain = host.lower() if host.lower() in PUBLISHER_DOMAINS else parts.top_domain_under_public_suffix
+    # Cited URLs come from third-party pages; a host longer than the column would fail the whole bulk insert.
+    if not domain or len(domain) > BRAND_DOMAIN_MAX_LENGTH:
+        return None
+    return domain
 
 
 def placeholder_name(domain: str) -> str:

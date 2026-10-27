@@ -101,6 +101,7 @@ class TestSyncBrandsFromRun(BaseTest):
             ("uppercase_host", "https://WWW.Example.com/", "example.com"),
             ("no_host", "not a url", None),
             ("bare_suffix", "https://co.uk/", None),
+            ("longer_than_the_column", f"https://{'a' * 250}.com/", None),
         ]
     )
     def test_registrable_domain(self, _name: str, url: str, expected: str | None) -> None:
