@@ -14,7 +14,12 @@ from products.review_hog.backend.models import (
 )
 from products.review_hog.backend.reviewer.progress import run_outcome_markers
 from products.review_hog.backend.temporal.activities import ResolveActingUserInput, _resolve_acting_user
-from products.review_hog.backend.temporal.types import TRIGGER_AUTOMATIC, TRIGGER_LABEL, TRIGGER_MANUAL
+from products.review_hog.backend.temporal.types import (
+    TRIGGER_AUTOMATIC,
+    TRIGGER_LABEL,
+    TRIGGER_MANUAL,
+    TRIGGER_STAMPHOG,
+)
 
 _SELF = "SELF"
 
@@ -201,21 +206,22 @@ class TestResolveActingUser(BaseTest):
         assert result.resolve_comments is True
         assert result.celebrate_clean_reviews is False
 
-    def test_label_trigger_falls_back_to_the_run_user(self) -> None:
-        # Unmapped author on a labeled PR → the run user the trigger already resolved, passed
-        # through as default_user_id so acting and sandbox identity can never drift.
+    @parameterized.expand([(TRIGGER_STAMPHOG,), (TRIGGER_LABEL,)])
+    def test_requested_triggers_fall_back_to_the_run_user(self, trigger_source: str) -> None:
+        # Unmapped author → the run user the trigger already resolved, passed through as
+        # default_user_id so acting and sandbox identity can never drift.
         result = _resolve_acting_user(
             ResolveActingUserInput(
                 team_id=self.team.id,
                 author_login="ghost",
                 override_user_id=None,
-                trigger_source=TRIGGER_LABEL,
+                trigger_source=trigger_source,
                 default_user_id=self.user.id,
             )
         )
         assert (result.acting_user_id, result.resolved_from) == (self.user.id, "default")
 
-    def test_non_label_triggers_keep_the_author_only_contract(self) -> None:
+    def test_other_triggers_keep_the_author_only_contract(self) -> None:
         result = _resolve_acting_user(
             ResolveActingUserInput(
                 team_id=self.team.id,

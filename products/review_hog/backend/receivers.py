@@ -52,6 +52,7 @@ from products.stamphog.backend.facade.review_evidence import (
     ReviewEvidenceState,
     register_review_evidence_provider,
 )
+from products.stamphog.backend.facade.review_handoff import RefusedSelfDrivingPullRequest, register_review_handoff_hook
 from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
 
 # This module loads during django.setup() (AppConfig.ready() wires the receiver), and
@@ -74,6 +75,22 @@ def connect() -> None:
     # Stamphog waits for a pending review of the head it judges and counts a completed one as
     # assurance. The same dependency cycle rules out a direct import.
     register_review_evidence_provider(review_evidence_for_stamphog)
+    # Stamphog hands a refused or escalated self-driving PR over for a review. The same dependency
+    # cycle rules out a direct import.
+    register_review_handoff_hook(queue_stamphog_handoff)
+
+
+def queue_stamphog_handoff(refused: RefusedSelfDrivingPullRequest) -> None:
+    """Queue the review Stamphog hands over, off Stamphog's activity."""
+    from products.review_hog.backend.tasks import process_stamphog_handoff  # noqa: PLC0415
+
+    process_stamphog_handoff.delay(
+        installation_id=refused.installation_id,
+        repository=refused.repository,
+        pr_number=refused.pr_number,
+        author_login=refused.author_login,
+        head_branch=refused.head_branch,
+    )
 
 
 def review_evidence_for_stamphog(repository: str, pr_number: int, head_sha: str) -> ReviewEvidence | None:

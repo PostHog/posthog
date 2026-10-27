@@ -40,16 +40,11 @@ from products.review_hog.backend.app_identity import posthog_app_login
 from products.review_hog.backend.automatic_reviews import automatic_flash_allowed, observe_dispatch
 from products.review_hog.backend.facade.enums import ReviewRequestRefusal
 from products.review_hog.backend.facade.finished_review_hooks import FinishedReview, get_finished_review_hooks
-from products.review_hog.backend.label_reviews import (
-    comment_commands_enabled,
-    draft_review_notice,
-    first_review_note,
-    label_commands_hint,
-)
 from products.review_hog.backend.models import ReviewProjectSettings, ReviewReport, ReviewUserSettings
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
 from products.review_hog.backend.preferences import ReviewPreferences
-from products.review_hog.backend.pull_request_events import REVIEW_LABEL, has_skip_agent_review_label
+from products.review_hog.backend.pull_request_events import has_skip_agent_review_label
+from products.review_hog.backend.review_notes import comment_commands_enabled, draft_review_notice, first_review_note
 from products.review_hog.backend.review_request_rules import ResolutionGate, full_review_published
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
@@ -235,6 +230,7 @@ from products.review_hog.backend.temporal.types import (
     TRIGGER_AUTOMATIC,
     TRIGGER_LABEL,
     TRIGGER_MANUAL,
+    TRIGGER_STAMPHOG,
 )
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CodeReview, CodeReviewCounts
@@ -1043,9 +1039,9 @@ def _resolve_acting_user(input: ResolveActingUserInput) -> ResolveActingUserResu
         acting_user_id, resolved_from = input.override_user_id, "override"
     else:
         acting_user_id, resolved_from = owner.user_id, "author"
-        # Label-trigger fallback: someone explicitly asked for this review, so borrow the run user
-        # the trigger already resolved. Other triggers keep the owner-only contract and skip.
-        if acting_user_id is None and input.trigger_source == TRIGGER_LABEL:
+        # Stamphog-handoff fallback: the review was explicitly asked for, so borrow the run user the
+        # trigger already resolved. Other triggers keep the owner-only contract and skip.
+        if acting_user_id is None and input.trigger_source in (TRIGGER_LABEL, TRIGGER_STAMPHOG):
             acting_user_id, resolved_from = input.default_user_id, "default"
     automatic_allowed = input.trigger_source == TRIGGER_AUTOMATIC and _automatic_review_allowed(input, acting_user_id)
     flash_after_full = _flash_after_full(input)
@@ -2122,20 +2118,16 @@ async def build_body_activity(input: BuildBodyInput) -> None:
 def _publish(input: PublishInput) -> PublishResult:
     token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
     commands_on = comment_commands_enabled(input.team_id)
-    footer = ""
-    if input.trigger_source == TRIGGER_LABEL and commands_on:
-        footer = label_commands_hint(input.review_mode)
-    # Only an automatic turn can promise the review on ready: a label or UI review runs for authors
+    # Only an automatic turn can promise the review on ready: a comment or UI review runs for authors
     # without automatic reviews too. Only an automatic turn is held to the finding budget, too.
     draft_notice = ""
     comment_commands_on = False
     if input.trigger_source == TRIGGER_AUTOMATIC:
         comment_commands_on = commands_on
         draft_notice = draft_review_notice(comment_commands_on)
-    # The label footer already names the Deep command.
     intro_note = first_review_note(
         report_deep_link(input.team_id, input.report_id),
-        deep_command=commands_on and input.review_mode == REVIEW_MODE_FLASH and not footer,
+        deep_command=commands_on and input.review_mode == REVIEW_MODE_FLASH,
     )
     outcome = publish_persisted_review(
         team_id=input.team_id,
@@ -2150,7 +2142,6 @@ def _publish(input: PublishInput) -> PublishResult:
         installation_id=installation_id,
         review_mode=input.review_mode,
         capped_lens_parts=input.capped_lens_parts,
-        footer=footer,
         draft_notice=draft_notice,
         first_review_note=intro_note,
         answers_request=input.trigger_source in REQUESTED_TRIGGERS,
@@ -2185,12 +2176,16 @@ async def publish_review_activity(input: PublishInput) -> PublishResult:
         raise _wait_for_github_reset(error) from error
 
 
+# Label runs that started before labels stopped starting reviews still replay the activity below.
+_REVIEW_LABEL = "posthog-review"
+
+
 def _remove_trigger_label(input: RemoveTriggerLabelInput) -> None:
     token, installation_id = _installation_auth(input.team_id, f"{input.owner}/{input.repo}")
     try:
         github_api_request(
             "DELETE",
-            f"/repos/{input.owner}/{input.repo}/issues/{input.pr_number}/labels/{REVIEW_LABEL}",
+            f"/repos/{input.owner}/{input.repo}/issues/{input.pr_number}/labels/{_REVIEW_LABEL}",
             token=token,
             endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
             installation_id=installation_id,
