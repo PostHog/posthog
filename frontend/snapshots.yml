@@ -2964,6 +2964,10 @@ snapshots:
         hash: v1.k794b7964.7e808d1acde79b48d8f6c2d7139a9a11e2c33e0579b69636176f4f3b06f0fd94.4U7X0_N-c7UsfP55hsEDM_-nKHMzZYtNczPj2K5penI
     customer-analytics-task-digest--tasks-modal--light:
         hash: v1.k794b7964.d699105ed3649edc2776b326c0b8417aaf3d6b22573537c1812e5cee2917f13a.yH78vgMSeg2K_yuHa4ej4U_5g6atJd_s4pbbMFhbVlA
+    data-catalog-agent-usage-cell--all-states--dark:
+        hash: v1.k794b7964.7d0c32e102ad08f4111b1051244e4db92234ac70f5e9cf091a6d4798b9d40dc4.ZLRfOvp-pEYn0Yr0RqYnYDzR90vVAEb5LiPO4sZAGhY
+    data-catalog-agent-usage-cell--all-states--light:
+        hash: v1.k794b7964.2f21635bdec4542c84e6fd6bba23c7742e47f2d81f700f16387691e952ecc6e2.YmArNEAGYVhBaeTtvKVKOSceFMrUlUHJr_PUTK5IUbM
     data-catalog-catalog-explainer--open--dark:
         hash: v1.k794b7964.816e651a8950f17fc009ae42066690dea88357855aad0d83a01d9d3400a0caa3.PcnAfVK6PpvmRMEp6esApBLHOukfYF_OnGp7C9wpJdM
     data-catalog-catalog-explainer--open--light:
