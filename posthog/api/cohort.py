@@ -1022,14 +1022,20 @@ def flag_call_criterion_shape_problem(prop: Property) -> str | None:
     return None
 
 
-def _static_hidden_event_reasons(references: Iterable[tuple[str, Property]]) -> collections.Counter[tuple[str, str]]:
-    reasons: collections.Counter[tuple[str, str]] = collections.Counter()
+@frozen
+class HiddenEventRefusal:
+    event: str
+    reason: str
+
+
+def _static_hidden_event_reasons(references: Iterable[tuple[str, Property]]) -> collections.Counter[HiddenEventRefusal]:
+    reasons: collections.Counter[HiddenEventRefusal] = collections.Counter()
     for event, prop in references:
         reason = (
             HIDDEN_EVENT_REASON if event != FLAG_EVALUATIONS_SOURCE_EVENT else flag_call_criterion_shape_problem(prop)
         )
         if reason is not None:
-            reasons[(event, reason)] += 1
+            reasons[HiddenEventRefusal(event=event, reason=reason)] += 1
     return reasons
 
 
@@ -1063,7 +1069,7 @@ def _batch_flag_call_reads(criteria: Sequence[Property], team: Team) -> _BatchFl
 
 def added_unsupported_hidden_event_reference(
     new_properties: Sequence[Property], existing_properties: Sequence[Property], team: Team
-) -> tuple[str, str] | None:
+) -> HiddenEventRefusal | None:
     """A reference to a hidden event that a save adds and some reader of the cohort can't answer in full, with the
     reason, or None.
 
@@ -1085,13 +1091,16 @@ def added_unsupported_hidden_event_reference(
         return None
     new_reads = _batch_flag_call_reads(new_flag_calls, team)
     if new_reads is None:
-        return FLAG_EVALUATIONS_SOURCE_EVENT, _FLAG_CALL_COMPILE_REASON
+        return HiddenEventRefusal(event=FLAG_EVALUATIONS_SOURCE_EVENT, reason=_FLAG_CALL_COMPILE_REASON)
     if new_reads.reads_from_events == 0:
         return None
     existing_reads = _batch_flag_call_reads(existing_flag_calls, team) if existing_flag_calls else None
     if existing_reads is not None and new_reads.reads_from_events <= existing_reads.reads_from_events:
         return None
-    return FLAG_EVALUATIONS_SOURCE_EVENT, _FLAG_CALL_KEY_REASON if new_reads.rewrite_enabled else HIDDEN_EVENT_REASON
+    return HiddenEventRefusal(
+        event=FLAG_EVALUATIONS_SOURCE_EVENT,
+        reason=_FLAG_CALL_KEY_REASON if new_reads.rewrite_enabled else HIDDEN_EVENT_REASON,
+    )
 
 
 def _team_from_serializer_context(context: dict[str, Any]) -> Optional[Team]:
@@ -1897,9 +1906,8 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         existing = self._effective_filters_after_update({}, team=team)
         added = added_unsupported_hidden_event_reference(new_properties, _flat_properties(existing), team)
         if added is not None:
-            hidden_event, reason = added
             raise ValidationError(
-                {"filters": f"You can't save this criterion on {hidden_event}. {reason}"},
+                {"filters": f"You can't save this criterion on {added.event}. {added.reason}"},
                 code="hidden_event",
             )
 

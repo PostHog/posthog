@@ -107,15 +107,13 @@ _FLAG_CALLED_ANY_FLAG_CRITERION = {
     "time_value": 30,
     "time_interval": "day",
 }
-_FLAG_CALLED_CRITERION = {
-    **_FLAG_CALLED_ANY_FLAG_CRITERION,
-    "event_filters": [{"key": "$feature_flag", "type": "event", "value": "beta-feature", "operator": "exact"}],
-}
+_FLAG_KEY_FILTER = {"key": "$feature_flag", "type": "event", "value": "beta-feature", "operator": "exact"}
+_FLAG_CALLED_CRITERION = {**_FLAG_CALLED_ANY_FLAG_CRITERION, "event_filters": [_FLAG_KEY_FILTER]}
 _PAGEVIEW_CRITERION = {**_FLAG_CALLED_ANY_FLAG_CRITERION, "key": "$pageview"}
 _FLAG_CALLED_PAST_RETENTION_CRITERION = {**_FLAG_CALLED_CRITERION, "time_value": 180}
 _FLAG_CALLED_UNRESOLVABLE_CRITERION = {
     **_FLAG_CALLED_CRITERION,
-    "event_filters": [*_FLAG_CALLED_CRITERION["event_filters"], {"key": "$window_id = 'w'", "type": "hogql"}],
+    "event_filters": [_FLAG_KEY_FILTER, {"key": "$window_id = 'w'", "type": "hogql"}],
 }
 _HIDDEN_EVENT_REFUSAL = "its data is moving"
 _FLAG_CALL_TYPE_REFUSAL = "can use this event"
@@ -4941,10 +4939,7 @@ email@example.org,
                 [
                     {
                         **_FLAG_CALLED_CRITERION,
-                        "event_filters": [
-                            *_FLAG_CALLED_CRITERION["event_filters"],
-                            {"key": "properties.x = (", "type": "hogql"},
-                        ],
+                        "event_filters": [_FLAG_KEY_FILTER, {"key": "properties.x = (", "type": "hogql"}],
                     }
                 ],
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
