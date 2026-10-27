@@ -6557,10 +6557,10 @@ Diffed against: <https://developer.jamf.com/jamf-pro/reference/get_v1-buildings>
 - [x] `GET /api/v1/managed-software-updates/update-statuses (+ /computers/{id}, /computer-groups/{id})` — OS update enforcement status per device — core compliance metric (high)
 - [x] `GET /api/v2/patch-policies and /api/v2/patch-policies/{id}/logs` — per-device patch deployment outcomes for the packages we sync (medium). Added as `patch_policies` and `patch_policy_logs` (fan-out over `patch_policies`).
 - ~~`GET /api/v1/computers-inventory/filevault (and /{id}/filevault)`~~ — skipped: `computers` already syncs the `DISK_ENCRYPTION` section with the same compliance fields; the only extra field is the personal recovery key, a secret that does not belong in the warehouse (medium)
-- [ ] `GET /api/v1/computer-extension-attributes and /api/v1/mobile-device-extension-attributes` — lookup resolving the custom extension-attribute IDs embedded in inventory records (medium)
-- [ ] `GET /api/v1/volume-purchasing-locations/{id}/content and /api/v1/volume-purchasing-subscriptions` — VPP app license inventory and consumption (medium)
-- [ ] `GET /api/v1/device-enrollments and /{id}/devices` — ADE/DEP enrollment records and their device rosters (medium)
-- [ ] `GET /api/v1/{buildings,categories,departments,packages,scripts}/{id}/history` — object change history for the reference tables we already sync (low)
+- [x] `GET /api/v1/computer-extension-attributes and /api/v1/mobile-device-extension-attributes` — lookup resolving the custom extension-attribute IDs embedded in inventory records (medium). Added as `computer_extension_attributes` and `mobile_device_extension_attributes`.
+- [x] `GET /api/v1/volume-purchasing-locations/{id}/content and /api/v1/volume-purchasing-subscriptions` — VPP app license inventory and consumption (medium). Added as `volume_purchasing_content` (fan-out over the new `volume_purchasing_locations` table) and `volume_purchasing_subscriptions`.
+- [x] `GET /api/v1/device-enrollments and /{id}/devices` — ADE/DEP enrollment records and their device rosters (medium). Added as `device_enrollments` and `device_enrollment_devices`.
+- [x] `GET /api/v1/{buildings,categories,departments,packages,scripts}/{id}/history` — object change history for the reference tables we already sync (low). Added as `building_history`, `category_history`, `department_history`, `package_history` and `script_history` (full refresh).
 
 Note: Jamf publishes no downloadable OpenAPI on developer.jamf.com (ReadMe-hosted; /openapi.json 404s) — the resource list was extracted from the 408 get\_\* reference slugs embedded in the reference page HTML. The instance-hosted spec at https://<tenant>/api/schema requires auth. Source currently syncs /api/v1/computers-inventory and /api/v2/mobile-devices; note v4/computers-inventory and v2/mobile-devices/detail are the newest versions of those. Classic (XML) API resources such as policies and configuration profiles were not audited here.
 
@@ -9103,10 +9103,10 @@ Today (7): `contacts`, `document_folders`, `documents`, `forms`, `members`, `tem
 
 Diffed against: <https://developers.pandadoc.com/llms.txt>
 
-- [ ] `/public/v2/documents/{document_id}/audit-trail` — full state/transition history per document (sent, viewed, signed, edited) with timestamps - the core e-signature funnel dataset (high)
-- [ ] `/public/v2/product-catalog/items/search` — lookup table resolving the catalog item / SKU ids referenced by quotes and pricing tables (high)
-- [ ] `/public/v1/documents/{id} (detail expansion)` — recipients, tokens, and pricing table line items only appear in document details, not in the list response we sync (high)
-- [ ] `/public/v1/documents/{id}/fields` — per-document field values, the structured data captured on each document (high)
+- [x] `/public/v2/documents/{document_id}/audit-trail` — full state/transition history per document (sent, viewed, signed, edited) with timestamps - the core e-signature funnel dataset (high)
+- [x] `/public/v2/product-catalog/items/search` — lookup table resolving the catalog item / SKU ids referenced by quotes and pricing tables (high)
+- [x] `/public/v1/documents/{id} (detail expansion)` — recipients, tokens, and pricing table line items only appear in document details, not in the list response we sync (high)
+- [x] `/public/v1/documents/{id}/fields` — per-document field values, the structured data captured on each document (high)
 - [ ] `/public/v1/documents/{id}/linked-objects` — CRM linkage (Salesforce/HubSpot object ids) - the join key back to deal data (medium)
 - [ ] `/public/v1/content-library-items` — content library blocks reused across documents and templates (medium)
 - [ ] `/public/v1/workspaces` — lookup resolving the workspace each document, template, and member belongs to (medium)

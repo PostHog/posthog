@@ -29,7 +29,7 @@ import {
 import { captureInsightDisplayChanged } from '../analytics/posthog'
 import { ChartHeader } from './ChartHeader'
 import { BigNumber, Select } from './charts'
-import { colorAt, useMcpChartTheme } from './charts/theme'
+import { colorAt, fadedColorAt, useMcpChartTheme } from './charts/theme'
 import { ChartSettings } from './ChartSettings'
 import {
     type ChartType,
@@ -56,6 +56,8 @@ const CHART_TYPE_OPTIONS = [
 const SLOPE_TYPE_OPTION = { value: 'slope' as const, label: 'Slope' }
 
 const TOOLTIP_CONFIG = { pinnable: true, placement: 'cursor' as const }
+
+const LEGEND_CONFIG = { show: true, position: 'bottom' } as const
 
 // DefaultTooltip shows the raw x label; format it like the axis.
 const renderDateTooltip = (ctx: TooltipContext): ReactElement => (
@@ -85,6 +87,8 @@ export function TrendsVisualizer({
     showControls = true,
     chartClassName = 'h-[400px]',
     showTitle = true,
+    showLegend = false,
+    highlightedSeries,
 }: TrendsVisualizerProps): ReactElement {
     const displayType = getDisplayType(query)
     const [chartType, setChartType] = useState<ChartType>(defaultChartType(displayType))
@@ -193,6 +197,8 @@ export function TrendsVisualizer({
     }
     const chartTypeOptions = slopeAvailable ? [...CHART_TYPE_OPTIONS, SLOPE_TYPE_OPTION] : CHART_TYPE_OPTIONS
 
+    const seriesColor = (index: number): string =>
+        highlightedSeries?.length && !highlightedSeries.includes(index) ? fadedColorAt(index) : colorAt(index)
     // Area auto-stacks, so derived overlays would draw against the stacked totals — disable them.
     const derivedSeriesDisabled = effectiveType === 'area'
     const isPercentStackView = chartConfig.percentStack && supportsPercentStack(effectiveType)
@@ -222,7 +228,7 @@ export function TrendsVisualizer({
         }
         if (isBarFamily(effectiveType)) {
             const { series, config } = buildTrendsBarChartModel(trendResults, {
-                getColor: (_, index) => colorAt(index),
+                getColor: (_, index) => seriesColor(index),
                 labels,
                 trendsFilter: effectiveTrendsFilter,
                 isPercentStackView,
@@ -236,7 +242,7 @@ export function TrendsVisualizer({
                     series={series}
                     labels={labels}
                     theme={theme}
-                    config={config}
+                    config={showLegend ? { ...config, legend: LEGEND_CONFIG } : config}
                     tooltip={renderDateTooltip}
                 >
                     {overlay}
@@ -245,7 +251,7 @@ export function TrendsVisualizer({
         }
         const series = buildTrendsSeries(trendResults, {
             isArea: effectiveType === 'area',
-            getColor: (_, index) => colorAt(index),
+            getColor: (_, index) => seriesColor(index),
         })
         const config = buildTrendsLineTimeSeriesConfig({
             results: trendResults,
@@ -265,7 +271,7 @@ export function TrendsVisualizer({
                 series={series}
                 labels={labels}
                 theme={theme}
-                config={config}
+                config={showLegend ? { ...config, legend: LEGEND_CONFIG } : config}
                 tooltip={renderDateTooltip}
             >
                 {overlay}
