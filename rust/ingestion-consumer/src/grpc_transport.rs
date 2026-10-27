@@ -444,9 +444,6 @@ impl WorkerStreamRunner {
                     backoff = (backoff * 2).min(Duration::from_secs(5));
                 }
                 StreamEnd::Idle => {
-                    // Stream ended cleanly with nothing outstanding (the worker
-                    // restarted gracefully, or the idle timer closed it) —
-                    // reconnect without delay escalation.
                     backoff = Duration::from_millis(100);
                 }
             }
@@ -811,8 +808,6 @@ impl WorkerStreamRunner {
         Ok(())
     }
 
-    /// Half-closes and returns at once; a spawned task waits for the worker's
-    /// end, so work that arrives meanwhile is not held behind the drain.
     fn close_idle(
         &self,
         out_tx: mpsc::UnboundedSender<IngestStreamRequest>,
@@ -821,6 +816,7 @@ impl WorkerStreamRunner {
     ) -> StreamEnd {
         drop(out_tx);
         let bound = self.ack_timeout;
+        // Off the runner, so work that arrives meanwhile is not held behind the drain.
         tokio::spawn(async move {
             // Dropping `acks` before the worker ends its side would reset the
             // stream instead.
@@ -961,7 +957,8 @@ enum StreamEnd {
     /// The stream broke; the fence holds what was resolved as failed and
     /// keeps fencing until those callers have requeued their messages.
     Failed(Fence),
-    /// The stream ended cleanly with nothing outstanding.
+    /// The stream ended cleanly with nothing outstanding: the worker ended
+    /// it, or the idle timer did.
     Idle,
 }
 
