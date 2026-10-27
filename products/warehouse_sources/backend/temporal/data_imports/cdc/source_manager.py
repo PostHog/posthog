@@ -352,7 +352,7 @@ def _history_transform(
         table = replay.apply(table)
         if not table.num_rows:
             return table
-        # No guard on the columns already being there: a source that owns `valid_from` fails
+        # No guard on the columns already being there: a source that owns a validity column fails
         # loudly inside `build_scd2_table`, where a skip would let the writer close rows against
         # customer data.
         return build_scd2_table(table, key_columns, history)

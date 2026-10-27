@@ -142,11 +142,13 @@ def reserved_column_collisions(
     return sorted(name for name in synced if NamingConvention.normalize_identifier(name) in reserved)
 
 
-# Columns that are CDC/SCD2 metadata — always filled from the event itself,
-# never overwritten when enriching DELETE rows with last-known source data.
-_CDC_METADATA_COLUMNS: frozenset[str] = (
-    CAPTURE_COLUMNS | LEGACY_HISTORY_NAMING.stamped_columns | HISTORY_NAMING.stamped_columns
-)
+def metadata_columns(history: HistoryNaming | None) -> frozenset[str]:
+    """Columns always filled from the change event itself, never from the last known row.
+
+    `history` names the columns stamped on a history batch. A source column that only shares a validity
+    name with another naming is data.
+    """
+    return CAPTURE_COLUMNS if history is None else CAPTURE_COLUMNS | history.stamped_columns
 
 
 # Micro-batch thresholds for CDC WAL processing.  Flushing periodically
@@ -309,8 +311,8 @@ def enrich_delete_rows(
         return table
 
     pk_set = set(present_pks)
-    metadata_columns = CAPTURE_COLUMNS if history is None else CAPTURE_COLUMNS | history.stamped_columns
-    table_data_cols = [col for col in table.column_names if col not in metadata_columns and col not in pk_set]
+    metadata = metadata_columns(history)
+    table_data_cols = [col for col in table.column_names if col not in metadata and col not in pk_set]
 
     # Determine extra columns that exist in existing_rows but not in the current table.
     # A standalone DELETE event may only carry PK columns — we add the missing data
@@ -320,7 +322,7 @@ def enrich_delete_rows(
         extra_cols_from_existing = [
             col
             for col in existing_rows.column_names
-            if col not in metadata_columns and col not in pk_set and col not in table.column_names
+            if col not in metadata and col not in pk_set and col not in table.column_names
         ]
 
     all_data_cols = table_data_cols + extra_cols_from_existing

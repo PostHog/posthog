@@ -30,7 +30,6 @@ _LAZY = {
     "purge_buffer_prefix": "cdc.buffer",
     "is_history_table_mode": "cdc.batcher",
     "reserved_column_collisions": "cdc.batcher",
-    "HISTORY_NAMING": "cdc.batcher",
     "history_naming_unless_taken": "cdc.history_table",
     "new_history_naming": "cdc.history_table",
     "new_history_names_taken": "cdc.history_table",

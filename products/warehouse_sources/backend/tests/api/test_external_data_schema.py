@@ -4638,6 +4638,126 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
             initial_enabled_columns if refused else request_body.get("enabled_columns", initial_enabled_columns)
         )
 
+    @parameterized.expand(
+        [
+            (
+                "adding_the_column_to_enabled_columns_is_refused",
+                ["id"],
+                {"enabled_columns": ["id", "_PH_DELETED"]},
+                True,
+            ),
+            ("editing_a_table_that_already_syncs_it_is_allowed", None, {"enabled_columns": None}, False),
+        ]
+    )
+    def test_patch_checks_the_capture_columns_of_a_cdc_table(
+        self,
+        _name: str,
+        initial_enabled_columns: list[str] | None,
+        request_body: dict,
+        refused: bool,
+    ):
+        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+            ExternalDataSchemaSerializer,
+        )
+
+        self.schema.sync_type_config["schema_metadata"] = {"columns": [{"name": "id"}, {"name": "_PH_DELETED"}]}
+        self.schema.enabled_columns = initial_enabled_columns
+        self.schema.save()
+
+        serializer = ExternalDataSchemaSerializer(
+            self.schema,
+            data=request_body,
+            partial=True,
+            context={"team_id": self.team.pk, "post_commit_actions": []},
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.is_any_external_data_schema_paused",
+            return_value=False,
+        ):
+            serializer.is_valid(raise_exception=True)
+            if refused:
+                with pytest.raises(ValidationError, match="_PH_DELETED"):
+                    serializer.save()
+            else:
+                serializer.save()
+
+        self.schema.refresh_from_db()
+        assert self.schema.enabled_columns == (
+            initial_enabled_columns if refused else request_body.get("enabled_columns", initial_enabled_columns)
+        )
+
+    def _save_through_serializer(self, schema: ExternalDataSchema, request_body: dict) -> None:
+        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+            ExternalDataSchemaSerializer,
+        )
+
+        serializer = ExternalDataSchemaSerializer(
+            schema, data=request_body, partial=True, context={"team_id": self.team.pk, "post_commit_actions": []}
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.is_any_external_data_schema_paused",
+            return_value=False,
+        ):
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+
+    @override_settings(DATA_WAREHOUSE_PH_HISTORY_NAMING=True)
+    def test_patch_refuses_a_history_table_named_like_a_synced_table(self):
+        ExternalDataSchema.objects.create(
+            name="public.orders_history", team=self.team, source=self.source, should_sync=True
+        )
+
+        with pytest.raises(ValidationError, match="share its name"):
+            self._save_through_serializer(self.schema, {"cdc_table_mode": "both"})
+
+        self.schema.refresh_from_db()
+        assert self.schema.cdc_table_mode == "consolidated"
+
+    @override_settings(DATA_WAREHOUSE_PH_HISTORY_NAMING=True)
+    def test_patch_refuses_syncing_a_table_named_like_another_schemas_history_table(self):
+        # The history table is not registered until the first snapshot loads, and the name is taken already.
+        self.schema.sync_type_config["cdc_table_mode"] = "both"
+        self.schema.save()
+        sibling = ExternalDataSchema.objects.create(
+            name="public.orders_history",
+            team=self.team,
+            source=self.source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        with pytest.raises(ValidationError, match="history table of another table"):
+            self._save_through_serializer(sibling, {"should_sync": True})
+
+        sibling.refresh_from_db()
+        assert sibling.should_sync is False
+
+    @parameterized.expand(
+        [
+            ("no_history_table", ExternalDataSchema.SyncType.CDC, "consolidated", False, None),
+            ("legacy_naming", ExternalDataSchema.SyncType.CDC, "both", False, "public.orders_cdc"),
+            ("new_naming", ExternalDataSchema.SyncType.CDC, "both", True, "public.orders_history"),
+            # Leaving CDC keeps the stored table mode, but the table no longer keeps history.
+            ("left_cdc", ExternalDataSchema.SyncType.INCREMENTAL, "both", True, None),
+        ]
+    )
+    def test_history_table_name_names_the_table_the_mode_writes(
+        self, _name: str, sync_type: str, mode: str, ph_naming: bool, storage_name: str | None
+    ):
+        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+            ExternalDataSchemaSerializer,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
+
+        self.schema.sync_type = sync_type
+        self.schema.sync_type_config["cdc_table_mode"] = mode
+        self.schema.save()
+
+        with override_settings(DATA_WAREHOUSE_PH_HISTORY_NAMING=ph_naming):
+            name = ExternalDataSchemaSerializer().get_history_table_name(self.schema)
+
+        assert name == (None if storage_name is None else build_table_name(self.source, storage_name))
+
     def test_patch_does_not_revert_a_concurrent_delete_data(self):
         from products.warehouse_sources.backend.presentation.views.external_data_schema import (
             ExternalDataSchemaSerializer,

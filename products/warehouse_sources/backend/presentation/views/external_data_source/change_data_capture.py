@@ -542,8 +542,6 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 except ExternalDataSchema.DoesNotExist:
                     pass
 
-            # Read before the update below takes the schemas out of CDC, because a history table
-            # registered before the marker existed is found by its schema's legacy name.
             table_ids = history_table_ids(instance)
 
             # Force CDC schemas to pick a new strategy by clearing sync_type and pausing.

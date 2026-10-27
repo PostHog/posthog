@@ -402,7 +402,7 @@ class CDCExtractActivity:
             # Without the engine position, writing would name, order, and clean up files by
             # customer data — cleanup can then delete unconsumed files (see errors.py).
             if not has_engine_seq(enriched_table):
-                raise CDCReservedColumnError(f"Table {table_name} has a source column named {CDC_SEQ_COLUMN}")
+                raise CDCReservedColumnError(f"Table {table_name} reached the buffer without the engine position")
             self._write_buffer_file(schema, table_name, enriched_table)
 
         if events_extracted:

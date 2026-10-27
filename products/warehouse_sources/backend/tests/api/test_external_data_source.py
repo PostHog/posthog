@@ -4998,13 +4998,23 @@ class TestExternalDataSource(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_primary_key", [("id", "uuid", False)], {}, "primary key", "consolidated", None),
+            ("no_primary_key", [("id", "uuid", False)], {}, "primary key", "consolidated", None, None),
             (
                 "reserved_column",
                 [("id", "uuid", False), ("_ph_cdc_seq", "bigint", True)],
                 {"tracking_link": ["id"]},
                 "_ph_cdc_seq",
                 "consolidated",
+                None,
+                None,
+            ),
+            (
+                "capture_column_the_load_renames",
+                [("id", "uuid", False), ("_PH_DELETED", "boolean", True)],
+                {"tracking_link": ["id"]},
+                "tracking_link (_ph_deleted)",
+                "consolidated",
+                None,
                 None,
             ),
             (
@@ -5014,6 +5024,7 @@ class TestExternalDataSource(APIBaseTest):
                 "_ph_valid_to",
                 "cdc_only",
                 None,
+                None,
             ),
             (
                 "validity_column_in_enabled_columns_that_hold_a_non_string",
@@ -5022,6 +5033,16 @@ class TestExternalDataSource(APIBaseTest):
                 "_ph_valid_to",
                 "cdc_only",
                 ["id", "_ph_valid_to", {}],
+                None,
+            ),
+            (
+                "history_table_named_like_another_synced_table",
+                [("id", "uuid", False)],
+                {"tracking_link": ["id"]},
+                "same name",
+                "both",
+                None,
+                "tracking_link_history",
             ),
         ]
     )
@@ -5038,6 +5059,7 @@ class TestExternalDataSource(APIBaseTest):
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.get_primary_key_columns")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.cdc_pg_connection")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
+    @override_settings(DATA_WAREHOUSE_PH_HISTORY_NAMING=True)
     def test_create_postgres_cdc_rejects_a_table_it_cannot_capture(
         self,
         _name,
@@ -5046,6 +5068,7 @@ class TestExternalDataSource(APIBaseTest):
         expected_in_message,
         cdc_table_mode,
         enabled_columns,
+        sibling_table,
         mock_get_source,
         mock_cdc_pg_connection,
         mock_get_primary_key_columns,
@@ -5082,7 +5105,23 @@ class TestExternalDataSource(APIBaseTest):
                 foreign_keys=[],
                 source_schema="public",
                 source_table_name="tracking_link",
-            )
+            ),
+            *(
+                [
+                    SourceSchema(
+                        name=sibling_table,
+                        supports_incremental=False,
+                        supports_append=False,
+                        supports_cdc=False,
+                        columns=[("id", "uuid", False)],
+                        foreign_keys=[],
+                        source_schema="public",
+                        source_table_name=sibling_table,
+                    )
+                ]
+                if sibling_table
+                else []
+            ),
         ]
 
         mock_cdc_pg_connection.return_value.__enter__.return_value = object()
@@ -5110,6 +5149,11 @@ class TestExternalDataSource(APIBaseTest):
                             "cdc_table_mode": cdc_table_mode,
                             **({"enabled_columns": enabled_columns} if enabled_columns is not None else {}),
                         },
+                        *(
+                            [{"name": sibling_table, "should_sync": True, "sync_type": "full_refresh"}]
+                            if sibling_table
+                            else []
+                        ),
                     ],
                 },
             },

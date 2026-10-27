@@ -708,7 +708,9 @@ async def register_cdc_companion_table(
             if companion_table is None and same_name.exists():
                 # Another schema's table has this name. Taking its record would point it at this history,
                 # and a second record of the same name would hide one of them.
-                raise HistoryTableNameTakenError(f"{companion_table_name} is the table of another schema")
+                raise HistoryTableNameTakenError(
+                    f"{companion_table_name} is already the name of another table of this source"
+                )
 
             previous_queryable_folder = companion_table.queryable_folder if companion_table else None
             storage_delta_mib = _storage_delta_mib(companion_table, live_size_mib)

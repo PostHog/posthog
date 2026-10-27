@@ -274,7 +274,7 @@ def _enrich_cdc_rows(
 
                 # Only place the previous state is still in hand to compare against.
                 if verify_deletes and delete_key_set:
-                    report = verify_delete_enrichment(pa_table, present_pks, existing_rows)
+                    report = verify_delete_enrichment(pa_table, present_pks, existing_rows, history)
                     if not report.ok:
                         CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL.inc(report.rows_with_nulled_columns)
                         logger.warning(
