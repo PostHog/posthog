@@ -35,6 +35,7 @@ function getBIEditorConfigProperties(config: BIConfig): Record<string, unknown> 
         config.filters.filter((filter) => filter.operator === 'custom').length
 
     return {
+        catalog_snapshot: !!config.querySnapshot,
         local_group_count: config.localFields?.filter((field) => field.localDefinition?.kind === 'groups').length ?? 0,
         local_bin_count: config.localFields?.filter((field) => field.localDefinition?.kind === 'bins').length ?? 0,
         result_filter_count: config.resultFilters?.length ?? 0,
@@ -86,10 +87,19 @@ function getBIEditorConfigProperties(config: BIConfig): Record<string, unknown> 
 }
 
 export type BIWorksheetAction =
+    | 'catalog_metric_opened'
+    | 'catalog_metric_proposed'
+    | 'catalog_source_opened'
+    | 'catalog_relationship_requested'
     | 'starter_selected'
     | 'filter_values_searched'
     | 'filter_values_page_loaded'
     | 'local_field_saved'
+    | 'calculated_field_saved'
+    | 'chart_settings_changed'
+    | 'conditional_formatting_opened'
+    | 'conditional_formatting_updated'
+    | 'measure_expression_updated'
     | 'undo'
     | 'redo'
     | 'copied'
@@ -117,7 +127,10 @@ export function captureBIWorksheetAction(
         hierarchy_axis?: 'rows' | 'columns'
         hierarchy_depth?: number
         expanded?: boolean
-        starter_kind?: 'events'
+        starter_kind?: 'metric' | 'certified_source' | 'events'
+        source_certification?: 'certified' | 'deprecated' | 'unmarked'
+        setting_keys?: string[]
+        rule_count?: number
     } = {}
 ): void {
     posthog.capture(BI_EDITOR_EVENTS.WORKSHEET_ACTION, {

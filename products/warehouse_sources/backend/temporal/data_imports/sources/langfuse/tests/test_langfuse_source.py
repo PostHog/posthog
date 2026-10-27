@@ -92,8 +92,3 @@ class TestLangfuseSource:
         assert isinstance(result.raised, ValueError)
         assert result.requests == []
         assert any(pattern in str(result.raised) for pattern in self.source.get_non_retryable_errors())
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["observations"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "observations"

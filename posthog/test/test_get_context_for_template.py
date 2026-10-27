@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import MagicMock
 
+from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
@@ -16,7 +17,11 @@ from parameterized import parameterized
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.models import UserHomeSettings
 from posthog.stable_chunks import StableChunks
-from posthog.utils import get_context_for_template, get_persisted_feature_flags_for_app_context
+from posthog.utils import (
+    flags_for_app_evaluation_context,
+    get_context_for_template,
+    get_persisted_feature_flags_for_app_context,
+)
 
 from products.conversations.backend.services.identity import IDENTITY_CLAIM_MAX_AGE_SECONDS
 
@@ -89,6 +94,35 @@ STABLE_CHUNKS = StableChunks(
     preload_js_urls=("static/index-S0000000000.js",),
     authenticated_preload_js_urls=("static/shell-S1111111111.js",),
 )
+
+
+class TestFlagsForAppEvaluationContext(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_contexts_is_kept", {"evaluation_contexts": None}, True),
+            ("empty_contexts_is_kept", {"evaluation_contexts": []}, True),
+            ("app_context_is_kept", {"evaluation_contexts": ["posthog-web-app", "posthog-website"]}, True),
+            ("other_context_is_dropped", {"evaluation_contexts": ["posthog-website"]}, False),
+            ("active_is_kept", {"active": True}, True),
+            ("disabled_is_dropped", {"active": False}, False),
+            ("client_runtime_is_kept", {"evaluation_runtime": "client"}, True),
+            ("server_runtime_is_dropped", {"evaluation_runtime": "server"}, False),
+        ]
+    )
+    def test_keeps_flags_the_app_evaluates(self, _name, definition, kept):
+        definitions = [{"key": "the-flag", **definition}]
+
+        actual = flags_for_app_evaluation_context({"the-flag": True, "untagged": True}, definitions)
+
+        assert actual == ({"the-flag": True, "untagged": True} if kept else {"untagged": True})
+
+    def test_keeps_every_flag_before_definitions_load(self):
+        assert flags_for_app_evaluation_context({"the-flag": True}, None) == {"the-flag": True}
+
+    def test_keeps_no_flags_when_analytics_is_disabled(self):
+        definitions = [{"key": "the-flag", "evaluation_contexts": ["posthog-website"]}]
+
+        assert flags_for_app_evaluation_context(None, definitions) is None
 
 
 class TestGetContextForTemplate(APIBaseTest):
@@ -187,17 +221,54 @@ class TestGetContextForTemplate(APIBaseTest):
         app_context = actual["posthog_app_context"]
         assert app_context["homepage"] == (stored_homepage or None)
 
+    @parameterized.expand([("shares_email", False, "user@example.com"), ("anonymized", True, None)])
     @mock.patch("posthog.utils.posthoganalytics.get_all_flags", return_value={})
-    def test_flag_bootstrap_evaluates_with_the_project_group(self, mock_get_all_flags):
+    def test_flag_bootstrap_evaluates_with_the_identity_the_browser_sends(
+        self, _name, anonymize_data, expected_email, mock_get_all_flags
+    ):
+        self.user.email = "user@example.com"
+        self.user.anonymize_data = anonymize_data
+        self.user.save()
+        self.organization.customer_id = "cus_123"
+        self.organization.save()
         request = RequestFactory().get("/")
         SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
         request.user = self.user
 
-        get_context_for_template("layout", request)
+        with self.settings(SITE_URL="https://app.example.com"):
+            get_context_for_template("layout", request)
 
         kwargs = mock_get_all_flags.call_args.kwargs
-        assert kwargs["groups"]["project"] == str(self.team.uuid)
-        assert kwargs["group_properties"]["project"]["id"] == self.team.id
+        assert kwargs["person_properties"] == {
+            "email": expected_email,
+            "joined_at": self.user.date_joined.isoformat(),
+        }
+        assert kwargs["groups"] == {
+            "project": str(self.team.uuid),
+            "organization": str(self.organization.id),
+            "customer": "cus_123",
+            "instance": "https://app.example.com",
+        }
+        assert kwargs["group_properties"]["project"] == {
+            "id": self.team.id,
+            "uuid": str(self.team.uuid),
+            "name": self.team.name,
+            "ingested_event": self.team.ingested_event,
+            "is_demo": self.team.is_demo,
+            "timezone": self.team.timezone,
+            "instance_tag": settings.INSTANCE_TAG,
+        }
+        assert kwargs["group_properties"]["organization"] == {
+            "id": str(self.organization.id),
+            "name": self.organization.name,
+            "slug": self.organization.slug,
+            "created_at": mock.ANY,
+            "available_product_features": self.organization.available_product_features or [],
+            "member_count": 1,
+            "project_count": 1,
+            "instance_tag": settings.INSTANCE_TAG,
+        }
+        assert kwargs["group_properties"]["instance"] == {"site_url": "https://app.example.com"}
 
     def test_bootstraps_project_tags_into_app_context(self):
         # projectLogic reads currentProject from the app context and only calls the API when it is

@@ -60,4 +60,47 @@ describe('panelLayoutLogic', () => {
             isLayoutNavCollapsed: false,
         })
     })
+
+    it.each([
+        { deferDuringResize: undefined, widthDuringDrag: 900 },
+        { deferDuringResize: true, widthDuringDrag: 1200 },
+    ])('uses opt-in resize deferral: $deferDuringResize', ({ deferDuringResize, widthDuringDrag }) => {
+        jest.useFakeTimers()
+        const originalObserver = global.ResizeObserver
+        let notify: ResizeObserverCallback = () => {}
+        global.ResizeObserver = jest.fn().mockImplementation((callback: ResizeObserverCallback) => {
+            notify = callback
+            return { observe: jest.fn(), disconnect: jest.fn() }
+        })
+        const container = document.createElement('main')
+        const bounds = jest.spyOn(container, 'getBoundingClientRect')
+        bounds.mockReturnValue({ width: 1200 } as DOMRect)
+
+        try {
+            panelLayoutLogic.actions.setMainContentRef({ current: container }, deferDuringResize)
+            document.body.classList.add('is-resizing')
+            bounds.mockReturnValue({ width: 900 } as DOMRect)
+            notify([], {} as ResizeObserver)
+            jest.advanceTimersByTime(500)
+            expect(panelLayoutLogic.values.mainContentRect?.width).toBe(widthDuringDrag)
+
+            document.body.classList.remove('is-resizing')
+            jest.advanceTimersToNextTimer()
+            expect(panelLayoutLogic.values.mainContentRect?.width).toBe(900)
+
+            document.body.classList.add('is-resizing')
+            bounds.mockReturnValue({ width: 800 } as DOMRect)
+            notify([], {} as ResizeObserver)
+            const widthBeforeClear = panelLayoutLogic.values.mainContentRect?.width
+            panelLayoutLogic.actions.setMainContentRef(null)
+            document.body.classList.remove('is-resizing')
+            jest.runOnlyPendingTimers()
+            expect(panelLayoutLogic.values.mainContentRect?.width).toBe(widthBeforeClear)
+        } finally {
+            document.body.classList.remove('is-resizing')
+            global.ResizeObserver = originalObserver
+            jest.useRealTimers()
+            bounds.mockRestore()
+        }
+    })
 })

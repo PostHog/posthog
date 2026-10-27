@@ -25,6 +25,7 @@ import {
     getMCPPropertyFilterOptions,
     includesMCPAnalyticsEvents,
 } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
+import { isEmailLikeSearch, isUrlLikeSearch } from 'lib/components/TaxonomicFilter/utils/valueSearchQuery'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
@@ -166,6 +167,7 @@ export interface BuildTaxonomicGroupsContext {
     propertyFilters: {
         excludedProperties: Partial<Record<TaxonomicFilterGroupType, (string | number | null)[]>>
         propertyAllowList?: Partial<Record<TaxonomicFilterGroupType, (string | number | null)[]>>
+        showNumericalPropsOnly?: boolean
     }
     eventMetadataPropertyDefinitions: PropertyDefinition[]
     personMetadataPropertyDefinitions: PropertyDefinition[]
@@ -181,6 +183,8 @@ export interface BuildTaxonomicGroupsContext {
     featureFlags: Record<string, boolean | string | undefined>
     /** Keep offering events whose data is moving out of the `events` table. See `TaxonomicFilterProps`. */
     includeHiddenEvents?: boolean
+    /** The picker offers "Use event name" for a search with no matches. See `TaxonomicFilterProps`. */
+    allowNonCapturedEvents?: boolean
 }
 
 export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): TaxonomicFilterGroup[] {
@@ -205,9 +209,12 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
         hogQLExpressionComponentProps,
         featureFlags,
         includeHiddenEvents,
+        allowNonCapturedEvents,
     } = ctx
     const { id: teamId } = currentTeam
-    const { excludedProperties, propertyAllowList } = propertyFilters
+    const fuzzyEventSearch =
+        !!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_FUZZY_EVENT_SEARCH] && !allowNonCapturedEvents
+    const { excludedProperties, propertyAllowList, showNumericalPropsOnly } = propertyFilters
     // Opt the cohort picker into the trimmed `?basic=true` payload (drops the
     // query/groups/last_error_message/experiment_set fields the picker never reads;
     // `filters` is kept). Gated by a flag so the smaller response shape can be rolled
@@ -224,6 +231,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
                 event_type: EventDefinitionType.Event,
                 exclude_hidden: true,
+                fuzzy_search: fuzzyEventSearch,
             }).url,
             // The caller's record already carries the hidden names. Appending them again keeps the
             // group hiding them even if some future caller passes a record that skipped the fold,
@@ -837,6 +845,10 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getValue: (option: SimpleOption) => option.name,
             getPopoverHeader: () => `Pageview URL`,
             minSearchQueryLength: 3,
+            shouldSearch: featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]
+                ? isUrlLikeSearch
+                : undefined,
+            searchQueryHint: 'Search for a URL, domain, or path.',
             searchDescription: 'URLs seen on pageview events',
         },
         {
@@ -849,6 +861,10 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getValue: (option: SimpleOption) => option.name,
             getPopoverHeader: () => `Pageview event`,
             minSearchQueryLength: 3,
+            shouldSearch: featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]
+                ? isUrlLikeSearch
+                : undefined,
+            searchQueryHint: 'Search for a URL, domain, or path.',
             searchDescription: 'pageview events filtered by URL',
         },
         // Screens returns a screen name value, used in paths and property filters.
@@ -888,6 +904,10 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             getValue: (option: SimpleOption) => option.name,
             getPopoverHeader: () => `Email address`,
             minSearchQueryLength: 5,
+            shouldSearch: featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]
+                ? isEmailLikeSearch
+                : undefined,
+            searchQueryHint: 'Search for an email address or domain.',
             searchDescription: 'email addresses seen in person properties',
         },
         {
@@ -909,6 +929,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             endpoint: combineUrl(`api/projects/${projectId}/event_definitions`, {
                 event_type: EventDefinitionType.EventCustom,
                 exclude_hidden: true,
+                fuzzy_search: fuzzyEventSearch,
             }).url,
             getName: (eventDefinition: EventDefinition) => eventDefinition.name,
             getValue: (eventDefinition: EventDefinition) => eventDefinition.name,
@@ -1152,10 +1173,18 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
                 // Promoted properties for any event in context come first — if a team
                 // has marked a property as the one that summarises this event, it's
                 // the property they almost certainly want to filter or break down by.
-                ...promotedPropertiesForContextEvents.map((name) => ({
-                    name,
-                    group: TaxonomicFilterGroupType.EventProperties,
-                })),
+                ...promotedPropertiesForContextEvents
+                    .filter(
+                        (name) =>
+                            !showNumericalPropsOnly &&
+                            !excludedProperties[TaxonomicFilterGroupType.EventProperties]?.includes(name) &&
+                            (propertyAllowList?.[TaxonomicFilterGroupType.EventProperties] === undefined ||
+                                propertyAllowList[TaxonomicFilterGroupType.EventProperties]?.includes(name))
+                    )
+                    .map((name) => ({
+                        name,
+                        group: TaxonomicFilterGroupType.EventProperties,
+                    })),
                 ...(eventNames.includes('$autocapture')
                     ? (['text', 'selector'] as const)
                           .filter((name) => !excludedProperties[TaxonomicFilterGroupType.Elements]?.includes(name))

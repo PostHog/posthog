@@ -55,7 +55,7 @@ class ElasticemailSource(ResumableSource[ElasticemailSourceConfig, ElasticEmailR
             name=ExternalDataSourceType.ELASTICEMAIL,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Elastic Email",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Elastic Email API key to pull your Elastic Email data into the PostHog Data warehouse.
 
 You can create an API key in your [Elastic Email account settings](https://app.elasticemail.com/marketing/settings/new/manage-api).

@@ -81,6 +81,22 @@ def parse_and_validate_positive_integer(value: Optional[Union[str, int]], value_
     return parsed_value
 
 
+def _behavioral_date_range(prop: Property) -> tuple[str, Optional[str]]:
+    if prop.explicit_datetime:
+        # Explicit datetime filter, can be a relative or absolute date, follows same convention
+        # as all analytics datetime filters
+        return prop.explicit_datetime, prop.explicit_datetime_to
+    # Re-raise as a DRF ValidationError so recalculation records VALIDATION_ERROR instead of UNKNOWN.
+    try:
+        date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
+        date_interval = validate_interval(prop.time_interval)
+    except ValueError as e:
+        raise ValidationError(
+            f"The {prop.value} cohort filter needs either a valid time range or an explicit_datetime: {e}"
+        ) from e
+    return f"-{date_value}{date_interval[:1]}", None
+
+
 def _require_select_query(query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
     # A constant `select=["id"]` actors query never yields a set query. Fail loudly rather than
     # via a strippable assert if that invariant ever breaks.
@@ -328,16 +344,7 @@ class HogQLCohortQuery:
             filter = parse_property_group_data(prop.event_filters)
             series[0].properties = filter
 
-        if prop.explicit_datetime:
-            # Explicit datetime filter, can be a relative or absolute date, follows same convention
-            # as all analytics datetime filters
-            date_from = prop.explicit_datetime
-            date_to = prop.explicit_datetime_to
-        else:
-            date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
-            date_interval = validate_interval(prop.time_interval)
-            date_from = f"-{date_value}{date_interval[:1]}"
-            date_to = None
+        date_from, date_to = _behavioral_date_range(prop)
 
         trends_query = TrendsQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
@@ -350,14 +357,7 @@ class HogQLCohortQuery:
     def get_performed_event_multiple(self, prop: Property) -> ast.SelectQuery:
         count = parse_and_validate_positive_integer(prop.operator_value, "operator_value")
 
-        if prop.explicit_datetime:
-            date_from = prop.explicit_datetime
-            date_to = prop.explicit_datetime_to
-        else:
-            date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
-            date_interval = validate_interval(prop.time_interval)
-            date_from = f"-{date_value}{date_interval[:1]}"
-            date_to = None
+        date_from, date_to = _behavioral_date_range(prop)
 
         events_query = EventsQuery(after=date_from, before=date_to, select=["person_id", "count()"])
         if prop.event_type == "events":
@@ -414,14 +414,7 @@ class HogQLCohortQuery:
         else:
             raise ValueError(f"Event type must be 'events' or 'actions'")
 
-        if prop.explicit_datetime:
-            date_from = prop.explicit_datetime
-            date_to = prop.explicit_datetime_to
-        else:
-            date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
-            date_interval = validate_interval(prop.time_interval)
-            date_from = f"-{date_value}{date_interval[:1]}"
-            date_to = None
+        date_from, date_to = _behavioral_date_range(prop)
 
         date_value = parse_and_validate_positive_integer(prop.seq_time_value, "seq_time_value")
         date_interval = validate_interval(prop.seq_time_interval)

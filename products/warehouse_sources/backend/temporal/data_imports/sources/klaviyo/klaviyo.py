@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from posthog.exceptions_capture import capture_exception
 
@@ -15,7 +15,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.bat
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.boundary_checkpoint import (
     BoundaryCheckpoint,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -323,7 +326,12 @@ def _wait_klaviyo(retry_state: RetryCallState) -> float:
     return _backoff(retry_state)
 
 
-@retry(
+def _server_delay(retry_state: RetryCallState) -> float | None:
+    exc = retry_state.outcome.exception() if retry_state.outcome is not None else None
+    return exc.retry_after if isinstance(exc, KlaviyoRetryableError) else None
+
+
+@retry_with_deadline(
     # ChunkedEncodingError is a mid-stream connection break (the server truncated a chunked
     # response body); it's transient like ConnectionError/ReadTimeout, not a ConnectionError subclass.
     retry=retry_if_exception_type(
@@ -336,6 +344,7 @@ def _wait_klaviyo(retry_state: RetryCallState) -> float:
     ),
     stop=stop_after_attempt(5),
     wait=_wait_klaviyo,
+    requested_wait=_server_delay,
     reraise=True,
 )
 def _fetch_page(
@@ -822,6 +831,11 @@ def klaviyo_source(
     conversion_metric_id: str | None = None,
 ) -> SourceResponse:
     endpoint_config = KLAVIYO_ENDPOINTS[endpoint]
+    if not endpoint_config.is_served_at(api_version):
+        raise ValueError(
+            f"Klaviyo table {endpoint} requires Klaviyo API version {', '.join(endpoint_config.api_versions or ())}, "
+            f"but this source is pinned to {api_version}"
+        )
 
     return SourceResponse(
         name=endpoint,

@@ -2,14 +2,12 @@ import { Tabs } from '@base-ui/react/tabs'
 import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { Suspense, useEffect, useRef } from 'react'
+import { memo, Suspense, useRef } from 'react'
 
 import { IconApps, IconChat, IconFolderOpen } from '@posthog/icons'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { commandLogic } from 'lib/components/Command/commandLogic'
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -17,16 +15,12 @@ import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/Wrapping
 import { cn } from 'lib/utils/css-classes'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 
-import {
-    NavExperimentTab,
-    PANEL_NAVBAR_COLLAPSE_THRESHOLD,
-    PANEL_NAVBAR_DEFAULT_WIDTH,
-    panelLayoutLogic,
-} from '~/layout/panel-layout/panelLayoutLogic'
+import { NavExperimentTab, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { NavSearchButton } from '../../../lib/components/NavSearchButton/NavSearchButton'
 import { navigation3000Logic } from '../../navigation-3000/navigationLogic'
 import { NavBarFooter } from './NavBarFooter'
+import { NavBarResizeHandle } from './NavBarResizeHandle'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
 import { navProductsTabLogic } from './tabs/navProductsTabLogic'
 import { NavStarredProductsTree } from './tabs/NavStarredProductsTree'
@@ -54,7 +48,7 @@ const TAB_CONFIG: { id: NavExperimentTab; label: string; icon: JSX.Element }[] =
     { id: 'chat', label: 'Chat', icon: <IconChat /> },
 ]
 
-export function NavBar(): JSX.Element {
+export const NavBar = memo(function NavBar(): JSX.Element {
     useMountedLogic(navProductsTabLogic)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const {
@@ -62,7 +56,6 @@ export function NavBar(): JSX.Element {
         setNavExperimentTab,
         showLayoutPanel,
         clearActivePanelIdentifier,
-        setNavbarWidth,
         setNavOverlayOpen,
     } = useActions(panelLayoutLogic)
     const {
@@ -76,27 +69,6 @@ export function NavBar(): JSX.Element {
     const { toggleCommand } = useActions(commandLogic)
     const isOverlayOpen = isNavCollapsed && isNavOverlayOpen
     const isLayoutNavCollapsed = isNavCollapsed && !isOverlayOpen
-
-    const resizerLogicProps: ResizerLogicProps = {
-        logicKey: 'panel-layout-navbar',
-        placement: 'right',
-        containerRef,
-        persistent: true,
-        closeThreshold: PANEL_NAVBAR_COLLAPSE_THRESHOLD,
-        onToggleClosed: (shouldBeClosed) => toggleLayoutNavCollapsed(shouldBeClosed),
-        onDoubleClick: () => toggleLayoutNavCollapsed(),
-    }
-    const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
-
-    // Grow to any width upward; never render narrower than the collapse snap so the live drag
-    // stays in sync with where onToggleClosed flips to collapsed mode.
-    const openWidth = Math.max(Math.round(desiredSize ?? PANEL_NAVBAR_DEFAULT_WIDTH), PANEL_NAVBAR_COLLAPSE_THRESHOLD)
-
-    useEffect(() => {
-        if (!isNavCollapsed && !isMobileLayout) {
-            setNavbarWidth(openWidth)
-        }
-    }, [openWidth, isNavCollapsed, isMobileLayout, setNavbarWidth])
 
     useShortcut({
         name: 'ToggleLeftNav',
@@ -167,7 +139,7 @@ export function NavBar(): JSX.Element {
                 </div>
 
                 <Tabs.Root
-                    className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-hidden"
+                    className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-hidden [--left-nav-width:initial] [--project-navbar-width:initial]"
                     value={activeTab}
                     onValueChange={(value) => {
                         posthog.capture('nav tab clicked', { tab: value })
@@ -297,13 +269,11 @@ export function NavBar(): JSX.Element {
                     </div>
                 </Tabs.Root>
                 {!isMobileLayout && !isOverlayOpen && (
-                    <Resizer
-                        {...resizerLogicProps}
-                        data-attr="tree-navbar-resizer"
+                    <NavBarResizeHandle
+                        containerRef={containerRef}
                         className={cn('top-3 -right-px bottom-4 z-2', {
                             'top-0': isLayoutPanelVisible,
                         })}
-                        offset={0}
                     />
                 )}
             </nav>
@@ -316,4 +286,4 @@ export function NavBar(): JSX.Element {
             {!isMobileLayout && <PanelLayoutPanels />}
         </div>
     )
-}
+})

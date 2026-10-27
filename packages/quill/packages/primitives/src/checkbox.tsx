@@ -6,6 +6,7 @@ import { CheckIcon, MinusIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { cn } from './lib/utils'
+import { hasTooltipContent, withTooltip } from './with-tooltip'
 
 const checkboxIndicatorVariants = cva('quill-checkbox-indicator flex shrink-0 items-center justify-center', {
     variants: {
@@ -64,13 +65,18 @@ const checkboxVariants = cva('quill-checkbox peer flex shrink-0 items-center jus
 
 const Checkbox = React.forwardRef<
     React.ComponentRef<typeof CheckboxPrimitive.Root>,
-    CheckboxPrimitive.Root.Props & VariantProps<typeof checkboxVariants>
->(function Checkbox({ className, size = 'default', ...props }, ref) {
-    return (
+    CheckboxPrimitive.Root.Props &
+        VariantProps<typeof checkboxVariants> & {
+            /** Disables the checkbox and says why in a tooltip. */
+            disabledReason?: React.ReactNode
+        }
+>(function Checkbox({ className, size = 'default', disabled, disabledReason, ...props }, ref) {
+    return withTooltip(
         <CheckboxPrimitive.Root
             ref={ref}
             data-quill
             data-slot="checkbox"
+            disabled={disabled || hasTooltipContent(disabledReason)}
             className={cn(checkboxVariants({ size }), className)}
             {...props}
         >
@@ -84,7 +90,9 @@ const Checkbox = React.forwardRef<
                     <CheckboxIndicator checked size={size ?? 'default'} className="border-none bg-transparent" />
                 )}
             </CheckboxPrimitive.Indicator>
-        </CheckboxPrimitive.Root>
+        </CheckboxPrimitive.Root>,
+        disabledReason,
+        { target: 'inline', focusable: hasTooltipContent(disabledReason) }
     )
 })
 

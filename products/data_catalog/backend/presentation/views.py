@@ -9,7 +9,7 @@ from operator import or_
 from typing import cast
 
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVectorField
-from django.db.models import Func, QuerySet, Value
+from django.db.models import Func, Q, QuerySet, Value
 from django.db.models.expressions import CombinedExpression
 from django.db.models.functions import Coalesce
 
@@ -27,6 +27,7 @@ from rest_framework.views import APIView
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.full_text_search import build_search_vector
 from posthog.models import User
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, HogQLQueryThrottle
@@ -37,9 +38,14 @@ from ..facade.models import Metric, RelationshipProposal, TableCertification
 from .serializers import (
     CertificationCreateSerializer,
     CertificationSerializer,
+    MetricApproveRequestSerializer,
     MetricBulkApproveResponseSerializer,
+    MetricBulkChangeOwnerRequestSerializer,
+    MetricBulkChangeOwnerResponseSerializer,
     MetricBulkDeleteResponseSerializer,
     MetricBulkNamesRequestSerializer,
+    MetricCreateSerializer,
+    MetricNameConflictSerializer,
     MetricRunQuerySerializer,
     MetricRunRequestSerializer,
     MetricRunResponseSerializer,
@@ -118,11 +124,16 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = Metric.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[Metric]) -> QuerySet[Metric]:
-        return api.metrics_visible_to_user(
+        metrics = api.metrics_visible_to_user(
             self.team,
             cast(User, self.request.user),
             self.user_access_control,
         )
+        if status_filter := self.request.query_params.get("status"):
+            metrics = metrics.filter(status=status_filter)
+        if definition_kind := self.request.query_params.get("definition_kind"):
+            metrics = metrics.filter(definition__kind=definition_kind)
+        return metrics
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
         if getattr(view, "action", None) not in ("create", "update", "partial_update"):
@@ -147,6 +158,14 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
         return super().get_throttles()
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("status", OpenApiTypes.STR, description="Only metrics with this review status."),
+            OpenApiParameter(
+                "definition_kind", OpenApiTypes.STR, description="Only metrics with this query node kind."
+            ),
+        ]
+    )
     def list(self, request: Request, *args, **kwargs) -> Response:
         # Precompute drift for the whole page in one bulk query, so is_drifted doesn't fan out
         # into a per-metric insight lookup (an N+1 over the catalog list).
@@ -159,11 +178,25 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return self.get_paginated_response(serializer.data)
         return Response(serializer.data)
 
-    @extend_schema(description="Create a metric, or refine the one already holding this name for the team.")
+    @extend_schema(
+        description="Create a metric. When a live metric already holds the name, returns 409 unless overwrite "
+        "is true, in which case the existing metric is refined with the fields sent.",
+        request=MetricCreateSerializer,
+        responses={
+            201: MetricSerializer,
+            409: OpenApiResponse(
+                response=MetricNameConflictSerializer,
+                description="A live metric already holds this name (code 'metric_name_taken'). "
+                "extra.existing_metric holds its name and status, unless the metric is hidden from the caller. "
+                "Send overwrite true to replace a visible metric.",
+            ),
+        },
+    )
     def create(self, request: Request, *args, **kwargs) -> Response:
-        serializer = self.get_serializer(data=request.data)
+        serializer = MetricCreateSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
+        user = cast(User, request.user)
         # Pass only the fields the client actually sent, so an upsert that refines an existing metric
         # leaves omitted fields (a stored definition, provenance, ...) untouched rather than resetting them.
         optional = {
@@ -171,6 +204,7 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             for key in (
                 "display_name",
                 "unit",
+                "owner",
                 "definition",
                 "source_insight_short_id",
                 "created_source",
@@ -182,9 +216,11 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
         metric = api.upsert_metric(
             team=self.team,
-            user=cast(User, request.user),
+            user=user,
             name=data["name"],
             description=data["description"],
+            overwrite=data["overwrite"],
+            user_access_control=self.user_access_control,
             request=request,
             **optional,
         )
@@ -206,12 +242,18 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         detail=True,
         methods=["POST"],
         required_scopes=["data_catalog_approval:write", "data_catalog:read"],
-        request=None,
+        request=MetricApproveRequestSerializer,
         responses={200: MetricSerializer},
     )
-    def approve(self, request: Request, **kwargs) -> Response:
+    @validated_request(request_serializer=MetricApproveRequestSerializer)
+    def approve(self, request: ValidatedRequest, **kwargs) -> Response:
         """Bless a metric as canonical. Returns 409 while the metric is drifted from its insight."""
-        metric = api.approve_metric(self.get_object(), cast(User, request.user), request=request)
+        metric = api.approve_metric(
+            self.get_object(),
+            cast(User, request.user),
+            request=request,
+            expected_updated_at=request.validated_data.get("expected_updated_at"),
+        )
         return Response(self.get_serializer(metric).data)
 
     # DRF routes detail=False actions before the {name} detail route, so these paths can't be
@@ -250,6 +292,42 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         deleted, skipped = api.bulk_soft_delete_metrics(metrics, cast(User, request.user), request=request)
         payload = MetricBulkDeleteResponseSerializer(
             {"deleted": [metric.name for metric in deleted], "skipped": [*unresolved, *skipped]}
+        )
+        return Response(payload.data)
+
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="bulk/change_owner",
+        required_scopes=["data_catalog:write"],
+        request=MetricBulkChangeOwnerRequestSerializer,
+        responses={200: MetricBulkChangeOwnerResponseSerializer},
+    )
+    @validated_request(request_serializer=MetricBulkChangeOwnerRequestSerializer, include_serializer_context=True)
+    def bulk_change_owner(self, request: ValidatedRequest, **kwargs) -> Response:
+        """Give many metrics one owner, keeping their approvals. Unknown metrics are skipped."""
+        metrics, unresolved = _resolve_bulk_metrics(self.get_queryset(), request.validated_data["names"])
+        owner = request.validated_data["owner"]
+        names_by_id = {metric.id: metric.name for metric in metrics}
+        change = api.bulk_change_metric_owner(
+            team_id=self.team.id,
+            names_by_id=names_by_id,
+            owner_id=owner.id if owner else None,
+            user_id=cast(User, request.user).id,
+            analytics_props=get_request_analytics_properties(request),
+        )
+        position = {metric_id: index for index, metric_id in enumerate(change.updated_ids)}
+        updated = sorted(
+            self.get_queryset().filter(id__in=change.updated_ids).select_related("owner", "created_by", "approved_by"),
+            key=lambda metric: position[metric.id],
+        )
+        skipped = [
+            api.MetricBulkSkip(name=names_by_id[metric_id], reason=api.BULK_SKIP_NOT_FOUND)
+            for metric_id in change.skipped_ids
+        ]
+        context = {**self.get_serializer_context(), "drift_map": api.compute_drift(updated)}
+        payload = MetricBulkChangeOwnerResponseSerializer(
+            {"updated": updated, "skipped": [*unresolved, *skipped]}, context=context
         )
         return Response(payload.data)
 
@@ -311,6 +389,20 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(envelope)
 
 
+class CertificationSearchFilter(CatalogSearchFilter):
+    def get_schema_operation_parameters(self, view: APIView) -> list[dict[str, object]]:
+        return [
+            *super().get_schema_operation_parameters(view),
+            {
+                "name": "status",
+                "required": False,
+                "in": "query",
+                "description": "Only certifications with this review status.",
+                "schema": {"type": "string"},
+            },
+        ]
+
+
 class CertificationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
@@ -322,13 +414,16 @@ class CertificationViewSet(
     """Trust marks on warehouse tables and views. Reads exclude soft-deleted targets."""
 
     scope_object = "data_catalog"
-    filter_backends = [CatalogSearchFilter]
+    filter_backends = [CertificationSearchFilter]
     search_fields = ["table__name", "saved_query__name", "notes"]
     serializer_class = CertificationSerializer
     queryset = TableCertification.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[TableCertification]) -> QuerySet[TableCertification]:
-        return api.certifications_for_team(self.team)
+        certifications = api.certifications_for_team(self.team)
+        if status_filter := self.request.query_params.get("status"):
+            certifications = certifications.filter(status=status_filter)
+        return certifications
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
         action = getattr(view, "action", None)
@@ -398,10 +493,20 @@ class RelationshipProposalViewSet(
     def safely_get_queryset(self, queryset: QuerySet[RelationshipProposal]) -> QuerySet[RelationshipProposal]:
         proposals = api.relationships_for_team(self.team)
         status_filter = self.request.query_params.get("status")
-        return proposals.filter(status=status_filter) if status_filter else proposals
+        if status_filter:
+            proposals = proposals.filter(status=status_filter)
+        table_name = self.request.query_params.get("table_name")
+        if table_name:
+            proposals = proposals.filter(Q(source_table_name=table_name) | Q(joining_table_name=table_name))
+        return proposals
 
     @extend_schema(
-        parameters=[OpenApiParameter("status", OpenApiTypes.STR, description="Filter by proposed/accepted/rejected.")]
+        parameters=[
+            OpenApiParameter("status", OpenApiTypes.STR, description="Filter by proposed/accepted/rejected."),
+            OpenApiParameter(
+                "table_name", OpenApiTypes.STR, description="Only relationships involving this table on either side."
+            ),
+        ]
     )
     def list(self, request: Request, *args, **kwargs) -> Response:
         return super().list(request, *args, **kwargs)

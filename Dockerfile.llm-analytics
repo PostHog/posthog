@@ -8,7 +8,7 @@
 #
 
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
-FROM ghcr.io/astral-sh/uv:0.12.13 AS uv
+FROM ghcr.io/astral-sh/uv:0.13.4 AS uv
 
 FROM python:3.14.7-slim-bookworm@sha256:9ab8d9c8514b44f90cf0029dd42fdd7e9e211e639c8b995304cc04568dee900f
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
@@ -27,6 +27,8 @@ ENV UV_PROJECT_ENVIRONMENT=/python-runtime
 # Install system dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
+    # Upgrades the CA bundle that the pinned base image freezes.
+    "ca-certificates" \
     "build-essential" \
     "git" \
     "libpq-dev" \

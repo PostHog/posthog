@@ -51,12 +51,12 @@ class NewYorkTimesSource(ResumableSource[NewYorkTimesSourceConfig, NewYorkTimesR
             name=ExternalDataSourceType.NEWYORKTIMES,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="New York Times",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Enter your New York Times API key to pull New York Times content into the PostHog Data warehouse.\n\n"
                 "Create a free developer account and register an app at the "
                 "[NYT Developer Network](https://developer.nytimes.com/), then enable the APIs you want to sync "
-                "(Article Search, Most Popular, Top Stories) on your app to get an API key.\n\n"
+                "(Article Search, Archive, Most Popular, Top Stories, Times Newswire, Books) on your app to get an API key.\n\n"
                 "Note: NYT enforces tight rate limits (≈10 requests/minute, 4,000/day), so syncs — especially "
                 "Article Search — are intentionally throttled."
             ),
@@ -75,6 +75,7 @@ class NewYorkTimesSource(ResumableSource[NewYorkTimesSourceConfig, NewYorkTimesR
                     ),
                     SourceFieldInputConfig(
                         name="article_search_query",
+                        sync_setting=True,
                         label="Article Search query (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -115,7 +116,7 @@ class NewYorkTimesSource(ResumableSource[NewYorkTimesSourceConfig, NewYorkTimesR
             return SourceSchema(
                 name=endpoint,
                 supports_incremental=endpoint_config.supports_incremental,
-                supports_append=endpoint_config.supports_incremental,
+                supports_append=endpoint_config.supports_incremental and endpoint_config.supports_append,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=endpoint_config.should_sync_default,
                 detected_primary_keys=endpoint_config.primary_keys,

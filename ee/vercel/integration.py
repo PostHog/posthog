@@ -157,7 +157,7 @@ class VercelIntegration:
     SSO_EXPERIMENTATION_CONFIG: dict[str, SSOExperimentationConfig] = {
         "flag": SSOExperimentationConfig(
             model=FeatureFlag,
-            url_template="/project/{team_id}/feature_flags/{item_pk}",
+            url_template="/project/{team_id}/feature-flags/{item_pk}",
         ),
         "experiment": SSOExperimentationConfig(
             model=Experiment,
@@ -479,6 +479,46 @@ class VercelIntegration:
             integration="vercel",
         )
         return {"finalized": True}
+
+    @staticmethod
+    def _promote_mapped_contact_to_owner(installation: OrganizationIntegration, contact_email: str) -> None:
+        mapped_users = User.objects.filter(pk__in=list(installation.config.get("user_mappings", {}).values()))
+        memberships = OrganizationMembership.objects.filter(
+            organization_id=installation.organization_id,
+            user__in=EmailLookupHandler.users_matching_email(contact_email, mapped_users),
+            level__lt=OrganizationMembership.Level.OWNER,
+        )
+        for membership in memberships:
+            membership.level = OrganizationMembership.Level.OWNER
+            membership.save(update_fields=["level"])
+
+    @staticmethod
+    def refresh_installation_account(installation: OrganizationIntegration) -> None:
+        installation_id = installation.integration_id
+        access_token = VercelIntegration._get_access_token(installation)
+        if not installation_id or not access_token:
+            raise RuntimeError("Vercel installation has no installation ID or access token")
+
+        # A transfer webhook runs this inside its delivery. The short timeout keeps it well inside the
+        # ingress delivery budget (`DEFAULT_DELIVERY_BUDGET_SECONDS`), which also covers the forward
+        # to the region that holds the installation.
+        account = VercelAPIClient(bearer_token=access_token, timeout=5).get_installation_account(installation_id)
+
+        # SSO saves user mappings under a lock on this row. Take the same lock, so that a mapping
+        # saved while the request to Vercel was in flight is not overwritten.
+        with transaction.atomic():
+            locked = OrganizationIntegration.objects.select_for_update().get(pk=installation.pk)
+            live_contact = account.get("contact")
+            contact = live_contact or locked.config.get("account", {}).get("contact")
+            refreshed: dict[str, Any] = {"url": account["url"], "name": account.get("name")}
+            # The Owner check at SSO reads the contact with `.get`, which a stored None breaks.
+            if contact:
+                refreshed["contact"] = {"email": contact["email"], "name": contact.get("name")}
+            locked.config["account"] = refreshed
+            locked.save(update_fields=["config", "updated_at"])
+            if live_contact:
+                VercelIntegration._promote_mapped_contact_to_owner(locked, live_contact["email"])
+        logger.info("Refreshed Vercel installation account", installation_id=installation_id, integration="vercel")
 
     @staticmethod
     def get_product_plans(product_slug: str) -> dict[str, Any]:
@@ -851,7 +891,7 @@ class VercelIntegration:
         return {
             **({"id": VercelIntegration._get_vercel_item_id("flag", feature_flag.pk)} if created else {}),
             "slug": feature_flag.key,
-            "origin": absolute_uri(f"/project/{feature_flag.team.id}/feature_flags/{feature_flag.pk}"),
+            "origin": absolute_uri(f"/project/{feature_flag.team.id}/feature-flags/{feature_flag.pk}"),
             "category": "flag",
             "name": feature_flag.key,
             "description": feature_flag.name,

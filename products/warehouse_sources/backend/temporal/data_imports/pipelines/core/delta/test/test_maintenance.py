@@ -18,6 +18,7 @@ import deltalite
 import pyarrow.parquet as pq
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.deltalite_handles import (
     DeltaLiteHandleCache,
 )
@@ -26,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import (
     _COMPACT_RATIO_SAMPLE_FILES,
+    COMPACT_MAX_BINS_PER_COMMIT,
     COMPACT_OFFSET_OVERFLOW_RETRIES,
     DEFAULT_COMPACT_TARGET_SIZE_BYTES,
     DELTA_DELETED_FILE_RETENTION,
@@ -41,12 +43,16 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
     ObjectStorePermissionDeniedError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import make_logger
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import (
+    make_local_table_ref,
+    make_logger,
+)
 
 _MAINTENANCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance"
 _MB = 1024 * 1024
 # Small enough that a local table can hold files above the compaction target.
 _SMALL_TARGET = 100_000
+_DEFAULT_TABLE_TARGET = 100 * 1024 * 1024
 _NOW = dt.datetime(2026, 6, 1, 12, 0, tzinfo=dt.UTC)
 _DEFAULT_PLAN = CompactionPlan(
     target_size=DEFAULT_COMPACT_TARGET_SIZE_BYTES, max_concurrent_tasks=1, compression_ratio=1.0, slot_budget_mb=1356.8
@@ -276,15 +282,15 @@ class TestCompactIfFragmented:
     )
     @pytest.mark.asyncio
     async def test_small_file_trigger_on_a_real_table(self, _name: str, interleave_oversized: bool, expected_ran: bool):
-        with (
-            tempfile.TemporaryDirectory() as path,
-            patch(f"{_MAINTENANCE_MODULE}.DEFAULT_COMPACT_TARGET_SIZE_BYTES", _SMALL_TARGET),
-        ):
+        with tempfile.TemporaryDirectory() as path:
             for i in range(12):
                 _append_file(path, i, payload_bytes=500)
                 if interleave_oversized:
                     _append_file(path, 100 + i, payload_bytes=2 * _SMALL_TARGET)
             table = deltalake.DeltaTable(path)
+            # The oversized files are small next to the default target, so the skip case also fails
+            # when compaction ignores the table's own target.
+            table.alter.set_table_properties({"delta.targetFileSize": str(_SMALL_TARGET)})
             files_before = len(table.file_uris())
             rows_before = table.to_pyarrow_table().num_rows
 
@@ -410,17 +416,23 @@ class TestCompactionMemoryBounds:
     @parameterized.expand(
         [
             # Incompressible data keeps delta-rs's own bin size; the slot fits a few bins at once.
-            ("incompressible", 1.0, 1356.8, DEFAULT_COMPACT_TARGET_SIZE_BYTES, 6),
-            ("modest_ratio", 2.0, 1356.8, DEFAULT_COMPACT_TARGET_SIZE_BYTES, 3),
+            ("incompressible", 1.0, 1356.8, _DEFAULT_TABLE_TARGET, DEFAULT_COMPACT_TARGET_SIZE_BYTES, 6),
+            ("modest_ratio", 2.0, 1356.8, _DEFAULT_TABLE_TARGET, DEFAULT_COMPACT_TARGET_SIZE_BYTES, 3),
             # Wide JSON documents: 100 MB on disk decodes past the 2 GiB offset limit, so the bin shrinks
             # until it decodes to half the slot and only one bin runs at a time. delta-rs leaves files
             # larger than the bin alone, so the bin also caps the largest file that a compaction decodes.
-            ("wide_json", 25.0, 1356.8, int(1356.8 * _MB / 2 / 25), 1),
-            ("extreme_ratio_skips", 500.0, 1356.8, None, None),
-            ("zero_budget_skips", 1.0, 0.0, None, None),
+            ("wide_json", 25.0, 1356.8, _DEFAULT_TABLE_TARGET, int(1356.8 * _MB / 2 / 25), 1),
+            ("extreme_ratio_skips", 500.0, 1356.8, _DEFAULT_TABLE_TARGET, None, None),
+            ("zero_budget_skips", 1.0, 0.0, _DEFAULT_TABLE_TARGET, None, None),
             # No readable limit (local dev): only the decoded bin is capped, delta-rs picks parallelism.
-            ("no_limit", 25.0, None, int(1024 * _MB / 25), None),
-            ("no_limit_no_ratio_skips", None, None, None, None),
+            ("no_limit", 25.0, None, _DEFAULT_TABLE_TARGET, int(1024 * _MB / 25), None),
+            ("no_limit_no_ratio_skips", None, None, _DEFAULT_TABLE_TARGET, None, None),
+            # A table with its own smaller target keeps it, so compaction does not rebuild larger files,
+            # and the smaller bins run in parallel.
+            ("table_target_caps_the_bin", 4.0, 1356.8, 32 * _MB, 32 * _MB, 5),
+            ("table_target_no_limit", 1.0, None, 32 * _MB, 32 * _MB, None),
+            # The memory cap still wins when it is smaller than the table's target.
+            ("memory_cap_below_table_target", 25.0, 1356.8, 32 * _MB, int(1356.8 * _MB / 2 / 25), 1),
         ]
     )
     def test_plan_keeps_one_compaction_inside_its_slot(
@@ -428,11 +440,12 @@ class TestCompactionMemoryBounds:
         _name: str,
         ratio: float | None,
         slot_mb: float | None,
+        table_target: int,
         expected_target: int | None,
         expected_tasks: int | None,
     ) -> None:
         with patch(f"{_MAINTENANCE_MODULE}.os.cpu_count", return_value=7):
-            plan = plan_compaction(ratio, slot_mb)
+            plan = plan_compaction(ratio, slot_mb, table_target)
 
         assert plan.target_size == expected_target
         assert plan.max_concurrent_tasks == expected_tasks
@@ -566,10 +579,13 @@ class TestDeltaliteCompaction:
     _URI = "s3://bucket/table"
     _SLOT_MB = 1356.8
 
-    def _setup(self, compact: MagicMock | None, *, table_id: object = "table-id") -> tuple[DeltaMaintenance, Any, Any]:
+    def _setup(
+        self, compact: MagicMock | None, *, table_id: object = "table-id", configuration: dict[str, str] | None = None
+    ) -> tuple[DeltaMaintenance, Any, Any]:
         # 300 small files in one partition trip the per-partition count trigger.
         delta_table = _mock_table({f"f{i}.parquet": _MB for i in range(300)})
         delta_table.metadata.return_value.id = table_id
+        delta_table.metadata.return_value.configuration = configuration or {}
         table_ref = MagicMock()
         table_ref.logger = make_logger()
         table_ref.get_delta_table = AsyncMock(return_value=delta_table)
@@ -613,20 +629,70 @@ class TestDeltaliteCompaction:
 
     @parameterized.expand(
         [
-            ("committed", 1, 152, [152]),
-            ("nothing_to_rewrite", 0, 150, []),
+            (
+                "committed",
+                1,
+                152,
+                [152],
+                {},
+                DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+                16 * _MB,
+                {"max_row_group_decoded_bytes": 16 * _MB},
+            ),
+            (
+                "nothing_to_rewrite",
+                0,
+                150,
+                [],
+                {},
+                DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+                16 * _MB,
+                {"max_row_group_decoded_bytes": 16 * _MB},
+            ),
+            (
+                "table_target",
+                1,
+                152,
+                [152],
+                {"delta.targetFileSize": str(32 * _MB)},
+                32 * _MB,
+                16 * _MB,
+                {"max_row_group_decoded_bytes": 16 * _MB},
+            ),
+            (
+                "invalid_table_target",
+                1,
+                152,
+                [152],
+                {"delta.targetFileSize": "-1"},
+                DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+                16 * _MB,
+                {"max_row_group_decoded_bytes": 16 * _MB},
+            ),
+            ("row_group_cap_off", 1, 152, [152], {}, DEFAULT_COMPACT_TARGET_SIZE_BYTES, 0, {}),
         ]
     )
     @pytest.mark.asyncio
     async def test_compacts_through_a_leased_deltalite_handle(
-        self, _name: str, commits: int, version: int, expected_noted: list[int]
+        self,
+        _name: str,
+        commits: int,
+        version: int,
+        expected_noted: list[int],
+        configuration: dict[str, str],
+        expected_target: int,
+        row_group_cap: int,
+        expected_row_group_kwargs: dict[str, int],
     ) -> None:
         compact = MagicMock(
             return_value={"commits": commits, "version": version, "numFilesAdded": 3, "numFilesRemoved": 300}
         )
-        maintenance, table_ref, fake_class = self._setup(compact)
+        maintenance, table_ref, fake_class = self._setup(compact, configuration=configuration)
 
-        with patch(f"{_MAINTENANCE_MODULE}._sample_compression_ratio", side_effect=AssertionError("sampled")):
+        with (
+            patch(f"{_MAINTENANCE_MODULE}._sample_compression_ratio", side_effect=AssertionError("sampled")),
+            override_settings(DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES=row_group_cap),
+        ):
             ran, delta_rs_compact, plan, capture = await self._run(maintenance, fake_class)
 
         assert ran is True
@@ -635,11 +701,14 @@ class TestDeltaliteCompaction:
         capture.assert_not_called()
         fake_class.open.assert_called_once_with(self._URI, {"AWS_REGION": "us-east-1"})
         compact.assert_called_once_with(
-            target_file_size=DEFAULT_COMPACT_TARGET_SIZE_BYTES,
+            target_file_size=expected_target,
             max_parallel_bins=7,
             slot_budget_bytes=int(self._SLOT_MB * _MB),
             commit_metadata={"compact_engine": "deltalite", "job_id": "job-1"},
             min_partition_removable_files=1,
+            max_bins_per_commit=COMPACT_MAX_BINS_PER_COMMIT,
+            partitions=None,
+            **expected_row_group_kwargs,
         )
         assert [call.args[0] for call in table_ref.note_deltalite_commit.call_args_list] == expected_noted
         [done] = self._info_calls(table_ref, "compact: done")
@@ -692,11 +761,15 @@ class TestDeltaliteCompaction:
     ) -> None:
         compact = MagicMock(side_effect=error) if has_compact else None
         maintenance, table_ref, fake_class = self._setup(compact)
+        first = table_ref.get_delta_table.return_value
+        refreshed = _mock_table({f"f{i}.parquet": _MB for i in range(300)})
+        table_ref.get_delta_table = AsyncMock(side_effect=[first, refreshed])
 
         ran, delta_rs_compact, _, capture = await self._run(maintenance, fake_class, enabled=enabled)
 
         assert ran is True
-        delta_rs_compact.assert_awaited_once_with(table_ref.get_delta_table.return_value, _DEFAULT_PLAN)
+        delta_rs_compact.assert_awaited_once_with(refreshed if enabled else first, _DEFAULT_PLAN, partitions=None)
+        assert table_ref.note_deltalite_commit.called is (expected_reason == "deltalite_error")
         fallbacks = self._info_calls(table_ref, "compact: falling back to delta-rs")
         assert [call["compact_fallback_reason"] for call in fallbacks] == ([expected_reason] if expected_reason else [])
         assert capture.called is expect_capture
@@ -713,7 +786,7 @@ class TestDeltaliteCompaction:
         assert ran is False
         delta_rs_compact.assert_not_awaited()
         capture.assert_not_called()
-        table_ref.note_deltalite_commit.assert_not_called()
+        table_ref.note_deltalite_commit.assert_called_once_with(None)
 
     @parameterized.expand(
         [
@@ -738,6 +811,122 @@ class TestDeltaliteCompaction:
         assert "_delta_log" not in str(raised.value)
         assert "_delta_log" not in str(table_ref.logger.method_calls)
         assert isinstance(raised.value.__cause__, deltalite.DeltaLiteError)
+
+
+class TestCompactDuringRebuild:
+    @staticmethod
+    def _fill(path: str, partitions: int, files_per_partition: int) -> None:
+        for part in range(partitions):
+            for i in range(files_per_partition):
+                deltalake.write_deltalake(
+                    path,
+                    pa.table({PARTITION_KEY: [str(part)], "id": [part * 1000 + i]}),
+                    mode="append",
+                    partition_by=[PARTITION_KEY],
+                )
+
+    @parameterized.expand(
+        [
+            # Seven tiny files per partition: a compaction removes six files from each.
+            ("below_the_budget_delta_rs", False, 2, 13, "skipped", 14),
+            ("at_the_budget_delta_rs", False, 2, 12, "compacted", 2),
+            ("below_the_budget_deltalite", True, 2, 13, "skipped", 14),
+            ("at_the_budget_deltalite", True, 2, 12, "compacted", 2),
+            # A backlog over the budget compacts only the partitions that reach it.
+            ("backlog_capped_delta_rs", False, 4, 12, "compacted", 2 + 2 * 7),
+            ("backlog_capped_deltalite", True, 4, 12, "compacted", 2 + 2 * 7),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_compacts_up_to_the_budget(
+        self, _name: str, deltalite_engine: bool, partitions: int, budget: int, outcome: str, files_after: int
+    ):
+        with (
+            tempfile.TemporaryDirectory() as path,
+            override_settings(DATA_WAREHOUSE_DELTALITE_COMPACTION=deltalite_engine),
+        ):
+            self._fill(path, partitions=partitions, files_per_partition=7)
+            rows_before = deltalake.DeltaTable(path).to_pyarrow_table().sort_by("id").to_pydict()
+
+            result = await DeltaMaintenance(make_local_table_ref(path)).compact_during_rebuild(
+                min_removable_files=budget
+            )
+
+            table = deltalake.DeltaTable(path)
+            assert result == outcome
+            assert len(table.file_uris()) == files_after
+            assert table.to_pyarrow_table().sort_by("id").to_pydict() == rows_before
+
+    @pytest.mark.asyncio
+    async def test_a_smaller_planned_bin_reselects_the_partitions(self):
+        # At 100 MiB every file is small. At the planned 300 KB, partition "a" holds only files of about
+        # 160 KB, which a compaction cannot merge, so the pass must move to partition "b".
+        with tempfile.TemporaryDirectory() as path:
+            for i in range(8):
+                deltalake.write_deltalake(
+                    path,
+                    pa.table({PARTITION_KEY: ["a"], "id": [i], "blob": [os.urandom(80_000).hex()]}),
+                    mode="append",
+                    partition_by=[PARTITION_KEY],
+                )
+            for i in range(7):
+                deltalake.write_deltalake(
+                    path,
+                    pa.table({PARTITION_KEY: ["b"], "id": [100 + i], "blob": ["x"]}),
+                    mode="append",
+                    partition_by=[PARTITION_KEY],
+                )
+            maintenance = DeltaMaintenance(make_local_table_ref(path))
+            plan = CompactionPlan(
+                target_size=300_000, max_concurrent_tasks=1, compression_ratio=1.0, slot_budget_mb=1356.8
+            )
+
+            with patch.object(maintenance, "_plan_compaction", AsyncMock(return_value=plan)):
+                result = await maintenance.compact_during_rebuild(min_removable_files=6)
+
+            files = deltalake.DeltaTable(path).file_uris()
+            assert result == "compacted"
+            assert (
+                sum(f"{PARTITION_KEY}=a/" in uri for uri in files),
+                sum(f"{PARTITION_KEY}=b/" in uri for uri in files),
+            ) == (8, 1)
+
+    @parameterized.expand(
+        [
+            ("transient_object_store_error", TransientObjectStoreError("throttled"), False),
+            ("unexpected_error", RuntimeError("boom"), True),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_a_failed_pass_is_reported_and_never_raises(self, _name: str, error: Exception, expect_capture: bool):
+        with (
+            tempfile.TemporaryDirectory() as path,
+            patch.object(DeltaMaintenance, "_compact", AsyncMock(side_effect=error)),
+            patch(f"{_MAINTENANCE_MODULE}.capture_exception") as capture,
+        ):
+            self._fill(path, partitions=2, files_per_partition=7)
+
+            result = await DeltaMaintenance(make_local_table_ref(path)).compact_during_rebuild(min_removable_files=1)
+
+            assert result == "failed"
+            assert capture.called is expect_capture
+
+    @pytest.mark.asyncio
+    async def test_deltalite_commits_a_long_compaction_in_chunks(self):
+        with (
+            tempfile.TemporaryDirectory() as path,
+            override_settings(DATA_WAREHOUSE_DELTALITE_COMPACTION=True),
+            patch(f"{_MAINTENANCE_MODULE}.COMPACT_MAX_BINS_PER_COMMIT", 1),
+        ):
+            self._fill(path, partitions=3, files_per_partition=4)
+            version_before = deltalake.DeltaTable(path).version()
+
+            result = await DeltaMaintenance(make_local_table_ref(path)).compact_during_rebuild(min_removable_files=9)
+
+            table = deltalake.DeltaTable(path)
+            assert result == "compacted"
+            assert table.version() - version_before == 3
+            assert len(table.file_uris()) == 3
 
 
 class TestVacuum:

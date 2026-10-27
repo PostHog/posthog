@@ -18,7 +18,12 @@ from products.slack_app.backend.api import (
     does_other_region_claim_workspace,
     send_region_proxy_request,
 )
-from products.slack_app.backend.slack_link_unfurl import start_unfurl_charts
+from products.slack_app.backend.logic.interview_recruitment import (
+    FrustrationInviteRequest,
+    linked_posthog_user,
+    offer_frustration_invite,
+)
+from products.slack_app.backend.slack_link_unfurl import add_artifact_image_to_unfurl, start_unfurl_charts
 from products.slack_app.backend.temporal.types import SlackUnfurlChartRequest
 
 
@@ -61,6 +66,10 @@ def refresh_user_github_repository_cache(*, user_integration_id: str) -> None:
     github.sync_repository_cache(min_refresh_interval_seconds=REPO_SNAPSHOT_REFRESH_INTERVAL_SECONDS)
 
 
+def _load_integration(integration_id: int, team_id: int) -> Integration | None:
+    return Integration.objects.select_related("team__organization").filter(id=integration_id, team_id=team_id).first()
+
+
 @shared_task(ignore_result=True)
 @with_team_scope()
 def start_slack_unfurl_charts(
@@ -72,9 +81,7 @@ def start_slack_unfurl_charts(
     unfurls: dict[str, Any],
     charts: list[dict[str, Any]],
 ) -> None:
-    integration = (
-        Integration.objects.select_related("team__organization").filter(id=integration_id, team_id=team_id).first()
-    )
+    integration = _load_integration(integration_id, team_id)
     user = User.objects.filter(id=user_id).first()
     if integration is None or user is None:
         return
@@ -84,4 +91,57 @@ def start_slack_unfurl_charts(
         event=event,
         unfurls=unfurls,
         charts=[SlackUnfurlChartRequest(**chart) for chart in charts],
+    )
+
+
+@shared_task(ignore_result=True)
+@with_team_scope()
+def add_slack_unfurl_artifact_image(
+    *,
+    team_id: int,
+    integration_id: int,
+    user_id: int,
+    event: dict[str, Any],
+    unfurls: dict[str, Any],
+    url: str,
+    title: str,
+) -> None:
+    integration = _load_integration(integration_id, team_id)
+    user = User.objects.filter(id=user_id).first()
+    if integration is None or user is None:
+        return
+    add_artifact_image_to_unfurl(
+        integration=integration,
+        user=user,
+        event=event,
+        unfurls=unfurls,
+        url=url,
+        title=title,
+    )
+
+
+@shared_task(ignore_result=True)
+@with_team_scope()
+def offer_interview_invite_after_reaction(
+    *,
+    team_id: int,
+    integration_id: int,
+    slack_user_id: str,
+    channel: str,
+    thread_ts: str,
+    trace_id: str | None,
+) -> None:
+    integration = _load_integration(integration_id, team_id)
+    if integration is None:
+        return
+    offer_frustration_invite(
+        FrustrationInviteRequest(
+            integration=integration,
+            slack_user_id=slack_user_id,
+            posthog_user=linked_posthog_user(integration, slack_user_id),
+            channel=channel,
+            thread_ts=thread_ts,
+            signal="reaction",
+            trace_id=trace_id,
+        )
     )

@@ -11,7 +11,14 @@ from google.cloud import bigquery, iam_admin_v1
 from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
-from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BackfillDetails,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportPersonsModel,
+    BatchExportSchema,
+)
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     bigquery_default_fields,
     get_our_google_cloud_credentials,
@@ -27,9 +34,8 @@ SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS = pytest.mark.requires_vendor_cre
 
 TEST_TIME = dt.datetime.now(dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
-TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
-    BatchExportModel(
-        name="events",
+TEST_MODELS: list[AnyBatchExportModel | BatchExportSchema | None] = [
+    BatchExportEventsCustomModel(
         schema={
             "fields": [
                 {"expression": "event", "alias": "event"},
@@ -40,8 +46,8 @@ TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
             "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
         },
     ),
-    BatchExportModel(name="events", schema=None),
-    BatchExportModel(name="persons", schema=None),
+    BatchExportEventsModel(),
+    BatchExportPersonsModel(),
     {
         "fields": [
             {"expression": "event", "alias": "event"},
@@ -65,7 +71,7 @@ async def assert_clickhouse_records_in_bigquery(
     min_ingested_timestamp: dt.datetime | None = None,
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
-    batch_export_model: BatchExportModel | BatchExportSchema | None = None,
+    batch_export_model: AnyBatchExportModel | BatchExportSchema | None = None,
     use_json_type: bool = False,
     sort_key: str = "event",
     backfill_details: BackfillDetails | None = None,
@@ -127,13 +133,16 @@ async def assert_clickhouse_records_in_bigquery(
         inserted_records.append(inserted_record)
 
     if batch_export_model is not None:
-        if isinstance(batch_export_model, BatchExportModel):
+        if isinstance(batch_export_model, AnyBatchExportModel):
             model_name = batch_export_model.name
-            fields = batch_export_model.schema["fields"] if batch_export_model.schema is not None else None
-            filters = batch_export_model.filters
-            extra_query_parameters = (
-                batch_export_model.schema["values"] if batch_export_model.schema is not None else None
+            schema = batch_export_model.schema if isinstance(batch_export_model, BatchExportEventsCustomModel) else None
+            fields = schema["fields"] if schema is not None else None
+            filters = (
+                batch_export_model.filters
+                if isinstance(batch_export_model, BatchExportEventsModel | BatchExportEventsCustomModel)
+                else None
             )
+            extra_query_parameters = schema["values"] if schema is not None else None
         else:
             model_name = "events"
             fields = batch_export_model["fields"]

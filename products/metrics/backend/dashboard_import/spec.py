@@ -70,6 +70,8 @@ class TargetSpec(_Model):
     original_expr: str
     legend: str | None = None
     unresolved_variables: list[str] = Field(default_factory=list)
+    # The expression with references to live dashboard variables kept. None when it refers to none.
+    templated_expr: str | None = None
 
 
 class PanelSpec(_Model):
@@ -92,6 +94,8 @@ class DashboardSpec(_Model):
     date_from: str | None = None
     panels: list[PanelSpec]
     variables: dict[str, str] = Field(default_factory=dict)
+    # Dashboard variables that stay live on the imported dashboard, as MetricsDashboardVariable JSON.
+    metric_variables: list[dict[str, Any]] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
 
 

@@ -12,9 +12,12 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -132,6 +135,7 @@ export function WorkflowRunsScene(): JSX.Element {
     const { loadRuns, loadRunActivity, loadRunnerCosts, loadJobAggregates, setRunExpanded } =
         useActions(workflowRunsLogic)
     const { searchParams } = useValues(router)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const githubUrl = githubWorkflowUrl(repoOwner, repoName, workflowName)
     // The rim spinner means "these numbers are updating", so each read only counts once it has data on
@@ -311,9 +315,22 @@ export function WorkflowRunsScene(): JSX.Element {
             <RepoSceneTitle
                 repo={`${repoOwner}/${repoName}`}
                 actions={
-                    <LemonButton type="secondary" size="small" to={githubUrl} targetBlank sideIcon={<IconExternal />}>
-                        View on GitHub
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button variant="outline" render={<LinkPrimitive to={githubUrl} target="_blank" />}>
+                            View on GitHub
+                            <IconExternal />
+                        </Button>
+                    ) : (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            to={githubUrl}
+                            targetBlank
+                            sideIcon={<IconExternal />}
+                        >
+                            View on GitHub
+                        </LemonButton>
+                    )
                 }
             />
             <ProductNav activeTab="workflows" repo={`${repoOwner}/${repoName}`} sourceId={sourceId}>

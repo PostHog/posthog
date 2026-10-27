@@ -73,6 +73,24 @@ class RepoSelectionUnavailableError(Exception):
         super().__init__(reason)
 
 
+class RepoSelectionUsageLimitError(Exception):
+    """Raised when the LLM gateway refused the agent's model calls with a 402, because the team
+    has no credits left for this billing period.
+
+    A task on any repository would hit the same refusal, so callers should report the limit
+    instead of falling back to a repository picker.
+    """
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
+# The agent prints a refused model call as `API Error: <status> <body>`. The gateway answers a
+# team with no credits left with a 402.
+_USAGE_LIMIT_REPLY = re.compile(r"\s*API Error: 402\b")
+
+
 def _first_user_github_integration(user_ids: Iterable[int]) -> UserIntegration | None:
     """Pick one GitHub ``UserIntegration`` among ``user_ids`` to act as a fallback source.
 
@@ -268,8 +286,8 @@ def _visibility_label(private: bool | None) -> str:
     return "private" if private else "public"
 
 
-def _candidate_visibility(github: GitHubIntegrationBase, candidate_repos: list[str]) -> dict[str, bool | None]:
-    """The `private` flag of each candidate from the light cache, or None when the cached entry lacks it.
+def _candidate_visibility(github: GitHubIntegrationBase, repositories: list[str]) -> dict[str, bool | None]:
+    """The `private` flag of each requested repository, including an ineligible source, from the light cache.
 
     A pure cache read: `_list_candidate_repos` already refreshed the cache when it was stale, so a
     second refresh would only cost another GitHub round trip. Entries synced before the flag was
@@ -282,7 +300,16 @@ def _candidate_visibility(github: GitHubIntegrationBase, candidate_repos: list[s
             continue
         private = repo.get("private")
         cached[full_name.lower()] = private if isinstance(private, bool) else None
-    return {repo: cached.get(repo) for repo in candidate_repos}
+    return {repo: cached.get(repo) for repo in repositories}
+
+
+def _filter_candidates_by_source_visibility(
+    source_repository: str | None, candidate_repos: list[str], visibility: Mapping[str, bool | None]
+) -> list[str]:
+    """Unknown source visibility cannot justify moving issue content to a public repository."""
+    if source_repository is None or visibility.get(source_repository) is False:
+        return candidate_repos
+    return [repo for repo in candidate_repos if repo == source_repository or visibility.get(repo) is True]
 
 
 def _build_repo_selection_prompt(
@@ -292,6 +319,7 @@ def _build_repo_selection_prompt(
     past_corrections: str | None = None,
     routing_rules: str | None = None,
     visibility: Mapping[str, bool | None] | None = None,
+    source_repository: str | None = None,
 ) -> str:
     """Build the prompt for the sandbox agent to select the most relevant repository.
 
@@ -312,6 +340,10 @@ def _build_repo_selection_prompt(
     `visibility` maps each candidate to its GitHub `private` flag (see `_candidate_visibility`).
     A candidate missing from it, or the whole argument left None, renders as unknown visibility,
     which the source privacy rule treats as unconfirmed.
+
+    `source_repository` is a candidate the request was filed against (e.g. a GitHub issue's
+    repository). It is the default answer, not the only one: an issue filed in one repository
+    often asks for a change in another, such as an SDK.
     """
     schema = RepoSelectionResult.model_json_schema()
     # `task_id` is system-set after the run — keep it out of the agent's output contract.
@@ -323,6 +355,23 @@ def _build_repo_selection_prompt(
     visibility = visibility or {}
     repo_list = "\n".join(
         f"{i + 1}. `{repo}` ({_visibility_label(visibility.get(repo))})" for i, repo in enumerate(candidate_repos)
+    )
+
+    source_section = (
+        f"""
+## Source repository
+
+The request was filed as an issue in `{source_repository}`. Select it by default. Select a different
+candidate only on specific evidence that the code the request describes lives there: cache paths
+or README content, a matching team routing rule, or a past correction below. An issue filed in one
+repository often asks for a change in an SDK or another sibling repository. When the evidence
+otherwise leaves two candidates equally plausible, prefer `{source_repository}`. Matching file
+paths alone do not establish equal ownership: distinguish canonical code from vendored or mirrored
+copies. Applicable routing rules, past corrections, and specific ownership evidence override the
+source default.
+"""
+        if source_repository
+        else ""
     )
 
     rules_section = (
@@ -385,7 +434,7 @@ If no relevant private candidate exists, or the relevant candidate's visibility 
 ## Candidate repositories (lowercased; full_name format is `owner/repo`; visibility in parentheses)
 
 {repo_list}
-{rules_section}{corrections_section}
+{source_section}{rules_section}{corrections_section}
 ## The cache (your source of truth — query it before answering)
 
 A Postgres-backed cache of every candidate repo's README, full file-tree paths, and metadata lives
@@ -556,30 +605,15 @@ def _salvage_repo_selection(text: str, candidate_repos: list[str]) -> RepoSelect
     )
 
 
-# Tells a pinned pick from an agent's pick when reading a stored `repo_selection` artefact.
-PINNED_REPOSITORY_REASON = "The request names this repository as its source."
+def _eligible_source_repository(source_repository: str | None, candidate_repos: list[str]) -> str | None:
+    """The source repository when it is a candidate, lowercased like the candidates, else None.
 
-
-def _pinned_selection(pinned_repository: str, candidate_repos: list[str]) -> RepoSelectionResult:
-    """Honor a repository the request names, or refuse to select a different one.
-
-    Matched against the eligible candidates rather than the raw connected list, so the pin and the
-    agent agree on what is reachable: a repository the agent could not have picked is not one a pin
-    may reach either. That is what puts this check after the cache hydration above, whose result the
-    pinned path otherwise does not need. Candidates are lowercased, so the pin is too.
+    A default the agent may not select would only steer it toward a rejected answer.
     """
-    pinned = pinned_repository.strip().lower()
-    if pinned in candidate_repos:
-        return RepoSelectionResult(repository=pinned, reason=PINNED_REPOSITORY_REASON)
-    logger.info("repo_selection.pinned_repository_unavailable", extra={"pinned": pinned})
-    return RepoSelectionResult(
-        repository=None,
-        reason=(
-            f"This report comes from `{pinned}`, which this project's GitHub installation cannot "
-            "reach. Connect that repository, or pick one yourself. No other repository is a "
-            "substitute for the one the report names."
-        ),
-    )
+    if source_repository is None:
+        return None
+    source = source_repository.strip().lower()
+    return source if source in candidate_repos else None
 
 
 async def select_repository(
@@ -602,7 +636,7 @@ async def select_repository(
     reasoning_effort: str | None = None,
     service_tier: str | None = None,
     past_corrections: str | None = None,
-    pinned_repository: str | None = None,
+    source_repository: str | None = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request context.
 
@@ -612,11 +646,11 @@ async def select_repository(
     `past_corrections` is an optional pre-rendered block of the caller's previous selections
     that a reviewer marked wrong; see `_build_repo_selection_prompt`.
 
-    `pinned_repository` is a repository the request itself names — a GitHub issue says which
-    repository it was filed against, and that is the answer, not a question for the agent. When it
-    is an eligible candidate it is returned as-is. When it is not, the result is `repository=None`
-    carrying the mismatch: the agent would otherwise pick a similar-looking repository and send the
-    work somewhere the request never pointed at.
+    `source_repository` is a repository the request itself names — a GitHub issue says which
+    repository it was filed against. When it is an eligible candidate the prompt makes it the
+    default, and the agent still decides: the code an issue describes can live in another
+    repository. Its visibility constrains destinations even when it is not an eligible candidate:
+    a source that is not confirmed public can only stay in place or move to a confirmed private repo.
 
     Callers that have already resolved the integration and candidate list (e.g. to run their
     own cheap early-exit first) may pass `github` and `candidate_repos` to skip the redundant
@@ -664,8 +698,20 @@ async def select_repository(
         raise RepoSelectionUnavailableError(
             "No connected GitHub repositories are eligible (archived or missing cache data)."
         )
-    if pinned_repository is not None:
-        return _pinned_selection(pinned_repository, candidate_repos)
+
+    source_repository = (source_repository or "").strip().lower() or None
+    visibility = await database_sync_to_async(_candidate_visibility, thread_sensitive=False)(
+        github, [*candidate_repos, source_repository] if source_repository else candidate_repos
+    )
+    candidate_repos = _filter_candidates_by_source_visibility(source_repository, candidate_repos, visibility)
+    if not candidate_repos:
+        return RepoSelectionResult(
+            repository=None,
+            reason=(
+                "The source repository is private or its visibility is unknown, "
+                "and no eligible private destination is available."
+            ),
+        )
     if len(candidate_repos) == 1:
         return RepoSelectionResult(
             repository=candidate_repos[0],
@@ -675,13 +721,13 @@ async def select_repository(
     if output_fn:
         output_fn(f"Selecting repository from {len(candidate_repos)} candidates...")
     routing_rules = await database_sync_to_async(_routing_rules_block, thread_sensitive=False)(team_id, candidate_repos)
-    visibility = await database_sync_to_async(_candidate_visibility, thread_sensitive=False)(github, candidate_repos)
     prompt = _build_repo_selection_prompt(
         context,
         candidate_repos,
         past_corrections=past_corrections,
         routing_rules=routing_rules,
         visibility=visibility,
+        source_repository=_eligible_source_repository(source_repository, candidate_repos),
     )
     sandbox_context = CustomPromptSandboxContext(
         team_id=team_id,
@@ -690,6 +736,7 @@ async def select_repository(
         sandbox_environment_id=sandbox_environment_id,
         # Read-only PostHog scopes so the agent can call `execute-sql` against `system.integration_repository_cache`.
         posthog_mcp_scopes="read_only",
+        github_read_access=True,
         sandbox_resources=SandboxResources(cpu_cores=2, memory_gb=8),
         # Optional agent runtime/model override (e.g. the Codex runtime + gpt-5.5). All-None keeps
         # the agent-server default; threaded through from the caller's per-step resolution.
@@ -699,21 +746,36 @@ async def select_repository(
         service_tier=service_tier,
     )
 
-    session, result = await MultiTurnSession.start(
-        prompt=prompt,
-        context=sandbox_context,
-        model=RepoSelectionResult,
-        step_name=step_name,
-        verbose=verbose,
-        output_fn=output_fn,
-        origin_product=origin_product,
-        signal_report_id=signal_report_id,
-        ai_stage="repo_selection",
-        internal=True,
-        # An unreadable end turn used to fail the whole selection, and the caller then dropped the
-        # user into a manual repository picker. Read the pick out of the raw reply instead.
-        fallback_from_text=lambda text: _salvage_repo_selection(text, candidate_repos),
-    )
+    usage_limit_reply: str | None = None
+
+    def _salvage(text: str) -> RepoSelectionResult:
+        nonlocal usage_limit_reply
+        if _USAGE_LIMIT_REPLY.match(text):
+            # The runner raises its own parse error when this raises, so the refusal is kept here.
+            usage_limit_reply = text
+            raise ValueError("The end turn is a usage limit refusal, not a selection")
+        return _salvage_repo_selection(text, candidate_repos)
+
+    try:
+        session, result = await MultiTurnSession.start(
+            prompt=prompt,
+            context=sandbox_context,
+            model=RepoSelectionResult,
+            step_name=step_name,
+            verbose=verbose,
+            output_fn=output_fn,
+            origin_product=origin_product,
+            signal_report_id=signal_report_id,
+            ai_stage="repo_selection",
+            internal=True,
+            # An unreadable end turn used to fail the whole selection, and the caller then dropped the
+            # user into a manual repository picker. Read the pick out of the raw reply instead.
+            fallback_from_text=_salvage,
+        )
+    except Exception as e:
+        if usage_limit_reply is not None:
+            raise RepoSelectionUsageLimitError(usage_limit_reply) from e
+        raise
     # Track repo discovery execution (for example, for Slack)
     if on_research_session is not None:
         on_research_session(str(session.task.id), str(session.task_run.id))

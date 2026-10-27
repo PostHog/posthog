@@ -9,7 +9,9 @@ from unittest.mock import patch
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from temporalio import activity
+from temporalio.client import WorkflowFailureError
 from temporalio.contrib.pydantic import pydantic_data_converter
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -21,7 +23,11 @@ from products.signals.backend.models import SignalReport
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
-from products.signals.backend.temporal.agentic.report import RunAgenticReportInput, RunAgenticReportOutput
+from products.signals.backend.temporal.agentic.report import (
+    RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE,
+    RunAgenticReportInput,
+    RunAgenticReportOutput,
+)
 from products.signals.backend.temporal.agentic.select_repository import SelectRepositoryInput
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, SafetyJudgeOutput
 from products.signals.backend.temporal.signal_queries import FetchSignalsForReportInput, FetchSignalsForReportOutput
@@ -183,6 +189,7 @@ class _Recorder:
         research_metrics: list[dict[str, object]] | None = None,
         checks_snapshot: dict[str, str] | None = None,
         selected_repository: str | None = "owner/repo",
+        research_errors: list[Exception] | None = None,
     ) -> None:
         self.gate_answers = gate_answers or {}
         self.fetch_results = fetch_results or [[_signal_data()]]
@@ -191,7 +198,10 @@ class _Recorder:
         self.research_metrics = research_metrics
         self.checks_snapshot = checks_snapshot
         self.checks_summary: str | None = None
+        self.checks_monitoring_enabled = False
         self.selected_repository = selected_repository
+        self.research_errors = list(research_errors or [])
+        self.failure_error_types: list[str | None] = []
         self.gate_checks: list[str] = []
         self.fetches = 0
         self.assigned_signal_checks = 0
@@ -237,6 +247,7 @@ def test_legacy_agentic_activity_payload_defaults_metrics_to_preserve() -> None:
     assert decoded.metrics is None
     assert decoded.charts is None
     assert decoded.checks_snapshot is None
+    assert decoded.checks_monitoring_enabled is False
 
 
 async def _run_summary_workflow(recorder: _Recorder) -> None:
@@ -273,6 +284,8 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     @activity.defn(name="run_agentic_report_activity")
     async def fake_research(input: RunAgenticReportInput) -> RunAgenticReportOutput:
         recorder.researches += 1
+        if recorder.research_errors:
+            raise recorder.research_errors.pop(0)
         return RunAgenticReportOutput(
             title="t",
             summary="s",
@@ -283,6 +296,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
             repository="owner/repo",
             metrics=recorder.research_metrics,
             checks_snapshot=recorder.checks_snapshot,
+            checks_monitoring_enabled=recorder.checks_monitoring_enabled,
             checks_summary=recorder.checks_summary,
         )
 
@@ -315,6 +329,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     async def fake_failed(input: MarkReportFailedInput) -> None:
         recorder.failures += 1
         recorder.failure_reasons.append(input.failure_reason)
+        recorder.failure_error_types.append(input.error_type)
 
     # The production self-driving worker runs with the pydantic data converter; the default converter
     # mangles the enum/pydantic payloads these activities exchange (RepoSelectionResult,
@@ -389,6 +404,48 @@ async def test_open_gates_let_the_run_flow_through():
     assert recorder.failures == 0
 
 
+def _sandbox_unavailable() -> ApplicationError:
+    return ApplicationError("sandbox gone", type=RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE)
+
+
+@pytest.mark.asyncio
+async def test_research_retries_after_a_sandbox_outage_instead_of_failing_the_report():
+    recorder = _Recorder(research_errors=[_sandbox_unavailable() for _ in range(2)])
+    await _run_summary_workflow(recorder)
+    assert recorder.researches == 3
+    assert recorder.failures == 0
+    assert recorder.marks_in_progress == 1
+    assert recorder.spend_publications == 1
+
+
+@pytest.mark.asyncio
+async def test_research_fails_the_report_once_the_sandbox_retry_budget_is_spent():
+    recorder = _Recorder(research_errors=[_sandbox_unavailable() for _ in range(8)])
+    with pytest.raises(WorkflowFailureError):
+        await _run_summary_workflow(recorder)
+    assert recorder.researches == 8
+    assert recorder.failures == 1
+    assert recorder.failure_reasons == ["research_sandbox_unavailable"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "research_error,error_type",
+    [
+        (ApplicationError("No JSON in initial turn", type="output_parse_failed"), "output_parse_failed"),
+        (RuntimeError("sandbox failed"), "RuntimeError"),
+    ],
+)
+async def test_research_does_not_retry_other_activity_errors(research_error: Exception, error_type: str):
+    recorder = _Recorder(research_errors=[research_error, research_error])
+    with pytest.raises(WorkflowFailureError):
+        await _run_summary_workflow(recorder)
+    assert recorder.researches == 2
+    assert recorder.failures == 1
+    assert recorder.failure_reasons == ["agentic_activity_error"]
+    assert recorder.failure_error_types == [error_type]
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "choice,target",
@@ -402,6 +459,7 @@ async def test_metric_payload_reaches_the_report_transition(choice, target):
     snapshot = {"check-1": "2026-10-02T12:00:00+00:00"}
     recorder = _Recorder(research_choice=choice, research_metrics=metrics, checks_snapshot=snapshot)
     recorder.checks_summary = "Expected impact matches the reconciled checks."
+    recorder.checks_monitoring_enabled = True
 
     await _run_summary_workflow(recorder)
 
@@ -409,6 +467,7 @@ async def test_metric_payload_reaches_the_report_transition(choice, target):
     assert len(inputs) == 1
     assert inputs[0].metrics == metrics
     assert inputs[0].checks_snapshot == snapshot
+    assert inputs[0].checks_monitoring_enabled is True
     assert inputs[0].checks_summary == recorder.checks_summary
 
 

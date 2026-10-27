@@ -53,8 +53,8 @@ function HighlightedTextArea({
         >
             {showPlaceholder ? (
                 <div
-                    className="absolute inset-0 p-[10px_12px] text-muted pointer-events-none"
-                    style={{ fontFamily: CODE_FONT_FAMILY, lineHeight: '1.5' }}
+                    className="absolute inset-0 p-[10px_12px] text-muted pointer-events-none leading-6"
+                    style={{ fontFamily: CODE_FONT_FAMILY }}
                 >
                     {placeholder}
                 </div>
@@ -92,7 +92,7 @@ function HighlightedTextArea({
                 autoCorrect="off"
                 autoCapitalize="off"
                 className={clsx(
-                    'absolute inset-0 w-full h-full resize-none bg-transparent',
+                    'absolute inset-0 w-full h-full resize-none bg-transparent leading-6',
                     'p-[10px_12px] text-transparent selection:bg-primary-highlight',
                     'focus:outline-none focus:ring-1 focus:ring-primary',
                     isDarkModeOn ? 'caret-white' : 'caret-black'
@@ -100,7 +100,6 @@ function HighlightedTextArea({
                 style={{
                     fontFamily: CODE_FONT_FAMILY,
                     fontSize: 'inherit',
-                    lineHeight: '1.5',
                 }}
             />
         </div>

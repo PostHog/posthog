@@ -12,7 +12,7 @@ from temporalio.testing._activity import ActivityEnvironment
 from posthog.models import Organization, Team
 from posthog.models.integration import Integration
 
-from products.batch_exports.backend.service import BatchExportModel
+from products.batch_exports.backend.service import BatchExportEventsModel
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     PolicyStatement,
     S3InsertInputs,
@@ -92,13 +92,13 @@ def kms_key_value(request) -> str | None:
     [None, "kms_key_id", "kms_key_arn"],
     indirect=True,
 )
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 async def test_insert_into_s3_activity_puts_data_into_s3_with_role_assumption(
     clickhouse_client,
     activity_environment: ActivityEnvironment,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel,
+    model: BatchExportEventsModel,
     generate_test_data,
     integration: Integration,
     s3_client,
@@ -159,13 +159,13 @@ async def test_insert_into_s3_activity_puts_data_into_s3_with_role_assumption(
 
 
 @pytest.mark.parametrize("external_id", ["not-an-org-id", None], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 async def test_insert_into_s3_activity_fails_role_assumption_with_missing_external_id(
     clickhouse_client,
     activity_environment: ActivityEnvironment,
     data_interval_start,
     data_interval_end,
-    model: BatchExportModel,
+    model: BatchExportEventsModel,
     generate_test_data,
     integration: Integration,
     s3_client,

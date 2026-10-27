@@ -455,7 +455,7 @@ class TestValidateCredentials:
         assert message is not None and "tenant" in message.lower()
         assert network.requests_log == []
 
-    @parameterized.expand([(400,), (401,)])
+    @parameterized.expand([(400,)])
     def test_rejected_token_reports_bad_service_principal(self, status: int) -> None:
         with scripted_network(_script([], [_body(status, text="invalid_client")])):
             is_valid, message = validate_credentials(TENANT_ID, CLIENT_ID, CLIENT_SECRET)

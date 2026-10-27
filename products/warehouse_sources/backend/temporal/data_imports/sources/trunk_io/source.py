@@ -216,6 +216,7 @@ Create an API token in the Trunk app under Settings > Organization > General > A
                     ),
                     SourceFieldInputConfig(
                         name="repo_owner",
+                        sync_setting=True,
                         label="Repository owner",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -224,6 +225,7 @@ Create an API token in the Trunk app under Settings > Organization > General > A
                     ),
                     SourceFieldInputConfig(
                         name="repo_name",
+                        sync_setting=True,
                         label="Repository name",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -232,6 +234,7 @@ Create an API token in the Trunk app under Settings > Organization > General > A
                     ),
                     SourceFieldInputConfig(
                         name="merge_queue_target_branch",
+                        sync_setting=True,
                         label="Merge queue target branch",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -241,5 +244,5 @@ Create an API token in the Trunk app under Settings > Organization > General > A
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

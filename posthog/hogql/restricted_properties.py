@@ -8,7 +8,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN, AiEventsTable
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
-from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 
@@ -23,7 +23,7 @@ logger = structlog.get_logger(__name__)
 RESTRICTABLE_JSON_BLOB_COLUMNS: frozenset[str] = frozenset(
     {
         "properties",  # events.properties, persons.properties, groups.group_properties reads via the HogQL name
-        "person_properties",  # EventsPersonSubTable (PoE mode)
+        "person_properties",  # EventsPersonSubTable (PoE mode) and FlagEvaluationsPersonSubTable
         # Not in the catalog. The property resolver reads it as the masked document for a restricted moved property.
         TEMPORARY_PROPERTIES_COLUMN,
         "group_properties",  # groups / raw_groups
@@ -109,9 +109,8 @@ def restricted_property_keys_for_table_type(
         return set()
 
     # EventsPersonSubTable and EventsGroupSubTable are virtual tables over `events`, not EventsTable subclasses, but
-    # they carry person/group properties — match them before the EventsTable branch either way. flag_evaluations has
-    # no counterpart for either: it stores the event blob alone, plus a person id and group keys.
-    if isinstance(table, EventsPersonSubTable):
+    # they carry person/group properties — match them before the EventsTable branch either way.
+    if isinstance(table, EventsPersonSubTable | FlagEvaluationsPersonSubTable):
         prop_def_type = PropertyDefinition.Type.PERSON
     elif isinstance(table, EventsGroupSubTable):
         prop_def_type = PropertyDefinition.Type.GROUP
@@ -150,10 +149,23 @@ def restricted_property_keys_for_table_type(
     return restricted_keys
 
 
+def key_read_overlaps_restriction(first_key: str, restricted_keys: Iterable[str]) -> bool:
+    """Whether JSONDropKeys can change what a read of the top-level key `first_key` returns.
+
+    JSONDropKeys matches object keys one dot-separated segment at a time. A restricted `a` also drops the flat key
+    `a.b`, and a restricted `a.b` also filters inside the value of `a`. Any other key reads the same value from the
+    stored blob as from the masked one.
+    """
+    segments = first_key.split(".")
+    for restricted_key in restricted_keys:
+        restricted_segments = restricted_key.split(".")
+        shared = min(len(segments), len(restricted_segments))
+        if segments[:shared] == restricted_segments[:shared]:
+            return True
+    return False
+
+
 def native_property_path_overlaps_restriction(property_name: str, table_type: ast.Type, context: HogQLContext) -> bool:
     if not context.restricted_properties or not context.uses_new_events_schema():
         return False
-    return any(
-        property_name == key or property_name.startswith(key + ".") or key.startswith(property_name + ".")
-        for key in restricted_property_keys_for_table_type(table_type, context)
-    )
+    return key_read_overlaps_restriction(property_name, restricted_property_keys_for_table_type(table_type, context))

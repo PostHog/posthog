@@ -93,6 +93,42 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             },
                         ]}
                     />
+
+                    <Markdown>
+                        {dedent`
+                            To call Gemini through Vertex AI, pass your Google Cloud project and location instead of an
+                            API key. The Google Gen AI client then authenticates with your Google Cloud credentials.
+                        `}
+                    </Markdown>
+
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'python',
+                                file: 'Python',
+                                code: dedent`
+                                    client = Client(
+                                        vertexai=True,
+                                        project="your_gcp_project_id",
+                                        location="us-central1",
+                                        posthog_client=posthog,
+                                    )
+                                `,
+                            },
+                            {
+                                language: 'typescript',
+                                file: 'Node',
+                                code: dedent`
+                                    const client = new GoogleGenAI({
+                                      vertexai: true,
+                                      project: 'your_gcp_project_id',
+                                      location: 'us-central1',
+                                      posthog,
+                                    })
+                                `,
+                            },
+                        ]}
+                    />
                 </>
             ),
         },
@@ -105,6 +141,17 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                         {dedent`
                             When you use the wrapped client to call Gemini, PostHog automatically captures an
                             \`$ai_generation\` event.
+                        `}
+                    </Markdown>
+
+                    <Markdown>
+                        {dedent`
+                            Audio output usage is captured separately from text output when Gemini reports the
+                            modality breakdown. Dedicated standard Gemini Developer API audio pricing is available
+                            for \`gemini-2.5-pro-preview-tts\` and \`gemini-3.1-flash-tts-preview\`. Other audio models,
+                            including newer TTS and Live models, need their own catalog rates or custom pricing;
+                            capturing their usage alone does not establish accurate audio pricing. Unlisted providers
+                            use the catalog's default estimate, rather than a verified provider-specific rate.
                         `}
                     </Markdown>
 
@@ -148,6 +195,15 @@ export const getGoogleSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             },
                         ]}
                     />
+
+                    <Markdown>
+                        {dedent`
+                            Calls that share a \`posthog_trace_id\` (\`posthogTraceId\` in Node) appear as one trace.
+                            If you omit it, the wrapper creates a new trace ID for each call, so each call appears as
+                            its own trace. To see a multi-step task as one trace, create one trace ID for the task and
+                            pass it to every call in that task.
+                        `}
+                    </Markdown>
 
                     <Blockquote>
                         <Markdown>

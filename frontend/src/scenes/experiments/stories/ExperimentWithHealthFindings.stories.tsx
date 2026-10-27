@@ -28,6 +28,13 @@ const EXPERIMENT_HEALTH = {
             diagnostic_ref: 'A5',
         },
     ],
+    checks: [
+        { key: 'flag_state', name: 'Feature flag rollout', status: 'finding', reason: null },
+        { key: 'flag_history', name: 'Feature flag history', status: 'passed', reason: null },
+        { key: 'split_changed_mid_run', name: 'Variant split changes since launch', status: 'passed', reason: null },
+        { key: 'flag_variants_mismatch', name: 'Feature flag variants', status: 'passed', reason: null },
+        { key: 'no_metric', name: 'Metrics', status: 'passed', reason: null },
+    ],
 }
 
 const EXPOSURES_WITH_BIAS_RISK = {
@@ -55,6 +62,12 @@ const EXPOSURES_WITH_BIAS_RISK = {
             actions: ['adjust_distribution', 'use_first_seen_variant'],
             diagnostic_ref: 'A1',
         },
+    ],
+    health_checks: [
+        { key: 'srm', name: 'Split of users across variants', status: 'finding', reason: null },
+        { key: 'bias_risk_multiple_excluded', name: 'Bias from an uneven split', status: 'finding', reason: null },
+        { key: 'zero_exposures', name: 'Exposures', status: 'passed', reason: null },
+        { key: 'multiple_variants_share', name: 'Users exposed to multiple variants', status: 'passed', reason: null },
     ],
 }
 

@@ -89,7 +89,7 @@ class AzureDevOpsSource(ResumableSource[AzureDevOpsSourceConfig, AzureDevOpsResu
 Your organization is the first path segment of your Azure DevOps URL — for `dev.azure.com/myorg` enter `myorg`. Create a personal access token under User settings > Personal access tokens with read scopes for the data you want to sync (Work Items, Code, Build, Project and Team).""",
             iconPath="/static/services/azure_devops.png",
             docsUrl="https://posthog.com/docs/cdp/sources/azure-devops",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

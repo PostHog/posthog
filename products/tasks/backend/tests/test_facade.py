@@ -1,3 +1,4 @@
+import json
 import importlib
 import threading
 from datetime import datetime, timedelta
@@ -8,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.db import close_old_connections, transaction
-from django.test import SimpleTestCase, TestCase, TransactionTestCase
+from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -427,6 +428,26 @@ class TestFacadeReadsAndMappers(TestCase):
 
         self.assertEqual(outcome, "invalid_origin")
         self.assertIsNone(resumed_run)
+
+    @override_settings(TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED=True)
+    def test_resume_in_cloud_logs_a_restart_beside_a_live_run(self):
+        task = self._make_task()
+        live = TaskRun.objects.create(
+            task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.QUEUED
+        )
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            environment=TaskRun.Environment.CLOUD,
+            status=TaskRun.Status.COMPLETED,
+            state={"pr_authorship_mode": "bot"},
+        )
+
+        with patch("products.tasks.backend.models.log_run_started_beside_live_run") as log_started:
+            outcome, _, _ = facade.resume_task_run_in_cloud(run.id, task.id, self.team.id, self.user.id)
+
+        self.assertEqual(outcome, "resumed")
+        log_started.assert_called_once_with(run, [live.id])
         run.refresh_from_db()
         self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
 
@@ -1928,6 +1949,49 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(run.state.get("runtime_adapter"), "claude")
         self.assertEqual(run.state.get("model"), "claude-sonnet-5")
         self.assertEqual(run.state.get("ai_stage"), "wizard_pr_agent")
+
+
+def _tool_update(tool_response: object) -> dict:
+    return {
+        "type": "notification",
+        "notification": {
+            "method": "session/update",
+            "params": {
+                "update": {
+                    "sessionUpdate": "tool_call_update",
+                    "toolCallId": "t1",
+                    "rawOutput": "out",
+                    "_meta": {"claudeCode": {"toolName": "Bash", "toolResponse": tool_response}},
+                }
+            },
+        },
+    }
+
+
+class TestThreadViewOfLogContent(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("output_copy_dropped", {"stdout": "x" * 500, "stderr": ""}, None),
+            (
+                "denial_fields_kept",
+                {"decisionReason": "Denied", "message": "No", "stdout": "x"},
+                {"decisionReason": "Denied", "message": "No"},
+            ),
+            ("non_object_dropped", "plain text", None),
+        ]
+    )
+    def test_reduces_the_tool_response_copy(self, _name: str, tool_response: object, expected: object) -> None:
+        other = {"type": "notification", "notification": {"method": "_posthog/run_started", "params": {}}}
+        content = "\n".join([json.dumps(other), json.dumps(_tool_update(tool_response)), "not json", ""])
+
+        lines = facade.thread_view_of_log_content(content).split("\n")
+
+        self.assertEqual(lines[0], json.dumps(other))
+        self.assertEqual(lines[2:], ["not json", ""])
+        update = json.loads(lines[1])["notification"]["params"]["update"]
+        self.assertEqual(update["rawOutput"], "out")
+        self.assertEqual(update["_meta"]["claudeCode"].get("toolResponse"), expected)
+        self.assertEqual(update["_meta"]["claudeCode"]["toolName"], "Bash")
 
 
 class TestAppendLogAgentActivity(SimpleTestCase):

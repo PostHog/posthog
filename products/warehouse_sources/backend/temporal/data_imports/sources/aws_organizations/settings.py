@@ -89,6 +89,14 @@ class AwsOrganizationsEndpointConfig:
 
 
 AWS_ORGANIZATIONS_ENDPOINTS: dict[str, AwsOrganizationsEndpointConfig] = {
+    "account_parents": AwsOrganizationsEndpointConfig(
+        name="account_parents",
+        operation="ListParents",
+        primary_key=["account_id", "parent_id"],
+        result_key="Parents",
+        page_size=MAX_RESULTS,
+        iam_actions=("organizations:ListAccounts", "organizations:ListParents"),
+    ),
     "accounts": AwsOrganizationsEndpointConfig(
         name="accounts",
         operation="ListAccounts",
@@ -100,6 +108,27 @@ AWS_ORGANIZATIONS_ENDPOINTS: dict[str, AwsOrganizationsEndpointConfig] = {
         # which carries the same value.
         drop_keys=frozenset({"Status"}),
         iam_actions=("organizations:ListAccounts",),
+    ),
+    "delegated_administrators": AwsOrganizationsEndpointConfig(
+        name="delegated_administrators",
+        operation="ListDelegatedAdministrators",
+        primary_key=["id"],
+        result_key="DelegatedAdministrators",
+        page_size=MAX_RESULTS,
+        timestamp_columns=("joined_timestamp", "delegation_enabled_date"),
+        iam_actions=("organizations:ListDelegatedAdministrators",),
+    ),
+    "delegated_services": AwsOrganizationsEndpointConfig(
+        name="delegated_services",
+        operation="ListDelegatedServicesForAccount",
+        primary_key=["account_id", "service_principal"],
+        result_key="DelegatedServices",
+        page_size=MAX_RESULTS,
+        timestamp_columns=("delegation_enabled_date",),
+        iam_actions=(
+            "organizations:ListDelegatedAdministrators",
+            "organizations:ListDelegatedServicesForAccount",
+        ),
     ),
     "organization": AwsOrganizationsEndpointConfig(
         name="organization",
@@ -126,6 +155,14 @@ AWS_ORGANIZATIONS_ENDPOINTS: dict[str, AwsOrganizationsEndpointConfig] = {
         result_key="Policies",
         page_size=MAX_RESULTS,
         iam_actions=("organizations:ListPolicies",),
+    ),
+    "policy_targets": AwsOrganizationsEndpointConfig(
+        name="policy_targets",
+        operation="ListTargetsForPolicy",
+        primary_key=["policy_id", "target_id"],
+        result_key="Targets",
+        page_size=MAX_RESULTS,
+        iam_actions=("organizations:ListPolicies", "organizations:ListTargetsForPolicy"),
     ),
     "resource_tags": AwsOrganizationsEndpointConfig(
         name="resource_tags",
@@ -158,10 +195,14 @@ ENDPOINTS = tuple(AWS_ORGANIZATIONS_ENDPOINTS.keys())
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}
 
 ENDPOINT_DESCRIPTIONS: dict[str, str] = {
+    "account_parents": "The root or organizational unit each account sits directly under. One row per account.",
     "accounts": "Every AWS account in the organization, with its name, email, state, and the time it joined.",
+    "delegated_administrators": "Accounts registered as delegated administrators for an AWS service in the organization.",
+    "delegated_services": "The AWS services each delegated administrator account administers. One row per account and service.",
     "organization": "The organization itself: its ID, feature set, and management account. One row per sync.",
     "organizational_units": "Organizational units in the account hierarchy, each with the parent it sits under.",
     "policies": "Policies in the organization, one row per policy, across every policy type the organization supports.",
+    "policy_targets": "The roots, organizational units, and accounts each policy is attached to. One row per attachment.",
     "resource_tags": "Tags attached to accounts, roots, organizational units, and policies. One row per tag.",
     "roots": "Roots of the organization, with the policy types enabled on each.",
 }

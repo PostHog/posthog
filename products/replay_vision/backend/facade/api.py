@@ -139,7 +139,15 @@ def fetch_page_session_observations(
             ),
         )
         .select_related("scanner")
-        .only("id", "session_id", "scanner_result", "created_at", "scanner__name", "scanner__scanner_type")
+        .only(
+            "id",
+            "session_id",
+            "scanner_result",
+            "created_at",
+            "session_started_at",
+            "scanner__name",
+            "scanner__scanner_type",
+        )
     )
     if prefer_summarizer:
         queryset = queryset.order_by(
@@ -173,6 +181,11 @@ def has_signal_emitting_scanner(team_id: int) -> bool:
     signals tables alone. See `SignalSourceConfig.is_source_enabled`.
     """
     return ReplayScanner.objects.filter(team_id=team_id, enabled=True, emits_signals=True).exists()
+
+
+def team_ids_with_signal_emitting_scanner() -> set[int]:
+    """Every team that `has_signal_emitting_scanner` is true for, in one query."""
+    return set(ReplayScanner.objects.filter(enabled=True, emits_signals=True).values_list("team_id", flat=True))
 
 
 def start_workflow_observation_request(
@@ -335,3 +348,12 @@ def _workflow_owner(team: TeamModel, owner_id: int | None) -> User:
     ):
         raise ObservationRequestRejected("The workflow has no owner who can run scans.", "forbidden")
     return owner
+
+
+def signal_emitting_scanner_ids(team_id: int, scanner_ids: list[str]) -> set[str]:
+    return {
+        str(scanner_id)
+        for scanner_id in ReplayScanner.objects.filter(
+            team_id=team_id, id__in=scanner_ids, enabled=True, emits_signals=True
+        ).values_list("id", flat=True)
+    }

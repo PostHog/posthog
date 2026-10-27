@@ -273,6 +273,42 @@ const sqlVariablesUpdate = (): ToolBase<ReturnType<typeof SqlVariablesUpdateSche
     },
 })
 
+const ViewCheckIncrementalSchema = () => {
+    const WarehouseSavedQueriesCheckIncrementalCreateBody =
+        orvalSchemas.WarehouseSavedQueriesCheckIncrementalCreateBody()
+    return WarehouseSavedQueriesCheckIncrementalCreateBody
+}
+
+const viewCheckIncremental = (): ToolBase<
+    ReturnType<typeof ViewCheckIncrementalSchema>,
+    Schemas.IncrementalEligibility
+> => ({
+    name: 'view-check-incremental',
+    schema: ViewCheckIncrementalSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ViewCheckIncrementalSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.incremental_key !== undefined) {
+            body['incremental_key'] = params.incremental_key
+        }
+        if (params.unique_key !== undefined) {
+            body['unique_key'] = params.unique_key
+        }
+        if (params.lookback_seconds !== undefined) {
+            body['lookback_seconds'] = params.lookback_seconds
+        }
+        const result = await context.api.request<Schemas.IncrementalEligibility>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/check_incremental/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ViewCreateSchema = () => {
     const WarehouseSavedQueriesCreateBody = orvalSchemas.WarehouseSavedQueriesCreateBody()
     return WarehouseSavedQueriesCreateBody.extend({
@@ -429,7 +465,7 @@ const ViewRunSchema = () => {
     )
 }
 
-const viewRun = (): ToolBase<ReturnType<typeof ViewRunSchema>, unknown> => ({
+const viewRun = (): ToolBase<ReturnType<typeof ViewRunSchema>, WithPostHogUrl<Schemas.SavedQueryRunResponse>> => ({
     name: 'view-run',
     schema: ViewRunSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ViewRunSchema>>) => {
@@ -438,7 +474,10 @@ const viewRun = (): ToolBase<ReturnType<typeof ViewRunSchema>, unknown> => ({
         if (params.full_refresh !== undefined) {
             body['full_refresh'] = params.full_refresh
         }
-        const result = await context.api.request<unknown>({
+        if (params.direction !== undefined) {
+            body['direction'] = params.direction
+        }
+        const result = await context.api.request<Schemas.SavedQueryRunResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/run/`,
             body,
@@ -464,7 +503,7 @@ const viewRunHistory = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/run_history/`,
         })
-        return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql?open_view=${params.id}`)
     },
 })
 
@@ -519,7 +558,7 @@ const viewUnmaterialize = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/revert_materialization/`,
             body,
         })
-        return await withPostHogUrl(context, result, `/sql?open_view=${result.id}`)
+        return await withPostHogUrl(context, result, `/sql?open_view=${params.id}`)
     },
 })
 
@@ -775,6 +814,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'sql-variables-create': sqlVariablesCreate,
     'sql-variables-delete': sqlVariablesDelete,
     'sql-variables-update': sqlVariablesUpdate,
+    'view-check-incremental': viewCheckIncremental,
     'view-create': viewCreate,
     'view-delete': viewDelete,
     'view-get': viewGet,

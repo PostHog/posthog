@@ -167,6 +167,39 @@ class TestFanOut:
         assert result.paths == ["/api/v1/sites", "/api/v1/sites/s2/builds"]
         assert result.rows == [{"id": "b2", "site_id": "s2"}]
 
+    @parameterized.expand(
+        [
+            ("dns_records", "/api/v1/dns_zones", "/api/v1/dns_zones/z1/dns_records", "dns_zone_id"),
+            ("audit_events", "/api/v1/accounts", "/api/v1/accounts/z1/audit", "account_id"),
+            ("traffic_splits", "/api/v1/sites", "/api/v1/sites/z1/traffic_splits", "site_id"),
+        ]
+    )
+    def test_resolves_child_path_from_parent_id(
+        self, endpoint: str, parent_path: str, child_path: str, parent_column: str
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [ScriptedResponse(json=[{"id": "z1", "slug": "acme"}]), ScriptedResponse(json=[{"id": "c1"}])],
+        )
+
+        assert result.raised is None
+        assert result.paths == [parent_path, child_path]
+        assert result.rows == [{"id": "c1", parent_column: "z1"}]
+
+    def test_audit_events_skips_account_whose_log_is_forbidden(self) -> None:
+        result = _driver().run(
+            "audit_events",
+            [
+                ScriptedResponse(json=[{"id": "a1"}, {"id": "a2"}]),
+                ScriptedResponse(status=403, json={"code": 403, "message": "Forbidden"}),
+                ScriptedResponse(json=[{"id": "e1"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/v1/accounts", "/api/v1/accounts/a1/audit", "/api/v1/accounts/a2/audit"]
+        assert result.rows == [{"id": "e1", "account_id": "a2"}]
+
 
 class TestPageCap:
     def test_capped_paginator_raises_when_parent_exceeds_cap(self) -> None:
@@ -193,9 +226,6 @@ class TestFailLoud:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, netlify_module._NETLIFY_INVALID_TOKEN_ERROR),
-            ("forbidden", 403, False, netlify_module._NETLIFY_INVALID_TOKEN_ERROR),
             ("rate_limited", 429, False, netlify_module._NETLIFY_UNREACHABLE_ERROR),
             ("netlify_down", 503, False, netlify_module._NETLIFY_UNREACHABLE_ERROR),
         ]

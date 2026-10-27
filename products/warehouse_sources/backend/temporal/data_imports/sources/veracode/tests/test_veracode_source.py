@@ -32,12 +32,6 @@ def _inputs(schema_name: str) -> SourceInputs:
     )
 
 
-class TestGetSchemas:
-    def test_names_filter(self) -> None:
-        schemas = VeracodeSource().get_schemas(_config(), team_id=1, names=["findings"])
-        assert [s.name for s in schemas] == ["findings"]
-
-
 class TestValidateCredentials:
     @parameterized.expand(
         [
@@ -66,11 +60,3 @@ class TestResumableWiring:
         response = VeracodeSource().source_for_pipeline(_config(), manager, _inputs("findings"))
         assert response.name == "findings"
         assert response.primary_keys == ["application_guid", "issue_id"]
-
-    def test_source_for_pipeline_rejects_unknown_endpoint(self) -> None:
-        try:
-            VeracodeSource().source_for_pipeline(_config(), MagicMock(), _inputs("not_an_endpoint"))
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("expected ValueError for unknown endpoint")

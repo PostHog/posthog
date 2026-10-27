@@ -105,7 +105,7 @@ class WatchmodeSource(ResumableSource[WatchmodeSourceConfig, WatchmodeResumeConf
             keywords=["streaming", "movies", "tv"],
             docsUrl="https://posthog.com/docs/cdp/sources/watchmode",
             iconPath="/static/services/watchmode.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

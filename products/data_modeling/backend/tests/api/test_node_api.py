@@ -370,7 +370,7 @@ class TestNodeViewSet(APIBaseTest):
     @parameterized.expand(
         [("upstream_from_a_reader", "upstream", False), ("downstream_from_a_managed_view", "downstream", True)]
     )
-    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_a_run_stays_on_the_side_of_a_managed_view_it_started_from(
         self, _name, direction, start_from_managed_view, mock_sync_connect
     ):
@@ -380,16 +380,17 @@ class TestNodeViewSet(APIBaseTest):
         Edge.objects.create(team=self.team, dag=self.dag, source=managed_node, target=self.view_node)
         start = managed_node if start_from_managed_view else self.view_node
 
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/data_modeling_nodes/{start.id}/run/",
-            {"direction": direction},
-        )
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/data_modeling_nodes/{start.id}/run/",
+                {"direction": direction},
+            )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["node_ids"], [str(start.id)])
         mock_client.start_workflow.assert_called_once()
 
-    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_downstream_starts_workflow(self, mock_sync_connect):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
@@ -425,7 +426,7 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(self.client.get(detail).json()["suspended"], {})
 
-    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_resumes_every_node_it_was_asked_to_run(self, mock_sync_connect):
         # A suspended node is skipped by ExecuteDAGWorkflow, so without this the button is a no-op.
         mock_sync_connect.return_value = AsyncMock()
@@ -479,7 +480,7 @@ class TestNodeViewSet(APIBaseTest):
         self.assertIsNone(suspension_reset_at(self.view_node, "clickhouse"))
         self.assertEqual(mock_client.start_workflow.call_args[0][0], "data-modeling-materialize-view")
 
-    @patch("products.data_modeling.backend.presentation.views.node.sync_connect")
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_starts_the_execute_dag_workflow(self, mock_sync_connect):
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
@@ -720,19 +721,44 @@ class TestNodeViewSet(APIBaseTest):
         Edge.objects.create(team=self.team, dag=self.dag, source=self.table_node, target=managed_node)
         node = self.table_node if delete_the_table else managed_node
 
-        response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_nodes/{node.id}/")
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_nodes/{node.id}/")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertTrue(Node.objects.filter(id=node.id).exists())
 
+    @parameterized.expand([("flag_off", False), ("flag_on", True)])
+    def test_managed_view_nodes_show_only_with_the_managed_viewsets_flag(self, _name, flag_enabled):
+        managed_node = self._create_managed_node()
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.table_node, target=managed_node)
+
+        with patch("posthoganalytics.feature_enabled", return_value=flag_enabled):
+            list_response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/")
+            lineage_response = self.client.get(
+                f"/api/environments/{self.team.id}/data_modeling_nodes/lineage/?node_id={self.table_node.id}"
+            )
+            detail_response = self.client.get(
+                f"/api/environments/{self.team.id}/data_modeling_nodes/{managed_node.id}/"
+            )
+
+        listed_ids = {node["id"] for node in list_response.json()["results"]}
+        lineage = lineage_response.json()
+        lineage_ids = {node["id"] for node in lineage["nodes"]}
+        self.assertEqual(str(managed_node.id) in listed_ids, flag_enabled)
+        self.assertIn(str(self.table_node.id), listed_ids)
+        self.assertEqual(str(managed_node.id) in lineage_ids, flag_enabled)
+        self.assertEqual(len(lineage["edges"]), 2 if flag_enabled else 1)
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK if flag_enabled else status.HTTP_404_NOT_FOUND)
+
     def test_cannot_patch_node_of_managed_view(self):
         node = self._create_managed_node()
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/data_modeling_nodes/{node.id}/",
-            data={"description": "changed"},
-            format="json",
-        )
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/data_modeling_nodes/{node.id}/",
+                data={"description": "changed"},
+                format="json",
+            )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         node.refresh_from_db()
@@ -1139,7 +1165,8 @@ class TestEdgeViewSet(APIBaseTest):
     def test_cannot_delete_edge_into_managed_view(self):
         edge = self._create_managed_edge()
 
-        response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/")
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertTrue(Edge.objects.filter(id=edge.id).exists())
@@ -1147,11 +1174,12 @@ class TestEdgeViewSet(APIBaseTest):
     def test_cannot_patch_edge_into_managed_view(self):
         edge = self._create_managed_edge()
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/",
-            data={"properties": {"a": 2}},
-            format="json",
-        )
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/",
+                data={"properties": {"a": 2}},
+                format="json",
+            )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         edge.refresh_from_db()

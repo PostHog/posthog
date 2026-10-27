@@ -46,34 +46,28 @@ export const AI_TASKS: SetupTask[] = [
         requiresManualCompletion: true,
         getUrl: () => urls.ai(),
     },
-    {
-        id: SetupTaskId.UsePosthogCode,
-        title: 'Try PostHog Desktop',
-        description:
-            'An AI devtool that understands your product, not just your codebase — it triages bugs and opens pull requests from your product data.',
-        taskType: 'ai',
-        requiresManualCompletion: true,
-        docsUrl: 'https://posthog.com/desktop',
-    },
-    {
-        id: SetupTaskId.UsePosthogMcp,
-        title: 'Try PostHog MCP',
-        description:
-            'Query your PostHog data in plain English from your coding agent — run funnels, check errors, and toggle flags without leaving your editor.',
-        taskType: 'ai',
-        requiresManualCompletion: true,
-        docsUrl: 'https://posthog.com/mcp',
-    },
-    {
-        id: SetupTaskId.UsePosthogInSlack,
-        title: 'Try PostHog in Slack',
-        description:
-            'Tag @PostHog in any Slack thread to ask data questions, run SQL, and draft pull requests — plus get insights and alerts delivered to your channels.',
-        taskType: 'ai',
-        requiresManualCompletion: true,
-        getUrl: () => urls.integration('slack'),
-    },
 ]
+
+/** MCP and Slack tasks - add only to products where an agent or a Slack thread is a natural way to use them */
+export const USE_POSTHOG_MCP: SetupTask = {
+    id: SetupTaskId.UsePosthogMcp,
+    title: 'Try PostHog MCP',
+    description:
+        'Query your PostHog data in plain English from your coding agent — run funnels, check errors, and toggle flags without leaving your editor.',
+    taskType: 'ai',
+    requiresManualCompletion: true,
+    docsUrl: 'https://posthog.com/mcp',
+}
+
+export const USE_POSTHOG_IN_SLACK: SetupTask = {
+    id: SetupTaskId.UsePosthogInSlack,
+    title: 'Try PostHog in Slack',
+    description:
+        'Tag @PostHog in any Slack thread to ask data questions, run SQL, and draft pull requests — plus get insights and alerts delivered to your channels.',
+    taskType: 'ai',
+    requiresManualCompletion: true,
+    getUrl: () => urls.integration('slack'),
+}
 
 // ============================================================================
 // Product Setup Registry
@@ -186,6 +180,8 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 getUrl: () => urls.cohorts(),
                 targetSelector: '[data-attr="new-cohort"]',
             },
+            USE_POSTHOG_MCP,
+            USE_POSTHOG_IN_SLACK,
         ],
     },
 
@@ -245,6 +241,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 taskType: 'explore',
                 getUrl: () => urls.webAnalyticsWebVitals(),
             },
+            USE_POSTHOG_IN_SLACK,
         ],
     },
 
@@ -358,6 +355,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 docsUrl:
                     'https://posthog.com/docs/feature-flags/creating-feature-flags#step-5-configure-evaluation-runtime-and-contexts-optional',
             },
+            USE_POSTHOG_MCP,
         ],
     },
 
@@ -400,6 +398,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 taskType: 'explore',
                 dependsOn: [SetupTaskId.LaunchExperiment],
             },
+            USE_POSTHOG_MCP,
         ],
     },
 
@@ -517,6 +516,7 @@ export const PRODUCT_SETUP_REGISTRY: Partial<Record<ProductKey, ProductSetupConf
                 getUrl: () => urls.errorTracking(),
                 targetSelector: '[data-attr="error-tracking-resolve"]', // Will be highlighted once they click on an error
             },
+            USE_POSTHOG_MCP,
         ],
     },
 
@@ -710,7 +710,7 @@ export function getProductSetupConfig(productKey: ProductKey): ProductSetupConfi
     return PRODUCT_SETUP_REGISTRY[productKey] ?? null
 }
 
-/** Get all tasks for a product, optionally filtered by type. AI tasks are appended to every product. */
+/** Get all tasks for a product, optionally filtered by type. AI_TASKS are appended to every product, ahead of the product's own AI tasks. */
 export function getTasksForProduct(
     productKey: ProductKey,
     taskType?: 'setup' | 'onboarding' | 'explore' | 'ai' | 'all'
@@ -720,7 +720,11 @@ export function getTasksForProduct(
         return []
     }
 
-    const tasks = [...config.tasks, ...AI_TASKS]
+    const tasks = [
+        ...config.tasks.filter((t) => t.taskType !== 'ai'),
+        ...AI_TASKS,
+        ...config.tasks.filter((t) => t.taskType === 'ai'),
+    ]
     if (!taskType || taskType === 'all') {
         return tasks
     }

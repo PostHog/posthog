@@ -9,7 +9,7 @@ from posthog.models.user import User
 from posthog.resource_limits import LimitKey, check_count_limit
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.feature_flags import dashboard_widgets_enabled, widget_flag_enabled
+from products.dashboards.backend.feature_flags import widget_flag_enabled
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
@@ -28,9 +28,6 @@ def prepare_widget_tile_create(
     user: User | None = None,
     user_access_control: UserAccessControl | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    if not dashboard_widgets_enabled(team=team, user=user):
-        raise serializers.ValidationError({"widget": "Dashboard widgets are not enabled for this project."})
-
     spec = get_widget_spec(widget_type)
     if spec is None:
         raise serializers.ValidationError({"widget_type": f"Unknown widget type: {widget_type}"})

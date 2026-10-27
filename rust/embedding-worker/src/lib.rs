@@ -236,7 +236,9 @@ pub fn generate_embedding_text<'a>(
 ) -> Result<(Cow<'a, str>, usize)> {
     let content = model.escape_input(content);
     let (text, count) = match model {
-        EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
+        EmbeddingModel::OpenAITextEmbeddingSmall
+        | EmbeddingModel::OpenAITextEmbeddingLarge
+        | EmbeddingModel::OpenAITextEmbeddingSmall256 => {
             let encoder = &*CL100K_ENCODER;
             let mut tokens: Vec<_> = encoder
                 .encode_with_special_tokens(&content)

@@ -17,6 +17,7 @@ type FileSystemLogViewType =
     | 'early_access_feature'
     | 'link'
     | 'notebook'
+    | 'canvas'
     | 'session_recording_playlist'
     | `hog_function/${string}`
 
@@ -38,10 +39,21 @@ export function trackFileSystemLogView({ type, ref, enabled = true }: TrackFileS
         return
     }
 
-    recentItemsModel.findMounted()?.actions.recordView(type, String(ref))
-    // Fire-and-forget view tracking: nothing renders off it, so a failure must not surface as an
-    // unhandled rejection.
-    api.fileSystemLogView.create({ type, ref: String(ref) }).catch(() => {})
+    const recents = recentItemsModel.findMounted()
+    // A listed item moves to the top locally, and scene views feed a separate list. Any other item has no row to
+    // move, so the list reads again once the server has recorded this view.
+    const needsReload =
+        type !== 'scene' && !recents?.values.recents.some((entry) => entry.type === type && entry.ref === String(ref))
+    recents?.actions.recordView(type, String(ref))
+    // Fire-and-forget view tracking: a failure must not surface as an unhandled rejection.
+    api.fileSystemLogView
+        .create({ type, ref: String(ref) })
+        .then(() => {
+            if (needsReload) {
+                recents?.actions.loadRecents()
+            }
+        })
+        .catch(() => {})
 }
 
 export function useFileSystemLogView({ type, ref, enabled = true }: TrackFileSystemLogViewOptions): void {

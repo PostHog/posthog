@@ -7,7 +7,30 @@ import { logger } from './logger'
 import { captureTeamEvent } from './posthog'
 
 type RawTeam = Omit<Team, 'available_features'> & {
-    available_product_features: { key: string; name: string }[]
+    available_product_features: unknown
+}
+
+// One team's row must not throw, because a throw fails the batched lookup for every team in it. The
+// column is a jsonb array, so an entry can be null. An entry without a string key is skipped.
+function availableFeatures(raw: unknown): OrganizationAvailableFeature[] {
+    if (!Array.isArray(raw)) {
+        return []
+    }
+    return raw.flatMap((feature) =>
+        typeof feature?.key === 'string' ? [feature.key as OrganizationAvailableFeature] : []
+    )
+}
+
+// Postgres stores team ids in int4 columns. A query that compares one of those columns to a
+// non-integer, or to a number above 2_147_483_647, fails. Team ids start at 1. The check therefore
+// also rejects 0 and negative numbers.
+export function isValidTeamId(value: unknown): value is number {
+    return Number.isInteger(value) && (value as number) > 0 && (value as number) <= 2_147_483_647
+}
+
+export function validTeamIds(keys: string[]): number[] {
+    // parseInt would read "1.5" as team 1. Number keeps it 1.5, which isValidTeamId rejects.
+    return keys.map(Number).filter(isValidTeamId)
 }
 
 export interface TeamManagerOptions {
@@ -57,6 +80,22 @@ export class TeamManager {
     public async hasAvailableFeature(teamId: number, feature: OrganizationAvailableFeature): Promise<boolean> {
         const team = await this.getTeam(teamId)
         return team?.available_features.includes(feature) || false
+    }
+
+    // `ingested_event` means "this project received data", so logs, traces and metrics set it too.
+    public async setTeamsIngestedData(teamIds: Iterable<number>): Promise<void> {
+        await Promise.all(
+            [...new Set(teamIds)].map(async (teamId) => {
+                try {
+                    const team = await this.getTeam(teamId)
+                    if (team) {
+                        await this.setTeamIngestedEvent(team, {})
+                    }
+                } catch (error) {
+                    logger.error('⚠️', 'Failed to set ingested_event', { teamId, error })
+                }
+            })
+        )
     }
 
     public async setTeamIngestedEvent(team: Team, properties: Properties): Promise<void> {
@@ -119,7 +158,7 @@ export class TeamManager {
                 if (/^\d{1,10}$/.test(idOrToken)) {
                     const parsed = parseInt(idOrToken)
                     // TODO: stat if this happens
-                    if (!isNaN(parsed) && parsed > 0 && parsed <= 2147483647) {
+                    if (isValidTeamId(parsed)) {
                         teamIds.push(parsed)
                     }
                 } else {
@@ -182,7 +221,7 @@ export class TeamManager {
                     teamPartial.drop_events_older_than_seconds !== null
                         ? Number(teamPartial.drop_events_older_than_seconds)
                         : null,
-                available_features: available_product_features?.map((f) => f.key as OrganizationAvailableFeature) || [],
+                available_features: availableFeatures(available_product_features),
             }
             resultRecord[row.id] = team
             resultRecord[row.api_token] = team

@@ -754,6 +754,30 @@ class TestSearchScratchpad(BaseTest):
         # Matches on both content ('CHECKOUT' in k1) and key ('checkout-key').
         assert keys == {"k1", "checkout-key"}
 
+    @parameterized.expand(
+        [
+            ("scout_run", "signals-scout-errors", ["errors"]),
+            ("pipeline_identity", PIPELINE_AUDIENCE_REPORT_RESEARCH, ["research"]),
+        ]
+    )
+    def test_skill_name_filter_applies_before_the_limit(self, _name: str, skill_name: str, expected: list[str]) -> None:
+        remember(team_id=self.team.id, key="errors", content="v", run_id=str(_create_run(self.team).id))
+        remember(
+            team_id=self.team.id,
+            key="flags",
+            content="v",
+            run_id=str(_create_run(self.team, skill_name="signals-scout-flags").id),
+        )
+        remember(team_id=self.team.id, key="research", content="v", identity=PIPELINE_AUDIENCE_REPORT_RESEARCH)
+        remember(team_id=self.team.id, key="unattributed", content="v")
+        SignalScratchpad.objects.filter(team=self.team, key="errors").update(
+            updated_at=timezone.now() - timedelta(days=1)
+        )
+
+        results = search_scratchpad(team_id=self.team.id, skill_name=skill_name, limit=1)
+
+        assert [e.key for e in results] == expected
+
     def test_does_not_leak_memories_from_other_teams(self) -> None:
         from posthog.models import Team
 

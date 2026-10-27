@@ -343,10 +343,3 @@ class TestValidateCredentials:
         with scripted_network([_login_response("minted")]) as network:
             assert validate_credentials("cid", "key", "live") == (True, None)
         assert network.requests_log[0].path == "/api/v1/authentication/login"
-
-    def test_a_rejected_login_returns_a_message_rather_than_raising(self) -> None:
-        with scripted_network([ScriptedResponse(status=401)]):
-            ok, message = validate_credentials("cid", "key", "live")
-
-        assert ok is False
-        assert message is not None

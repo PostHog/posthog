@@ -18,11 +18,8 @@ sourceId: Unstructured
 import SourceSetupIntro from '../_snippets/source-setup-intro.mdx'
 import SyncModes from '../_snippets/sync-modes.mdx'
 import TroubleshootingLink from '../_snippets/dw-troubleshooting-link.mdx'
-import AlphaRelease from '../_snippets/alpha-release.mdx'
 
-<AlphaRelease />
-
-[Unstructured](https://unstructured.io) is a document ETL platform that turns raw files (PDFs, Office documents, emails, and more) into RAG-ready structured data. This source pulls the metadata from your Unstructured platform account, its workflows, job runs, and source/destination connectors, into the PostHog data warehouse so you can monitor the health of your document pipelines alongside the rest of your data.
+[Unstructured](https://unstructured.io) is a document ETL platform that turns raw files (PDFs, Office documents, emails, and more) into RAG-ready structured data. This source pulls the metadata from your Unstructured platform account, its workflows, job runs, per-job processing details and failed files, notifications, and source/destination connectors, into the PostHog data warehouse so you can monitor the health of your document pipelines alongside the rest of your data.
 
 ## Prerequisites
 
@@ -45,7 +42,9 @@ Leave **API host** blank unless Unstructured provisioned your account with a cus
 
 <SyncModes />
 
-Unstructured's read endpoints do not expose a reliable server-side incremental filter, and workflows and connectors are mutable configuration objects, so every table syncs as a full refresh. These are low-volume inventory tables, so a full refresh each sync is inexpensive and always reflects the current state.
+The `notifications` table supports incremental sync on `created_at`. Every other table syncs as a full refresh: workflows and connectors are mutable configuration objects, and jobs have no server-side time filter. These are low-volume inventory tables, so a full refresh each sync always reflects the current state.
+
+The `job_details` and `job_failed_files` tables make one request for each job on every sync. `job_failed_files` skips jobs that report no failed files. `job_details` is off by default, so turn it on only when you need per-node processing counts.
 
 ## Configuration
 

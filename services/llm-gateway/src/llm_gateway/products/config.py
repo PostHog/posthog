@@ -70,8 +70,11 @@ WIZARD_US_APP_ID = "019a0c79-b69d-0000-f31b-b41345208c9d"
 WIZARD_EU_APP_ID = "019a12d0-6edd-0000-0458-86616af3a3db"
 # What a retired wizard product answers every caller with.
 WIZARD_RETIRED_MESSAGE = "The wizard now runs on the PostHog AI gateway. Upgrade with: npx @posthog/wizard@latest"
+# posthog_code reaches this gateway only after a PostHog AI token refusal, so the advice names
+# the common refusals.
 POSTHOG_CODE_RETIRED_MESSAGE = (
-    "PostHog Code no longer runs on this gateway. Update PostHog Desktop to the latest version and try again."
+    "PostHog Code no longer runs on this gateway. This request arrived here because the app couldn't get "
+    "a PostHog AI token: sign in again and confirm your email is verified. Contact support if this continues."
 )
 POSTHOG_AI_US_APP_ID = "019ee060-3a0e-0000-7e9c-4e6b48dfae66"
 POSTHOG_AI_EU_APP_ID = "019ee061-5620-0000-1a0d-ab1160fceeb1"

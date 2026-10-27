@@ -38,8 +38,17 @@ aeo_citation_checks: PostgresTable = PostgresTable(
         "prompt_source": StringDatabaseField(
             name="prompt_source", description="Where the prompt came from: 'imported' or 'manual'."
         ),
+        "prompt_topic": StringDatabaseField(
+            name="prompt_topic", description="Topic the prompt belonged to when it ran; empty when it had none."
+        ),
         "prompt_hash": StringDatabaseField(
-            name="prompt_hash", description="SHA-256 of the normalized prompt; stable join key across runs."
+            name="prompt_hash",
+            description="SHA-256 of the normalized prompt text the check ran. Changes when the prompt text is edited; join on prompt_id instead.",
+        ),
+        "prompt_version": IntegerDatabaseField(
+            name="prompt_version",
+            nullable=True,
+            description="Prompt version that ran; null for checks recorded before prompts had versions.",
         ),
         "engine": StringDatabaseField(
             name="engine", description="Answer engine: claude-web-search, openai-web-search, or exa-answer."
@@ -78,6 +87,16 @@ aeo_citation_checks: PostgresTable = PostgresTable(
         ),
         "top_cited_domains": StringJSONDatabaseField(
             name="top_cited_domains", description="JSON array of distinct hosts across the cited URLs."
+        ),
+        "brand_sentiment": StringDatabaseField(
+            name="brand_sentiment",
+            nullable=True,
+            description="Sentiment of the sentences that name the brand: 'positive', 'neutral' or 'negative'. Null until scored, and when the answer never names the brand.",
+        ),
+        "brand_sentiment_score": FloatDatabaseField(
+            name="brand_sentiment_score",
+            nullable=True,
+            description="Classifier confidence (0-1) in brand_sentiment.",
         ),
         "cost_usd": FloatDatabaseField(
             name="cost_usd", nullable=True, description="Engine-reported cost, where the engine reports one."

@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
 // Adds team/feature labels to a PR based on its conventional-commit scope
-// (`type(scope): summary`), plus the `docs` label for docs-typed or Inkeep-bot
+// (`type(scope): summary`) and the paths it changes, plus the `docs` label for docs-typed or Inkeep-bot
 // PRs, plus the feature flags team's `review/low-hanging-fruit` label (see the
 // feature flags team section below). Additive only — it never removes labels, so manual labels and the
 // ownership-based labeler (assign-reviewers.js) are left intact.
 //
-// The scope -> labels mapping lives in .github/auto-assign-labels.json, OUTSIDE
+// The scope and path -> labels mapping lives in .github/auto-assign-labels.json, OUTSIDE
 // this script, so the owning team can adjust mappings without changing (and
 // re-approving) the workflow or this script. The config is read from the master
 // checkout, never the PR, so a fork PR can't inject its own mappings, and the
@@ -78,6 +78,77 @@ function labelsForTitle(title, rules) {
     return Array.from(labels)
 }
 
+const PATH_PATTERN_TOKENS = { '**/': '(?:.*/)?', '**': '.*', '*': '[^/]*' }
+
+function pathPatternToRegExp(pattern) {
+    const source = pattern
+        .split(/(\*\*\/|\*\*|\*)/)
+        .map((part) => PATH_PATTERN_TOKENS[part] ?? part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+        .join('')
+    return new RegExp(`^${source}${pattern.endsWith('/') ? '' : '$'}`)
+}
+
+function labelsForFiles(files, rules) {
+    const filenames = files.flatMap((file) =>
+        file.status === 'renamed' && file.previous_filename ? [file.filename, file.previous_filename] : [file.filename]
+    )
+    const labels = new Set()
+
+    for (const rule of rules) {
+        const patterns = (rule.paths || []).map(pathPatternToRegExp)
+        if (patterns.some((pattern) => filenames.some((filename) => pattern.test(filename)))) {
+            for (const label of rule.labels || []) {
+                labels.add(label)
+            }
+        }
+    }
+
+    return Array.from(labels)
+}
+
+const PR_FILES_PAGE_SIZE = 100
+
+// The job applies every label after this request, and it has a five-minute
+// timeout. A stalled request must give up well before that, so the team and
+// docs labels still get applied.
+const PR_FILES_REQUEST_TIMEOUT_MS = 10_000
+
+// Returns null on failure, because a missing file list must not fail the job or
+// apply the low-hanging-fruit label.
+async function fetchPrFiles() {
+    const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
+    const files = []
+
+    try {
+        for (let page = 1; ; page++) {
+            const response = await fetch(
+                `https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=${PR_FILES_PAGE_SIZE}&page=${page}`,
+                {
+                    headers: {
+                        Authorization: `token ${GITHUB_TOKEN}`,
+                        Accept: 'application/vnd.github.v3+json',
+                    },
+                    signal: AbortSignal.timeout(PR_FILES_REQUEST_TIMEOUT_MS),
+                }
+            )
+
+            if (!response.ok) {
+                console.warn(`⚠️  Could not list PR files: ${response.status} ${response.statusText}`)
+                return null
+            }
+
+            const batch = await response.json()
+            files.push(...batch)
+            if (batch.length < PR_FILES_PAGE_SIZE) {
+                return files
+            }
+        }
+    } catch (error) {
+        console.warn(`⚠️  Could not list PR files: ${error?.message ?? error}`)
+        return null
+    }
+}
+
 // Best-effort: a labeling failure must never fail the job. The workflow does
 // nothing but label, so a hard failure would only paint a non-blocking red ✗ on
 // the PR over a transient blip or config drift (e.g. a renamed label). We warn
@@ -86,7 +157,7 @@ async function addLabels(labels) {
     const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
 
     if (labels.length === 0) {
-        console.info('ℹ️  Title has no labelable scope; nothing to do')
+        console.info('ℹ️  No scope or path maps to a label; nothing to do')
         return
     }
 
@@ -173,8 +244,7 @@ const FLAGS_QUICK_REVIEW_SHAPES = [
     { maxFiles: 5, maxLines: 100, fileMatches: isFlagsUiFile },
 ]
 
-// GitHub's maximum page size for the "list pull request files" endpoint.
-const FLAGS_FILES_PAGE_SIZE = 100
+const FLAGS_FILE_LIMIT = 100
 
 // A small diff in these paths still needs a careful review: a migration changes
 // production data, and a workflow change runs with repository secrets.
@@ -216,12 +286,10 @@ function flagsWithoutGeneratedFiles(files) {
     }
 }
 
-// `files` is the first page of GitHub's "list pull request files" response.
+// `files` is GitHub's "list pull request files" response.
 function isFlagsLowHangingFruit(files) {
-    // A full page means the PR has at least a page of files, and the files on
-    // later pages are not checked. So many files, even generated ones, is not a
-    // quick review, so a full page withholds the label.
-    if (files.length >= FLAGS_FILES_PAGE_SIZE) {
+    // So many files, even generated ones, is not a quick review.
+    if (files.length >= FLAGS_FILE_LIMIT) {
         return false
     }
     // Check the risky paths before the generated files are removed, because
@@ -239,48 +307,12 @@ function isFlagsLowHangingFruit(files) {
     )
 }
 
-// The job applies every label after this request, and it has a five-minute
-// timeout. A stalled request must give up well before that, so the team and
-// docs labels still get applied.
-const FLAGS_FILES_REQUEST_TIMEOUT_MS = 10_000
-
-// Fetches only the first page, because isFlagsLowHangingFruit() withholds the
-// label when the page is full. Returns null on failure, because a missing size
-// must not fail the job or apply the label.
-async function fetchFlagsPrFiles() {
-    const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
-
-    try {
-        const response = await fetch(
-            `https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=${FLAGS_FILES_PAGE_SIZE}`,
-            {
-                headers: {
-                    Authorization: `token ${GITHUB_TOKEN}`,
-                    Accept: 'application/vnd.github.v3+json',
-                },
-                signal: AbortSignal.timeout(FLAGS_FILES_REQUEST_TIMEOUT_MS),
-            }
-        )
-
-        if (!response.ok) {
-            console.warn(`⚠️  Could not list PR files: ${response.status} ${response.statusText}`)
-            return null
-        }
-
-        return await response.json()
-    } catch (error) {
-        console.warn(`⚠️  Could not list PR files: ${error?.message ?? error}`)
-        return null
-    }
-}
-
-// Returns the label to add, or null. `labels` are the labels the title rules
-// computed for this PR, because the candidate check reads the team label.
-async function flagsLowHangingFruitLabel(author, labels) {
+// Returns the label to add, or null. `labels` are the labels computed for this
+// PR, because the candidate check reads the team label.
+function flagsLowHangingFruitLabel(author, labels, files) {
     if (!isFlagsLowHangingFruitCandidate(author, labels)) {
         return null
     }
-    const files = await fetchFlagsPrFiles()
     return files && isFlagsLowHangingFruit(files) ? FLAGS_LOW_HANGING_FRUIT_LABEL : null
 }
 
@@ -301,11 +333,12 @@ async function main() {
 
     try {
         const rules = loadRules()
-        const labels = labelsForTitle(PR_TITLE, rules)
+        const files = await fetchPrFiles()
+        const labels = Array.from(new Set([...labelsForTitle(PR_TITLE, rules), ...labelsForFiles(files ?? [], rules)]))
         if (docsLabelApplies(PR_TITLE, PR_AUTHOR) && !labels.includes('docs')) {
             labels.push('docs')
         }
-        const flagsLabel = await flagsLowHangingFruitLabel(PR_AUTHOR, labels)
+        const flagsLabel = flagsLowHangingFruitLabel(PR_AUTHOR, labels, files)
         if (flagsLabel) {
             labels.push(flagsLabel)
         }
@@ -326,6 +359,7 @@ module.exports = {
     parseType,
     docsLabelApplies,
     labelsForTitle,
+    labelsForFiles,
     loadRules,
     isFlagsLowHangingFruitCandidate,
     isFlagsLowHangingFruit,

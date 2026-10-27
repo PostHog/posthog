@@ -1394,6 +1394,7 @@ export type ActivityLogListParams = {
      *
      * * `Cohort` - Cohort
      * * `CrossProjectDashboard` - CrossProjectDashboard
+     * * `DevGatewayToken` - DevGatewayToken
      * * `FeatureFlag` - FeatureFlag
      * * `Person` - Person
      * * `Group` - Group
@@ -1456,12 +1457,14 @@ export type ActivityLogListParams = {
      * * `EvaluationDirectory` - EvaluationDirectory
      * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
+     * * `LLMSkill` - LLMSkill
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
      * * `CustomerProfileConfig` - CustomerProfileConfig
      * * `Log` - Log
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
+     * * `PlatformAlertConfiguration` - PlatformAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
      * * `TracesRetentionRule` - TracesRetentionRule
@@ -1480,6 +1483,9 @@ export type ActivityLogListParams = {
      * * `DataQualityCheck` - DataQualityCheck
      * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
      * * `WarehouseSuggestion` - WarehouseSuggestion
+     * * `AccessControl` - AccessControl
+     * * `DataWarehouseTable` - DataWarehouseTable
+     * * `DataWarehouseJoin` - DataWarehouseJoin
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -1504,6 +1510,7 @@ export type ActivityLogListScope = (typeof ActivityLogListScope)[keyof typeof Ac
 export const ActivityLogListScope = {
     Cohort: 'Cohort',
     CrossProjectDashboard: 'CrossProjectDashboard',
+    DevGatewayToken: 'DevGatewayToken',
     FeatureFlag: 'FeatureFlag',
     Person: 'Person',
     Group: 'Group',
@@ -1566,12 +1573,14 @@ export const ActivityLogListScope = {
     EvaluationDirectory: 'EvaluationDirectory',
     LLMPrompt: 'LLMPrompt',
     LLMPromptLabel: 'LLMPromptLabel',
+    LLMSkill: 'LLMSkill',
     LLMTrace: 'LLMTrace',
     AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
+    PlatformAlertConfiguration: 'PlatformAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
     LogsRetentionRule: 'LogsRetentionRule',
     TracesRetentionRule: 'TracesRetentionRule',
@@ -1590,6 +1599,9 @@ export const ActivityLogListScope = {
     DataQualityCheck: 'DataQualityCheck',
     DataQualityCheckSchedule: 'DataQualityCheckSchedule',
     WarehouseSuggestion: 'WarehouseSuggestion',
+    AccessControl: 'AccessControl',
+    DataWarehouseTable: 'DataWarehouseTable',
+    DataWarehouseJoin: 'DataWarehouseJoin',
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',
@@ -1601,6 +1613,7 @@ export const ActivityLogListScope = {
 /**
  * * `Cohort` - Cohort
  * * `CrossProjectDashboard` - CrossProjectDashboard
+ * * `DevGatewayToken` - DevGatewayToken
  * * `FeatureFlag` - FeatureFlag
  * * `Person` - Person
  * * `Group` - Group
@@ -1663,12 +1676,14 @@ export const ActivityLogListScope = {
  * * `EvaluationDirectory` - EvaluationDirectory
  * * `LLMPrompt` - LLMPrompt
  * * `LLMPromptLabel` - LLMPromptLabel
+ * * `LLMSkill` - LLMSkill
  * * `LLMTrace` - LLMTrace
  * * `AIGatewayCredit` - AIGatewayCredit
  * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
  * * `CustomerProfileConfig` - CustomerProfileConfig
  * * `Log` - Log
  * * `LogsAlertConfiguration` - LogsAlertConfiguration
+ * * `PlatformAlertConfiguration` - PlatformAlertConfiguration
  * * `LogsExclusionRule` - LogsExclusionRule
  * * `LogsRetentionRule` - LogsRetentionRule
  * * `TracesRetentionRule` - TracesRetentionRule
@@ -1687,6 +1702,9 @@ export const ActivityLogListScope = {
  * * `DataQualityCheck` - DataQualityCheck
  * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
  * * `WarehouseSuggestion` - WarehouseSuggestion
+ * * `AccessControl` - AccessControl
+ * * `DataWarehouseTable` - DataWarehouseTable
+ * * `DataWarehouseJoin` - DataWarehouseJoin
  * * `Billing` - Billing
  * * `Loop` - Loop
  * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -1699,6 +1717,7 @@ export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof
 export const ActivityLogListScopesItem = {
     Cohort: 'Cohort',
     CrossProjectDashboard: 'CrossProjectDashboard',
+    DevGatewayToken: 'DevGatewayToken',
     FeatureFlag: 'FeatureFlag',
     Person: 'Person',
     Group: 'Group',
@@ -1761,12 +1780,14 @@ export const ActivityLogListScopesItem = {
     EvaluationDirectory: 'EvaluationDirectory',
     LLMPrompt: 'LLMPrompt',
     LLMPromptLabel: 'LLMPromptLabel',
+    LLMSkill: 'LLMSkill',
     LLMTrace: 'LLMTrace',
     AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
+    PlatformAlertConfiguration: 'PlatformAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
     LogsRetentionRule: 'LogsRetentionRule',
     TracesRetentionRule: 'TracesRetentionRule',
@@ -1785,6 +1806,9 @@ export const ActivityLogListScopesItem = {
     DataQualityCheck: 'DataQualityCheck',
     DataQualityCheckSchedule: 'DataQualityCheckSchedule',
     WarehouseSuggestion: 'WarehouseSuggestion',
+    AccessControl: 'AccessControl',
+    DataWarehouseTable: 'DataWarehouseTable',
+    DataWarehouseJoin: 'DataWarehouseJoin',
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',

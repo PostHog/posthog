@@ -11,7 +11,11 @@ from tenacity import Retrying, retry_if_exception_type, stop_after_attempt, wait
 from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.argocd.settings import ARGOCD_ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    request_deadline,
+    stop_at_request_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -526,11 +530,12 @@ def _fetch(
 ) -> Any:
     retrying = Retrying(
         retry=retry_if_exception_type((ArgocdRetryableError, requests.ReadTimeout, requests.ConnectionError)),
-        stop=stop_after_attempt(attempts),
+        stop=stop_after_attempt(attempts) | stop_at_request_deadline(),
         wait=wait_exponential_jitter(initial=1, max=30),
         reraise=True,
     )
-    return retrying(_fetch_once, session, url, headers, logger)
+    with request_deadline():
+        return retrying(_fetch_once, session, url, headers, logger)
 
 
 def _fetch_once(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> Any:

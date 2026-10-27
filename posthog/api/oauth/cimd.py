@@ -995,7 +995,12 @@ def _cimd_provisioning_defaults_for(app: OAuthApplication) -> "ProvisioningConfi
     the same thing.
     """
     return app.provisioning.model_copy(
-        update={"active": True, "can_create_accounts": True, "can_provision_resources": True}
+        update={
+            "active": True,
+            "can_create_accounts": True,
+            "can_provision_resources": True,
+            "partner_since": timezone.now(),
+        }
     )
 
 

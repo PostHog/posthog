@@ -8,7 +8,7 @@ from posthog.sync import database_sync_to_async
 
 from products.product_analytics.backend.facade.models import Insight
 
-from ee.hogai.context.insight.query_executor import execute_and_format_query, get_clickhouse_error_code
+from ee.hogai.context.insight.query_executor import execute_and_format_query, internal_error_code
 from ee.hogai.tool_errors import MaxToolError, MaxToolRetryableError
 from ee.hogai.utils.helpers import build_insight_url
 from ee.hogai.utils.prompt import format_prompt_string
@@ -112,7 +112,7 @@ class InsightContext:
                 raise
             else:
                 raise MaxToolRetryableError(
-                    error_message, error_type="internal", error_code=get_clickhouse_error_code(e.__cause__)
+                    error_message, error_type="internal", error_code=internal_error_code(e.__cause__ or e)
                 ) from e
 
         return format_prompt_string(
