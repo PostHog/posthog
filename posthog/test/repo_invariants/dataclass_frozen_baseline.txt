@@ -1181,7 +1181,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zep/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zep/zep.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zoho_crm/zoho_crm.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/zoom/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zoom/zoom.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zuora/zuora.py
 1 products/warehouse_sources/backend/temporal/data_imports/tests/e2e/test_google_ads_source.py
