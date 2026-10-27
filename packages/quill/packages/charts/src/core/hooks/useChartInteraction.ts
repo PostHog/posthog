@@ -503,7 +503,10 @@ export function useChartInteraction<Meta = unknown>({
                     ? resolveNearestSeriesClickData(index, series, labels, ctx, interactionAxis, position)
                     : buildPointClickData(index, series, labels, resolveValue, position)
             if (clickData) {
-                onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
+                onPointClick({
+                    ...(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData),
+                    contextMenu: true,
+                })
             }
         },
         [

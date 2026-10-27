@@ -459,6 +459,7 @@ export function Chart<Meta = unknown>({
                         (isPointClickable?.(hoverIndex) ?? true)
                     }
                     crosshair={!!onDateRangeZoom || !!onAreaSelect}
+                    contextMenu={contextMenuPointClick && !!onPointClick}
                     ariaLabel={ariaLabel}
                     labelCount={labels.length}
                     handlers={handlers}

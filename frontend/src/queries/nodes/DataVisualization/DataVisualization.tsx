@@ -685,7 +685,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                         ? (event) => {
                               if (isResultMenuContextMenu(event)) {
                                   inspectedPoint.current = false
-                                  setInteraction(getResultMenuPoint(event))
                               }
                           }
                         : undefined
@@ -697,6 +696,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                                   return
                               }
                               event.preventDefault()
+                              setInteraction(getResultMenuPoint(event))
                               if (!inspectedPoint.current) {
                                   replayingClick.current = true
                                   try {

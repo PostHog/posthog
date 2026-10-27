@@ -452,7 +452,9 @@ describe('useChartInteraction — tooltip pinning', () => {
             } as unknown as React.MouseEvent<HTMLDivElement>)
         })
 
-        expect(onPointClick.mock.calls.map(([data]) => data.series.key)).toEqual(expectedKey ? [expectedKey] : [])
+        expect(onPointClick.mock.calls.map(([data]) => [data.series.key, data.contextMenu])).toEqual(
+            expectedKey ? [[expectedKey, true]] : []
+        )
         expect(result.current.tooltipCtx?.isPinned ?? false).toBe(pinned)
     })
 

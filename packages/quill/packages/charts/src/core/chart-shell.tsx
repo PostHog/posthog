@@ -38,6 +38,8 @@ export interface ChartShellProps {
     pointer: boolean
     /** Show the crosshair cursor — a drag gesture (e.g. drag-to-zoom) is available. */
     crosshair?: boolean
+    /** Mark the wrapper when a right click selects a point, so a host menu can tell that the chart handles it. */
+    contextMenu?: boolean
     ariaLabel: string
     /** Number of x labels. Tests read it to hover a label by index. */
     labelCount?: number
@@ -68,6 +70,7 @@ export function ChartShell({
     dataAttr,
     pointer,
     crosshair = false,
+    contextMenu = false,
     ariaLabel,
     labelCount,
     handlers,
@@ -79,6 +82,7 @@ export function ChartShell({
             ref={wrapperRef}
             className={[WRAPPER_CLASS, cursorClass(pointer, crosshair), className].filter(Boolean).join(' ')}
             data-attr={dataAttr}
+            data-hog-charts-context-menu={contextMenu ? '' : undefined}
             data-hog-charts-label-count={labelCount}
             onMouseDown={handlers.onMouseDown}
             onMouseMove={handlers.onMouseMove}

@@ -304,6 +304,35 @@ describe('dashboard result menu', () => {
         }
     })
 
+    it.each([
+        [
+            'a context menu that a child handles',
+            (onClick: () => void) => (
+                <div onClick={onClick} onContextMenu={(event) => event.preventDefault()}>
+                    Target
+                </div>
+            ),
+        ],
+        [
+            'a legend row',
+            (onClick: () => void) => (
+                <div data-hog-charts-legend="">
+                    <button onClick={onClick}>Target</button>
+                </div>
+            ),
+        ],
+    ])('leaves %s alone', (_, renderTarget) => {
+        const onClick = jest.fn()
+        render(
+            <DashboardInsightResultMenu insight={insightOnDashboard(1, [1])}>
+                {renderTarget(onClick)}
+            </DashboardInsightResultMenu>
+        )
+        fireEvent.contextMenu(screen.getByText('Target'))
+        expect(onClick).not.toHaveBeenCalled()
+        expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+    })
+
     it('does not offer recordings for a drilldown without recording support', () => {
         const request: OpenPersonsModalProps = {
             title: 'Selected people',

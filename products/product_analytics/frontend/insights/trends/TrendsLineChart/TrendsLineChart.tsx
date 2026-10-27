@@ -226,7 +226,7 @@ export function TrendsLineChart({
         (clickData: PointClickData) => {
             if (canHandleClick) {
                 handleTrendsChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
-            } else if (canNavigateToInsight) {
+            } else if (canNavigateToInsight && !clickData.contextMenu) {
                 navigateToInsight()
             }
         },

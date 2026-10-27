@@ -160,6 +160,9 @@ export interface PointClickData<Meta = unknown> {
      *  bar. Lets consumers route "clicked the empty remainder" differently from "clicked the bar"
      *  (e.g. funnel drop-off vs converted). `undefined` outside grouped click resolution. */
     inTrackArea?: boolean
+    /** `true` when a right click fired the callback (see `TooltipConfig.contextMenuPointClick`).
+     *  Lets consumers skip an action that only suits a left click, such as navigation. */
+    contextMenu?: boolean
 }
 
 /** Context object passed to the `renderTooltip` render prop and tooltip event callbacks. */
