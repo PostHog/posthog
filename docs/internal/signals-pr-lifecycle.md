@@ -163,13 +163,18 @@ report, implementation attempt, check, authored version, fixed window, and autho
 Workflow IDs derive from that durable record. Dispatch recovery reuses the identity; a technical
 retry cannot overlap an existing live run. Technical failures use the existing limit of three
 attempts and six-hour retry delay. Insufficient and unsupported evaluations remain final submissions
-for the check; they do not trigger another authored investigation.
+for the check; they do not trigger another authored investigation. A dispatch refused by a scout pause
+or run budget is abandoned after task creation rolls back, without consuming a technical retry.
+Loss of the bound user's project or analytics access also abandons the evaluation and drains its run.
+A replacement evaluation can use another authorized user once that run has ended.
 
 The coordinator selects due authored members directly and excludes settled results and live
 evaluations before claiming work. Each sweep has a 30-second deadline within the coordinator's
 remaining budget. Recovery has a separate bounded batch, rotates by the last dispatch attempt,
 and retries no sooner than one minute later. Existing workflows do not consume the new-dispatch
-allowance. Monitoring task runs participate in Signals spend accounting.
+allowance. Cancellation and result recovery have independent time budgets within the overall sweep
+deadline. Monitoring task completion publishes settled Signals spend against the evaluation's original
+signal, including failed and canceled runs, without requiring an implementation task relationship.
 Cancellation cleanup rotates independently by its last attempt, including failed requests, with
 a one-minute retry floor so older live runs cannot starve newer undrained evaluations.
 

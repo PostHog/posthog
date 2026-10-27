@@ -23,6 +23,7 @@ from products.signals.backend.report_check_final_agents import (
     _assert_user_access,
     _locked_evaluation,
     _queries_for_attempt,
+    abandon_agent_evaluation,
     bind_agent_run,
     deliver_agent_result,
     stage_agent_result,
@@ -64,11 +65,8 @@ def _prepare(team_id: int, evaluation_id: UUID) -> SignalReportAgentEvaluation |
         return evaluation
 
 
-async def run_monitoring_agent(*, team_id: int, evaluation_id: UUID) -> None:
-    try:
-        evaluation = await database_sync_to_async(_prepare, thread_sensitive=False)(team_id, evaluation_id)
-    except InvalidMonitoringResult:
-        return
+async def _run_monitoring_agent(*, team_id: int, evaluation_id: UUID) -> None:
+    evaluation = await database_sync_to_async(_prepare, thread_sensitive=False)(team_id, evaluation_id)
     if evaluation is None or evaluation.user_id is None:
         return
     context_file = await database_sync_to_async(build_agent_context, thread_sensitive=False)(evaluation)
@@ -128,3 +126,13 @@ async def run_monitoring_agent(*, team_id: int, evaluation_id: UUID) -> None:
     await database_sync_to_async(deliver_agent_result, thread_sensitive=False)(
         team_id=team_id, evaluation_id=evaluation_id
     )
+
+
+async def run_monitoring_agent(*, team_id: int, evaluation_id: UUID) -> None:
+    try:
+        await _run_monitoring_agent(team_id=team_id, evaluation_id=evaluation_id)
+    except InvalidMonitoringResult:
+        # Task creation can roll back its dispatch callback, so abandon after that transaction exits.
+        await database_sync_to_async(abandon_agent_evaluation, thread_sensitive=False)(
+            team_id=team_id, evaluation_id=evaluation_id
+        )

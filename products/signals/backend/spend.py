@@ -342,7 +342,9 @@ def complete_task_spend(*, team_id: int, run_id: str) -> None:
             _settle_task_spend(spend)
         else:
             refresh_task_spend(spend_id=spend.id, team_id=team_id)
-        if spend.stage == "implementation" and spend.task_id:
+        if spend.stage == "monitoring_authored_check" and spend.signal_id:
+            async_to_sync(publish_signal_spend)(team_id=team_id, signal_id=str(spend.signal_id))
+        elif spend.stage == "implementation" and spend.task_id:
             report_ids = SignalReportTask.objects.filter(
                 team_id=team_id, task_id=spend.task_id, relationship="implementation"
             ).values_list("report_id", flat=True)

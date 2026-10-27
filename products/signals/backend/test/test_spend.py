@@ -573,6 +573,25 @@ class TestSignalSpend(BaseTest):
         assert signal_spend_totals(team_id=self.team.id, signal_ids=[driver, other]) == {driver: 15.5007}
         assert SignalSpend.objects.for_team(self.team.id).get(source_id=str(rerun.id)).stage == resumed_stage
 
+    @parameterized.expand([(TaskRun.Status.COMPLETED,), (TaskRun.Status.FAILED,), (TaskRun.Status.CANCELLED,)])
+    def test_monitoring_completion_publishes_its_original_signal_spend(self, status: str) -> None:
+        driver = str(uuid4())
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
+        run = self._run(report=report, stage="monitoring_authored_check")
+        self._set_task_cost(run, 10_001)
+        report.triggering_signal_id = str(uuid4())
+        report.save(update_fields=["triggering_signal_id"])
+        run.status = status
+        run.save(update_fields=["status"])
+
+        complete_task_spend(team_id=self.team.id, run_id=str(run.id))
+
+        self.temporal.start_workflow.assert_awaited_once()
+        assert self.temporal.start_workflow.call_args.args[1] == SignalSpendUpdate(
+            team_id=self.team.id, signal_id=driver
+        )
+        assert not SignalReportTask.objects.filter(team=self.team, task_id=run.task_id).exists()
+
     def test_task_cost_callback_updates_spend_synchronously_without_publishing(self) -> None:
         driver = str(uuid4())
         report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)

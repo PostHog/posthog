@@ -5,7 +5,8 @@ from dataclasses import replace
 from datetime import timedelta
 from queue import Queue
 from time import monotonic
-from uuid import uuid4
+from typing import cast
+from uuid import UUID, uuid4
 
 import time_machine
 from posthog.test.base import NonAtomicBaseTest
@@ -30,6 +31,7 @@ from products.signals.backend.models import (
     SignalReportMonitoringAttempt,
     SignalReportMonitoringResult,
     SignalScoutConfig,
+    SignalScoutRun,
 )
 from products.signals.backend.report_check_agent import FALLBACK_CHECK_SKILL_NAME
 from products.signals.backend.report_check_agent_runner import run_monitoring_agent
@@ -43,6 +45,7 @@ from products.signals.backend.report_check_execution import (
 from products.signals.backend.report_check_final_agents import (
     AgentMonitoringResult,
     claim_agent_evaluation,
+    fail_agent_evaluation,
     stage_agent_result,
 )
 from products.signals.backend.report_check_monitoring import MONITORING_ERROR_RETRY_AFTER, record_monitoring_observation
@@ -129,9 +132,10 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
             check_versions={str(self.check.id): check_definition_version(self.check)},
         )
 
-    def test_agent_runner_binds_before_dispatch_and_supplies_context_as_a_file(self) -> None:
+    @parameterized.expand([(None,), ("scout",), ("budget",)])
+    def test_agent_runner_binds_before_dispatch_and_supplies_context_as_a_file(self, refusal: str | None) -> None:
         LLMSkill.objects.create(team=self.team, name=FALLBACK_CHECK_SKILL_NAME, is_latest=True, deleted=False)
-        SignalScoutConfig.objects.for_team(self.team.id).create(
+        scout = SignalScoutConfig.objects.for_team(self.team.id).create(
             team_id=self.team.id, skill_name=FALLBACK_CHECK_SKILL_NAME, enabled=True
         )
         task = Task.objects.create(team=self.team, created_by=self.user, title="Verify outcome")
@@ -139,6 +143,9 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
         session = AsyncMock()
         session.task_run = run
         supplied: dict[str, object] = {}
+        payload: dict[str, object] = {"guaranteed_team_ids": [self.team.id]}
+        task_count = Task.objects.filter(team=self.team).count()
+        run_count = TaskRun.objects.filter(team=self.team).count()
         result = AgentMonitoringResult(
             evidence_status="sufficient",
             evidence_reason="The checkout trace covers the fixed window.",
@@ -148,8 +155,32 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
         )
 
         async def start(**kwargs: object) -> tuple[object, AgentMonitoringResult]:
-            callback = kwargs["before_task_dispatch"]
-            assert callable(callback)
+            callback = cast(Callable[[UUID], None], kwargs["before_task_dispatch"])
+            if refusal is not None:
+
+                def create_refused_task() -> None:
+                    if refusal == "scout":
+                        scout.enabled = False
+                        scout.save(update_fields=["enabled"])
+                    else:
+                        payload["default_team_config"] = {"max_runs_per_day": 1}
+                        SignalScoutRun.objects.for_team(self.team.id).create(
+                            team_id=self.team.id, task_run=run, skill_name="budget-scout", skill_version=1
+                        )
+                    Task.create_and_run(
+                        team=self.team,
+                        title="Monitoring check",
+                        description="Verify the fixed window",
+                        origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                        user_id=self.user.id,
+                        signal_report_id=str(self.report.id),
+                        ai_stage="monitoring_authored_check",
+                        before_task_dispatch=callback,
+                        start_workflow=False,
+                    )
+
+                await database_sync_to_async(create_refused_task)()
+                raise AssertionError("Execution controls should refuse task creation")
             await database_sync_to_async(callback)(run.id)
             supplied.update(kwargs)
             return session, result
@@ -158,11 +189,11 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
             patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
             patch(
                 "products.signals.backend.scout_harness.run_gates._read_flag_payload",
-                return_value={"guaranteed_team_ids": [self.team.id]},
+                return_value=payload,
             ),
             patch(
                 "products.signals.backend.scout_harness.team_limits._read_flag_payload",
-                return_value={"guaranteed_team_ids": [self.team.id]},
+                return_value=payload,
             ),
             patch("products.signals.backend.report_check_agent_runner.MultiTurnSession.start", side_effect=start),
             patch(
@@ -175,6 +206,23 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
             evaluation = claim_agent_evaluation(team_id=self.team.id, report_id=self.report.id, check_id=self.check.id)
             assert evaluation is not None
             async_to_sync(run_monitoring_agent)(team_id=self.team.id, evaluation_id=evaluation.id)
+            if refusal is not None:
+                fail_agent_evaluation(team_id=self.team.id, evaluation_id=evaluation.id)
+                evaluation.refresh_from_db()
+                assert evaluation.state == SignalReportAgentEvaluation.State.ABANDONED
+                assert evaluation.task_run_id is None
+                assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
+                assert Task.objects.filter(team=self.team).count() == task_count
+                assert TaskRun.objects.filter(team=self.team).count() == run_count
+                scout.enabled = True
+                scout.save(update_fields=["enabled"])
+                payload.pop("default_team_config", None)
+                replacement = claim_agent_evaluation(
+                    team_id=self.team.id, report_id=self.report.id, check_id=self.check.id
+                )
+                assert replacement is not None and replacement.id != evaluation.id
+                assert replacement.window_end == evaluation.window_end
+                return
         stored = SignalReportMonitoringResult.objects.for_team(self.team.id).get()
         assert stored.evidence_refs[-1] == f"task-run:{run.id}"
         files = supplied["files"]

@@ -144,15 +144,19 @@ def _queries_for_attempt(
     return queries
 
 
+class MonitoringAgentAccessDenied(InvalidMonitoringResult):
+    pass
+
+
 def _assert_user_access(report: SignalReport, user_id: int, *, queries: list[dict[str, object]] | None = None) -> None:
     team = Team.objects.get(id=report.team_id)
     user = User.objects.filter(id=user_id, is_active=True).first()
     if user is None or not user_can_access_team(user, team):
-        raise InvalidMonitoringResult("The evaluation user no longer has access to the report environment.")
+        raise MonitoringAgentAccessDenied("The evaluation user no longer has access to the report environment.")
     if not metric_context_reader(team_id=report.team_id, user_id=user_id)(
         _queries_for_attempt(report) if queries is None else queries
     ):
-        raise InvalidMonitoringResult("The evaluation user cannot read the attempt's analytics context.")
+        raise MonitoringAgentAccessDenied("The evaluation user cannot read the attempt's analytics context.")
 
 
 def claim_agent_evaluation(*, team_id: int, report_id: UUID, check_id: UUID) -> SignalReportAgentEvaluation | None:
@@ -220,6 +224,47 @@ def _locked_evaluation(team_id: int, evaluation_id: UUID) -> SignalReportAgentEv
     if attempt is None or attempt.id != reference.attempt_id:
         raise InvalidMonitoringResult("The evaluation belongs to an earlier implementation attempt.")
     return SignalReportAgentEvaluation.objects.for_team(team_id).select_for_update().get(id=evaluation_id)
+
+
+def _stop_bound_run(evaluation: SignalReportAgentEvaluation) -> None:
+    if evaluation.task_run_id is None:
+        return
+    run = tasks_facade.get_task_run(evaluation.task_run_id, team_id=evaluation.team_id)
+    if run is None or run.is_terminal:
+        SignalReportAgentEvaluation.objects.for_team(evaluation.team_id).filter(id=evaluation.id).update(
+            drained_at=timezone.now()
+        )
+        return
+    if run is not None and not run.is_terminal:
+        cancel_task_run(
+            run.id,
+            run.task_id,
+            evaluation.team_id,
+            reason="Monitoring verification stopped.",
+            source="monitoring_check",
+        )
+
+
+def abandon_agent_evaluation(*, team_id: int, evaluation_id: UUID) -> None:
+    evaluations = SignalReportAgentEvaluation.objects.for_team(team_id).filter(id=evaluation_id)
+    if not evaluations.filter(state__in=["pending", "running"]).update(
+        state=SignalReportAgentEvaluation.State.ABANDONED
+    ):
+        return
+
+    def drain() -> None:
+        evaluation = evaluations.filter(state=SignalReportAgentEvaluation.State.ABANDONED).first()
+        if evaluation is None or evaluation.task_run_id is None:
+            return
+        evaluations.update(last_drain_attempt_at=timezone.now())
+        try:
+            _stop_bound_run(evaluation)
+        except Exception:
+            logger.exception(
+                "signals.monitoring_agent.cancel_failed", team_id=team_id, evaluation_id=str(evaluation_id)
+            )
+
+    transaction.on_commit(drain, robust=True)
 
 
 def bind_agent_run(*, team_id: int, evaluation_id: UUID, task_run_id: UUID, user_id: int) -> None:
@@ -291,7 +336,7 @@ def stage_agent_result(*, team_id: int, evaluation_id: UUID, task_run_id: UUID, 
         evaluation.save(update_fields=["output", "completed_at"])
 
 
-def deliver_agent_result(*, team_id: int, evaluation_id: UUID) -> None:
+def _deliver_agent_result(*, team_id: int, evaluation_id: UUID) -> None:
     with transaction.atomic():
         previous = SignalReportAgentEvaluation.objects.for_team(team_id).get(id=evaluation_id)
         if previous.state in {previous.State.SUBMITTED, previous.State.ERRORED}:
@@ -340,8 +385,19 @@ def deliver_agent_result(*, team_id: int, evaluation_id: UUID) -> None:
         evaluation.save(update_fields=["state"])
 
 
+def deliver_agent_result(*, team_id: int, evaluation_id: UUID) -> None:
+    try:
+        _deliver_agent_result(team_id=team_id, evaluation_id=evaluation_id)
+    except MonitoringAgentAccessDenied:
+        abandon_agent_evaluation(team_id=team_id, evaluation_id=evaluation_id)
+        raise
+
+
 def fail_agent_evaluation(*, team_id: int, evaluation_id: UUID) -> None:
     with transaction.atomic():
+        previous = SignalReportAgentEvaluation.objects.for_team(team_id).get(id=evaluation_id)
+        if previous.state not in {previous.State.PENDING, previous.State.RUNNING}:
+            return
         evaluation = _locked_evaluation(team_id, evaluation_id)
         if evaluation.state not in {evaluation.State.PENDING, evaluation.State.RUNNING}:
             return
@@ -368,7 +424,7 @@ def run_due_agent_evaluations(*, deadline: float | None = None) -> int:
         if deadline is not None
         else time.monotonic() + AGENT_SWEEP_SECONDS
     )
-    recovery_deadline = min(deadline, time.monotonic() + AGENT_RECOVERY_SECONDS)
+    cancellation_deadline = min(deadline, time.monotonic() + AGENT_RECOVERY_SECONDS)
     started = 0
     recovered = 0
     now = timezone.now()
@@ -385,7 +441,7 @@ def run_due_agent_evaluations(*, deadline: float | None = None) -> int:
         .filter(Q(last_drain_attempt_at__isnull=True) | Q(last_drain_attempt_at__lte=now - AGENT_DRAIN_RETRY_AFTER))
         .order_by(F("last_drain_attempt_at").asc(nulls_first=True), "created_at", "id")[:MAX_AGENT_RECOVERIES_PER_TICK]
     ):
-        if time.monotonic() >= recovery_deadline:
+        if time.monotonic() >= cancellation_deadline:
             break
         SignalReportAgentEvaluation.objects.for_team(evaluation.team_id).filter(id=evaluation.id).update(
             last_drain_attempt_at=now
@@ -396,6 +452,7 @@ def run_due_agent_evaluations(*, deadline: float | None = None) -> int:
             logger.exception(
                 "signals.monitoring_agent.cancel_failed", team_id=evaluation.team_id, evaluation_id=str(evaluation.id)
             )
+    recovery_deadline = min(deadline, time.monotonic() + AGENT_RECOVERY_SECONDS)
     pending = (
         SignalReportAgentEvaluation.objects.unscoped()
         .filter(
@@ -508,22 +565,3 @@ def monitoring_agent_start_refusal(task_id: str, team_id: int, user_id: int | No
     except (InvalidMonitoringResult, ValueError):
         return "Monitoring verification is no longer eligible."
     return None
-
-
-def _stop_bound_run(evaluation: SignalReportAgentEvaluation) -> None:
-    if evaluation.task_run_id is None:
-        return
-    run = tasks_facade.get_task_run(evaluation.task_run_id, team_id=evaluation.team_id)
-    if run is None or run.is_terminal:
-        SignalReportAgentEvaluation.objects.for_team(evaluation.team_id).filter(id=evaluation.id).update(
-            drained_at=timezone.now()
-        )
-        return
-    if run is not None and not run.is_terminal:
-        cancel_task_run(
-            run.id,
-            run.task_id,
-            evaluation.team_id,
-            reason="Monitoring verification stopped.",
-            source="monitoring_check",
-        )

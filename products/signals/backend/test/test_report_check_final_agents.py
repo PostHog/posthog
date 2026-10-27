@@ -20,7 +20,7 @@ from temporalio.client import Client
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition, Team
+from posthog.models import PropertyDefinition, Team, User
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -344,16 +344,98 @@ class TestFinalAuthoredAgentChecks(BaseTest):
         assert run_due_agent_evaluations() == 0
         assert not SignalReportAgentEvaluation.objects.for_team(self.team.id).exists()
 
-    def test_staged_result_delivery_recovers_without_relaunching_the_agent(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_staged_result_delivery_recovers_without_relaunching_the_agent(self, slow_cancellation: bool) -> None:
+        if slow_cancellation:
+            other_check = SignalReportCheck.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                report=self.report,
+                title="Other verification",
+                kind="agent",
+                config=self.check.config,
+                soak_minutes=60,
+                next_run_at=self.now,
+                expires_at=self.now + timedelta(days=1),
+            )
+            self.attempt.check_versions[str(other_check.id)] = check_definition_version(other_check)
+            self.attempt.save(update_fields=["check_versions"])
+            other_evaluation = claim_agent_evaluation(
+                team_id=self.team.id, report_id=self.report.id, check_id=other_check.id
+            )
+            assert other_evaluation is not None
+            other_task = Task.objects.create(team=self.team, created_by=self.user, title="Other verification")
+            other_run = TaskRun.objects.create(task=other_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+            bind_agent_run(
+                team_id=self.team.id, evaluation_id=other_evaluation.id, task_run_id=other_run.id, user_id=self.user.id
+            )
+            SignalReportAgentEvaluation.objects.for_team(self.team.id).filter(id=other_evaluation.id).update(
+                state=SignalReportAgentEvaluation.State.ABANDONED
+            )
         evaluation = self.claim()
         self.bind(evaluation)
         stage_agent_result(
             team_id=self.team.id, evaluation_id=evaluation.id, task_run_id=self.task_run.id, result=self.result()
         )
-        with patch("products.signals.backend.temporal.agentic.monitoring_agents.start_monitoring_agent") as start:
-            assert run_due_agent_evaluations() == 1
+        elapsed = [0.0]
+
+        def cancel(*args: object, **kwargs: object) -> None:
+            elapsed[0] += 10
+
+        with (
+            patch("products.signals.backend.temporal.agentic.monitoring_agents.start_monitoring_agent") as start,
+            patch("products.signals.backend.report_check_final_agents.time.monotonic", side_effect=lambda: elapsed[0]),
+            patch("products.signals.backend.report_check_final_agents.cancel_task_run", side_effect=cancel),
+        ):
+            assert run_due_agent_evaluations(deadline=30) == 1
+        assert elapsed[0] == (10 if slow_cancellation else 0)
         start.assert_not_called()
         assert SignalReportMonitoringResult.objects.for_team(self.team.id).get().submission_id == evaluation.id
+
+    @parameterized.expand([(phase, access) for phase in ("staged", "finalization") for access in ("user", "analytics")])
+    def test_lost_access_abandons_the_run_and_allows_another_user_to_verify(self, phase: str, access: str) -> None:
+        self.metric_member()
+        evaluation = self.claim()
+        self.bind(evaluation)
+        if phase == "staged":
+            stage_agent_result(
+                team_id=self.team.id, evaluation_id=evaluation.id, task_run_id=self.task_run.id, result=self.result()
+            )
+        if access == "user":
+            self.user.is_active = False
+            self.user.save(update_fields=["is_active"])
+
+        with (
+            patch("products.signals.backend.report_check_final_agents.cancel_task_run") as cancel,
+            patch(
+                "products.signals.backend.report_check_final_agents.metric_context_reader",
+                return_value=lambda _queries: access != "analytics",
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            with self.assertRaises(InvalidMonitoringResult):
+                if phase == "staged":
+                    deliver_agent_result(team_id=self.team.id, evaluation_id=evaluation.id)
+                else:
+                    fail_agent_evaluation(team_id=self.team.id, evaluation_id=evaluation.id)
+        evaluation.refresh_from_db()
+        assert evaluation.state == SignalReportAgentEvaluation.State.ABANDONED
+        assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
+        cancel.assert_called_once()
+        fail_agent_evaluation(team_id=self.team.id, evaluation_id=evaluation.id)
+
+        TaskRun.objects.filter(id=self.task_run.id).update(status=TaskRun.Status.CANCELLED)
+        replacement = self.claim()
+        assert replacement.id != evaluation.id
+        verifier = User.objects.create_user(
+            email="replacement-verifier@example.com", first_name="Verifier", password=None
+        )
+        self.organization.members.add(verifier)
+        task = Task.objects.create(team=self.team, created_by=verifier, title="Replacement verification")
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        bind_agent_run(team_id=self.team.id, evaluation_id=replacement.id, task_run_id=run.id, user_id=verifier.id)
+        replacement.refresh_from_db()
+        assert replacement.user_id == verifier.id
+        assert replacement.state == SignalReportAgentEvaluation.State.RUNNING
 
     def test_queued_recoveries_leave_capacity_for_new_checks_and_rotate(self) -> None:
         pending_ids = set()
