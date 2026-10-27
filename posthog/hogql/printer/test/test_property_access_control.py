@@ -423,6 +423,7 @@ class TestRestrictPropertiesInHogQL(BaseTest):
             ("stats_viewport", "web_stats_dimensional_preaggregated", "viewport_width", "$viewport_width"),
             ("bounces_country", "web_bounces_dimensional_preaggregated", "country_code", "$geoip_country_code"),
             ("bounces_metadata", "web_bounces_dimensional_preaggregated", "mat_metadata_backend", "metadata.backend"),
+            ("stats_metadata_parent", "web_stats_dimensional_preaggregated", "mat_metadata_loggedIn", "metadata"),
         ]
     )
     def test_web_dimensional_columns_use_the_source_property_rule(

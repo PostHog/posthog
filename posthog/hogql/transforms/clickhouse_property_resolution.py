@@ -43,6 +43,7 @@ from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
 from posthog.hogql.restricted_properties import (
+    key_read_overlaps_restriction,
     mirrored_property_for_column,
     native_property_path_overlaps_restriction,
     restricted_feature_flag_names,
@@ -1314,7 +1315,10 @@ class ClickHousePropertyResolver(CloningVisitor):
         source_property = _mirrored_source_property(field_type, self.context)
         if source_property is None:
             return None
-        if source_property not in restricted_property_keys_for_table_type(field_type.table_type, self.context):
+        # A dotted source such as `metadata.backend` is restricted by its parent `metadata` too.
+        if not key_read_overlaps_restriction(
+            source_property, restricted_property_keys_for_table_type(field_type.table_type, self.context)
+        ):
             return None
         return ast.Constant(value=None, type=ast.StringType(nullable=True))
 
