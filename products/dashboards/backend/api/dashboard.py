@@ -1327,7 +1327,7 @@ class DashboardBasicSerializer(
             "description": {
                 "help_text": (
                     "Short note for people who open the dashboard. Say what it shows in one or two sentences, "
-                    "about 30 words. Shorter is better. Do not write how it was built or changed."
+                    "about 30 words. Leave it empty when the name already says it. Do not write how it was built or changed."
                 )
             },
             "pinned": {"help_text": "Whether the dashboard is pinned to the top of the list."},

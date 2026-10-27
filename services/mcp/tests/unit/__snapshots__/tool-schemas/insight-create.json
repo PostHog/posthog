@@ -18,7 +18,7 @@
                     "type": "null"
                 }
             ],
-            "description": "One sentence, about 15 words, on what the insight shows. No change notes. Max 400 characters."
+            "description": "Optional, about 15 words. Omit if the name is enough. No change notes. Max 400 characters."
         },
         "favorited": {
             "type": "boolean"

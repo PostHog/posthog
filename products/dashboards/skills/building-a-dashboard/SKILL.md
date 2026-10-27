@@ -89,6 +89,7 @@ metric as noncanonical and do not claim that `agent_context` makes it governed.
   To replace an insight tile, add the new insight and delete the old tile.
 - Description on create and update: it is a short note for people who open the dashboard. Say what the dashboard shows
   and who it is for, in one or two sentences (about 30 words). Shorter is better. The limit is not a target.
+  - Skip the description when the name already tells a viewer what the dashboard shows. An empty description is fine.
   - Test: would a viewer who never saw this session need the sentence? If not, delete it.
   - Good: "Weekly signups and activation by plan."
   - Bad: "Tracks signups, activation, and churn across all plans. Revised 3 March to add the enterprise tile."

@@ -29280,7 +29280,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly name: string | null;
-      /** Short note for people who open the dashboard. Say what it shows in one or two sentences, about 30 words. Shorter is better. Do not write how it was built or changed. */
+      /** Short note for people who open the dashboard. Say what it shows in one or two sentences, about 30 words. Leave it empty when the name already says it. Do not write how it was built or changed. */
       readonly description: string;
       /** Whether the dashboard is pinned to the top of the list. */
       readonly pinned: boolean;
