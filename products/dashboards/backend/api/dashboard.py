@@ -3603,13 +3603,16 @@ class DashboardsViewSet(
                     raise exceptions.ValidationError("Widget tile is missing its widget.")
                 DashboardSerializer._check_widget_tile_product_access(tile.widget, access)
             elif tile.insight_id:
-                if not access.check_access_level_for_object(tile.insight, "viewer"):
+                insight = tile.insight
+                if insight is None:
+                    raise exceptions.ValidationError("Insight tile is missing its insight.")
+                if not access.check_access_level_for_object(insight, "viewer"):
                     raise exceptions.PermissionDenied("You don't have permission to view an insight in this group.")
                 if DashboardTile.objects.filter(dashboard=destination, insight_id=tile.insight_id).exists():
                     raise exceptions.ValidationError(
                         "An insight in this group is already on the destination dashboard."
                     )
-                check_can_add_insight_to_dashboard(cast(User, request.user), destination, tile.insight.query, access)
+                check_can_add_insight_to_dashboard(cast(User, request.user), destination, insight.query, access)
             elif tile.text_id:
                 if DashboardTile.objects.filter(dashboard=destination, text_id=tile.text_id).exists():
                     raise exceptions.ValidationError(
