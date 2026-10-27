@@ -473,7 +473,6 @@ export const EditedInsight: Story = {
         await expect(canvas.getByRole('button', { name: 'Update insight' })).toHaveAttribute('aria-disabled', 'false')
         await userEvent.click(canvasElement.querySelector('[data-attr="sql-editor-save-options-button"]')!)
         const menu = within(canvasElement.ownerDocument.body)
-        await userEvent.click(await menu.findByRole('menuitem', { name: 'Save as...' }))
         await menu.findByText('Save query as')
         await expect(
             canvasElement.ownerDocument.querySelector('[data-attr="sql-editor-save-as-insight"]')
@@ -488,11 +487,11 @@ export const EditedInsight: Story = {
             menu.getByText('Run the current query successfully to check which columns the endpoint will return')
         ).toBeVisible()
         await userEvent.keyboard('{Escape}')
-        await expect(canvas.queryByRole('button', { name: /^close$/ })).not.toBeInTheDocument()
+        await waitFor(() => expect(menu.queryByText('Save query as')).not.toBeInTheDocument())
         await userEvent.click(canvasElement.querySelector('[data-attr="sql-editor-save-options-button"]')!)
         await userEvent.click(menu.getByText('Reset view'))
         await waitFor(() => expect(canvas.queryByRole('button', { name: 'Update insight' })).not.toBeInTheDocument())
-        await expect(canvas.getByRole('button', { name: 'Save as...' })).toBeVisible()
+        await expect(canvas.getByRole('button', { name: 'Save as' })).toBeVisible()
         await expect(sqlEditorLogic({ tabId: 'default' }).values.queryInput).toEqual('SELECT 2')
     },
 }

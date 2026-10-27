@@ -133,7 +133,6 @@ export interface editorSceneLogicValues {
     breadcrumbs: Breadcrumb[]
     isCreateViewFlow: boolean
     isHistoryModalOpen: boolean
-    isSaveAsModalOpen: boolean
     projectTreeRef: ProjectTreeRef | null
     saveAsMenuItems: {
         primary: SaveAsMenuItem
@@ -205,16 +204,13 @@ export interface editorSceneLogicActions {
     closeHistoryModal: () => {
         value: true
     }
-    closeSaveAsModal: () => {
-        value: true
-    }
     convertToNotebook: () => {
         value: true
     }
     openHistoryModal: () => {
         value: true
     }
-    openSaveAsModal: () => {
+    openSaveAsMenu: () => {
         value: true
     }
     selectSaveAsTarget: (target: SaveAsTargetId) => {
@@ -330,8 +326,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         shareTab: true,
         openHistoryModal: true,
         closeHistoryModal: true,
-        openSaveAsModal: true,
-        closeSaveAsModal: true,
+        openSaveAsMenu: true,
         selectSaveAsTarget: (target: SaveAsTargetId) => ({ target }),
     }),
     reducers({
@@ -340,14 +335,6 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             {
                 openHistoryModal: () => true,
                 closeHistoryModal: () => false,
-            },
-        ],
-        isSaveAsModalOpen: [
-            false as boolean,
-            {
-                openSaveAsModal: () => true,
-                closeSaveAsModal: () => false,
-                selectSaveAsTarget: () => false,
             },
         ],
     }),
@@ -635,7 +622,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        openSaveAsModal: () => {
+        openSaveAsMenu: () => {
             // pinned: analytics event name - renaming breaks dashboards
             posthog.capture('sql-editor-save-as-modal-opened', {
                 editor_source: values.editorSource,

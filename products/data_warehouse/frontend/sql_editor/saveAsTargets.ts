@@ -19,10 +19,8 @@ export interface SaveAsTarget extends SaveAsTargetMetadata {
     dataAttr?: string
 }
 
-export interface SaveAsChooserProps {
-    isOpen: boolean
+export interface SaveAsMenuProps {
     targets: SaveAsTarget[]
-    onClose: () => void
     onSelect: (target: SaveAsTargetId) => void
 }
 

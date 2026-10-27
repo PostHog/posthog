@@ -16,6 +16,9 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { QuillSaveAsMenuItems } from 'products/data_warehouse/frontend/sql_editor/QuillSaveAsMenu'
+import type { SaveAsTarget, SaveAsTargetId } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
+
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import { SaveAsMenuItem, editorSceneLogic } from './editorSceneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
@@ -36,6 +39,9 @@ export interface QuillSQLEditorSceneActionsProps {
     continueInNotebookAccessDisabledReason: string | null
     secondarySaveMenuItems: QuillSQLEditorSecondarySaveMenuItem[]
     legacySaveMenuItems: QuillSQLEditorSecondarySaveMenuItem[]
+    saveAsTargets: SaveAsTarget[]
+    onSaveAsTargetSelect: (target: SaveAsTargetId) => void
+    onSaveAsMenuOpen: () => void
     onPrimarySaveClick: () => void
     primarySaveDisabledReason: string | null | undefined
     saveAsChooserEnabled: boolean
@@ -52,6 +58,9 @@ export function QuillSQLEditorSceneActions({
     continueInNotebookAccessDisabledReason,
     secondarySaveMenuItems,
     legacySaveMenuItems,
+    saveAsTargets,
+    onSaveAsTargetSelect,
+    onSaveAsMenuOpen,
     onPrimarySaveClick,
     primarySaveDisabledReason,
     saveAsChooserEnabled,
@@ -67,13 +76,19 @@ export function QuillSQLEditorSceneActions({
         metricUpdating,
     } = useValues(sqlEditorLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
-    const { convertToNotebook, openHistoryModal, openSaveAsModal } = useActions(editorSceneLogic)
+    const { convertToNotebook, openHistoryModal } = useActions(editorSceneLogic)
     const { updateInsight, closeEditingObject, updateEditingMetric, setEditingMetricName, discardChanges } =
         useActions(sqlEditorLogic)
 
     const continueInNotebookDisabledReason = queryInput?.trim()
         ? continueInNotebookAccessDisabledReason
         : 'Write a SQL query before continuing'
+
+    const onSaveMenuOpenChange = (open: boolean): void => {
+        if (open && saveAsChooserEnabled) {
+            onSaveAsMenuOpen()
+        }
+    }
 
     const historyButton = (dataAttr?: string): JSX.Element => (
         <Button variant="outline" onClick={() => openHistoryModal()} data-attr={dataAttr}>
@@ -110,38 +125,18 @@ export function QuillSQLEditorSceneActions({
         </DropdownMenuItem>
     )
 
-    const saveAsMenuItem = (
-        <DropdownMenuItem onClick={() => openSaveAsModal()} data-attr="sql-editor-save-as-button">
-            Save as...
-        </DropdownMenuItem>
-    )
-
-    const saveAsMenuItemsGroup = (
+    const legacySaveAsMenuItemsGroup = (
         <DropdownMenuGroup>
             {continueInNotebookMenuItem}
-            {saveAsChooserEnabled
-                ? saveAsMenuItem
-                : legacySaveMenuItems.map((item) => (
-                      <DropdownMenuItem key={item.action} disabledReason={item.disabledReason} onClick={item.onClick}>
-                          {item.label}
-                      </DropdownMenuItem>
-                  ))}
+            {legacySaveMenuItems.map((item) => (
+                <DropdownMenuItem key={item.action} disabledReason={item.disabledReason} onClick={item.onClick}>
+                    {item.label}
+                </DropdownMenuItem>
+            ))}
         </DropdownMenuGroup>
     )
 
-    const saveAsMenuContent = (
-        <DropdownMenuContent align="end">
-            {saveAsChooserEnabled ? (
-                <DropdownMenuGroup>{saveAsMenuItem}</DropdownMenuGroup>
-            ) : (
-                secondarySaveMenuItems.map((item) => (
-                    <DropdownMenuItem key={item.action} disabledReason={item.disabledReason} onClick={item.onClick}>
-                        {item.label}
-                    </DropdownMenuItem>
-                ))
-            )}
-        </DropdownMenuContent>
-    )
+    const saveAsTargetMenuItems = <QuillSaveAsMenuItems targets={saveAsTargets} onSelect={onSaveAsTargetSelect} />
 
     const saveOptionsTrigger = (dataAttr?: string): JSX.Element => (
         <DropdownMenuTrigger
@@ -165,7 +160,7 @@ export function QuillSQLEditorSceneActions({
                 <>
                     {historyButton()}
                     {discardChangesButton}
-                    <DropdownMenu>
+                    <DropdownMenu onOpenChange={onSaveMenuOpenChange}>
                         <ButtonGroup>
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.WarehouseObjects}
@@ -184,7 +179,21 @@ export function QuillSQLEditorSceneActions({
                             </AccessControlAction>
                             {saveOptionsTrigger()}
                         </ButtonGroup>
-                        <DropdownMenuContent align="end">{saveAsMenuItemsGroup}</DropdownMenuContent>
+                        <DropdownMenuContent
+                            align="end"
+                            className={saveAsChooserEnabled ? 'w-80' : undefined}
+                            data-attr={saveAsChooserEnabled ? 'sql-editor-save-as-dialog' : undefined}
+                        >
+                            {saveAsChooserEnabled ? (
+                                <>
+                                    {saveAsTargetMenuItems}
+                                    <DropdownMenuSeparator />
+                                    {continueInNotebookMenuItem}
+                                </>
+                            ) : (
+                                legacySaveAsMenuItemsGroup
+                            )}
+                        </DropdownMenuContent>
                     </DropdownMenu>
                     <Button
                         variant="default"
@@ -200,7 +209,7 @@ export function QuillSQLEditorSceneActions({
                 <>
                     {historyButton('sql-editor-insight-history-button')}
                     {discardChangesButton}
-                    <DropdownMenu>
+                    <DropdownMenu onOpenChange={onSaveMenuOpenChange}>
                         <ButtonGroup>
                             <Button
                                 variant="primary"
@@ -215,8 +224,20 @@ export function QuillSQLEditorSceneActions({
                             </Button>
                             {saveOptionsTrigger('sql-editor-save-options-button')}
                         </ButtonGroup>
-                        <DropdownMenuContent align="end">
-                            {saveAsMenuItemsGroup}
+                        <DropdownMenuContent
+                            align="end"
+                            className={saveAsChooserEnabled ? 'w-80' : undefined}
+                            data-attr={saveAsChooserEnabled ? 'sql-editor-save-as-dialog' : undefined}
+                        >
+                            {saveAsChooserEnabled ? (
+                                <>
+                                    {saveAsTargetMenuItems}
+                                    <DropdownMenuSeparator />
+                                    {continueInNotebookMenuItem}
+                                </>
+                            ) : (
+                                legacySaveAsMenuItemsGroup
+                            )}
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                                 onClick={() => closeEditingObject()}
@@ -230,7 +251,7 @@ export function QuillSQLEditorSceneActions({
                 </>
             ) : editingMetricName ? (
                 <>
-                    <DropdownMenu>
+                    <DropdownMenu onOpenChange={onSaveMenuOpenChange}>
                         <ButtonGroup>
                             <Button
                                 variant="primary"
@@ -243,7 +264,23 @@ export function QuillSQLEditorSceneActions({
                             </Button>
                             {saveOptionsTrigger()}
                         </ButtonGroup>
-                        {saveAsMenuContent}
+                        <DropdownMenuContent
+                            align="end"
+                            className={saveAsChooserEnabled ? 'w-80' : undefined}
+                            data-attr={saveAsChooserEnabled ? 'sql-editor-save-as-dialog' : undefined}
+                        >
+                            {saveAsChooserEnabled
+                                ? saveAsTargetMenuItems
+                                : secondarySaveMenuItems.map((item) => (
+                                      <DropdownMenuItem
+                                          key={item.action}
+                                          disabledReason={item.disabledReason}
+                                          onClick={item.onClick}
+                                      >
+                                          {item.label}
+                                      </DropdownMenuItem>
+                                  ))}
+                        </DropdownMenuContent>
                     </DropdownMenu>
                     <Button
                         variant="default"
@@ -270,14 +307,16 @@ export function QuillSQLEditorSceneActions({
                         </Button>
                     )}
                     {saveAsChooserEnabled ? (
-                        <Button
-                            variant="primary"
-                            onClick={() => openSaveAsModal()}
-                            disabledReason={saveAsInsightDisabledReason}
-                            data-attr="sql-editor-save-options-button"
-                        >
-                            Save as...
-                        </Button>
+                        <DropdownMenu onOpenChange={onSaveMenuOpenChange}>
+                            <DropdownMenuTrigger
+                                render={<Button variant="primary" data-attr="sql-editor-save-options-button" />}
+                            >
+                                Save as
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" className="w-80" data-attr="sql-editor-save-as-dialog">
+                                {saveAsTargetMenuItems}
+                            </DropdownMenuContent>
+                        </DropdownMenu>
                     ) : (
                         <DropdownMenu>
                             <ButtonGroup>
@@ -290,7 +329,17 @@ export function QuillSQLEditorSceneActions({
                                 </Button>
                                 {saveOptionsTrigger('sql-editor-save-options-button')}
                             </ButtonGroup>
-                            {saveAsMenuContent}
+                            <DropdownMenuContent align="end">
+                                {secondarySaveMenuItems.map((item) => (
+                                    <DropdownMenuItem
+                                        key={item.action}
+                                        disabledReason={item.disabledReason}
+                                        onClick={item.onClick}
+                                    >
+                                        {item.label}
+                                    </DropdownMenuItem>
+                                ))}
+                            </DropdownMenuContent>
                         </DropdownMenu>
                     )}
                 </>
