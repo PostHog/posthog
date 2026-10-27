@@ -110,6 +110,7 @@ function DashboardBody({ screen, dashboardRef, onBack, scrollTitle }: DashboardB
     const onViewableItemsChanged = useViewableItems(screen.onViewableItemsChanged, viewport.onViewableItemsChanged)
     const { refresh, tiles } = screen
     const dashboard = screen.dashboard.data
+    const hasDashboardRange = tiles.some((tile) => tile.view.kind === 'insight' && !tile.view.usesOwnRange)
     const contentStyle = [
         styles.content,
         { paddingTop: topOffset(insets, SCREEN_CONTENT_TOP), paddingBottom: bottomOffset(insets, 48) },
@@ -125,10 +126,11 @@ function DashboardBody({ screen, dashboardRef, onBack, scrollTitle }: DashboardB
                     index={index}
                     dashboardRef={dashboardRef}
                     dashboardName={dashboard?.name ?? ''}
+                    showRangeOverride={hasDashboardRange}
                     refreshItem={refresh.refreshItem}
                 />
             ),
-        [dashboardRef, dashboard?.name, refresh.refreshItem]
+        [dashboardRef, dashboard?.name, hasDashboardRange, refresh.refreshItem]
     )
 
     if (!dashboard) {
@@ -238,13 +240,15 @@ function DashboardHeader({ screen, dashboard, dashboardRef, onTitleLayout }: Das
                 }
                 refresh={screen.refresh}
                 range={
-                    <ViewRangeControl
-                        range={screen.range}
-                        resolved={resolved}
-                        detail={detail}
-                        zoneHint={zoneHint}
-                        compare={dashboardCompareRow(screen.range, screen.compareSupported)}
-                    />
+                    rangeTile ? (
+                        <ViewRangeControl
+                            range={screen.range}
+                            resolved={resolved}
+                            detail={detail}
+                            zoneHint={zoneHint}
+                            compare={dashboardCompareRow(screen.range, screen.compareSupported)}
+                        />
+                    ) : null
                 }
                 rangeDetail={detail ? <Text style={styles.rangeDetail}>{detail}</Text> : null}
             />
