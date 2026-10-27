@@ -3094,12 +3094,12 @@ export type HogFlowsMetricsRetrieveParams = {
      */
     interval?: HogFlowsMetricsRetrieveInterval
     /**
-     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.
      * @minLength 1
      */
     kind?: string
     /**
-     * Comma-separated metric names to filter by.
+     * Comma-separated metric names to filter by. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.
      * @minLength 1
      */
     name?: string
@@ -3156,12 +3156,12 @@ export type HogFlowsMetricsTotalsRetrieveParams = {
      */
     interval?: HogFlowsMetricsTotalsRetrieveInterval
     /**
-     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.
      * @minLength 1
      */
     kind?: string
     /**
-     * Comma-separated metric names to filter by.
+     * Comma-separated metric names to filter by. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.
      * @minLength 1
      */
     name?: string
@@ -3218,12 +3218,12 @@ export type HogFlowsMetricsVersionRetrieveParams = {
      */
     interval?: HogFlowsMetricsVersionRetrieveInterval
     /**
-     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.
      * @minLength 1
      */
     kind?: string
     /**
-     * Comma-separated metric names to filter by.
+     * Comma-separated metric names to filter by. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.
      * @minLength 1
      */
     name?: string

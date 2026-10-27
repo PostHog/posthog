@@ -1092,8 +1092,20 @@ export const HogFlowsMetricsRetrieveQueryParams = () => zod.object({
         .describe(
             "Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.\n\n\* `hour` - hour\n\* `day` - day\n\* `week` - week"
         ),
-    kind: zod.string().min(1).optional().describe("Comma-separated metric kinds to filter by, e.g. 'success,failure'."),
-    name: zod.string().min(1).optional().describe('Comma-separated metric names to filter by.'),
+    kind: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "Comma-separated metric kinds to filter by, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows."
+        ),
+    name: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Comma-separated metric names to filter by. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.'
+        ),
 })
 
 /**
@@ -1138,8 +1150,20 @@ export const HogFlowsMetricsVersionRetrieveQueryParams = () => zod.object({
         .describe(
             "Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.\n\n\* `hour` - hour\n\* `day` - day\n\* `week` - week"
         ),
-    kind: zod.string().min(1).optional().describe("Comma-separated metric kinds to filter by, e.g. 'success,failure'."),
-    name: zod.string().min(1).optional().describe('Comma-separated metric names to filter by.'),
+    kind: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            "Comma-separated metric kinds to filter by, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows."
+        ),
+    name: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Comma-separated metric names to filter by. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.'
+        ),
     version: zod
         .number()
         .describe(

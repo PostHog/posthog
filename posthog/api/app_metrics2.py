@@ -73,11 +73,11 @@ class AppMetricsRequestSerializer(serializers.Serializer):
     )
     name = serializers.CharField(
         required=False,
-        help_text="Comma-separated metric names to filter by.",
+        help_text="Comma-separated metric names to filter by. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.",
     )
     kind = serializers.CharField(
         required=False,
-        help_text="Comma-separated metric kinds to filter by, e.g. 'success,failure'.",
+        help_text="Comma-separated metric kinds to filter by, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.",
     )
     breakdown_by = serializers.ChoiceField(
         choices=["name", "kind"],
@@ -85,6 +85,10 @@ class AppMetricsRequestSerializer(serializers.Serializer):
         default="kind",
         help_text="Group the series by metric 'name' or 'kind'. Defaults to 'kind'.",
     )
+
+
+def _requested_breakdown_values(breakdown_by: str, name: list[str], kind: list[str]) -> list[str]:
+    return name if breakdown_by == "name" else kind
 
 
 def fetch_app_metrics_trends(
@@ -170,7 +174,9 @@ def fetch_app_metrics_trends(
     response = AppMetricsResponse(labels=[], series=[])
     data_by_breakdown: dict[str, dict[str, int]] = {}
 
-    breakdown_names = {row[1] for row in results}
+    breakdown_names = dict.fromkeys(
+        [*_requested_breakdown_values(breakdown_by, name, kind), *(row[1] for row in results)]
+    )
 
     for result in results:
         timestamp, breakdown, count = result
@@ -248,7 +254,9 @@ def fetch_app_metric_totals(
     if not isinstance(results, list):
         raise ValueError("Unexpected results from ClickHouse")
 
-    totals = {row[0]: row[1] for row in results}
+    totals = dict.fromkeys(_requested_breakdown_values(breakdown_by, name, kind), 0) | {
+        row[0]: row[1] for row in results
+    }
     return AppMetricsTotalsResponse(totals=totals)
 
 

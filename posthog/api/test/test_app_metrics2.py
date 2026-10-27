@@ -39,6 +39,34 @@ class TestAppMetrics2Timezone(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
+            ("name", {"name": ["succeeded", "skipped"]}, "skipped"),
+            ("kind", {"kind": ["success", "failure"]}, "failure"),
+        ]
+    )
+    def test_requested_breakdown_values_without_rows_read_as_zero(
+        self, breakdown_by: str, filters: dict[str, Any], missing: str
+    ) -> None:
+        after = datetime(2026, 6, 8, 0, 0, tzinfo=UTC)
+        before = datetime(2026, 6, 9, 23, 0, tzinfo=UTC)
+        self._seed(after + timedelta(hours=12))
+        query = {
+            "team_id": self.team.pk,
+            "app_source": "hog_function",
+            "app_source_id": "fn-1",
+            "after": after,
+            "before": before,
+            "breakdown_by": breakdown_by,
+            **filters,
+        }
+
+        trends = fetch_app_metrics_trends(**query)
+        totals = fetch_app_metric_totals(**query)
+
+        assert {series.name: series.values for series in trends.series}[missing] == [0, 0]
+        assert totals.totals[missing] == 0
+
+    @parameterized.expand(
+        [
             ("America/Los_Angeles",),  # -07:00 (PDT in June)
             ("Asia/Kolkata",),  # +05:30 (half-hour offset)
             ("Pacific/Auckland",),  # +12:00 (wraps to the previous UTC day)
