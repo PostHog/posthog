@@ -1,8 +1,6 @@
 // These tests check the CI workflows, not the planner. A failure here means a
 // job condition in a workflow file changed what runs; the planner itself is covered by plan.test.ts.
-import { spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
-import os from 'node:os'
+import { readdirSync } from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 
@@ -563,119 +561,6 @@ const namedJobs = (file: string): Set<string> =>
     )
 
 describe('CI workflow run plans', () => {
-    it.each([
-        { name: 'identical schema inputs', file: '', content: '', keep: true },
-        {
-            name: 'added column migration',
-            file: 'posthog/migrations/0003_column.py',
-            content: 'new_column = True',
-            keep: true,
-        },
-        {
-            name: 'shallow checkout fetches the source',
-            file: 'posthog/migrations/0003_column.py',
-            content: 'new_column = True',
-            keep: true,
-        },
-        { name: 'reverted migration', file: 'posthog/migrations/0001_initial.py', content: null, keep: false },
-        {
-            name: 'retired squash replaces',
-            file: 'posthog/migrations/0002_squashed.py',
-            content: 'replaces = []',
-            keep: false,
-        },
-        { name: 'routing change', file: 'products/db_routing.yaml', content: 'new_product: separate', keep: false },
-        { name: 'Postgres image change', file: 'docker-compose.base.yml', content: 'image: postgres:16', keep: false },
-        { name: 'dependency change', file: 'uv.lock', content: 'version = 2', keep: false },
-        {
-            name: 'cache epoch change',
-            file: '.depot/workflows/ci-backend.yml',
-            content: '    SCHEMA_CACHE_EPOCH: v3',
-            keep: false,
-        },
-        { name: 'unmerged PR cache', file: '', content: '', keep: false },
-        { name: 'unavailable source commit', file: '', content: '', keep: false },
-        { name: 'unrelated source change', file: 'posthog/models.py', content: 'unrelated = True', keep: true },
-        {
-            name: 'ClickHouse migration change',
-            file: 'posthog/clickhouse/migrations/0001_initial.py',
-            content: 'changed = True',
-            keep: true,
-        },
-    ])('master schema fallback: $name keeps dump=$keep', ({ name, file, content, keep }) => {
-        const directory = mkdtempSync(path.join(os.tmpdir(), 'schema-fallback-'))
-        const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' }
-        const git = (...args: string[]): string => {
-            const result = spawnSync('git', args, { cwd: directory, env: gitEnv, encoding: 'utf8' })
-            expect(result.status, result.stderr).toBe(0)
-            return result.stdout.trim()
-        }
-        const write = (file: string, content: string): void => {
-            const target = path.join(directory, file)
-            mkdirSync(path.dirname(target), { recursive: true })
-            writeFileSync(target, content)
-        }
-        try {
-            git('init', '-q')
-            git('config', 'user.name', 'Schema check')
-            git('config', 'user.email', 'schema-check@example.com')
-            git('config', 'core.hooksPath', '/dev/null')
-            for (const [file, content] of Object.entries({
-                'posthog/migrations/0001_initial.py': 'initial = True',
-                'posthog/migrations/0002_squashed.py': "replaces = [('posthog', '0001_initial')]",
-                'posthog/clickhouse/migrations/0001_initial.py': 'initial = True',
-                'uv.lock': 'version = 1',
-                'docker-compose.base.yml': 'image: postgres:15',
-                'products/db_routing.yaml': '{}',
-                'posthog/product_db_config.py': 'config = {}',
-                'posthog/product_db_router.py': 'router = None',
-                '.depot/workflows/ci-backend.yml': '    SCHEMA_CACHE_EPOCH: v2',
-            })) {
-                write(file, content)
-            }
-            git('add', '.')
-            git('commit', '-qm', 'baseline')
-            const cachedSha = git('rev-parse', 'HEAD')
-            git('remote', 'add', 'origin', directory)
-            if (file) {
-                if (content === null) {
-                    rmSync(path.join(directory, file))
-                } else {
-                    write(file, content)
-                }
-            }
-            git('add', '.')
-            git('commit', '--allow-empty', '-qm', 'checkout')
-            const checkout =
-                name === 'shallow checkout fetches the source' ? path.join(directory, 'checkout') : directory
-            if (checkout !== directory) {
-                git('clone', '--quiet', '--depth=1', `file://${directory}`, checkout)
-            }
-            const dump = path.join(directory, 'schema.sql.gz')
-            writeFileSync(dump, 'cached dump')
-            const step = workflow(DEPOT_BACKEND).jobs['check-migrations']!.steps!.find(
-                (step) => step.id === 'validate-master-schema'
-            )!
-            const result = spawnSync('bash', ['-c', String(step.run)], {
-                cwd: checkout,
-                encoding: 'utf8',
-                env: {
-                    ...gitEnv,
-                    CACHED_KEY:
-                        name === 'unmerged PR cache'
-                            ? 'posthog-schema-mig-v2-unmerged'
-                            : `posthog-schema-master-${name === 'unavailable source commit' ? 'f'.repeat(40) : cachedSha}`,
-                    DUMP_PATH: dump,
-                    SCHEMA_CACHE_EPOCH: name === 'cache epoch change' ? 'v3' : 'v2',
-                },
-            })
-            expect(result.status, result.stderr).toBe(0)
-            expect(existsSync(dump), result.stdout).toBe(keep)
-        } finally {
-            rmSync(directory, { recursive: true, force: true })
-        }
-    })
-
     it.each([
         { name: 'canonical PR', github: pullRequest(), runs: true },
         { name: 'mirror PR', github: mirrorPullRequest(), runs: false },

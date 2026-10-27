@@ -1822,40 +1822,12 @@ jobs:
             - name: Validate fallback master schema
               id: validate-master-schema
               if: steps.master-schema-cache.outputs.cache-matched-key != '' && steps.master-schema-cache.outputs.cache-matched-key != steps.master-schema-key.outputs.key
-              working-directory: upstream-master
               env:
                   CACHED_KEY: ${{ steps.master-schema-cache.outputs.cache-matched-key }}
-                  DUMP_PATH: ${{ github.workspace }}/schema.sql.gz
-              run: |
-                  set -euo pipefail
-                  compatible_schema() {
-                      [[ "$CACHED_KEY" =~ ^posthog-schema-master-([0-9a-f]{40})$ ]] || return 1
-                      local cached_sha="${BASH_REMATCH[1]}"
-                      git cat-file -e "${cached_sha}^{commit}" 2>/dev/null \
-                          || git fetch --no-tags --depth=1 --filter=blob:none origin "$cached_sha" \
-                          || return 1
-                      local cached_epoch
-                      cached_epoch=$(git show "${cached_sha}:.depot/workflows/ci-backend.yml" \
-                          | sed -n 's/^    SCHEMA_CACHE_EPOCH: //p') || return 1
-                      [ "$cached_epoch" = "$SCHEMA_CACHE_EPOCH" ] || return 1
-                      git diff --quiet "$cached_sha" HEAD -- uv.lock docker-compose.base.yml \
-                          products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py \
-                          || return 1
-                      # A revert or squash retirement can remove or edit applied migrations.
-                      # Only additions leave the cached migration history safe to replay forward.
-                      local migration_changes
-                      migration_changes=$(git diff --name-status --no-renames "$cached_sha" HEAD -- \
-                          ':(glob)**/migrations/*.py' \
-                          ':(exclude,glob)**/clickhouse/migrations/*.py' \
-                          ':(exclude,glob)**/async_migrations/migrations/*.py') || return 1
-                      printf '%s\n' "$migration_changes" | awk 'NF && $1 != "A" { exit 1 }'
-                  }
-                  if compatible_schema; then
-                      echo "Cached master schema is compatible; migrate will apply the missing migrations"
-                  else
-                      echo "::notice::Cached master schema is incompatible or unavailable; migrate will run from scratch"
-                      rm -f "$DUMP_PATH"
-                  fi
+              run: >-
+                  python .github/scripts/validate_schema_cache.py
+                  --repository upstream-master --dump schema.sql.gz
+                  --cache-key "$CACHED_KEY" --epoch "$SCHEMA_CACHE_EPOCH"
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
