@@ -78,17 +78,15 @@ def registered_history_naming(schema: ExternalDataSchema) -> HistoryNaming | Non
 def history_naming(schema: ExternalDataSchema) -> HistoryNaming:
     """The naming of the schema's history table, read from its registration, else `new_history_naming`.
 
-    Raises `HistoryTableNameTakenError` when a new `_history` table would take the catalog name of another
+    Raises `HistoryTableNameTakenError` when a new history table would take the catalog name of another
     table of the source.
     """
     registered = registered_history_naming(schema)
     if registered is not None:
         return registered
     naming = new_history_naming()
-    if naming != HISTORY_NAMING:
-        return naming
     source = schema.source
-    new_name = build_table_name(source, companion_resource_name(schema.name, HISTORY_NAMING))
+    new_name = build_table_name(source, companion_resource_name(schema.name, naming))
     if DataWarehouseTable.objects.filter(
         team_id=schema.team_id, external_data_source_id=source.id, deleted=False, name=new_name
     ).exists():
@@ -104,7 +102,7 @@ def history_naming(schema: ExternalDataSchema) -> HistoryNaming:
         sibling_names = resolve_table_and_folder_names(sibling.name, sibling.resolved_s3_folder_name)
         if build_table_name(source, sibling_names.table_storage_name) == new_name:
             raise HistoryTableNameTakenError(f"{new_name} is already the name of another table of this source")
-    return HISTORY_NAMING
+    return naming
 
 
 def new_history_names_taken(
@@ -130,8 +128,17 @@ def history_naming_unless_taken(schema: ExternalDataSchema) -> HistoryNaming | N
 
 
 def is_another_schemas_history_table(schema: ExternalDataSchema) -> bool:
-    """Whether the schema's own table name already belongs to the history table of another schema."""
+    """Whether the schema's own table name belongs to the history table of another schema.
+
+    A sibling that keeps history counts before its history table is registered, which happens only after
+    its first snapshot loads.
+    """
     name = build_table_name(schema.source, schema.name)
+    siblings = ExternalDataSchema.objects.filter(
+        team_id=schema.team_id, source_id=schema.source_id, deleted=False, sync_type=ExternalDataSchema.SyncType.CDC
+    ).exclude(id=schema.id)
+    if any(history_table_name(sibling) == name for sibling in siblings):
+        return True
     taken = (
         DataWarehouseTable.objects.filter(
             team_id=schema.team_id, external_data_source_id=schema.source_id, deleted=False, name=name
@@ -180,7 +187,7 @@ def history_table_name(schema: ExternalDataSchema) -> str | None:
 
     Skips the name check of `history_naming`, so a list of schemas costs one query per history table.
     """
-    if not is_history_table_mode(schema.cdc_table_mode):
+    if not schema.keeps_history:
         return None
     naming = registered_history_naming(schema) or new_history_naming()
     return build_table_name(schema.source, companion_resource_name(schema.name, naming))

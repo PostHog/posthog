@@ -77,6 +77,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     history_table_name,
     is_another_schemas_history_table,
     is_history_table_mode,
+    new_history_naming,
     purge_buffer_prefix,
     repair_is_running,
     reserved_column_collisions,
@@ -475,11 +476,14 @@ def _refuse_reserved_columns(
     history = None
     if is_history_table_mode(new_mode) or is_history_table_mode(previous_mode):
         history = history_naming_unless_taken(instance)
-        if history is None and is_history_table_mode(new_mode):
+        kept_history = instance.sync_type == ExternalDataSchema.SyncType.CDC and is_history_table_mode(previous_mode)
+        if history is None and is_history_table_mode(new_mode) and not kept_history:
             raise ValidationError(
                 f"A history table for {instance.name} would share its name with another table of this "
                 "source. Choose the consolidated table only for this table."
             )
+        # A taken name leaves only the naming a new history table would get.
+        history = history or new_history_naming()
     columns = _source_column_names(instance)
     taken = reserved_column_collisions(
         columns,
