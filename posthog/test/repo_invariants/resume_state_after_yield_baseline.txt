@@ -305,7 +305,6 @@ payfit/payfit.py::_get_payslip_rows
 payfit/payfit.py::get_rows
 pendo/pendo.py::_iter_aggregation
 pendo/pendo.py::_iter_list_endpoint
-persona/persona.py::get_rows
 pinterest_ads/pinterest_ads.py::_iter_entity_rows
 pinterest_ads/pinterest_ads.py::_iter_fanned_out_analytics
 plaid/plaid.py::get_rows
