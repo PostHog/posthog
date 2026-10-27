@@ -33,13 +33,15 @@ from products.alerts_platform.backend.facade.contracts import (
     MessageLink,
     SourceKind,
 )
-from products.alerts_platform.backend.models import PlatformAlertConfiguration
+from products.alerts_platform.backend.facade.enums import HoldRelease
+from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertDeliveryHold
 from products.alerts_platform.backend.tests.recorded_metrics import recorded_metrics
 
 _MODULE = "products.alerts_platform.backend.delivery.evaluation"
 _LEGACY_MODULE = "products.alerts_platform.backend.delivery.legacy_webhook"
 _WEBHOOK_URL_MODULE = "products.alerts_platform.backend.delivery.webhook_url"
 FIRING = datetime(2026, 9, 30, 9, tzinfo=UTC)
+CONFIGURATION_ID = "01900000-0000-0000-0000-0000000000c1"
 
 FIRING_EVENT = "$logs_alert_firing"
 RESOLVED_EVENT = "$logs_alert_resolved"
@@ -106,7 +108,7 @@ class HeldTransport(RecordingTransport):
 def _request(
     team_id: int,
     *,
-    configuration_id: str = "cfg-1",
+    configuration_id: str = CONFIGURATION_ID,
     sends_messages: bool = True,
     incident_actions: dict[str, IncidentAction] | None = None,
     owned_by_platform: bool = False,
@@ -152,7 +154,7 @@ def _transition(
 def _announcement(*transitions: AnnouncedTransition) -> EvaluationAnnouncement:
     return EvaluationAnnouncement(
         source=SourceKind.LOGS,
-        configuration_id="cfg-1",
+        configuration_id=CONFIGURATION_ID,
         alert_name="API errors",
         consecutive_failures=0,
         transitions=transitions,
@@ -442,6 +444,37 @@ class TestDeliverEvaluation(APIBaseTest):
 
         assert RecordingTransport.sends == []
         assert outcome.sent == 0
+
+    @parameterized.expand(
+        [("unreleased", None, 0), ("suppressed", HoldRelease.SUPPRESS, 0), ("sent", HoldRelease.SEND, 1)]
+    )
+    def test_a_held_evaluation_sends_only_once_released_with_a_send(
+        self, _name: str, release: HoldRelease | None, sent: int
+    ) -> None:
+        configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
+            id=CONFIGURATION_ID,
+            team=self.team,
+            name="API errors",
+            source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
+            check_interval_minutes=10,
+        )
+        PlatformAlertDeliveryHold.objects.for_team(self.team.id).create(
+            team=self.team,
+            configuration=configuration,
+            evaluation_key="eval-1",
+            reason="investigation",
+            request={},
+            held_at=FIRING,
+            release_after=FIRING,
+            released_at=FIRING if release else None,
+            release_action=release,
+        )
+
+        outcome = self._run(
+            _announcement(_transition(AlertEventKind.FIRING)), {FIRING_EVENT: [_group(SLACK)]}, owned_by_platform=True
+        )
+
+        assert outcome.sent == sent
 
     def test_a_team_without_the_flag_is_not_contacted(self) -> None:
         outcome = self._run(

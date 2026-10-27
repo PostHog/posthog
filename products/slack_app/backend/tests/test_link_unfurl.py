@@ -338,8 +338,15 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("allowed", True, True),
-            ("public_sharing_off", False, False),
+            ("allowed", True, None, True),
+            ("public_sharing_off", False, None, False),
+            (
+                "edited_in_editor",
+                True,
+                {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "dateRange": {"date_from": "-90d"}}},
+                True,
+            ),
+            ("unchanged_in_editor", True, {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}, True),
         ]
     )
     @patch("products.slack_app.backend.tasks.start_slack_unfurl_charts.delay")
@@ -350,6 +357,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         self,
         _name: str,
         public_sharing: bool,
+        link_query: dict | None,
         expect_started: bool,
         mock_slack_integration_class: MagicMock,
         mock_resolve: MagicMock,
@@ -363,6 +371,8 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         mock_resolve.return_value = MagicMock(user=self.user)
         mock_sync_connect.return_value.start_workflow = AsyncMock()
         url = f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"
+        if link_query is not None:
+            url += f"/edit?dashboard=1#q={quote(json.dumps(link_query))}"
 
         handle_posthog_link_unfurl(
             {"channel": "C1", "message_ts": "123.456", "user": "U1", "links": [{"url": url}]},
@@ -374,7 +384,10 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             start_workflow.assert_not_called()
             return
         inputs = start_workflow.call_args.args[1]
-        assert [chart.insight_id for chart in inputs.charts] == [self.insight.id]
+        edited = link_query is not None and link_query != self.insight.query
+        assert [(chart.insight_id, chart.query) for chart in inputs.charts] == [
+            (None, link_query) if edited else (self.insight.id, None)
+        ]
         assert (
             inputs.unfurls == mock_slack_integration_class.return_value.client.chat_unfurl.call_args.kwargs["unfurls"]
         )
