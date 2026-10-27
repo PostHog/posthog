@@ -60,7 +60,7 @@ export function ReplayVisionPlayerUpsellCard(): JSX.Element | null {
                         <p className="m-0 text-sm text-secondary">
                             {isTeamCard
                                 ? 'Your teammates have scanners that watch sessions for them. See what they found before you watch the next recording.'
-                                : 'You watch a lot of replays. Describe what to look for once, and Replay vision finds the sessions where it happens, like rage clicks on checkout or users who get stuck.'}
+                                : 'You watch more replays than most people on PostHog. Describe what to look for once, and Replay vision finds the sessions where it happens, like rage clicks on checkout or users who get stuck.'}
                         </p>
                     </div>
                     <div className="flex shrink-0 flex-col items-start gap-1 @2xl:items-end">
@@ -87,8 +87,8 @@ export function ReplayVisionPlayerUpsellCard(): JSX.Element | null {
                             {isTeamCard
                                 ? 'No extra setup.'
                                 : freeCreditsAllowance
-                                  ? `${humanFriendlyNumber(freeCreditsAllowance)} free credits each month. No card needed.`
-                                  : 'No card needed.'}
+                                  ? `${humanFriendlyNumber(freeCreditsAllowance)} free credits each month.`
+                                  : null}
                         </span>
                     </div>
                 </div>
