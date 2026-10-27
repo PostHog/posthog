@@ -1,6 +1,7 @@
 from collections.abc import Collection
 from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.db.models import Q
@@ -448,10 +449,32 @@ def render_alert_insight_chart(
         )
         if not any(destination.destination_type == "slack" for destination in destinations):
             return None
+        alert_threshold_lines: list[dict[str, Any]] = []
+        for insight_alert in (
+            AlertConfiguration.objects.filter(team_id=alert.team_id, insight_id=alert.insight_id, enabled=True)
+            .select_related("threshold")
+            .order_by("created_at", "id")
+        ):
+            if insight_alert.threshold is None or insight_alert.condition.get("type") != "absolute_value":
+                continue
+            threshold_config = insight_alert.threshold.configuration
+            if threshold_config.get("type") != "absolute":
+                continue
+            for side, value in (threshold_config.get("bounds") or {}).items():
+                if side in {"upper", "lower"} and value is not None:
+                    alert_threshold_lines.append(
+                        {
+                            "label": f"{insight_alert.name} {side} threshold",
+                            "value": value,
+                            "borderColor": "#d14343",
+                            "displayLabel": False,
+                        }
+                    )
         asset, content = exports.render_png_export(
             team=alert.team,
             created_by=render_user,
             insight_id=alert.insight_id,
+            reference_lines=alert_threshold_lines,
             # System render: keep it out of the user's export listings and quota.
             is_system=True,
             expires_after=datetime.now(UTC) + _INSIGHT_CHART_ASSET_TTL,
@@ -493,14 +516,14 @@ def render_alert_insight_chart_url(alert: AlertConfiguration, render_user: User 
     return insight_chart_url(team_id=alert.team_id, chart=chart) if chart is not None else None
 
 
-def detector_verdict_event_fields(alert_check: AlertCheck) -> dict[str, str]:
+def detector_verdict_event_fields(triggered_metadata: dict | None) -> dict[str, str]:
     """The model's verdict, as its own `$insight_alert_firing` properties.
 
     The rationale is already inside the breach text, but a destination that wants to place
     it on its own, in its own Slack block or its own webhook field, cannot split it back
     out of a sentence. Absent for every detector type that reports no verdict.
     """
-    metadata = alert_check.triggered_metadata or {}
+    metadata = triggered_metadata or {}
     fields = {"anomaly_rationale": metadata.get("rationale"), "anomaly_kind": metadata.get("kind")}
     return {key: str(value) for key, value in fields.items() if value}
 
@@ -591,7 +614,10 @@ def dispatch_alert_notification(
                         "caller must pass the breaches list from AlertEvaluationResult"
                     )
                 logger.info("Sending alert firing notifications", alert_id=alert.id)
-                properties = {**detector_verdict_event_fields(alert_check), **(extra_properties or {})}
+                properties = {
+                    **detector_verdict_event_fields(alert_check.triggered_metadata),
+                    **(extra_properties or {}),
+                }
                 # Attach the chart for any firing alert whose caller did not already supply
                 # one, so ordinary threshold and anomaly alerts get the chart too, not just
                 # the anomaly investigation path (which renders it early and passes it in).

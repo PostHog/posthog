@@ -84,6 +84,15 @@ class CustomerIOClient:
         filter_conditions = {"attribute": {"field": "unsubscribed", "operator": "eq", "value": True}}
         return self.search_customers(filter_conditions, limit, start)
 
+    def get_suppressions(self, suppression_type: str, limit: int = 1000, offset: int = 0) -> list[dict[str, Any]]:
+        """One page of the addresses Customer.io's email provider suppressed for `suppression_type`: `bounces`,
+        `blocks`, `spam_reports` or `invalid_emails`. Each entry has `email`, `created`, `reason` and `status`."""
+        response = self._make_request(
+            "GET", f"/esp/suppression/{suppression_type}", params={"limit": min(limit, 1000), "offset": offset}
+        )
+        suppressions = response.get("suppressions")
+        return suppressions if isinstance(suppressions, list) else []
+
     def validate_credentials(self) -> bool:
         try:
             # Try a simple API call to validate credentials

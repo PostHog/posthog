@@ -11,7 +11,10 @@ from rest_framework.exceptions import ValidationError
 from posthog.hogql import ast
 
 from posthog.models import EventProperty
+from posthog.models.team import Team
 
+from products.experiments.backend.facade import replay as facade_replay
+from products.experiments.backend.facade.contracts import InSessionExposureSemantics
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
@@ -217,6 +220,45 @@ class TestResolveInSessionExposureSemantics(BaseTest):
 
         assert semantics.unavailable_reason == IN_SESSION_EXPOSURE_UNMATCHABLE_REASON
         assert semantics.session_exposure is None
+
+    @parameterized.expand(
+        [
+            ("stamped_fallback", None, InSessionExposureSemantics(unavailable_reason=None, uses_stamped_fallback=True)),
+            (
+                "activation",
+                {
+                    "activation_config": {
+                        "kind": "ExperimentEventExposureConfig",
+                        "event": "task_completed",
+                        "properties": [],
+                    }
+                },
+                InSessionExposureSemantics(
+                    unavailable_reason=IN_SESSION_EXPOSURE_ACTIVATION_REASON, uses_stamped_fallback=False
+                ),
+            ),
+        ]
+    )
+    def test_facade_maps_the_semantics_of_the_experiment_it_reads_by_id(
+        self, _name: str, exposure_criteria: dict | None, expected: InSessionExposureSemantics
+    ) -> None:
+        experiment = self._experiment(exposure_criteria=exposure_criteria)
+
+        semantics = facade_replay.resolve_in_session_exposure_semantics(
+            team_id=self.team.pk, experiment_id=experiment.id
+        )
+
+        assert semantics == expected
+
+    def test_facade_reads_no_experiment_of_another_team(self) -> None:
+        experiment = self._experiment()
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+
+        semantics = facade_replay.resolve_in_session_exposure_semantics(
+            team_id=other_team.pk, experiment_id=experiment.id
+        )
+
+        assert semantics is None
 
 
 def _variant_filter(query: ast.SelectQuery) -> list[str]:

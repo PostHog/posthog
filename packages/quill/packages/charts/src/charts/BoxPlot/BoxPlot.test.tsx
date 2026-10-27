@@ -186,9 +186,6 @@ describe('BoxPlot', () => {
     })
 
     describe('tooltip rendering', () => {
-        // `nativeTooltip: true` lets BoxPlotTooltip render its own DOM — the default mode
-        // replaces the tooltip prop and short-circuits past it.
-
         const SINGLE_SERIES: BoxPlotSeries[] = [
             {
                 key: 'a',
@@ -198,9 +195,7 @@ describe('BoxPlot', () => {
         ]
 
         it('renders the six stats in the canonical order (Max → p75 → Median → Mean → p25 → Min)', async () => {
-            const { chart } = renderChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />, {
-                nativeTooltip: true,
-            })
+            const { chart } = renderChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />)
             chart.hoverAtIndex(0)
             const tooltipEl = await waitForChartTooltip()
             const rowLabels = Array.from(tooltipEl.querySelectorAll('tr')).map((tr) =>
@@ -277,10 +272,7 @@ describe('BoxPlot', () => {
                 const series: BoxPlotSeries[] = [
                     { key: 'a', label: 'A-label', data: [datum(override), datum(), datum()] },
                 ]
-                const { chart } = renderChart(
-                    <BoxPlot series={series} labels={LABELS} theme={THEME} config={config} />,
-                    { nativeTooltip: true }
-                )
+                const { chart } = renderChart(<BoxPlot series={series} labels={LABELS} theme={THEME} config={config} />)
                 chart.hoverAtIndex(0)
                 const tooltipEl = await waitForChartTooltip()
                 const rendered = Array.from(tooltipEl.querySelectorAll('tr')).map((tr) => [
@@ -292,9 +284,7 @@ describe('BoxPlot', () => {
         )
 
         it('renders the values in the canonical row order', async () => {
-            const { chart } = renderChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />, {
-                nativeTooltip: true,
-            })
+            const { chart } = renderChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />)
             chart.hoverAtIndex(0)
             const tooltipEl = await waitForChartTooltip()
             const values = Array.from(tooltipEl.querySelectorAll('tr')).map((tr) =>
@@ -304,18 +294,14 @@ describe('BoxPlot', () => {
         })
 
         it('shows the x label in the header', async () => {
-            const { chart } = renderChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />, {
-                nativeTooltip: true,
-            })
+            const { chart } = renderChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />)
             chart.hoverAtIndex(0)
             const tooltipEl = await waitForChartTooltip()
             expect(tooltipEl.textContent).toContain('Mon')
         })
 
         it('renders one stat table per visible series when grouped (multi-series)', async () => {
-            const { chart } = renderChart(<BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} />, {
-                nativeTooltip: true,
-            })
+            const { chart } = renderChart(<BoxPlot series={TWO_SERIES} labels={LABELS} theme={THEME} />)
             chart.hoverAtIndex(0)
             const tooltipEl = await waitForChartTooltip()
             // Per-series header labels show in grouped mode.
@@ -325,9 +311,7 @@ describe('BoxPlot', () => {
         })
 
         it('hides the per-series label when not grouped (single series)', async () => {
-            const { chart } = renderChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />, {
-                nativeTooltip: true,
-            })
+            const { chart } = renderChart(<BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} />)
             chart.hoverAtIndex(0)
             const tooltipEl = await waitForChartTooltip()
             const headers = Array.from(tooltipEl.querySelectorAll('.font-semibold')).map((el) => el.textContent)
@@ -341,8 +325,7 @@ describe('BoxPlot', () => {
                 (): React.ReactElement => <div data-attr="custom-boxplot-user-tooltip">custom</div>
             )
             const { chart } = renderChart(
-                <BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} tooltip={userTooltip} />,
-                { nativeTooltip: true }
+                <BoxPlot series={SINGLE_SERIES} labels={LABELS} theme={THEME} tooltip={userTooltip} />
             )
             chart.hoverAtIndex(0)
             const tooltipEl = await waitForChartTooltip()

@@ -15,7 +15,7 @@ export function BIDrilldownMenu({
 }): JSX.Element | null {
     const { selection, queries, interaction, showRows } = useValues(biDrilldownLogic(logicProps))
     const { close, viewRows, openSqlEditor } = useActions(biDrilldownLogic(logicProps))
-    if (!selection || showRows) {
+    if (!selection || !interaction || showRows) {
         return null
     }
     const selectedResult =

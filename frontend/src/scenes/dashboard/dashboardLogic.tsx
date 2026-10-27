@@ -46,19 +46,23 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
-import {
-    DashboardEventSource,
-    DashboardFilterChangeType,
-    dashboardViewedProperties,
-    eventUsageLogic,
-    sanitizeDashboard,
-    filtersForAnalytics,
-    sanitizeQuery,
-} from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic, filtersForAnalytics, sanitizeQuery } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
+import {
+    DashboardFilterChangeType,
+    dashboardViewedProperties,
+    reportDashboardEditModeDiscardPrompt,
+    reportDashboardFiltersChanged,
+    reportDashboardInsightDeleteAfterRemovalClicked,
+    reportDashboardLayoutEditModeEntered,
+    reportDashboardModeToggled,
+    reportDashboardTileDensityConfigured,
+    sanitizeDashboard,
+    tileGroupProperties,
+} from 'scenes/dashboard/dashboardEvents'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
@@ -198,6 +202,14 @@ import { tileLogic } from './tileLogic'
 
 function dashboardSettingsMatch(first: DashboardSettings, second: DashboardSettings): boolean {
     return dashboardFiltersEqual(first.filters, second.filters) && equal(first.variables, second.variables)
+}
+
+function tileGroupLoadProperties(
+    groupDisplay: TileGroupDisplay,
+    tiles: DashboardTile[],
+    collapsedTileGroupKeys: string[]
+): Record<string, any> {
+    return { ...tileGroupProperties(groupDisplay, tiles), collapsed_group_count: collapsedTileGroupKeys.length }
 }
 
 function reportDashboardTileRefreshed(
@@ -4691,6 +4703,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 action,
                 primary_interaction_id: dashboardQueryId,
                 time_to_see_data_ms: Math.floor(performance.now() - startTime),
+                ...tileGroupLoadProperties(values.tileGroupDisplay, values.tiles, values.collapsedTileGroupKeys),
             })
             if (cache.onlineRecoveryPending || (cache.connectionRecoveryPending && !values.internetConnectionIssue)) {
                 cache.onlineRecoveryPending = false
@@ -4975,9 +4988,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                     data-attr="delete-removed-insight"
                                     className="!m-0"
                                     onClick={() => {
-                                        eventUsageLogic.actions.reportDashboardInsightDeleteAfterRemovalClicked(
-                                            otherDashboardIds.size
-                                        )
+                                        reportDashboardInsightDeleteAfterRemovalClicked(otherDashboardIds.size)
                                         deleteInsight()
                                     }}
                                 >
@@ -5116,7 +5127,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 dashboardsModel.actions.updateDashboardSuccess(dashboard, {
                     layoutsPersisted: true,
                 })
-                eventUsageLogic.actions.reportDashboardTileDensityConfigured(tileSpacing)
+                reportDashboardTileDensityConfigured(tileSpacing)
             } catch {
                 if (!cache.pendingDashboardTileSpacing) {
                     actions.setDashboardTileSpacing(persistedTileSpacing)
@@ -5319,6 +5330,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             const dashboardId: number = props.id
             const { collapsedTileIds } = values
+            const tileGroupProps = tileGroupLoadProperties(
+                values.tileGroupDisplay,
+                values.tiles,
+                values.collapsedTileGroupKeys
+            )
             const allInsightTiles = values.insightTiles || []
             const totalTileCount = allInsightTiles.length
             if (filterChange) {
@@ -5457,6 +5473,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         api_response_bytes: responseBytes,
                         insights_fetched: sortedTilesToRefresh.length,
                         insights_fetched_cached: tilesRefreshedCachedCount,
+                        ...tileGroupProps,
                         ...getJSHeapMemory(),
                     })
                 }
@@ -5484,6 +5501,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tiles_refreshed_count: tilesRefreshedCount,
                     tiles_errored_count: tilesErroredCount,
                     tiles_aborted_count: tilesAbortedCount,
+                    ...tileGroupProps,
                     ...(filterChangeIsCurrent
                         ? {
                               filter_change_id: filterChange.id,
@@ -5540,6 +5558,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (!section) {
                 return
             }
+            posthog.capture('dashboard tile group tab selected', {
+                dashboard_id: props.id,
+                tile_count: section.tiles.length,
+            })
             // This listener runs before the URL changes, so the active tab is still the one the viewer leaves.
             const leftTab = values.activeTileGroupTab
             const leftTiles =
@@ -5902,7 +5924,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 discard()
                 return
             }
-            eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'shown')
+            reportDashboardEditModeDiscardPrompt(values.dashboard, 'shown')
             LemonDialog.open({
                 title: 'Discard unsaved changes?',
                 description:
@@ -5911,7 +5933,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     children: 'Discard changes',
                     status: 'danger',
                     onClick: () => {
-                        eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'discarded')
+                        reportDashboardEditModeDiscardPrompt(values.dashboard, 'discarded')
                         discard()
                     },
                     'data-attr': 'dashboard-edit-mode-discard-confirm',
@@ -5919,7 +5941,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 secondaryButton: {
                     children: 'Keep editing',
                     onClick: () => {
-                        eventUsageLogic.actions.reportDashboardEditModeDiscardPrompt(values.dashboard, 'kept_editing')
+                        reportDashboardEditModeDiscardPrompt(values.dashboard, 'kept_editing')
                     },
                 },
             })
@@ -5996,7 +6018,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             if (editing?.layout) {
-                eventUsageLogic.actions.reportDashboardLayoutEditModeEntered(
+                reportDashboardLayoutEditModeEntered(
                     values.dashboard,
                     source,
                     values.layoutEditMode ? values.layoutZoom : null
@@ -6005,7 +6027,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         setDashboardMode: async ({ mode, source }) => {
             if (mode || source) {
-                eventUsageLogic.actions.reportDashboardModeToggled(
+                reportDashboardModeToggled(
                     values.dashboard,
                     mode,
                     source,
@@ -6162,7 +6184,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 remainingInsightIds: new Set(values.insightTiles.map((tile) => tile.insight!.short_id)),
             }
             cache.pendingFilterChange = filterChange
-            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, changeType, {
+            reportDashboardFiltersChanged(values.dashboard, changeType, {
                 ...properties,
                 filter_change_id: filterChange.id,
                 supersedes_filter_change_id: previousChange?.id,

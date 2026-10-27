@@ -15,7 +15,7 @@ from typing import Any, Final
 from uuid import NAMESPACE_URL, uuid5
 
 from posthog.schema_enums import AlertState
-from posthog.tasks.alerts.utils import RenderedInsightChart, insight_chart_url
+from posthog.tasks.alerts.utils import RenderedInsightChart, detector_verdict_event_fields, insight_chart_url
 
 from products.alerts.backend.facade.contracts import AlertInternalEvent
 from products.alerts.backend.logic.destinations import emit_alert_internal_events
@@ -84,6 +84,7 @@ def _firing_event(alert: AlertConfiguration, transition: AnnouncedTransition) ->
     properties: dict[str, Any] = {
         **alert.internal_event_properties(state=AlertState.FIRING.value, last_checked_at=transition.occurred_at),
         "breaches": "\n".join(detail.get("breaches") or []),
+        **detector_verdict_event_fields(detail.get("triggered_metadata")),
     }
     if chart_url := insight_chart_url_of(alert.team_id, detail):
         properties["insight_chart_url"] = chart_url

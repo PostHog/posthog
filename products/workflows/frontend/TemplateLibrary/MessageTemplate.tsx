@@ -30,6 +30,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { transactionalEditorGlobals, variablesInEmail } from '../Transactional/wizard/emailVariables'
 import { WorkflowInvocations } from '../Workflows/WorkflowInvocations'
 import { workflowLogic } from '../Workflows/workflowLogic'
 import { WorkflowMetrics } from '../Workflows/WorkflowMetrics'
@@ -140,6 +141,11 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                         template?.transactional_hog_flow_id
                             ? 'native_email_transactional_template'
                             : 'native_email_template'
+                    }
+                    variables={
+                        template?.transactional_hog_flow_id
+                            ? transactionalEditorGlobals(variablesInEmail(template.content.email))
+                            : undefined
                     }
                     layout="inline"
                 />

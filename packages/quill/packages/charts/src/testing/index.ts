@@ -1,9 +1,8 @@
-export { dimensions, ensureJsdom, makeSeries, mockRect, setupJsdom, setupSyncRaf } from './jsdom'
+export { dimensions, ensureJsdom, makeSeries, mockRect, setupChartTests, setupJsdom, setupSyncRaf } from './jsdom'
 export { clickAtIndex, dragSelection, hoverAtIndex, hoverUntilTooltip, rawDrag } from './interactions'
-export { getChart } from './accessor'
-export type { GetChartOptions, ChartAccessor, TooltipSnapshot } from './accessor'
+export { findChart, getChart } from './accessor'
+export type { ChartAccessor, FindChartOptions, GetChartOptions, TooltipSnapshot } from './accessor'
 export { renderChart } from './render'
-export type { RenderChartOptions } from './render'
 export { makeOverlayContext, renderOverlayInChart } from './overlay'
 export type { OverlayContextOverrides } from './overlay'
 export {
