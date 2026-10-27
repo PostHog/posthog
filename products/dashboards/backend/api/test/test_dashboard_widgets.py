@@ -18,7 +18,7 @@ from posthog.models.team import Team
 from posthog.scopes import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
-from products.dashboards.backend.api.dashboard import DashboardTileSerializer
+from products.dashboards.backend.api.dashboard import DashboardsViewSet, DashboardTileSerializer
 from products.dashboards.backend.constants import DEFAULT_WIDGET_LIST_LIMIT, MAX_GROUPS
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
@@ -716,6 +716,37 @@ class TestDashboardWidgets(APIBaseTest):
         )
 
         assert response.status_code == expected_status
+
+    @parameterized.expand(
+        [
+            ("keeps_concurrent_group", 1, status.HTTP_200_OK),
+            ("counts_concurrent_groups_against_limit", MAX_GROUPS, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_copy_group_reads_destination_groups_written_after_the_request_loaded_it(
+        self, _name: str, concurrent_group_count: int, expected_status: int
+    ) -> None:
+        source_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        dest_id, _ = self.dashboard_api.create_dashboard({"name": "dest"})
+        self.dashboard_api.create_text_tile(source_id, extra_data={"group_key": "plans"})
+        concurrent_groups = {f"group-{i}": {"title": f"group {i}"} for i in range(concurrent_group_count)}
+        load_destination = DashboardsViewSet.get_object
+
+        def load_destination_then_write_groups_concurrently(viewset: DashboardsViewSet) -> Dashboard:
+            destination = load_destination(viewset)
+            Dashboard.objects.filter(id=destination.id).update(customization={"groups": concurrent_groups})
+            return destination
+
+        with patch.object(DashboardsViewSet, "get_object", load_destination_then_write_groups_concurrently):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/{dest_id}/copy_group",
+                {"fromDashboardId": source_id, "groupKey": "plans"},
+            )
+
+        assert response.status_code == expected_status
+        stored_group_keys = set(Dashboard.objects.get(id=dest_id).customization["groups"])
+        assert set(concurrent_groups) <= stored_group_keys
+        assert len(stored_group_keys) == concurrent_group_count + (expected_status == status.HTTP_200_OK)
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_move_tile_moves_widget_tile(self) -> None:

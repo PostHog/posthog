@@ -3595,9 +3595,6 @@ class DashboardsViewSet(
         if not tiles:
             raise exceptions.NotFound("Tile group not found.")
 
-        groups = stored_groups(destination.customization)
-        if len(groups) >= MAX_GROUPS:
-            raise exceptions.ValidationError({"groups": f"A dashboard can have at most {MAX_GROUPS} groups."})
         new_key = uuid.uuid4().hex
         for tile in tiles:
             if tile.widget_id:
@@ -3626,25 +3623,35 @@ class DashboardsViewSet(
             else:
                 raise exceptions.ValidationError("This group contains an empty tile.")
 
-        destination_tiles = list(DashboardTile.objects.filter(dashboard=destination).only("layouts"))
         source_tops = {
             size: min(tile.layouts[size].get("y", 0) for tile in tiles if size in tile.layouts)
             for size in ("sm", "xs")
             if any(size in tile.layouts for tile in tiles)
         }
-        destination_bottoms = {
-            size: max(
-                (
-                    tile.layouts[size].get("y", 0) + tile.layouts[size].get("h", 0)
-                    for tile in destination_tiles
-                    if size in tile.layouts
-                ),
-                default=0,
-            )
-            for size in source_tops
-        }
         try:
             with transaction.atomic():
+                # Concurrent writers of the destination's customization would otherwise overwrite each other's groups.
+                try:
+                    destination.refresh_from_db(
+                        fields=["customization"], from_queryset=Dashboard.objects.select_for_update(no_key=True)
+                    )
+                except Dashboard.DoesNotExist:
+                    raise exceptions.NotFound()
+                groups = stored_groups(destination.customization)
+                if len(groups) >= MAX_GROUPS:
+                    raise exceptions.ValidationError({"groups": f"A dashboard can have at most {MAX_GROUPS} groups."})
+                destination_tiles = list(DashboardTile.objects.filter(dashboard=destination).only("layouts"))
+                destination_bottoms = {
+                    size: max(
+                        (
+                            tile.layouts[size].get("y", 0) + tile.layouts[size].get("h", 0)
+                            for tile in destination_tiles
+                            if size in tile.layouts
+                        ),
+                        default=0,
+                    )
+                    for size in source_tops
+                }
                 for tile in tiles:
                     if tile.widget_id:
                         copied = DashboardSerializer._clone_widget_tile_to_dashboard(
