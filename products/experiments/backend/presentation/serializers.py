@@ -3341,6 +3341,45 @@ class ExperimentHealthInputsMetricCompilesSerializer(serializers.Serializer):
     )
 
 
+class ExperimentHealthInputsMetricCalculationFailureSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="The metric's name as the experiment shows it.")
+    role = serializers.CharField(help_text="'primary' or 'secondary'.")
+    error_type = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The class that the calculation stored for the error, such as 'timeout' or 'rate_limited'. Null for a "
+            "failure stored without a class."
+        ),
+    )
+    step = serializers.CharField(
+        allow_null=True,
+        help_text="The step of the calculation that failed, such as 'calculation'. Null when the failure names none.",
+    )
+    retriable = serializers.BooleanField(
+        help_text=(
+            "Whether the results page shows a button to try the metric again, which it does for a retriable error."
+        )
+    )
+    message = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The stored message as the results page shows it, without the names that HogQL suggests and the list of "
+            "a scope's fields. Null when it can hold evaluation rules that the AI evaluation markers keep out of the "
+            "browser."
+        ),
+    )
+
+
+class ExperimentHealthInputsLatestCalculationSerializer(serializers.Serializer):
+    finished_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the latest calculation that the results page shows finished. Null when none has finished.",
+    )
+    failures = ExperimentHealthInputsMetricCalculationFailureSerializer(
+        many=True, help_text="The metrics whose latest calculation failed, with the error that the results page shows."
+    )
+
+
 class ExperimentHealthInputsReaderAccessSerializer(serializers.Serializer):
     can_read_flag_history = serializers.BooleanField(
         help_text="Whether the reader may read the flag's history, which the flag-change checks need."
@@ -3481,6 +3520,13 @@ class ExperimentHealthInputsSerializer(serializers.Serializer):
             "The compile of each metric's query without running it, as the reader, which the metric queries check "
             "reads. A metric that compiles is cached per reader for a day, and a failing metric compiles again on "
             "every request. Null when the compile itself failed."
+        ),
+    )
+    latest_calculation = ExperimentHealthInputsLatestCalculationSerializer(
+        allow_null=True,
+        help_text=(
+            "The latest finished calculation of the metrics, which the metric results check reads. Null before "
+            "launch, on an archived experiment, or when the read failed."
         ),
     )
     flag_history = ExperimentHealthInputsFlagHistorySerializer(

@@ -57,6 +57,7 @@ def _failure(
     step: str | None = "calculation",
     role: str = "primary",
     retriable: bool = True,
+    can_quote_evaluation_rules: bool = False,
 ) -> MetricCalculationFailure:
     return MetricCalculationFailure(
         metric_id=f"{role}-metric",
@@ -65,13 +66,14 @@ def _failure(
         error_type=error_type,
         step=step,
         message=message,
+        can_quote_evaluation_rules=can_quote_evaluation_rules,
         retriable=retriable,
         definition={"kind": "ExperimentMetric", "metric_type": "mean"},
     )
 
 
 def _outcome(*failures: MetricCalculationFailure, **changes: Any) -> ExperimentHealthFinding | CheckSkip | None:
-    calculation = LatestCalculation(finished_at=FINISHED_AT, failures=failures)
+    calculation = LatestCalculation(metric_count=len(failures), finished_at=FINISHED_AT, failures=failures)
     return metric_calculation_failed(replace(RUNNING_CONTEXT, latest_calculation=calculation, **changes))
 
 
@@ -107,6 +109,17 @@ class TestMetricCalculationFailed(TestCase):
                 ("busy", INFO, None, "Contact support to calculate it again."),
             ),
             (
+                "cluster_out_of_memory",
+                _failure(
+                    "We're under heavy load right now and couldn't finish this query. Please try again in a few "
+                    "minutes.",
+                    error_type="out_of_memory",
+                    retriable=False,
+                ),
+                {},
+                ("busy", INFO, None, "PostHog was too busy"),
+            ),
+            (
                 "read_limit_stored_as_a_builder_message",
                 _failure(
                     "[ErrorDetail(string='Limit for rows or bytes to read exceeded, max bytes: 2.00 GiB, current "
@@ -120,7 +133,22 @@ class TestMetricCalculationFailed(TestCase):
                 "memory_limit_stored_without_a_class",
                 _failure("This query ran out of memory before it could finish.", error_type=None),
                 {},
-                ("query_limit", WARNING, "memory_limit", "needed more memory"),
+                ("query_limit", WARNING, "memory_limit", "needed more memory than PostHog allows for one calculation"),
+            ),
+            (
+                "query_too_long",
+                _failure("Query size exceeded.", error_type="server_error"),
+                {},
+                ("query_limit", WARNING, "query_size", "A filter with a long list of values"),
+            ),
+            (
+                "socket_timeout",
+                _failure(
+                    "Code: 209. DB::NetException: Timeout exceeded while reading from socket (10.0.0.1:9000, 300000 ms)",
+                    error_type="timeout",
+                ),
+                {},
+                ("busy", INFO, None, "PostHog was too busy"),
             ),
             (
                 "builder_message",
@@ -159,6 +187,12 @@ class TestMetricCalculationFailed(TestCase):
                 ("unexpected_error", INFO, None, "unexpected error"),
             ),
             (
+                "deleted_cohort",
+                _failure("Cohort matching query does not exist.", error_type="server_error"),
+                {},
+                ("settings", WARNING, "deleted_cohort", "uses a cohort that doesn't exist anymore"),
+            ),
+            (
                 "type_mismatch",
                 _failure("DB::Exception: There is no supertype for types String, Float64", error_type="server_error"),
                 {},
@@ -167,6 +201,14 @@ class TestMetricCalculationFailed(TestCase):
             (
                 "clickhouse_message",
                 _failure(CLICKHOUSE_MESSAGE, error_type="validation_error"),
+                {},
+                ("settings", WARNING, "other", "A setting of the metric makes its query fail."),
+            ),
+            (
+                "hogql_message_that_can_quote_evaluation_rules",
+                _failure(
+                    "Invalid behavioral property filter", error_type="validation_error", can_quote_evaluation_rules=True
+                ),
                 {},
                 ("settings", WARNING, "other", "A setting of the metric makes its query fail."),
             ),
@@ -234,6 +276,65 @@ class TestMetricCalculationFailed(TestCase):
         self.assertEqual(
             [finding.evidence[f"metric_{number}_failure"] for number in (1, 2, 3)],
             ["query_limit", "busy", "query_limit"],
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "exposure_query_does_not_compile",
+                "Cohort 7 does not exist",
+                "validation_error",
+                True,
+                ("settings", "exposure_query", "can't be built into a query"),
+            ),
+            (
+                "experiment_too_old",
+                "This experiment started too long ago.",
+                "recalculation_window_too_long",
+                False,
+                ("experiment_too_old", None, "started too long ago"),
+            ),
+        ]
+    )
+    def test_words_a_failure_of_the_experiment_once(
+        self,
+        _name: str,
+        message: str,
+        error_type: str,
+        exposure_query_fails: bool,
+        expected: tuple[str, str | None, str],
+    ) -> None:
+        compiles = MetricCompiles(
+            metric_count=2, failures=(), unknown_count=0, no_access_count=0, exposure_query_fails=exposure_query_fails
+        )
+
+        finding = _outcome(
+            _failure(message, error_type=error_type),
+            _failure(message, error_type=error_type, role="secondary"),
+            metric_compiles=compiles,
+        )
+
+        assert isinstance(finding, ExperimentHealthFinding)
+        subcode, error, words = expected
+        self.assertEqual(
+            (finding.subcode, finding.severity, finding.evidence["metric_1_error"], finding.evidence["metric_2_error"]),
+            (subcode, WARNING, error, error),
+        )
+        self.assertEqual(finding.detail.count(words), 1)
+        self.assertNotIn("Revenue", finding.detail)
+
+    def test_waits_for_a_metric_that_the_experiment_calculates(self) -> None:
+        calculation = LatestCalculation(metric_count=0, finished_at=None, failures=())
+
+        outcome = metric_calculation_failed(
+            replace(RUNNING_CONTEXT, latest_calculation=calculation, primary_metric_count=0, secondary_metric_count=0)
+        )
+
+        self.assertEqual(
+            outcome,
+            CheckSkip(
+                status=ExperimentHealthCheckStatus.NOT_APPLICABLE, reason="Runs once the experiment has a metric"
+            ),
         )
 
     def test_leaves_a_metric_whose_query_does_not_compile_to_that_check(self) -> None:
@@ -323,7 +424,7 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
                         calculation_config,
                         window=query_to,
                         query_from=query_from,
-                        error_message="Query timed out",
+                        error_message="Unable to resolve field: purchase. Did you mean: purchase_total?",
                         query_id=None,
                     )
                 else:
@@ -369,9 +470,10 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
 
         self.assertEqual(
             [(finding.evidence[f"metric_{n}"], finding.evidence[f"metric_{n}_failure"]) for n in (1, 2)],
-            [("Metric primary", "busy"), ("Metric secondary", "unexpected_error")],
+            [("Metric primary", "busy"), ("Metric secondary", "settings")],
         )
         self.assertNotIn("metric_3", finding.evidence)
+        self.assertNotIn("purchase_total", finding.detail + str(finding.evidence))
 
     @parameterized.expand(
         [

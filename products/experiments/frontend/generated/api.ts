@@ -731,15 +731,16 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * reads a warehouse table or view the caller may not query is not checked for them. The finding
  * names each failing metric in the `evidence` keys `metric_N`, `metric_N_role`, `metric_N_error`
  * (the error class, which is also the subcode of the first metric) and `metric_N_message` (the
- * compiler's message). It is a warning when a primary metric fails before the end, and info
- * otherwise. A failure inside ClickHouse, such as a type that the data holds, isn't found. A
- * failing metric compiles again on every request. A metric that compiles is cached per caller
- * for a day, so a cohort or table that is deleted after a compile can take up to a day to show.
+ * compiler's message). It is a warning when a primary metric fails, also after the end, because
+ * the calculation after the fix reads the events up to the end. It is info otherwise. A failure
+ * inside ClickHouse, such as a type that the data holds, isn't found. A failing metric compiles
+ * again on every request. A metric that compiles is cached per caller for a day, so a cohort or
+ * table that is deleted after a compile can take up to a day to show.
  *
  * `metric_calculation_failed` reports each metric whose latest calculation failed, from the
  * latest finished calculation that the results page shows. It leaves out a metric that
  * `metric_cannot_compile` reports. The subcode is the kind of the first failure: `busy`,
- * `query_limit` (the query reached the read, memory or time limit), `settings` (a setting of
+ * `query_limit` (the query reached the read, memory, time or length limit), `settings` (a setting of
  * the metric or the experiment), `not_enough_data`, `experiment_too_old` (the experiment
  * started too long ago to calculate again) or `unexpected_error`. Each metric is in the
  * `evidence` keys `metric_N`, `metric_N_role`, `metric_N_failure` (the kind), `metric_N_error`

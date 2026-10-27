@@ -21,7 +21,13 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthMetricCompileErrorKind,
 )
 from products.experiments.backend.health.context import HealthContext, MetricCompileFailure
-from products.experiments.backend.health.skips import NOT_ON_ARCHIVED, CheckOutcome, not_applicable, not_checked
+from products.experiments.backend.health.skips import (
+    NOT_ON_ARCHIVED,
+    CheckOutcome,
+    no_calculated_metric,
+    not_applicable,
+    not_checked,
+)
 
 
 class MetricCompileError(StrEnum):
@@ -61,10 +67,7 @@ def metric_cannot_compile(ctx: HealthContext) -> CheckOutcome:
     if compiles is None:
         return not_checked("Couldn't check because the metric queries couldn't be built")
     if compiles.metric_count == 0:
-        # The calculation leaves out a metric in the legacy format, which the no-metric check counts.
-        if ctx.primary_metric_count + ctx.secondary_metric_count:
-            return not_applicable("Runs once the experiment has a metric in the current format")
-        return not_applicable("Runs once the experiment has a metric")
+        return no_calculated_metric(ctx)
     if compiles.exposure_query_fails:
         return not_checked("Couldn't check because the exposure criteria can't be built into a query")
     if not compiles.failures:
@@ -81,10 +84,10 @@ def metric_cannot_compile(ctx: HealthContext) -> CheckOutcome:
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.METRIC_CANNOT_COMPILE,
         subcode=worded[0][1].error.value,
-        # The metric fails every calculation, so the warning holds before launch too. After the end the experiment
-        # collects nothing more, so the finding is info.
+        # The metric fails every calculation, so the warning holds before launch too. It holds after the end, because
+        # the calculation after the fix reads the events up to the end and brings back the results.
         severity=ExperimentHealthFindingSeverity.WARNING
-        if not ctx.has_ended and any(failure.role == "primary" for failure in failures)
+        if any(failure.role == "primary" for failure in failures)
         else ExperimentHealthFindingSeverity.INFO,
         title="PostHog can't calculate a metric"
         if len(failures) == 1

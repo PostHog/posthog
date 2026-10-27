@@ -4,8 +4,8 @@ functions, no I/O.
 
 The page shows the stored error text, which is often the raw text of an exception. The finding says in words what
 kind of failure it was and what to do next. It repeats a message only when PostHog wrote it for users: the message of
-a validation error, or a HogQL message that the metric queries check also words. The text of other exceptions is
-written for engineers.
+a validation error, or a HogQL message that the metric queries check also words and that can't quote the evaluation
+rules. The text of other exceptions is written for engineers.
 """
 
 import re
@@ -26,6 +26,7 @@ from products.experiments.backend.health.skips import (
     NOT_ON_ARCHIVED,
     RUNS_AFTER_LAUNCH,
     CheckOutcome,
+    no_calculated_metric,
     not_applicable,
     not_checked,
 )
@@ -59,11 +60,20 @@ _LIMIT_NEEDS = {
     "memory_limit": "needed more memory",
     "time_limit": "took longer",
 }
+_QUERY_SIZE_LIMIT = "query_size"
 
 # A failure stored before calculations stored the class of the error has only its message, and some classes are too
 # wide, so these rules read the message. They follow the messages of `ClickHouseAtCapacity`, of the ClickHouse
 # limits, of the calculation's own time limit and of the friendly texts in `ERROR_TYPE_MESSAGES`.
-_BUSY_MESSAGE = re.compile(r"too busy|Too many queries|maximum concurrency", re.IGNORECASE)
+# `ClickHouseClusterMemoryLimitExceeded` is stored as out of memory, because it subclasses the memory limit of one
+# query, but the cluster was full and the query can be fine, so its message counts as busy. A socket timeout is stored
+# as a timeout, but PostHog words it as a temporary problem of the database, so it counts as busy too.
+_BUSY_MESSAGE = re.compile(
+    r"too busy|Too many queries|maximum concurrency|under heavy load|temporary problem"
+    r"|while (?:reading from|writing to) socket",
+    re.IGNORECASE,
+)
+_QUERY_SIZE = re.compile(r"query size exceeded", re.IGNORECASE)
 _READ_LIMIT = re.compile(r"Limit for rows or bytes to read exceeded")
 _MEMORY_LIMIT = re.compile(r"ran out of memory|using too much memory|memory limit", re.IGNORECASE)
 _TIME_LIMIT = re.compile(r"max execution time|ran out of time", re.IGNORECASE)
@@ -75,6 +85,8 @@ _VALIDATION_ERROR = re.compile(
 _SCHEMA_ERROR = re.compile(r"^\d+ validation errors? for (?P<model>\w+)")
 _TYPE_MISMATCH = re.compile(r"There is no supertype for types|Cannot convert string .* to type")
 _NO_DATA = re.compile(r"No control variant found|No exposures for the '.*' variant yet")
+# Django's text when the query names a cohort that was deleted. It names no cohort, so the wording can't say where.
+_DELETED_COHORT = re.compile(r"Cohort matching query does not exist")
 _NOT_ENOUGH_DATA_TEXTS = frozenset({ERROR_TYPE_MESSAGES[StatisticError], ERROR_TYPE_MESSAGES[ZeroDivisionError]})
 
 
@@ -87,6 +99,9 @@ class _Wording:
     explanation: str
     # The message, when PostHog wrote it for users.
     message: str | None = None
+    # Whether a setting of the experiment causes the failure, which then fails every metric, so the finding says the
+    # explanation once and names no metric in it.
+    every_metric: bool = False
 
 
 _UNEXPECTED = _Wording(
@@ -114,6 +129,13 @@ _NOT_ENOUGH_DATA = _Wording(
 )
 # After the end the experiment collects no more exposures, so the words can't promise results.
 _NOT_ENOUGH_DATA_AFTER_END = "There wasn't enough data to calculate it before the experiment ended."
+_EXPOSURE_QUERY = _Wording(
+    kind=MetricCalculationFailureKind.SETTINGS,
+    error="exposure_query",
+    explanation="The experiment's exposure criteria or the project's test account filters can't be built into a "
+    "query, so no metric can be calculated. Check them, or contact support if they look right.",
+    every_metric=True,
+)
 
 
 def metric_calculation_failed(ctx: HealthContext) -> CheckOutcome:
@@ -124,14 +146,18 @@ def metric_calculation_failed(ctx: HealthContext) -> CheckOutcome:
     calculation = ctx.latest_calculation
     if calculation is None:
         return not_checked("Couldn't check because the latest calculation couldn't be read")
+    if calculation.metric_count == 0:
+        return no_calculated_metric(ctx)
     if calculation.finished_at is None:
         return not_applicable("Runs once a calculation of the metrics has finished")
     if not calculation.failures:
         return None
+    compiles = ctx.metric_compiles
     # A metric whose query doesn't compile fails every calculation, and the metric queries check words that better.
-    not_compiling = {failure.metric_id for failure in ctx.metric_compiles.failures} if ctx.metric_compiles else set()
+    not_compiling = {failure.metric_id for failure in compiles.failures} if compiles else set()
+    exposure_query_fails = compiles is not None and compiles.exposure_query_fails
     worded = [
-        (failure, _word(failure, ended=ctx.has_ended))
+        (failure, _word(failure, ended=ctx.has_ended, exposure_query_fails=exposure_query_fails))
         for failure in calculation.failures
         if failure.metric_id not in not_compiling
     ]
@@ -148,10 +174,7 @@ def metric_calculation_failed(ctx: HealthContext) -> CheckOutcome:
         if any(failure.role == "primary" and wording.kind in _NEEDS_A_FIX for failure, wording in worded)
         else ExperimentHealthFindingSeverity.INFO,
         title=f"Latest calculation failed for {count} {'metric' if count == 1 else 'metrics'}",
-        detail=" ".join(
-            f'The latest calculation of the {failure.role} metric "{failure.name}" failed. {wording.explanation}'
-            for failure, wording in worded
-        ),
+        detail=" ".join(dict.fromkeys(_sentence(failure, wording) for failure, wording in worded)),
         evidence={"calculated_at": calculation.finished_at.isoformat(), **_evidence(worded)},
         # No action opens a given metric.
         actions=(),
@@ -172,8 +195,14 @@ def _evidence(worded: list[tuple[MetricCalculationFailure, _Wording]]) -> dict[s
     return evidence
 
 
-def _word(failure: MetricCalculationFailure, *, ended: bool) -> _Wording:
-    wording = _word_error(failure)
+def _sentence(failure: MetricCalculationFailure, wording: _Wording) -> str:
+    if wording.every_metric:
+        return wording.explanation
+    return f'The latest calculation of the {failure.role} metric "{failure.name}" failed. {wording.explanation}'
+
+
+def _word(failure: MetricCalculationFailure, *, ended: bool, exposure_query_fails: bool) -> _Wording:
+    wording = _word_error(failure, exposure_query_fails=exposure_query_fails)
     if not ended:
         return wording
     if wording.kind == MetricCalculationFailureKind.NOT_ENOUGH_DATA:
@@ -183,7 +212,7 @@ def _word(failure: MetricCalculationFailure, *, ended: bool) -> _Wording:
     return wording
 
 
-def _word_error(failure: MetricCalculationFailure) -> _Wording:
+def _word_error(failure: MetricCalculationFailure, *, exposure_query_fails: bool) -> _Wording:
     error_type = failure.error_type
     message = failure.message
     if error_type == "rate_limited" or _BUSY_MESSAGE.search(message):
@@ -193,9 +222,7 @@ def _word_error(failure: MetricCalculationFailure) -> _Wording:
         return _Wording(
             kind=MetricCalculationFailureKind.QUERY_LIMIT,
             error=limit,
-            explanation=f"Its query {_LIMIT_NEEDS[limit]} than PostHog allows for one calculation. A query reads "
-            "more data the longer an experiment runs and the more traffic it gets. Simplify the metric, for example "
-            "with fewer funnel steps, or contact support for help.",
+            explanation=_limit_explanation(limit, failure),
         )
     if error_type == "insufficient_data" or (error_type is None and _NO_DATA.search(message)):
         return _NOT_ENOUGH_DATA
@@ -204,15 +231,21 @@ def _word_error(failure: MetricCalculationFailure) -> _Wording:
             kind=MetricCalculationFailureKind.EXPERIMENT_TOO_OLD,
             error=None,
             explanation=RECALCULATION_WINDOW_TOO_LONG_MESSAGE,
+            every_metric=True,
         )
     # The other steps fail before the query runs, for example on a metric that the calculation doesn't know yet.
     if failure.step not in (None, "calculation"):
         return _UNEXPECTED
+    # The exposure query is part of every metric's query, so a metric's query fails where the exposure query fails.
+    if exposure_query_fails:
+        return _EXPOSURE_QUERY
     return _settings(failure) or _UNEXPECTED
 
 
 def _limit(error_type: str | None, message: str) -> str | None:
-    """The limit of `_LIMIT_NEEDS` that the query reached, or None."""
+    """The limit of `_LIMIT_NEEDS`, or the limit of the query's length, that the query reached, or None."""
+    if _QUERY_SIZE.search(message):
+        return _QUERY_SIZE_LIMIT
     # A read limit can arrive as a validation error, so the message decides before the class does.
     if error_type == "byte_limit" or _READ_LIMIT.search(message):
         return "read_limit"
@@ -221,6 +254,24 @@ def _limit(error_type: str | None, message: str) -> str | None:
     if error_type == "timeout" or _TIME_LIMIT.search(message):
         return "time_limit"
     return None
+
+
+def _limit_explanation(limit: str, failure: MetricCalculationFailure) -> str:
+    if limit == _QUERY_SIZE_LIMIT:
+        return (
+            "Its query is longer than PostHog allows. A filter with a long list of values can cause this. Shorten "
+            "the filters of the metric or of the exposure criteria, or contact support for help."
+        )
+    example = (
+        "fewer funnel steps or narrower filters"
+        if failure.definition.get("metric_type") == "funnel"
+        else "narrower filters"
+    )
+    return (
+        f"Its query {_LIMIT_NEEDS[limit]} than PostHog allows for one calculation. A query reads more data the longer "
+        f"an experiment runs and the more traffic it gets. Simplify the metric, for example with {example}, or "
+        "contact support for help."
+    )
 
 
 def _settings(failure: MetricCalculationFailure) -> _Wording | None:
@@ -233,14 +284,22 @@ def _settings(failure: MetricCalculationFailure) -> _Wording | None:
     schema = _SCHEMA_ERROR.match(message)
     if schema is not None:
         if schema.group("model") == "ExperimentExposureCriteria":
-            return _setting(
-                "invalid_exposure_criteria",
-                "The experiment's exposure criteria aren't valid, so no metric can be calculated. Edit the exposure "
-                "criteria and save them again.",
+            return _Wording(
+                kind=MetricCalculationFailureKind.SETTINGS,
+                error="invalid_exposure_criteria",
+                explanation="The experiment's exposure criteria aren't valid, so no metric can be calculated. Edit "
+                "the exposure criteria and save them again.",
+                every_metric=True,
             )
         return _setting(
             MetricCompileError.INVALID_DEFINITION.value,
             "Its saved settings aren't valid. Create the metric again, or edit it to fix the setting.",
+        )
+    if _DELETED_COHORT.search(message):
+        return _setting(
+            MetricCompileError.DELETED_COHORT.value,
+            "A filter uses a cohort that doesn't exist anymore. Check the cohorts in the metric's filters, the "
+            "exposure criteria and the project's test account filters.",
         )
     if _TYPE_MISMATCH.search(message):
         return _setting(
@@ -248,9 +307,10 @@ def _settings(failure: MetricCalculationFailure) -> _Wording | None:
             "A filter or an expression of the metric compares values of different types, such as text with a "
             "number. Check the types of the properties that the metric filters on.",
         )
-    wording = word_compile_error(ExperimentHealthMetricCompileErrorKind.QUERY, message, failure.definition)
-    if wording.error != MetricCompileError.OTHER:
-        return _setting(wording.error.value, wording.explanation, message)
+    if not failure.can_quote_evaluation_rules:
+        wording = word_compile_error(ExperimentHealthMetricCompileErrorKind.QUERY, message, failure.definition)
+        if wording.error != MetricCompileError.OTHER:
+            return _setting(wording.error.value, wording.explanation, message)
     if failure.error_type == "validation_error":
         return _setting(
             MetricCompileError.OTHER.value,

@@ -1,8 +1,10 @@
+import re
 from typing import Any
 
 from posthog.exceptions_capture import capture_exception
 
 from products.experiments.backend.health.context import LatestCalculation, MetricCalculationFailure
+from products.experiments.backend.health.metric_compiles import can_hold_evaluation_rules, without_available_fields
 from products.experiments.backend.metric_calculation.config import (
     MetricCalculationConfig,
     build_calculation_configs,
@@ -14,11 +16,15 @@ from products.experiments.backend.models.experiment import Experiment, Experimen
 from products.experiments.backend.recalculation import get_latest_recalculation
 from products.experiments.backend.temporal.models import RECALCULATION_WINDOW_TOO_LONG_ERROR_TYPE
 
+# The calculation doesn't apply the reader's warehouse access, so the names that HogQL suggests in its message can name
+# a table or a column that the reader may not query.
+_SUGGESTED_NAMES = re.compile(r" Did you mean: [^?]*\?")
+
 
 def load_latest_calculation(experiment: Experiment) -> LatestCalculation | None:
-    """The latest finished calculation of a launched experiment's metrics, or None. Never raises: the check that
-    reads it then reports that it couldn't check."""
-    if not experiment.is_launched:
+    """The latest finished calculation of the metrics of a launched experiment that isn't archived, or None. Never
+    raises: the check that reads it then reports that it couldn't check."""
+    if not experiment.is_launched or experiment.archived:
         return None
     try:
         return _load_latest_calculation(experiment)
@@ -28,24 +34,26 @@ def load_latest_calculation(experiment: Experiment) -> LatestCalculation | None:
 
 
 def _load_latest_calculation(experiment: Experiment) -> LatestCalculation:
-    # The results page shows the latest run that finished. Without one it shows the daily points, which hold no
-    # failures.
-    run = get_latest_recalculation(experiment)
-    if run is None:
-        return LatestCalculation(finished_at=None, failures=())
-    metric_errors = run.metric_errors if isinstance(run.metric_errors, dict) else {}
-    rows = {row.metric_uuid: row for row in MetricResultStore(experiment_id=experiment.id).for_run(run)}
     team_config = team_experiments_configs([experiment.team_id])[experiment.team_id]
     # Metrics that share a uuid share one result and one error on the page.
     configs: dict[str, MetricCalculationConfig] = {}
     for calculation_config in build_calculation_configs(experiment, team_config=team_config):
         configs.setdefault(calculation_config.metric_id, calculation_config)
+    # The results page shows the latest run that finished. Without one it shows the daily points, which hold no
+    # failures, or else the run in progress, whose errors can still change, so the check waits for a finished run.
+    run = get_latest_recalculation(experiment)
+    if run is None:
+        return LatestCalculation(metric_count=len(configs), finished_at=None, failures=())
+    metric_errors = run.metric_errors if isinstance(run.metric_errors, dict) else {}
+    rows = {row.metric_uuid: row for row in MetricResultStore(experiment_id=experiment.id).for_run(run)}
     failures = (
         _shown_failure(experiment, calculation_config, metric_errors.get(metric_id), rows.get(metric_id))
         for metric_id, calculation_config in configs.items()
     )
     return LatestCalculation(
-        finished_at=run.completed_at, failures=tuple(failure for failure in failures if failure is not None)
+        metric_count=len(configs),
+        finished_at=run.completed_at,
+        failures=tuple(failure for failure in failures if failure is not None),
     )
 
 
@@ -77,7 +85,8 @@ def _shown_failure(
         role=calculation_config.role,
         error_type=error_type if isinstance(error_type, str) else None,
         step=step if isinstance(step, str) else None,
-        message=message,
+        message=_SUGGESTED_NAMES.sub("", without_available_fields(message)),
+        can_quote_evaluation_rules=can_hold_evaluation_rules(calculation_config.definition),
         retriable=error.get("retriable") is True,
         definition=calculation_config.definition,
     )
