@@ -4,6 +4,8 @@ from typing import Any, Optional, cast
 
 from requests import Response
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -40,7 +42,7 @@ API_VERSION_V2 = "v2"
 PANDADOC_BASE_URL = "https://api.pandadoc.com/public"
 
 
-@dataclasses.dataclass
+@frozen
 class PandaDocResumeConfig:
     # PandaDoc paginates with a 1-based page number; the static query params
     # (count, incremental filters, sort) are deterministically rebuilt from the

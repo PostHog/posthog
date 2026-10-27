@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -11,7 +13,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 PAGE_SIZE = 100
 
 
-@dataclass
+@frozen
 class PandaDocEndpointConfig:
     name: str
     # Relative to https://api.pandadoc.com/public, so it carries the endpoint's own /v1 or /v2 segment.
