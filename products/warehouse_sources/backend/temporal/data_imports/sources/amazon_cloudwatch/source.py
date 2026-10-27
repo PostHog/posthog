@@ -230,6 +230,7 @@ Log events sync from the log groups you list, or from every log group in the reg
                     ),
                     SourceFieldInputConfig(
                         name="log_group_names",
+                        sync_setting=True,
                         label="Log groups to sync (one per line, empty syncs every log group)",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=False,
@@ -238,6 +239,7 @@ Log events sync from the log groups you list, or from every log group in the reg
                     ),
                     SourceFieldInputConfig(
                         name="metric_queries",
+                        sync_setting=True,
                         label="Metric queries (JSON list)",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=False,
@@ -246,6 +248,7 @@ Log events sync from the log groups you list, or from every log group in the reg
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date (defaults to 7 days back for logs, 14 for metrics, 30 for alarm history)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

@@ -238,6 +238,10 @@ QUEUED_DELETION_DISTINCT_ID_PAGE_SIZE = 5000
 # chunk cannot pile up on a worker; the bound is this cap plus one person's worth of IDs.
 QUEUED_DELETION_DISTINCT_IDS_PER_BATCH = 20_000
 
+# The replica tombstones each RPC in one transaction, and its distinct-ID update can read from disk for
+# every row. This cap keeps that update well under the replica's bulk statement timeout. The step batch
+# above stays larger, so the other deletion steps keep their batching.
+TOMBSTONE_DISTINCT_IDS_PER_RPC = 1_000
 
 # Below the replica's cap of 2,500 distinct IDs per person, so a person that returns this many may have more.
 TOMBSTONE_DISTINCT_ID_PREFETCH_LIMIT = 100
@@ -685,7 +689,7 @@ def _committed_tombstones(
 
 
 def _batches_by_distinct_id_count(persons: builtins.list[Person]) -> Iterator[builtins.list[Person]]:
-    """Group persons so one RPC carries at most QUEUED_DELETION_DISTINCT_IDS_PER_BATCH distinct IDs.
+    """Group persons so one RPC carries at most TOMBSTONE_DISTINCT_IDS_PER_RPC distinct IDs.
 
     Every caller resolves persons with their distinct IDs loaded, and Person.distinct_ids raises
     when they are not, so a person never counts as narrower than it is. A single person wider than
@@ -695,7 +699,7 @@ def _batches_by_distinct_id_count(persons: builtins.list[Person]) -> Iterator[bu
     count = 0
     for person in persons:
         width = len(person.distinct_ids)
-        if batch and count + width > QUEUED_DELETION_DISTINCT_IDS_PER_BATCH:
+        if batch and count + width > TOMBSTONE_DISTINCT_IDS_PER_RPC:
             yield batch
             batch, count = [], 0
         batch.append(person)

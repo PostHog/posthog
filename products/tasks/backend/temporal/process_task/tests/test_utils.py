@@ -859,6 +859,64 @@ class TestGetGithubToken(TestCase):
         with self.assertRaises(CredentialUnavailableError):
             get_github_token(integration.id)
 
+    @override_settings(
+        TASKS_REDIS_URL="",
+        CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
+    )
+    def test_forgetting_cached_tokens_forces_a_fresh_scoped_mint(self):
+        from posthog.egress.limiter.policies import Priority
+        from posthog.models import Integration, Organization, Team
+        from posthog.models.integration import GitHubIntegration
+
+        from products.tasks.backend.redis import get_tasks_cache
+        from products.tasks.backend.temporal.process_task.utils import forget_cached_github_tokens, get_github_token
+
+        get_tasks_cache().clear()
+        org = Organization.objects.create(name="o")
+        team = Team.objects.create(organization=org, name="t")
+        integration = Integration.objects.create(
+            team=team,
+            kind="github",
+            integration_id="INSTALL",
+            config={"installation_id": "INSTALL", "account": {"type": "Organization", "name": "Acme"}},
+            sensitive_config={"access_token": "ghs_shared"},
+        )
+
+        with patch.object(GitHubIntegration, "mint_scoped_installation_token", side_effect=["ghs_1", "ghs_2"]) as mint:
+            first = [get_github_token(integration.id, repositories=["acme/api"]) for _ in range(2)]
+            forget_cached_github_tokens(
+                GitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL), ["Acme/API"]
+            )
+            second = get_github_token(integration.id, repositories=["acme/api"])
+
+        assert first == ["ghs_1", "ghs_1"]
+        assert second == "ghs_2"
+        assert mint.call_count == 2
+
+    @parameterized.expand(
+        [
+            ("readable", 200, False),
+            ("not_found", 404, True),
+            ("forbidden", 403, True),
+            ("unauthorized", 401, False),
+            ("upstream_error", 503, False),
+            ("probe_raises", None, False),
+        ]
+    )
+    def test_installation_confirms_repository_denied_only_on_a_clear_refusal(self, _name, status, expected):
+        from posthog.models.integration import GitHubIntegration
+
+        from products.tasks.backend.temporal.process_task.utils import installation_confirms_repository_denied
+
+        github = MagicMock(spec=GitHubIntegration)
+        if status is None:
+            github.api_request.side_effect = RuntimeError("probe failed")
+        else:
+            github.api_request.return_value = MagicMock(status_code=status)
+
+        assert installation_confirms_repository_denied(github, "acme/api") is expected
+        github.api_request.assert_called_once_with("GET", "/repos/acme/api", endpoint="/repos/{owner}/{repo}")
+
     @parameterized.expand(
         [
             ("renamed_account", "OldAcme", ["acme/api"], ["api"], "ghs_scoped"),

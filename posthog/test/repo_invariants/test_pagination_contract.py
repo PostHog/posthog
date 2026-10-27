@@ -159,6 +159,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.data_warehouse.backend.presentation.views.fix_hogql.FixHogQLViewSet",
     "products.data_warehouse.backend.presentation.views.saved_query.viewset.DataWarehouseSavedQueryViewSet",
     "products.data_warehouse.backend.presentation.views.saved_query_column_annotation.DataWarehouseSavedQueryColumnAnnotationViewSet",
+    # extend_schema_view wraps the inherited DRF list solely to document include_columns.
+    "products.data_warehouse.backend.presentation.views.table.TableViewSet",
     "products.data_warehouse.backend.presentation.views.view_link.ViewLinkViewSet",
     "products.endpoints.backend.presentation.views.api.EndpointViewSet",
     "products.error_tracking.backend.presentation.views.alerts.ErrorTrackingAlertViewSet",

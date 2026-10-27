@@ -50,8 +50,14 @@ from products.alerts_platform.backend.facade.scheduling import (
     to_recurrence_interval,
     validate_and_normalize_schedule_start_time,
 )
+from products.alerts_platform.backend.logic import delivery_holds
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
-from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertThread
+from products.alerts_platform.backend.models import (
+    PlatformAlert,
+    PlatformAlertConfiguration,
+    PlatformAlertDeliveryHold,
+    PlatformAlertThread,
+)
 
 
 def due_q(moment: datetime) -> Q:
@@ -223,9 +229,13 @@ def suppressed() -> Q:
     return Q(check_status=PlatformAlertConfiguration.CheckStatus.BROKEN)
 
 
+RULE_METADATA_FIELDS: Final = ("labels", "annotations")
+
+
 def _due(team_id: int, source_kind: str, cutoff: datetime) -> QuerySet[PlatformAlertConfiguration]:
     return (
         PlatformAlertConfiguration.objects.for_team(team_id)
+        .defer(*RULE_METADATA_FIELDS)
         .filter(enabled=True, source_kind=source_kind)
         .filter(due_q(cutoff))
         .exclude(suppressed())
@@ -480,7 +490,7 @@ def _without_stale_groups(
         return outcome
     if outcome.grouping.splits_like(Grouping.from_stored(configuration.grouping)):
         return outcome
-    return replace(outcome, groups=(), overflowed=0, overflow_is_lower_bound=False, evicted=())
+    return replace(outcome, groups=(), overflowed=0, overflow_is_lower_bound=False, evicted=(), held_delivery=None)
 
 
 _HELD_BY_MUTE: Final = {
@@ -534,6 +544,7 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         configurations = list(
             PlatformAlertConfiguration.objects.for_team(team_id)
             .select_for_update()
+            .defer(*RULE_METADATA_FIELDS)
             .filter(id__in=by_id)
             .filter(due_q(now))
             .order_by("id")
@@ -563,8 +574,12 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         team_timezone = Team.objects.filter(id=team_id).values_list("timezone", flat=True).first() or "UTC"
 
         rows: list[PlatformAlertEventRow] = []
+        holds: list[PlatformAlertDeliveryHold] = []
         for configuration in configurations:
             outcome = by_id[str(configuration.id)]
+            hold = delivery_holds.hold_for(configuration, outcome, now)
+            if hold is not None:
+                holds.append(hold)
             turned_away = 0
             for reported in outcome.groups:
                 alert = alerts.get(
@@ -650,6 +665,9 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                 "overflow_is_lower_bound",
             ],
         )
+        # In this transaction, because a recorded firing whose hold was lost would never be sent. A
+        # conflict keeps the first hold, so a repeated evaluation key cannot fail every later record.
+        PlatformAlertDeliveryHold.objects.for_team(team_id).bulk_create(holds, ignore_conflicts=True)
         # `on_commit` rather than a statement after the block, so a caller that wraps this in its
         # own `atomic()` cannot leave history for state its rollback removed.
         transaction.on_commit(lambda: record_history(team_id, rows))
@@ -786,6 +804,8 @@ def write_edit(
         "evaluation_periods",
         "datapoints_to_alarm",
         "cooldown_minutes",
+        "labels",
+        "annotations",
         "updated_at",
     ]
     reenabled = edit.enabled and not configuration.enabled
@@ -833,6 +853,8 @@ def _assign_edit(configuration: PlatformAlertConfiguration, edit: PlatformAlertC
     configuration.evaluation_periods = edit.evaluation_periods
     configuration.datapoints_to_alarm = edit.datapoints_to_alarm
     configuration.cooldown_minutes = edit.cooldown_minutes
+    configuration.labels = edit.labels
+    configuration.annotations = edit.annotations
 
 
 def end_firing_instances(configuration: PlatformAlertConfiguration, *, now: datetime) -> list[PlatformAlert]:
