@@ -1367,7 +1367,9 @@ def test_lowers_staged_window_filters(query: str) -> None:
 )
 def test_lowers_named_set_operations(operator: str) -> None:
     sql, _ = prepare_and_print_ast(
-        parse_select(f"SELECT 1 AS first, 2 AS second {operator} BY NAME SELECT 2 AS second, 1 AS first"),
+        parse_select(
+            f"SELECT 1 AS first, 2 AS second FROM users {operator} BY NAME SELECT 2 AS second, 1 AS first FROM users"
+        ),
         _context_with_trino_table(),
         "trino",
     )
@@ -2932,3 +2934,42 @@ def test_trino_signatures_do_not_change_other_dialect_validation(expression: str
     else:
         with pytest.raises(QueryError, match="expects"):
             print_prepared_ast(resolve_types(query, context, dialect), context, dialect)
+
+
+@pytest.mark.parametrize(
+    "query, expected",
+    [
+        (
+            "SELECT name, count() FROM (SELECT 'a' AS name, 1 AS id UNION ALL SELECT 'b', 2 UNION ALL SELECT 'a', 3) "
+            "GROUP BY name ORDER BY name",
+            [("a", 2), ("b", 1)],
+        ),
+        (
+            "SELECT id FROM (SELECT 1 AS id UNION ALL SELECT 1 + 1 UNION ALL SELECT NULL) ORDER BY id NULLS LAST",
+            [(1,), (2,), (None,)],
+        ),
+    ],
+)
+def test_lowers_constant_row_unions_to_one_values_list(query: str, expected: list[tuple[object, ...]]) -> None:
+    # Trino plans every UNION ALL branch below a repartitioning exchange as its own stage.
+    context = _context_with_trino_table()
+    sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
+    assert "UNION" not in sql
+    assert "VALUES" in sql
+    sql, values = convert_pyformat_placeholders(sql, context.values)
+    with duckdb.connect(":memory:") as connection:
+        assert connection.execute(sql, values).fetchall() == expected
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT 'a' AS user_id UNION ALL SELECT user_id FROM users",
+        "SELECT tuple(1, 2) AS t UNION ALL SELECT tuple(3, 4)",
+        "SELECT first_value(1) AS x UNION ALL SELECT 2",
+    ],
+)
+def test_keeps_union_when_a_branch_is_not_a_constant_row(query: str) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
+    assert "UNION ALL" in sql
+    assert "VALUES" not in sql
