@@ -70,20 +70,7 @@ const RATE_LIMIT: SentryMigrationItemApi = {
     already_in_posthog: false,
 }
 
-const IP_FILTER: SentryMigrationItemApi = {
-    id: 'inbound_filter:blocked-ips',
-    category: 'inbound_filter',
-    sentry_setting: 'IP address filter',
-    sentry_value: '192.0.2.0/24',
-    fit: 'unsupported',
-    note: "PostHog suppression rules can't filter by IP address range, so you need to set this up another way.",
-    suppression_rule_filters: null,
-    rate_limit: null,
-    built_in_filter: null,
-    already_in_posthog: false,
-}
-
-/** A manual rule, an automatic rule that is already on, a rate limit, and a setting PostHog can't import. */
+/** A manual rule, an automatic rule that is already on, and a rate limit. */
 export const Variants: Story = {
     render: () => (
         <TooltipProvider>
@@ -96,12 +83,6 @@ export const Variants: Story = {
                     onToggle={() => {}}
                 />
                 <SentryMigrationItemCard item={RATE_LIMIT} selected={false} disabledReason={null} onToggle={() => {}} />
-                <SentryMigrationItemCard
-                    item={IP_FILTER}
-                    selected={false}
-                    disabledReason="PostHog can't import this setting"
-                    onToggle={() => {}}
-                />
             </CardGroup>
         </TooltipProvider>
     ),
