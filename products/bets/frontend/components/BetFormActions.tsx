@@ -5,7 +5,8 @@ import { Button, Text } from '@posthog/quill'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { type BetFormField, FIELD_LABELS, betFormLogic } from '../logics/betFormLogic'
+import { type BetFormField, FIELD_LABELS } from '../lib/betForm'
+import { betFormLogic } from '../logics/betFormLogic'
 
 const FIELD_TARGETS: Record<BetFormField, string> = {
     statement: '#bet-statement',

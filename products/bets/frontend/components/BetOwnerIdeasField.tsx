@@ -3,7 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconPlus, IconX } from '@posthog/icons'
 import { Button, Field, FieldDescription, FieldTitle, Input } from '@posthog/quill'
 
-import { MAX_OWNER_IDEAS, betFormLogic } from '../logics/betFormLogic'
+import { MAX_OWNER_IDEAS } from '../lib/betForm'
+import { betFormLogic } from '../logics/betFormLogic'
 
 export function BetOwnerIdeasField(): JSX.Element {
     const { ownerIdeas } = useValues(betFormLogic({ id: 'new' }))

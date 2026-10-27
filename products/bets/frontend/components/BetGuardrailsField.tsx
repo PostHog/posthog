@@ -17,7 +17,8 @@ import {
     Text,
 } from '@posthog/quill'
 
-import { MAX_GUARDRAILS, betFormLogic } from '../logics/betFormLogic'
+import { MAX_GUARDRAILS } from '../lib/betForm'
+import { betFormLogic } from '../logics/betFormLogic'
 import { BetInsightPicker } from './BetInsightPicker'
 
 const DIRECTIONS = [

@@ -13,7 +13,8 @@ import {
     ComboboxTrigger,
 } from '@posthog/quill'
 
-import { type BetInsightOption, betFormLogic } from '../logics/betFormLogic'
+import type { BetInsightOption } from '../lib/betForm'
+import { betFormLogic } from '../logics/betFormLogic'
 
 export function BetInsightPicker({
     id,
