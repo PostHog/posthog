@@ -29,6 +29,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import (
     ClickHouseClient,
     ClickHouseError,
+    ClickHouseQueryTimeoutError,
     ClickHouseTooManySimultaneousQueriesError,
 )
 from posthog.temporal.common.errors import NonReportableError
@@ -1955,25 +1956,42 @@ class TestMaterializeViewActivity:
                 await activity_environment.run(materialize_view_activity, inputs)
 
     @pytest.mark.parametrize(
-        "clickhouse_error,expects_delayed_retry",
+        "clickhouse_error,attempt,expected_delay_bounds",
         [
             (
                 ClickHouseError(
                     "Code: 742. DB::Exception: Received DeltaLake kernel error GenericError: Generic delta kernel "
                     "error: No files in log segment (in snapshot). (DELTA_KERNEL_ERROR)"
                 ),
-                True,
+                1,
+                (dt.timedelta(minutes=2), dt.timedelta(minutes=2)),
             ),
             (
                 ClickHouseTooManySimultaneousQueriesError(
                     "Code: 202. DB::Exception: Too many simultaneous queries. Maximum: 100. "
                     "(TOO_MANY_SIMULTANEOUS_QUERIES)"
                 ),
-                True,
+                1,
+                (dt.timedelta(minutes=1), dt.timedelta(minutes=2)),
+            ),
+            (
+                ClickHouseQueryTimeoutError(
+                    "Code: 159. DB::Exception: Timeout exceeded: elapsed 600 seconds, maximum: 600. (TIMEOUT_EXCEEDED)"
+                ),
+                1,
+                (dt.timedelta(minutes=2), dt.timedelta(minutes=4)),
+            ),
+            (
+                ClickHouseQueryTimeoutError(
+                    "Code: 159. DB::Exception: Timeout exceeded: elapsed 600 seconds, maximum: 600. (TIMEOUT_EXCEEDED)"
+                ),
+                2,
+                (dt.timedelta(minutes=4), dt.timedelta(minutes=8)),
             ),
             (
                 ClickHouseError("Code: 241. DB::Exception: Memory limit (total) exceeded. (MEMORY_LIMIT_EXCEEDED)"),
-                False,
+                1,
+                None,
             ),
         ],
     )
@@ -1986,10 +2004,13 @@ class TestMaterializeViewActivity:
         bucket_name,
         adag,
         clickhouse_error,
-        expects_delayed_retry,
+        attempt,
+        expected_delay_bounds,
     ):
         def mock_hogql_table(*args, **kwargs):
             raise clickhouse_error
+
+        activity_environment.info = replace(activity_environment.info, attempt=attempt)
 
         with (
             override_settings(
@@ -2013,12 +2034,13 @@ class TestMaterializeViewActivity:
 
         error = raised.value
         assert str(clickhouse_error) in str(error)
-        if expects_delayed_retry:
+        if expected_delay_bounds is not None:
             assert isinstance(error, ApplicationError)
             assert error.type == type(clickhouse_error).__name__
             assert not error.non_retryable
             assert error.next_retry_delay is not None
-            assert error.next_retry_delay >= dt.timedelta(minutes=1)
+            min_delay, max_delay = expected_delay_bounds
+            assert min_delay <= error.next_retry_delay <= max_delay
         else:
             assert type(error) is type(clickhouse_error)
 

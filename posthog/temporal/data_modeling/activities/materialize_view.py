@@ -40,6 +40,7 @@ from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.clickhouse import (
     ClickHouseError,
+    ClickHouseQueryTimeoutError,
     ClickHouseTooManySimultaneousQueriesError,
     get_client as get_clickhouse_client,
 )
@@ -205,6 +206,18 @@ DELTA_KERNEL_ERROR_RETRY_DELAY = dt.timedelta(minutes=2)
 # A saturated cluster refuses every model a spike reaches at once. The default backoff sends them
 # all back within seconds, so wait longer, and jitter the wait so they do not return together.
 TOO_MANY_SIMULTANEOUS_QUERIES_RETRY_DELAY_SECONDS = (60, 120)
+
+# A timed-out query already used CPU for its whole max_execution_time, and a load spike that slowed
+# it lasts minutes. The default backoff retries within seconds, into the same spike, so start in
+# minutes and double the band on each attempt. Jitter keeps the timed-out models from returning together.
+QUERY_TIMEOUT_RETRY_FIRST_DELAY_SECONDS = (120, 240)
+
+
+def _query_timeout_retry_delay(attempt: int) -> dt.timedelta:
+    growth = 2 ** (max(attempt, 1) - 1)
+    low, high = QUERY_TIMEOUT_RETRY_FIRST_DELAY_SECONDS
+    return dt.timedelta(seconds=random.uniform(low * growth, high * growth))
+
 
 # Above this many files, the per-run compaction is worth its full-table rewrite. Below it, skipping
 # keeps an incremental run's cost proportional to the rows it changed rather than the table's size.
@@ -1373,6 +1386,12 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             delay = random.uniform(*TOO_MANY_SIMULTANEOUS_QUERIES_RETRY_DELAY_SECONDS)
             raise ApplicationError(
                 str(error), type=type(error).__name__, next_retry_delay=dt.timedelta(seconds=delay)
+            ) from error
+        if isinstance(error, ClickHouseQueryTimeoutError):
+            raise ApplicationError(
+                str(error),
+                type=type(error).__name__,
+                next_retry_delay=_query_timeout_retry_delay(activity.info().attempt),
             ) from error
         raise
     except (Exception, asyncio.CancelledError):
