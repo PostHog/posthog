@@ -59,6 +59,7 @@ describe('reportActions', () => {
     ] as const)('offers implementation on a scout self-improvement report %s: %s', (_, repoSlug, expected) => {
         expect(
             canCreateImplementationPr({
+                id: 'report',
                 status: SignalReportStatus.PENDING_INPUT,
                 is_self_improvement_report: true,
                 repo_slug: repoSlug,
