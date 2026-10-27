@@ -310,8 +310,8 @@ class TestTask(TestCase):
 
         self.assertEqual(
             (
-                legacy.state[MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY],
-                from_options.state[MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY],
+                (legacy.state or {}).get(MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY),
+                (from_options.state or {}).get(MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY),
             ),
             (server_ids, server_ids),
         )
