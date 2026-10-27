@@ -66,7 +66,7 @@ def import_campaigns(
     content = import_content(
         team.id, sources, options, sender_identities, segments, deadline, _left_alone(team, sources, access)
     )
-    budget = ImageBudget(deadline=deadline, can_upload=_can_upload_media(request))
+    budget = ImageBudget(deadline=deadline, can_upload=_can_upload_media(request, access))
     with defer_hog_flow_reloads():
         results = [
             import_campaign(
@@ -233,10 +233,12 @@ def _skipped(result: dict[str, Any], workflow_id: UUID | None, message: str) -> 
     return {**result, "status": "skipped", "workflow_id": str(workflow_id), "notes": [asdict(note)]}
 
 
-def _can_upload_media(request: Request) -> bool:
-    # Copying images writes to the media library, so a token must carry that scope as well as workflow access.
+def _can_upload_media(request: Request, access: UserAccessControl) -> bool:
+    # Copying images writes to the media library, so the caller needs the same access as an upload there.
     scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
-    return scopes is None or "*" in scopes or not scopes_not_covered(scopes, ["uploaded_media:write"])
+    if scopes is not None and "*" not in scopes and scopes_not_covered(scopes, ["uploaded_media:write"]):
+        return False
+    return access.check_access_level_for_resource("uploaded_media", "editor")
 
 
 def _can_edit(access: UserAccessControl, team: Team, previous: PreviousImport) -> bool:

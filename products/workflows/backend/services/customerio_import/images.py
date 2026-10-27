@@ -54,8 +54,9 @@ def rehost_images(
                 ImportNote(
                     level=WorkflowImportNoteLevel.NEEDS_INPUT,
                     message=f"{count} email {_images(count)} still {_load(count)} from Customer.io's servers, "
-                    "because this API key can't write to the media library (uploaded_media:write). Import with a "
-                    f"key that can, or upload {_them(count)} before you close your Customer.io account.",
+                    "because this import can't write to the media library: the user needs editor access to it, "
+                    "and an API key the uploaded_media:write scope. Import as someone who can, or upload "
+                    f"{_them(count)} before you close your Customer.io account.",
                 ),
             ),
         )

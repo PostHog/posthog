@@ -734,12 +734,18 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert any(image in note["message"] for note in result["notes"])
         assert not mock_get.called
 
+    @parameterized.expand(
+        [
+            ("an API key without the media scope", ["hog_flow:write"], True),
+            ("a user without media access", ["*"], False),
+        ]
+    )
     @patch("products.workflows.backend.services.customerio_import.images.requests.get")
-    def test_a_key_without_media_access_copies_no_images(self, mock_get: MagicMock) -> None:
+    def test_no_images_are_copied_without_media_access(
+        self, _name: str, scopes: list[str], media_access: bool, mock_get: MagicMock
+    ) -> None:
         key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="key", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:write"]
-        )
+        PersonalAPIKey.objects.create(label="key", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
         self.client.logout()
         source = _onboarding_campaign()
         image = "https://userimg-assets.customeriomail.com/images/client-env-1/hero.png"
@@ -750,17 +756,21 @@ class TestWorkflowImportAPI(APIBaseTest):
                 {"campaign": source.campaign, "actions": source.actions, "templates": list(templates.values())}
             ],
         }
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/workflow_imports/",
-            body,
-            format="json",
-            headers={"authorization": f"Bearer {key}"},
-        )
+        with patch(
+            "products.workflows.backend.presentation.views.workflow_import_drafts.UserAccessControl.check_access_level_for_resource",
+            side_effect=lambda resource, *_args, **_kwargs: media_access or resource != "uploaded_media",
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/workflow_imports/",
+                body,
+                format="json",
+                headers={"authorization": f"Bearer {key}"},
+            )
 
         assert response.status_code == 200, response.json()
         result = response.json()["results"][0]
         assert result["status"] == "created"
-        assert any("uploaded_media:write" in note["message"] for note in result["notes"])
+        assert any("media library" in note["message"] for note in result["notes"])
         assert not mock_get.called
         assert not UploadedMedia.objects.filter(team=self.team).exists()
 
