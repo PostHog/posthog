@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.openai_ads.openai_ads import (
     INVALID_CREDENTIALS_ERROR,
     NO_ACCESS_ERROR,
+    SERVER_ERROR_MESSAGE,
     OpenAIAdsResumeConfig,
     openai_ads_source,
     validate_credentials as validate_openai_ads_credentials,
@@ -105,6 +106,9 @@ Create an API key in the Settings tab of [OpenAI Ads Manager](https://ads.openai
             # the same way Meta Ads trusts its own documented error codes over raw HTTP status.
             "code=server_error",
         }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {"code=server_error": SERVER_ERROR_MESSAGE}
 
     def get_schemas(
         self,
