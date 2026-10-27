@@ -12,11 +12,24 @@ describe('parseCustomerioFiles', () => {
         expect(parseCustomerioFiles(files).campaigns).toHaveLength(count)
     })
 
-    it('attaches loose template files to every automation', () => {
+    it('attaches loose templates only to automations that use them, next to keyed ones', () => {
         const template = { template: { id: 11, subject: 'Hi', body: '<p>Hi</p>' } }
-        const parsed = parseCustomerioFiles([JSON.stringify(automation), JSON.stringify(template)])
+        const user = {
+            campaign: { id: 2 },
+            actions: [{ id: '5', type: 'email_action', template_id: 11 }],
+            templates: { 12: { subject: 'Kept', body: '<p>Kept</p>' } },
+        }
+        const parsed = parseCustomerioFiles([
+            JSON.stringify(automation),
+            JSON.stringify(user),
+            JSON.stringify(template),
+        ])
 
-        expect(parsed.campaigns[0].templates).toEqual([template.template])
+        expect(parsed.campaigns[0].templates).toEqual([])
+        expect(parsed.campaigns[1].templates).toEqual([
+            { id: '12', subject: 'Kept', body: '<p>Kept</p>' },
+            template.template,
+        ])
     })
 
     it('rejects a file that is not JSON', () => {
