@@ -743,6 +743,8 @@ async def test_http_401_is_reraised_for_activity_retry():
         (None, None),
         (3600.0, timedelta(hours=1)),
         (86400.0, module.MAX_SERVER_RETRY_DELAY),
+        (float("inf"), module.MAX_SERVER_RETRY_DELAY),
+        (1e15, module.MAX_SERVER_RETRY_DELAY),
     ],
 )
 async def test_rest_client_retryable_error_logged_as_warning_without_source_opt_in(

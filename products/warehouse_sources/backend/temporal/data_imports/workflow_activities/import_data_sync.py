@@ -1029,7 +1029,8 @@ async def _handle_import_error(
             raise NonReportableApplicationError(
                 error_msg,
                 type=RESTClientRetryableError.__name__,
-                next_retry_delay=min(dt.timedelta(seconds=error.retry_after), MAX_SERVER_RETRY_DELAY),
+                # Clamp the float first: timedelta raises OverflowError for inf or huge header values.
+                next_retry_delay=dt.timedelta(seconds=min(error.retry_after, MAX_SERVER_RETRY_DELAY.total_seconds())),
             ) from error
         raise error
 
