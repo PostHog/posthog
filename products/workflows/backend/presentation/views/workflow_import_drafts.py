@@ -26,6 +26,7 @@ from products.workflows.backend.facade.contracts import (
     ImportNote,
     ImportOptions,
     PreviousImport,
+    SnippetRoom,
     WorkflowActor,
     WorkflowStale,
 )
@@ -61,12 +62,17 @@ def import_campaigns(
     request: Request,
 ) -> ImportRun:
     deadline = time.monotonic() + _REQUEST_SECONDS
-    access = UserAccessControl(user=user, team=team)
     sources = [_campaign_source(payload) for payload in payloads]
-    content = import_content(
-        team.id, sources, options, sender_identities, segments, deadline, _left_alone(team, sources, access)
+    context = _RequestContext(
+        request=request,
+        access=UserAccessControl(user=user, team=team),
+        previous={source_id: previous_import(team, source_id) for source_id in {_source_id(s) for s in sources}},
+        snippet_room=SnippetRoom(),
     )
-    budget = ImageBudget(deadline=deadline, can_upload=_can_upload_media(request, access))
+    content = import_content(
+        team.id, sources, options, sender_identities, segments, deadline, _left_alone(team, context)
+    )
+    budget = ImageBudget(deadline=deadline, can_upload=_can_upload_media(request, context.access))
     with defer_hog_flow_reloads():
         results = [
             import_campaign(
@@ -75,9 +81,8 @@ def import_campaigns(
                 source,
                 content.options,
                 dry_run,
-                content.fetch_notes.get(str(source.campaign.get("id")), ()),
-                request,
-                access,
+                content.fetch_notes.get(_source_id(source), ()),
+                context,
                 budget,
             )
             for source in content.sources
@@ -89,17 +94,29 @@ def import_campaigns(
 _REQUEST_SECONDS = 60
 
 
-def _left_alone(team: Team, sources: list[CampaignSource], access: UserAccessControl) -> frozenset[str]:
+@frozen
+class _RequestContext:
+    """What every automation in one import request shares."""
+
+    request: Request
+    access: UserAccessControl
+    # The earlier import of each automation in the request, read once for both eligibility checks.
+    previous: dict[str, PreviousImport]
+    snippet_room: SnippetRoom
+
+
+def _source_id(source: CampaignSource) -> str:
+    return str(source.campaign.get("id"))
+
+
+def _left_alone(team: Team, context: _RequestContext) -> frozenset[str]:
     """The ids of automations whose earlier import the user can't change, either way `import_campaign` skips them."""
-    skipped: set[str] = set()
-    for source in sources:
-        source_id = str(source.campaign.get("id"))
-        previous = previous_import(team, source_id)
-        if previous.hog_flow_id is not None and (
-            not previous.hog_flow_is_draft or not _can_edit(access, team, previous)
-        ):
-            skipped.add(source_id)
-    return frozenset(skipped)
+    return frozenset(
+        source_id
+        for source_id, previous in context.previous.items()
+        if previous.hog_flow_id is not None
+        and (not previous.hog_flow_is_draft or not _can_edit(context.access, team, previous))
+    )
 
 
 def _campaign_source(payload: dict[str, Any]) -> CampaignSource:
@@ -120,17 +137,16 @@ def import_campaign(
     options: ImportOptions,
     dry_run: bool,
     extra_notes: tuple[ImportNote, ...],
-    request: Request,
-    access: UserAccessControl,
+    context: _RequestContext,
     image_budget: ImageBudget,
 ) -> dict[str, Any]:
     """Imports one Customer.io automation, or previews it, and returns its result in the response shape."""
     try:
-        translated = translate_campaign(source, options)
+        translated = translate_campaign(source, options, context.snippet_room)
     except (ValueError, TypeError, AttributeError, KeyError, IndexError, RecursionError) as error:
         logger.info("workflows.import.unreadable_campaign", team_id=team.id, error=type(error).__name__)
         return {
-            "source_id": str(source.campaign.get("id")),
+            "source_id": _source_id(source),
             "name": str(source.campaign.get("name") or ""),
             "workflow_id": None,
             "notes": [asdict(note) for note in extra_notes],
@@ -147,9 +163,9 @@ def import_campaign(
         "notes": [asdict(note) for note in (*extra_notes, *translated.notes)],
         "validation_errors": [],
     }
-    previous = previous_import(team, translated.source_id)
+    previous = context.previous.get(translated.source_id) or previous_import(team, translated.source_id)
     # Checked before images are copied, so a workflow the import leaves alone costs no downloads.
-    if previous.hog_flow_id is not None and not _can_edit(access, team, previous):
+    if previous.hog_flow_id is not None and not _can_edit(context.access, team, previous):
         return _skipped(
             result,
             previous.hog_flow_id,
@@ -158,7 +174,7 @@ def import_campaign(
     if previous.hog_flow_id is not None and not previous.hog_flow_is_draft:
         return _skipped(result, previous.hog_flow_id, _NO_LONGER_DRAFT)
     # Checked before images are copied too, so a draft that can't save costs no downloads.
-    validated, errors = _validated_draft(team, translated.workflow, request)
+    validated, errors = _validated_draft(team, translated.workflow, context.request)
     if validated is None:
         return {**result, "status": "failed", "validation_errors": errors}
     rehosted = rehost_images(team, user, translated.workflow, dry_run, image_budget)
@@ -168,7 +184,7 @@ def import_campaign(
         replaces = str(previous.hog_flow_id) if previous.hog_flow_id is not None else None
         return {**result, "status": "preview", "workflow_id": replaces}
     if rehosted.workflow is not translated.workflow:
-        validated, errors = _validated_draft(team, rehosted.workflow, request)
+        validated, errors = _validated_draft(team, rehosted.workflow, context.request)
         if validated is None:
             return {**result, "status": "failed", "validation_errors": errors}
     created_name: str | None = None
