@@ -11,7 +11,6 @@ import math
 import asyncio
 from collections import Counter
 from dataclasses import asdict
-from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from django.core.cache import cache
@@ -21,26 +20,16 @@ from django.db.models import CharField, Count, Exists, F, QuerySet, Value, Windo
 from django.db.models.expressions import RawSQL
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Coalesce, NullIf, RowNumber
-from django.utils import timezone
 
 import numpy as np
 
 from posthog.api.embedding_worker import async_generate_embedding
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ClickHouseUser
-from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.utils import dict_from_cursor_fetchall
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.replay_vision.backend.embeddings import (
-    OBSERVATION_EMBEDDING_MODEL,
-    OBSERVATION_EMBEDDINGS_TABLE,
-    OBSERVATION_SCOPE_PREWHERE,
-    observation_scope_params,
-)
+from products.replay_vision.backend.embeddings import OBSERVATION_EMBEDDING_MODEL
 from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
     jsonb_typeof,
@@ -97,11 +86,6 @@ ISSUE_CATEGORIES: tuple[WatchCategory, ...] = ("failure", "struggle", "revenue")
 # Struggle picks rated worth watching less often than failure and revenue picks in a blind rating.
 CATEGORY_WEIGHT: dict[str, float] = {"failure": 1.0, "revenue": 1.0, "struggle": 0.85}
 
-# Cosine distance below which two observations from one scanner describe the same thing.
-DUPLICATE_MAX_DISTANCE = 0.1
-DUPLICATE_LOOKBACK = timedelta(days=7)
-_DUPLICATE_QUERY_TIMEOUT_S = 10
-
 # The feed surfaces a scanner's top fifth by score, once the scanner has enough ranked rows to
 # make a percentile mean something.
 WATCH_PICK_MIN_PERCENTILE = 0.8
@@ -124,7 +108,6 @@ _ANCHOR_CACHE_TTL_S = 7 * 24 * 3600
 class WatchRank:
     category: WatchCategory
     contrast: float
-    duplicate_of: str | None
     anchor_version: int = ANCHOR_VERSION
 
     def to_json(self) -> dict[str, Any]:
@@ -185,70 +168,6 @@ def classify(vector: list[float] | np.ndarray, anchors: dict[WatchCategory, np.n
     return (category if contrast > 0 else "routine"), contrast
 
 
-# Caps the vectors one duplicate lookup reads to the scanner's newest rows, so a busy scanner stays cheap.
-DUPLICATE_CANDIDATE_ROWS = 5_000
-
-
-def nearest_earlier_observation(
-    *, team_id: int, scanner_id: str, observation_id: str, vector: list[float], now: datetime
-) -> tuple[str, float] | None:
-    """The scanner's closest other observation in the lookback window, with its cosine distance."""
-    with tags_context(product=Product.REPLAY_VISION, query_type="replay_vision_watch_rank_duplicate"):
-        # nosemgrep: clickhouse-fstring-param-audit - table name and scope are module constants
-        rows = sync_execute(
-            f"""
-            SELECT document_id, min(cosineDistance(embedding, %(embedding)s)) AS distance
-            FROM {OBSERVATION_EMBEDDINGS_TABLE}
-            PREWHERE {OBSERVATION_SCOPE_PREWHERE}
-              AND timestamp >= ifNull(
-                (
-                    SELECT minOrNull(timestamp)
-                    FROM (
-                        SELECT timestamp
-                        FROM {OBSERVATION_EMBEDDINGS_TABLE}
-                        PREWHERE {OBSERVATION_SCOPE_PREWHERE} AND timestamp >= %(since)s
-                        ORDER BY timestamp DESC
-                        LIMIT %(candidate_cap)s
-                    )
-                ),
-                %(since)s
-              )
-            WHERE document_id != %(observation_id)s
-            GROUP BY document_id
-            ORDER BY distance ASC
-            LIMIT 1
-            """,
-            {
-                **observation_scope_params(team_id, [scanner_id]),
-                "embedding": vector,
-                "since": now - DUPLICATE_LOOKBACK,
-                "observation_id": observation_id,
-                "candidate_cap": DUPLICATE_CANDIDATE_ROWS,
-            },
-            team_id=team_id,
-            readonly=True,
-            ch_user=ClickHouseUser.REPLAY_VISION,
-            settings={"max_execution_time": _DUPLICATE_QUERY_TIMEOUT_S},
-            workload=Workload.OFFLINE,
-        )
-    if not rows:
-        return None
-    document_id, distance = rows[0]
-    return str(document_id), float(distance)
-
-
-def duplicate_root(observation_id: str, neighbour_id: str, neighbour_rank: dict[str, Any] | None) -> str | None:
-    """The first observation of a duplicate group, so the group shares one id however long it grows.
-
-    An unranked neighbour can be ranking at the same moment and pick this observation in turn, so the
-    smaller id roots the pair and the two never point at each other.
-    """
-    if neighbour_rank is None:
-        return neighbour_id if neighbour_id < observation_id else None
-    root = neighbour_rank.get("duplicate_of")
-    return root if isinstance(root, str) and root else neighbour_id
-
-
 def current_rank(row: dict[str, Any]) -> dict[str, Any] | None:
     """The row's rank when it comes from the current anchors, else None."""
     rank = row.get("watch_rank")
@@ -271,8 +190,8 @@ class RankRequest:
 async def rank_observation(request: RankRequest) -> Literal["ranked", "already_ranked", "missing"]:
     """Rank one observation from its embedding and save the rank on the row, unless it has a current one.
 
-    Keeping an existing rank makes a redelivered result harmless, and stops a second pass from moving a
-    duplicate link in a way that could make two observations point at each other.
+    Keeping an existing rank makes a redelivered result harmless, and keeps the feed group and search theme
+    written next to it.
     """
     row = await (
         ReplayObservation.objects.filter(team_id=request.team_id, id=request.observation_id)
@@ -285,25 +204,7 @@ async def rank_observation(request: RankRequest) -> Literal["ranked", "already_r
     if current_rank({"watch_rank": row["watch_rank"]}) is not None:
         return "already_ranked"
     category, contrast = classify(request.vector, await anchor_vectors(request.team_id))
-    duplicate_of: str | None = None
-    # The feed only groups issue rows, so a routine row skips the ClickHouse lookup.
-    if category != "routine":
-        nearest = await asyncio.to_thread(
-            nearest_earlier_observation,
-            team_id=request.team_id,
-            scanner_id=request.scanner_id,
-            observation_id=request.observation_id,
-            vector=request.vector,
-            now=timezone.now(),
-        )
-        if nearest is not None and nearest[1] <= DUPLICATE_MAX_DISTANCE:
-            neighbour_rank = await (
-                ReplayObservation.objects.filter(team_id=request.team_id, id=nearest[0])
-                .values_list("watch_rank", flat=True)
-                .afirst()
-            )
-            duplicate_of = duplicate_root(request.observation_id, nearest[0], neighbour_rank)
-    rank = WatchRank(category=category, contrast=contrast, duplicate_of=duplicate_of)
+    rank = WatchRank(category=category, contrast=contrast)
     await ReplayObservation.objects.filter(team_id=request.team_id, id=request.observation_id).aupdate(
         watch_rank=rank.to_json()
     )
@@ -326,26 +227,13 @@ def _scanner_percentiles(rows: list[dict[str, Any]]) -> dict[str, float]:
     return percentiles
 
 
-def _group_root(observation_id: str, parents: dict[str, str]) -> str:
-    """Follow `duplicate_of` links to the group's first observation.
-
-    A root ranked after its copies can gain a root of its own, so a link can point at a member rather
-    than at the root. The walk stops at a repeat, so a cycle cannot loop.
-    """
-    seen = {observation_id}
-    while (parent := parents.get(observation_id)) is not None and parent not in seen:
-        seen.add(parent)
-        observation_id = parent
-    return observation_id
-
-
 def people_boost(people: int) -> float:
-    """How much a pick's score grows with the number of people its duplicate group reached."""
+    """How much a pick's score grows with the number of people its feed group reached."""
     return min(WATCH_PICK_PEOPLE_BOOST_CAP, 1 + WATCH_PICK_PEOPLE_BOOST * math.log(max(people, 1)))
 
 
-def _cap_duplicate_groups(rows: list[dict[str, Any]], cap: int) -> dict[Any, dict[str, Any]]:
-    """The first `cap` rows, keeping a few per duplicate group so the ranker can still pick a readable, unseen one.
+def _cap_feed_groups(rows: list[dict[str, Any]], cap: int) -> dict[Any, dict[str, Any]]:
+    """The first `cap` rows, keeping a few per feed group so the ranker can still pick a readable, unseen one.
 
     A group never spans scanners, so the pick order meets each group's rows best first.
     """
@@ -428,7 +316,7 @@ def select_embedding_picks(
     team_id: int,
     cap: int,
 ) -> list[dict[str, Any]]:
-    """The window's pick rows for the embedding ranker, with each row's percentile and the reach of its duplicate group.
+    """The window's pick rows for the embedding ranker, with each row's percentile and the reach of its feed group.
 
     The percentile is taken over every ranked row a scanner has in the window, not over a recency slice, so a
     longer window reaches further back instead of re-ranking the same newest rows.
@@ -447,12 +335,12 @@ def select_embedding_picks(
     # Bounds the fetch, since a client-side cursor buffers every row; only a window full of copies needs the rest.
     fetch_limit = cap * (WATCH_PICK_GROUP_CANDIDATES + 1)
     rows = _pick_window_rows(ranked, current_ranks, fetch_limit)
-    window_values = _cap_duplicate_groups(rows, cap)
+    window_values = _cap_feed_groups(rows, cap)
     if len(window_values) < cap and len(rows) == fetch_limit:
-        window_values = _cap_duplicate_groups(_pick_window_rows(ranked, current_ranks, None), cap)
+        window_values = _cap_feed_groups(_pick_window_rows(ranked, current_ranks, None), cap)
     if not window_values:
         return []
-    # Counted over readable rows only, so a group never reveals how many restricted sessions it holds. Duplicates
+    # Counted over readable rows only, so a group never reveals how many restricted sessions it holds. Members
     # below the cutoff still count, and a person who hit the problem twice counts once.
     person = Coalesce(NullIf("distinct_id", Value("")), "session_id", output_field=CharField())
     roots = {row["watch_group_root"] for row in window_values.values()}
@@ -496,7 +384,7 @@ def select_embedding_filler(
     team_id: int,
     pick_roots: set[str],
 ) -> list[dict[str, Any]]:
-    """The newest readable rows outside the picks' duplicate groups, unwatched first, enough to bring a thin feed up to its floor."""
+    """The newest readable rows outside the picks' feed groups, unwatched first, enough to bring a thin feed up to its floor."""
     base = (
         accessible_observations(access, team_id, walkable.filter(scanner_id__in=scanner_ids))
         .annotate(watch_group_root=watch_group_root())
@@ -519,7 +407,7 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
     """Rank candidate rows (`id`, `scanner_id`, `session_id`, `created_at`, `watch_rank`, `feed_viewed`,
     and optionally `feed_impressions`) on the embedding rank the watch rank consumer wrote.
 
-    A pick is a row in its scanner's top fifth by score whose category is an issue. Near-duplicates
+    A pick is a row in its scanner's top fifth by score whose category is an issue. Rows of one feed group
     collapse to their best-scoring row, which carries the size of the group. Picks sort by weighted
     percentile, decayed for each earlier impression, viewed rows docked, one scanner held to a share
     of the picks, and one session's picks spaced apart. Every other row is filler, trimmed to the same
@@ -531,11 +419,6 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
         if any("watch_percentile" in row for row in rows)
         else _scanner_percentiles(rows)
     )
-    parents = {
-        str(row["id"]): str(rank["duplicate_of"])
-        for row in rows
-        if (rank := current_rank(row)) is not None and rank.get("duplicate_of")
-    }
     best_in_group: dict[str, tuple[float, dict[str, Any]]] = {}
     group_members: dict[str, list[str]] = {}
     for row in rows:
@@ -544,8 +427,8 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
         percentile = percentiles.get(observation_id)
         if rank is None or percentile is None or rank.get("category") not in ISSUE_CATEGORIES:
             continue
-        # Group before the cutoff, so duplicates below it still count toward the group and never return as filler.
-        group = _group_root(observation_id, parents)
+        # Group before the cutoff, so members below it still count toward the group and never return as filler.
+        group = str(rank.get("group") or observation_id)
         group_members.setdefault(group, []).append(observation_id)
         # Only a member above the cutoff can stand for the group, so the seen penalty never disqualifies it.
         if percentile < WATCH_PICK_MIN_PERCENTILE:
@@ -579,5 +462,5 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
                 WatchFeedEntry(observation_id=row["id"], reason=reason, session_id=row["session_id"]),
             )
         )
-    # A pick stands for its whole duplicate group, so no member returns as filler.
+    # A pick stands for its whole feed group, so no member returns as filler.
     return finish_feed(picks, [row for row in rows if str(row["id"]) not in grouped_ids])

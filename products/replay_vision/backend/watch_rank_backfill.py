@@ -2,8 +2,8 @@
 
 The watch rank consumer ranks each new observation as its embedding lands. This fills in the observations from before
 that shipped, so a team can move to the embedding ranker without waiting a week for ranks to build
-up. It reads stored vectors from ClickHouse rather than embedding again, and finds near-duplicates in
-memory per scanner, oldest first, the same way the consumer would have found them.
+up. It reads stored vectors from ClickHouse rather than embedding again. Feed groups and search themes
+come from the semantics backfill, which runs after this one.
 """
 
 import time
@@ -12,7 +12,9 @@ from collections import defaultdict
 from datetime import datetime
 from itertools import batched
 from typing import Any
+from uuid import UUID
 
+from django.db import transaction
 from django.db.models import Count
 
 import numpy as np
@@ -33,20 +35,19 @@ from products.replay_vision.backend.embeddings import (
 )
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.watch_rank import (
-    DUPLICATE_CANDIDATE_ROWS,
-    DUPLICATE_MAX_DISTANCE,
+    ANCHOR_VERSION,
     WatchCategory,
     WatchRank,
     anchor_vectors,
     classify,
     current_rank,
-    duplicate_root,
     normalize,
 )
 
 logger = structlog.get_logger(__name__)
 
 _VECTOR_CHUNK = 500
+WATCH_RANK_BACKFILL_DAYS = 7
 _QUERY_TIMEOUT_S = 60
 _CAPACITY_RETRY_BASE_S = 15
 _CAPACITY_RETRY_ATTEMPTS = 6
@@ -109,69 +110,18 @@ def _read_stored_vectors(
     return {str(document_id): normalize(np.asarray(embedding, dtype=np.float32)) for document_id, embedding in rows}
 
 
-@frozen
-class _Neighbour:
-    observation_id: str
-    rank: dict[str, Any] | None
-    distance: float
-
-
-class _RecentVectors:
-    """A scanner's newest vectors and ranks, capped like the live duplicate lookup so memory and work stay bounded."""
-
-    def __init__(self) -> None:
-        self._capacity = DUPLICATE_CANDIDATE_ROWS
-        self._matrix: np.ndarray | None = None
-        self._ids: list[str] = []
-        self._ranks: list[dict[str, Any] | None] = []
-        self._next = 0
-
-    def nearest(self, vector: np.ndarray) -> _Neighbour | None:
-        if self._matrix is None or not self._ids:
-            return None
-        distances = 1.0 - self._matrix[: len(self._ids)] @ vector
-        index = int(np.argmin(distances))
-        return _Neighbour(observation_id=self._ids[index], rank=self._ranks[index], distance=float(distances[index]))
-
-    def add(self, observation_id: str, vector: np.ndarray, rank: dict[str, Any] | None) -> None:
-        if self._matrix is None:
-            self._matrix = np.empty((self._capacity, vector.shape[0]), dtype=np.float32)
-        self._matrix[self._next] = vector
-        if len(self._ids) < self._capacity:
-            self._ids.append(observation_id)
-            self._ranks.append(rank)
-        else:
-            self._ids[self._next] = observation_id
-            self._ranks[self._next] = rank
-        self._next = (self._next + 1) % self._capacity
-
-
 def _rank_scanner(
-    rows: list[dict[str, Any]],
-    vectors: dict[str, np.ndarray],
-    anchors: dict[WatchCategory, np.ndarray],
-    recent: _RecentVectors,
+    rows: list[dict[str, Any]], vectors: dict[str, np.ndarray], anchors: dict[WatchCategory, np.ndarray]
 ) -> dict[str, dict[str, Any]]:
-    """New ranks for the rows that lack a current one, walking oldest first.
-
-    Pass the same `recent` across a scanner's batches, so a copy finds a match from an earlier batch.
-    """
+    """New ranks for the rows that lack a current one."""
     written: dict[str, dict[str, Any]] = {}
     for row in rows:
         observation_id = str(row["id"])
         vector = vectors.get(observation_id)
-        if vector is None:
+        if vector is None or current_rank(row) is not None:
             continue
-        rank = current_rank(row)
-        if rank is None:
-            category, contrast = classify(vector, anchors)
-            duplicate_of: str | None = None
-            nearest = recent.nearest(vector) if category != "routine" else None
-            if nearest is not None and nearest.distance <= DUPLICATE_MAX_DISTANCE:
-                duplicate_of = duplicate_root(observation_id, nearest.observation_id, nearest.rank)
-            rank = WatchRank(category=category, contrast=contrast, duplicate_of=duplicate_of).to_json()
-            written[observation_id] = rank
-        recent.add(observation_id, vector, rank)
+        category, contrast = classify(vector, anchors)
+        written[observation_id] = WatchRank(category=category, contrast=contrast).to_json()
     return written
 
 
@@ -196,18 +146,29 @@ def backfill_team_watch_ranks(team_id: int, since: datetime, *, dry_run: bool = 
     ranked = 0
     embedded = 0
     for scanner_id, scanner_rows in by_scanner.items():
-        recent = _RecentVectors()
         for batch in batched(scanner_rows, _VECTOR_CHUNK, strict=False):
             vectors = _stored_vectors(team_id, scanner_id, [str(row["id"]) for row in batch], since)
             embedded += len(vectors)
-            written = _rank_scanner(list(batch), vectors, anchors, recent)
+            written = _rank_scanner(list(batch), vectors, anchors)
             ranked += len(written)
             if not dry_run and written:
-                # The ids come from the team-scoped query above, so the update needs no team filter of its own.
-                ReplayObservation.objects.bulk_update(
-                    [ReplayObservation(id=observation_id, watch_rank=rank) for observation_id, rank in written.items()],
-                    ["watch_rank"],
-                )
+                # Only rows still without a current rank, locked until the write, so a rank the consumer writes meanwhile
+                # waits for this one and a rank it already wrote, with its group, stays.
+                with transaction.atomic():
+                    still_unranked = set(
+                        ReplayObservation.objects.select_for_update()
+                        .filter(team_id=team_id, id__in=list(written))
+                        .exclude(watch_rank__anchor_version=ANCHOR_VERSION)
+                        .values_list("id", flat=True)
+                    )
+                    ReplayObservation.objects.bulk_update(
+                        [
+                            ReplayObservation(id=observation_id, watch_rank=rank)
+                            for observation_id, rank in written.items()
+                            if UUID(observation_id) in still_unranked
+                        ],
+                        ["watch_rank"],
+                    )
     without_embedding = len(rows) - embedded
     logger.info(
         "replay_vision.watch_rank_backfill.team_done",

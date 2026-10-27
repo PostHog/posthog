@@ -8,6 +8,11 @@ from products.replay_vision.backend.models.replay_observation_usage import Repla
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
+from products.replay_vision.backend.models.replay_scanner_semantics import (
+    ReplayScannerFeedGroup,
+    ReplayScannerSearchTheme,
+    ReplayScannerSemanticCenter,
+)
 from products.replay_vision.backend.models.replay_vision_learned_ruleset import ReplayVisionLearnedRuleset
 from products.replay_vision.backend.models.replay_vision_org_admission_budget import ReplayVisionOrgAdmissionBudget
 from products.replay_vision.backend.models.team_replay_vision_config import TeamReplayVisionConfig
@@ -28,6 +33,9 @@ __all__ = [
     "ReplayObservationView",
     "ReplayScanner",
     "ReplayScannerBackfill",
+    "ReplayScannerFeedGroup",
+    "ReplayScannerSearchTheme",
+    "ReplayScannerSemanticCenter",
     "ReplayVisionLearnedRuleset",
     "ReplayVisionOrgAdmissionBudget",
     "TeamReplayVisionConfig",
