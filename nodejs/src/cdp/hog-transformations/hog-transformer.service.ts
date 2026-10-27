@@ -83,7 +83,7 @@ function pickProtectedProperties(properties: Properties | undefined): Properties
     if (!properties) {
         return picked
     }
-    for (const key in properties) {
+    for (const key of Object.keys(properties)) {
         if (key.startsWith(PROTECTED_PROPERTY_PREFIX)) {
             picked[key] = properties[key]
         }
@@ -220,7 +220,7 @@ export class HogTransformerService implements HogTransformer {
         }
 
         const results: CyclotronJobInvocationResult[] = []
-        const protectedProperties = pickProtectedProperties(event.properties)
+        let protectedProperties: Properties | undefined
 
         // Create globals once and update the event properties after each transformation
         const globals = this.createInvocationGlobals(event)
@@ -247,6 +247,10 @@ export class HogTransformerService implements HogTransformer {
                     continue
                 }
             }
+
+            // Filters read a copy of the globals, so the event is unchanged until the first
+            // transformation runs. Legacy plugins write to event.properties in place.
+            protectedProperties ??= pickProtectedProperties(event.properties)
 
             let result: CyclotronJobInvocationResult
             try {
@@ -342,7 +346,11 @@ export class HogTransformerService implements HogTransformer {
             globals.event.distinct_id = event.distinct_id
         }
 
-        if (event.properties && restoreProtectedProperties(event.properties, protectedProperties)) {
+        if (
+            protectedProperties &&
+            event.properties &&
+            restoreProtectedProperties(event.properties, protectedProperties)
+        ) {
             hogTransformationProtectedPropertyWrites.inc()
         }
 
