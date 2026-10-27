@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 
-import type { ActionForm } from '~/toolbar/types'
+import type { ActionForm } from '~/toolbar/shared/types'
 
 import type { PageActionsCommand } from './extensionPageActionsLogic'
 import { extensionPageToolbarConnectionLogic } from './extensionPageToolbarConnectionLogic'

@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
 
-import { urls } from '~/toolbar/urls'
+import { urls } from '~/toolbar/shared/urls'
 
 import { ExtensionEntityList } from './ExtensionEntityList'
 import { extensionExperimentsLogic } from './extensionExperimentsLogic'

@@ -1,6 +1,6 @@
 import { DEFAULT_HEATMAP_FILTERS } from 'lib/components/IframedToolbarBrowser/utils'
 
-import type { ActionForm } from '~/toolbar/types'
+import type { ActionForm } from '~/toolbar/shared/types'
 
 import type { PageToolbarMode, PageToolbarState } from '../pageToolbarBridge'
 

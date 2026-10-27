@@ -2,8 +2,8 @@ import { useValues } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import { ToolbarFeatureGateStatus, toolbarFeatureGateStatus } from '~/toolbar/toolbarEntitlementsLogic'
-import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
+import { ToolbarFeatureGateStatus, toolbarFeatureGateStatus } from '~/toolbar/shared/toolbarEntitlementsLogic'
+import { useToolbarFeatureFlag } from '~/toolbar/shared/toolbarPosthogJS'
 
 import type { PageToolDefinition } from './extensionPageTools'
 import { extensionPanelLogic } from './extensionPanelLogic'

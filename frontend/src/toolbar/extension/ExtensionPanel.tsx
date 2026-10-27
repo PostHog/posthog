@@ -4,7 +4,7 @@ import { Logo } from 'lib/brand'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
-import { urls } from '~/toolbar/urls'
+import { urls } from '~/toolbar/shared/urls'
 
 import { ExtensionPageToolbar } from './ExtensionPageToolbar'
 import { extensionPanelLogic } from './extensionPanelLogic'

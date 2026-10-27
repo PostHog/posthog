@@ -8,14 +8,14 @@ import type {
     ScrollDepthPosthogJsError,
 } from 'lib/components/heatmaps/types'
 
-import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
-import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { heatmapCaptureLogic } from '~/toolbar/stats/heatmapCaptureLogic'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import type { CountedHTMLElement } from '~/toolbar/types'
+import { elementsLogic } from '~/toolbar/shared/elements/elementsLogic'
+import { heatmapToolbarMenuLogic } from '~/toolbar/shared/elements/heatmapToolbarMenuLogic'
+import { currentPageLogic } from '~/toolbar/shared/stats/currentPageLogic'
+import { heatmapCaptureLogic } from '~/toolbar/shared/stats/heatmapCaptureLogic'
+import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
+import type { CountedHTMLElement } from '~/toolbar/shared/types'
 
-import type { CaptureProgress, CaptureSummary } from '../stats/heatmapCaptureLogic'
+import type { CaptureProgress, CaptureSummary } from '../shared/stats/heatmapCaptureLogic'
 import type { HeatmapSaveResult, PageToolbarHeatmapState } from './pageToolbarBridge'
 
 export type PageHeatmapCommand =

@@ -6,9 +6,9 @@ import {
     DEFAULT_PII_MASKING_COLOR,
     applyPiiMaskingStylesheet,
     getPiiMaskingWarnings,
-} from '~/toolbar/bar/piiMaskingStyles'
-import { screenshotUploadLogic } from '~/toolbar/screenshot-upload/screenshotUploadLogic'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+} from '~/toolbar/shared/bar/piiMaskingStyles'
+import { screenshotUploadLogic } from '~/toolbar/shared/screenshot-upload/screenshotUploadLogic'
+import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 
 import type { EventDefinition } from '../../types'
 import type { PagePosthogBridge } from './pagePosthogBridge'

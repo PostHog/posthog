@@ -5,8 +5,8 @@ import { IconRefresh } from '@posthog/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 
-import { urls } from '~/toolbar/urls'
-import { WebVitalsReport } from '~/toolbar/web-vitals/WebVitalsReport'
+import { urls } from '~/toolbar/shared/urls'
+import { WebVitalsReport } from '~/toolbar/shared/web-vitals/WebVitalsReport'
 
 import { extensionPageToolbarConnectionLogic } from './extensionPageToolbarConnectionLogic'
 import { extensionPanelLogic } from './extensionPanelLogic'

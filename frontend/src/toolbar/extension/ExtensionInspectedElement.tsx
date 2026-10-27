@@ -6,8 +6,8 @@ import { ElementClickStats } from 'lib/components/heatmaps/ElementClickStats'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 
-import { SelectorQualityWarning } from '~/toolbar/elements/SelectorQualityWarning'
-import { urls } from '~/toolbar/urls'
+import { SelectorQualityWarning } from '~/toolbar/shared/elements/SelectorQualityWarning'
+import { urls } from '~/toolbar/shared/urls'
 
 import { extensionActionsLogic } from './extensionActionsLogic'
 import { extensionPageToolbarConnectionLogic } from './extensionPageToolbarConnectionLogic'

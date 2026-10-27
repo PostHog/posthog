@@ -7,7 +7,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 
-import { SelectorCountContext, SelectorMatchCounter } from '~/toolbar/actions/SelectorCountContext'
+import { SelectorCountContext, SelectorMatchCounter } from '~/toolbar/shared/actions/SelectorCountContext'
 
 import { ExtensionActionEditor } from './ExtensionActionEditor'
 import { ExtensionActionsList } from './ExtensionActionsList'

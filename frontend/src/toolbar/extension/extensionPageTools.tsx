@@ -2,7 +2,7 @@ import { IconBolt, IconCursorClick, IconFlask, IconLive, IconPieChart, IconSearc
 
 import { IconMenu } from 'lib/lemon-ui/icons'
 
-import { urls } from '~/toolbar/urls'
+import { urls } from '~/toolbar/shared/urls'
 import { AvailableFeature } from '~/types'
 
 import type { PageToolbarMode } from './pageToolbarBridge'

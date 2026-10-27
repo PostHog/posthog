@@ -1,4 +1,4 @@
-import { generatePKCE, parseToolbarAuthHash, requestOAuthTokens } from '~/toolbar/utils'
+import { generatePKCE, parseToolbarAuthHash, requestOAuthTokens } from '~/toolbar/shared/utils'
 
 import { waitForTabUrl } from './extensionBrowser'
 import type { PageToolbarTokens } from './pageToolbarBridge'

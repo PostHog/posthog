@@ -9,7 +9,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { cn } from 'lib/utils/css-classes'
 
-import { canonicalizeUiHost } from '~/toolbar/toolbarConfigLogic'
+import { canonicalizeUiHost } from '~/toolbar/shared/toolbarConfigLogic'
 
 import { extensionPanelLogic } from './extensionPanelLogic'
 

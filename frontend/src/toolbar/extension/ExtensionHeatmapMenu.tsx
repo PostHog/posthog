@@ -14,7 +14,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
-import { urls } from '~/toolbar/urls'
+import { urls } from '~/toolbar/shared/urls'
 
 import { ExtensionInspectedElement } from './ExtensionInspectedElement'
 import type { PageHeatmapCommand } from './extensionPageHeatmapLogic'

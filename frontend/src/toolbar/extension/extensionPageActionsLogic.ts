@@ -1,10 +1,10 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
-import { actionsLogic } from '~/toolbar/actions/actionsLogic'
-import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
+import { actionsLogic } from '~/toolbar/shared/actions/actionsLogic'
+import { actionsTabLogic } from '~/toolbar/shared/actions/actionsTabLogic'
 
 import type { ActionType, ElementType } from '../../types'
-import type { ActionForm } from '../types'
+import type { ActionForm } from '../shared/types'
 import type { ActionSaveResult, PageToolbarActionsState } from './pageToolbarBridge'
 
 export type PageActionsCommand =

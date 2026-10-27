@@ -1,4 +1,4 @@
-import { DebugInfoPosthog, readPosthogDebugInfo } from '~/toolbar/debug/posthogDebugInfo'
+import { DebugInfoPosthog, readPosthogDebugInfo } from '~/toolbar/shared/debug/posthogDebugInfo'
 
 import {
     PAGE_AGENT_REPLY_SOURCE,

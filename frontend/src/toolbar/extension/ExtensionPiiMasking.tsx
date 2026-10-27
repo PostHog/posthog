@@ -4,7 +4,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 
-import { PII_MASKING_PRESET_COLORS } from '~/toolbar/bar/piiMaskingStyles'
+import { PII_MASKING_PRESET_COLORS } from '~/toolbar/shared/bar/piiMaskingStyles'
 
 import { extensionMoreLogic } from './extensionMoreLogic'
 

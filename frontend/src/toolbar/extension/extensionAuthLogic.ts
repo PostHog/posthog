@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 import { subscriptions } from 'kea-subscriptions'
 
 import type { UserApi } from '~/generated/core/api.schemas'
-import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 
 import { getStoredTokens, setStoredTokens } from './extensionBrowser'
 import { authenticateToolbar } from './extensionOAuth'

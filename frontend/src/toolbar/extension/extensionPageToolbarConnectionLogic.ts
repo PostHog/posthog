@@ -11,8 +11,8 @@ import {
     selectors,
 } from 'kea'
 
-import type { SelectorMatchCounter } from '~/toolbar/actions/SelectorCountContext'
-import { urls } from '~/toolbar/urls'
+import type { SelectorMatchCounter } from '~/toolbar/shared/actions/SelectorCountContext'
+import { urls } from '~/toolbar/shared/urls'
 
 import { extensionAuthLogic } from './extensionAuthLogic'
 import { ExtensionPort, connectToPageToolbar, ensureContentScript, injectPageAgent, openTab } from './extensionBrowser'

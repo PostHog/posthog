@@ -1,8 +1,8 @@
 import { getContext } from 'kea'
 import { Root, createRoot } from 'react-dom/client'
 
-import { ElementOverlays } from '~/toolbar/elements/ElementOverlays'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { ElementOverlays } from '~/toolbar/shared/elements/ElementOverlays'
+import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { ToolbarProps } from '~/types'
 
 import { ExtensionPort, extensionFileUrl, onPageToolbarConnect } from './extensionBrowser'

@@ -5,7 +5,7 @@ import {
     WebExperimentEditor,
     WebExperimentEditorContext,
     canRenameVariant,
-} from '~/toolbar/experiments/webExperimentEditorContext'
+} from '~/toolbar/shared/experiments/webExperimentEditorContext'
 
 import { extensionExperimentsLogic } from './extensionExperimentsLogic'
 

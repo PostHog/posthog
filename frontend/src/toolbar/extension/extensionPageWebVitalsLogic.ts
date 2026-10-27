@@ -1,8 +1,8 @@
 import { MakeLogicType, actions, connect, kea, listeners, path } from 'kea'
 import type { PostHog } from 'posthog-js'
 
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { webVitalsToolbarLogic } from '~/toolbar/web-vitals/webVitalsToolbarLogic'
+import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
+import { webVitalsToolbarLogic } from '~/toolbar/shared/web-vitals/webVitalsToolbarLogic'
 
 import type { PageToolbarWebVitalsState } from './pageToolbarBridge'
 

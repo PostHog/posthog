@@ -12,9 +12,9 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { Link } from 'lib/lemon-ui/Link'
 
-import { WebExperimentVariant } from '~/toolbar/experiments/WebExperimentVariant'
-import { WebExperimentVariantHeader } from '~/toolbar/experiments/WebExperimentVariantHeader'
-import { urls } from '~/toolbar/urls'
+import { WebExperimentVariant } from '~/toolbar/shared/experiments/WebExperimentVariant'
+import { WebExperimentVariantHeader } from '~/toolbar/shared/experiments/WebExperimentVariantHeader'
+import { urls } from '~/toolbar/shared/urls'
 
 import { ExtensionExperimentEditorProvider } from './ExtensionExperimentEditorProvider'
 import { extensionExperimentsLogic } from './extensionExperimentsLogic'

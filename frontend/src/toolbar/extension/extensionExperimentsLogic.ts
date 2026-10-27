@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 
-import { canRenameVariant } from '~/toolbar/experiments/webExperimentEditorContext'
+import { canRenameVariant } from '~/toolbar/shared/experiments/webExperimentEditorContext'
 
 import type { PageExperimentsCommand } from './extensionPageExperimentsLogic'
 import { extensionPageToolbarConnectionLogic } from './extensionPageToolbarConnectionLogic'

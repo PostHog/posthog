@@ -10,9 +10,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
 
-import { ActionStepEditor } from '~/toolbar/actions/ActionStepEditor'
-import { SelectorEditingModal } from '~/toolbar/actions/SelectorEditingModal'
-import { urls } from '~/toolbar/urls'
+import { ActionStepEditor } from '~/toolbar/shared/actions/ActionStepEditor'
+import { SelectorEditingModal } from '~/toolbar/shared/actions/SelectorEditingModal'
+import { urls } from '~/toolbar/shared/urls'
 
 import { extensionActionsLogic } from './extensionActionsLogic'
 import { extensionPanelLogic } from './extensionPanelLogic'

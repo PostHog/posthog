@@ -5,12 +5,12 @@ import type {
     ScrollDepthPosthogJsError,
 } from 'lib/components/heatmaps/types'
 
-import type { SelectorMatchCounts } from '~/toolbar/actions/SelectorCountContext'
-import type { EventCategory } from '~/toolbar/debug/eventCategories'
-import type { PosthogDebugInfo } from '~/toolbar/debug/posthogDebugInfo'
-import type { ElementSelectorType } from '~/toolbar/experiments/elementSelectorTypes'
-import type { ActionForm, WebExperimentForm } from '~/toolbar/types'
-import type { WebVitalsMetrics } from '~/toolbar/web-vitals/webVitalsToolbarLogic'
+import type { SelectorMatchCounts } from '~/toolbar/shared/actions/SelectorCountContext'
+import type { EventCategory } from '~/toolbar/shared/debug/eventCategories'
+import type { PosthogDebugInfo } from '~/toolbar/shared/debug/posthogDebugInfo'
+import type { ElementSelectorType } from '~/toolbar/shared/experiments/elementSelectorTypes'
+import type { ActionForm, WebExperimentForm } from '~/toolbar/shared/types'
+import type { WebVitalsMetrics } from '~/toolbar/shared/web-vitals/webVitalsToolbarLogic'
 import type { ActionStepType, ElementType } from '~/types'
 
 import type { PageActionsCommand } from './extensionPageActionsLogic'

@@ -8,7 +8,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
 
-import { urls } from '~/toolbar/urls'
+import { urls } from '~/toolbar/shared/urls'
 
 import { extensionFlagsLogic } from './extensionFlagsLogic'
 import { extensionPanelLogic } from './extensionPanelLogic'

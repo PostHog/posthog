@@ -1,8 +1,8 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import type { PostHog } from 'posthog-js'
 
-import { flagsToolbarLogic, flagsToolbarLogicValues } from '~/toolbar/flags/flagsToolbarLogic'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { flagsToolbarLogic, flagsToolbarLogicValues } from '~/toolbar/shared/flags/flagsToolbarLogic'
+import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 
 import type { FeatureFlagType } from '../../types'
 import type { PageFlagMutationStatus } from './pagePosthogBridge'

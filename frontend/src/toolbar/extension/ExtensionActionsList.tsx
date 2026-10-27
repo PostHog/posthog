@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { urls } from '~/toolbar/urls'
+import { urls } from '~/toolbar/shared/urls'
 
 import { extensionActionsLogic } from './extensionActionsLogic'
 import { ExtensionEntityList } from './ExtensionEntityList'

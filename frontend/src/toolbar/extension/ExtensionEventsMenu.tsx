@@ -7,8 +7,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
-import { eventTypeMenuItems, hidePropertiesMenuItems } from '~/toolbar/debug/eventDebugMenuItems'
-import { EventRow } from '~/toolbar/debug/EventRow'
+import { eventTypeMenuItems, hidePropertiesMenuItems } from '~/toolbar/shared/debug/eventDebugMenuItems'
+import { EventRow } from '~/toolbar/shared/debug/EventRow'
 import { EventType } from '~/types'
 
 import { extensionEventsLogic } from './extensionEventsLogic'

@@ -1,4 +1,4 @@
-import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 
 // pinned: sent as the `tool` property of `toolbar extension page tool used`
 type PageToolKey =

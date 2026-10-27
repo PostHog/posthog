@@ -1,11 +1,11 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import type { PostHog } from 'posthog-js'
 
-import type { ElementSelectorType } from '~/toolbar/experiments/elementSelectorTypes'
-import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
-import { experimentsTabLogic, restoreOriginalHtmlState } from '~/toolbar/experiments/experimentsTabLogic'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import type { WebExperiment, WebExperimentForm } from '~/toolbar/types'
+import type { ElementSelectorType } from '~/toolbar/shared/experiments/elementSelectorTypes'
+import { experimentsLogic } from '~/toolbar/shared/experiments/experimentsLogic'
+import { experimentsTabLogic, restoreOriginalHtmlState } from '~/toolbar/shared/experiments/experimentsTabLogic'
+import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
+import type { WebExperiment, WebExperimentForm } from '~/toolbar/shared/types'
 
 import type { ExperimentFormDraft, ExperimentSaveResult, PageToolbarExperimentsState } from './pageToolbarBridge'
 

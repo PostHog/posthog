@@ -1,5 +1,5 @@
 import '~/styles'
-import '~/toolbar/styles.scss'
+import '~/toolbar/shared/styles.scss'
 
 import { resetContext } from 'kea'
 import { disposablesPlugin } from 'kea-disposables'
@@ -10,7 +10,7 @@ import { subscriptionsPlugin } from 'kea-subscriptions'
 import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 
-import { TOOLBAR_EXTENSION_ID, TOOLBAR_ROOT_ATTRIBUTE } from '~/toolbar/utils'
+import { TOOLBAR_EXTENSION_ID, TOOLBAR_ROOT_ATTRIBUTE } from '~/toolbar/shared/utils'
 
 import { answerContentScriptPing } from './extensionBrowser'
 import { PageToolbarHost } from './pageToolbarHost'

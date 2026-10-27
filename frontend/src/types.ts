@@ -120,7 +120,7 @@ import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflo
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { PluginConfigSchema } from './legacy-plugin-scaffold'
-import { InferredSelector } from './toolbar/product-tours/elementInference'
+import { InferredSelector } from './toolbar/shared/product-tours/elementInference'
 
 export enum ConversionRateInputType {
     MANUAL = 'manual',

@@ -2,10 +2,10 @@ import { MakeLogicType, actions, connect, kea, listeners, path, props, reducers,
 import { subscriptions } from 'kea-subscriptions'
 import type { PostHog } from 'posthog-js'
 
-import { downloadEventsAsJson } from '~/toolbar/debug/downloadEventsAsJson'
-import type { EventCategory } from '~/toolbar/debug/eventCategories'
-import { eventDebugMenuLogic } from '~/toolbar/debug/eventDebugMenuLogic'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { downloadEventsAsJson } from '~/toolbar/shared/debug/downloadEventsAsJson'
+import type { EventCategory } from '~/toolbar/shared/debug/eventCategories'
+import { eventDebugMenuLogic } from '~/toolbar/shared/debug/eventDebugMenuLogic'
+import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import type { EventType } from '~/types'
 
 import type { PagePosthogBridge } from './pagePosthogBridge'

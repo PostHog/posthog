@@ -8,10 +8,10 @@ import type {
     ToolbarEntitlementsApiEntitlements,
     UserApi,
 } from '~/generated/core/api.schemas'
-import { canonicalizeUiHost } from '~/toolbar/toolbarConfigLogic'
-import { fetchToolbarEntitlements } from '~/toolbar/toolbarEntitlementsLogic'
-import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import { joinWithUiHost, safeFetch } from '~/toolbar/utils'
+import { canonicalizeUiHost } from '~/toolbar/shared/toolbarConfigLogic'
+import { fetchToolbarEntitlements } from '~/toolbar/shared/toolbarEntitlementsLogic'
+import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
+import { joinWithUiHost, safeFetch } from '~/toolbar/shared/utils'
 
 import {
     getActiveTab,
