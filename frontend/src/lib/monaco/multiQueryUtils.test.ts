@@ -80,17 +80,22 @@ FROM persons`
             expect(result[0].query).toContain("it\\'s;here")
         })
 
-        it.each(['--', '//', '#'])('ignores semicolons inside %s single-line comments', (comment) => {
+        it.each(['//', '#'])('ignores semicolons inside HogQL %s comments', (comment) => {
             const input = `SELECT 1 ${comment} this; is a comment
 ; SELECT 2`
-            const result = splitQueries(input)
+            const result = splitQueries(input, { hogql: true })
             expect(result).toHaveLength(2)
             expect(result[0].query).toContain('SELECT 1')
             expect(result[1].query).toBe('SELECT 2')
         })
 
-        it('does not treat positional references as hash comments', () => {
-            const result = splitQueries('SELECT 1 ORDER BY #1; SELECT 2')
+        it('does not treat positional references as HogQL hash comments', () => {
+            const result = splitQueries('SELECT 1 ORDER BY #1; SELECT 2', { hogql: true })
+            expect(result).toHaveLength(2)
+        })
+
+        it('does not treat a hash as a raw SQL comment', () => {
+            const result = splitQueries('SELECT 5 # 3; SELECT 2')
             expect(result).toHaveLength(2)
         })
 

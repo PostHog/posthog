@@ -120,8 +120,9 @@ export const hogQLAutocompleteProvider = (type: HogLanguage): languages.Completi
         // `;`-separated queries fails to parse and comes back with no suggestions at all.
         // Send just the statement under the cursor, with the offsets rebased onto it.
         // Single-statement documents are still sent whole so a trailing `;` behaves as before.
-        const statements = type === HogLanguage.hogQL ? splitQueries(queryText) : []
-        const statement = statements.length > 1 ? findStatementAtOffset(queryText, model.getOffsetAt(position)) : null
+        const statements = type === HogLanguage.hogQL ? splitQueries(queryText, { hogql: true }) : []
+        const statement =
+            statements.length > 1 ? findStatementAtOffset(queryText, model.getOffsetAt(position), { hogql: true }) : null
         const statementOffset = statement?.start ?? 0
 
         const query: HogQLAutocomplete = setLatestVersionsOnQuery(

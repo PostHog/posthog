@@ -140,7 +140,7 @@ const COMMENT = /(?:--|\/\/)[^\n]*|#(?![0-9])[^\n]*|\/\*[\s\S]*?\*\//g
 // The parser reads one statement at a time. A part that holds only comments, such as a query that
 // is commented out after the last semicolon, has no statement to parse.
 function statementsOf(query: string): string[] {
-    return splitQueries(query)
+    return splitQueries(query, { hogql: true })
         .map(({ query: statement }) => statement)
         .filter((statement) => statement.replace(COMMENT, '').trim() !== '')
 }

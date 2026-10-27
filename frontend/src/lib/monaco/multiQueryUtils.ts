@@ -7,11 +7,15 @@ export interface QueryRange {
     end: number
 }
 
+interface SplitQueryOptions {
+    hogql?: boolean
+}
+
 /**
  * Offsets of the semicolons that separate top-level statements, skipping those inside string
  * literals, comments, and parenthesized blocks (subqueries, CTEs, function calls).
  */
-function findSeparatorOffsets(input: string): number[] {
+function findSeparatorOffsets(input: string, hogql: boolean): number[] {
     const separators: number[] = []
     let i = 0
     let parenDepth = 0
@@ -50,12 +54,11 @@ function findSeparatorOffsets(input: string): number[] {
             continue
         }
 
-        // Skip single-line comments. HogQL also supports `//` and `#`; the latter does not
-        // start a comment when it is a positional reference such as `ORDER BY #1`.
         const isLineComment =
             (ch === '-' && input[i + 1] === '-') ||
-            (ch === '/' && input[i + 1] === '/') ||
-            (ch === '#' && !/[0-9]/.test(input[i + 1] ?? ''))
+            (hogql &&
+                ((ch === '/' && input[i + 1] === '/') ||
+                    (ch === '#' && !/[0-9]/.test(input[i + 1] ?? ''))))
         if (isLineComment) {
             while (i < input.length && input[i] !== '\n') {
                 i++
@@ -109,13 +112,13 @@ function findSeparatorOffsets(input: string): number[] {
  * Each range covers the trimmed statement text, so the whitespace around a statement sits
  * outside it. Segments holding no statement text are dropped.
  */
-export function splitQueries(input: string): QueryRange[] {
+export function splitQueries(input: string, { hogql = false }: SplitQueryOptions = {}): QueryRange[] {
     if (!input.trim()) {
         return []
     }
 
     const ranges: QueryRange[] = []
-    for (const { start, end } of statementSegments(input)) {
+    for (const { start, end } of statementSegments(input, hogql)) {
         const segment = input.slice(start, end)
         const trimmed = segment.trim()
         if (trimmed) {
@@ -132,10 +135,10 @@ export function splitQueries(input: string): QueryRange[] {
  * each statement. A cursor at `end` sits on the separator itself, which still belongs to the
  * statement before it.
  */
-function statementSegments(input: string): { start: number; end: number }[] {
+function statementSegments(input: string, hogql = false): { start: number; end: number }[] {
     const segments: { start: number; end: number }[] = []
     let start = 0
-    for (const separator of findSeparatorOffsets(input)) {
+    for (const separator of findSeparatorOffsets(input, hogql)) {
         segments.push({ start, end: separator })
         start = separator + 1
     }
@@ -153,8 +156,12 @@ function statementSegments(input: string): { start: number; end: number }[] {
  * Returns null when the cursor sits in a segment that holds no statement text yet, such as directly
  * after a semicolon.
  */
-export function findStatementAtOffset(input: string, cursorOffset: number): QueryRange | null {
-    const segment = statementSegments(input).find(({ start, end }) => cursorOffset >= start && cursorOffset <= end)
+export function findStatementAtOffset(
+    input: string,
+    cursorOffset: number,
+    { hogql = false }: SplitQueryOptions = {}
+): QueryRange | null {
+    const segment = statementSegments(input, hogql).find(({ start, end }) => cursorOffset >= start && cursorOffset <= end)
     if (!segment || !input.slice(segment.start, segment.end).trim()) {
         return null
     }
