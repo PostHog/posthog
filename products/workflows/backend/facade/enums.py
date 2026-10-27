@@ -109,7 +109,6 @@ class EmailDraftOrigin(LabeledStrEnum):
 
 
 class EmailDraftFallbackReason(LabeledStrEnum):
-    FLAG_OFF = "flag_off", "AI drafts are not enabled for this project"
     AI_NOT_APPROVED = "ai_not_approved", "The organization has not approved AI data processing"
     GATEWAY_UNCONFIGURED = "gateway_unconfigured", "The AI gateway is not configured"
     RATE_LIMITED = "rate_limited", "The project used its hourly AI drafts"
