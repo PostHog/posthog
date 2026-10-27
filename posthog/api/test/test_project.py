@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.db import DatabaseError
-from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -206,7 +205,6 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             self.assertEqual(response.json()["attr"], "logo_media_id")
             self.assertIsNone(self.project.logo_media_id)
 
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_cannot_create_second_demo_project(self):
         # Create first demo project
         Project.objects.create_with_team(
@@ -552,7 +550,6 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             "You have reached the maximum limit of 2000 projects per organization. Contact support if you'd like access to more projects.",
         )
 
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
     def test_demo_projects_not_counted_toward_limit(self):
         # Set project limit to 2
         self.organization.available_product_features = [

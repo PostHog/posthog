@@ -13,7 +13,6 @@ from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.instance_setting import override_instance_config
 
 
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 class TestPlaywrightSetup(APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = False  # Each test gets fresh data to prevent isolation issues
 

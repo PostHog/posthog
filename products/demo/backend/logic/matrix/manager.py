@@ -3,7 +3,7 @@
 import datetime as dt
 from collections.abc import Callable, Iterator
 from functools import partial
-from time import sleep
+from time import monotonic, sleep
 from typing import Any, Literal, cast
 from uuid import UUID, uuid5
 
@@ -97,7 +97,6 @@ class MatrixManager:
     _persons_created: int
     _person_distinct_ids_created: int
     _events_created: int
-    _native_events_created: int
     _groups_created: int
 
     def __init__(self, matrix: Matrix, *, use_pre_save: bool = False, print_steps: bool = False):
@@ -107,7 +106,6 @@ class MatrixManager:
         self._persons_created = 0
         self._person_distinct_ids_created = 0
         self._events_created = 0
-        self._native_events_created = 0
         self._groups_created = 0
 
     def ensure_account_and_save(
@@ -198,6 +196,42 @@ class MatrixManager:
         )
         return team
 
+    @staticmethod
+    def copy_native_events(source_team_id: int, target_team_id: int) -> None:
+        from posthog.models.event.sql import COPY_EVENTS_JSON_BETWEEN_TEAMS
+
+        native_events_table_exists = table_exists_via_sync_execute(DISTRIBUTED_EVENTS_JSON_TABLE)
+        if not native_events_table_exists:
+            return
+        copy_params = {"source_team_id": source_team_id, "target_team_id": target_team_id}
+        expected_count = sync_execute(
+            "SELECT count() FROM events WHERE team_id = %(source_team_id)s AND event != '$feature_flag_called'",
+            copy_params,
+        )[0][0]
+        deadline = monotonic() + 300
+        while True:
+            native_count = sync_execute(
+                "SELECT count() FROM events_json WHERE team_id = %(source_team_id)s AND event != '$feature_flag_called'",
+                copy_params,
+            )[0][0]
+            if native_count >= expected_count:
+                break
+            if monotonic() >= deadline:
+                raise TimeoutError(f"Native demo source {source_team_id} has {native_count}/{expected_count} events")
+            sleep(0.5)
+        sync_execute(COPY_EVENTS_JSON_BETWEEN_TEAMS, copy_params)
+
+    @staticmethod
+    def _schedule_native_events_copy(source_team_id: int, target_team_id: int) -> None:
+        # Importing posthog.tasks eagerly loads every Celery task, so defer it until demo setup is complete.
+        from posthog.tasks.demo_create_data import copy_native_events_for_demo_team
+
+        def enqueue() -> None:
+            copy_native_events_for_demo_team.apply_async(args=(source_team_id, target_team_id), retry=False)
+
+        # Native ingestion and even queue publication must not prevent a usable legacy demo.
+        transaction.on_commit(enqueue, robust=True)
+
     def run_on_team(self, team: Team, user: User):
         does_clickhouse_data_need_saving = True
         if self.use_pre_save:
@@ -237,6 +271,8 @@ class MatrixManager:
             cohort.calculate_people_ch(pending_version=0)
         team.project.save()
         team.save()
+        if self.use_pre_save:
+            self._schedule_native_events_copy(source_team.pk, team.pk)
         print(f"Demo data ready for team ID {team.pk}.")
 
     def _save_analytics_data(self, data_team: Team):
@@ -299,7 +335,7 @@ class MatrixManager:
         delete_group_type_mappings(cls.MASTER_TEAM_ID)
 
     def _copy_analytics_data_from_master_team(self, target_team: Team):
-        from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS, COPY_EVENTS_JSON_BETWEEN_TEAMS
+        from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
         from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
         from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 
@@ -313,11 +349,6 @@ class MatrixManager:
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
-        # The native events table is rolled out per deployment and some ClickHouse clusters have none, so the copy
-        # runs only where the table exists.
-        native_events_table_exists = table_exists_via_sync_execute(DISTRIBUTED_EVENTS_JSON_TABLE)
-        if native_events_table_exists:
-            sync_execute(COPY_EVENTS_JSON_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_GROUPS_BETWEEN_TEAMS, copy_params)
         copy_group_type_mappings(self.MASTER_TEAM_ID, target_team.id, target_team.project_id)
 
@@ -388,8 +419,6 @@ class MatrixManager:
                 )
             )
             self._events_created += 1
-            if to_save.name != "$feature_flag_called":
-                self._native_events_created += 1
 
     @staticmethod
     def _save_sim_group(
@@ -406,8 +435,6 @@ class MatrixManager:
     def _wait_for_analytics_data(self, team_id: int) -> None:
         from posthog.models.person.sql import GET_PERSON_COUNT_FOR_TEAM, GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM
 
-        # Native ingestion runs independently, including for eval source teams whose IDs are not MASTER_TEAM_ID.
-        wait_for_native = table_exists_via_sync_execute(DISTRIBUTED_EVENTS_JSON_TABLE)
         MAX_WAIT_ITERATIONS = 600
         for i in range(MAX_WAIT_ITERATIONS):
             person_count: int = sync_execute(GET_PERSON_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
@@ -424,20 +451,11 @@ class MatrixManager:
                 0
             ][0]
             groups_ready = group_count >= self._groups_created
-            native_event_count = 0
-            if wait_for_native:
-                native_event_count = sync_execute(
-                    "SELECT count() FROM events_json WHERE team_id = %(team_id)s AND event != '$feature_flag_called'",
-                    {"team_id": team_id},
-                )[0][0]
-                events_ready = events_ready and native_event_count >= self._native_events_created
             persons_progress = f"{'✔' if persons_ready else '✘'} {person_count}/{self._persons_created}"
             person_distinct_ids_progress = f"{'✔' if person_distinct_ids_ready else '✘'} {person_distinct_id_count}/{self._person_distinct_ids_created}"
             event_progress = (
                 f"Events: {event_count}/{self._events_created}. Groups: {group_count}/{self._groups_created}"
             )
-            if wait_for_native:
-                event_progress += f". Native events: {native_event_count}/{self._native_events_created}"
             if persons_ready and person_distinct_ids_ready and events_ready and groups_ready:
                 if self.print_steps:
                     print(
