@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconSparkles, IconX } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
 import { replayVisionUpsellLogic, upsellTargetForFilters } from './replayVisionUpsellLogic'
@@ -21,20 +22,38 @@ export function ReplayVisionListUpsellCard(): JSX.Element | null {
 
     return (
         <PostHogCaptureOnViewed name="replay_vision_upsell_shown" properties={{ placement: 'list', card: 'list' }}>
-            <LemonBanner
-                type="ai"
-                className="m-2"
-                onClose={() => dismiss('list')}
-                action={{
-                    children: target.cta === 'scan_filters' ? 'Scan this filter' : 'Set up a scanner',
-                    to: target.url,
-                    onClick: () => reportClicked('list', target.cta),
-                    'data-attr': `replay-vision-upsell-list-card-${target.cta}`,
-                }}
+            <div
+                className="relative flex flex-col gap-1 border-b bg-bg-light py-2 pr-8 pl-3 text-xs"
+                data-attr="replay-vision-upsell-list-card"
             >
-                <p className="m-0 font-semibold">Replay vision can watch these for you</p>
-                <p className="m-0">It scans every recording in this filter and shows the ones that matter.</p>
-            </LemonBanner>
+                <LemonButton
+                    className="absolute top-1 right-1"
+                    size="xsmall"
+                    icon={<IconX />}
+                    onClick={() => dismiss('list')}
+                    tooltip="Hide this suggestion"
+                    aria-label="Dismiss"
+                    data-attr="replay-vision-upsell-list-card-dismiss"
+                />
+                <span className="flex items-start gap-1 font-semibold">
+                    <IconSparkles className="mt-0.5 shrink-0 text-ai" />
+                    <span>Save time: Replay vision can watch these for you</span>
+                </span>
+                <span className="text-secondary">
+                    It scans every recording in this filter and shows the ones that matter.
+                </span>
+                <div className="flex pt-1">
+                    <LemonButton
+                        type="primary"
+                        size="xsmall"
+                        to={target.url}
+                        onClick={() => reportClicked('list', target.cta)}
+                        data-attr={`replay-vision-upsell-list-card-${target.cta}`}
+                    >
+                        {target.cta === 'scan_filters' ? 'Scan this filter' : 'Set up a scanner'}
+                    </LemonButton>
+                </div>
+            </div>
         </PostHogCaptureOnViewed>
     )
 }

@@ -50,8 +50,8 @@ export function ReplayVisionPlayerUpsellCard(): JSX.Element | null {
                             <IconSparkles className="text-ai" />
                             <span>
                                 {isTeamCard
-                                    ? 'Your team already uses Replay vision'
-                                    : 'Let Replay vision watch recordings for you'}
+                                    ? 'Save time: your team already uses Replay vision'
+                                    : 'Save time: let Replay vision watch recordings for you'}
                             </span>
                             {isTeamCard && scannerStats && (
                                 <LemonTag type="muted">{pluralize(scannerStats.total, 'scanner')}</LemonTag>
