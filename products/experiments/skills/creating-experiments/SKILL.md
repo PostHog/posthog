@@ -34,6 +34,7 @@ Read that before configuring anything.
    Add `metric_properties` in the same call when the candidate metric counts only some occurrences of its event.
    Pass `previous_experiments_limit: 5`. Five experiments are enough to read a precedent, and the default of 10 roughly doubles the response for no more signal.
    If the tool is not available, continue without it and treat every choice below as a best guess. Never call a tool you can't see.
+   Size the experiment with "Without setup context" in [references/setup-decisions.md](references/setup-decisions.md) instead.
 
    Each filter needs a `type` of `event` or `person`, a `key`, an `operator` and a `value`.
    The call rejects the `flag_evaluates_to` operator with a 400 that names it.
@@ -146,13 +147,23 @@ Key details:
 
    Also say what you could not read: a missing tool, or a section whose status was not `ok`.
 
-2. **Always show the experiment URL.** The `experiment-create` response includes `_posthogUrl` — always display this link so the user can view and configure the experiment in the UI.
+2. **Give the expected running time with the traffic it is based on**, for example "about 40 days at about 20 visitors a day". The traffic is the `exposure_rate_per_day` you sized with.
+   If the running time is over about 8 weeks, or there is none because almost nobody reached the target or converted, add this note:
 
-3. **Remind the user to implement the feature flag in code.** Link to the experiment page and say "implement the flag as shown here" — the experiment detail page shows implementation snippets for the user's SDK.
+   > If your traffic stays this low, it will take a long time to get significant results. Lean on session replays and Replay Vision for what people do in each variant.
 
-4. **Guide through metrics** if not yet configured — load the `configuring-experiment-analytics` skill.
+   Say the replays are on the experiment's Recordings tab.
 
-5. **Launch only when the user asks for it** — creation ends at a draft. A launch turns the feature flag on for real users, so never call `experiment-launch` unprompted.
+   Later in the session, call `experiment-get` before you quote a running time again, and quote its `running_time_calculation`: `recommended_running_time` is the days, and `recommended_sample_size` divided by it is the daily traffic.
+   Recalculate only when the metric or the rollout changes, and store the new plan with `experiment-update`.
+
+3. **Always show the experiment URL.** The `experiment-create` response includes `_posthogUrl` — always display this link so the user can view and configure the experiment in the UI.
+
+4. **Remind the user to implement the feature flag in code.** Link to the experiment page and say "implement the flag as shown here" — the experiment detail page shows implementation snippets for the user's SDK.
+
+5. **Guide through metrics** if not yet configured — load the `configuring-experiment-analytics` skill.
+
+6. **Launch only when the user asks for it** — creation ends at a draft. A launch turns the feature flag on for real users, so never call `experiment-launch` unprompted.
 
 ## Related skills
 

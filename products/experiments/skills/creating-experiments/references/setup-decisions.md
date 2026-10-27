@@ -1,6 +1,6 @@
 # Setup decisions from project facts
 
-Use this file after `experiment-setup-context` returned. Each section maps the tool's facts to one configuration choice and to a tier for the summary:
+Use this file after `experiment-setup-context` returned. Without the tool, size the experiment with "Without setup context" under "Feasibility and running time". Each section maps the tool's facts to one configuration choice and to a tier for the summary:
 
 - **Confident**: the facts decide it.
 - **Best guess**: a reasonable default that the facts support but do not prove. Say what would change it.
@@ -70,7 +70,8 @@ Keep the team's default exposure event (`team_defaults.default_exposure_event`).
 
 ## Who counts
 
-Keep the test-account filter on and say so. `team_defaults.new_experiments_filter_test_accounts` says what a new experiment does when its own exposure criteria say nothing, and it does not follow the project's insight default. If `team_defaults.test_account_filter_count` is 0, say the project has no test-account filters, so the setting changes nothing. Tier: best guess.
+Keep the test-account filter on and say so. `team_defaults.new_experiments_filter_test_accounts` says what a new experiment does when its own exposure criteria say nothing, and it does not follow the project's insight default.
+The project has no test-account filters when `team_defaults.test_account_filter_count` is 0, or, without setup context, when `project-get` returns an empty `test_account_filters`. Then the filter changes nothing, and the traffic and baseline may include the user's own visits. Say so, mark the baseline and the running time as best guesses, and point the user to the project's "Filter out internal and test users" setting. Tier: best guess.
 
 ## Primary metric
 
@@ -113,7 +114,7 @@ When `candidate_metric.status` is `ok` and it has baseline stats:
    - `minimum_detectable_effect`: the value you sent (the calculator does not return it)
    - `recommended_sample_size`: the calculator's `recommended_sample_size`
    - `recommended_running_time`: the calculator's `recommended_running_time_days`
-3. If the running time is over about 8 weeks, say so plainly. Propose a more frequent event earlier in the journey as primary and keep the rare event as secondary.
+3. If the running time is over about 8 weeks, still create the experiment, and add the low-traffic note when you report it ("After creation" in SKILL.md). Propose a more frequent event earlier in the journey as primary and keep the rare event as secondary.
 
 The estimate assumes people are exposed on the target surface. If the flag is evaluated more widely (across the whole app, or on a page before the one that changes), the exposed population is larger and converts less. The baseline and the running time are then too optimistic. Say so, and consider a custom exposure on the surface event. This is the one case where a custom exposure is right in a project that has never used one, and "Precedent" says so too.
 `previous_experiments.experiments[].outcome.control_baseline_value` shows what that dilution looked like: a control baseline far below the rate the surface itself converts at is an experiment that was exposed too widely.
@@ -135,6 +136,36 @@ Read the shape back with `read-data-schema` (`event_property_values`, a sample o
 3. `candidate_metric.event_volume` is above 0 but `candidate_metric.persons_converted` is 0: the event happens, but never after the target event. Either the metric measures something people do elsewhere in the product, or the target is wrong. `candidate_metric.unique_persons` says how many people send the event at all, which separates a rare event from a misplaced one.
 
 Tier: confident on the arithmetic, best guess on the inputs (the baseline is an estimate over `candidate_metric.window_days`).
+
+### Without setup context
+
+This is the path until `experiment-setup-context` is on for everyone. Use it rather than writing your own SQL.
+
+1. Call `query-funnel` over the last 14 days with test accounts filtered. Step 1 is the target event with the filters you would pass as `target_properties`. Step 2 is the metric event with any `metric_properties`:
+
+   ```json
+   {
+     "series": [
+       {
+         "kind": "EventsNode",
+         "event": "$pageview",
+         "properties": [
+           { "key": "$host", "type": "event", "operator": "exact", "value": ["www.example.com"] },
+           { "key": "$pathname", "type": "event", "operator": "exact", "value": ["/"] }
+         ]
+       },
+       { "kind": "EventsNode", "event": "your_conversion_event" }
+     ],
+     "dateRange": { "date_from": "-14d" },
+     "filterTestAccounts": true
+   }
+   ```
+
+2. Call `experiment-calculate-running-time` as in step 1 at the top of this section, with these inputs in place of the setup context ones:
+   - `exposure_rate_per_day`: step 1's person count divided by 14, times the rollout share
+   - `metric_type: "funnel"`, with `baseline_value` set to step 2's conversion rate as a fraction. The funnel gives no baseline for a count per user, so size that metric as a funnel too and say so.
+   - `minimum_detectable_effect`: the one the user gave, else 30, the product default
+3. Follow steps 2 and 3 at the top of this section. Check the project's test-account filters with `project-get`, as "Who counts" says.
 
 ## Precedent
 
