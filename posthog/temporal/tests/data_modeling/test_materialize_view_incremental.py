@@ -19,6 +19,7 @@ from django.test import override_settings
 import pyarrow as pa
 import deltalake
 import structlog
+from temporalio.exceptions import ApplicationError
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseQueryTimeoutError
@@ -1231,3 +1232,50 @@ class TestWindowedMaterialization:
 
         assert interrupted.watermark is None
         assert producer.staged_rows() == rows
+
+    @pytest.mark.parametrize(
+        "query,expected_message",
+        [
+            pytest.param(
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day",
+                materialize_view_module.TOO_LARGE_FOR_ONE_QUERY_MESSAGE,
+                id="eligible",
+            ),
+            pytest.param(
+                "SELECT toStartOfDay(timestamp) AS day, count() AS c FROM events GROUP BY day HAVING c > 1",
+                "Code: 159. Timeout exceeded",
+                id="having_blocks_incremental",
+            ),
+        ],
+    )
+    async def test_a_full_refresh_timeout_points_to_incremental_materialization(
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag, query, expected_message
+    ):
+        asaved_query.query = {"kind": "HogQLQuery", "query": query}
+        await database_sync_to_async(asaved_query.save)(update_fields=["query"])
+
+        class TimingOut:
+            def __aiter__(self) -> "TimingOut":
+                return self
+
+            async def __anext__(self) -> Any:
+                raise ClickHouseQueryTimeoutError("Code: 159. Timeout exceeded")
+
+        def timing_out(*args, **kwargs) -> TimingOut:
+            return TimingOut()
+
+        with (
+            _settings(bucket_name),
+            _windowing_enabled(),
+            unittest.mock.patch(f"{MATERIALIZE_VIEW}.hogql_table", timing_out),
+            pytest.raises((ApplicationError, ClickHouseQueryTimeoutError)) as raised,
+        ):
+            await activity_environment.run(
+                materialize_view_activity,
+                MaterializeViewInputs(
+                    team_id=ateam.pk, dag_id=str(adag.id), node_id=str(anode.id), job_id=str(ajob.id)
+                ),
+            )
+
+        assert expected_message in str(raised.value)
+        assert getattr(raised.value, "type", type(raised.value).__name__) == "ClickHouseQueryTimeoutError"
