@@ -78,7 +78,6 @@ from products.endpoints.backend.logic.materialized_serving import serving_state_
 from products.endpoints.backend.logic.pagination import EndpointPagination
 from products.endpoints.backend.logic.rate_limit_signal import EndpointRateLimitReason, record_endpoint_rate_limited
 from products.endpoints.backend.logic.strategies import EndpointQueryStrategy, strategy_for
-from products.endpoints.backend.logic.validation import NATIVE_CLUSTER_UNSUPPORTED
 from products.endpoints.backend.logs import build_execution_message, log_endpoint_execution
 from products.endpoints.backend.metrics import (
     ENDPOINT_CACHE_RESULT_TOTAL,
@@ -375,8 +374,6 @@ class EndpointExecutionService(PydanticModelMixin):
         version: EndpointVersion,
         offset: int | None = None,
     ) -> None:
-        if (version.query.get("modifiers") or {}).get("useNewEventsCluster"):
-            raise ValidationError({"query": NATIVE_CLUSTER_UNSUPPORTED})
         strategy = strategy_for(endpoint, version, self.team)
 
         is_materialized = bool(version.is_materialized and version.saved_query)

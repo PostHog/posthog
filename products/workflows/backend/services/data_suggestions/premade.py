@@ -18,7 +18,7 @@ from posthog.models import Team, User
 from products.workflows.backend.facade.contracts import BuiltSuggestion, DataSuggestion, WorkflowIdeaAlreadyResolved
 from products.workflows.backend.facade.enums import WorkflowIdeaStatus
 from products.workflows.backend.models import HogFlow, WorkflowIdea
-from products.workflows.backend.services.data_suggestions.builder import EmailSender
+from products.workflows.backend.services.data_suggestions.builder import PUSH_SETUP_NOTE, EmailSender
 
 
 def premade_suggestions(team: Team) -> tuple[DataSuggestion, ...]:
@@ -118,6 +118,22 @@ def with_sender(workflow: dict[str, Any], sender: EmailSender | None) -> dict[st
         value = email.get("value")
         if isinstance(value, dict) and not (value.get("from") or {}).get("email"):
             value["from"] = {"integrationId": sender.integration_id, "email": sender.email, "name": sender.name}
+    return filled
+
+
+def with_push_channels(workflow: dict[str, Any], integration_ids: Sequence[int]) -> dict[str, Any]:
+    """Fills each blank push channel list, because the project may have connected a provider after the idea was
+    built. The note that asked for the provider goes too."""
+    if not integration_ids:
+        return workflow
+    filled = copy.deepcopy(workflow)
+    for action in filled.get("actions") or []:
+        if action.get("type") != "function_push":
+            continue
+        channels = cast(dict[str, Any], ((action.get("config") or {}).get("inputs") or {}).get("channels") or {})
+        if channels and not channels.get("value"):
+            channels["value"] = list(integration_ids)
+            action["description"] = str(action.get("description") or "").replace(PUSH_SETUP_NOTE, "").strip()
     return filled
 
 

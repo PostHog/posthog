@@ -35,11 +35,7 @@ from products.mcp_store.backend.facade.api import get_sandbox_mcp_server_names
 from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, resolve_agent_runtime
 from products.signals.backend.constants import FIRST_REPORT_SCOUT, FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
 from products.signals.backend.first_report_completion import complete_first_report_investigation
-from products.signals.backend.first_report_experiment import (
-    FirstReportExperiment,
-    capture_first_report_exposure,
-    resolve_first_report_experiment,
-)
+from products.signals.backend.first_report_experiment import FirstReportExperiment, resolve_first_report_experiment
 from products.signals.backend.first_report_scout import set_first_report_state
 from products.signals.backend.first_report_scout_types import FirstReportScoutResult
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
@@ -487,10 +483,6 @@ async def _arun_signals_scout(
             )
         agent_runtime = experiment.agent_runtime
     runtime = agent_runtime.runtime if agent_runtime is not None else "acp"
-    if experiment is not None:
-        await database_sync_to_async(capture_first_report_exposure, thread_sensitive=False)(
-            team, experiment, str(run_id)
-        )
     if agent_runtime is not None:
         runtime_adapter: str | None = agent_runtime.runtime_adapter
         model: str | None = agent_runtime.model

@@ -64,23 +64,13 @@ CONSTANCE_CONFIG = {
     ),
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA": (
         False,
-        "Whether HogQL queries read from the native-JSON events tables (events_json) instead of the legacy events table.",
+        "Every project reads the native JSON events table (events_json) instead of the legacy events table. The widest of the switches: a query's useNewEventsSchema modifier, a staff person's ph_new_events_schema cookie and CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS each switch less.",
         bool,
     ),
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS": (
         "",
-        "Comma-separated team IDs whose HogQL queries read from the native-JSON events tables even while the global setting is off.",
+        "Comma-separated project IDs that read the native JSON events table (events_json) in insights, SQL, cohorts and the background jobs that run per project. Changes reach workers within about a minute.",
         str,
-    ),
-    "CLICKHOUSE_NATIVE_EVENTS_HOST": (
-        get_from_env("CLICKHOUSE_NATIVE_EVENTS_HOST", ""),
-        "Hostname for explicit new events cluster queries, without a scheme, port or path. Empty disables the route. Changes reach workers within about a minute.",
-        str,
-    ),
-    "CLICKHOUSE_NATIVE_EVENTS_TEAMS": (
-        [],
-        "Project IDs eligible for explicit native events cluster query opt-ins. This does not change query defaults.",
-        list[int],
     ),
     "PERSON_ON_EVENTS_V2_ENABLED": (
         # Person-on-events v2 reads are the production default for every project created
@@ -457,8 +447,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "PERSON_ON_EVENTS_V2_ENABLED",
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA",
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS",
-    "CLICKHOUSE_NATIVE_EVENTS_HOST",
-    "CLICKHOUSE_NATIVE_EVENTS_TEAMS",
     "STRICT_CACHING_TEAMS",
     "GITHUB_APP_SLUG",
     "SLACK_APP_CLIENT_ID",

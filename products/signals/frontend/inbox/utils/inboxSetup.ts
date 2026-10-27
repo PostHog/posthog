@@ -36,6 +36,8 @@ const SOURCE_TYPES: Partial<Record<string, InboxOnboardingSourceApi['source_type
     ],
 }
 
+const SOURCES_EXCLUDED_FROM_SETUP: ReadonlySet<string> = new Set(['pganalyze', 'github', 'engineering_analytics'])
+
 export function setupSources(
     configs: SignalSourceConfig[],
     statuses: Partial<Record<string, SourceProductStatus>>,
@@ -47,7 +49,9 @@ export function setupSources(
     return AGENT_ROSTER_GROUPS.flatMap((group) => group.agents)
         .filter(
             (definition) =>
-                !definition.legacy && definition.source !== 'pganalyze' && (!definition.flag || flags[definition.flag])
+                !definition.legacy &&
+                !SOURCES_EXCLUDED_FROM_SETUP.has(definition.source) &&
+                (!definition.flag || flags[definition.flag])
         )
         .map((definition) => {
             const existing = configs.filter((config) => config.source_product === definition.sourceProduct)
@@ -60,11 +64,16 @@ export function setupSources(
                 warehouseSources?.filter((source) => source.source_type === warehouseSetup?.dwSourceType) ?? []
             const hasRequiredTables =
                 !!warehouseSetup &&
-                warehouseSetup.requiredTables.every((table) =>
-                    connectedSources.some((source) =>
-                        source.schemas?.some((schema) => schema.name === table || schema.name.endsWith(`.${table}`))
+                warehouseSetup.requiredTables.every((table) => {
+                    // Case-insensitive: some sources name tables in PascalCase (e.g. BugHerd `Tasks`).
+                    const wanted = table.toLowerCase()
+                    return connectedSources.some((source) =>
+                        source.schemas?.some((schema) => {
+                            const name = schema.name.toLowerCase()
+                            return name === wanted || name.endsWith(`.${wanted}`)
+                        })
                     )
-                )
+                })
             const setupUrl =
                 connectedSources.length && !hasRequiredTables
                     ? urls.dataWarehouseSource(connectedSources[0].id, 'schemas')

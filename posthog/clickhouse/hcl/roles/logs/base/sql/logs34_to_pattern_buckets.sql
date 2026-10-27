@@ -7,6 +7,7 @@ SELECT
   severity_text,
   pattern_version,
   pattern,
+  internal_source,
   maxSimpleState(retention_days) AS retention_days,
   sumSimpleState(1) AS log_count
 FROM
@@ -32,6 +33,7 @@ FROM
       lower(severity_text) AS severity_text,
       pattern_version,
       pattern,
+      internal_source,
       toUInt16(
         least(
           intDiv(
@@ -45,4 +47,4 @@ FROM
     WHERE pattern_version != 0
   )
 GROUP BY
-  team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern
+  team_id, time_bucket, service_name, namespace, environment, severity_text, pattern_version, pattern, internal_source

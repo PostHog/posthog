@@ -5,7 +5,6 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -2273,7 +2272,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         actions.loadBlastRadius()
         actions.landOnPrefilledStep()
         const draftSource = parseEmailDraftSource(draftSourceParam)
-        if (draftSource && values.featureFlags[FEATURE_FLAGS.WORKFLOWS_AI_EMAIL_DRAFT]) {
+        if (draftSource) {
             actions.loadAiEmailDraft(draftSource)
         }
     }),

@@ -87,6 +87,7 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(data) == 3
         for datum in data:
+            assert datum.count == 0
             assert datum.min == 0.0
             assert datum.max == 0.0
             assert datum.mean == 0.0
@@ -162,6 +163,7 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         datum = data[0]
 
         assert datum.min == expected_min
+        assert datum.count == len(values)
         assert datum.max == expected_max
         assert datum.mean == pytest.approx(expected_mean, abs=0.01)
         assert datum.min <= datum.p25 <= datum.median <= datum.p75 <= datum.max
@@ -254,6 +256,7 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         for zero_day in ["2023-12-02", "2023-12-03", "2023-12-04", "2023-12-06", "2023-12-07"]:
             datum = days_with_data[zero_day]
+            assert datum.count == 0
             assert datum.min == 0.0
             assert datum.max == 0.0
             assert datum.mean == 0.0
@@ -418,6 +421,7 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert datum.median == 0.0
         assert datum.p25 == 0.0
         assert datum.p75 == 0.0
+        assert datum.count == 0
 
     @snapshot_clickhouse_queries
     def test_results_are_ordered_by_day_ascending(self):
@@ -525,6 +529,7 @@ class TestBoxPlotTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(data) == 1
         datum = data[0]
         assert datum.day == "2023-12-02"
+        assert datum.count == 2
         assert datum.min > 0
         assert datum.max > 0
         assert datum.min <= datum.p25 <= datum.median <= datum.p75 <= datum.max
@@ -579,6 +584,7 @@ class TestBoxPlotTrendsQueryRunnerDataWarehouse(ClickhouseTestMixin, APIBaseTest
         by_day = {d.day: d for d in data}
 
         datum = by_day["2023-12-02"]
+        assert datum.count == 5
         assert datum.min == 10.0
         assert datum.p25 == pytest.approx(20.0)
         assert datum.median == pytest.approx(30.0)
@@ -588,6 +594,7 @@ class TestBoxPlotTrendsQueryRunnerDataWarehouse(ClickhouseTestMixin, APIBaseTest
         assert datum.series_label == f"{table.name} - revenue"
 
         for zero_day in ["2023-12-01", "2023-12-03"]:
+            assert by_day[zero_day].count == 0
             assert by_day[zero_day].min == 0.0
             assert by_day[zero_day].max == 0.0
 

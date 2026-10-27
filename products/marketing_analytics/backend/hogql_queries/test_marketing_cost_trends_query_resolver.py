@@ -256,14 +256,20 @@ class TestMarketingCostTrendsQueryResolver(SimpleTestCase):
         self.ensure.side_effect = ensure_precomputed
         base_module = "products.marketing_analytics.backend.hogql_queries.marketing_analytics_base_query_runner"
         with (
+            # A pinned events table keeps the warmer's runner from asking the instance settings; this test has no database.
             patch(
                 "posthog.hogql_queries.query_runner.create_default_modifiers_for_team",
-                return_value=HogQLQueryModifiers(),
+                return_value=HogQLQueryModifiers(useNewEventsSchema=False),
             ),
             patch.object(MarketingSourceFactory, "__init__", initialize_factory),
             patch.object(MarketingSourceFactory, "create_adapters", create_adapters),
             patch(f"{base_module}.MarketingSourceFactory", MarketingSourceFactory),
             patch(f"{base_module}.marketing_ensure_precomputed", side_effect=ensure_precomputed),
+            # The job identity asks the instance settings which events table a build reads; this test has no database.
+            patch(
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.use_new_events_schema",
+                return_value=False,
+            ),
             patch.object(
                 LazyComputationExecutor, "execute", return_value=LazyComputationResult(ready=True, job_ids=[])
             ) as execute,
