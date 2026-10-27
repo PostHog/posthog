@@ -675,6 +675,7 @@ def _run_activity_query(
     with tags_context(product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.id, name=name):
         response = HogQLQueryRunner(query=query, team=team, user=user).run(
             execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+            user=user,
             cache_age_seconds=ACTIVITY_CACHE_AGE_SECONDS,
         )
     results = getattr(response, "results", None)
