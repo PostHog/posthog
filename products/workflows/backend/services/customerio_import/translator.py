@@ -14,7 +14,13 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 
-from products.workflows.backend.facade.contracts import CampaignSource, ImportNote, ImportOptions, TranslatedWorkflow
+from products.workflows.backend.facade.contracts import (
+    CampaignSource,
+    ImportNote,
+    ImportOptions,
+    SnippetRoom,
+    TranslatedWorkflow,
+)
 from products.workflows.backend.facade.enums import WorkflowImportNoteLevel as NoteLevel
 from products.workflows.backend.services.customerio_import import conditions, liquid
 
@@ -57,7 +63,7 @@ _CHANNEL_NAMES = {
 
 
 class _Builder:
-    def __init__(self, source: CampaignSource, options: ImportOptions) -> None:
+    def __init__(self, source: CampaignSource, options: ImportOptions, snippet_room: SnippetRoom) -> None:
         self.campaign = source.campaign
         self.source_actions = {str(action["id"]): action for action in source.actions if action.get("id") is not None}
         self.templates = source.templates
@@ -66,7 +72,7 @@ class _Builder:
         self.actions: dict[str, dict[str, Any]] = {}
         # Outgoing links per source action id: (target source id, edge type, index).
         self.links: dict[str, list[tuple[str, str, int | None]]] = {}
-        self.snippet_room = liquid.SnippetRoom()
+        self.snippet_room = snippet_room
 
     def note(self, level: NoteLevel, message: str, action: dict[str, Any] | None = None) -> None:
         self.notes.append(
@@ -835,8 +841,10 @@ class _Builder:
         return edges
 
 
-def translate_campaign(source: CampaignSource, options: ImportOptions) -> TranslatedWorkflow:
-    return _Builder(source, options).build()
+def translate_campaign(
+    source: CampaignSource, options: ImportOptions, snippet_room: SnippetRoom | None = None
+) -> TranslatedWorkflow:
+    return _Builder(source, options, snippet_room or SnippetRoom()).build()
 
 
 def _empty_trigger() -> dict[str, Any]:

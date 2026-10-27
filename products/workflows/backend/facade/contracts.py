@@ -1102,6 +1102,16 @@ class ImportContent:
     fetched: bool
 
 
+@dataclass(frozen=False)
+class SnippetRoom:
+    """How many more bytes of snippet content one import request may inline, shared by every automation in it.
+
+    Snippets are inlined by copy, so a short template that repeats a large one could grow without bound.
+    """
+
+    remaining: int = 5_000_000
+
+
 @frozen
 class PreviousImport:
     """The earlier import of a source object, when there is one."""
