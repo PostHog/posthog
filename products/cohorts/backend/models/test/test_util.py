@@ -976,6 +976,10 @@ class TestCohortUtils(BaseTest):
                 "events_person_dot_id_with_extra_columns",
                 "SELECT person.id, count() AS msd FROM events GROUP BY person.id HAVING msd >= 1",
             ),
+            (
+                "events_distinct_id_aggregating_with_having",
+                "SELECT distinct_id, count() AS n FROM events GROUP BY distinct_id HAVING n >= 3",
+            ),
         ]
     )
     def test_print_cohort_hogql_query_supports_multi_column_aliased_and_aggregating_queries(
@@ -993,6 +997,7 @@ class TestCohortUtils(BaseTest):
 
         self.assertIn("as actor_id", sql.lower())
         self.assertIn("max_execution_time=1200", sql)
+        insert_cohort_query_actors_into_ch(cohort, team=self.team)
 
     def test_print_cohort_hogql_query_with_multi_column_distinct_id_query(self):
         from posthog.hogql import ast
@@ -1018,6 +1023,7 @@ class TestCohortUtils(BaseTest):
 
         with patch("posthog.hogql_queries.query_runner.get_query_runner", mock_get_query_runner):
             sql = print_cohort_hogql_query(cohort, context, team=self.team)
+            insert_cohort_query_actors_into_ch(cohort, team=self.team)
 
         self.assertIn("person_distinct_id2", sql)
         self.assertIn("argMax(person_id, version) as actor_id", sql)
@@ -1082,6 +1088,49 @@ class TestCohortUtils(BaseTest):
             {"team_id": self.team.id, "cohort_id": cohort.id},
         )
         self.assertEqual([str(r[0]) for r in rows], [str(p1.uuid)])
+
+        # Also test aggregating distinct_id query from events populates successfully
+        cohort_distinct = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            name="distinct_id aggregating cohort",
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT distinct_id, count() AS n FROM events GROUP BY distinct_id HAVING n >= 2",
+            },
+        )
+        insert_cohort_query_actors_into_ch(cohort_distinct, team=self.team)
+        rows_distinct = sync_execute(
+            f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.id, "cohort_id": cohort_distinct.id},
+        )
+        self.assertEqual([str(r[0]) for r in rows_distinct], [str(p1.uuid)])
+
+    def test_wrap_select_query_strips_inner_distinct_on_unbounded_query(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Unbounded Distinct Cohort",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": "SELECT DISTINCT person_id, event FROM events"},
+        )
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+        sql = print_cohort_hogql_query(cohort, context, team=self.team)
+        self.assertNotIn("SELECT DISTINCT person_id, event", sql)
+        self.assertIn("SELECT actor_id FROM (SELECT person_id, event", sql)
+        insert_cohort_query_actors_into_ch(cohort, team=self.team)
+
+    def test_wrap_select_query_preserves_inner_distinct_on_bounded_query(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Bounded Distinct Cohort",
+            is_static=True,
+            query={"kind": "HogQLQuery", "query": "SELECT DISTINCT person_id, event FROM events LIMIT 10"},
+        )
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+        sql = print_cohort_hogql_query(cohort, context, team=self.team)
+        self.assertIn("DISTINCT", sql)
+        self.assertIn("LIMIT 10", sql)
+        insert_cohort_query_actors_into_ch(cohort, team=self.team)
 
 
 class TestGetNestedCohortIds(BaseTest):

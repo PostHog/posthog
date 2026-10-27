@@ -1657,10 +1657,9 @@
          "posthog_cohortcalculationhistory"."error_code"
   FROM "posthog_cohortcalculationhistory"
   WHERE ("posthog_cohortcalculationhistory"."cohort_id" = 99999
-         AND NOT ("posthog_cohortcalculationhistory"."error" IS NULL)
-         AND NOT ("posthog_cohortcalculationhistory"."error" = ''
-                  AND "posthog_cohortcalculationhistory"."error" IS NOT NULL))
-  ORDER BY "posthog_cohortcalculationhistory"."started_at" DESC
+         AND "posthog_cohortcalculationhistory"."finished_at" IS NOT NULL)
+  ORDER BY "posthog_cohortcalculationhistory"."started_at" DESC,
+           "posthog_cohortcalculationhistory"."id" DESC
   LIMIT 1
   '''
 # ---
