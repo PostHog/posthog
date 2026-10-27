@@ -23,7 +23,8 @@ napi = { version = "2", default-features = false, features = ["napi8", "serde-js
 napi-derive = "2"
 rayon = "1.10"
 regex = "1.13.1"
-serde_json = "1.0"
+# float_roundtrip: the default parser can read a JSON float one ULP off the JS number it came from.
+serde_json = { version = "1.0", features = ["float_roundtrip"] }
 # Not common-alloc: a dlopen'ed cdylib needs jemalloc built without initial-exec TLS (see lib.rs).
 tikv-jemallocator = { version = "0.6", features = ["disable_initial_exec_tls"] }
 

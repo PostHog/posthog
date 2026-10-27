@@ -253,6 +253,33 @@ pub fn execute_registered_sync(
     })
 }
 
+#[napi(object)]
+pub struct HogExecJsonResult {
+    pub result_json: Option<String>,
+    pub error: Option<String>,
+    pub duration_us: f64,
+    pub logs: Vec<String>,
+    pub logs_truncated: bool,
+}
+
+#[napi]
+pub fn execute_registered_sync_json(
+    handle: u32,
+    globals_json: String,
+    options: Option<ExecuteSyncOptions>,
+) -> NapiResult<HogExecJsonResult> {
+    let globals: Value = serde_json::from_str(&globals_json)
+        .map_err(|e| napi::Error::from_reason(format!("invalid globals json: {e}")))?;
+    let executed = execute_registered_sync(handle, globals, options)?;
+    Ok(HogExecJsonResult {
+        result_json: executed.result.map(|value| value.to_string()),
+        error: executed.error,
+        duration_us: executed.duration_us,
+        logs: executed.logs,
+        logs_truncated: executed.logs_truncated,
+    })
+}
+
 #[cfg(not(feature = "noop"))]
 pub struct ExecuteRegisteredBatchTask {
     program: Result<hogvm::Program, String>,
@@ -362,6 +389,32 @@ mod tests {
             .as_deref()
             .unwrap()
             .contains("unknown program handle"));
+    }
+
+    #[test]
+    fn json_globals_round_trip_through_the_program_and_invalid_json_throws() {
+        let _guard = registry_guard();
+        // push "event", GET_GLOBAL (1 chain part), RETURN
+        let handle = register_program(json!(["_H", 1, 32, "event", 1, 1, 38]));
+        let event = json!({
+            // 0.1 + 0.002 in JS; serde_json's default float parser reads it as 0.102.
+            "properties": { "float": 0.10200000000000001, "int": 1_730_000_000_000_i64, "text": "caf\u{e9} \"q\"" },
+            "nested": [null, true, { "a": [] }],
+        });
+
+        let executed =
+            execute_registered_sync_json(handle, json!({ "event": event }).to_string(), None)
+                .expect("valid json");
+        assert_eq!(executed.error, None);
+        let result: Value = serde_json::from_str(&executed.result_json.unwrap()).unwrap();
+        assert_eq!(result, event);
+
+        let error =
+            execute_registered_sync_json(handle, r#"{"event": "\ud800"}"#.to_string(), None)
+                .err()
+                .expect("lone surrogate is not valid json for serde_json");
+        assert!(error.reason.starts_with("invalid globals json"));
+        release_program(handle);
     }
 
     #[test]

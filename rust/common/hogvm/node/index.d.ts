@@ -75,6 +75,25 @@ export function executeRegisteredSync(
     options?: ExecuteSyncOptions
 ): HogExecResult
 
+export interface HogExecJsonResult {
+    /** The program's return value as JSON text; undefined when the execution errored. */
+    resultJson?: string
+    error?: string
+    durationUs: number
+    logs?: string[]
+    logsTruncated?: boolean
+}
+
+/**
+ * `executeRegisteredSync` with the globals and the return value as JSON text. Globals that are not
+ * valid JSON throw.
+ */
+export function executeRegisteredSyncJson(
+    handle: number,
+    globalsJson: string,
+    options?: ExecuteSyncOptions
+): HogExecJsonResult
+
 /**
  * `executeBatch` against a program registered with `registerProgram`: one napi crossing for many
  * events, off the JS event loop, with no per-batch bytecode marshal or decode. Same per-event

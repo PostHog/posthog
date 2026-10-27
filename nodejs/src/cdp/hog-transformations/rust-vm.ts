@@ -87,6 +87,11 @@ export interface HogvmNodeModule {
     registerProgram?(program: unknown[]): number
     releaseProgram?(handle: number): void
     executeRegisteredSync?(handle: number, globals: unknown, options?: { maxSteps?: number }): RustExecResult
+    executeRegisteredSyncJson?(
+        handle: number,
+        globalsJson: string,
+        options?: { maxSteps?: number }
+    ): Omit<RustExecResult, 'result'> & { resultJson?: string }
     executeRegisteredBatch?(
         handle: number,
         events: unknown[],
