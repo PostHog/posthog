@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.outbrain import (
     PAGE_SIZE,
+    REPORT_ROW_LIMIT,
     OutbrainResumeConfig,
     validate_credentials,
 )
@@ -177,6 +178,35 @@ class TestReportStreams:
         assert result.rows[0]["_marketer_id"] == "m1"
         assert "_date" not in result.rows[0]
         assert result.requests[1].param("breakdown") is None
+
+    @pytest.mark.parametrize(
+        "endpoint, report_path",
+        [
+            ("promoted_link_performance", "promotedContent"),
+            ("publisher_performance", "publishers"),
+            ("section_performance", "sections"),
+        ],
+    )
+    def test_breakdown_report_pages_with_offset(
+        self, mock_cache: mock.MagicMock, endpoint: str, report_path: str
+    ) -> None:
+        mock_cache.get.return_value = "tok"
+        full_page = [{"metadata": {"id": f"r{i}"}, "metrics": {"clicks": i}} for i in range(REPORT_ROW_LIMIT)]
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json={"marketers": [{"id": "m1"}]}),
+                ScriptedResponse(json={"results": full_page, "totalResults": REPORT_ROW_LIMIT + 1}),
+                ScriptedResponse(json={"results": [{"metadata": {"id": "r-last"}, "metrics": {}}]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert [len(batch) for batch in result.items] == [REPORT_ROW_LIMIT, 1]
+        assert all(row["_marketer_id"] == "m1" for row in result.rows)
+        assert result.paths[1:] == [f"/amplify/v0.1/reports/marketers/m1/{report_path}"] * 2
+        assert [request.param("offset") for request in result.requests[1:]] == ["0", str(REPORT_ROW_LIMIT)]
+        assert result.saved_states == [OutbrainResumeConfig(next_index=1)]
 
 
 class TestOutbrainSourceResponse:

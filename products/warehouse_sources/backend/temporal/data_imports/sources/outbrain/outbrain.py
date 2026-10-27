@@ -25,6 +25,7 @@ REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRY_ATTEMPTS = 5
 PAGE_SIZE = 100
 # Periodic reports return one row per day; 500 covers the full default backfill.
+# Breakdown reports page through with offset at the same size.
 REPORT_ROW_LIMIT = 500
 # Tokens are valid 30 days but /login is capped at 2 requests/hour, so the
 # token is cached across runs and only re-minted when it expires.
@@ -211,32 +212,34 @@ def get_rows(
     marketer_ids = list_marketer_ids()
     for index in range(start_index, len(marketer_ids)):
         marketer_id = marketer_ids[index]
-        params = urlencode(
-            {
-                "from": window_start.isoformat(),
-                "to": today.isoformat(),
-                "breakdown": "daily",
-                "limit": REPORT_ROW_LIMIT,
-            }
-            if config.kind == "periodic_report"
-            else {"from": window_start.isoformat(), "to": today.isoformat(), "limit": REPORT_ROW_LIMIT}
-        )
         path = config.path.format(marketer_id=quote(marketer_id))
-        rows = rows_of(fetch(f"{OUTBRAIN_BASE_URL}{path}?{params}"), config.data_key)
-
-        out: list[dict[str, Any]] = []
-        for row in rows:
-            enriched = {**row, "_marketer_id": marketer_id}
+        offset = 0
+        while True:
+            params: dict[str, Any] = {"from": window_start.isoformat(), "to": today.isoformat()}
             if config.kind == "periodic_report":
-                metadata_value = row.get("metadata")
-                metadata = metadata_value if isinstance(metadata_value, dict) else {}
-                row_date = metadata.get("fromDate") or metadata.get("id")
-                if not row_date:
-                    continue
-                enriched["_date"] = row_date
-            out.append(enriched)
-        if out:
-            yield out
+                params["breakdown"] = "daily"
+            params["limit"] = REPORT_ROW_LIMIT
+            if config.paginated:
+                params["offset"] = offset
+            rows = rows_of(fetch(f"{OUTBRAIN_BASE_URL}{path}?{urlencode(params)}"), config.data_key)
+
+            out: list[dict[str, Any]] = []
+            for row in rows:
+                enriched = {**row, "_marketer_id": marketer_id}
+                if config.kind == "periodic_report":
+                    metadata_value = row.get("metadata")
+                    metadata = metadata_value if isinstance(metadata_value, dict) else {}
+                    row_date = metadata.get("fromDate") or metadata.get("id")
+                    if not row_date:
+                        continue
+                    enriched["_date"] = row_date
+                out.append(enriched)
+            if out:
+                yield out
+
+            if not config.paginated or len(rows) < REPORT_ROW_LIMIT:
+                break
+            offset += len(rows)
 
         # Save state AFTER yielding so a crash re-yields the in-flight marketer.
         resumable_source_manager.save_state(OutbrainResumeConfig(next_index=index + 1))

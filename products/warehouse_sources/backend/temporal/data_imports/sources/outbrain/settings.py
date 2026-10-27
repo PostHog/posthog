@@ -34,7 +34,7 @@ class OutbrainEndpointConfig:
     data_key: str
     primary_keys: list[str] | None = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
-    # Entity endpoints paginate with limit/offset.
+    # Entity and breakdown report endpoints paginate with limit/offset.
     paginated: bool = False
 
 
@@ -67,6 +67,12 @@ OUTBRAIN_ENDPOINTS: dict[str, OutbrainEndpointConfig] = {
         data_key="promotedLinks",
         paginated=True,
     ),
+    "conversion_events": OutbrainEndpointConfig(
+        name="conversion_events",
+        kind="per_marketer",
+        path="/marketers/{marketer_id}/conversionEvents",
+        data_key="conversionEvents",
+    ),
     # Daily periodic performance per marketer; rows carry the day in
     # metadata, injected as `_date` for the incremental cursor.
     "marketer_performance_daily": OutbrainEndpointConfig(
@@ -85,6 +91,32 @@ OUTBRAIN_ENDPOINTS: dict[str, OutbrainEndpointConfig] = {
         path="/reports/marketers/{marketer_id}/campaigns",
         data_key="results",
         primary_keys=None,
+    ),
+    # Breakdown reports have no date dimension either, so they are trailing
+    # window snapshots too. One row per publisher/section/promoted link.
+    "promoted_link_performance": OutbrainEndpointConfig(
+        name="promoted_link_performance",
+        kind="snapshot_report",
+        path="/reports/marketers/{marketer_id}/promotedContent",
+        data_key="results",
+        primary_keys=None,
+        paginated=True,
+    ),
+    "publisher_performance": OutbrainEndpointConfig(
+        name="publisher_performance",
+        kind="snapshot_report",
+        path="/reports/marketers/{marketer_id}/publishers",
+        data_key="results",
+        primary_keys=None,
+        paginated=True,
+    ),
+    "section_performance": OutbrainEndpointConfig(
+        name="section_performance",
+        kind="snapshot_report",
+        path="/reports/marketers/{marketer_id}/sections",
+        data_key="results",
+        primary_keys=None,
+        paginated=True,
     ),
 }
 
