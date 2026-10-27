@@ -1,3 +1,5 @@
+import { decodedMessageValue } from '~/common/kafka/decoded-message-value'
+
 import { deserializeKafkaMessage } from './kafka-message-converter'
 import { SerializedKafkaMessage } from './types'
 
@@ -48,6 +50,7 @@ describe('deserializeKafkaMessage', () => {
 
         expect(message.key).toBeUndefined()
         expect(message.value).toBeNull()
+        expect(decodedMessageValue(message)).toBeUndefined()
         expect(message.size).toBe(0)
         expect(message.headers).toBeUndefined()
     })
@@ -82,6 +85,7 @@ describe('deserializeKafkaMessage', () => {
         const message = deserializeKafkaMessage(serialized)
 
         expect(message.value!.toString('utf-8')).toBe('{"name":"José 日本語 🎉"}')
+        expect(decodedMessageValue(message)).toBe(message.value!.toString('utf-8'))
         // size should reflect byte length, not JS string length (multi-byte chars)
         expect(message.size).toBe(Buffer.byteLength('{"name":"José 日本語 🎉"}', 'utf-8'))
     })

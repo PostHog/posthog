@@ -1,5 +1,7 @@
 import { Message, MessageHeader } from 'node-rdkafka'
 
+import { recordDecodedValue } from '~/common/kafka/decoded-message-value'
+
 import { SerializedKafkaMessage } from './types'
 
 /**
@@ -13,7 +15,7 @@ export function deserializeKafkaMessage(serialized: SerializedKafkaMessage): Mes
 
     const valueBuffer = serialized.value ? Buffer.from(serialized.value, 'utf-8') : null
 
-    return {
+    const message: Message = {
         topic: serialized.topic,
         partition: serialized.partition,
         offset: serialized.offset,
@@ -23,4 +25,8 @@ export function deserializeKafkaMessage(serialized: SerializedKafkaMessage): Mes
         value: valueBuffer,
         headers: headers.length > 0 ? headers : undefined,
     }
+    if (serialized.value) {
+        recordDecodedValue(message, serialized.value)
+    }
+    return message
 }
