@@ -38,6 +38,7 @@ import { NewMarketingAnalyticsDashboard } from 'products/marketing_analytics/fro
 import { SearchConsoleSource } from 'products/marketing_analytics/frontend/dashboard/SearchConsoleSource'
 import { SourceSetupPanel } from 'products/marketing_analytics/frontend/dashboard/SourceSetupPanel'
 import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
+import { RecommendationsSection } from 'products/marketing_analytics/frontend/recommendations/RecommendationsSection'
 import { SearchPerformanceTab } from 'products/marketing_analytics/frontend/search/SearchPerformanceTab'
 import { DashboardConversionRecommendations } from 'products/marketing_analytics/frontend/setup/DashboardConversionRecommendations'
 import { DashboardSetupPrompt } from 'products/marketing_analytics/frontend/setup/DashboardSetupPrompt'
@@ -114,13 +115,17 @@ const LegacySearchConnectionCard = (): JSX.Element | null => {
     )
 }
 
-const MarketingAnalyticsDashboard = (): JSX.Element => {
+interface DashboardProps {
+    statusAbove?: boolean
+}
+
+const MarketingAnalyticsDashboard = ({ statusAbove = false }: DashboardProps): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     return featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] ? (
         <SourceMarketingAnalyticsDashboard />
     ) : (
         <>
-            <LegacyMarketingAnalyticsDashboard />
+            <LegacyMarketingAnalyticsDashboard statusAbove={statusAbove} />
             <LegacySearchConnectionCard />
         </>
     )
@@ -275,7 +280,7 @@ const MarketingAnalyticsDashboardSkeleton = (): JSX.Element => (
     </div>
 )
 
-const LegacyMarketingAnalyticsDashboard = (): JSX.Element => {
+const LegacyMarketingAnalyticsDashboard = ({ statusAbove }: DashboardProps): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const {
         hasSources,
@@ -380,7 +385,7 @@ const LegacyMarketingAnalyticsDashboard = (): JSX.Element => {
                 />
             )}
             <LegacyOAuthReconnectBanner />
-            <MarketingAnalyticsSourceStatusBanner />
+            {!statusAbove && <MarketingAnalyticsSourceStatusBanner />}
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-x-4 gap-y-12">
                 {marketingTiles?.map((tile, i) => (
                     <QueryTileItem key={i} tile={tile} />
@@ -404,6 +409,20 @@ const MarketingAnalyticsContent = (): JSX.Element => {
             ['GoogleAds', 'BingAds', 'GoogleSearchConsole'].includes(source.source_type)
         )
 
+    // With source onboarding on there is no ad performance tab, because the dashboard tab already is that page.
+    const hasAdPerformanceTab =
+        !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] ||
+        (!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] &&
+            !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS])
+    const showRecommendations = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RECOMMENDATIONS]
+    // Connection problems affect every number on the page, so they go above the recommendations.
+    const statusAbove = showRecommendations && !featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING]
+    const recommendations = showRecommendations ? (
+        <div className="mb-6">
+            <RecommendationsSection />
+        </div>
+    ) : null
+
     // The redesigned dashboard replaces the current one under the same "Dashboard" tab when its flag is
     // on, so the eventual cutover is just flipping the flag — no tab rename, no extra tab key to strand.
     const dashboard = (
@@ -424,6 +443,9 @@ const MarketingAnalyticsContent = (): JSX.Element => {
                             }
                         />
                     )}
+                    {!hasAdPerformanceTab &&
+                        featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] &&
+                        recommendations}
                     <MarketingAnalyticsDashboard />
                     {hasConnectedSearchSource && (
                         <div className="mt-8">
@@ -463,9 +485,7 @@ const MarketingAnalyticsContent = (): JSX.Element => {
 
     const tabs = [
         { key: MarketingAnalyticsTab.DASHBOARD, label: 'Dashboard', content: dashboard },
-        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] ||
-        (!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] &&
-            featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS])
+        ...(hasAdPerformanceTab
             ? [
                   {
                       key: MarketingAnalyticsTab.AD_PERFORMANCE,
@@ -484,7 +504,9 @@ const MarketingAnalyticsContent = (): JSX.Element => {
                                       }
                                   />
                               )}
-                              <MarketingAnalyticsDashboard />
+                              {statusAbove && <MarketingAnalyticsSourceStatusBanner />}
+                              {recommendations}
+                              <MarketingAnalyticsDashboard statusAbove={statusAbove} />
                               {hasConnectedSearchSource && (
                                   <div className="mt-8">
                                       <SearchPerformanceTab />
