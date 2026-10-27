@@ -58,7 +58,9 @@ type AgentCallbackPayload =
       };
     };
 
-export type AgentCallback = AgentCallbackPayload & { stream_generation?: string };
+export type AgentCallback = AgentCallbackPayload & {
+  stream_generation?: string;
+};
 
 type DeliveryOutcome = "dispatched" | "skipped" | "refused" | "failed";
 
@@ -316,7 +318,9 @@ export function createAgentCallbackReporter(options: {
     return null;
   }
   const claims = JSON.parse(
-    Buffer.from(options.eventIngestToken.split(".")[1], "base64url").toString("utf8"),
+    Buffer.from(options.eventIngestToken.split(".")[1], "base64url").toString(
+      "utf8",
+    ),
   );
   const generation = claims.stream_generation ?? "initial";
   return new AgentCallbackReporter({

@@ -310,9 +310,8 @@ describe("AgentCallbackReporter", () => {
     report(reporter);
     await reporter.settled();
 
-    expect(
-      sent.filter((callback) => callback.kind !== "agent_activity"),
-    ).toHaveLength(attempts);
+    const callbacks = sent.filter((item) => item.kind !== "agent_activity");
+    expect(callbacks).toHaveLength(attempts);
   });
 
   it.each([
