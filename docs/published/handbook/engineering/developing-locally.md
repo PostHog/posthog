@@ -182,6 +182,10 @@ Three env files come into play when `hogli start` runs:
 
 Precedence (highest wins): `shell env > .env.local > .env.development > .env.services`.
 
+To compare the standalone login prototype with the current app, set `AUTH_APP_PROTOTYPE_ENABLED=1` in `.env.local` and restart Django. Open `/login?auth_app=standalone` for the prototype or `/login` for the current app. The setting is off by default. Other auth routes keep their current entry. Both entries use the same login form, auth APIs and server-provided page data, so this comparison tests frontend startup only. The production frontend build includes both entries in the existing release image.
+
+In cloud, Django selects the entry for anonymous US `/login` requests with the `standalone-login-entry` flag. The flag uses the existing analytics cookie's device ID. Missing cookies or unavailable local flag evaluation keep the current app. Query parameters cannot force the prototype in cloud. Use `/login?auth_app=fallback` to open the current entry. Both login responses use `Cache-Control: private, no-store`. Self-hosted instances use the local setting above and need no extra service.
+
 To run AI features locally, you'll need API keys for OpenAI, Anthropic, and others. PostHog employees can pull them from 1Password without ever pasting raw values:
 
 ```bash

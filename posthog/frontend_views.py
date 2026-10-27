@@ -7,6 +7,7 @@ from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import ensure_csrf_cookie
 
+from posthog.auth_entry_experiment import LoginEntryExperiment
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.models.instance_setting import get_instance_setting
@@ -144,7 +145,22 @@ def app_region_redirect(request: HttpRequest) -> HttpResponseRedirect | None:
 
 @ensure_csrf_cookie
 def _render_home(request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-    return render_template("index.html", request, public_page_metadata_context(request))
+    variant = LoginEntryExperiment.variant(request)
+    local_opt_in = (
+        settings.AUTH_APP_PROTOTYPE_ENABLED
+        and not is_cloud()
+        and request.path.rstrip("/") == "/login"
+        and request.GET.get("auth_app") == "standalone"
+        and not request.user.is_authenticated
+    )
+    context = public_page_metadata_context(request)
+    if variant is not None:
+        context["login_entry_variant"] = variant
+    template = "auth_prototype.html" if variant == "test" or local_opt_in else "index.html"
+    response = render_template(template, request, context)
+    if request.path.rstrip("/") == "/login":
+        response["Cache-Control"] = "private, no-store"
+    return response
 
 
 # Wrapped once at import time (as `login_required(home)` used to be) so the catch-all

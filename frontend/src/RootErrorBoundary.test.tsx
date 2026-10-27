@@ -32,6 +32,8 @@ describe('RootErrorBoundary', () => {
         consoleErrorSpy.mockRestore()
         delete window.JS_POSTHOG_API_KEY
         delete window.JS_POSTHOG_HOST
+        delete window.POSTHOG_USER_IDENTITY_WITH_FLAGS
+        window.localStorage.removeItem('ph_test-api-key_posthog')
         cleanup()
     })
 
@@ -87,5 +89,23 @@ describe('RootErrorBoundary', () => {
 
         expect(screen.getByRole('alert')).toBeInTheDocument()
         expect(sendBeacon).not.toHaveBeenCalled()
+    })
+
+    it.each(['control', 'test'])('keeps the %s login assignment on a boot failure', (variant) => {
+        window.localStorage.setItem(
+            'ph_test-api-key_posthog',
+            JSON.stringify({ distinct_id: 'synthetic-person', $device_id: 'synthetic-device' })
+        )
+        window.POSTHOG_USER_IDENTITY_WITH_FLAGS = { featureFlags: { 'standalone-login-entry': variant } }
+        render(
+            <RootErrorBoundary fallbackHref="/login?next=%2Fproject&auth_app=fallback">
+                <ThrowChunkError />
+            </RootErrorBoundary>
+        )
+        expect(screen.getByRole('link')).toHaveAttribute('href', '/login?next=%2Fproject&auth_app=fallback')
+        const event = JSON.parse(sendBeacon.mock.calls[0][1])
+        expect(event.distinct_id).toBe('synthetic-person')
+        expect(event.properties.$device_id).toBe('synthetic-device')
+        expect(event.properties['$feature/standalone-login-entry']).toBe(variant)
     })
 })

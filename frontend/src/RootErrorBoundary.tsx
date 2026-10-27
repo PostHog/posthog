@@ -8,7 +8,7 @@ import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
  * and without this beacon a broken deploy would be invisible to error tracking.
  * Fire-and-forget: reporting must never make a boot failure worse.
  */
-function reportBootFailure(error: unknown): void {
+export function reportBootFailure(error: unknown): void {
     try {
         const apiKey = window.JS_POSTHOG_API_KEY
         if (!apiKey) {
@@ -16,9 +16,12 @@ function reportBootFailure(error: unknown): void {
         }
         const host = window.JS_POSTHOG_HOST || window.location.origin
         let distinctId: string | undefined
+        let deviceId: string | undefined
         try {
             // posthog-js persistence — absent on a first visit or under cookie-only persistence
-            distinctId = JSON.parse(window.localStorage.getItem(`ph_${apiKey}_posthog`) || '{}').distinct_id
+            const identity = JSON.parse(window.localStorage.getItem(`ph_${apiKey}_posthog`) || '{}')
+            distinctId = identity.distinct_id
+            deviceId = identity.$device_id
         } catch {
             // storage unavailable or corrupt — report anonymously
         }
@@ -30,6 +33,9 @@ function reportBootFailure(error: unknown): void {
             properties: {
                 // Personless event: don't create person profiles from anonymous boot beacons
                 $process_person_profile: false,
+                $device_id: deviceId,
+                '$feature/standalone-login-entry':
+                    window.POSTHOG_USER_IDENTITY_WITH_FLAGS?.featureFlags?.['standalone-login-entry'],
                 $current_url: window.location.href,
                 $exception_level: 'fatal',
                 $exception_list: [
@@ -65,7 +71,10 @@ interface RootErrorBoundaryState {
  * Stale-deploy chunk errors auto-reload once via the ChunkLoadErrorBoundary nested inside it
  * (see index.tsx); only errors that survive that recovery surface here.
  */
-export class RootErrorBoundary extends React.Component<{ children: React.ReactNode }, RootErrorBoundaryState> {
+export class RootErrorBoundary extends React.Component<
+    { children: React.ReactNode; fallbackHref?: string },
+    RootErrorBoundaryState
+> {
     override state: RootErrorBoundaryState = { error: null }
 
     static getDerivedStateFromError(error: unknown): RootErrorBoundaryState {
@@ -85,7 +94,13 @@ export class RootErrorBoundary extends React.Component<{ children: React.ReactNo
                         {isChunkLoadError(this.state.error)
                             ? 'PostHog failed to load. '
                             : 'PostHog crashed while starting. '}
-                        <button onClick={() => window.location.reload()}>Reload the page</button> to try again.
+                        {this.props.fallbackHref ? (
+                            // eslint-disable-next-line react/forbid-elements -- Recovery must work when the app router cannot load.
+                            <a href={this.props.fallbackHref}>Open the standard login page</a>
+                        ) : (
+                            <button onClick={() => window.location.reload()}>Reload the page</button>
+                        )}{' '}
+                        to try again.
                     </div>
                 </div>
             )

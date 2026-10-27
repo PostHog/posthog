@@ -48,6 +48,7 @@ writeIndexHtml()
 writeExporterHtml()
 writeRenderQueryHtml()
 writeInfrastructureAdminHtml()
+writeAuthPrototypeHtml()
 await import('./build-products.mjs')
 
 const common = {
@@ -82,6 +83,15 @@ await buildInParallel(
             ...appBundle,
             ...(define ? { define: { ...commonConfig.define, ...define } } : {}),
         })),
+        {
+            name: 'Auth Prototype',
+            entryPoints: { 'auth-prototype': 'src/auth-prototype/authPrototypeEntry.tsx' },
+            splitting: true,
+            format: 'esm',
+            outdir: path.resolve(__dirname, 'dist'),
+            heavy: true,
+            ...appBundle,
+        },
         {
             name: 'Exporter',
             entryPoints: {
@@ -142,6 +152,10 @@ await buildInParallel(
                     removeUnlinkedStylesheets(__dirname, buildResponse.outputs, 'src/exporter/index.tsx')
                 }
                 writeExporterHtml(chunks, entrypoints)
+            }
+
+            if (config.name === 'Auth Prototype') {
+                writeAuthPrototypeHtml(chunks, entrypoints)
             }
 
             if (config.name === 'Render Query') {
@@ -344,6 +358,17 @@ export function writeIndexHtml(chunks = {}, entrypoints = [], stable = null) {
 
 export function writeExporterHtml(chunks = {}, entrypoints = []) {
     copyIndexHtml(__dirname, 'src/exporter/index.html', 'dist/exporter.html', 'exporter', chunks, entrypoints)
+}
+
+export function writeAuthPrototypeHtml(chunks = {}, entrypoints = []) {
+    copyIndexHtml(
+        __dirname,
+        'src/auth-prototype/authPrototype.html',
+        'dist/auth_prototype.html',
+        'auth-prototype',
+        chunks,
+        entrypoints
+    )
 }
 
 export function writeInfrastructureAdminHtml(chunks = {}, entrypoints = []) {

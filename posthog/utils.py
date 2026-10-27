@@ -619,6 +619,8 @@ def _build_template_context(
             source_path = "src/exporter/index.tsx"
         elif template_name == "render_query.html":
             source_path = "src/render-query/index.tsx"
+        elif template_name == "auth_prototype.html":
+            source_path = "src/auth-prototype/authPrototypeEntry.tsx"
         # Add vite dev scripts for development
         js_url = get_js_url(request)
         csp_nonce = getattr(request, "csp_nonce", "")
@@ -817,6 +819,8 @@ def _build_template_context(
     # that don't depend on any person properties. To get these flags, add person properties to the
     # `get_all_flags` call above.
     context["posthog_bootstrap"] = posthog_bootstrap
+    if (login_entry_variant := context.pop("login_entry_variant", None)) in ("control", "test"):
+        posthog_bootstrap.setdefault("featureFlags", {})["standalone-login-entry"] = login_entry_variant
 
     context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
 
