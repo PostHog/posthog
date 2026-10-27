@@ -67,12 +67,12 @@ def judge_returning_malformed_output() -> Anthropic:
     return judge_with_parse(parse)
 
 
-def test_mapped_merge_flagged_by_judge_yields_kind_and_at_most_three_listed_pages() -> None:
+def test_mapped_merge_flagged_by_judge_yields_kind_and_every_listed_page_once_in_judge_order() -> None:
     commit_sha = "a" * 40
     verdict = JudgeVerdict(
         needs_docs=True,
         change_kind=DocsChangeKind.UPDATE,
-        page_urls=[FLAGS_PAGES[-1], *FLAGS_PAGES[:3], "https://example.com/not-listed"],
+        page_urls=[FLAGS_PAGES[-1], *FLAGS_PAGES[:3], FLAGS_PAGES[-1], "https://example.com/not-listed"],
         reason="new option",
     )
 
@@ -84,7 +84,7 @@ def test_mapped_merge_flagged_by_judge_yields_kind_and_at_most_three_listed_page
     )
 
     assert (report.needs_docs, report.change_kind) == (True, DocsChangeKind.UPDATE)
-    assert report.page_urls == (FLAGS_PAGES[-1], *FLAGS_PAGES[:2])
+    assert report.page_urls == (FLAGS_PAGES[-1], *FLAGS_PAGES[:3])
 
 
 def test_malformed_judge_output_declines_instead_of_raising() -> None:

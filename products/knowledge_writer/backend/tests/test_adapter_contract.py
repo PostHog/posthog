@@ -99,9 +99,6 @@ def test_docs_requests_for_one_pull_request_share_a_dedupe_id_across_repository_
         pytest.param(_valid_verdict(needs_docs=False), id="request_without_needs_docs"),
         pytest.param(_valid_verdict(source="repo_merge"), id="request_from_another_source"),
         pytest.param(_valid_verdict(request=_valid_request(dedupe_id="anything")), id="bad_dedupe_id"),
-        pytest.param(
-            _valid_verdict(request=_valid_request(suggested_page_urls=["/a", "/b", "/c", "/d"])), id="four_pages"
-        ),
         pytest.param(_valid_verdict(request=_valid_request(change_kind="rewrite")), id="unknown_change_kind"),
         pytest.param(
             dataclasses.asdict(SAMPLE_EVENTS[DocsRequestSource.COMMAND_TAG]), id="raw_event_instead_of_verdict"

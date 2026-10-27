@@ -13,8 +13,6 @@ from .sources import (
     read_docs_page_urls,
 )
 
-MAX_SUGGESTED_PAGES = 3
-
 
 def run_merge_check(
     commit_sha: str,
@@ -34,17 +32,19 @@ def run_merge_check(
     if not sections:
         return no_docs_report(commit_sha, commit_url, title=pull_request.title, reason="unmapped")
     docs_page_urls = read_docs_page_urls(http)
-    candidate_page_urls = [url for section in sections for url in section_page_urls(section, docs_page_urls)]
+    candidate_page_urls = dict.fromkeys(
+        url for section in sections for url in section_page_urls(section, docs_page_urls)
+    )
     non_test_diff = "".join(chunk for path, chunk in diff_by_path.items() if not is_test_path(path))
     verdict = judge_merge(
         anthropic_client,
         title=pull_request.title,
         non_test_diff=non_test_diff[:MAX_DIFF_CHARACTERS],
-        section_page_urls=candidate_page_urls,
+        section_page_urls=list(candidate_page_urls),
     )
     if not verdict.needs_docs or verdict.change_kind is None:
         return no_docs_report(commit_sha, commit_url, title=pull_request.title, reason=verdict.reason or "judge")
-    listed_page_urls = [url for url in verdict.page_urls if url in candidate_page_urls]
+    listed_page_urls = dict.fromkeys(url for url in verdict.page_urls if url in candidate_page_urls)
     return MergeCheckReport(
         commit_sha=commit_sha,
         commit_url=commit_url,
@@ -52,7 +52,7 @@ def run_merge_check(
         needs_docs=True,
         reason="judge",
         change_kind=verdict.change_kind,
-        page_urls=tuple(listed_page_urls[:MAX_SUGGESTED_PAGES]),
+        page_urls=tuple(listed_page_urls),
         evidence=f"{pull_request.url}\n{verdict.reason}",
     )
 

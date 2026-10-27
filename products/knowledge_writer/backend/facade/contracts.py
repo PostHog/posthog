@@ -21,7 +21,7 @@ class DocsRequest:
     source_url: str
     evidence: str
     change_kind: DocsChangeKind
-    suggested_page_urls: Annotated[tuple[str, ...], Field(max_length=3)]
+    suggested_page_urls: tuple[str, ...]
     trigger_instructions: str
     dedupe_id: DedupeId
     requested_by: str | None = None
@@ -58,7 +58,7 @@ class MergeCheckReport:
     needs_docs: bool
     reason: str
     change_kind: DocsChangeKind | None = None
-    page_urls: Annotated[tuple[str, ...], Field(max_length=3)] = ()
+    page_urls: tuple[str, ...] = ()
     evidence: str = ""
 
 
