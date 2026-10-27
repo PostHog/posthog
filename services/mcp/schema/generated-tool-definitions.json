@@ -6766,6 +6766,22 @@
             "readOnlyHint": false
         }
     },
+    "feature-flag-rules-update": {
+        "description": "Replace the rules of a feature flag whose `filters.version` is 2. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it from a key. For a flag without `filters.version` 2, use `update-feature-flag` instead; this tool cannot convert a flag between the two formats.\n\nRead the flag first with `feature-flag-get-definition` or `feature-flag-get-definition-by-key`. Build the new `filters` from what you read and send the whole document: `version` 2, the same `return_type`, `default_value` and the complete ordered `rules` list. The server replaces the stored `filters` with what you send, so a rule you leave out is deleted. Rules are evaluated in order and the first rule that returns a value wins.\n\nEach rule you read has an `id`, and randomized rules (`percentage_rollout`, `experiment`) have a `seed`. Send both unchanged on every rule you keep, edit or move, so the rule keeps its identity and nobody is reassigned. Leave `id` and `seed` off a new rule; the server assigns them. Never invent an `id` or change a `seed`: the write is refused.\n\nSend the flag's top-level `version` from your read (not `filters.version`). Returns 409 when the flag changed after that version, and writes nothing. Read the flag again, rebuild the change on the current rules and send it with the new `version`. Do not retry with the same `version`.\n\nReturns 400 naming the first invalid field when the document is invalid. Fix it and send the document again; the next attempt can name another field. Returns 400 with code `reserved_config_version` (\"filters.version is reserved\") when this project or this flag does not accept version 2 rule changes. Do not remove `filters.version`. Report that to the user; do not work around it with `update-feature-flag`. This tool changes only `filters`. Use `feature-flag-enable` and `feature-flag-disable` to turn the flag on or off.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Replace feature flag rules",
+        "title": "Replace feature flag rules",
+        "required_scopes": ["feature_flag:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/feature_flags/{id}/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "feature-flag-rules-v2-mcp"
+    },
     "feature-flag-set-release-condition-rollout": {
         "description": "Set what percentage of one release condition's audience a feature flag is served to. Requires the flag's numeric ID; use `feature-flag-get-definition-by-key` to get it from a key, or `feature-flag-get-all` to search by key or name.\n\nChanges `rollout_percentage` on the release condition at `condition_index` and nothing else. This tool never accepts or replaces the `filters` object, so the condition's property filters, the other conditions, the variants and the payloads cannot change.\n\nCheck `aggregation_group_type_index` on the condition, and on `filters` when the condition sets none. When it is set, the flag buckets groups of that type instead of people, so 25 serves 25% of those groups rather than 25% of users. Say groups when you report the change.\n\nRead the flag first. `condition_index` counts the conditions in `filters.groups` from 0, and only the definition you read says which condition is which, so never guess an index on a flag with more than one condition. Send the `version` that same read returned. Returns 409 when anyone changed the flag after that version, and writes nothing. Read the flag again, check the conditions still mean what you thought, and call again with the new version. Do not retry with the same version: after a call writes a change that version is no longer current, so a blind retry is the same 409. A call that sets the percentage the condition already has writes nothing and returns the version unchanged.\n\nOn a multivariate flag this sets how many of the matching users or groups get a variant at all. It does not change how the variants are split between them. When the user asks for a bare percentage on a multivariate flag, ask which of the two they mean. Use `update-feature-flag` to change the split between variants.\n\nReturns 400 when the flag has no release condition at that index, or when the percentage is outside 0 through 100. Returns 409 when an approval policy gates rollout changes.",
         "category": "Feature flags",
@@ -11648,7 +11664,7 @@
         "system_prompt_hint": "Error event samples, stack traces, code variables, and session IDs (error-tracking category)"
     },
     "query-error-tracking-issues-list": {
-        "description": "List and filter Error tracking issues. Returns compact issue rows with aggregate impact counts (`occurrences`, `users`, `sessions`) and optional volume buckets.\n\nUse this first when the user asks which errors are happening, which errors are most common, or wants to narrow issues by status, severity, release, library, fingerprint, URL, user, person, or properties.\n\nDefaults are intentionally useful: active issues, last 7 days, sorted by occurrences, test accounts filtered out, 10 rows per page, and compact aggregate counts. Each row carries a short `description` preview. Use `query-error-tracking-issue` for the full description.\n\nKeep `limit` small. When `hasMore` is true and you need more rows, fetch the next page with `offset` set to `nextOffset`. Set `volumeResolution` only when the user asks for volume over time. It is an integer count of equal-width buckets across `dateRange`, from 0 to 200, not a unit such as `hour` or `day`. For daily volume over the default 7-day range, send `7`. For hourly volume over the last 24 hours, send `24` with `dateRange.date_from` set to `-24h`.\n\nFor all-time issue counts by status or severity, query `system.error_tracking_issues` with `posthog:execute-sql`. The table follows the connected user's Error tracking access and only returns issues from the current project. This list tool only includes issues observed during `dateRange`.\n\nBe minimalist. Only add filters needed to answer the user’s question. Do not add \"is set\" filters unless the user explicitly asks for them.\n\n# Common filters\n\n- `status`: `active`, `resolved`, `suppressed`, `pending_release`, `archived`, or `all`. Defaults to `active`.\n- `searchQuery`: free-text search for exception names, values, stack frames, and email text.\n- `library`: exact `$lib` match, for example `posthog-js`.\n- `release`: exact release ID, release version, or git commit ID captured in `$exception_release`. This intentionally does not match project name, branch, or timestamp fragments.\n- `fingerprint`: exact `$exception_fingerprint` match.\n- `url`: substring match on `$current_url`.\n- `personId`: exact PostHog person UUID.\n- `user`: user/email text search.\n- `filePath`: stack-frame file/source text search.\n- `filterGroup`: advanced flat AND property filters. Prefer typed fields above when they fit. For severity, use type `error_tracking_issue`, key `severity`, and `exact`, `is_set`, or `is_not_set`.\n\nUse `dateRange` for time, not property filters. Omit `date_to` for now.\n\n# Next steps\n\n- Use `query-error-tracking-issue` with `issueId` to inspect one issue.\n- Use `query-error-tracking-issue-events` with `issueId` to fetch sampled exception events, stack traces, URLs, and `$session_id` values.\n- If the user asks what people were doing before the error, use `$session_id` values from issue events with `query-session-recordings-list` and its `session_ids` parameter.",
+        "description": "List and filter Error tracking issues. Returns compact issue rows with aggregate impact counts (`occurrences`, `users`, `sessions`) and optional volume buckets.\n\nUse this first when the user asks which errors are happening, which errors are most common, or wants to narrow issues by status, severity, release, library, fingerprint, URL, user, person, or properties.\n\nDefaults are intentionally useful: active issues, last 7 days, sorted by occurrences, test accounts filtered out, 10 rows per page, and compact aggregate counts. Each row carries a short `description` preview. Use `query-error-tracking-issue` for the full description.\n\nKeep `limit` small. When `hasMore` is true and you need more rows, fetch the next page with `offset` set to `nextOffset`. Set `volumeResolution` only when the user asks for volume over time. It is an integer count of equal-width buckets across `dateRange`, from 0 to 200, not a unit such as `hour` or `day`. For daily volume over the default 7-day range, send `7`. For hourly volume over the last 24 hours, send `24` with `dateRange.date_from` set to `-24h`.\n\nFor all-time issue counts by status or severity, query `system.error_tracking_issues` with `posthog:execute-sql`. The table follows the connected user's Error tracking access and only returns issues from the current project. This list tool only includes issues observed during `dateRange`.\n\nBe minimalist. Only add filters needed to answer the user’s question. Do not add \"is set\" filters unless the user explicitly asks for them.\n\n# Common filters\n\n- `status`: `active`, `resolved`, `suppressed`, `pending_release`, `archived`, or `all`. Defaults to `active`.\n- `firstSeenAfter`: only issues first seen after an ISO timestamp or relative date such as `-24h` or `-7d` (`m` is months, `M` is minutes). Use this for new issues since a deploy.\n- `searchQuery`: free-text search for exception names, values, stack frames, and email text.\n- `library`: exact `$lib` match, for example `posthog-js`.\n- `release`: exact release ID, release version, or git commit ID captured in `$exception_release`. This intentionally does not match project name, branch, or timestamp fragments.\n- `fingerprint`: exact `$exception_fingerprint` match.\n- `url`: substring match on `$current_url`.\n- `personId`: exact PostHog person UUID.\n- `user`: user/email text search.\n- `filePath`: stack-frame file/source text search.\n- `filterGroup`: advanced flat AND property filters. Prefer typed fields above when they fit. For severity, use type `error_tracking_issue`, key `severity`, and `exact`, `is_set`, or `is_not_set`.\n\nUse `dateRange` for occurrence times and `firstSeenAfter` for when an issue first appeared. Omit `date_to` for now. Relative dates on `first_seen` in `filterGroup` are rejected; use an ISO timestamp there.\n\n# Next steps\n\n- Use `query-error-tracking-issue` with `issueId` to inspect one issue.\n- Use `query-error-tracking-issue-events` with `issueId` to fetch sampled exception events, stack traces, URLs, and `$session_id` values.\n- If the user asks what people were doing before the error, use `$session_id` values from issue events with `query-session-recordings-list` and its `session_ids` parameter.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "Query error tracking issues list",
@@ -16230,6 +16246,22 @@
         },
         "feature_flag": "warehouse-suggestions"
     },
+    "warehouse-suggestions-assign": {
+        "description": "Assign a proposed warehouse suggestion to the person who should accept or dismiss it, or pass assignee_id=null to remove the assignee. The caller needs edit access to the view or table, the same as for dismiss. The assignee must be able to accept it: edit access to the view or table, and to the data catalog for certify and deprecate suggestions. A 400 means they cannot. They get a notification unless they assign themselves or already are the assignee. Nothing changes on the view or table. Find user ids with the organization member tools.",
+        "category": "Warehouse suggestions",
+        "feature": "warehouse_suggestions",
+        "summary": "Assign a warehouse suggestion",
+        "title": "Assign a warehouse suggestion",
+        "required_scopes": ["warehouse_view:write"],
+        "api_operations": ["POST /api/projects/{project_id}/warehouse_suggestions/{id}/assign/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "warehouse-suggestions"
+    },
     "warehouse-suggestions-dismiss": {
         "description": "Dismiss a proposed warehouse suggestion with a reason: not_useful, not_now or other, plus an optional note. Nothing changes on the view or table. warehouse-suggestions-resume brings it back.",
         "category": "Warehouse suggestions",
@@ -16263,7 +16295,7 @@
         "feature_flag": "warehouse-suggestions"
     },
     "warehouse-suggestions-list": {
-        "description": "Recommendations to certify, deprecate, materialize or unmaterialize data warehouse views and tables, computed daily from how often the project reads them. Pass status=proposed for the suggestions still waiting for a decision. `payload` says what accepting would create or change. `can_act` says whether the caller can edit the view or table, which accept, dismiss and resume require. Accepting a certify or deprecate suggestion also requires edit access to the data catalog. Use warehouse-suggestions-get for the usage evidence behind one suggestion. If the list is empty, call warehouse-suggestions-status to learn why. Results come in priority order, the one most worth acting on first. Explain a suggestion to the user with the numbers in `payload`, the time and bytes saved or spent per month. For an unmaterialize suggestion, compare refresh_seconds_per_month with live_seconds_per_month and say how long one read would take (`read_seconds`). For a certify suggestion, use the read counts in `evidence` from warehouse-suggestions-get.",
+        "description": "Recommendations to certify, deprecate, materialize or unmaterialize data warehouse views and tables, computed daily from how often the project reads them. Pass status=proposed for the suggestions still waiting for a decision. `payload` says what accepting would create or change. `can_act` says whether the caller can edit the view or table, which accept, dismiss and resume require. Accepting a certify or deprecate suggestion also requires edit access to the data catalog. Use warehouse-suggestions-get for the usage evidence behind one suggestion. If the list is empty, call warehouse-suggestions-status to learn why. Results come in priority order, the one most worth acting on first. Explain a suggestion to the user with the numbers in `payload`, the time and bytes saved or spent per month. For an unmaterialize suggestion, compare refresh_seconds_per_month with live_seconds_per_month and say how long one read would take (`read_seconds`). For a certify suggestion, use the read counts in `evidence` from warehouse-suggestions-get. `assignee` is the person who should decide it; pass assignee_id to list only one person's suggestions.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "List warehouse suggestions",
@@ -16733,8 +16765,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "self-optimising-workflows"
+        }
     },
     "workflows-list-revisions": {
         "description": "List a workflow's revision history, newest first. Every live-content change (publish, direct edit) appends a version; each entry shows version, when, and by whom. Fetch a version's content with workflows-get-revision; roll back with workflows-restore-revision.",
@@ -16978,8 +17009,7 @@
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "self-optimising-workflows"
+        }
     },
     "workflows-test-run": {
         "description": "Test-invoke a workflow one node at a time; it does NOT traverse the full graph in one call. The result includes nextActionId. To verify a path end to end, chain calls: start at the trigger (omit current_action_id), then pass the returned nextActionId as current_action_id on the next call, and repeat. To test a specific branch, set current_action_id to that node. Skip delay nodes by jumping to the action after them, since delays are not simulated. Pass test data via globals (typically {event, person, groups}), shaped like what the trigger really receives: for event triggers, an event matching the trigger filters; for internal-event triggers, the event MUST be named in the trigger's filters.events (the Slack trigger fires on $slack_message_received with Slack properties like channel, channel_type, user, bot_id, app_id, subtype, text, ts, thread_ts) and carry no person; copy a real payload from workflows-get-invocation when a past run exists. The trigger step evaluates event, internal-event, and warehouse-row trigger filters against globals and returns status=skipped when the event name or filters do not match: fix a fabricated payload to match the trigger, but treat a skip on a real, copied payload as a broken trigger filter instead. Other trigger types are not filtered. Async actions (HTTP/email/SMS/push) are mocked by default; set mock_async_functions=false to fire real side effects. Returns the step's execution trace. Set use_draft=true to test a workflow's staged draft instead of its live config — always do this before workflows-publish. use_draft requires a staged draft to exist (workflows-get shows it in 'draft'); on a workflow with nothing staged, omit it.",
@@ -17054,7 +17084,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "self-optimising-workflows"
+        }
     }
 }

@@ -418,6 +418,7 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                     ),
                     SourceFieldInputConfig(
                         name="custom_reports",
+                        sync_setting=True,
                         label="Custom reports (optional)",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=False,
@@ -436,6 +437,7 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                     ),
                     SourceFieldInputConfig(
                         name="history_days",
+                        sync_setting=True,
                         label="Days of history to sync initially (optional)",
                         type=SourceFieldInputConfigType.NUMBER,
                         required=False,

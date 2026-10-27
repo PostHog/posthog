@@ -99,6 +99,7 @@ export interface CdpCoreServices {
     recipientsManager: RecipientsManagerService
     recipientPreferencesService: RecipientPreferencesService
     emailSuppressionService: EmailSuppressionService
+    emailValidationService: EmailValidationService
     teamWorkflowsConfigService: TeamWorkflowsConfigService
     /** Point lookups for realtime/behavioral cohort membership (behavioral cohorts DB). */
     cohortMembershipRepository: CohortMembershipRepository
@@ -601,6 +602,7 @@ export function createCdpCoreServices(
         recipientsManager,
         recipientPreferencesService,
         emailSuppressionService,
+        emailValidationService,
         teamWorkflowsConfigService,
         cohortMembershipRepository,
         hogFlowExecutor,
