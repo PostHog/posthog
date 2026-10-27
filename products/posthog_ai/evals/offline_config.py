@@ -125,6 +125,31 @@ _SCORERS: dict[str, dict[str, OfflineScorer]] = {
         ),
         "skill_loaded": OfflineScorer(kind="boolean", version=UUID("01a1558f-a299-7e75-938e-07c2ff9c747f")),
         "surfaces_all_findings": OfflineScorer(kind="boolean", version=UUID("01a1558f-ad52-7b81-8a93-d7e602bf0125")),
+        # Placeholder versions for eval_guided_creation. Uploads reject them until each scorer is created in
+        # project 2 (Evaluations > Scorers) and its real version UUID replaces the placeholder here.
+        "closing_question_with_options": OfflineScorer(
+            kind="boolean", version=UUID("00000000-0000-4000-8000-000000000001")
+        ),
+        "code_changes_section": OfflineScorer(kind="boolean", version=UUID("00000000-0000-4000-8000-000000000002")),
+        "execute_sql_calls_before_create": OfflineScorer(
+            kind="numeric", version=UUID("00000000-0000-4000-8000-000000000003")
+        ),
+        "experiment_url_in_report": OfflineScorer(kind="boolean", version=UUID("00000000-0000-4000-8000-000000000004")),
+        "flag_url_in_report": OfflineScorer(kind="boolean", version=UUID("00000000-0000-4000-8000-000000000005")),
+        "low_traffic_note": OfflineScorer(kind="boolean", version=UUID("00000000-0000-4000-8000-000000000006")),
+        "newcomer_primer_up_front": OfflineScorer(kind="boolean", version=UUID("00000000-0000-4000-8000-000000000007")),
+        "next_experiment_suggestion": OfflineScorer(
+            kind="boolean", version=UUID("00000000-0000-4000-8000-000000000008")
+        ),
+        "no_unavailable_tool_mention": OfflineScorer(
+            kind="boolean", version=UUID("00000000-0000-4000-8000-000000000009")
+        ),
+        "no_unprompted_launch": OfflineScorer(kind="boolean", version=UUID("00000000-0000-4000-8000-00000000000a")),
+        "places_linked": OfflineScorer(kind="boolean", version=UUID("00000000-0000-4000-8000-00000000000b")),
+        "reminder_linked_to_experiment": OfflineScorer(
+            kind="boolean", version=UUID("00000000-0000-4000-8000-00000000000c")
+        ),
+        "runtime_with_traffic": OfflineScorer(kind="boolean", version=UUID("00000000-0000-4000-8000-00000000000d")),
     },
     "product_analytics": {
         "answer_tool_call_not_forbidden": OfflineScorer(
