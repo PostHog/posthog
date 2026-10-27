@@ -75,6 +75,29 @@ class TestEvaluationModel(BaseTest):
         evaluation.refresh_from_db()
         self.assertEqual(evaluation.conditions[0]["properties"], [])
 
+    def test_set_status_succeeds_when_stored_hog_source_no_longer_compiles(self):
+        evaluation = self._create_hog_evaluation()
+        rejected_source = "let output := output\nreturn true"
+        with self.assertRaises(ValidationError):
+            Evaluation(
+                team=self.team,
+                name="Rejected",
+                evaluation_type="hog",
+                evaluation_config={"source": rejected_source},
+                output_type="boolean",
+            ).save()
+        Evaluation.objects.filter(id=evaluation.id).update(
+            evaluation_config={**evaluation.evaluation_config, "source": rejected_source}
+        )
+        evaluation.refresh_from_db()
+
+        evaluation.set_status(EvaluationStatus.ERROR, EvaluationStatusReason.HOG_ERROR)
+
+        evaluation.refresh_from_db()
+        self.assertEqual(evaluation.status, EvaluationStatus.ERROR)
+        self.assertEqual(evaluation.status_reason, EvaluationStatusReason.HOG_ERROR)
+        self.assertFalse(evaluation.enabled)
+
     def _create_hog_evaluation(self) -> Evaluation:
         return Evaluation.objects.create(
             team=self.team,

@@ -272,8 +272,16 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         except ValueError as e:
             raise ValidationError({"target_config": str(e)})
 
-        # Compile Hog source to bytecode
-        if self.evaluation_type == EvaluationType.HOG and self.evaluation_config.get("source"):
+        update_fields = kwargs.get("update_fields")
+
+        # Compile Hog source to bytecode. Saves that do not write evaluation_config skip this, so status
+        # changes still work for source that a newer compiler rejects.
+        writes_evaluation_config = update_fields is None or "evaluation_config" in update_fields
+        if (
+            writes_evaluation_config
+            and self.evaluation_type == EvaluationType.HOG
+            and self.evaluation_config.get("source")
+        ):
             try:
                 bytecode = compile_ai_observability_hog(self.evaluation_config["source"], "destination")
                 self.evaluation_config["bytecode"] = bytecode
@@ -296,7 +304,6 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
 
         # The scheduler never matches a condition that has no bytecode. Reject the save when the caller
         # changes the filters. Other saves skip this check, so pause, delete and status changes work.
-        update_fields = kwargs.get("update_fields")
         writes_conditions = update_fields is None or "conditions" in update_fields
         if compile_error and writes_conditions and self._condition_filters_changed():
             raise ValidationError({"conditions": compile_error})
