@@ -39,24 +39,16 @@ class ExposureChangeKind(StrEnum):
     ROLLOUT_DECREASED = "rollout_decreased"
     CONDITION_ADDED = "condition_added"
     CONDITION_REMOVED = "condition_removed"
-    # The criteria of a condition changed, or the flag-level aggregation changed. Such an edit can widen the audience
-    # or not, so it counts as a raise.
+    # The criteria of a condition changed, or the flag-level aggregation changed. Such an edit can give the flag to new
+    # people and take it from others.
     PROPERTIES_CHANGED = "properties_changed"
+    # With early exit, the order of the conditions decides which condition gives a person false, so a new order can
+    # give the flag to new people and take it from others.
+    CONDITIONS_REORDERED = "conditions_reordered"
     # The split, a variant override, or the order of conditions with different variants changed, or people that a
     # condition no longer serves fall through to a later condition with another variant. Some people get another
     # variant.
     VARIANT_CHANGED = "variant_changed"
-
-
-_RAISING_KINDS = frozenset(
-    {
-        ExposureChangeKind.ENABLED,
-        ExposureChangeKind.ROLLOUT_INCREASED,
-        ExposureChangeKind.CONDITION_ADDED,
-        ExposureChangeKind.PROPERTIES_CHANGED,
-        ExposureChangeKind.VARIANT_CHANGED,
-    }
-)
 
 
 class ExposureDirection(StrEnum):
@@ -77,10 +69,12 @@ class FlagExposureConfig:
 class ExposureChange:
     kinds: frozenset[ExposureChangeKind]
     # True when people who got false before the edit can get a value of the flag after it. Their curve is the share
-    # of people with any value other than false.
+    # of people with any value other than false, so `grown_variants` leaves them out.
     reaches_new_people: bool
-    # The variants that more people get after the edit, one curve each. Empty when the flag is boolean after the edit,
-    # so a variant change there means that people who got a variant get `true` now.
+    # True when people who got a value before the edit can get false after it.
+    loses_people: bool
+    # The variants that people who already got a value can get instead of the one they had, one curve each. Empty when
+    # the flag is boolean after the edit, so a variant change there means that people who got a variant get `true` now.
     grown_variants: tuple[str, ...]
     # The flag-level group type index after the edit, None for persons. A group flag counts groups, not people.
     aggregation: int | None
@@ -88,9 +82,9 @@ class ExposureChange:
     @property
     def direction(self) -> ExposureDirection:
         # An edit that raises exposure for some people and lowers it for others can cause new errors, so it raises.
-        if self.kinds & _RAISING_KINDS:
+        if self.reaches_new_people or ExposureChangeKind.VARIANT_CHANGED in self.kinds:
             return ExposureDirection.RAISES
-        if self.kinds:
+        if self.loses_people:
             return ExposureDirection.LOWERS
         return ExposureDirection.KEEPS
 
@@ -107,20 +101,28 @@ class _ChangeBuilder:
     def __init__(self) -> None:
         self._kinds: set[ExposureChangeKind] = set()
         self._reaches_new_people = False
+        self._loses_people = False
         # A dict keeps the first order in which each variant grew, so the result is stable.
         self._grown_variants: dict[str, None] = {}
 
     def add(
-        self, kind: ExposureChangeKind, *, reaches_new_people: bool = False, grown_variants: tuple[str, ...] = ()
+        self,
+        kind: ExposureChangeKind,
+        *,
+        reaches_new_people: bool = False,
+        loses_people: bool = False,
+        grown_variants: tuple[str, ...] = (),
     ) -> None:
         self._kinds.add(kind)
         self._reaches_new_people = self._reaches_new_people or reaches_new_people
+        self._loses_people = self._loses_people or loses_people
         self._grown_variants.update(dict.fromkeys(grown_variants))
 
     def build(self, *, aggregation: int | None) -> ExposureChange:
         return ExposureChange(
             kinds=frozenset(self._kinds),
             reaches_new_people=self._reaches_new_people,
+            loses_people=self._loses_people,
             grown_variants=tuple(self._grown_variants),
             aggregation=aggregation,
         )
@@ -162,8 +164,19 @@ def _grown_split_variants(old: Split, new: Split) -> tuple[str, ...]:
     )
 
 
+def _serves_any_of(conditions: ReleaseConditions) -> bool:
+    return any(condition.rollout > 0 for condition in conditions)
+
+
 def _serves_anybody(side: _Side) -> bool:
-    return any(condition.rollout > 0 for condition in side.conditions)
+    return _serves_any_of(side.conditions)
+
+
+def _stops_people(condition: ReleaseCondition, side: _Side) -> bool:
+    # With early exit, a person whose properties match a condition and whose hash is outside its rollout gets false,
+    # and the flag service reads no later condition for them (`get_match` in rust/feature-flags/src/flags/
+    # flag_matching.rs). A condition at 0% then still decides who gets false.
+    return side.early_exit and condition.rollout < 100
 
 
 def _serves_from_split(side: _Side) -> bool:
@@ -215,51 +228,90 @@ def _add_fallthrough(builder: _ChangeBuilder, later: ReleaseConditions, split: S
 def _compare_pair(
     previous: ReleaseCondition,
     condition: ReleaseCondition,
-    later: ReleaseConditions,
+    *,
+    new_index: int,
+    old: _Side,
     new: _Side,
     builder: _ChangeBuilder,
 ) -> None:
-    if previous.rollout <= 0 and condition.rollout <= 0:
+    decides_before = previous.rollout > 0 or _stops_people(previous, old)
+    decides_after = condition.rollout > 0 or _stops_people(condition, new)
+    if not decides_before and not decides_after:
         return
     releases_people = False
     if previous.criteria != condition.criteria:
-        builder.add(ExposureChangeKind.PROPERTIES_CHANGED, reaches_new_people=True)
+        builder.add(
+            ExposureChangeKind.PROPERTIES_CHANGED,
+            reaches_new_people=condition.rollout > 0 or _stops_people(previous, old),
+            loses_people=previous.rollout > 0 or _stops_people(condition, new),
+        )
         releases_people = True
     if condition.rollout > previous.rollout:
         builder.add(ExposureChangeKind.ROLLOUT_INCREASED, reaches_new_people=True)
     elif condition.rollout < previous.rollout:
-        builder.add(ExposureChangeKind.ROLLOUT_DECREASED)
-        # With early exit, a person whose properties match and whose hash is outside the rollout gets false, not the
-        # value of a later condition.
-        releases_people = releases_people or not new.early_exit
+        builder.add(ExposureChangeKind.ROLLOUT_DECREASED, loses_people=True)
+        releases_people = releases_people or not _stops_people(condition, new)
     if releases_people:
-        _add_fallthrough(builder, later, new.split, released=previous.variant)
+        _add_fallthrough(builder, new.conditions[new_index + 1 :], new.split, released=previous.variant)
     if condition.rollout > 0 and moves_people(previous, condition):
         # Without an override after the edit, the people the condition matches get a variant from the split.
         grown = (condition.variant,) if condition.variant else _served_keys(new.split, without=previous.variant)
         builder.add(ExposureChangeKind.VARIANT_CHANGED, grown_variants=grown)
 
 
+def _compare_added(condition: ReleaseCondition, *, new_index: int, new: _Side, builder: _ChangeBuilder) -> None:
+    if condition.rollout <= 0 and not _stops_people(condition, new):
+        return
+    later = new.conditions[new_index + 1 :]
+    builder.add(
+        ExposureChangeKind.CONDITION_ADDED,
+        reaches_new_people=condition.rollout > 0,
+        # The people the new condition stops got the value of a later condition before.
+        loses_people=_stops_people(condition, new) and _serves_any_of(later),
+        grown_variants=_captured_variants(condition, later, new.split) if condition.rollout > 0 else (),
+    )
+
+
+def _compare_removed(
+    removed: ReleaseCondition, *, old_index: int, pairs: dict[int, int], old: _Side, new: _Side, builder: _ChangeBuilder
+) -> None:
+    if removed.rollout <= 0 and not _stops_people(removed, old):
+        return
+    later = tuple(new.conditions[new_index] for new_index, paired in sorted(pairs.items()) if paired > old_index)
+    builder.add(
+        ExposureChangeKind.CONDITION_REMOVED,
+        # The people the removed condition stopped get the value of a later condition now.
+        reaches_new_people=_stops_people(removed, old) and _serves_any_of(later),
+        loses_people=removed.rollout > 0,
+    )
+    _add_fallthrough(builder, later, new.split, released=removed.variant)
+
+
+def _order_moves_stops(new: _Side, pairs: dict[int, int]) -> bool:
+    # With early exit, a condition that stops people decides only for the people who reach it, so a new order changes
+    # who it stops.
+    if not new.early_exit:
+        return False
+    order = [pairs[new_index] for new_index in sorted(pairs)]
+    reordered = any(earlier > later for earlier, later in zip(order, order[1:]))
+    return reordered and any(_stops_people(new.conditions[new_index], new) for new_index in pairs)
+
+
 def _compare_conditions(old: _Side, new: _Side, builder: _ChangeBuilder) -> None:
     pairs = pair_conditions(old.conditions, new.conditions)
     for new_index, condition in enumerate(new.conditions):
-        later = new.conditions[new_index + 1 :]
         if new_index in pairs:
-            _compare_pair(old.conditions[pairs[new_index]], condition, later, new, builder)
-        elif condition.rollout > 0:
-            builder.add(
-                ExposureChangeKind.CONDITION_ADDED,
-                reaches_new_people=True,
-                grown_variants=_captured_variants(condition, later, new.split),
-            )
+            previous = old.conditions[pairs[new_index]]
+            _compare_pair(previous, condition, new_index=new_index, old=old, new=new, builder=builder)
+        else:
+            _compare_added(condition, new_index=new_index, new=new, builder=builder)
 
     paired_before = set(pairs.values())
     for old_index, removed in enumerate(old.conditions):
-        if old_index in paired_before or removed.rollout <= 0:
-            continue
-        builder.add(ExposureChangeKind.CONDITION_REMOVED)
-        later = tuple(new.conditions[new_index] for new_index, paired in sorted(pairs.items()) if paired > old_index)
-        _add_fallthrough(builder, later, new.split, released=removed.variant)
+        if old_index not in paired_before:
+            _compare_removed(removed, old_index=old_index, pairs=pairs, old=old, new=new, builder=builder)
+    if _order_moves_stops(new, pairs):
+        builder.add(ExposureChangeKind.CONDITIONS_REORDERED, reaches_new_people=True, loses_people=True)
     if order_moves_people(old.conditions, new.conditions, pairs):
         # The order moves the people who match two conditions to the variant of the condition that comes first now.
         # Which conditions those are is not known here, so every variant can grow.
@@ -279,11 +331,11 @@ def classify_exposure_change(*, before: FlagExposureConfig, after: FlagExposureC
         if not before.active and after.active and _serves_anybody(new):
             builder.add(ExposureChangeKind.ENABLED, reaches_new_people=True)
         if before.active and not after.active and _serves_anybody(old):
-            builder.add(ExposureChangeKind.DISABLED)
+            builder.add(ExposureChangeKind.DISABLED, loses_people=True)
         return builder.build(aggregation=new.aggregation)
 
     if old.aggregation != new.aggregation and _serves_anybody(new):
-        builder.add(ExposureChangeKind.PROPERTIES_CHANGED, reaches_new_people=True)
+        builder.add(ExposureChangeKind.PROPERTIES_CHANGED, reaches_new_people=True, loses_people=True)
     _compare_conditions(old, new, builder)
     if not same_assignment(old.split, new.split) and _serves_from_split(new):
         builder.add(ExposureChangeKind.VARIANT_CHANGED, grown_variants=_grown_split_variants(old.split, new.split))

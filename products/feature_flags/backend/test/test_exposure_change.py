@@ -24,6 +24,7 @@ CONDITION_ADDED = ExposureChangeKind.CONDITION_ADDED
 CONDITION_REMOVED = ExposureChangeKind.CONDITION_REMOVED
 PROPERTIES_CHANGED = ExposureChangeKind.PROPERTIES_CHANGED
 VARIANT_CHANGED = ExposureChangeKind.VARIANT_CHANGED
+CONDITIONS_REORDERED = ExposureChangeKind.CONDITIONS_REORDERED
 RAISES = ExposureDirection.RAISES
 LOWERS = ExposureDirection.LOWERS
 KEEPS = ExposureDirection.KEEPS
@@ -215,6 +216,51 @@ class TestClassifyExposureChange(TestCase):
                 {CONDITION_ADDED},
                 True,
                 ("b",),
+                RAISES,
+            ),
+            (
+                "rollout_increased_on_a_multivariate_flag",
+                _flag(_condition(10), variants=SPLIT_50_50),
+                _flag(_condition(50), variants=SPLIT_50_50),
+                {ROLLOUT_INCREASED},
+                True,
+                (),
+                RAISES,
+            ),
+            (
+                "properties_changed_on_a_condition_turned_off",
+                _flag(_condition(50, EMAIL)),
+                _flag(_condition(0, OTHER_EMAIL)),
+                {PROPERTIES_CHANGED, ROLLOUT_DECREASED},
+                False,
+                (),
+                LOWERS,
+            ),
+            (
+                "condition_at_zero_rollout_removed_with_early_exit",
+                _flag(_condition(0, EMAIL), _condition(100), early_exit=True),
+                _flag(_condition(100), early_exit=True),
+                {CONDITION_REMOVED},
+                True,
+                (),
+                RAISES,
+            ),
+            (
+                "condition_at_zero_rollout_added_with_early_exit",
+                _flag(_condition(100), early_exit=True),
+                _flag(_condition(0, EMAIL), _condition(100), early_exit=True),
+                {CONDITION_ADDED},
+                False,
+                (),
+                LOWERS,
+            ),
+            (
+                "conditions_reordered_with_early_exit",
+                _flag(_condition(10, EMAIL), _condition(100), early_exit=True),
+                _flag(_condition(100), _condition(10, EMAIL), early_exit=True),
+                {CONDITIONS_REORDERED},
+                True,
+                (),
                 RAISES,
             ),
             (
