@@ -11,6 +11,7 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
 from posthog.models.comment.utils import OBSERVATION_NOTE_PLACEHOLDER
+from posthog.tasks.email import send_discussions_mentioned
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.replay_vision.backend.models.replay_observation import (
@@ -190,3 +191,27 @@ class TestObservationNotesAccess(APIBaseTest):
         assert response.json()["attr"] == "item_id"
         root.refresh_from_db()
         assert (root.scope, root.item_id) == (root_scope, str(self.observation.id) if root_scope == SCOPE else "n1")
+
+    @mock.patch("posthog.tasks.email.is_email_available", return_value=True)
+    @mock.patch("posthog.tasks.email.EmailMessage")
+    def test_mention_email_sent_after_access_is_revoked_carries_no_note_text(
+        self, email_message: mock.Mock, _email_available: mock.Mock
+    ) -> None:
+        self._set_member_scanner_access("viewer")
+        note = Comment.objects.create(
+            team=self.team,
+            scope=SCOPE,
+            item_id=str(self.observation.id),
+            content="checkout secret",
+            created_by=self.user,
+        )
+        # The email task runs after the mention was authorized, so access can be gone by then.
+        AccessControl.objects.filter(resource="replay_scanner", resource_id=str(self.scanner.id)).update(
+            access_level="none"
+        )
+
+        send_discussions_mentioned(str(note.id), [self.member.id], "")
+
+        context = email_message.call_args.kwargs["template_context"]
+        assert context["content"] == OBSERVATION_NOTE_PLACEHOLDER
+        assert "checkout secret" not in str(email_message.call_args)

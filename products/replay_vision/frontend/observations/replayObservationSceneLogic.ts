@@ -24,7 +24,7 @@ export interface ObservationsPage {
 }
 
 /** Why notes are off for an observation, or null when they are on. */
-export function notesDisabledReason(status: ObservationStatusEnumApi | null): string | null {
+export function observationNotesDisabledReason(status: ObservationStatusEnumApi | null): string | null {
     if (status === 'succeeded') {
         return null
     }
@@ -140,7 +140,11 @@ export const replayObservationSceneLogic = kea<replayObservationSceneLogicType>(
                 },
             ],
         ],
-        notesDisabledReason: [(s) => [s.observationStatus], notesDisabledReason],
+        notesDisabledReason: [
+            (s) => [s.observationStatus],
+            (observationStatus: ObservationStatusEnumApi | null): string | null =>
+                observationNotesDisabledReason(observationStatus),
+        ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.observationId, s.notesDisabledReason],
             (observationId: string, disabledReason: string | null): SidePanelSceneContext => ({
