@@ -48,10 +48,7 @@ class TestAlertUtils:
         ]
     )
     def test_detector_verdict_event_fields(self, _name: str, metadata: dict | None, expected: dict) -> None:
-        alert_check = MagicMock(spec=AlertCheck)
-        alert_check.triggered_metadata = metadata
-
-        assert detector_verdict_event_fields(alert_check) == expected
+        assert detector_verdict_event_fields(metadata) == expected
 
     def test_next_check_time_advances_by_2_minutes(self) -> None:
         alert = MagicMock(spec=AlertConfiguration)
@@ -337,8 +334,7 @@ class TestDispatchAlertInsightChart(APIBaseTest):
         dispatch_alert_notification(self.alert, self.alert_check, ["breach"])
 
         mock_prepare.assert_not_called()
-        # No chart keeps the common threshold-alert call shape (no extra_properties forwarded).
-        assert "extra_properties" not in mock_send.call_args.kwargs
+        assert "insight_chart_url" not in mock_send.call_args.kwargs["extra_properties"]
 
     @patch("posthog.tasks.alerts.utils.prepare_alert_insight_chart_url")
     @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])

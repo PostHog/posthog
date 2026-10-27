@@ -62,6 +62,15 @@ import type { SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { TracesIngestionConsumer } from './traces-ingestion-consumer'
 import { LogsTransformerService } from './transformations/logs-transformer.service'
 
+// What capture-logs forwards for a producer that signed just before the request arrived. Both times come
+// from `Date.now()`, which these tests pin, because a bare `new Date()` still reads the real clock.
+function internalLogsHeaders(signature: string): Record<string, Buffer> {
+    return {
+        [INTERNAL_LOGS_HEADER]: Buffer.from(signature),
+        created_at: Buffer.from(new Date(Date.now()).toISOString()),
+    }
+}
+
 const DEFAULT_TEST_TIMEOUT = 5000
 jest.setTimeout(DEFAULT_TEST_TIMEOUT)
 
@@ -1093,9 +1102,9 @@ describe('LogsIngestionConsumer', () => {
                 record_count: '1',
             })
             const signature = signed
-                ? signInternalLogs(SIGNING_KEY, 'hog_flow', team.id, message.value!)
+                ? signInternalLogs(SIGNING_KEY, 'hog_flow', team.id, new Date(Date.now()))
                 : 'v1.hog_flow.not-a-signature'
-            message.headers!.push({ [INTERNAL_LOGS_HEADER]: Buffer.from(signature) })
+            message.headers!.push(internalLogsHeaders(signature))
             const recordLogsReceivedSpy = jest.spyOn(otelMetrics, 'recordLogsReceived')
             const recordInternalLogsSpy = jest.spyOn(otelMetrics, 'recordInternalLogs')
 
@@ -1145,9 +1154,9 @@ describe('LogsIngestionConsumer', () => {
                     min_timestamp: fiveDaysAgoMicros.toString(),
                 }
             )
-            message.headers!.push({
-                [INTERNAL_LOGS_HEADER]: Buffer.from(signInternalLogs(SIGNING_KEY, 'hog_flow', team.id, message.value!)),
-            })
+            message.headers!.push(
+                internalLogsHeaders(signInternalLogs(SIGNING_KEY, 'hog_flow', team.id, new Date(Date.now())))
+            )
             const bytesCreditSpy = jest.spyOn(logsBillingBytesCreditedCounter, 'inc')
             const recordsCreditSpy = jest.spyOn(logsBillingRecordsCreditedCounter, 'inc')
 
@@ -1180,11 +1189,9 @@ describe('LogsIngestionConsumer', () => {
                 record_count: '1',
                 ...(backfill ? { backfill_days: '540' } : {}),
             })
-            internal.headers!.push({
-                [INTERNAL_LOGS_HEADER]: Buffer.from(
-                    signInternalLogs(SIGNING_KEY, 'hog_flow', team.id, internal.value!)
-                ),
-            })
+            internal.headers!.push(
+                internalLogsHeaders(signInternalLogs(SIGNING_KEY, 'hog_flow', team.id, new Date(Date.now())))
+            )
             const originalQueueMessages = mockProducer.queueMessages
             const passthrough = originalQueueMessages.bind(mockProducer)
             mockProducer.queueMessages = jest.fn().mockImplementation((topicMessages) => {
@@ -2530,9 +2537,9 @@ describe('LogsIngestionConsumer', () => {
             const [billed, internal] = await createKafkaMessages([createLogMessage(), createLogMessage()], {
                 token: team.api_token,
             })
-            internal.headers!.push({
-                [INTERNAL_LOGS_HEADER]: Buffer.from(signInternalLogs(key, 'hog_flow', team.id, internal.value!)),
-            })
+            internal.headers!.push(
+                internalLogsHeaders(signInternalLogs(key, 'hog_flow', team.id, new Date(Date.now())))
+            )
 
             const originalQueueMessages = mockProducer.queueMessages
             const passthrough = originalQueueMessages.bind(mockProducer)
@@ -2690,9 +2697,7 @@ describe('LogsIngestionConsumer', () => {
             await consumer.start()
             jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockResolvedValue(true)
             const message = await createKafkaMessage(createLogMessage(), { token: team.api_token })
-            message.headers!.push({
-                [INTERNAL_LOGS_HEADER]: Buffer.from(signInternalLogs(key, 'hog_flow', team.id, message.value!)),
-            })
+            message.headers!.push(internalLogsHeaders(signInternalLogs(key, 'hog_flow', team.id, new Date(Date.now()))))
 
             await waitForBackgroundTasks(consumer.processKafkaBatch([message]))
 

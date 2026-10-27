@@ -50,7 +50,7 @@ from .env_preflight import validate_eval_env
 from .kernel_sandboxes import reclaim_kernels
 from .live_server import EvalLiveServer
 from .offline_delivery import OfflineEvalDelivery
-from .ports import AI_GATEWAY_REDIS_URL, DJANGO_LIVE_PORT
+from .ports import AI_GATEWAY_PORT, AI_GATEWAY_REDIS_URL, DJANGO_LIVE_PORT
 from .providers import PreflightError, SandboxProviderStrategy, build_provider
 from .reporting import ProgressReporter, SuiteRunResult
 from .requirements import Infra, infra_union
@@ -209,7 +209,7 @@ class SandboxedEvalHarness:
                 validate_eval_env(
                     self.options.agent_runtime,
                     kinds=kinds,
-                    engine_env=self._engine.required_env(no_send_logs=all(suite.no_send_logs for suite in suites)),
+                    engine_env=self._engine.required_env(),
                 )
                 if Infra.SANDBOX in required:
                     self.provider = build_provider(
@@ -497,10 +497,13 @@ class SandboxedEvalHarness:
                     # The harness never starts run_task_workflow_dispatcher, so an outbox dispatch would
                     # leave every case parked in QUEUED until the case's poll budget runs out.
                     TASKS_WORKFLOW_DISPATCH_OUTBOX_ENABLED=False,
-                    # Only the eval product routes to the Go gateway. The worker mints each
+                    # Chat and scout evals retain their production product attribution. The worker mints each
                     # run a capped scoped token with this key, as it does in production.
-                    SANDBOX_AI_GATEWAY_PRODUCTS=EVAL_AI_PRODUCT,
+                    SANDBOX_AI_GATEWAY_PRODUCTS=f"{EVAL_AI_PRODUCT},signals_scout",
                     SANDBOX_AI_GATEWAY_MINT_KEY=self._ai_gateway_mint_key,
+                    # Tool-side judges share the eval ledger with the sandboxed agent.
+                    AI_GATEWAY_URL=f"http://localhost:{AI_GATEWAY_PORT}/v1",
+                    AI_GATEWAY_API_KEY=self._ai_gateway_mint_key,
                     **self.provider.settings_overrides(),
                 )
 

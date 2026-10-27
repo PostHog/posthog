@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -7,6 +7,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import type { EvaluationResultApi } from '../../generated/api.schemas'
 import { compactHeadline, describeAttention, isChartable, lastResultDay } from './evaluationOverviewDisplay'
+import { evaluationResultDrawerLogic } from './evaluationResultDrawerLogic'
 import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
 const ATTENTION_CLASSES: Record<string, string> = {
@@ -39,20 +40,22 @@ export function EvaluationCompareItem({
     color: string | undefined
     onToggle: () => void
 }): JSX.Element {
-    const { timezone, evaluationUrl: urlOf } = useValues(evaluationsOverviewLogic)
-    // Without a line to draw, the row opens the evaluation instead.
+    const { timezone } = useValues(evaluationsOverviewLogic)
+    const { openDrawer, prefetchDetails } = useActions(evaluationResultDrawerLogic)
+    // Without a line to draw, the row opens the results instead.
     const chartable = isChartable(row)
     const [reason] = row.attentionReasons
-    const evaluationUrl = urlOf(row.id)
+    const open = (): void => openDrawer(row.id)
+    const prefetch = (): void => prefetchDetails(row.id)
     return (
         <li className="flex items-center gap-1">
             <LemonButton
                 size="small"
                 className="flex-1 min-w-0"
                 active={!!color}
-                onClick={chartable ? onToggle : undefined}
-                to={chartable ? undefined : evaluationUrl}
-                tooltip={chartable ? (color ? 'Hide from the chart' : 'Show on the chart') : 'Open the evaluation'}
+                onClick={chartable ? onToggle : open}
+                onMouseEnter={chartable ? undefined : prefetch}
+                tooltip={chartable ? (color ? 'Hide from the chart' : 'Show on the chart') : 'Show the results'}
                 data-attr={reason ? `evaluation-overview-compare-${reason}` : 'evaluation-overview-compare'}
             >
                 <span className="flex items-start gap-2 min-w-0 font-normal">
@@ -75,8 +78,9 @@ export function EvaluationCompareItem({
             <LemonButton
                 size="xsmall"
                 icon={<IconArrowRight />}
-                tooltip="Open the evaluation"
-                to={evaluationUrl}
+                tooltip="Show the results"
+                onClick={open}
+                onMouseEnter={prefetch}
                 data-attr="evaluation-overview-compare-open"
             />
         </li>

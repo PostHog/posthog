@@ -54,7 +54,7 @@ class ReplayObservationMediaAdmin(admin.ModelAdmin):
     list_select_related = ("observation", "team")
     list_filter = ("kind",)
     # raw_id_fields, not the default select: each of these targets a table too large to enumerate per row.
-    raw_id_fields = ("observation", "asset", "team")
+    raw_id_fields = ("observation", "asset", "small_asset", "team")
     readonly_fields = ("id", "created_at")
 
     def has_add_permission(self, request: HttpRequest) -> bool:

@@ -1645,6 +1645,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             if (scene?.values.selectedReportId === props.reportId) {
                 scene.actions.seedSelectedReport(report)
             }
+            inboxBulkActionsLogic.findMounted()?.actions.reportClaimChanged(props.reportId, updated.assignee)
             actions.loadReportArtefacts()
             actions.setClaimSaving(false)
         },
@@ -1759,7 +1760,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 return
             }
             cache.reviewerWriteInFlight = true
-            let saved = false
+            // The context menu picker unmounts this logic when the menu closes, which can happen while
+            // the request is in flight. Kea throws on `values` read through an unmounted logic, so take
+            // the saved reviewers from the response and touch local state only while still mounted.
+            let savedReviewerUuids: string[] | null = null
             try {
                 const artefact = await signalsReportsReviewersUpdate(
                     String(ApiConfig.getCurrentProjectId()),
@@ -1773,25 +1777,31 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                         action,
                     }
                 )
-                saved = true
-                actions.loadReportArtefactsSuccess([
-                    ...(values.reportArtefacts ?? []).filter((existing) => existing.id !== artefact.id),
-                    artefact as SignalReportArtefact,
-                ])
-                await asyncActions.loadReportArtefacts()
+                savedReviewerUuids = ((artefact.content ?? []) as unknown as EnrichedReviewer[])
+                    .map((reviewer) => reviewer.user?.uuid ?? reviewer.user_uuid)
+                    .filter((uuid): uuid is string => !!uuid)
+                if (inboxReportDetailLogic.isMounted(props)) {
+                    actions.loadReportArtefactsSuccess([
+                        ...(values.reportArtefacts ?? []).filter((existing) => existing.id !== artefact.id),
+                        artefact as SignalReportArtefact,
+                    ])
+                    await asyncActions.loadReportArtefacts()
+                }
             } catch (error: any) {
-                lemonToast.error(error?.detail || error?.message || 'Failed to update reviewers')
+                // After a successful save, an error from an unmounted logic is not a failed edit.
+                if (!savedReviewerUuids || inboxReportDetailLogic.isMounted(props)) {
+                    lemonToast.error(error?.detail || error?.message || 'Failed to update reviewers')
+                }
             } finally {
                 cache.reviewerWriteInFlight = false
-                actions.setOptimisticReviewers(null)
+                if (inboxReportDetailLogic.isMounted(props)) {
+                    actions.setOptimisticReviewers(null)
+                }
             }
             // Broadcast last: the list can drop the row that hosts this logic (the context menu picker),
             // which unmounts it, and kea throws on an action dispatched through an unmounted logic.
-            if (saved) {
-                const reviewerUuids = (values.displayReviewers ?? [])
-                    .map((reviewer) => reviewer.user?.uuid ?? reviewer.user_uuid)
-                    .filter((uuid): uuid is string => !!uuid)
-                inboxBulkActionsLogic.findMounted()?.actions.reportReviewersChanged(props.reportId, reviewerUuids)
+            if (savedReviewerUuids) {
+                inboxBulkActionsLogic.findMounted()?.actions.reportReviewersChanged(props.reportId, savedReviewerUuids)
             }
         },
         // Post an inline review comment as the user. The comment is inserted optimistically (marked

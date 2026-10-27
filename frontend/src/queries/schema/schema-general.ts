@@ -108,6 +108,7 @@ export enum NodeKind {
     ErrorTrackingBreakdownsQuery = 'ErrorTrackingBreakdownsQuery',
     ErrorTrackingReleasesQuery = 'ErrorTrackingReleasesQuery',
     ErrorTrackingIssueCorrelationQuery = 'ErrorTrackingIssueCorrelationQuery',
+    ErrorTrackingIssueEventsQuery = 'ErrorTrackingIssueEventsQuery',
     LogsQuery = 'LogsQuery',
     LogAttributesQuery = 'LogAttributesQuery',
     LogValuesQuery = 'LogValuesQuery',
@@ -268,6 +269,7 @@ export type AnyDataNode =
     | ErrorTrackingBreakdownsQuery
     | ErrorTrackingReleasesQuery
     | ErrorTrackingIssueCorrelationQuery
+    | ErrorTrackingIssueEventsQuery
     | LogsQuery
     | LogAttributesQuery
     | LogValuesQuery
@@ -339,6 +341,7 @@ export type QuerySchema =
     | ErrorTrackingBreakdownsQuery
     | ErrorTrackingReleasesQuery
     | ErrorTrackingIssueCorrelationQuery
+    | ErrorTrackingIssueEventsQuery
     | ExperimentQuery
     | ExperimentExposureQuery
     | DocumentSimilarityQuery
@@ -542,10 +545,8 @@ export interface HogQLQueryModifiers {
     materializedColumnsOptimizationMode?: 'disabled' | 'optimized'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
-    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
     useNewEventsSchema?: boolean
-    /** Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported. */
-    useNewEventsCluster?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     customBotDefinitions?: CustomBotRule[]
     /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */
@@ -1986,6 +1987,7 @@ export const TRENDS_FILTER_PROPERTIES = new Set<keyof TrendsFilter>([
 export interface BoxPlotDatum {
     day: string
     label: string
+    count?: integer
     min: number
     p25: number
     median: number
@@ -2851,6 +2853,8 @@ export interface DataWarehouseSourceUsage {
     source_type?: string
     /** Warehouse table name that was referenced */
     table_name: string
+    /** Whether the query read a history table of this source */
+    uses_history_table?: boolean
 }
 
 export interface AnalyticsQueryResponseBase {
@@ -4611,6 +4615,26 @@ export interface ErrorTrackingIssueCorrelationQueryResponse extends AnalyticsQue
 export type CachedErrorTrackingIssueCorrelationQueryResponse =
     CachedQueryResponse<ErrorTrackingIssueCorrelationQueryResponse>
 
+/** The exceptions of one issue, optionally only the ones with a recording. */
+export interface ErrorTrackingIssueEventsQuery extends DataNode<ErrorTrackingIssueEventsQueryResponse> {
+    kind: NodeKind.ErrorTrackingIssueEventsQuery
+    issueId: string
+    /** The issue's exceptions list. It must order by `timestamp DESC`, the default, so that pages continue from a cursor. */
+    source: EventsQuery
+    /** Keep only the exceptions whose session has a recording the player can open. */
+    onlyWithRecording?: boolean
+}
+
+export interface ErrorTrackingIssueEventsQueryResponse extends AnalyticsQueryResponseBase {
+    results: any[][]
+    columns: any[]
+    types: string[]
+    hasMore?: boolean
+    /** Where the next page starts. */
+    nextCursor?: string
+}
+export type CachedErrorTrackingIssueEventsQueryResponse = CachedQueryResponse<ErrorTrackingIssueEventsQueryResponse>
+
 export interface ErrorTrackingIssueFilteringToolOutput extends Pick<
     ErrorTrackingQuery,
     'orderBy' | 'orderDirection' | 'status' | 'searchQuery'
@@ -5660,6 +5684,7 @@ export type FileSystemIconType =
     | 'uptime_monitoring'
     | 'workflows'
     | 'broadcasts'
+    | 'transactional'
     | 'notebook'
     | 'action'
     | 'activity'
@@ -5783,19 +5808,6 @@ export type InsightQueryNode =
 
 export type ProductAnalyticsInsightQueryNode = Exclude<InsightQueryNode, WebStatsTableQuery | WebOverviewQuery>
 
-export interface ExperimentVariantTrendsBaseStats {
-    key: string
-    count: number
-    exposure: number
-    absolute_exposure: number
-}
-
-export interface ExperimentVariantFunnelsBaseStats {
-    key: string
-    success_count: number
-    failure_count: number
-}
-
 export interface MaxExperimentVariantResultBayesian {
     key: string
     chance_to_win: number | null
@@ -5827,14 +5839,6 @@ export interface MaxExperimentSummaryContext {
     primary_metrics_results: MaxExperimentMetricResult[]
     secondary_metrics_results: MaxExperimentMetricResult[]
     stats_method: ExperimentStatsMethod
-}
-
-export enum ExperimentSignificanceCode {
-    Significant = 'significant',
-    NotEnoughExposure = 'not_enough_exposure',
-    LowWinProbability = 'low_win_probability',
-    HighLoss = 'high_loss',
-    HighPValue = 'high_p_value',
 }
 
 /** Stored shape of a legacy experiment metric. It no longer runs, so it is kept only to list and migrate legacy experiments. */
@@ -6277,19 +6281,7 @@ export interface ExperimentExposureQuery extends DataNode<ExperimentExposureQuer
 }
 
 export interface ExperimentQueryResponse {
-    // Legacy fields
     kind?: NodeKind.ExperimentQuery
-    insight?: Record<string, any>[]
-    metric?: ExperimentMetric
-    variants?: ExperimentVariantTrendsBaseStats[] | ExperimentVariantFunnelsBaseStats[]
-    probability?: Record<string, number>
-    significant?: boolean
-    significance_code?: ExperimentSignificanceCode
-    stats_version?: integer
-    p_value?: number
-    credible_intervals?: Record<string, [number, number]>
-
-    // New fields
     baseline?: ExperimentStatsBaseValidated
     variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
 
@@ -9257,6 +9249,14 @@ export interface SQLEditorConfiguration {
  * A null configuration and any absent key mean "default".
  * Writers must send the complete object; the server validates and replaces it wholesale.
  */
+/** One person's display choices for the Analytics lists. */
+export interface AnalyticsListDisplayConfiguration {
+    /** Leaves insights out of the All list. */
+    hide_insights?: boolean
+    /** The sort a list opens with. A column header click still changes the sort for that visit. */
+    default_sort?: '-last_viewed_at' | '-created_at'
+}
+
 export interface UserUIConfiguration {
     /**
      * Schema version of this configuration blob, for future format migrations.
@@ -9264,6 +9264,7 @@ export interface UserUIConfiguration {
      */
     version: number
     sql_editor?: SQLEditorConfiguration
+    analytics_list?: AnalyticsListDisplayConfiguration
     [key: string]: unknown
 }
 

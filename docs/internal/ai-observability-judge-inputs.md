@@ -72,11 +72,8 @@ Changing the judge method marks the evaluation as edited, including when the sel
 The selection is stored as `evaluation_config.judge_method` (`llm` or `decision`). Evaluations without this field keep automatic routing until a method or model is explicitly selected.
 Automatic OpenRouter routing selects decisions only for models without text output. Models supporting both methods keep chat routing unless decisions are explicitly selected.
 Prompt-only `evaluation_config` PATCH requests preserve the saved method; an explicit `judge_method: null` restores automatic routing.
-The detail editor PATCHes only changed fields on existing evaluations, so renaming or disabling a saved decision evaluation still works after its feature flag is turned off. Re-enabling it or changing its model or output configuration still validates decision access.
+The detail editor PATCHes only changed fields on existing evaluations. Re-enabling an evaluation or changing its model or output configuration still validates decision access.
 Explicit method selection requires a selected model, including for legacy evaluations that use the project's default connection.
-The `llm-analytics-system-one-evaluations` project-group feature flag controls access in the browser and background workers.
-Both use the project's UUID as its group key; the numeric project ID is a group property.
-Deploy the ingestion and evaluation worker changes before enabling the flag.
 Projects use their saved provider keys or configure a System One-compatible deployment and its authentication.
 Evaluation connections never fall back to an instance credential or gateway configuration.
 The configured endpoint authorizes the supplied credential, including connections to PostHog's regional AI gateway endpoints.

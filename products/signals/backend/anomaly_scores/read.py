@@ -425,12 +425,14 @@ def prior_rate(series: Sequence[SeriesSummary]) -> float:
 
 
 def rate_lift(summary: SeriesSummary, prior: float) -> float:
-    """The smoothed rate in the range less the smoothed baseline rate. Only a ranking uses it."""
-    baseline = summary.baseline_rate if summary.baseline_rate is not None else prior
-    rate = (summary.flagged_buckets + PRIOR_BUCKETS * baseline) / (summary.scored_buckets + PRIOR_BUCKETS)
+    """The smoothed rate in the range less the smoothed baseline rate. Only a ranking uses it.
+
+    Both rates shrink toward the same smoothed baseline, so a series with no scored bucket gets a lift of 0.
+    """
     smoothed_baseline = (summary.baseline_flagged_buckets + PRIOR_BUCKETS * prior) / (
         summary.baseline_scored_buckets + PRIOR_BUCKETS
     )
+    rate = (summary.flagged_buckets + PRIOR_BUCKETS * smoothed_baseline) / (summary.scored_buckets + PRIOR_BUCKETS)
     return rate - smoothed_baseline
 
 

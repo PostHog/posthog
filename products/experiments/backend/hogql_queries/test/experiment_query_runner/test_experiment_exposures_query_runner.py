@@ -19,8 +19,13 @@ from posthog.schema import (
     MultipleVariantHandling,
 )
 
+from posthog.clickhouse.query_tagging import AccessMethod, tags_context
+from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.user import User
 from posthog.test.test_journeys import journeys_for
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
@@ -1480,6 +1485,106 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         # Expected counts should be 50/50 of total (100)
         self.assertEqual(response.sample_ratio_mismatch.expected["control"], 50.0)
         self.assertEqual(response.sample_ratio_mismatch.expected["test"], 50.0)
+
+    def _running_exposure_query(self) -> ExperimentExposureQuery:
+        self.experiment.end_date = None
+        self.experiment.save()
+        return ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            start_date=self.experiment.start_date.isoformat(),
+            end_date=None,
+            exposure_criteria=self.experiment.exposure_criteria,
+        )
+
+    @parameterized.expand([("reader_of_the_flag", True, "split_changed"), ("userless_run", False, None)])
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
+    def test_srm_names_a_split_change_for_a_reader_of_the_flag_history(
+        self, _name: str, as_user: bool, subcode: str | None
+    ) -> None:
+        ff_property = f"$feature/{self.feature_flag.key}"
+        # 90/10 before the change on 2024-01-03, and the current 50/50 split after it.
+        journeys_for(
+            {
+                f"user_{day}_{variant}_{i}": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": day,
+                        "properties": {
+                            "$feature_flag_response": variant,
+                            ff_property: variant,
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    }
+                ]
+                for day, counts in (
+                    ("2024-01-02", (("control", 90), ("test", 10))),
+                    ("2024-01-04", (("control", 60), ("test", 60))),
+                )
+                for variant, count in counts
+                for i in range(count)
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+        before = {
+            **self.feature_flag.filters,
+            "multivariate": {
+                "variants": [{"key": "control", "rollout_percentage": 90}, {"key": "test", "rollout_percentage": 10}]
+            },
+        }
+        ActivityLog.objects.create(
+            team_id=self.team.id,
+            scope="FeatureFlag",
+            item_id=str(self.feature_flag.id),
+            activity="updated",
+            detail={
+                "changes": [
+                    {
+                        "type": "FeatureFlag",
+                        "action": "changed",
+                        "field": "filters",
+                        "before": before,
+                        "after": self.feature_flag.filters,
+                    }
+                ]
+            },
+            created_at=datetime(2024, 1, 3, tzinfo=UTC),
+        )
+
+        response = ExperimentExposuresQueryRunner(
+            team=self.team, query=self._running_exposure_query(), user=self.user if as_user else None
+        ).calculate()
+
+        self.assertEqual(
+            [(finding.code, finding.subcode) for finding in response.health_findings or []],
+            [(ExperimentExposureHealthFindingCode.SRM, subcode)],
+        )
+
+    def test_cache_key_keeps_the_flag_history_from_a_reader_who_cannot_view_the_flag(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        reader = User.objects.create_and_join(self.organization, "reader@example.com", "password")
+        query = self._running_exposure_query()
+
+        def cache_key(user: User | None) -> str:
+            return ExperimentExposuresQueryRunner(team=self.team, query=query, user=user).get_cache_key()
+
+        visible_key = cache_key(reader)
+        with tags_context(access_method=AccessMethod.PERSONAL_API_KEY):
+            token_key = cache_key(reader)
+        AccessControl.objects.create(
+            team=self.team, resource="feature_flag", resource_id=str(self.feature_flag.id), access_level="none"
+        )
+        hidden_key = cache_key(reader)
+
+        self.assertNotEqual(hidden_key, visible_key)
+        self.assertEqual(cache_key(None), hidden_key)
+        self.assertEqual(token_key, hidden_key)
 
     @parameterized.expand(
         [

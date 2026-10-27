@@ -2,13 +2,12 @@ import { MakeLogicType, actions, connect, kea, listeners, path } from 'kea'
 import posthog from 'posthog-js'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import type { Dayjs } from 'lib/dayjs'
-import { now } from 'lib/dayjs'
 import type { IntegrationConnectSurface, IntegrationLinkExistingCounts } from 'lib/integrations/utils'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
+import type { ExperimentWizardStepNavigation } from 'scenes/experiments/ExperimentWizard/experimentWizardLogic'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import type { InstallationErrorKind } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
@@ -55,10 +54,6 @@ import {
 import {
     ChartDisplayType,
     CohortType,
-    DashboardTileSpacing,
-    DashboardMode,
-    DashboardTile,
-    DashboardType,
     Experiment,
     ExperimentHoldoutType,
     ExperimentIdType,
@@ -95,16 +90,6 @@ export enum DashboardEventSource {
     DashboardInsightColorsModal = 'dashboard_insight_colors_modal',
     DashboardVariableOverride = 'dashboard_variable_override',
 }
-
-export type DashboardFilterChangeType =
-    | 'date'
-    | 'properties'
-    | 'breakdown'
-    | 'variable'
-    | 'interval'
-    | 'test_accounts'
-    | 'compare'
-    | 'metric_variables'
 
 export enum InsightEventSource {
     LongPress = 'long_press',
@@ -606,34 +591,6 @@ export function sanitizeInsight(insight: Partial<InsightModel> | null): object |
     return sanitizedInsight
 }
 
-function sanitizeTile(tile: DashboardTile | null): object | undefined {
-    if (!tile) {
-        return undefined
-    }
-
-    return {
-        ...tile,
-        insight: tile.insight ? sanitizeInsight(tile.insight) : undefined,
-    }
-}
-
-export function sanitizeDashboard(dashboard: DashboardType | null): object | null {
-    if (!dashboard) {
-        return null
-    }
-
-    // Remove breakdown color entries, as they carry raw breakdown values (user data) — report only their count
-    const { breakdown_colors, ...sanitizedDashboard } = dashboard
-
-    return {
-        ...sanitizedDashboard,
-        breakdown_colors_count: breakdown_colors?.length ?? 0,
-        filters: filtersForAnalytics(dashboard.filters ?? {}),
-        persisted_filters: dashboard.persisted_filters ? filtersForAnalytics(dashboard.persisted_filters) : null,
-        tiles: dashboard.tiles?.map((tile) => sanitizeTile(tile)) || [],
-    }
-}
-
 function countBehavioralFilters(value: unknown): number {
     if (Array.isArray(value)) {
         return value.reduce((count, item) => count + countBehavioralFilters(item), 0)
@@ -708,58 +665,6 @@ function funnelProperties(querySource: InsightQueryNode): SanitizedQuery {
         funnel_viz_type: querySource.funnelsFilter?.funnelVizType,
         funnel_order_type: querySource.funnelsFilter?.funnelOrderType,
     }
-}
-
-function increment(counts: Record<string, any>, key: string): void {
-    counts[key] = (counts[key] || 0) + 1
-}
-
-function insightTileCountKey(tile: DashboardTile): string {
-    const query = isNodeWithSource(tile.insight?.query) ? tile.insight.query.source : tile.insight?.query
-    return `${query?.kind || !!tile.text ? 'text' : 'empty'}_count`
-}
-
-function countDashboardTiles(tiles: DashboardTile[], properties: Record<string, any>): void {
-    for (const tile of tiles) {
-        if (tile.insight) {
-            increment(properties, insightTileCountKey(tile))
-            properties.sample_items_count += tile.insight.is_sample ? 1 : 0
-            if (queryUsesDataWarehouse(tile.insight.query)) {
-                properties.uses_data_warehouse_source = true
-                properties.data_warehouse_tiles_count += 1
-            }
-        } else if (tile.widget) {
-            increment(properties, 'widget_tiles_count')
-        } else {
-            increment(properties, 'text_tiles_count')
-        }
-    }
-}
-
-export function dashboardViewedProperties(
-    dashboard: DashboardType,
-    lastRefreshed: Dayjs | null,
-    viewerUuid: string | undefined
-): Record<string, any> {
-    const { created_at, is_shared, pinned, creation_mode, id } = dashboard
-    const properties: Record<string, any> = {
-        created_at,
-        is_shared,
-        pinned,
-        creation_mode,
-        viewer_is_creator:
-            dashboard.created_by?.uuid && viewerUuid ? dashboard.created_by.uuid === viewerUuid : undefined,
-        sample_items_count: 0,
-        item_count: dashboard.tiles?.length || 0,
-        created_by_system: !dashboard.created_by,
-        dashboard_id: id,
-        lastRefreshed: lastRefreshed?.toISOString(),
-        refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
-        uses_data_warehouse_source: false,
-        data_warehouse_tiles_count: 0,
-    }
-    countDashboardTiles(dashboard.tiles || [], properties)
-    return properties
 }
 
 /** Takes a query and returns an object with "useful" properties that don't contain sensitive data. */
@@ -924,95 +829,6 @@ export interface eventUsageLogicActions {
         journeyId: string
         journeyName: string
         stepCount: number
-    }
-    reportDashboardAddMenuOpened: (
-        source: 'header',
-        dashboardId: number
-    ) => {
-        dashboardId: number
-        source: 'header'
-    }
-    reportDashboardEditModeDiscardPrompt: (
-        dashboard: DashboardType | null,
-        action: 'discarded' | 'kept_editing' | 'shown'
-    ) => {
-        action: 'discarded' | 'kept_editing' | 'shown'
-        dashboard: DashboardType | null
-    }
-    reportDashboardEmptyAddChartClicked: (dashboardId: number | undefined) => {
-        dashboardId: number | undefined
-    }
-    reportDashboardEmptyAiPromptSubmitted: (
-        dashboardId: number | undefined,
-        promptType: 'custom_prompt' | 'starter_question'
-    ) => {
-        dashboardId: number | undefined
-        promptType: 'custom_prompt' | 'starter_question'
-    }
-    reportDashboardEmptyWebAnalyticsClicked: (dashboardId: number | undefined) => {
-        dashboardId: number | undefined
-    }
-    reportDashboardFiltersChanged: (
-        dashboard: DashboardType | null,
-        changeType: DashboardFilterChangeType,
-        properties: Record<string, boolean | number | string | null | undefined>
-    ) => {
-        changeType: DashboardFilterChangeType
-        dashboard: DashboardType | null
-        properties: Record<string, boolean | number | string | null | undefined>
-    }
-    reportDashboardInsightDeleteAfterRemovalClicked: (otherDashboardCount: number) => {
-        otherDashboardCount: number
-    }
-    reportDashboardInsightMetaUpdated: (
-        dashboardId: number | undefined,
-        insightId: number,
-        attribute: 'description' | 'name'
-    ) => {
-        attribute: 'description' | 'name'
-        dashboardId: number | undefined
-        insightId: number
-    }
-    reportDashboardLayoutEditModeEntered: (
-        dashboard: DashboardType | null,
-        source: DashboardEventSource,
-        layoutZoom: number | null
-    ) => {
-        dashboard: DashboardType | null
-        layoutZoom: number | null
-        source: DashboardEventSource
-    }
-    reportDashboardModeToggled: (
-        dashboard: DashboardType | null,
-        mode: DashboardMode | null,
-        source: DashboardEventSource | null,
-        layoutZoom: number | null,
-        layoutEditMode?: boolean
-    ) => {
-        dashboard: DashboardType | null
-        layoutEditMode: boolean | undefined
-        layoutZoom: number | null
-        mode: DashboardMode | null
-        source: DashboardEventSource | null
-    }
-    reportDashboardMoveInitiated: (
-        method: 'bulk' | 'single',
-        count: number
-    ) => {
-        count: number
-        method: 'bulk' | 'single'
-    }
-    reportDashboardTileDensityConfigured: (tileDensity: DashboardTileSpacing) => {
-        tileDensity: DashboardTileSpacing
-    }
-    reportDashboardTileRepositioned: (
-        dashboardId: number,
-        action: 'moved' | 'resized',
-        layoutZoom: number
-    ) => {
-        action: 'moved' | 'resized'
-        dashboardId: number
-        layoutZoom: number
     }
     reportDataManagementDefinitionClickEdit: (type: TaxonomicFilterGroupType) => {
         type: TaxonomicFilterGroupType
@@ -1218,6 +1034,17 @@ export interface eventUsageLogicActions {
     }
     reportExperimentWizardStarted: () => {
         value: true
+    }
+    reportExperimentWizardStepViewed: (
+        step: string,
+        stepNumber: number,
+        previousStep: string | null,
+        navigation: ExperimentWizardStepNavigation
+    ) => {
+        navigation: ExperimentWizardStepNavigation
+        previousStep: string | null
+        step: string
+        stepNumber: number
     }
     reportExperimentsListAiBadgeClicked: () => {
         value: true
@@ -1705,47 +1532,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
         reportProjectNoticeDismissed: (key: string) => ({ key }),
         reportProjectNoticeShown: (variant: string) => ({ variant }),
-        reportDashboardModeToggled: (
-            dashboard: DashboardType | null,
-            mode: DashboardMode | null,
-            source: DashboardEventSource | null,
-            layoutZoom: number | null,
-            layoutEditMode?: boolean
-        ) => ({ dashboard, mode, source, layoutZoom, layoutEditMode }),
-        reportDashboardLayoutEditModeEntered: (
-            dashboard: DashboardType | null,
-            source: DashboardEventSource,
-            layoutZoom: number | null
-        ) => ({ dashboard, source, layoutZoom }),
-        reportDashboardFiltersChanged: (
-            dashboard: DashboardType | null,
-            changeType: DashboardFilterChangeType,
-            properties: Record<string, string | number | boolean | null | undefined>
-        ) => ({ dashboard, changeType, properties }),
-        reportDashboardTileDensityConfigured: (tileDensity: DashboardTileSpacing) => ({ tileDensity }),
-        reportDashboardEditModeDiscardPrompt: (
-            dashboard: DashboardType | null,
-            action: 'shown' | 'discarded' | 'kept_editing'
-        ) => ({ dashboard, action }),
-        reportDashboardMoveInitiated: (method: 'single' | 'bulk', count: number) => ({ method, count }),
-        reportDashboardInsightDeleteAfterRemovalClicked: (otherDashboardCount: number) => ({ otherDashboardCount }),
-        reportDashboardTileRepositioned: (dashboardId: number, action: 'moved' | 'resized', layoutZoom: number) => ({
-            dashboardId,
-            action,
-            layoutZoom,
-        }),
-        reportDashboardInsightMetaUpdated: (
-            dashboardId: number | undefined,
-            insightId: number,
-            attribute: 'name' | 'description'
-        ) => ({ dashboardId, insightId, attribute }),
-        /** Empty-state AI prompt chips (ai-first empty dashboard only). */
-        reportDashboardEmptyAiPromptSubmitted: (
-            dashboardId: number | undefined,
-            promptType: 'custom_prompt' | 'starter_question'
-        ) => ({ dashboardId, promptType }),
-        reportDashboardEmptyAddChartClicked: (dashboardId: number | undefined) => ({ dashboardId }),
-        reportDashboardEmptyWebAnalyticsClicked: (dashboardId: number | undefined) => ({ dashboardId }),
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
             project_timezone?: string,
@@ -1758,7 +1544,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSessionTableVersionUpdated: (version: string) => ({ version }),
         reportCustomChannelTypeRulesUpdated: (numRules: number) => ({ numRules }),
         reportCreatedDashboardFromModal: true,
-        reportDashboardAddMenuOpened: (source: 'header', dashboardId: number) => ({ source, dashboardId }),
         /** Dashboard created via PostHog web app from a template (new dashboard modal / template chooser). */
         reportSavedInsightToDashboard: (insight: Partial<InsightModel> | null, dashboardId: number | null) => ({
             insight,
@@ -1806,6 +1591,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             breakdown,
             isPrimary,
         }),
+        reportExperimentWizardStepViewed: (
+            step: string,
+            stepNumber: number,
+            previousStep: string | null,
+            navigation: ExperimentWizardStepNavigation
+        ) => ({ step, stepNumber, previousStep, navigation }),
         reportExperimentMetricBreakdownRemoved: (
             experiment: Experiment,
             metricUuid: string,
@@ -2190,82 +1981,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDataTableColumnsUpdated: async ({ context_type }) => {
             posthog.capture('data table columns updated', { context_type })
         },
-        reportDashboardModeToggled: async ({ dashboard, mode, source, layoutZoom, layoutEditMode }) => {
-            posthog.capture('dashboard mode toggled', {
-                dashboard_id: dashboard?.id,
-                dashboard: sanitizeDashboard(dashboard),
-                mode,
-                source,
-                layout_zoom: layoutZoom ?? undefined,
-                layout_edit_mode: layoutEditMode ?? undefined,
-            })
-        },
-        reportDashboardLayoutEditModeEntered: async ({ dashboard, source, layoutZoom }) => {
-            posthog.capture('dashboard layout edit mode entered', {
-                dashboard_id: dashboard?.id,
-                dashboard: sanitizeDashboard(dashboard),
-                source,
-                layout_zoom: layoutZoom ?? undefined,
-            })
-        },
-        reportDashboardFiltersChanged: async ({ dashboard, changeType, properties }) => {
-            posthog.capture('dashboard filters changed', {
-                dashboard_id: dashboard?.id,
-                change_type: changeType,
-                ...properties,
-            })
-        },
-        reportDashboardTileDensityConfigured: async ({ tileDensity }) => {
-            posthog.capture('dashboard tile density configured', { tile_density: tileDensity })
-        },
-        reportDashboardEditModeDiscardPrompt: async ({ dashboard, action }) => {
-            posthog.capture('dashboard edit mode discard prompt', {
-                dashboard_id: dashboard?.id,
-                dashboard: sanitizeDashboard(dashboard),
-                action,
-            })
-        },
-        reportDashboardMoveInitiated: async ({ method, count }) => {
-            posthog.capture('dashboard move initiated', { method, count })
-        },
-        reportDashboardTileRepositioned: async ({ dashboardId, action, layoutZoom }) => {
-            posthog.capture('dashboard tile repositioned', {
-                dashboard_id: dashboardId,
-                action,
-                layout_zoom: layoutZoom,
-            })
-        },
-        reportDashboardInsightMetaUpdated: async ({ dashboardId, insightId, attribute }) => {
-            posthog.capture('dashboard insight meta updated', {
-                dashboard_id: dashboardId,
-                insight_id: insightId,
-                attribute,
-            })
-        },
-        reportDashboardInsightDeleteAfterRemovalClicked: async ({ otherDashboardCount }) => {
-            posthog.capture('dashboard insight delete after removal clicked', {
-                other_dashboard_count: otherDashboardCount,
-            })
-        },
-        reportDashboardEmptyAiPromptSubmitted: async ({ dashboardId, promptType }) => {
-            posthog.capture('dashboard empty ai prompt submitted', {
-                dashboard_id: dashboardId,
-                prompt_type: promptType,
-                source: 'web',
-            })
-        },
-        reportDashboardEmptyAddChartClicked: async ({ dashboardId }) => {
-            posthog.capture('dashboard empty add chart clicked', {
-                dashboard_id: dashboardId,
-                source: 'web',
-            })
-        },
-        reportDashboardEmptyWebAnalyticsClicked: async ({ dashboardId }) => {
-            posthog.capture('dashboard empty web analytics clicked', {
-                dashboard_id: dashboardId,
-                source: 'web',
-            })
-        },
         reportTimezoneComponentViewed: async (payload) => {
             posthog.capture('timezone component viewed', payload)
         },
@@ -2298,9 +2013,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportCreatedDashboardFromModal: async () => {
             posthog.capture('created new dashboard from modal')
-        },
-        reportDashboardAddMenuOpened: async ({ source, dashboardId }) => {
-            posthog.capture('dashboard add menu opened', { source, dashboard_id: dashboardId })
         },
         reportSavedInsightToDashboard: async ({ insight, dashboardId }) => {
             if (isBIVisualizationNode(insight?.query)) {
@@ -2378,6 +2090,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 breakdown_type: breakdown.type,
                 breakdown_property: breakdown.property,
                 is_primary_metric: isPrimary,
+            })
+        },
+        reportExperimentWizardStepViewed: ({ step, stepNumber, previousStep, navigation }) => {
+            posthog.capture('experiment wizard step viewed', {
+                step,
+                step_number: stepNumber,
+                previous_step: previousStep,
+                navigation,
             })
         },
         reportExperimentMetricBreakdownRemoved: ({ experiment, metricUuid, breakdown, index, isPrimary }) => {

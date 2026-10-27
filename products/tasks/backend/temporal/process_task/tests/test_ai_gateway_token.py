@@ -316,6 +316,7 @@ class TestMintScopedToken:
                 "deepseek-ai/deepseek-v4.1-flash-1017-fast",
                 "zai-org/glm-5.3",
                 "zai-org/glm-5.3-flash",
+                "gpt-6.1-terra",
             }
         assert set(pin) == expected
 
@@ -620,7 +621,7 @@ class TestProvisioningBoundaries:
         "task_runtime,tokens,initializes_cost,incomplete",
         [
             ("acp", ("phe_abc",), True, False),
-            ("pi", ("phe_abc",), False, True),
+            ("pi", ("phe_abc",), True, False),
             ("acp", (None,), False, True),
             ("acp", ("phe_abc", None, "phe_abc"), True, True),
             ("acp", (None, "phe_abc"), True, True),
@@ -643,9 +644,7 @@ class TestProvisioningBoundaries:
         with patch.object(utils, "mint_scoped_token", side_effect=tokens):
             for token in tokens:
                 env = utils.run_gateway_env_vars(ctx, self._task())
-                assert env.get("AI_GATEWAY_TOKEN") == (
-                    token if isinstance(token, str) and task_runtime != "pi" else None
-                )
+                assert env.get("AI_GATEWAY_TOKEN") == (token if isinstance(token, str) else None)
         test_task_run.refresh_from_db()
         assert ("token_cost" in test_task_run.state) is initializes_cost
         assert ("unprocessed_request_ids" in test_task_run.state) is initializes_cost
@@ -884,6 +883,56 @@ class TestProvisioningBoundaries:
             patch.object(utils, "record_gateway_routing"),
         ):
             assert utils.run_gateway_env_vars(self._ctx(), self._task()) == {}
+
+    @pytest.mark.parametrize(
+        "failure,error_type",
+        [
+            (503, ProcessTaskTransientError),
+            (429, ProcessTaskTransientError),
+            (requests.Timeout("unavailable"), ProcessTaskTransientError),
+            ("pin_write", ProcessTaskTransientError),
+            (401, GatewayTokenUnavailableError),
+            ("untrusted", GatewayTokenUnavailableError),
+            ("not_routed", GatewayTokenUnavailableError),
+            ("no_mint_key", GatewayTokenUnavailableError),
+        ],
+    )
+    def test_pi_scout_does_not_fall_back_when_gateway_mint_fails(self, mint_settings, failure, error_type):
+        ctx = self._ctx()
+        ctx.task_runtime = "pi"
+        task = self._task()
+        task.internal = failure != "untrusted"
+        ctx.model = "deepseek-ai/deepseek-v4.1-flash-1017-fast"
+        if failure == "not_routed":
+            mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "signals_research"
+        elif failure == "no_mint_key":
+            mint_settings.SANDBOX_AI_GATEWAY_MINT_KEY = ""
+        with (
+            patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post,
+            patch("products.tasks.backend.temporal.process_task.ai_gateway_token.time.sleep"),
+            patch("products.tasks.backend.models.TaskRun.update_state_atomic") as update,
+            patch.dict(utils.PRODUCT_ALLOWED_MODELS, {"signals_scout": [ctx.model]}),
+            patch.object(utils, "record_gateway_routing"),
+        ):
+            post.return_value.status_code = failure if isinstance(failure, int) else 201
+            post.return_value.json.return_value = {"token": "phe_scout"}
+            if isinstance(failure, Exception):
+                post.side_effect = failure
+            if failure == "pin_write":
+                update.side_effect = OperationalError("unavailable")
+                ctx.state["ai_gateway_product"] = "slack_app"
+            with pytest.raises(error_type) as raised:
+                utils.run_gateway_env_vars(ctx, task)
+            assert raised.value.non_retryable is (error_type is GatewayTokenUnavailableError)
+            if error_type is ProcessTaskTransientError:
+                post.side_effect = None
+                post.return_value.status_code = 201
+                update.side_effect = None
+                assert utils.run_gateway_env_vars(ctx, task)["AI_GATEWAY_TOKEN"] == "phe_scout"
+            elif failure == 401:
+                assert post.call_count == 1
+            else:
+                post.assert_not_called()
 
     @pytest.mark.parametrize("uses_gateway", [False, True])
     def test_routing_is_not_returned_when_accounting_write_fails(self, uses_gateway: bool) -> None:
@@ -1266,6 +1315,7 @@ class TestSlackAppMint:
             "deepseek-ai/deepseek-v4.1-flash-1017-fast",
             "zai-org/glm-5.3",
             "zai-org/glm-5.3-flash",
+            "gpt-6.1-terra",
         }
         assert reserved <= set(_PRODUCT_ALLOWED_MODELS["review_hog"])
         missing = routed - reserved - {"zai-org/glm-5.2"} - set(_PRODUCT_ALLOWED_MODELS["slack_app"])
@@ -1329,6 +1379,24 @@ class TestMintRefusalScope:
     @pytest.mark.parametrize("product", ["workflows", "review_hog", "signals_scout", "posthog_ai"])
     def test_pi_runs_of_other_products_never_mint(self, product):
         assert mint_refusal(product, team_id=2, state=None, model=None, runtime="pi") == "pi_runtime"
+
+    @pytest.mark.parametrize(
+        "internal,origin,expected",
+        [(True, "signals_scout", None), (False, "signals_scout", "pi_runtime"), (True, "loop", "pi_runtime")],
+    )
+    def test_pi_scout_requires_server_provenance(self, internal, origin, expected):
+        assert (
+            mint_refusal(
+                "signals_scout",
+                team_id=2,
+                state=None,
+                model="deepseek-ai/deepseek-v4.1-flash-1017-fast",
+                runtime="pi",
+                internal=internal,
+                origin_product=origin,
+            )
+            == expected
+        )
 
     @pytest.mark.parametrize("product", ["posthog_ai", "workflows", "review_hog"])
     def test_pinned_products_refuse_an_off_pin_model(self, product):
@@ -1536,7 +1604,9 @@ class TestPosthogCodeSandboxMint:
         assert pin == DESKTOP_AGENT_MODELS
         assert len(pin) == len(set(pin))
         assert len(gateway_pin(pin)) <= MAX_GATEWAY_PIN_LENGTH
-        assert {entry.id for entry in model_catalog.MODELS} <= set(pin)
+        # A model reserved for ReviewHog alone would push the desktop pin past the gateway limit.
+        assert {entry.id for entry in model_catalog.MODELS} - {"gpt-6.1-terra"} <= set(pin)
+        assert "gpt-6.1-terra" not in pin
         assert set(SDK_IMPLICIT_MODELS) <= set(pin)
         assert {"gpt-5.4", "gpt-5.3-codex", "gpt-5.2", "gpt-5-mini"} <= set(pin)
 

@@ -160,6 +160,7 @@ from .basecamp.source import BasecampSource
 from .baserow.source import BaserowSource
 from .baseten.source import BasetenSource
 from .bcms.source import BCMSSource
+from .beacons.source import BeaconsSource
 from .beamer.source import BeamerSource
 from .beehiiv.source import BeehiivSource
 from .better_stack.source import BetterStackSource
@@ -1360,6 +1361,7 @@ from .wix.source import WixSource
 from .wiz.source import WizSource
 from .wompi.source import WompiSource
 from .woocommerce.source import WooCommerceSource
+from .woopayments.source import WooPaymentsSource
 from .wordpress.source import WordpressSource
 from .workable.source import WorkableSource
 from .workato.source import WorkatoSource
