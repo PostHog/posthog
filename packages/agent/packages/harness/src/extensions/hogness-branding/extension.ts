@@ -13,11 +13,11 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import {
-  HOG_APP_NAME as BRAND_NAME,
-  HOG_BRAND_TAGLINE as BRAND_TAGLINE,
+  HOGNESS_APP_NAME as BRAND_NAME,
+  HOGNESS_BRAND_TAGLINE as BRAND_TAGLINE,
 } from "./brand-env";
 
-export interface HogBrandingOptions {
+export interface HognessBrandingOptions {
   /** Override the version string shown in the header (defaults to the pi package version). */
   version?: string;
 }
@@ -110,8 +110,8 @@ function setBrandedTitle(ctx: ExtensionContext): void {
   setTimeout(() => ctx.ui.setTitle(title), 0);
 }
 
-export function createHogBrandingExtension(
-  options: HogBrandingOptions = {},
+export function createHognessBrandingExtension(
+  options: HognessBrandingOptions = {},
 ): ExtensionFactory {
   return async (pi: ExtensionAPI) => {
     pi.on("session_start", async (_event, ctx) => {
@@ -128,5 +128,5 @@ export function createHogBrandingExtension(
 }
 
 export default function hogBranding(pi: ExtensionAPI): void | Promise<void> {
-  return createHogBrandingExtension()(pi);
+  return createHognessBrandingExtension()(pi);
 }
