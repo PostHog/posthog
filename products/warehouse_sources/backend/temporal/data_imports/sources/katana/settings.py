@@ -1,4 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
@@ -19,7 +21,7 @@ _UPDATED_AND_CREATED: list[IncrementalField] = [_timestamp_field("updated_at"), 
 _CREATED_ONLY: list[IncrementalField] = [_timestamp_field("created_at")]
 
 
-@dataclass
+@frozen
 class KatanaEndpointConfig:
     name: str
     path: str
