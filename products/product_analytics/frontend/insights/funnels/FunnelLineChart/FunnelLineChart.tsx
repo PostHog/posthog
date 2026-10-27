@@ -25,6 +25,8 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { isFunnelsQuery } from '~/queries/utils'
 import { ChartParams, type FlattenedFunnelStepByBreakdown } from '~/types'
 
+import { insightAlertsLogic } from 'products/alerts/frontend/logic/insightAlertsLogic'
+
 import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
@@ -32,6 +34,7 @@ import { buildBaseLegendConfig } from '../../trends/shared/buildBaseLegendConfig
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import { hasBreakdown } from '../funnelUtils'
+import { FunnelAlertThresholdLines } from '../shared/FunnelAlertThresholdLines'
 import { FUNNEL_CONVERSION_SERIES_LABEL, type FunnelSeriesMeta } from '../shared/funnelSeriesMeta'
 import { formatFunnelTrendsCounts } from '../shared/funnelTrendsCounts'
 import { buildFunnelLineSeries, buildFunnelLineTimeSeriesConfig, type IndexedFunnelStep } from './funnelChartTransforms'
@@ -66,6 +69,13 @@ export function FunnelLineChart({
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
     const theme = useChartTheme()
     const { insightProps, insight, canEditInsight } = useValues(insightLogic)
+    const { allAlertThresholdLines } = useValues(
+        insightAlertsLogic({
+            insightId: insight.id ?? 0,
+            insightLogicProps: insightProps,
+            deferInitialAlertsLoad: !insight.id,
+        })
+    )
 
     const {
         indexedSteps,
@@ -150,6 +160,7 @@ export function FunnelLineChart({
                 showCrosshair: true,
                 tooltip: { ...INSIGHT_TOOLTIP_CONFIG, resolveClickToNearestSeries: context?.dashboardResultMenu },
             }),
+            valueDomain: { include: allAlertThresholdLines.map((line) => line.value) },
             curve: chartStyleCurve(funnelsFilter?.chartStyle),
             legend: legendConfig,
         }),
@@ -159,6 +170,7 @@ export function FunnelLineChart({
             interval,
             timezone,
             goalLines,
+            allAlertThresholdLines,
             incompletenessOffsetFromEnd,
             funnelsFilter?.showTrendLines,
             funnelsFilter?.chartStyle,
@@ -269,6 +281,7 @@ export function FunnelLineChart({
             dataAttr="trend-line-graph-funnel"
             onError={handleChartError}
         >
+            {insight.id && <FunnelAlertThresholdLines insightId={insight.id} insightProps={insightProps} />}
             {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationDates} />}
         </TimeSeriesLineChart>
     )

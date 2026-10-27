@@ -17,6 +17,7 @@ import { ChartParams, FunnelStepReference } from '~/types'
 
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
+import { FunnelAlertThresholdLines } from '../shared/FunnelAlertThresholdLines'
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
 import {
     buildFunnelStepsBarData,
@@ -58,7 +59,7 @@ export function FunnelStepsBarChart({
     const theme = useChartTheme()
     const { featureFlags } = useValues(featureFlagLogic)
     const hasBarLabels = !!featureFlags[FEATURE_FLAGS.FUNNEL_STEPS_BAR_LABELS]
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, insight } = useValues(insightLogic)
     const {
         stepsWithConversionMetrics,
         visibleStepsWithConversionMetrics,
@@ -193,6 +194,7 @@ export function FunnelStepsBarChart({
                     dataAttr="funnel-steps-bar-chart-canvas"
                     onError={handleChartError}
                 >
+                    {insight.id && <FunnelAlertThresholdLines insightId={insight.id} insightProps={insightProps} />}
                     {hasBarLabels && <ValueLabels valueFormatter={formatFunnelStepBarLabel} offset={4} />}
                     {conversionChipStepIndexes.length > 0 && (
                         <StepConversionChips steps={steps} stepIndexes={conversionChipStepIndexes} />

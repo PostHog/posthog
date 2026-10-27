@@ -209,3 +209,23 @@ export const TrendsWorldMapInsight: Story = {
         insight: __trendsWorldMap as any,
     },
 }
+
+export const TrendsPercentageAlert: Story = {
+    args: {
+        insight: {
+            ...__trendsLine,
+            name: 'Event count limit',
+            description: 'Sample data',
+            result: [{ ...__trendsLine.result[0], data: [30, 45, 60, 75, 80, 80, 80, 120] }],
+            alerts: [
+                {
+                    id: 'sample-trend-alert',
+                    name: 'Count increase',
+                    condition: { type: 'relative_increase' },
+                    threshold: { configuration: { type: 'percentage', bounds: { upper: 0.25 } } },
+                    config: { type: 'TrendsAlertConfig', series_index: 0, check_ongoing_interval: true },
+                },
+            ],
+        } as any,
+    },
+}

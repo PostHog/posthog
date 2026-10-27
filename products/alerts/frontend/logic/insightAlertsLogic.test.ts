@@ -7,13 +7,14 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { Node, NodeKind } from '~/queries/schema/schema-general'
+import { AlertConditionType, InsightThresholdType, Node, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType, HogFunctionType, InsightLogicProps, InsightShortId } from '~/types'
+import { ChartDisplayType, FunnelVizType, HogFunctionType, InsightLogicProps, InsightShortId } from '~/types'
 
 import type { AlertType } from '../types'
 import {
     alertsUnsupportedReason,
+    alertsToThresholdGoalLines,
     areAlertsSupportedForInsight,
     areAnomalyAlertsSupportedForInsight,
     insightAlertsLogic,
@@ -430,5 +431,180 @@ describe('alertsUnsupportedReason', () => {
         }
         // No query → backward-compatible generic copy.
         expect(alertsUnsupportedReason({})).toContain('only available for')
+    })
+})
+
+describe('alert chart limits', () => {
+    const alert = {
+        name: 'Event count',
+        condition: { type: AlertConditionType.RELATIVE_INCREASE },
+        threshold: { configuration: { type: InsightThresholdType.PERCENTAGE, bounds: { upper: 0.25 } } },
+        config: { type: 'TrendsAlertConfig', series_index: 0, check_ongoing_interval: true },
+    } as AlertType
+    const query = { kind: NodeKind.TrendsQuery, series: [] } as const
+
+    it.each([
+        ['percentage increase', {}, [80, 120], 100],
+        ['percentage decrease', { condition: { type: AlertConditionType.RELATIVE_DECREASE } }, [80, 40, 10], 60],
+        [
+            'absolute increase',
+            { threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: { upper: 15 } } } },
+            [80, 120],
+            95,
+        ],
+        ['complete interval', { config: { ...alert.config, check_ongoing_interval: false } }, [40, 80, 120], 50],
+        ['delayed interval', { evaluation_delay_intervals: 1 }, [40, 80, 120], 50],
+        ['zero baseline', {}, [0, 10], 0],
+    ])('%s uses chart units', (_name, overrides, data, expected) => {
+        const lines = alertsToThresholdGoalLines([{ ...alert, ...overrides } as AlertType], {
+            query: { ...query, series: [] },
+            results: [{ data }],
+        })
+        expect(lines.map((line) => line.value)).toEqual([expected])
+    })
+
+    it.each([[[]], [[120]], [[null, 120]], [[NaN, 120]]])(
+        'omits relative limits without a finite baseline: %j',
+        (data) => {
+            expect(
+                alertsToThresholdGoalLines([alert], { query: { ...query, series: [] }, results: [{ data }] })
+            ).toEqual([])
+        }
+    )
+
+    it('keeps absolute funnel limits in percentage points', () => {
+        const funnelAlert = {
+            ...alert,
+            condition: { type: AlertConditionType.ABSOLUTE_VALUE },
+            threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: { lower: 55, upper: 90 } } },
+            config: { type: 'FunnelsAlertConfig', metric: 'conversion_from_start' },
+        } as AlertType
+        expect(alertsToThresholdGoalLines([funnelAlert]).map((line) => line.value)).toEqual([90, 55])
+    })
+
+    it.each([
+        ['first_row', [[120], [80], [40]], 100],
+        ['last_row', [[40], [80], [120]], 100],
+        ['any_row', [[40], [80], [120]], null],
+    ])('uses the SQL %s comparison row', (evaluation, rows, expected) => {
+        const sqlAlert = { ...alert, config: { type: 'HogQLAlertConfig', column: 'count', evaluation } } as AlertType
+        const lines = alertsToThresholdGoalLines([sqlAlert], {
+            columns: [{ name: 'count', dataIndex: 0, type: { isNumerical: true } }],
+            rows,
+        })
+        expect(lines.map((line) => line.value)).toEqual(expected == null ? [] : [expected])
+    })
+
+    it('uses the trailing complete interval when the query excludes incomplete intervals', () => {
+        expect(
+            alertsToThresholdGoalLines(
+                [{ ...alert, config: { ...alert.config, check_ongoing_interval: false } } as AlertType],
+                {
+                    query: { ...query, series: [], dateRange: { excludeIncompletePeriods: true } },
+                    results: [{ data: [40, 80, 120] }],
+                }
+            ).map((line) => line.value)
+        ).toEqual([100])
+    })
+
+    it('converts a previous-step funnel limit to the displayed overall conversion rate', () => {
+        const funnelAlert = {
+            ...alert,
+            condition: { type: AlertConditionType.ABSOLUTE_VALUE },
+            threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: { lower: 50 } } },
+            config: { type: 'FunnelsAlertConfig', metric: 'conversion_from_previous', funnel_step: 2 },
+        } as AlertType
+        const lines = alertsToThresholdGoalLines([funnelAlert], {
+            query: { kind: NodeKind.FunnelsQuery, series: [] },
+            results: [
+                { count: 100, data: [] },
+                { count: 60, data: [] },
+                { count: 20, data: [] },
+            ],
+        })
+        expect(lines.map((line) => line.value)).toEqual([30])
+    })
+
+    it('uses the current comparison series when both periods carry compare=true', () => {
+        expect(
+            alertsToThresholdGoalLines([alert], {
+                query: { ...query, series: [] },
+                results: [
+                    { order: 0, compare: true, compare_label: 'current', data: [80, 120] },
+                    { order: 0, compare: true, compare_label: 'previous', data: [20, 40] },
+                ],
+            }).map((line) => line.value)
+        ).toEqual([100])
+    })
+
+    it.each([
+        ['conversion_from_start', 25],
+        ['conversion_from_previous', 15],
+    ])('scales a compared funnel %s limit to the current period bars', (metric, expected) => {
+        const funnelAlert = {
+            ...alert,
+            condition: { type: AlertConditionType.ABSOLUTE_VALUE },
+            threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: { lower: 50 } } },
+            config: { type: 'FunnelsAlertConfig', metric },
+        } as AlertType
+        expect(
+            alertsToThresholdGoalLines([funnelAlert], {
+                query: { kind: NodeKind.FunnelsQuery, series: [], compareFilter: { compare: true } },
+                results: [
+                    { count: 100, compare_label: 'current', data: [] },
+                    { count: 60, compare_label: 'current', data: [] },
+                    { count: 20, compare_label: 'current', data: [] },
+                    { count: 200, compare_label: 'previous', data: [] },
+                    { count: 90, compare_label: 'previous', data: [] },
+                    { count: 30, compare_label: 'previous', data: [] },
+                ],
+            }).map((line) => line.value)
+        ).toEqual([expected])
+    })
+
+    it.each([
+        ['first_row', 100],
+        ['last_row', null],
+    ])('handles partial SQL results in %s order', (evaluation, expected) => {
+        const sqlAlert = { ...alert, config: { type: 'HogQLAlertConfig', column: 'count', evaluation } } as AlertType
+        const lines = alertsToThresholdGoalLines([sqlAlert], {
+            columns: [{ name: 'count', dataIndex: 0, type: { isNumerical: true } }],
+            rows: [[120], [80], [40]],
+            hasMore: true,
+        })
+        expect(lines.map((line) => line.value)).toEqual(expected == null ? [] : [expected])
+    })
+
+    it('omits a combined limit for funnel breakdown groups', () => {
+        const funnelAlert = {
+            ...alert,
+            condition: { type: AlertConditionType.ABSOLUTE_VALUE },
+            threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: { lower: 50 } } },
+            config: { type: 'FunnelsAlertConfig', metric: 'conversion_from_start' },
+        } as AlertType
+        expect(
+            alertsToThresholdGoalLines([funnelAlert], {
+                query: { kind: NodeKind.FunnelsQuery, series: [], breakdownFilter: { breakdown: 'country' } },
+                results: [],
+            })
+        ).toEqual([])
+    })
+
+    it('does not use the first funnel breakdown group as a baseline for every group', () => {
+        const funnelAlert = {
+            ...alert,
+            config: { type: 'FunnelsAlertConfig', metric: 'conversion_from_start', check_ongoing_interval: true },
+        } as AlertType
+        expect(
+            alertsToThresholdGoalLines([funnelAlert], {
+                query: {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: { funnelVizType: FunnelVizType.Trends },
+                    breakdownFilter: { breakdown: 'country' },
+                },
+                results: [{ data: [20, 40] }, { data: [80, 100] }],
+            })
+        ).toEqual([])
     })
 })

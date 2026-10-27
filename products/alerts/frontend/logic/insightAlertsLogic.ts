@@ -10,6 +10,8 @@ import {
     AlertConditionType,
     BreakdownFilter,
     GoalLine,
+    TrendsQuery,
+    FunnelsQuery,
     InsightThresholdType,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -24,8 +26,17 @@ import {
 import { FunnelVizType, InsightLogicProps } from '~/types'
 
 import type { Node } from '../../../../frontend/src/queries/schema/schema-general'
+import type {
+    LifecycleQuery,
+    PathsQuery,
+    PathsV2Query,
+    RetentionQuery,
+    StickinessQuery,
+    WebOverviewQuery,
+    WebStatsTableQuery,
+} from '../../../../frontend/src/queries/schema/schema-general'
 import type { InsightModel } from '../../../../frontend/src/types'
-import { AlertType, AnomalyPoint, isTrendsAlertConfig } from '../types'
+import { AlertType, AnomalyPoint, isFunnelsAlertConfig, isTrendsAlertConfig, isHogQLAlertConfig } from '../types'
 import { buildAlertFilterConfig } from './alertNotifications'
 
 export interface InsightAlertsLogicProps {
@@ -119,35 +130,138 @@ export const alertsUnsupportedReason = (
     return `Alerts are only available for ${alertableInsightTypesLabel(options)} insights. Change the insight representation to add alerts.`
 }
 
-/** Map absolute-threshold alerts to chart goal lines (shared by trends and SQL charts). */
-export function alertsToThresholdGoalLines(alerts: AlertType[]): GoalLine[] {
+export type AlertChartContext =
+    | {
+          query: TrendsQuery | FunnelsQuery
+          results: {
+              data?: (number | null)[]
+              order?: number
+              compare?: boolean
+              compare_label?: 'current' | 'previous'
+              count?: number
+          }[]
+      }
+    | {
+          columns: { name: string; dataIndex: number; type: { isNumerical: boolean } }[]
+          rows: unknown[][]
+          hasMore?: boolean
+      }
+
+function alertPreviousValue(alert: AlertType, context?: AlertChartContext): number | null {
+    if (!context) {
+        return null
+    }
+    if ('rows' in context) {
+        if (!isHogQLAlertConfig(alert.config) || alert.config.evaluation === 'any_row') {
+            return null
+        }
+        if (context.hasMore && alert.config.evaluation === 'last_row') {
+            return null
+        }
+        const columnName = alert.config.column
+        const candidates = context.columns.filter((column) =>
+            columnName ? column.name === columnName : column.type.isNumerical
+        )
+        if (candidates.length !== 1 || context.rows.length < 2) {
+            return null
+        }
+        const rowIndex = alert.config.evaluation === 'first_row' ? 1 : context.rows.length - 2
+        const raw = context.rows[rowIndex]?.[candidates[0].dataIndex]
+        const previous = raw == null ? null : Number(raw)
+        return previous != null && Number.isFinite(previous) ? previous : null
+    }
+    if (isFunnelsQuery(context.query) && hasBreakdownFilter(context.query.breakdownFilter)) {
+        return null
+    }
+    const seriesIndex = isTrendsAlertConfig(alert.config) ? alert.config.series_index : 0
+    const currentResults = context.results.filter((result) => result.compare_label !== 'previous')
+    const matchingResults = currentResults.filter((result, index) => (result.order ?? index) === seriesIndex)
+    if (matchingResults.length !== 1) {
+        return null
+    }
+    const data = matchingResults[0].data
+    if (!Array.isArray(data)) {
+        return null
+    }
+    const checkOngoing = 'check_ongoing_interval' in alert.config && alert.config.check_ongoing_interval
+    const useLastPoint =
+        context.query.dateRange?.excludeIncompletePeriods ||
+        (checkOngoing &&
+            (isFunnelsQuery(context.query) || alert.condition.type === AlertConditionType.RELATIVE_INCREASE))
+    const anchor = data.length - (useLastPoint ? 1 : 2) - (alert.evaluation_delay_intervals ?? 0)
+    const previous = data[anchor - 1]
+    return previous != null && Number.isFinite(previous) ? previous : null
+}
+
+function funnelThresholdScale(alert: AlertType, context?: AlertChartContext): number | null {
+    if (!context || 'rows' in context || !isFunnelsQuery(context.query) || !isFunnelsAlertConfig(alert.config)) {
+        return 1
+    }
+    const { query, results } = context
+    if (query.funnelsFilter?.funnelVizType === FunnelVizType.Trends) {
+        return 1
+    }
+    if (hasBreakdownFilter(query.breakdownFilter)) {
+        return null
+    }
+    const currentSteps = results.filter((result) => result.compare_label !== 'previous')
+    const previousSteps = results.filter((result) => result.compare_label === 'previous')
+    const step = alert.config.funnel_step ?? currentSteps.length - 1
+    const alertBase = alert.config.metric === 'conversion_from_previous' ? step - 1 : 0
+    let chartBase = 0
+    if (query.funnelsFilter?.funnelStepReference === 'previous' && step > 0) {
+        chartBase = step - 1
+        while (chartBase > 0 && query.series[chartBase]?.optionalInFunnel) {
+            chartBase--
+        }
+    }
+    if (alertBase === chartBase && previousSteps.length === 0) {
+        return 1
+    }
+    const alertCount = currentSteps[alertBase]?.count
+    const chartCount =
+        previousSteps.length > 0
+            ? Math.max(currentSteps[0]?.count ?? 0, previousSteps[0]?.count ?? 0)
+            : currentSteps[chartBase]?.count
+    if (alertCount == null || chartCount == null || chartCount <= 0) {
+        return null
+    }
+    return alertCount / chartCount
+}
+
+export function alertsToThresholdGoalLines(alerts: AlertType[], context?: AlertChartContext): GoalLine[] {
     return alerts.flatMap((alert) => {
-        if (
-            alert.threshold.configuration.type !== InsightThresholdType.ABSOLUTE ||
-            alert.condition.type !== AlertConditionType.ABSOLUTE_VALUE ||
-            !alert.threshold.configuration.bounds
-        ) {
+        const { bounds, type } = alert.threshold.configuration
+        if (!bounds || alert.detector_config) {
             return []
         }
 
-        const bounds = alert.threshold.configuration.bounds
-
-        const annotations: GoalLine[] = []
-        if (bounds.upper != null) {
-            annotations.push({
-                label: `${alert.name} Upper Threshold`,
-                value: bounds.upper,
-            })
+        const isRelative = alert.condition.type !== AlertConditionType.ABSOLUTE_VALUE
+        const previous = isRelative ? alertPreviousValue(alert, context) : null
+        if (isRelative && previous == null) {
+            return []
         }
 
-        if (bounds.lower != null) {
-            annotations.push({
-                label: `${alert.name} Lower Threshold`,
-                value: bounds.lower,
-            })
+        const scale = funnelThresholdScale(alert, context)
+        if (scale == null) {
+            return []
         }
-
-        return annotations
+        return (['upper', 'lower'] as const).flatMap((bound) => {
+            const limit = bounds[bound]
+            if (limit == null || !Number.isFinite(limit)) {
+                return []
+            }
+            let value = limit
+            if (isRelative && previous != null) {
+                const change = type === InsightThresholdType.PERCENTAGE ? previous * limit : limit
+                value = previous + (alert.condition.type === AlertConditionType.RELATIVE_INCREASE ? change : -change)
+            }
+            value *= scale
+            if (!Number.isFinite(value)) {
+                return []
+            }
+            return [{ label: `${alert.name} ${bound === 'upper' ? 'Upper' : 'Lower'} Threshold`, value }]
+        })
     })
 }
 
@@ -155,6 +269,18 @@ export function alertsToThresholdGoalLines(alerts: AlertType[]): GoalLine[] {
 export interface insightAlertsLogicValues {
     insight: Partial<InsightModel<Node<Record<string, any>>>> // insightLogic
     breakdownFilter: BreakdownFilter | null | undefined // insightVizDataLogic
+    insightData: Record<string, any> // insightVizDataLogic
+    querySource:
+        | FunnelsQuery
+        | LifecycleQuery
+        | PathsQuery
+        | PathsV2Query
+        | RetentionQuery
+        | StickinessQuery
+        | TrendsQuery
+        | WebOverviewQuery
+        | WebStatsTableQuery
+        | null // insightVizDataLogic
     showAlertThresholdLines: boolean | null | undefined // insightVizDataLogic
     alertAnomalyPoints: AnomalyPoint[]
     alertDestinationCounts: Record<string, number>
@@ -162,6 +288,7 @@ export interface insightAlertsLogicValues {
     alertThresholdLines: GoalLine[]
     alerts: AlertType[]
     alertsLoading: boolean
+    allAlertThresholdLines: GoalLine[]
     hasDetectorAlerts: boolean
     shouldShowAlertDeletionWarning: boolean
     showAlertAnomalyPointsFlag: boolean
@@ -234,7 +361,25 @@ export interface insightAlertsLogicActions {
 export interface insightAlertsLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        alertThresholdLines: (alerts: AlertType[], showAlertThresholdLines: boolean | null | undefined) => GoalLine[]
+        allAlertThresholdLines: (
+            alerts: AlertType[],
+            querySource:
+                | FunnelsQuery
+                | TrendsQuery
+                | null
+                | import('~/queries/schema').LifecycleQuery
+                | import('~/queries/schema').PathsQuery
+                | import('~/queries/schema').PathsV2Query
+                | import('~/queries/schema').RetentionQuery
+                | import('~/queries/schema').StickinessQuery
+                | import('~/queries/schema').WebOverviewQuery
+                | import('~/queries/schema').WebStatsTableQuery,
+            insightData: Record<string, any>
+        ) => GoalLine[]
+        alertThresholdLines: (
+            allAlertThresholdLines: GoalLine[],
+            showAlertThresholdLines: boolean | null | undefined
+        ) => GoalLine[]
         hasDetectorAlerts: (alerts: AlertType[]) => boolean
         alertAnomalyPoints: (
             alerts: AlertType[],
@@ -270,7 +415,7 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
         actions: [insightVizDataLogic(props.insightLogicProps), ['setQuery']],
         values: [
             insightVizDataLogic(props.insightLogicProps),
-            ['showAlertThresholdLines', 'breakdownFilter'],
+            ['showAlertThresholdLines', 'breakdownFilter', 'insightData', 'querySource'],
             insightLogic(props.insightLogicProps),
             ['insight'],
         ],
@@ -350,10 +495,33 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     }),
 
     selectors({
+        allAlertThresholdLines: [
+            (s) => [s.alerts, s.querySource, s.insightData],
+            (
+                alerts: AlertType[],
+                querySource:
+                    | FunnelsQuery
+                    | TrendsQuery
+                    | null
+                    | import('~/queries/schema').LifecycleQuery
+                    | import('~/queries/schema').PathsQuery
+                    | import('~/queries/schema').PathsV2Query
+                    | import('~/queries/schema').RetentionQuery
+                    | import('~/queries/schema').StickinessQuery
+                    | import('~/queries/schema').WebOverviewQuery
+                    | import('~/queries/schema').WebStatsTableQuery,
+                insightData: Record<string, any>
+            ): GoalLine[] =>
+                alertsToThresholdGoalLines(
+                    alerts,
+                    isTrendsQuery(querySource) || isFunnelsQuery(querySource)
+                        ? { query: querySource, results: Array.isArray(insightData?.result) ? insightData.result : [] }
+                        : undefined
+                ),
+        ],
         alertThresholdLines: [
-            (s) => [s.alerts, s.showAlertThresholdLines],
-            (alerts: AlertType[], showAlertThresholdLines: boolean): GoalLine[] =>
-                showAlertThresholdLines ? alertsToThresholdGoalLines(alerts) : [],
+            (s) => [s.allAlertThresholdLines, s.showAlertThresholdLines],
+            (lines: GoalLine[], show: boolean | null | undefined): GoalLine[] => (show ? lines : []),
         ],
         /** Whether the insight has any detector-based alerts (used to show/hide the toggle). */
         hasDetectorAlerts: [

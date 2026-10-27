@@ -80,6 +80,7 @@ export function ExportedInsight({
             insight.query.source.trendsFilter = {
                 ...insight.query.source.trendsFilter,
                 showLegend: !!showLegend,
+                showAlertThresholdLines: insight.query.source.trendsFilter?.showAlertThresholdLines ?? true,
                 legendPosition: 'bottom',
             }
         } else if (insight.query.source.trendsFilter?.showLegend) {
