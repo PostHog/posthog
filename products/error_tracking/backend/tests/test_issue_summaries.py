@@ -1,6 +1,7 @@
 import json
 import signal
 import socket
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -27,6 +28,7 @@ from products.error_tracking.backend.logic import issue_summaries, team_flags
 from products.error_tracking.backend.logic.issue_summaries import (
     IssueSummaryInputs,
     IssueSummaryOutcome,
+    IssueSummaryTimings,
     build_issue_summary_inputs,
     compute_input_hash,
     get_or_generate_issue_summary,
@@ -130,7 +132,9 @@ class TestIssueSummaryGeneration(BaseTest):
         self.decide = MagicMock(return_value=_category_result("own_code"))
         self.enterContext(patch.object(team_flags, "feature_enabled_or_false", return_value=True))
         self.enterContext(patch.object(issue_summaries, "resolve_ai_gateway_config", return_value=MagicMock()))
-        self.enterContext(patch.object(issue_summaries, "build_openai_client", return_value=self.client_mock))
+        self.build_client = self.enterContext(
+            patch.object(issue_summaries, "build_openai_client", return_value=self.client_mock)
+        )
         self.build_inputs = self.enterContext(
             patch.object(issue_summaries, "build_issue_summary_inputs", side_effect=lambda *_: self.inputs)
         )
@@ -179,6 +183,7 @@ class TestIssueSummaryGeneration(BaseTest):
         assert request["extra_headers"] == {"X-PostHog-Privacy-Mode": "true"}
         assert request["response_format"]["json_schema"]["strict"] is True
         assert self.decide.call_args.args[0].privacy_mode is True
+        assert self.build_client.call_args.kwargs["properties"]["issue_id"] == str(self.issue.id)
 
     @parameterized.expand(
         [
@@ -192,6 +197,33 @@ class TestIssueSummaryGeneration(BaseTest):
         result = get_or_generate_issue_summary(self.team.id, self.issue.id)
 
         assert result.outcome == IssueSummaryOutcome.GENERATED
+
+    @parameterized.expand(
+        [
+            ("generated", None, IssueSummaryOutcome.GENERATED, {"queue_ms", "total_ms", "inputs_ms", "model_ms"}),
+            (
+                "unexpected_error",
+                OperationalError("db"),
+                IssueSummaryOutcome.UNEXPECTED_ERROR,
+                {"queue_ms", "total_ms"},
+            ),
+        ]
+    )
+    def test_task_reports_outcome_and_stage_timings(
+        self, _name: str, error: Exception | None, outcome: IssueSummaryOutcome, stages: set[str]
+    ) -> None:
+        capture = MagicMock()
+        self.enterContext(patch.object(issue_summaries, "ph_background_capture", return_value=capture))
+        if error is not None:
+            self.enterContext(patch.object(issue_summaries, "get_issue_summary", side_effect=error))
+
+        with time_machine.travel(NOW, tick=False), self.assertRaises(type(error)) if error else nullcontext():
+            issue_summaries.run_issue_summary_task(self.team.id, self.issue.id, NOW.timestamp() - 2)
+
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["outcome"] == outcome.value
+        assert properties["queue_ms"] == 2000
+        assert stages <= {key for key in properties if key.endswith("_ms")}
 
     @property
     def _budget_key(self) -> str:
@@ -334,6 +366,7 @@ class TestIssueSummaryGeneration(BaseTest):
     def _start(self) -> tuple[bool, bool]:
         with patch.object(issue_summaries.generate_error_tracking_issue_summary, "apply_async") as apply_async:
             started = summaries_facade.start_issue_summary_generation(self.team.id, self.issue.id, user=self.user)
+        self.publish_call = apply_async.call_args
         return started, apply_async.called
 
     @parameterized.expand(
@@ -353,8 +386,13 @@ class TestIssueSummaryGeneration(BaseTest):
         if lock_value is not None:
             issue_summaries.get_client().set(self._lock_key, lock_value, ex=60)
 
-        with patch.object(team_flags, "feature_enabled_or_false", return_value=flag):
+        with (
+            patch.object(team_flags, "feature_enabled_or_false", return_value=flag),
+            time_machine.travel(NOW, tick=False),
+        ):
             assert self._start() == (started, queued)
+        if queued:
+            assert self.publish_call.kwargs["kwargs"] == {"queued_at": NOW.timestamp()}
 
     def test_start_generation_queues_when_redis_is_down(self) -> None:
         with patch.object(issue_summaries, "get_client", side_effect=RedisError("down")):
@@ -585,9 +623,11 @@ class TestIssueSummaryInputs(ClickhouseTestMixin, BaseTest):
             )
         flush_persons_and_events()
 
-        inputs = build_issue_summary_inputs(self.team, issue.id)
+        timings = IssueSummaryTimings()
+        inputs = build_issue_summary_inputs(self.team, issue.id, timings)
 
         assert isinstance(inputs, IssueSummaryInputs)
+        assert {"latest_event_ms", "first_event_ms", "aggregates_ms"} <= timings.ms.keys()
         assert "Exception: TypeError: Cannot read properties of undefined" in inputs.prompt
         assert "\ndispatch in react-dom.js\n[in-app] addToCart in cart.ts line 42" in inputs.prompt
         assert "Handled: no" in inputs.prompt
@@ -601,4 +641,6 @@ class TestIssueSummaryInputs(ClickhouseTestMixin, BaseTest):
     def test_issue_without_exception_events_has_no_inputs(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
 
-        assert build_issue_summary_inputs(self.team, issue.id) == IssueSummaryOutcome.NO_EXCEPTION
+        assert (
+            build_issue_summary_inputs(self.team, issue.id, IssueSummaryTimings()) == IssueSummaryOutcome.NO_EXCEPTION
+        )
