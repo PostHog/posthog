@@ -98,15 +98,15 @@ The iOS store build keeps the existing identity, so an update replaces the old a
 Android uses `com.posthog.mobile`, which installs separately from the older `com.posthog.code.mobile` app.
 Development and preview builds use their own identities, see [Build variants](#build-variants).
 
-| Field | Value |
-| --- | --- |
-| App name | PostHog |
-| iOS bundle id | `com.posthog.code.mobile` |
-| Android package | `com.posthog.mobile` |
-| Expo owner and slug | `posthog` / `posthog` |
-| EAS project id | `4eb57b2f-79f6-4ab0-ae2c-bbd82af2cef9` |
-| App Store Connect app id | `6762366098` |
-| Google Play track for submissions | `internal` |
+| Field                             | Value                                  |
+| --------------------------------- | -------------------------------------- |
+| App name                          | PostHog                                |
+| iOS bundle id                     | `com.posthog.code.mobile`              |
+| Android package                   | `com.posthog.mobile`                   |
+| Expo owner and slug               | `posthog` / `posthog`                  |
+| EAS project id                    | `4eb57b2f-79f6-4ab0-ae2c-bbd82af2cef9` |
+| App Store Connect app id          | `6762366098`                           |
+| Google Play track for submissions | `internal`                             |
 
 The old app's source is `products/desktop/apps/mobile`, and its workflows are "Desktop Mobile Build" and "Desktop Mobile Promote".
 Both iOS apps share the same store record and remote build-number counter.
@@ -133,11 +133,11 @@ JavaScript-only updates for existing `1.2.0` and `1.2.1` builds must retain thei
 
 Profiles are in `eas.json`. Each profile has its own update channel and EAS environment.
 
-| Workflow profile | Signing | Who installs it | Update channel |
-| --- | --- | --- | --- |
-| `development` | Ad hoc (iOS), APK (Android) | Developers, with Metro for live reload | `development` |
-| `preview` | Ad hoc (iOS), APK (Android) | Internal testers on registered devices | `preview` |
-| `production` | App Store (iOS), app bundle (Android) | TestFlight, Play internal track, then the stores | `production` |
+| Workflow profile | Signing                               | Who installs it                                  | Update channel |
+| ---------------- | ------------------------------------- | ------------------------------------------------ | -------------- |
+| `development`    | Ad hoc (iOS), APK (Android)           | Developers, with Metro for live reload           | `development`  |
+| `preview`        | Ad hoc (iOS), APK (Android)           | Internal testers on registered devices           | `preview`      |
+| `production`     | App Store (iOS), app bundle (Android) | TestFlight, Play internal track, then the stores | `production`   |
 
 `appVersionSource` is `remote`, so EAS stores the iOS build number and the Android version code.
 Production builds raise them automatically (`autoIncrement`); the public app/runtime version still needs a deliberate bump in each native release PR.
@@ -153,11 +153,11 @@ Each profile sets `APP_VARIANT` in its `env` block in `eas.json`, and `app.confi
 The three variants install side by side on one device. They do not share sign-in, settings or the widget's data.
 The names, id suffixes and schemes are in `src/lib/appVariants.json`.
 
-| Variant | Profile | App name | iOS bundle id | Android package | URL scheme | iOS App Group | Icon |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `development` | `development` | PostHog Dev | `com.posthog.code.mobile.dev` | `com.posthog.mobile.dev` | `posthog-dev` | `group.com.posthog.code.mobile.dev` | `icon-dev.png`, amber DEV band |
-| `preview` | `preview` | PostHog Preview | `com.posthog.code.mobile.preview` | `com.posthog.mobile.preview` | `posthog-preview` | `group.com.posthog.code.mobile.preview` | `icon-preview.png`, purple PREVIEW band |
-| `production` | `production` | PostHog | `com.posthog.code.mobile` | `com.posthog.mobile` | `posthog` | `group.com.posthog.code.mobile` | `app.icon` on iOS 26, `icon.png` elsewhere |
+| Variant       | Profile       | App name        | iOS bundle id                     | Android package              | URL scheme        | iOS App Group                           | Icon                                       |
+| ------------- | ------------- | --------------- | --------------------------------- | ---------------------------- | ----------------- | --------------------------------------- | ------------------------------------------ |
+| `development` | `development` | PostHog Dev     | `com.posthog.code.mobile.dev`     | `com.posthog.mobile.dev`     | `posthog-dev`     | `group.com.posthog.code.mobile.dev`     | `icon-dev.png`, amber DEV band             |
+| `preview`     | `preview`     | PostHog Preview | `com.posthog.code.mobile.preview` | `com.posthog.mobile.preview` | `posthog-preview` | `group.com.posthog.code.mobile.preview` | `icon-preview.png`, purple PREVIEW band    |
+| `production`  | `production`  | PostHog         | `com.posthog.code.mobile`         | `com.posthog.mobile`         | `posthog`         | `group.com.posthog.code.mobile`         | `app.icon` on iOS 26, `icon.png` elsewhere |
 
 - The widget extension's bundle id is the app's id plus `.HedgehogWidget`, for example `com.posthog.code.mobile.dev.HedgehogWidget`.
 - The production profile also sets `EXPO_PUBLIC_SIGNUP_LINK=0`, so store builds hide "Create an account".
@@ -203,6 +203,7 @@ Someone with these accounts does each step once. An agent cannot do them.
    Configure the matching ad hoc provisioning profiles in EAS before starting the workflow.
    Check that each App ID has its App Group linked. A missing group leaves the widget without the app's data.
    Android needs no registration for these packages, because development and preview builds are APKs outside Google Play.
+
 6. Add the store submission keys in `eas credentials`:
    - iOS: an App Store Connect API key, under the production profile.
    - Android: a Google Play service account key with release access.
@@ -216,9 +217,10 @@ Someone with these accounts does each step once. An agent cannot do them.
    ```
 
    Do not add `APP_VARIANT` or `EXPO_PUBLIC_SIGNUP_LINK` here. `eas.json` and the hosted publisher set them.
+
 9. Add `posthog-dev://callback` and `posthog-preview://callback` to the redirect URIs of the US and EU mobile OAuth applications in Django admin, so internal builds can sign in to PostHog Cloud. See [AUTH.md](AUTH.md#redirect-uris).
 10. Check that the repository secret `EXPO_TOKEN` exists. The desktop mobile workflows already use it.
-   Mobile Build and Mobile Release read the same secret.
+    Mobile Build and Mobile Release read the same secret.
 
 ## Install a development build on an iPhone
 
@@ -234,6 +236,7 @@ It loads JavaScript from Metro on your Mac, so you rebuild it only when native c
 
    Open the link or scan the QR code on the iPhone and install the profile it offers.
    On iOS 16 and later, turn on Developer Mode in Settings, Privacy & Security.
+
 2. Include the device in the development provisioning profile in EAS. Start **Mobile Build** from
    GitHub Actions with profile `development` and platform `ios`.
 3. When the build finishes, open the EAS build page on the iPhone and tap Install.

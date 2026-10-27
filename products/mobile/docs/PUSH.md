@@ -4,15 +4,15 @@ Code: `src/features/notifications/`, `src/api/pushTokens.ts`. The root layout in
 
 ## Token lifecycle
 
-| When | What happens |
-| --- | --- |
-| App start | `configureNotifications()` sets the foreground handler (banner and list, no sound, no badge) and creates the Android channel `default`. |
-| After sign in | `usePushRegistration()` asks for permission once (`prompted` is persisted), gets the Expo push token with the EAS project id, and `POST /api/users/@me/push_tokens/` `{ token, platform: 'ios' \| 'android' }`. |
-| Every later launch | Registers again without asking. The server upserts on (user, token), so this only refreshes `last_seen_at`. |
-| OS rotates the token | `addPushTokenListener` unregisters the old token before registering the new one. A failed delete keeps the old token for retry. |
-| App returns to the foreground | Rereads the permission and retries registration after an error, a missing token or a session change. |
-| Settings, "Enable notifications" or "Try again" | Asks when the system allows it, retries a failed registration, or opens system settings when permission is blocked. |
-| Sign out or account switch | Waits for in-flight registration, then sends `POST /api/users/@me/push_tokens/unregister/` `{ token }` before changing credentials. A failed delete keeps the session and offers a retry. |
+| When                                            | What happens                                                                                                                                                                                                    |
+| ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| App start                                       | `configureNotifications()` sets the foreground handler (banner and list, no sound, no badge) and creates the Android channel `default`.                                                                         |
+| After sign in                                   | `usePushRegistration()` asks for permission once (`prompted` is persisted), gets the Expo push token with the EAS project id, and `POST /api/users/@me/push_tokens/` `{ token, platform: 'ios' \| 'android' }`. |
+| Every later launch                              | Registers again without asking. The server upserts on (user, token), so this only refreshes `last_seen_at`.                                                                                                     |
+| OS rotates the token                            | `addPushTokenListener` unregisters the old token before registering the new one. A failed delete keeps the old token for retry.                                                                                 |
+| App returns to the foreground                   | Rereads the permission and retries registration after an error, a missing token or a session change.                                                                                                            |
+| Settings, "Enable notifications" or "Try again" | Asks when the system allows it, retries a failed registration, or opens system settings when permission is blocked.                                                                                             |
+| Sign out or account switch                      | Waits for in-flight registration, then sends `POST /api/users/@me/push_tokens/unregister/` `{ token }` before changing credentials. A failed delete keeps the session and offers a retry.                       |
 
 The server keeps at most 20 tokens per user and evicts the oldest. Both endpoints need `user:write`.
 The app saves a newly issued token before its registration POST, because a lost response does not prove the server rejected it. Registration and unregistration requests have bounded deadlines. A failed storage read lets the launch gate settle with default push state.
@@ -26,11 +26,11 @@ The app sends no push itself. The server posts to the Expo push service, which d
 EAS keeps the delivery credentials, and the Android build also needs the Firebase app config.
 Someone with access to the Apple Developer team, the Firebase project and the `posthog` Expo organization does each step once.
 
-| Variant | iOS bundle id | Android package |
-| --- | --- | --- |
-| Store (`production`) | `com.posthog.code.mobile` | `com.posthog.mobile` |
-| `preview` | `com.posthog.code.mobile.preview` | `com.posthog.mobile.preview` |
-| `development` | `com.posthog.code.mobile.dev` | `com.posthog.mobile.dev` |
+| Variant              | iOS bundle id                     | Android package              |
+| -------------------- | --------------------------------- | ---------------------------- |
+| Store (`production`) | `com.posthog.code.mobile`         | `com.posthog.mobile`         |
+| `preview`            | `com.posthog.code.mobile.preview` | `com.posthog.mobile.preview` |
+| `development`        | `com.posthog.code.mobile.dev`     | `com.posthog.mobile.dev`     |
 
 **iOS: APNs key.**
 
@@ -100,15 +100,15 @@ with the target conversation. The comparison uses the live session's task, so it
 chats started in the composer and after the person taps New chat. Close returns to the screen
 underneath without stepping through older chats.
 
-| Payload | Route |
-| --- | --- |
-| `type: 'report'`, project is current or absent | `/report/{report_id}` |
-| `type: 'report'`, another project the user has | switch project, then `/report/{report_id}` |
-| `type: 'report'`, a project the user does not have | `/inbox` |
-| `type: 'task'` with `taskId` and `projectId` | Validate access with `GET /api/projects/{projectId}/tasks/{taskId}/`, switch project if needed, then `/chat?taskId={taskId}`, including report discussions. Missing tasks or inaccessible projects go to `/inbox`. |
+| Payload                                                  | Route                                                                                                                                                                                                                                                        |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `type: 'report'`, project is current or absent           | `/report/{report_id}`                                                                                                                                                                                                                                        |
+| `type: 'report'`, another project the user has           | switch project, then `/report/{report_id}`                                                                                                                                                                                                                   |
+| `type: 'report'`, a project the user does not have       | `/inbox`                                                                                                                                                                                                                                                     |
+| `type: 'task'` with `taskId` and `projectId`             | Validate access with `GET /api/projects/{projectId}/tasks/{taskId}/`, switch project if needed, then `/chat?taskId={taskId}`, including report discussions. Missing tasks or inaccessible projects go to `/inbox`.                                           |
 | Legacy `taskId` with `projectId`, without `type: 'task'` | `GET /api/projects/{projectId}/tasks/{taskId}/` only, or `/inbox` when the user does not have that project. `signal_report` set: switch project if needed, then `/report/{signal_report}`. Otherwise switch project if needed, then `/chat?taskId={taskId}`. |
-| `taskId` without `projectId` | The same lookup in the current project, then the others (at most 8 lookups). |
-| anything else | nothing |
+| `taskId` without `projectId`                             | The same lookup in the current project, then the others (at most 8 lookups).                                                                                                                                                                                 |
+| anything else                                            | nothing                                                                                                                                                                                                                                                      |
 
 A tap turns demo mode off, because a push is about live data.
 A task lookup that finishes after the account changes cannot navigate the new account.

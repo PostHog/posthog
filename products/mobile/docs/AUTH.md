@@ -31,22 +31,22 @@ Sign in ──► AuthRequest (PKCE S256, state) ──► system browser: {host
 
 ## Hosts and client ids
 
-| Region | Host | Client id |
-| --- | --- | --- |
-| US | `https://us.posthog.com` | `a5TY7w9IjFYfes6dkPgZe6envclWw3bm2UD8ZTlm` |
-| EU | `https://eu.posthog.com` | `1A7vO138Fh5sYmJislicN4F5HnttI6urmFttxPDU` |
-| Self-hosted (`custom` in the store) | typed by the user | internal builds prefill `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ` (the local dev app); store builds start empty. Editable. |
+| Region                              | Host                     | Client id                                                                                                                   |
+| ----------------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| US                                  | `https://us.posthog.com` | `a5TY7w9IjFYfes6dkPgZe6envclWw3bm2UD8ZTlm`                                                                                  |
+| EU                                  | `https://eu.posthog.com` | `1A7vO138Fh5sYmJislicN4F5HnttI6urmFttxPDU`                                                                                  |
+| Self-hosted (`custom` in the store) | typed by the user        | internal builds prefill `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ` (the local dev app); store builds start empty. Editable. |
 
 ### Redirect URIs
 
 The redirect URI is `{scheme}://callback` (`makeRedirectUri({ scheme: appScheme, path: 'callback' })`).
 The scheme follows the variant the native build was made as (see [RELEASING.md](RELEASING.md#build-variants)):
 
-| Build | Redirect URI |
-| --- | --- |
-| Store build, and any local build without `APP_VARIANT` | `posthog://callback` |
-| `APP_VARIANT=preview` | `posthog-preview://callback` |
-| `APP_VARIANT=development` | `posthog-dev://callback` |
+| Build                                                  | Redirect URI                 |
+| ------------------------------------------------------ | ---------------------------- |
+| Store build, and any local build without `APP_VARIANT` | `posthog://callback`         |
+| `APP_VARIANT=preview`                                  | `posthog-preview://callback` |
+| `APP_VARIANT=development`                              | `posthog-dev://callback`     |
 
 The scheme comes from the bundle id, not from Metro, so a Metro session in a store-identity build still uses `posthog://callback`.
 Every redirect URI a build uses must be registered on the OAuth application it signs in to, or the authorize page rejects the request:
@@ -69,21 +69,21 @@ The app requests exactly these scopes (`OAUTH_SCOPES` in `src/auth/oauth.ts`):
 
 `openid profile email user:read user:write organization:read project:read task:read task:write conversation:write today:read query:read dashboard:read insight:read file_system_shortcut:write error_tracking:read error_tracking:write session_recording:read replay_scanner:read replay_scanner:write`
 
-| Scope | Used by |
-| --- | --- |
-| `user:read` | `GET /api/users/@me/` |
-| `user:write` | push token register and unregister |
-| `organization:read` | `GET /api/organizations/{id}/` for the project list |
-| `project:read` | project-scoped reads |
-| `task:read`, `task:write` | reports, hand-off, runs, notification routing |
-| `conversation:write` | chat |
-| `today:read` | `GET today/briefing/` and `GET today/reports/{id}/page/`. Without it both return 403 and the inbox always falls back to the signals report list. |
-| `query:read` | `POST query/` for the live report metrics and charts, and in Views for web analytics, compare on an insight, and the people and recordings at a chart point. Without it the query returns 403, and the report shows each metric's saved value and series instead. |
-| `dashboard:read` | Views: dashboard detail, the dashboard list, search, and the dashboards in Recent |
-| `insight:read` | Views: insight reads in every `refresh` mode, the insight list, search, and `POST insights/viewed/`. Chat: cached insight names and descriptions in insight cards. Without it the chat card keeps its browser link and shows that the summary could not load. |
-| `file_system_shortcut:write` | Views: pins, which are the web's starred items. It also grants `file_system_shortcut:read` for the pin list. |
-| `error_tracking:read`, `error_tracking:write` | Errors: the issues list and issue screen, and resolve, suppress, reopen and assign. See [API.md](API.md#error-tracking-and-replay-scopes). |
-| `session_recording:read`, `replay_scanner:read`, `replay_scanner:write` | Sessions: the sessions list, one recording, and its AI summary. |
+| Scope                                                                   | Used by                                                                                                                                                                                                                                                           |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `user:read`                                                             | `GET /api/users/@me/`                                                                                                                                                                                                                                             |
+| `user:write`                                                            | push token register and unregister                                                                                                                                                                                                                                |
+| `organization:read`                                                     | `GET /api/organizations/{id}/` for the project list                                                                                                                                                                                                               |
+| `project:read`                                                          | project-scoped reads                                                                                                                                                                                                                                              |
+| `task:read`, `task:write`                                               | reports, hand-off, runs, notification routing                                                                                                                                                                                                                     |
+| `conversation:write`                                                    | chat                                                                                                                                                                                                                                                              |
+| `today:read`                                                            | `GET today/briefing/` and `GET today/reports/{id}/page/`. Without it both return 403 and the inbox always falls back to the signals report list.                                                                                                                  |
+| `query:read`                                                            | `POST query/` for the live report metrics and charts, and in Views for web analytics, compare on an insight, and the people and recordings at a chart point. Without it the query returns 403, and the report shows each metric's saved value and series instead. |
+| `dashboard:read`                                                        | Views: dashboard detail, the dashboard list, search, and the dashboards in Recent                                                                                                                                                                                 |
+| `insight:read`                                                          | Views: insight reads in every `refresh` mode, the insight list, search, and `POST insights/viewed/`. Chat: cached insight names and descriptions in insight cards. Without it the chat card keeps its browser link and shows that the summary could not load.     |
+| `file_system_shortcut:write`                                            | Views: pins, which are the web's starred items. It also grants `file_system_shortcut:read` for the pin list.                                                                                                                                                      |
+| `error_tracking:read`, `error_tracking:write`                           | Errors: the issues list and issue screen, and resolve, suppress, reopen and assign. See [API.md](API.md#error-tracking-and-replay-scopes).                                                                                                                        |
+| `session_recording:read`, `replay_scanner:read`, `replay_scanner:write` | Sessions: the sessions list, one recording, and its AI summary.                                                                                                                                                                                                   |
 
 ### Granted scopes and signing in again
 
@@ -130,11 +130,11 @@ From `OAUTH2_PROVIDER` in `posthog/settings/web.py` and `OAuthValidator` in `pos
 
 ## Storage
 
-| What | Where |
-| --- | --- |
-| Access token, refresh token, expiry | `expo-secure-store` key `posthog_mobile_session` |
-| Region, host, client id, user, organizations, projects, current project | AsyncStorage key `posthog-mobile-auth` (zustand `persist`) |
-| Web build | localStorage in dev builds, memory in release builds (a reload signs out) |
+| What                                                                    | Where                                                                     |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Access token, refresh token, expiry                                     | `expo-secure-store` key `posthog_mobile_session`                          |
+| Region, host, client id, user, organizations, projects, current project | AsyncStorage key `posthog-mobile-auth` (zustand `persist`)                |
+| Web build                                                               | localStorage in dev builds, memory in release builds (a reload signs out) |
 
 Region, host and client id stay after sign out so the sign-in form starts where the user left it.
 If AsyncStorage cannot be read on launch, the auth routing gate settles with its default signed-out state so the splash screen can close.
@@ -143,17 +143,17 @@ If AsyncStorage cannot be read on launch, the auth routing gate settles with its
 
 `useAuthStore` (`src/auth/authStore.ts`):
 
-| Field | Meaning |
-| --- | --- |
-| `status` | `loading` until `restore()` finishes, then `signed_out` or `signed_in` |
-| `signedIn` | `status === 'signed_in'` |
-| `region`, `host`, `clientId`, `method` | the session's instance and how it signed in (`oauth` or `personal_api_key`) |
-| `user` | `{ uuid, distinctId, email, name }` |
-| `organizations` | `{ id, name, aiDataProcessingApproved?, membershipLevel? }[]`; membership level is the requesting user's server-provided role |
-| `projects` | `{ id, name, organizationId, organizationName }[]`, current organization first |
-| `projectId`, `projectName` | the current project; `projectPath()` reads `projectId` |
-| `accountLoading`, `accountError` | the last account reload |
-| `signedOutReason` | `expired` when the server ended the session |
+| Field                                  | Meaning                                                                                                                       |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `status`                               | `loading` until `restore()` finishes, then `signed_out` or `signed_in`                                                        |
+| `signedIn`                             | `status === 'signed_in'`                                                                                                      |
+| `region`, `host`, `clientId`, `method` | the session's instance and how it signed in (`oauth` or `personal_api_key`)                                                   |
+| `user`                                 | `{ uuid, distinctId, email, name }`                                                                                           |
+| `organizations`                        | `{ id, name, aiDataProcessingApproved?, membershipLevel? }[]`; membership level is the requesting user's server-provided role |
+| `projects`                             | `{ id, name, organizationId, organizationName }[]`, current organization first                                                |
+| `projectId`, `projectName`             | the current project; `projectPath()` reads `projectId`                                                                        |
+| `accountLoading`, `accountError`       | the last account reload                                                                                                       |
+| `signedOutReason`                      | `expired` when the server ended the session                                                                                   |
 
 Actions: `restore()`, `signIn(host, clientId)`, `signInWithPersonalApiKey(host, key)`, `selectProject(id, from)`, `reloadAccount()`, `signOut()`.
 `selectProject` resets every TanStack query, so no screen shows the previous project's data.
@@ -216,15 +216,15 @@ The sign-in, session and settings events never carry the host, the error text or
 
 For a self-hosted instance or a new environment, create the app in Django admin (`/admin/posthog/oauthapplication/add/`):
 
-| Field | Value |
-| --- | --- |
-| Name | PostHog mobile |
-| Client type | Public |
-| Authorization grant type | Authorization code |
-| Redirect URIs | `posthog://callback`, plus `posthog-dev://callback` and `posthog-preview://callback` for internal builds |
-| Algorithm | RS256 |
-| Is first party | On only for apps PostHog ships. It skips the consent screen and gives 7 day access tokens. |
-| Scopes | Leave empty or `@default`, or list every scope above as the ceiling |
+| Field                    | Value                                                                                                    |
+| ------------------------ | -------------------------------------------------------------------------------------------------------- |
+| Name                     | PostHog mobile                                                                                           |
+| Client type              | Public                                                                                                   |
+| Authorization grant type | Authorization code                                                                                       |
+| Redirect URIs            | `posthog://callback`, plus `posthog-dev://callback` and `posthog-preview://callback` for internal builds |
+| Algorithm                | RS256                                                                                                    |
+| Is first party           | On only for apps PostHog ships. It skips the consent screen and gives 7 day access tokens.               |
+| Scopes                   | Leave empty or `@default`, or list every scope above as the ceiling                                      |
 
 Copy the generated client id into the Client ID field that "Use a self-hosted instance" shows on the sign-in screen.
 

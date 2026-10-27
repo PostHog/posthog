@@ -23,6 +23,14 @@ pnpm release:test
 
 Write `pnpm test --ci`, not `pnpm test -- --ci`. pnpm forwards the `--`, and Jest then reads `--ci` as a test path pattern.
 
+### Formatting
+
+Mobile uses Biome for JavaScript, TypeScript, JSON and CSS, following the desktop and agent workspaces. `pnpm lint` checks formatting and lint rules; `pnpm fix` applies fixes. The root `.oxfmtrc.json` excludes these mobile file types so the two formatters do not rewrite the same files.
+
+Markdown, MDX, SCSS and YAML use the repository's Oxfmt configuration. The shared `pnpm-lock.yaml` ignore pattern already excludes the mobile lockfile. From the repository root, run `bin/hogli format:markdown products/mobile/docs/CI.md` to format a mobile Markdown file.
+
+### CI configuration
+
 Details:
 
 - The checkout includes the mobile app and its existing generated Signals API types. Keep new runtime dependencies inside the mobile workspace.
@@ -39,10 +47,10 @@ The simulator demo flows do not run in CI. Run them locally before you merge a c
 
 `.github/workflows/mobile-build.yml` queues an EAS build. It runs only when someone starts it from the Actions tab.
 
-| Input | Values | Default |
-| --- | --- | --- |
-| `profile` | `development`, `preview` | `preview` |
-| `platform` | `all`, `ios`, `android` | `all` |
+| Input      | Values                   | Default   |
+| ---------- | ------------------------ | --------- |
+| `profile`  | `development`, `preview` | `preview` |
+| `platform` | `all`, `ios`, `android`  | `all`     |
 
 - The job runs `scripts/eas-build.sh` with `--no-wait`, so it ends once EAS has the upload. Follow the build on the EAS project page.
 - This workflow makes internal builds only. Store submission is owned by Mobile Release.

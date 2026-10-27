@@ -28,11 +28,11 @@ still use the previous startup-only flow: one cold start downloads it and a late
 Each build profile in `eas.json` sets a channel, and the build listens to that channel for life.
 Channels are managed by EAS. Production updates are promoted by the hosted release workflow.
 
-| Profile | Channel | Distribution |
-| --- | --- | --- |
-| `development` | `development` | Metro; OTA is not used. |
-| `preview` | `preview` | Internal builds from Mobile Build. |
-| `production` | `production` | Hosted `ota` release requests. |
+| Profile       | Channel       | Distribution                       |
+| ------------- | ------------- | ---------------------------------- |
+| `development` | `development` | Metro; OTA is not used.            |
+| `preview`     | `preview`     | Internal builds from Mobile Build. |
+| `production`  | `production`  | Hosted `ota` release requests.     |
 
 TestFlight and public-store builds share the production channel. An OTA can reach both when their runtime versions match; TestFlight is not a separate OTA audience.
 

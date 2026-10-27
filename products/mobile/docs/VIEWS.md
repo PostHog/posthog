@@ -6,17 +6,17 @@ Screens render the view models in `src/model/views.ts` and never call the API th
 
 ## Requests
 
-| Use | Request | Scope | Module |
-| --- | --- | --- | --- |
-| Pin list | `GET file_system_shortcut/?limit=100` | `file_system_shortcut:read` (from `:write`) | `src/api/shortcuts.ts` |
-| Pin, unpin | `POST file_system_shortcut/`, `DELETE file_system_shortcut/{id}/` | `file_system_shortcut:write` | `src/api/shortcuts.ts` |
-| Dashboard | `GET dashboards/{id}/?refresh=force_cache[&filters_override=]` | `dashboard:read` | `src/api/dashboards.ts` |
-| Browse and Recent dashboards | `GET dashboards/?ordering=-last_viewed_at&limit=30&offset=`, `limit=10` for Recent, `search=` | `dashboard:read` | `src/api/dashboards.ts` |
-| Insight | `GET insights/{id}/?refresh=blocking\|force_blocking\|force_cache[&from_dashboard=][&filters_override=]` | `insight:read` | `src/api/insights.ts` |
-| Insight metadata for previews | `GET insights/?short_id={short_id}&basic=true&refresh=force_cache` | `insight:read` | `src/api/insights.ts` |
-| Browse insights | `GET insights/?basic=true&saved=true&order=-last_modified_at&limit=30&offset=`, `search=` | `insight:read` | `src/api/insights.ts` |
-| Insight opened | `POST insights/viewed/ {insight_ids}` once per open | `insight:read` | `src/api/insights.ts` |
-| Web analytics, compare, people at a point | `POST query/` with `refresh: blocking` or `force_blocking`, never polled | `query:read` | `src/api/webAnalytics.ts`, `src/api/actors.ts`, `src/api/query.ts` |
+| Use                                       | Request                                                                                                  | Scope                                       | Module                                                             |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------ |
+| Pin list                                  | `GET file_system_shortcut/?limit=100`                                                                    | `file_system_shortcut:read` (from `:write`) | `src/api/shortcuts.ts`                                             |
+| Pin, unpin                                | `POST file_system_shortcut/`, `DELETE file_system_shortcut/{id}/`                                        | `file_system_shortcut:write`                | `src/api/shortcuts.ts`                                             |
+| Dashboard                                 | `GET dashboards/{id}/?refresh=force_cache[&filters_override=]`                                           | `dashboard:read`                            | `src/api/dashboards.ts`                                            |
+| Browse and Recent dashboards              | `GET dashboards/?ordering=-last_viewed_at&limit=30&offset=`, `limit=10` for Recent, `search=`            | `dashboard:read`                            | `src/api/dashboards.ts`                                            |
+| Insight                                   | `GET insights/{id}/?refresh=blocking\|force_blocking\|force_cache[&from_dashboard=][&filters_override=]` | `insight:read`                              | `src/api/insights.ts`                                              |
+| Insight metadata for previews             | `GET insights/?short_id={short_id}&basic=true&refresh=force_cache`                                       | `insight:read`                              | `src/api/insights.ts`                                              |
+| Browse insights                           | `GET insights/?basic=true&saved=true&order=-last_modified_at&limit=30&offset=`, `search=`                | `insight:read`                              | `src/api/insights.ts`                                              |
+| Insight opened                            | `POST insights/viewed/ {insight_ids}` once per open                                                      | `insight:read`                              | `src/api/insights.ts`                                              |
+| Web analytics, compare, people at a point | `POST query/` with `refresh: blocking` or `force_blocking`, never polled                                 | `query:read`                                | `src/api/webAnalytics.ts`, `src/api/actors.ts`, `src/api/query.ts` |
 
 Cache reads send `refresh=force_cache` explicitly.
 The app never sends `async_except_on_cache_miss`, which the insight endpoint turns into a cache-only read.
@@ -91,11 +91,11 @@ Loading, the pin list error and the sign-in state are separate screens. The pin 
 
 A pin shows in one of three modes, chosen on this phone:
 
-| Mode | Shows | Height | Reads data |
-| --- | --- | --- | --- |
-| Row | Icon, name, the view type ("Dashboard", "Built-in view" for web analytics, "Notebook · Opens on the web") | 64 pt | No |
-| Number | The value, a neutral change pill, the tile name, a 14-bucket sparkline, saved range and freshness | At least 156 pt, sized to its content | Yes |
-| Chart | The value, the change pill, a compact `MetricChart`, saved range and freshness | 249 pt | Yes |
+| Mode   | Shows                                                                                                     | Height                                | Reads data |
+| ------ | --------------------------------------------------------------------------------------------------------- | ------------------------------------- | ---------- |
+| Row    | Icon, name, the view type ("Dashboard", "Built-in view" for web analytics, "Notebook · Opens on the web") | 64 pt                                 | No         |
+| Number | The value, a neutral change pill, the tile name, a 14-bucket sparkline, saved range and freshness         | At least 156 pt, sized to its content | Yes        |
+| Chart  | The value, the change pill, a compact `MetricChart`, saved range and freshness                            | 249 pt                                | Yes        |
 
 Row and Chart modes have fixed heights, so a chart's canvas can replace its sparkline placeholder without moving the list.
 Number cards fit their content and only include the comparison and date row when either is present.
@@ -142,13 +142,13 @@ Their Browse rows send `mobile_browse_list_opened` (`section`: `dashboards` or `
 
 ### Routes
 
-| View | Route |
-| --- | --- |
-| Dashboard | `/views/dashboard/{ref}?from={entry}[&mode={display mode}]` |
-| Insight | `/views/insight/{short_id}?from={entry}[&mode={display mode}]` |
-| Web analytics | `/views/web-analytics?from={entry}` |
-| Full-screen chart | `/views/chart/{short_id}[?key={cache key}]` |
-| Browse lists | `/views/browse/dashboards`, `/views/browse/insights` |
+| View              | Route                                                          |
+| ----------------- | -------------------------------------------------------------- |
+| Dashboard         | `/views/dashboard/{ref}?from={entry}[&mode={display mode}]`    |
+| Insight           | `/views/insight/{short_id}?from={entry}[&mode={display mode}]` |
+| Web analytics     | `/views/web-analytics?from={entry}`                            |
+| Full-screen chart | `/views/chart/{short_id}[?key={cache key}]`                    |
+| Browse lists      | `/views/browse/dashboards`, `/views/browse/insights`           |
 
 `from` is the `ViewEntry` (`pinned`, `recent`, `browse`, `search` or `dashboard`) for `mobile_view_opened`; `mode` is the pin's display mode.
 Build links with `src/features/views/viewRoutes.ts` (`viewHref`, `dashboardHref`, `insightHref`, `webAnalyticsHref`, `chartHref`), never by hand.
@@ -165,11 +165,11 @@ The dashboard, insight and web analytics screens (`app/views/dashboard/[id].tsx`
 - `ViewsReauthState` replaces the content when `useViewsAccess()` is not `ok`, on the list and on every view screen.
 - `ViewErrorState`: "This view was deleted" (`view-deleted`), no access (`view-no-access`) or a failed read (`view-error`), with Unpin when the view is pinned. A first read that returns a query error, reaches the request deadline, or has no available request budget shows the failed state with Try again, including when the read supplied metadata but no result. It sends `mobile_views_error_shown` (`screen`: the view type; `kind`: `deleted`, `no_access`, `scope` or `failed`). `RefreshFailedBanner` shows when a visible item's last read failed, and failed values dim to 50%.
 
-| Screen | Content |
-| --- | --- |
-| Dashboard | Tiles in one column (`FlatList`, `ChartCanvasBudget` keyed by tile id). The first time the dashboard shows, it sends `mobile_dashboard_tiles_shown` (`tiles_total`, `tiles_text`, `tiles_web_only`). A tile is a number, a line or bar chart, funnel steps, a retention grid, a bar list, a SQL table, a card that opens on the web, or a text card. Tiles that the phone draws have a full-screen button in their head (`view-tile-fullscreen-{tileId}`). Tiles with their own date range say "Uses its own range" and keep their numbers when the range changes. |
-| Insight | The big number with its change pill, then the visual (`InsightVisual`) under a caption row with the full-screen button (`view-fullscreen`), ⓘ for "About this chart" (`view-about`). |
-| Web analytics | The overview numbers in two columns, each with its change from the previous period. It always compares, as the web's overview tile does. |
+| Screen        | Content                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Dashboard     | Tiles in one column (`FlatList`, `ChartCanvasBudget` keyed by tile id). The first time the dashboard shows, it sends `mobile_dashboard_tiles_shown` (`tiles_total`, `tiles_text`, `tiles_web_only`). A tile is a number, a line or bar chart, funnel steps, a retention grid, a bar list, a SQL table, a card that opens on the web, or a text card. Tiles that the phone draws have a full-screen button in their head (`view-tile-fullscreen-{tileId}`). Tiles with their own date range say "Uses its own range" and keep their numbers when the range changes. |
+| Insight       | The big number with its change pill, then the visual (`InsightVisual`) under a caption row with the full-screen button (`view-fullscreen`), ⓘ for "About this chart" (`view-about`).                                                                                                                                                                                                                                                                                                                                                                               |
+| Web analytics | The overview numbers in two columns, each with its change from the previous period. It always compares, as the web's overview tile does.                                                                                                                                                                                                                                                                                                                                                                                                                           |
 
 A tap on a pinned tooltip opens the Point sheet (`point-sheet`): the bucket and every series value, "Watch recordings", "View people", "Open on web", "About this chart" and "Copy value".
 People and recordings load through `usePointActors`, one `blocking` actors query at a time; closing the sheet drops a query that has not started. In demo, rows that open the web say "Not available in the demo".
@@ -196,15 +196,15 @@ Number and Chart pins in the list keep the saved range. Ranges last for the sess
 
 `insightDisplay(snapshot)` returns `number`, `chart`, `funnel`, `retention`, `bars`, `table` or `web`. It takes the display from the saved query (`queryDisplay`), with the same rules the adapters use (`isDrawableFunnel`, `isDrawableRetention`, `isRankingQuery`, `timeSeriesChartKind`, `sqlQueryDisplay`). A SQL result can change the display; see [SQL insights](#sql-insights). `InsightVisual` (`src/features/views/InsightVisual.tsx`) renders every display except a big number, in tiles and on the insight screen.
 
-| Display | When | Renderer |
-| --- | --- | --- |
-| `number` | Big number insights that have one value | `NumberBody` on tiles, the hero on the insight screen |
-| `chart` | Trends line and bar displays, with any number of series and breakdowns | `MetricChart` with a legend |
-| `funnel` | `FunnelsQuery` in the steps layout. A breakdown adds its values step by step and says so under the steps | `FunnelSteps` |
-| `retention` | `RetentionQuery` that counts people, without a breakdown | `RetentionGrid` |
-| `bars` | Trends value bars, tables, pies, donuts and proportion bars | `BarList` |
-| `table` | SQL tables, SQL insights without a saved display, and SQL insights on Auto until the result arrives | `SqlTable` |
-| `web` | Everything else, and a funnel or retention result that its adapter cannot draw | `OpensOnWeb` |
+| Display     | When                                                                                                     | Renderer                                              |
+| ----------- | -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| `number`    | Big number insights that have one value                                                                  | `NumberBody` on tiles, the hero on the insight screen |
+| `chart`     | Trends line and bar displays, with any number of series and breakdowns                                   | `MetricChart` with a legend                           |
+| `funnel`    | `FunnelsQuery` in the steps layout. A breakdown adds its values step by step and says so under the steps | `FunnelSteps`                                         |
+| `retention` | `RetentionQuery` that counts people, without a breakdown                                                 | `RetentionGrid`                                       |
+| `bars`      | Trends value bars, tables, pies, donuts and proportion bars                                              | `BarList`                                             |
+| `table`     | SQL tables, SQL insights without a saved display, and SQL insights on Auto until the result arrives      | `SqlTable`                                            |
+| `web`       | Everything else, and a funnel or retention result that its adapter cannot draw                           | `OpensOnWeb`                                          |
 
 - `FunnelSteps`, `RetentionGrid` and `BarList` live in `src/ui/chart/` and draw React Native rows, not a Skia canvas. Their data comes from `src/model/adapters/funnel.ts`, `retention.ts` and `breakdown.ts` through `InsightSnapshot.funnel`, `.retention` and `.ranking`.
 - Pins keep one series: `pinChartSeries` draws the first current series only. For trends, `capabilities.chart` means one series without a breakdown. A SQL chart over time is chart-capable with any number of y columns, and its pin draws the first one.
@@ -227,15 +227,15 @@ A SQL insight is a `DataVisualizationNode` with a `HogQLQuery` source. Its respo
 - **Axes.** Without saved axes, x is the first date column, else the first column that is not a number, and y is every number column. As on the web, a saved x column missing from the result, or a saved y column that is missing or not a number, drops both axes back to these defaults. The x column and the breakdown column are never a y series.
 - **Dates.** A datetime x value keeps the wall clock the server wrote: `2026-10-01T14:05:09.123456-04:00` is the bucket `2026-10-01 14:05:09` in local time, like a trends bucket and like the table shows it.
 
-| Saved display, or what Auto resolves to | Phone display | Data |
-| --- | --- | --- |
-| `ActionsTable` | `table` | `sqlTable` |
-| `ActionsLineGraph`, `ActionsLineGraphCumulative`, `ActionsAreaGraph`, `ActionsBar`, `ActionsStackedBar`, `ActionsUnstackedBar` over a date x axis | `chart` | `allSeries`, one per y column, or per y column and breakdown value |
-| `ActionsBar`, `ActionsBarValue`, `ActionsPie`, `ActionsDonut`, `ActionsProportionBar` over any other x axis, with one y column and no breakdown column | `bars` | `ranking`, one row per result row |
-| The same displays with several y columns or a breakdown column: the web draws grouped bars or a slice per column | `web` | none |
-| `BoldNumber` | `number` | `value`, the first cell of the first row. Other SQL displays have no big number. |
-| `Metric`: the web shows the latest, total or mean of the first y series by date, which the phone does not port | `web` | none |
-| Anything else, and a transposed table | `web` | none |
+| Saved display, or what Auto resolves to                                                                                                                | Phone display | Data                                                                             |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------- | -------------------------------------------------------------------------------- |
+| `ActionsTable`                                                                                                                                         | `table`       | `sqlTable`                                                                       |
+| `ActionsLineGraph`, `ActionsLineGraphCumulative`, `ActionsAreaGraph`, `ActionsBar`, `ActionsStackedBar`, `ActionsUnstackedBar` over a date x axis      | `chart`       | `allSeries`, one per y column, or per y column and breakdown value               |
+| `ActionsBar`, `ActionsBarValue`, `ActionsPie`, `ActionsDonut`, `ActionsProportionBar` over any other x axis, with one y column and no breakdown column | `bars`        | `ranking`, one row per result row                                                |
+| The same displays with several y columns or a breakdown column: the web draws grouped bars or a slice per column                                       | `web`         | none                                                                             |
+| `BoldNumber`                                                                                                                                           | `number`      | `value`, the first cell of the first row. Other SQL displays have no big number. |
+| `Metric`: the web shows the latest, total or mean of the first y series by date, which the phone does not port                                         | `web`         | none                                                                             |
+| Anything else, and a transposed table                                                                                                                  | `web`         | none                                                                             |
 
 - A chart's series share every date of the result, in date order. A date without a value is a gap, and rows with the same date and series add up. A cumulative display draws a running sum. The interval comes from the median gap between dates.
 - `ActionsBar*` displays, and a first y axis drawn as bars, draw bars from zero. Negative values extend below zero, positive values above it, and zero has no bar. Area draws as a line and stacked bars draw side by side.
