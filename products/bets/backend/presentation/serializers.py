@@ -129,7 +129,7 @@ class BetsIdeaResultSerializer(serializers.Serializer):
 
 class BetsEvidenceSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(choices=EvidenceKind.choices, help_text="What the evidence link points to.")
-    label = serializers.CharField(help_text="Short text that describes the evidence.")
+    label = serializers.CharField(help_text="Short text that describes the evidence.")  # type: ignore[assignment]
     url = serializers.CharField(help_text="Link to the PostHog data, or chart:<id> for a chart in the report.")
 
 
@@ -152,7 +152,7 @@ class BetsWorkSerializer(serializers.Serializer):
     spent_cents = serializers.IntegerField(help_text="Settled cost in USD cents.")
     created_at = serializers.DateTimeField(help_text="When the work started.")
     finished_at = serializers.DateTimeField(allow_null=True, help_text="When the work finished.")
-    source = serializers.ChoiceField(choices=IdeaSource.choices, help_text="Who proposed the idea.")
+    source = serializers.ChoiceField(choices=IdeaSource.choices, help_text="Who proposed the idea.")  # type: ignore[assignment]
     assessment = serializers.ChoiceField(
         choices=[("", "None"), *IdeaAssessment.choices],
         allow_blank=True,

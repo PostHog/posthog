@@ -1,15 +1,17 @@
 from dataclasses import dataclass, field
 from datetime import timedelta
 from types import SimpleNamespace
+from typing import Any
 from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from rest_framework.response import Response
 
 from posthog.models import OrganizationMembership
 
@@ -160,7 +162,7 @@ class TestBetLoop(APIBaseTest):
             ScoutRunRejectionKind=SimpleNamespace(CONFLICT="conflict", THROTTLED="throttled"),
         )
         loop = "products.bets.backend.logic.loop"
-        for target, value in [
+        stubs: list[tuple[str, object]] = [
             ("products.bets.backend.logic.access.bets_enabled", True),
             ("products.bets.backend.logic.bets.validate_goal", None),
             (f"{loop}.reconcile_spend", None),
@@ -168,7 +170,8 @@ class TestBetLoop(APIBaseTest):
             (f"{loop}.task_run_usage_limited", False),
             (f"{loop}.run_settings", {}),
             (f"{loop}.baseline", SimpleNamespace(ready=True, value=0.1, note="")),
-        ]:
+        ]
+        for target, value in stubs:
             self.patch(target, return_value=value)
         self.patch(f"{loop}.tasks", new=tasks)
         self.patch(f"{loop}.signals", new=signals)
@@ -200,7 +203,7 @@ class TestBetLoop(APIBaseTest):
         )
         self.patch(f"{loop}.cleanup_task_id", side_effect=lambda **kwargs: world.cleanup_task)
 
-    def patch(self, target: str, **kwargs: object) -> object:
+    def patch(self, target: str, **kwargs: Any) -> MagicMock:
         patcher = patch(target, **kwargs)
         mocked = patcher.start()
         self.addCleanup(patcher.stop)
@@ -261,7 +264,7 @@ class TestBetLoop(APIBaseTest):
         assert bet.status == "running"
         return bet
 
-    def work(self, bet: Bet, work: WorkItem, action: str, reason: str = "") -> object:
+    def work(self, bet: Bet, work: WorkItem, action: str, reason: str = "") -> Response:
         return self.client.post(
             f"/api/projects/{self.team.id}/bets/{bet.id}/work/",
             {"work_id": str(work.id), "action": action, "reason": reason},

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -89,7 +90,7 @@ def update_bet(team: Team, user: User, bet_id: UUID, data: dict) -> Bet:
                 stage=WorkStage.DROPPED, note="The goal changed.", finished_at=timezone.now()
             )
             for work in ended:
-                transaction.on_commit(lambda work=work: end_experiment(bet, work), using=WRITER_DB)
+                transaction.on_commit(partial(end_experiment, bet, work), using=WRITER_DB)
             bet.goal_version += 1
             bet.status = BetStatus.SETTING_UP
             bet.baseline_value = None

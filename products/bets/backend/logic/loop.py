@@ -540,8 +540,8 @@ def dispatch_lane(bet: Bet, user: User, kinds: list[WorkKind]) -> str:
     work.task_run_id = result.run_id
     work.save(using=WRITER_DB, update_fields=["task_run_id", "updated_at"])
     return {
-        WorkKind.IDEA: "Building the pull request and the experiment.",
-        WorkKind.CLEANUP: "Removing the flag from the code.",
+        WorkKind.IDEA.value: "Building the pull request and the experiment.",
+        WorkKind.CLEANUP.value: "Removing the flag from the code.",
     }.get(work.kind, "Checking the tracking code.")
 
 
