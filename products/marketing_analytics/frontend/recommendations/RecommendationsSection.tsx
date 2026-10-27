@@ -4,6 +4,7 @@ import { IconInfo, IconLightBulb } from '@posthog/icons'
 import { LemonBadge, LemonBanner, LemonButton, LemonDropdown, LemonSkeleton, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
+import { formatMarketingMoney } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { MarketingAnalyticsRecommendationsQueryResponse } from '~/queries/schema/schema-general'
@@ -14,7 +15,6 @@ import {
     IMPACT_DIRECTION_DESCRIPTIONS,
     IMPACT_DIRECTION_LABELS,
     RecommendationTotal,
-    formatMoney,
     groupRecommendations,
     sectionRecommendations,
     sumImpact,
@@ -33,7 +33,7 @@ function ImpactSummary({ totals }: { totals: RecommendationTotal[] }): JSX.Eleme
                     <span className="cursor-help">
                         {`${IMPACT_DIRECTION_LABELS[total.direction]} `}
                         <span className="font-semibold text-primary" translate="no">
-                            {`${formatMoney(total.amount, total.currency, true)}/mo`}
+                            {`${formatMarketingMoney(total.amount, total.currency, true)}/mo`}
                         </span>
                     </span>
                 </Tooltip>

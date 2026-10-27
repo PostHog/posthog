@@ -1,3 +1,5 @@
+import { marketingSourceName } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
+
 import {
     MarketingAnalyticsRecommendation,
     MarketingAnalyticsRecommendationRule,
@@ -185,7 +187,7 @@ export function recommendationDataGaps(source: ExternalDataSource): Recommendati
     }).map((gap) => ({
         ...gap,
         sourceId: source.id,
-        sourceName: source.prefix || 'Google Ads',
+        sourceName: marketingSourceName(source),
     }))
 }
 
@@ -216,17 +218,4 @@ export function recommendationsSource(source: ExternalDataSource): MarketingAnal
         return { sourceType: 'GoogleSearchConsole', queryTable, sitesTable: syncedTable(source, 'sites') }
     }
     return null
-}
-
-export function formatMoney(amount: number, currency: string | null | undefined, compact = false): string {
-    try {
-        return new Intl.NumberFormat('en-US', {
-            style: 'currency',
-            currency: currency || 'USD',
-            maximumFractionDigits: compact ? 1 : 0,
-            notation: compact ? 'compact' : 'standard',
-        }).format(amount)
-    } catch {
-        return `${Math.round(amount).toLocaleString('en-US')} ${currency ?? ''}`.trim()
-    }
 }

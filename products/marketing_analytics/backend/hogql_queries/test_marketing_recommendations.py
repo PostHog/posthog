@@ -99,6 +99,8 @@ class TestMarketingRecommendations(SimpleTestCase):
             ("domain_property", "sc-domain:example.com", {"example"}),
             ("url_prefix_subdomain", "https://app.example.com/", {"example"}),
             ("country_code_domain", "https://www.example.co.uk/", {"example"}),
+            ("private_suffix", "https://example.github.io/", {"example"}),
+            ("multi_label_suffix", "sc-domain:example.com.br", {"example"}),
             ("label_too_short_to_match_safely", "sc-domain:ab.io", set()),
         ]
     )

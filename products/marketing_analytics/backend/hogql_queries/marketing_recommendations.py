@@ -3,6 +3,8 @@ from collections import defaultdict
 from collections.abc import Iterable
 from typing import Literal
 
+import tldextract
+
 from posthog.schema import MarketingAnalyticsRecommendation, MarketingAnalyticsRecommendationRule
 
 from posthog.dataclasses import frozen
@@ -51,9 +53,9 @@ COMPETITOR_PATTERNS = (
 )
 DOMAIN_SUFFIX = re.compile(r"\.(com|io|co|ai|app|net|org)$")
 SITE_HOST = re.compile(r"^(?:sc-domain:|https?://)([a-z0-9.-]+)")
-# Second-level labels under a country code, as in example.co.uk, where the brand is one label further left.
-COUNTRY_SECOND_LEVELS = {"co", "com", "org", "net", "ac", "gov", "edu"}
 MIN_BRAND_LENGTH = 3
+# The bundled public suffix snapshot, so parsing a site never fetches the list over the network.
+DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
 
 Direction = Literal["save", "gain", "invest", "keep"]
 # Google Ads KeywordMatchType values, for tables that stored the enum number.
@@ -132,12 +134,8 @@ def _site_brand(site_url: str) -> str | None:
     match = SITE_HOST.match(site_url.lower())
     if not match:
         return None
-    labels = match.group(1).strip(".").split(".")
     # A URL-prefix property can be app.example.com or blog.example.com, so the brand is the registrable label.
-    if len(labels) >= 3 and len(labels[-1]) == 2 and labels[-2] in COUNTRY_SECOND_LEVELS:
-        brand = labels[-3]
-    else:
-        brand = labels[-2] if len(labels) >= 2 else labels[0]
+    brand = DOMAIN_PARTS(match.group(1).strip(".")).domain
     return brand if len(brand) >= MIN_BRAND_LENGTH else None
 
 

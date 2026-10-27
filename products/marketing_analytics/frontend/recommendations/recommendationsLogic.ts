@@ -12,6 +12,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { ExternalDataSource } from '~/types'
 
+import { selectedSearchSources } from '../search/searchPerformance'
 import {
     RECOMMENDATIONS_QUERY_KEY,
     RecommendationDataGap,
@@ -74,12 +75,12 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
             (
                 dataWarehouseSources: { results: ExternalDataSource[] } | null,
                 integrationFilter: IntegrationFilter
-            ): ExternalDataSource[] => {
-                const selectedIds = integrationFilter.integrationSourceIds ?? []
-                return (dataWarehouseSources?.results ?? [])
-                    .filter((source) => RECOMMENDATION_SOURCE_TYPES.includes(source.source_type))
-                    .filter((source) => selectedIds.length === 0 || selectedIds.includes(source.id))
-            },
+            ): ExternalDataSource[] =>
+                selectedSearchSources(
+                    dataWarehouseSources?.results ?? [],
+                    integrationFilter.integrationSourceIds ?? [],
+                    RECOMMENDATION_SOURCE_TYPES
+                ),
         ],
         sources: [
             (s) => [s.selectedSources],

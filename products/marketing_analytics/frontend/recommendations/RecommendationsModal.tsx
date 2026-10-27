@@ -13,6 +13,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
+import { formatMarketingMoney } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
@@ -29,7 +30,6 @@ import {
     RecommendationGroup,
     RecommendationSection,
     RecommendationTotal,
-    formatMoney,
 } from './recommendations'
 
 const DIRECTION_TAG: Record<MarketingAnalyticsRecommendation['impactDirection'], LemonTagType> = {
@@ -60,7 +60,7 @@ function ImpactTotals({ totals }: { totals: RecommendationTotal[] }): JSX.Elemen
                 >
                     <LemonTag type={DIRECTION_TAG[total.direction]}>
                         <span translate="no">
-                            {`${IMPACT_DIRECTION_LABELS[total.direction]} ${formatMoney(total.amount, total.currency, true)}/mo`}
+                            {`${IMPACT_DIRECTION_LABELS[total.direction]} ${formatMarketingMoney(total.amount, total.currency, true)}/mo`}
                         </span>
                     </LemonTag>
                 </Tooltip>
@@ -108,7 +108,7 @@ function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[]
                         ) : (
                             <div className="flex flex-col items-end gap-0.5 py-1 whitespace-nowrap">
                                 <span className="font-semibold tabular-nums" translate="no">
-                                    {`${formatMoney(row.impact, row.currency)}/mo`}
+                                    {`${formatMarketingMoney(row.impact, row.currency)}/mo`}
                                 </span>
                                 <LemonTag type={DIRECTION_TAG[row.impactDirection]} size="small">
                                     {row.impactType === 'estimated'

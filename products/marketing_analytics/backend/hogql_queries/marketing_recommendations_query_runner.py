@@ -97,8 +97,11 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             return False
         return self.hogql_database.has_table(table) and not self.hogql_database.is_table_access_denied(table)
 
+    def _has_field(self, table: str, field: str) -> bool:
+        return self.hogql_database.get_table(table.split(".")).has_field(field)
+
     def _field(self, table: str, field: str) -> ast.Expr:
-        if self.hogql_database.get_table(table.split(".")).has_field(field):
+        if self._has_field(table, field):
             return ast.Field(chain=[field])
         return ast.Constant(value=None)
 
@@ -322,10 +325,18 @@ class MarketingAnalyticsRecommendationsQueryRunner(
         return int(rows[0][0]) if rows and rows[0][0] else None
 
     def _currency(self, source: MarketingAnalyticsRecommendationsSource) -> str | None:
-        if not source.customerTable or not self._readable(source.customerTable):
-            return None
-        rows = self._select("SELECT any(upper(customer_currency_code)) FROM {table}", source.customerTable)
-        return rows[0][0] if rows and rows[0][0] else None
+        # campaign_stats carries the account currency like the other marketing queries read it; the customer
+        # table is only a fallback for stats synced before that column existed.
+        for table in (source.campaignStatsTable, source.customerTable):
+            if not table or not self._readable(table) or not self._has_field(table, "customer_currency_code"):
+                continue
+            rows = self._select(
+                "SELECT anyIf(upper(customer_currency_code), length(coalesce(customer_currency_code, '')) > 0) FROM {table}",
+                table,
+            )
+            if rows and rows[0][0]:
+                return rows[0][0]
+        return None
 
 
 def _parse_reasons(value: str | None) -> tuple[str, ...]:
