@@ -5,12 +5,10 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { broadcastPreviewLogic } from './broadcastPreviewLogic'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
-import { broadcastWizardLogic } from './broadcastWizardLogic'
 import { SendTestBroadcastModal } from './SendTestBroadcastModal'
 
 /** The notification as a lock screen shows it, with one audience member's values filled in. */
 export function BroadcastPushPreview({ showTestButton = true }: { showTestButton?: boolean }): JSX.Element {
-    const { push } = useValues(broadcastWizardLogic)
     const { previewPerson, previewPushTitle, previewPushBody } = useValues(broadcastPreviewLogic)
     const { setModalOpen } = useActions(broadcastTestSendLogic)
 
@@ -47,7 +45,6 @@ export function BroadcastPushPreview({ showTestButton = true }: { showTestButton
                                 {previewPushBody}
                             </span>
                         ) : null}
-                        {push.link ? <span className="truncate text-xs text-muted">Opens {push.link}</span> : null}
                     </div>
                 </div>
             </div>

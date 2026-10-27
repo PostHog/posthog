@@ -178,7 +178,6 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
                     inputs: {
                         channels: { value: [7] },
                         title: { value: 'Hello {{ person.properties.name }}', templating: 'liquid' },
-                        data: { value: { url: 'myapp://offer' } },
                     },
                 },
             },
@@ -201,7 +200,7 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
                 email: { ...DEFAULT_BROADCAST_EMAIL, subject: 'Hello' },
                 emailRateLimit: { count: 10, period: 'minute' } as any,
                 channel,
-                push: { channels: [7], title: 'Hello {{ person.properties.name }}', body: '', link: 'myapp://offer' },
+                push: { channels: [7], title: 'Hello {{ person.properties.name }}', body: '' },
                 broadcast: { actions, edges } as unknown as HogFlowApi,
             })
 
@@ -212,7 +211,7 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
         }
     )
 
-    it('keeps the push inputs the wizard does not edit, such as a custom recipient or extra data', () => {
+    it('keeps the push inputs the wizard does not edit, such as a custom recipient or saved data keys', () => {
         const customized = {
             ...push(),
             config: {
@@ -236,7 +235,7 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
             email: DEFAULT_BROADCAST_EMAIL,
             emailRateLimit: null,
             channel: 'push',
-            push: { channels: [7], title: 'New', body: '', link: '' },
+            push: { channels: [7], title: 'New', body: '' },
             broadcast: { actions: [trigger(), customized, exit], edges } as unknown as HogFlowApi,
         })
 
@@ -245,7 +244,10 @@ describe('broadcast edits to broadcast-shaped workflows', () => {
             channels: { value: [7] },
             title: { value: 'New', templating: 'hog' },
             body: { value: '', templating: 'liquid' },
-            data: { value: { campaign: '{{ person.properties.plan }}' }, templating: 'liquid' },
+            data: {
+                value: { url: 'myapp://old', campaign: '{{ person.properties.plan }}' },
+                templating: 'liquid',
+            },
             ios_sound: { value: 'chime' },
         })
     })

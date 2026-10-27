@@ -66,21 +66,6 @@ export function BroadcastPushComposer(): JSX.Element {
                         data-attr="broadcast-push-body"
                     />
                 </div>
-                <div className="flex flex-col gap-1">
-                    <LemonLabel
-                        htmlFor="broadcast-push-link"
-                        info="Sent to your app as data.url. Your app decides what to open with it."
-                    >
-                        Link
-                    </LemonLabel>
-                    <LemonInput
-                        id="broadcast-push-link"
-                        value={push.link}
-                        onChange={(link) => setPush({ ...push, link: link.trim() })}
-                        placeholder="Optional, such as https://example.com/offer or myapp://offer"
-                        data-attr="broadcast-push-link"
-                    />
-                </div>
             </div>
             <BroadcastPushPreview />
         </div>

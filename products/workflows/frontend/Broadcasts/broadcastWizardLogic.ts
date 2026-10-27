@@ -201,11 +201,9 @@ export interface BroadcastPushValue {
     channels: number[]
     title: string
     body: string
-    /** Sent as `data.url`, for the app to open when the notification is tapped. */
-    link: string
 }
 
-export const DEFAULT_BROADCAST_PUSH: BroadcastPushValue = { channels: [], title: '', body: '', link: '' }
+export const DEFAULT_BROADCAST_PUSH: BroadcastPushValue = { channels: [], title: '', body: '' }
 
 export const PUSH_INTEGRATION_KINDS = ['firebase', 'apns']
 export const NO_PUSH_CHANNELS_REASON = "Your project doesn't have push set up yet"
@@ -241,7 +239,6 @@ function readPush(broadcast: HogFlowApi): BroadcastPushValue | null {
         channels: inputs.channels?.value ?? [],
         title: inputs.title?.value ?? '',
         body: inputs.body?.value ?? '',
-        link: inputs.data?.value?.url ?? '',
     }
 }
 
@@ -253,7 +250,6 @@ function pushTemplating(existing: { templating?: string } | undefined): string {
 // Inputs the wizard does not show, such as a custom recipient or extra data keys set in the workflow
 // editor, keep their saved values.
 export function pushInputs(push: BroadcastPushValue, existing: Record<string, any> = {}): Record<string, any> {
-    const { url: _url, ...extraData } = (existing.data?.value as Record<string, any> | undefined) ?? {}
     return {
         ...existing,
         // A batch run's person is the recipient, as in the template's default.
@@ -261,10 +257,7 @@ export function pushInputs(push: BroadcastPushValue, existing: Record<string, an
         channels: { value: push.channels },
         title: { value: push.title, templating: pushTemplating(existing.title) },
         body: { value: push.body, templating: pushTemplating(existing.body) },
-        data: {
-            ...(existing.data?.templating ? { templating: existing.data.templating } : {}),
-            value: push.link ? { ...extraData, url: push.link } : extraData,
-        },
+        data: existing.data ?? { value: {} },
     }
 }
 
@@ -274,7 +267,7 @@ export function hasMessageContent(
     push: BroadcastPushValue
 ): boolean {
     return channel === 'push'
-        ? !!(push.title || push.body || push.link)
+        ? !!(push.title || push.body)
         : !!(email.subject || email.html || email.text || email.design)
 }
 
