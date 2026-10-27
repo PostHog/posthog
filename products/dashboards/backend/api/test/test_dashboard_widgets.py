@@ -737,13 +737,17 @@ class TestDashboardWidgets(APIBaseTest):
             Dashboard.objects.filter(id=destination.id).update(customization={"groups": concurrent_groups})
             return destination
 
-        with patch.object(DashboardsViewSet, "get_object", load_destination_then_write_groups_concurrently):
+        with (
+            patch.object(DashboardsViewSet, "get_object", load_destination_then_write_groups_concurrently),
+            CaptureQueriesContext(connection) as queries,
+        ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/dashboards/{dest_id}/copy_group",
                 {"fromDashboardId": source_id, "groupKey": "plans"},
             )
 
         assert response.status_code == expected_status
+        assert any("FOR NO KEY UPDATE" in query["sql"] for query in queries.captured_queries)
         stored_group_keys = set(Dashboard.objects.get(id=dest_id).customization["groups"])
         assert set(concurrent_groups) <= stored_group_keys
         assert len(stored_group_keys) == concurrent_group_count + (expected_status == status.HTTP_200_OK)

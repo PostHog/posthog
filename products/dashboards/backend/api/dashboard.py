@@ -3630,7 +3630,7 @@ class DashboardsViewSet(
         }
         try:
             with transaction.atomic():
-                # Concurrent writers of the destination's customization would otherwise overwrite each other's groups.
+                # Without this lock, two copies into the same dashboard would overwrite each other's groups.
                 try:
                     destination.refresh_from_db(
                         fields=["customization"], from_queryset=Dashboard.objects.select_for_update(no_key=True)
