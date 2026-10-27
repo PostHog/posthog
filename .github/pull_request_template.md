@@ -57,6 +57,10 @@
 
 **Agent:** tool, model
 
+<!-- List every repo-provided or public skill invoked (e.g. /django-migrations, /improving-drf-endpoints), so reviewers can see where an agent shaped the code. Write "None" when no skill ran. -->
+
+**Skills:** `/skill`
+
 <!-- Definition of done (agents): not done until each gate below holds. Verify against the named artifact or skill — don't assume. Add gates as the PR touches more areas.
      - No duplicate: when this PR fixes something believed to be live on master, no open PR already fixes it. A broken master attracts parallel agents, so search before opening — `gh pr list --state open --search "<keywords>" --limit 20`, which lists drafts too, and most agent PRs start as drafts. Say here which PR you found and why this one is still needed, or that the search found nothing.
      - Patch coverage: the lines this PR changed are covered, or the uncovered ones are justified under "How did you test this code?". Don't pad untouched code to lift the number. Check the "🧪 Backend test coverage" PR comment (and its patch-coverage artifact).
@@ -70,14 +74,12 @@
 <!-- Agents: this block is collapsed by default and does not count toward the 150 words.
      Keep it current: on every push, rewrite it to describe the PR at that commit. Replace stale bullets, never append a log.
      Keep the fields below in this order. One line per bullet, under 25 words, 10 bullets at most. Delete a field you have nothing for.
-     - Skills: every repo-provided or public skill invoked (e.g. /django-migrations, /improving-drf-endpoints), so reviewers can see where an agent shaped the code.
      - Decisions: what changed across the session. The reason the shipped design beats the obvious alternative goes in Changes, where a reviewer will see it.
      This is the ONLY place that may describe what this PR looked like before its present state. Don't repeat facts from the sections above.
      Paraphrase the intent of user prompts, never paste them. Link the session, name the tools, but leave out tool call results.
      DO NOT INCLUDE sensitive data that may have been shared in an agent session — that applies to every part of this PR, not just this block. -->
 
 - **Session:** link, tools used
-- **Skills:** `/skill`
 - **Decisions:** one bullet per decision
 - **Follow-ups:** work left for a later PR
 - **Read closely:** files or lines that need a careful review
