@@ -25,7 +25,6 @@ export interface RunLaunch {
   readonly repositories: string[];
   readonly jsonSchema: Record<string, unknown> | null;
   readonly aiStage: string | null;
-  readonly billingProduct: string | null;
   readonly aiAgentName: string | null;
   readonly sandboxEnvironmentId: string | null;
   readonly snapshotKind: string | null;
@@ -59,7 +58,6 @@ export function readRunLaunch(sources: RunLaunchSources): RunLaunch {
     repositories: readRepositories(task),
     jsonSchema: task?.json_schema ?? null,
     aiStage: runState?.ai_stage ?? null,
-    billingProduct: runState?.billing_product ?? null,
     aiAgentName: runState?.ai_agent_name ?? null,
     sandboxEnvironmentId: runState?.sandbox_environment_id ?? null,
     snapshotKind: taskRun ? (runState?.snapshot_kind ?? "absent") : null,

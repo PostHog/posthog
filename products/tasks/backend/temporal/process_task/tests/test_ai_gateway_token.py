@@ -136,7 +136,6 @@ class TestSharedRoutingContract:
                 case["origin_product"],
                 case["ai_stage"],
                 internal=case["internal"],
-                billing_product=case.get("billing_product"),
             )
             == case["expected"]
         )
@@ -147,7 +146,6 @@ class TestSharedRoutingContract:
             case["origin_product"],
             case["ai_stage"],
             internal=case["internal"],
-            billing_product=case.get("billing_product"),
         )
         assert sandbox_product_routed(ai_product, case["ai_stage"], case["allowlist"]) == case["expected"]
 

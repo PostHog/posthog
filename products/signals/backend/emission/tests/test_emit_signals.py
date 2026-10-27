@@ -9,6 +9,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import override_settings
+from django.utils import timezone
 
 import temporalio.worker
 from temporalio import activity
@@ -39,7 +40,8 @@ from products.signals.backend.emission.pipeline import (
     summarize_long_descriptions,
 )
 from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig
-from products.signals.backend.models import SignalSpend
+from products.signals.backend.models import SignalEmissionRecord, SignalSpend
+from products.signals.backend.spend import signal_id_for
 
 PIPELINE_MODULE_PATH = "products.signals.backend.emission.pipeline"
 FETCHER_MODULE_PATH = "products.signals.backend.emission.fetchers.data_warehouse"
@@ -373,6 +375,31 @@ class TestRunSignalPipelineEmitterFailures:
 
 @pytest.mark.django_db(transaction=True)
 class TestEmissionRetryIdentity:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("record_processed_outputs", [False, True])
+    async def test_retry_repairs_ledger_for_finalized_signal(self, team, record_processed_outputs: bool) -> None:
+        output = replace(_make_output(source_id="record-1"), idempotency_key="record-1")
+        signal_id = signal_id_for(
+            team_id=team.id,
+            source_product=output.source_product,
+            source_type=output.source_type,
+            idempotency_key="record-1",
+        )
+        await database_sync_to_async(
+            lambda: SignalSpend.objects.for_team(team.id).create(
+                team_id=team.id, signal_id=signal_id, kind=SignalSpend.Kind.AD_HOC, spend=1, finalized_at=timezone.now()
+            )
+        )()
+        config = _make_config(emitter=lambda team_id, record: output, record_processed_outputs=record_processed_outputs)
+        with patch(f"{PIPELINE_MODULE_PATH}.emit_signal", new_callable=AsyncMock) as emit:
+            for _ in range(2):
+                result = await run_signal_pipeline(team=team, config=config, records=[{"id": "record-1"}], extra={})
+                assert result["signals_emitted"] == 0
+        emit.assert_not_awaited()
+        assert await SignalEmissionRecord.objects.filter(team=team, source_id="record-1").acount() == int(
+            record_processed_outputs
+        )
+
     @pytest.mark.asyncio
     async def test_retry_skips_filtered_signal_after_sibling_dispatch_failure(self, team):
         checked = []

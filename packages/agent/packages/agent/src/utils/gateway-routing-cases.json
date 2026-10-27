@@ -150,27 +150,6 @@
       "ai_stage": "validation-c1",
       "internal": false,
       "expected": "posthog_code"
-    },
-    {
-      "origin_product": "signal_report",
-      "ai_stage": "inbox",
-      "internal": false,
-      "billing_product": "posthog_ai",
-      "expected": "posthog_ai"
-    },
-    {
-      "origin_product": "signal_report",
-      "ai_stage": null,
-      "internal": true,
-      "billing_product": "posthog_ai",
-      "expected": "posthog_ai"
-    },
-    {
-      "origin_product": "signals_scout",
-      "ai_stage": null,
-      "internal": true,
-      "billing_product": "posthog_ai",
-      "expected": "posthog_ai"
     }
   ],
   "routed": [
@@ -291,30 +270,6 @@
       "ai_stage": "scout_suggestions",
       "internal": true,
       "allowlist": "signals_scout_suggestions",
-      "expected": true
-    },
-    {
-      "origin_product": "signal_report",
-      "ai_stage": "inbox",
-      "internal": false,
-      "billing_product": "posthog_ai",
-      "allowlist": "posthog_ai",
-      "expected": true
-    },
-    {
-      "origin_product": "signal_report",
-      "ai_stage": null,
-      "internal": true,
-      "billing_product": "posthog_ai",
-      "allowlist": "posthog_ai",
-      "expected": true
-    },
-    {
-      "origin_product": "signals_scout",
-      "ai_stage": null,
-      "internal": true,
-      "billing_product": "posthog_ai",
-      "allowlist": "posthog_ai",
       "expected": true
     }
   ]

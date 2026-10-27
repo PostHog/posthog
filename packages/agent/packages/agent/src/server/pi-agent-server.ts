@@ -706,7 +706,6 @@ export class PiAgentServer {
       {
         originProduct: launch.originProduct,
         aiStage: launch.aiStage,
-        billingProduct: launch.billingProduct,
         taskId: payload.task_id,
         model: this.config.model,
         properties: {

@@ -12,7 +12,6 @@ interface TestableServer {
     originProduct?: Task["origin_product"] | null;
     signalReportId?: string | null;
     aiStage?: string | null;
-    billingProduct?: string | null;
     aiAgentName?: string | null;
     taskId?: string | null;
     taskRunId?: string | null;
@@ -139,27 +138,24 @@ describe("AgentServer.configureEnvironment", () => {
     );
   });
 
-  it.each([
-    [true, undefined, "signals"],
-    [false, undefined, "signals"],
-    [true, "posthog_ai", "posthog_ai"],
-    [false, "posthog_ai", "posthog_ai"],
-  ])(
-    "routes report runs by their billing product (internal=%s, product=%s)",
-    (isInternal, billingProduct, product) => {
-      const env = buildServer("background").configureEnvironment({
-        isInternal,
-        originProduct: "signal_report",
-        billingProduct,
-      });
-      expect(env.anthropicBaseUrl).toBe(
-        `https://gateway.us.posthog.com/${product}`,
-      );
-      expect(env.openaiBaseUrl).toBe(
-        `https://gateway.us.posthog.com/${product}/v1`,
-      );
-    },
-  );
+  it("tags as signals when an internal task has origin_product 'signal_report'", () => {
+    const env = buildServer("background").configureEnvironment({
+      isInternal: true,
+      originProduct: "signal_report",
+    });
+
+    expect(env.anthropicBaseUrl).toBe("https://gateway.us.posthog.com/signals");
+    expect(env.openaiBaseUrl).toBe("https://gateway.us.posthog.com/signals/v1");
+  });
+
+  it("tags as signals when origin_product is 'signal_report' even if the task is not internal", () => {
+    const env = buildServer("background").configureEnvironment({
+      isInternal: false,
+      originProduct: "signal_report",
+    });
+
+    expect(env.anthropicBaseUrl).toBe("https://gateway.us.posthog.com/signals");
+  });
 
   it("tags as signals for scout runs (origin_product 'signals_scout'), internal or not", () => {
     const env = buildServer("background").configureEnvironment({

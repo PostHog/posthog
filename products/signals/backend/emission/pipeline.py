@@ -686,6 +686,9 @@ async def run_signal_pipeline(
     finished = await database_sync_to_async(finalized_signal_ids)(
         team_id=team.id, signal_ids=[output.signal_id for output in outputs if output.signal_id]
     )
+    if config.record_processed_outputs and finished:
+        # Dispatch may have succeeded before the emission ledger write failed.
+        await _record_processed_outputs(team, [output for output in outputs if output.signal_id in finished])
     outputs = [output for output in outputs if output.signal_id not in finished]
 
     organization = await database_sync_to_async(lambda: team.organization)()

@@ -15,19 +15,13 @@ export type GatewayProduct =
 export function resolveGatewayProduct({
   isInternal,
   originProduct,
-  billingProduct,
 }: {
   isInternal?: boolean;
   originProduct?: string | null;
-  billingProduct?: string | null;
 } = {}): GatewayProduct {
-  if (
-    (originProduct === "signal_report" || originProduct === "signals_scout") &&
-    billingProduct === "posthog_ai"
-  ) {
-    return "posthog_ai";
-  }
-  // Signals OAuth tokens are rejected by the posthog_code default.
+  // Every signals origin belongs here: their tokens are minted under the Signals OAuth
+  // application, and no other product authorizes it — an unmapped origin falls through to
+  // posthog_code and the gateway rejects the token.
   const originProductToGatewayProductMap: Record<string, GatewayProduct> = {
     loop: "posthog_code",
     metrics_import: "posthog_ai",

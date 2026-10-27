@@ -108,21 +108,6 @@ describe("buildPiProviderRoute", () => {
     expect(log.warn).toHaveBeenCalledOnce();
   });
 
-  it("routes manual report runs to PHAI when using the legacy OAuth credential", () => {
-    const route = buildPiProviderRoute(
-      config,
-      {
-        originProduct: "signal_report",
-        billingProduct: "posthog_ai",
-        properties,
-      },
-      logger(),
-    );
-    expect(route.isAiGateway).toBe(false);
-    expect(route.apiKey).toBe("oauth-token");
-    expect(route.baseUrl).toBe("https://gateway.us.posthog.com/posthog_ai");
-  });
-
   it("keeps the legacy route unchanged when the product is not routed", () => {
     process.env.LLM_GATEWAY_URL = "https://gateway.us.posthog.com";
     process.env.AI_GATEWAY_TOKEN = "phe_run";
