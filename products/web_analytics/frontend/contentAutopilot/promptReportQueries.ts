@@ -4,6 +4,7 @@ import { DataTableNode, DataVisualizationNode, HogQLQuery, NodeKind } from '~/qu
 import { ChartDisplayType } from '~/types'
 
 import type { PromptVisibilityMetric } from './promptReport'
+import { ENGINE_LABELS } from './utils'
 
 export interface PromptReportWindow {
     promptId: string
@@ -53,12 +54,20 @@ export const brandMentionPattern = (brandNames: string[]): string =>
 const mentionedExpr = (brandNames: string[]): string =>
     brandNames.length ? "cited OR match(lower(coalesce(answer_text, '')), {brand_pattern})" : 'cited'
 
+const sqlString = (value: string): string => `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`
+
+/** The engine's display name, so a chart legend reads "Claude" rather than its id. Unknown ids stay as they are. */
+const ENGINE_NAME = `multiIf(${Object.entries(ENGINE_LABELS)
+    .map(([engine, label]) => `engine = ${sqlString(engine)}, ${sqlString(label)}`)
+    .join(', ')}, engine)`
+
+// The label gets its own alias: naming it `engine` too would make the alias refer to itself.
 const dailyRateSql = (where: string, counted: string): string =>
-    `SELECT toDate(created_at) AS day, engine, round(countIf(${counted}) / count(), 3) AS rate
+    `SELECT toDate(created_at) AS day, ${ENGINE_NAME} AS engine_name, round(countIf(${counted}) / count(), 3) AS rate
 FROM system.aeo_citation_checks
 WHERE ${where}
-GROUP BY day, engine
-ORDER BY day, engine`
+GROUP BY day, engine_name
+ORDER BY day, engine_name`
 
 const dailyRateChart = (source: HogQLQuery): DataVisualizationNode => ({
     kind: NodeKind.DataVisualizationNode,
@@ -67,7 +76,7 @@ const dailyRateChart = (source: HogQLQuery): DataVisualizationNode => ({
     chartSettings: {
         xAxis: { column: 'day' },
         yAxis: [{ column: 'rate', settings: { formatting: { style: 'percent', decimalPlaces: 0 } } }],
-        seriesBreakdownColumn: 'engine',
+        seriesBreakdownColumn: 'engine_name',
         showLegend: true,
     },
 })

@@ -8,7 +8,7 @@ import type {
 
 const OPPORTUNITIES_STALE_AFTER_MS = 60 * 60 * 1000
 
-const ENGINE_LABELS: Record<string, string> = {
+export const ENGINE_LABELS: Record<string, string> = {
     'claude-web-search': 'Claude',
     'openai-web-search': 'ChatGPT',
     'exa-answer': 'Exa',

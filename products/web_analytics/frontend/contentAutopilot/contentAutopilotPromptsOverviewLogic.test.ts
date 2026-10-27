@@ -51,6 +51,8 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
         })
         expect(mockOverview).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), { days: OVERVIEW_DAYS })
         expect(logic.values.citationQuery?.source.values).toEqual({ window_start: '2026-09-01 00:00:00' })
+        // The legend shows the engine's display name, built into the SQL from the shared label map.
+        expect(logic.values.citationQuery?.source.query).toContain("engine = 'claude-web-search', 'Claude'")
         expect(logic.values.sourcesQuery?.source).toMatchObject({ values: { window_start: '2026-09-01 00:00:00' } })
     })
 
