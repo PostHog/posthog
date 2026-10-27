@@ -1,5 +1,4 @@
 from django.db import migrations
-from django.db.migrations.state import ProjectState
 
 from posthog.migration_helpers import untrack_field
 
@@ -14,14 +13,6 @@ _LEGACY_INDEX_NAMES = [
         "replay_vision_replayobservation_triggered_by_user_id_f913652f",
     ),
 ]
-
-
-class _RemoveFieldIfTracked(migrations.RemoveField):
-    """The pre-squash history drops three of these fields from state when the squash recreates the model."""
-
-    def state_forwards(self, app_label: str, state: ProjectState) -> None:
-        if self.name in state.models[app_label, self.model_name_lower].fields:
-            super().state_forwards(app_label, state)
 
 
 class Migration(migrations.Migration):
@@ -39,16 +30,12 @@ class Migration(migrations.Migration):
             new_name="rlou_org_observed_idx",
             old_name="replay_visi_organiz_a84ed4_idx",
         ),
-        migrations.SeparateDatabaseAndState(
-            state_operations=[
-                _RemoveFieldIfTracked(model_name="replayscanner", name=name)
-                for name in (
-                    "search_suggestions",
-                    "search_suggestions_watermark",
-                    "search_suggestions_generated_at",
-                    "search_last_viewed_at",
-                )
-            ],
+        untrack_field(
+            "replayscanner",
+            "search_suggestions",
+            "search_suggestions_watermark",
+            "search_suggestions_generated_at",
+            "search_last_viewed_at",
         ),
         untrack_field("replayobservationmedia", "rec_start_ms"),
         untrack_field(
