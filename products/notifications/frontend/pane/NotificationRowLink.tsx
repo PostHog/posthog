@@ -4,6 +4,7 @@ import { ReactNode } from 'react'
 import { Button, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 
 import { NotificationPaneEntry } from './notificationPaneEntries'
 import { notificationsPaneLogic } from './notificationsPaneLogic'
@@ -27,12 +28,14 @@ export function NotificationRowLink({
     children,
 }: NotificationRowLinkProps): JSX.Element {
     const { openEntry } = useActions(notificationsPaneLogic)
+    const teamId = entry.notification.team_id
+    const to = entry.to && inOtherProject && teamId !== null ? addProjectIdIfMissing(entry.to, teamId) : entry.to
     return (
         <Button
             size="row"
             left
-            nativeButton={!entry.to}
-            render={entry.to ? <LinkPrimitive to={entry.to} /> : undefined}
+            nativeButton={!to}
+            render={to ? <LinkPrimitive to={to} /> : undefined}
             aria-current={active ? 'page' : undefined}
             tabIndex={focusable ? 0 : -1}
             data-row-primary

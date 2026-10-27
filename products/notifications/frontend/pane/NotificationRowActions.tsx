@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconArchive, IconCheck, IconCircleDashed, IconUndo } from '@posthog/icons'
 import { Button, Kbd, cn } from '@posthog/quill'
@@ -33,6 +33,7 @@ export function NotificationRowActions({
     className,
 }: NotificationRowActionsProps): JSX.Element {
     const { toggleRead, archive, moveToInbox } = useActions(notificationsPaneLogic)
+    const { readPendingKeys } = useValues(notificationsPaneLogic)
     const unread = !entry.notification.read
     const readLabel = unread ? 'Mark as read' : 'Mark as unread'
     const archiveLabel = archived ? 'Move to inbox' : entry.count > 1 ? `Archive ${entry.count}` : 'Archive'
@@ -51,6 +52,7 @@ export function NotificationRowActions({
                     aria-label={readLabel}
                     tooltip={<ActionTooltip label={readLabel} shortcut="U" />}
                     tabIndex={tabIndex}
+                    loading={readPendingKeys.includes(entry.key)}
                     onClick={() => toggleRead(entry)}
                     data-attr="notification-pane-toggle-read"
                 >

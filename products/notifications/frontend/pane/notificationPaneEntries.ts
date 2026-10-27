@@ -68,7 +68,12 @@ function groupedEntries(
     const groups = new Map<string, NotificationEventApi[]>()
     for (const notification of notifications) {
         const key = paneGroupKey(notification)
-        groups.set(key, [...(groups.get(key) ?? []), notification])
+        const group = groups.get(key)
+        if (group) {
+            group.push(notification)
+        } else {
+            groups.set(key, [notification])
+        }
     }
     return [...groups].map(([key, group]) => toEntry(group, key, options))
 }
