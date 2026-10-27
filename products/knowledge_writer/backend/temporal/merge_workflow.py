@@ -63,7 +63,6 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
                 github=github,
                 http=http,
                 anthropic_client=Anthropic(api_key=anthropic_api_key),
-                checkouts=None,
             )
     except (httpx.HTTPError, APIError) as error:
         if not is_final_attempt:
