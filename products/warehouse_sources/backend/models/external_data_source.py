@@ -356,10 +356,8 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
             WarehouseSourceCredentialsStore,
         )
 
-        # The savepoint keeps a database error here from poisoning a caller's enclosing transaction.
         try:
-            with transaction.atomic():
-                WarehouseSourceCredentialsStore.delete(self)
+            WarehouseSourceCredentialsStore.delete(self)
         except Exception as e:
             capture_exception(e, {"source_id": str(self.id), "team_id": self.team_id})
             SOURCE_CREDENTIALS_DELETE_FAILED_COUNTER.inc()

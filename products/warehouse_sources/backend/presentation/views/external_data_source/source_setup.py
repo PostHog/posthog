@@ -112,9 +112,7 @@ class ExternalDataSourceListSerializer(serializers.ListSerializer):
         self, data: models.manager.BaseManager[ExternalDataSource] | Iterable[ExternalDataSource]
     ) -> list[dict[str, Any]]:
         sources = list(data.all() if isinstance(data, models.manager.BaseManager) else data)
-        child = self.child
-        assert isinstance(child, ExternalDataSourceSerializers)
-        child.preloaded_source_inputs = SourceInputsStore.load_many(sources)
+        cast(ExternalDataSourceSerializers, self.child).preloaded_source_inputs = SourceInputsStore.load_many(sources)
         return super().to_representation(sources)
 
 

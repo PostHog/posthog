@@ -806,9 +806,9 @@ async def _import_data_with_reporting(
                 source_cursor=source_cursor_manager,
             )
 
+            source_inputs = await SourceInputsStore.aload(model.pipeline)
             try:
-                stored_inputs = await SourceInputsStore.aload(model.pipeline)
-                config = new_source.parse_config(stored_inputs)
+                config = new_source.parse_config(source_inputs)
             except CredentialsServiceFailure as e:
                 # A source whose config carries a PostHog-owned credential resolves it here, so a
                 # failure at this point is ours and not a corrupt `job_inputs`. Route it through the

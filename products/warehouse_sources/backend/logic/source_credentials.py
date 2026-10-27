@@ -8,11 +8,10 @@ behind an HTTP service without a change to the callers.
 
 from collections.abc import Iterable, Mapping
 from datetime import datetime
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
 from posthog.dataclasses import frozen
-from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX, EncryptedJSONField
 from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async_pool
 
@@ -140,31 +139,4 @@ def _fields_of(sensitive_config: Any) -> dict[str, Any] | None:
     if not isinstance(sensitive_config, Mapping):
         return None
     fields = sensitive_config.get("fields")
-    if not isinstance(fields, Mapping):
-        return None
-    # The field encrypts each leaf, and a leaf that fails to decrypt comes back as raw ciphertext
-    # rather than raising. Peel extra layers a read-then-save added, and treat any leaf no key can
-    # open as an unreadable row, so ciphertext is never handed out as a credential.
-    try:
-        return _recover_leaves(dict(fields))
-    except _UndecryptableLeaf:
-        return None
-
-
-class _UndecryptableLeaf(Exception):
-    pass
-
-
-def _recover_leaves(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {key: _recover_leaves(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [_recover_leaves(item) for item in value]
-    if isinstance(value, str) and value.startswith(FERNET_TOKEN_PREFIX):
-        # django-stubs can't see through `field_access_control`, so it doesn't know this field name.
-        field = cast(EncryptedJSONField, Integration._meta.get_field("sensitive_config"))  # type: ignore[misc]
-        recovered = field.decrypt_all_layers(value)
-        if recovered is None:
-            raise _UndecryptableLeaf
-        return recovered
-    return value
+    return dict(fields) if isinstance(fields, Mapping) else None
