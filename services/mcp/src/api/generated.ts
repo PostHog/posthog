@@ -146,6 +146,16 @@ export namespace Schemas {
          * @nullable
          */
       prompt_version: number | null;
+      /**
+         * Sentiment of the sentences that name the brand: 'positive', 'neutral' or 'negative'. Null until scored, and when the answer never names the brand.
+         * @nullable
+         */
+      brand_sentiment?: string | null;
+      /**
+         * Classifier confidence (0-1) in 'brand_sentiment'. Null when 'brand_sentiment' is null.
+         * @nullable
+         */
+      brand_sentiment_score?: number | null;
     }
 
     export interface AEOPromptDailyEngineStats {
@@ -157,8 +167,34 @@ export namespace Schemas {
       checks: number;
       /** Checks that day whose answer cited a target domain. */
       cited: number;
+      /** Checks that day whose answer names the brand. Checks whose answer names the brand (the registrable name of a target domain, case ignored). A cited check always counts as mentioned. */
+      mentioned: number;
       /** Checks that day where the engine did not answer. */
       failed: number;
+    }
+
+    export interface AEOPromptEngineDomainShare {
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      engine: string;
+      /** One of the most cited domains across all engines in the window. */
+      domain: string;
+      /** This engine's answered checks in the last 30 days that cited the domain. */
+      checks_citing: number;
+      /** This engine's answered checks in the last 30 days. */
+      checks: number;
+    }
+
+    export interface AEOPromptEngineSentiment {
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      engine: string;
+      /** Answers in the last 30 days whose brand sentences read positive. */
+      positive: number;
+      /** Answers in the last 30 days whose brand sentences read neutral. */
+      neutral: number;
+      /** Answers in the last 30 days whose brand sentences read negative. */
+      negative: number;
+      /** Answers in the last 30 days that name the brand but have no sentiment yet. */
+      unscored: number;
     }
 
     export interface AEOPromptEngineStats {
@@ -167,12 +203,19 @@ export namespace Schemas {
          * @nullable
          */
       readonly citation_rate: number | null;
+      /**
+         * Share (0-1) of answered checks whose answer names the brand. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly mention_rate: number | null;
       /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
       engine: string;
       /** Checks of the prompt on this engine, failed ones included. */
       checks: number;
       /** Checks whose answer cited a target domain. */
       cited: number;
+      /** Checks whose answer names the brand (the registrable name of a target domain, case ignored). A cited check always counts as mentioned. */
+      mentioned: number;
       /** Checks where the engine did not answer. */
       failed: number;
       /** When the engine first ran the prompt. */
@@ -190,13 +233,28 @@ export namespace Schemas {
       skipped: number;
     }
 
+    export interface AEOPromptSearchWord {
+      /** A word from the web searches, lower-cased, common English words left out. */
+      word: string;
+      /** How many searches used the word, weighted by how often each search ran. */
+      count: number;
+    }
+
     export interface AEOPromptStats {
       /** Totals per answer engine over the prompt's whole history. */
       engines: AEOPromptEngineStats[];
       /** Counts per day and engine from 'daily_from' to 'daily_to' (30 days). Days and engines without a check are left out. */
       daily: AEOPromptDailyEngineStats[];
+      /** One row per engine and per domain for the 10 most cited domains of the last 30 days: how many of the engine's answers cited the domain. Shows which sources the engines agree on. */
+      consensus: AEOPromptEngineDomainShare[];
+      /** Brand sentiment of the answers in the last 30 days, one row per engine. Only the sentences that name the brand are scored. */
+      sentiment: AEOPromptEngineSentiment[];
+      /** Most used words across the web searches the engines ran in the last 30 days, at most 20. Only engines that report their searches contribute. */
+      top_words: AEOPromptSearchWord[];
       /** Checks of the prompt across all engines, failed ones included. */
       total_checks: number;
+      /** Lower-cased brand names, derived from the project's target domains. An answer that contains one of them as a word counts as a mention. */
+      brand_names: string[];
       /** First day of the daily series, in the project's timezone. */
       daily_from: string;
       /** Last day of the daily series (today), in the project's timezone. */
@@ -79937,6 +79995,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly repo_slug: string | null;
+      /** Whether this is a scout self-improvement report. Most update a team-owned skill in the skills store, but reports with a selected repository can still produce a pull request. */
+      readonly is_self_improvement_report: boolean;
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
@@ -82962,6 +83022,7 @@ export namespace Schemas {
      * * `source_sync` - Source sync
      * * `fastest_schedule` - Fastest schedule
      * * `read_rate` - Read rate
+     * * `consumer_refresh` - Consumer refresh
      * * `savings` - Savings
      */
     export type WarehouseSuggestionRefreshIntervalBasisEnum = typeof WarehouseSuggestionRefreshIntervalBasisEnum[keyof typeof WarehouseSuggestionRefreshIntervalBasisEnum];
@@ -82971,6 +83032,7 @@ export namespace Schemas {
       SourceSync: 'source_sync',
       FastestSchedule: 'fastest_schedule',
       ReadRate: 'read_rate',
+      ConsumerRefresh: 'consumer_refresh',
       Savings: 'savings',
     } as const;
 
@@ -82984,11 +83046,12 @@ export namespace Schemas {
        * * `full` - Full
        * * `incremental` - Incremental */
       refresh_mode: WarehouseSuggestionRefreshModeEnum;
-      /** Why the interval is not shorter. source_sync: the view's sources sync no faster. fastest_schedule: PostHog refreshes views no more often. read_rate: people read the view no more often. savings: a shorter interval would cost more than it saves. Null on suggestions made before this was recorded.
+      /** Why the interval is not shorter. source_sync: the view's sources sync no faster. fastest_schedule: PostHog refreshes views no more often. read_rate: people read the view no more often. consumer_refresh: the materialized views that read it refresh no more often. savings: a shorter interval would cost more than it saves. Null on suggestions made before this was recorded.
        *
        * * `source_sync` - Source sync
        * * `fastest_schedule` - Fastest schedule
        * * `read_rate` - Read rate
+       * * `consumer_refresh` - Consumer refresh
        * * `savings` - Savings */
       refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasisEnum | null;
       /** Name of the view to materialize. */
@@ -83015,6 +83078,8 @@ export namespace Schemas {
       unique_key?: string[];
       /** How far before the last refresh's highest incremental_key value each refresh reads again, in seconds. The last incremental_key value is always read again. */
       lookback_seconds?: number;
+      /** How many materialized views compute this view again on every refresh, because it is not stored. 0 when the saving comes only from people's reads. */
+      recomputed_by_views?: number;
     }
 
     export interface WarehouseSuggestionUnmaterializePayload {
@@ -102697,6 +102762,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly repo_slug: string | null;
+      /** Whether this is a scout self-improvement report. Most update a team-owned skill in the skills store, but reports with a selected repository can still produce a pull request. */
+      readonly is_self_improvement_report: boolean;
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
@@ -134155,6 +134222,19 @@ export namespace Schemas {
      * Delete folder contents too (default: true). Set false to delete only empty folders. Nonempty folders return HTTP 409 with code directory_not_empty.
      */
     recursive?: boolean;
+    };
+
+    export type FileSystemFrequentListParams = {
+    /**
+     * Maximum number of frequently viewed items to return.
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number;
+    /**
+     * A search term.
+     */
+    search?: string;
     };
 
     export type FileSystemSearchRetrieveParams = {
