@@ -3,6 +3,9 @@ import '@testing-library/jest-dom'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -41,6 +44,8 @@ describe('ConversionGoalEditor', () => {
         initKeaTests()
         actionsModel.mount()
         groupsModel.mount()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_GOAL_EVENT_ENTRIES]: true })
         unmountWorkflowLogic = workflowLogic(LOGIC_PROPS).mount()
     })
 
