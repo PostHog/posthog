@@ -21,10 +21,10 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     },
 }))
 
-const calculateRunningTimeMock = jest.fn()
+const runningTimeTargetMock = jest.fn()
 jest.mock('products/experiments/frontend/generated/api', () => ({
     ...jest.requireActual('products/experiments/frontend/generated/api'),
-    experimentsCalculateRunningTimeCreate: (...args: any[]) => calculateRunningTimeMock(...args),
+    experimentsRunningTimeTargetRetrieve: (...args: any[]) => runningTimeTargetMock(...args),
 }))
 
 const EXPERIMENT_ID = 99
@@ -98,7 +98,7 @@ describe('runningTimeLogic', () => {
         initKeaTests()
         jest.spyOn(api, 'update')
         api.update.mockClear()
-        calculateRunningTimeMock.mockReset()
+        runningTimeTargetMock.mockReset()
         ;(lemonToast.error as jest.Mock).mockClear()
 
         experimentLogicInstance = experimentLogic({ experimentId: EXPERIMENT_ID })
@@ -120,9 +120,9 @@ describe('runningTimeLogic', () => {
 
     describe('persistRunningTimeEstimate', () => {
         it('auto-persists with the concurrency handshake and absorbs the response version', async () => {
-            calculateRunningTimeMock.mockResolvedValue({
+            runningTimeTargetMock.mockResolvedValue({
                 recommended_sample_size: 2000,
-                recommended_running_time_days: 20,
+                minimum_detectable_effect: 30,
             })
             api.update.mockResolvedValue({
                 ...experiment,
@@ -135,6 +135,9 @@ describe('runningTimeLogic', () => {
 
             await expectLogic(logic).toDispatchActions(['persistRunningTimeEstimate']).toFinishAllListeners()
 
+            expect(runningTimeTargetMock).toHaveBeenCalledWith(expect.any(String), EXPERIMENT_ID, {
+                mode: 'automatic',
+            })
             // Without the version handshake this write bumps the server version invisibly,
             // making every later scalar save from any open tab a guaranteed 409.
             expect(api.update).toHaveBeenCalledWith(
@@ -151,9 +154,9 @@ describe('runningTimeLogic', () => {
 
         it('never persists a non-positive estimate', async () => {
             // A bad baseline can make the backend return a negative sample size. It must not reach the record.
-            calculateRunningTimeMock.mockResolvedValue({
+            runningTimeTargetMock.mockResolvedValue({
                 recommended_sample_size: -2000,
-                recommended_running_time_days: -20,
+                minimum_detectable_effect: 30,
             })
 
             logic = runningTimeLogic({ experiment })
@@ -166,9 +169,9 @@ describe('runningTimeLogic', () => {
         })
 
         it('drops the estimate silently and resyncs the snapshot when it loses a concurrency race', async () => {
-            calculateRunningTimeMock.mockResolvedValue({
+            runningTimeTargetMock.mockResolvedValue({
                 recommended_sample_size: 2000,
-                recommended_running_time_days: 20,
+                minimum_detectable_effect: 30,
             })
             api.update.mockRejectedValue({
                 status: 409,
@@ -192,10 +195,100 @@ describe('runningTimeLogic', () => {
         })
     })
 
+    describe('automatic target', () => {
+        it('rescales the target for an edited effect without asking the backend', async () => {
+            runningTimeTargetMock.mockResolvedValue({ recommended_sample_size: 2000, minimum_detectable_effect: 30 })
+            api.update.mockResolvedValue({ ...experiment, version: 4 })
+
+            logic = runningTimeLogic({ experiment })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationSuccess']).toFinishAllListeners()
+            runningTimeTargetMock.mockClear()
+
+            logic.actions.setConfig({ mde: 15 })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.targetSampleSize).toEqual(8000)
+            expect(runningTimeTargetMock).not.toHaveBeenCalled()
+        })
+
+        it('counts the exposures the backend sizes the target over', async () => {
+            // The results hold 1,200 exposures. The backend counts 1,100, because one variant is at 0%.
+            runningTimeTargetMock.mockResolvedValue({
+                recommended_sample_size: 2000,
+                minimum_detectable_effect: 30,
+                current_sample_size: 1100,
+            })
+            api.update.mockResolvedValue({ ...experiment, version: 4 })
+
+            logic = runningTimeLogic({ experiment })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationSuccess']).toFinishAllListeners()
+
+            expect(logic.values.currentExposures).toEqual(1100)
+        })
+
+        it('asks again when the metric sums change without new exposures', async () => {
+            runningTimeTargetMock.mockResolvedValue({ recommended_sample_size: 2000, minimum_detectable_effect: 30 })
+            api.update.mockResolvedValue({ ...experiment, version: 4 })
+
+            logic = runningTimeLogic({ experiment })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationSuccess']).toFinishAllListeners()
+
+            metricsLogicInstance.actions.setPrimaryMetricsResults([
+                {
+                    ...metricResultWithBaseline,
+                    baseline: { ...metricResultWithBaseline.baseline, sum: 150, sum_squares: 90 },
+                } as any,
+            ])
+            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculation']).toFinishAllListeners()
+
+            expect(runningTimeTargetMock).toHaveBeenCalledTimes(2)
+        })
+    })
+
     describe('save', () => {
+        it('persists the estimate the backend sizes for the saved effect', async () => {
+            runningTimeTargetMock.mockResolvedValueOnce({
+                recommended_sample_size: 2000,
+                minimum_detectable_effect: 30,
+            })
+            api.update.mockImplementation(async (_url: string, payload: unknown) => ({
+                ...experiment,
+                ...(payload as Partial<Experiment>),
+                version: 4,
+            }))
+
+            logic = runningTimeLogic({ experiment })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationSuccess']).toFinishAllListeners()
+            modalsLogic.actions.openRunningTimeConfigModal()
+            logic.actions.setConfig({ mde: 15 })
+            runningTimeTargetMock.mockResolvedValueOnce({
+                recommended_sample_size: 8000,
+                minimum_detectable_effect: 15,
+            })
+            api.update.mockClear()
+
+            await expectLogic(logic, () => logic.actions.save())
+                .toDispatchActions(['loadAutomaticCalculationSuccess'])
+                .toFinishAllListeners()
+
+            expect(api.update).toHaveBeenLastCalledWith(
+                expect.stringContaining(`/experiments/${EXPERIMENT_ID}`),
+                expect.objectContaining({
+                    running_time_calculation: expect.objectContaining({
+                        minimum_detectable_effect: 15,
+                        recommended_sample_size: 8000,
+                    }),
+                })
+            )
+        })
+
         it('keeps the modal open with the edited config when the experiment save fails', async () => {
             // A failed estimate request stops the automatic estimate from saving anything on mount.
-            calculateRunningTimeMock.mockRejectedValue(new Error('backend unavailable'))
+            runningTimeTargetMock.mockRejectedValue(new Error('backend unavailable'))
             api.update.mockRejectedValueOnce(new Error('network down'))
 
             logic = runningTimeLogic({ experiment })
@@ -217,7 +310,7 @@ describe('runningTimeLogic', () => {
     describe('isCalculating', () => {
         it('stays true while the automatic estimate is in flight, then settles on success', async () => {
             let resolveCalc: (value: unknown) => void = () => {}
-            calculateRunningTimeMock.mockReturnValue(
+            runningTimeTargetMock.mockReturnValue(
                 new Promise((resolve) => {
                     resolveCalc = resolve
                 })
@@ -230,7 +323,7 @@ describe('runningTimeLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadAutomaticCalculation'])
             expect(logic.values.isCalculating).toBe(true)
 
-            resolveCalc({ recommended_sample_size: 2000, recommended_running_time_days: 20 })
+            resolveCalc({ recommended_sample_size: 2000, minimum_detectable_effect: 30 })
             await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationSuccess']).toFinishAllListeners()
             expect(logic.values.isCalculating).toBe(false)
         })
@@ -238,7 +331,7 @@ describe('runningTimeLogic', () => {
         it('clears calculating when the automatic estimate request fails', async () => {
             // A failed request leaves the result null for good, so calculating must still settle —
             // otherwise the meta bar hangs on "Calculating…" instead of showing a resting state.
-            calculateRunningTimeMock.mockRejectedValue(new Error('backend unavailable'))
+            runningTimeTargetMock.mockRejectedValue(new Error('backend unavailable'))
 
             logic = runningTimeLogic({ experiment })
             logic.mount()
@@ -248,9 +341,9 @@ describe('runningTimeLogic', () => {
         })
 
         it('follows the recalculation loading state', async () => {
-            calculateRunningTimeMock.mockResolvedValue({
+            runningTimeTargetMock.mockResolvedValue({
                 recommended_sample_size: 2000,
-                recommended_running_time_days: 20,
+                minimum_detectable_effect: 30,
             })
 
             logic = runningTimeLogic({ experiment })
