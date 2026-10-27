@@ -24,7 +24,9 @@ export const withPageUrl: Decorator = (Story, { parameters: { pageUrl } }) => {
     const Component = ({ pageUrl }: { pageUrl: string }): JSX.Element | null => {
         useEffect(() => {
             if (pageUrl) {
-                router.actions.push(pageUrl)
+                // withKea mounts the router in an effect of a child component. React runs child
+                // effects first, Redact runs parent effects first, so wait until all effects ran.
+                queueMicrotask(() => router.actions.push(pageUrl))
             }
         }, [pageUrl])
 

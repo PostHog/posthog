@@ -1,8 +1,10 @@
 import type { StorybookConfig } from '@storybook/react-vite'
 import tailwindcss from '@tailwindcss/vite'
+import { redact } from '@tanstack/redact/vite'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 import * as path from 'path'
-import { mergeConfig, type Rollup } from 'vite'
+import { type Alias, type InlineConfig, mergeConfig, type Rollup } from 'vite'
 
 import { zodJitlessPlugin } from '../../../frontend/plugins/vite-zod-jitless-plugin.ts'
 import { frontendResolvePlugin } from './plugins/vite-frontend-resolve-plugin.ts'
@@ -33,6 +35,53 @@ const SINGLETON_PACKAGES = [
     'kea-window-values',
     '@testing-library/dom',
 ]
+
+const isRedactEnabled = process.env.POSTHOG_REACT_RUNTIME === 'redact'
+
+// Vite applies `resolve.alias` before any plugin, so exact-match aliases must point React at Redact.
+const REDACT_ALIASES: Record<string, string> = {
+    react: '@tanstack/redact',
+    'react/jsx-runtime': '@tanstack/redact/jsx-runtime',
+    'react/jsx-dev-runtime': '@tanstack/redact/jsx-dev-runtime',
+    'react-dom': '@tanstack/redact/dom',
+    'react-dom/client': '@tanstack/redact/dom-client',
+    'react-dom/server': '@tanstack/redact/server',
+    'react-dom/test-utils': '@tanstack/redact/dom-test-utils',
+    scheduler: '@tanstack/redact/scheduler',
+    'use-sync-external-store': '@tanstack/redact',
+    'use-sync-external-store/shim': '@tanstack/redact',
+    'use-sync-external-store/shim/index.js': '@tanstack/redact',
+    'use-sync-external-store/shim/with-selector': '@tanstack/redact',
+    'use-sync-external-store/shim/with-selector.js': '@tanstack/redact',
+}
+
+function withReactRuntimeAliases(aliases: Record<string, string>): Record<string, string> | Alias[] {
+    if (!isRedactEnabled) {
+        return aliases
+    }
+    const entries = Object.entries(aliases).map(([find, replacement]) => ({ find, replacement }))
+    const require = createRequire(import.meta.url)
+    return [
+        ...Object.entries(REDACT_ALIASES).map(([specifier, target]) => ({
+            find: new RegExp(`^${specifier.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')}$`),
+            replacement: require.resolve(target),
+        })),
+        ...entries.filter(({ find }) => !(find in REDACT_ALIASES)),
+    ]
+}
+
+// addon-docs adds a plugin that aliases react and react-dom to the installed React.
+function withoutStorybookReactAliases(viteConfig: InlineConfig): InlineConfig {
+    if (!isRedactEnabled) {
+        return viteConfig
+    }
+    return {
+        ...viteConfig,
+        plugins: viteConfig.plugins?.filter(
+            (plugin) => !(plugin && 'name' in plugin && plugin.name === 'storybook:package-deduplication')
+        ),
+    }
+}
 
 const createStoriesPathFor = (storyPath: string): string => `../../../${storyPath}/**/*.stories.@(js|jsx|ts|tsx)`
 
@@ -70,17 +119,18 @@ const config: StorybookConfig = {
     },
 
     viteFinal: (viteConfig) =>
-        mergeConfig(viteConfig, {
+        mergeConfig(withoutStorybookReactAliases(viteConfig), {
             plugins: [
                 frontendResolvePlugin(REPO_ROOT),
                 tailwindcss(),
                 sqlRawPlugin(),
                 moduleGraphPlugin(REPO_ROOT),
                 zodJitlessPlugin(),
+                ...(isRedactEnabled ? [redact({ resolveFrom: FRONTEND })] : []),
             ],
             resolve: {
                 dedupe: SINGLETON_PACKAGES,
-                alias: {
+                alias: withReactRuntimeAliases({
                     // react-shadow (the toolbar's shadow-DOM renderer) imports react-dom/server.
                     // The `react-dom` singleton alias below is a prefix match, so it would rewrite
                     // this subpath to a bare path and resolve the `default` (node) export —
@@ -119,7 +169,7 @@ const config: StorybookConfig = {
                         'agent-contracts',
                         'src'
                     ),
-                },
+                }),
             },
             define: {
                 global: 'globalThis',
