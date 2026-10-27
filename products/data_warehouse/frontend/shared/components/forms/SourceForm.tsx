@@ -27,7 +27,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
-import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import { CDCEngineApi, SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { availableSourcesLogic } from '../../../scenes/NewSourceScene/availableSourcesLogic'
 import {
@@ -1029,7 +1029,7 @@ export function SourceFormComponent({
             </Group>
             {!isUpdateMode &&
                 showCdcConfig &&
-                sourceConfig.cdcEngine === 'postgres' &&
+                sourceConfig.cdcEngine === CDCEngineApi.Postgres &&
                 featureFlags[FEATURE_FLAGS.DWH_POSTGRES_CDC] &&
                 selectedAccessMethod === 'warehouse' && <CDCConfigSection sourceName={sourceConfig.name} />}
             {showPrefix && !isDirectQuerySource && !customAiIntroActive && (

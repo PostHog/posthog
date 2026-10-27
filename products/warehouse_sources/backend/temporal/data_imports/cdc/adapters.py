@@ -22,7 +22,7 @@ from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import CDCEngine, ExternalDataSourceType
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -40,9 +40,8 @@ class CDCSourceAdapter(Protocol[CDCConfigT_co]):
     is typed precisely without forcing callers to do ``isinstance`` checks.
     """
 
-    # Names the engine's setup form and status panel in the frontend, which the catalog serves as
-    # `cdcEngine`. Engines that are the same database on the wire share one.
-    engine: str
+    # The catalog serves it as `cdcEngine`. Engines that are the same database on the wire share one.
+    engine: CDCEngine
 
     def create_reader(self, source: ExternalDataSource) -> CDCStreamReader: ...
 
@@ -219,7 +218,7 @@ def cdc_supported_source_types() -> list[ExternalDataSourceType]:
     return list(_cdc_adapters().keys())
 
 
-def cdc_engine(source_type: ExternalDataSourceType) -> str | None:
+def cdc_engine(source_type: ExternalDataSourceType) -> CDCEngine | None:
     """The engine name of the source type's CDC adapter, or None when it has no change stream."""
     adapter = _cdc_adapters().get(source_type)
     return adapter.engine if adapter is not None else None

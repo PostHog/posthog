@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.tests.conforma
     Transaction,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import CDCConfig, CDCStreamReader, ChangeEvent
+from products.warehouse_sources.backend.types import CDCEngine
 
 if TYPE_CHECKING:
     from contextlib import AbstractContextManager
@@ -129,7 +130,8 @@ class FakeCDCStreamReader:
 
 
 class FakeCDCAdapter:
-    engine = "fake"
+    # The catalog never lists the fake engine, so any member satisfies the interface.
+    engine = CDCEngine.POSTGRES
 
     def __init__(self, db: SourceDatabase) -> None:
         self._db = db

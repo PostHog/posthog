@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _retry_on_connection_dropped,
     source_requires_ssl,
 )
+from products.warehouse_sources.backend.types import CDCEngine
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -108,7 +109,7 @@ def _split_qualified_table(qualified: str, default_schema: str) -> tuple[str, st
 
 
 class PostgresCDCAdapter:
-    engine = "postgres"
+    engine = CDCEngine.POSTGRES
 
     def parse_cdc_config(self, source: ExternalDataSource) -> PostgresCDCConfig:
         return PostgresCDCConfig.from_source(source)

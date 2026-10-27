@@ -14593,6 +14593,15 @@ export interface SourceVersionDeprecationApi {
     sunsetAt?: string | null
 }
 
+/**
+ * Change data capture engine of a source type, which picks its CDC setup form and status panel.
+ */
+export type CDCEngineApi = (typeof CDCEngineApi)[keyof typeof CDCEngineApi]
+
+export const CDCEngineApi = {
+    Postgres: 'postgres',
+} as const
+
 export interface SourceDocumentedTableApi {
     name: string
     label: string
@@ -14661,7 +14670,7 @@ export interface SourceConfigResponseApi {
     apiDocsUrl?: string | null
     deprecatedVersions: SourceVersionDeprecationApi[]
     /** Change data capture engine, which picks the CDC setup form and status panel. Null when the source has no CDC. */
-    cdcEngine?: string | null
+    cdcEngine?: CDCEngineApi | null
     /** Credential-free documented table catalog, empty for SQL and file sources with user-defined schemas. The public endpoint sets it; the wizard omits it to keep its payload small. */
     tables?: SourceDocumentedTableApi[] | null
 }

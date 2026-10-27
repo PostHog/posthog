@@ -14,7 +14,7 @@ from typing import Annotated, Any, Literal, Union
 from pydantic import BaseModel, ConfigDict, Field, RootModel
 from pydantic.json_schema import WithJsonSchema
 
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import CDCEngine, ExternalDataSourceType
 
 __all__ = [
     "DataWarehouseSourceCategory",
@@ -404,7 +404,7 @@ class SourceConfigResponse(SourceConfig):
         description="Vendor API docs or changelog URL, or null when the vendor publishes none.",
     )
     deprecatedVersions: list[SourceVersionDeprecation]
-    cdcEngine: str | None = Field(
+    cdcEngine: CDCEngine | None = Field(
         default=None,
         description=(
             "Change data capture engine, which picks the CDC setup form and status panel. Null when"
