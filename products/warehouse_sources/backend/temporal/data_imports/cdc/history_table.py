@@ -165,21 +165,27 @@ def _legacy_history_names(source: ExternalDataSource, *, exclude_schema_id: UUID
     }
 
 
-def history_tables(source: ExternalDataSource) -> QuerySet[DataWarehouseTable]:
+def history_tables(source: ExternalDataSource) -> list[DataWarehouseTable]:
     """The source's registered history tables.
 
     One that stopped syncing before the marker existed, such as one whose schema dropped its history
-    table, carries only the legacy name of its schema. A legacy name that is also a schema's own table
-    name, as `orders_cdc` next to `orders` is, stays out unless the marker says otherwise.
+    table, carries only the legacy name of its schema. A table under a legacy name that a schema of that
+    very name syncs into, as `orders_cdc` next to `orders` does, is that schema's own table.
     """
-    own_names = {build_table_name(source, name) for name in _schema_names(source)}
-    return DataWarehouseTable.objects.filter(
+    candidates = DataWarehouseTable.objects.filter(
         team_id=source.team_id, external_data_source_id=source.id, deleted=False
-    ).filter(Q(options__history_table=True) | Q(name__in=_legacy_history_names(source) - own_names))
+    ).filter(Q(options__history_table=True) | Q(name__in=_legacy_history_names(source)))
+    own_tables = {
+        table_id: build_table_name(source, name)
+        for table_id, name in ExternalDataSchema.objects.filter(
+            team_id=source.team_id, source_id=source.id, deleted=False, table_id__isnull=False
+        ).values_list("table_id", "name")
+    }
+    return [table for table in candidates if table.is_history_table or own_tables.get(table.id) != table.name]
 
 
 def history_table_ids(source: ExternalDataSource) -> list[UUID]:
-    return list(history_tables(source).values_list("id", flat=True))
+    return [table.id for table in history_tables(source)]
 
 
 def history_table_name(schema: ExternalDataSchema) -> str | None:
