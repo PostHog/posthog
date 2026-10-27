@@ -11,6 +11,7 @@ from products.signals.backend.quota import (
     record_quota_check_failed_open,
     self_driving_quota_gate,
 )
+from products.signals.backend.spend_billing import task_run_uses_usage_billing
 from products.tasks.backend.constants import GITHUB_PR_URL_PREFIX
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.observability import log_with_activity_context
@@ -52,8 +53,8 @@ def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> st
     Returns one of:
 
     - ``stop_checking``: the run is not self-driving-billable (wrong origin, already terminal) or has
-      already recorded a billable (GitHub) PR URL. A shipped billable PR means the report is already
-      billed, so letting the run finish (and its CI follow-ups run) costs the customer nothing more.
+      already recorded a billable (GitHub) PR URL under legacy report billing. Usage-billed runs
+      keep checking because CI follow-ups continue adding spend after the PR opens.
     - ``proceed``: the team's org is under its quota, or enforcement is off. Check again later.
     - ``cancelled``: the team's org is over quota with enforcement on. The run was cancelled through the
       standard cancellation path (agent interrupted, workflow signalled its own completion) and
@@ -77,10 +78,10 @@ def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> st
             or (run.state or {}).get("billing_product") == "posthog_ai"
         ):
             return SELF_DRIVING_QUOTA_STOP_CHECKING
-        if _has_billable_pr_url(run.output):
+        team = Team.objects.select_related("organization").get(id=input.team_id)
+        if _has_billable_pr_url(run.output) and not task_run_uses_usage_billing(team, run.id):
             return SELF_DRIVING_QUOTA_STOP_CHECKING
 
-        team = Team.objects.select_related("organization").get(id=input.team_id)
         gate = self_driving_quota_gate(team)
         if gate.limited:
             # Dark-launch would-blocks are emitted once per run (marker in run state), not once

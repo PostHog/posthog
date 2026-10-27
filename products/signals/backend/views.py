@@ -1369,7 +1369,7 @@ class SignalReportViewSet(
             qs = self._prefetch_signal_report_priority_artefacts(qs)
             qs = self._prefetch_signal_report_ranking_score(qs)
             qs = self._annotate_is_suggested_reviewer(qs)
-            return annotate_first_billable_pr_run_at(qs)
+            return annotate_first_billable_pr_run_at(qs, organization_id=self.team.organization_id)
         qs = queryset
         qs = self._scope_signal_report_queryset(qs)
         renders_reports = self.action not in self._MULTI_REPORT_ACTIONS
@@ -1429,7 +1429,7 @@ class SignalReportViewSet(
             # This correlated subquery costs one walk per matching row. Multi-row actions do
             # without it: `list` serves the value from a batched page lookup, and `bulk_state`
             # renders no report.
-            qs = annotate_first_billable_pr_run_at(qs)
+            qs = annotate_first_billable_pr_run_at(qs, organization_id=self.team.organization_id)
         return qs
 
     def _scope_signal_report_queryset(self, queryset):

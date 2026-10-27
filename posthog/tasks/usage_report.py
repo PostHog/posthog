@@ -2086,10 +2086,7 @@ def get_teams_with_signals_credits_used_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
-    """Signals billing — a flat credit charge per report whose implementation shipped a PR.
-
-    Outcome-based, not LLM spend: see `products/signals/backend/billing.py`.
-    """
+    """Signals credits for daily reporting and quota refresh, using each org's billing cutoff."""
     return get_signals_billing_credits_by_team(begin, end)
 
 

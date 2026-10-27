@@ -1306,7 +1306,7 @@ def update_all_orgs_billing_quotas(
     progress_callback: Callable[[str, str, str], None] | None = None,
 ) -> QuotaLimitingRunResult:
     """
-    This is called on a cron job every 30 minutes to update all orgs with their quotas.
+    This is called on a cron job every 15 minutes to update all orgs with their quotas.
     Specifically it's update quota_limited_until and quota_limiting_suspended_until in their usage
     field on the Organization model.
 
