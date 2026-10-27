@@ -736,6 +736,13 @@ class SignalReportAssigneeSerializer(serializers.Serializer):
     task_id = serializers.UUIDField(allow_null=True)
     agent = serializers.CharField(allow_null=True)
     claimed_at = serializers.DateTimeField(allow_null=True)
+    responsible_user = _UserSerializer(
+        allow_null=True,
+        help_text=(
+            "The person who answers for the claim: the user for a user claim, the user an MCP agent acts for, or "
+            "the user who started an internal task. Null when no person stands behind the claim."
+        ),
+    )
 
 
 class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
@@ -2089,6 +2096,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
         assignment = self._get_assignment(obj)
         if assignment is None or not assignment.actor_kind:
             return None
+        responsible = self._get_responsible_user(assignment)
         return {
             "claim_id": str(assignment.claim_id) if assignment.claim_id else None,
             "kind": assignment.actor_kind,
@@ -2096,7 +2104,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "task_id": str(assignment.actor_task_id) if assignment.actor_task_id else None,
             "agent": assignment.actor_agent,
             "claimed_at": assignment.claimed_at,
+            "responsible_user": _UserSerializer(responsible).data if responsible else None,
         }
+
+    def _get_responsible_user(self, claim: "ReportClaim") -> User | None:
+        from products.signals.backend.report_claims import responsible_user
+
+        users = self.context.get("claim_responsible_users_map")
+        return users.get(claim.claim_id) if users is not None else responsible_user(claim)
 
     def _get_assignment(self, obj: SignalReport) -> "ReportClaim | None":
         from products.signals.backend.report_claims import get_active_claim

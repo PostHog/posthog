@@ -458,8 +458,10 @@ tools:
             that PostHog has aggregated into a single issue or trend. Reports surface in the Inbox. Supports filtering
             by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed), free-text
             search across title and summary, source_product (e.g. error_tracking, session_replay), suggested_reviewers,
-            `unclaimed`, and `assignee=me`. Claimed reports remain actionable and visible; use `unclaimed=true` to pick
-            work that has no owner and no draft, open, or unknown PR. Some statuses are hidden by default (currently
+            `unclaimed`, and `assignee`. `assignee=me` returns only the reports this exact agent claimed, so use it to
+            find your own work. `assignee=mine` returns every report the user answers for: claims by the user, by
+            any of their MCP agents, and by internal tasks they started. Claimed reports remain actionable and
+            visible; use `unclaimed=true` to pick work that has no owner and no draft, open, or unknown PR. Some statuses are hidden by default (currently
             suppressed); pass `include_all_statuses=true` to list reports in every status. Do this when deduplicating
             against the full inbox state, and read each row's `status` (plus `suppression_source`, `dismissal_reason`,
             and `dismissal_note` on suppressed rows) before acting. A suppressed row's `suppression_source` says whether

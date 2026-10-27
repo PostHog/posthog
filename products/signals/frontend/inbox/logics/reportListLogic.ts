@@ -186,7 +186,7 @@ export interface reportListLogicValues {
     reportsLoadFailed: boolean
     reportsResponse: ReportListResponse | null
     reportsResponseLoading: boolean
-    scopeAssignee: 'me' | undefined
+    scopeAssignee: 'mine' | undefined
     scopeReviewerUuid: string | undefined
     staleMetricReportIds: string[]
     totalCount: number | null
@@ -361,7 +361,7 @@ export interface reportListLogicMeta {
     key: 'dismissed' | 'held-back' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
     __keaTypeGenInternalSelectorTypes: {
         scopeReviewerUuid: (scope: InboxScope, user: UserType | null) => string | undefined
-        scopeAssignee: (scope: InboxScope) => 'me' | undefined
+        scopeAssignee: (scope: InboxScope) => 'mine' | undefined
         listApiParams: (
             searchQuery: string,
             activeSortField: InboxSortField,
@@ -370,7 +370,7 @@ export interface reportListLogicMeta {
             scoutFilter: string[],
             priorityFilter: SignalReportPriority[],
             scopeReviewerUuid: string | undefined,
-            scopeAssignee: 'me' | undefined,
+            scopeAssignee: 'mine' | undefined,
             activeCreatedWindow: InboxCreatedWindow | null,
             arg: any
         ) => any
@@ -632,10 +632,10 @@ export const reportListLogic = kea<reportListLogicType>([
             (scope: InboxScope, user: UserType | null): string | undefined =>
                 scope === INBOX_SCOPE_FOR_YOU ? (user?.uuid ?? undefined) : teammateUuidFromScope(scope),
         ],
-        // The server resolves `me` to the requesting user.
+        // `mine` also covers the claims of the user's agents and tasks, where `me` matches only the exact actor.
         scopeAssignee: [
             (s) => [s.scope],
-            (scope: InboxScope): 'me' | undefined => (scope === INBOX_SCOPE_CLAIMED_BY_YOU ? 'me' : undefined),
+            (scope: InboxScope): 'mine' | undefined => (scope === INBOX_SCOPE_CLAIMED_BY_YOU ? 'mine' : undefined),
         ],
         // The section's fixed filter merged with the user-driven chrome + reviewer scope (server-side).
         listApiParams: [
@@ -659,7 +659,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 scoutFilter: string[],
                 priorityFilter: import('../types').SignalReportPriority[],
                 suggestedReviewer: string | undefined,
-                assignee: 'me' | undefined,
+                assignee: 'mine' | undefined,
                 activeCreatedWindow: InboxCreatedWindow | null,
                 listParams
             ) => {

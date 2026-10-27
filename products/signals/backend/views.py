@@ -185,7 +185,9 @@ from products.signals.backend.report_claims import (
     actor_works_under_claim,
     get_active_claim,
     get_active_claims,
+    reports_claimed_for_user,
     reports_with_active_claim,
+    responsible_users,
 )
 from products.signals.backend.report_content_gates import organization_report_monitoring_enabled
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -1718,8 +1720,11 @@ class SignalReportViewSet(
         raw = self.request.query_params.get("assignee")
         if raw is None or not raw.strip():
             return queryset
-        if raw.strip().lower() != "me":
-            raise serializers.ValidationError({"assignee": "Invalid value. Allowed: me."})
+        value = raw.strip().lower()
+        if value == "mine":
+            return queryset.filter(reports_claimed_for_user(team_id=self.team_id, user_id=self.request.user.id))
+        if value != "me":
+            raise serializers.ValidationError({"assignee": "Invalid value. Allowed: me, mine."})
         actor = self._request_attribution()
         return queryset.filter(reports_with_active_claim(team_id=self.team_id, actor=actor))
 
@@ -2321,12 +2326,14 @@ class SignalReportViewSet(
         except Exception:
             logger.exception("signals.enriched_context.report_plan_failed", report_id=str(report.id))
             plan = None
+        claims = get_active_claims(team_id=self.team_id, report_ids=report_ids)
         return {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
             "pull_requests_map": pull_requests_map,
-            "claims_map": dict.fromkeys(report_ids) | get_active_claims(team_id=self.team_id, report_ids=report_ids),
+            "claims_map": dict.fromkeys(report_ids) | claims,
+            "claim_responsible_users_map": responsible_users(claims.values()),
             "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
@@ -2745,8 +2752,12 @@ class SignalReportViewSet(
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                enum=["me"],
-                description="Use 'me' to return reports claimed by the current user, task, or MCP agent.",
+                enum=["me", "mine"],
+                description=(
+                    "'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or "
+                    "the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, "
+                    "claims by MCP agents acting for them, and claims by internal tasks they started."
+                ),
             ),
         ],
     )
@@ -2913,12 +2924,14 @@ class SignalReportViewSet(
                     artefact_count=artefact_counts.get(str(report.id), 0),
                     channel_id=live_channel_ids.get(str(report.id)),
                 )
+        claims = get_active_claims(team_id=self.team_id, report_ids=report_ids)
         context = {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
             "pull_requests_map": pull_requests_map,
-            "claims_map": dict.fromkeys(report_ids) | get_active_claims(team_id=self.team_id, report_ids=report_ids),
+            "claims_map": dict.fromkeys(report_ids) | claims,
+            "claim_responsible_users_map": responsible_users(claims.values()),
             "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
             "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},

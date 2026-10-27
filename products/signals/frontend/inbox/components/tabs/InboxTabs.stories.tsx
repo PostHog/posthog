@@ -51,11 +51,11 @@ const SAMPLE_RUNS: SignalRun[] = [
 function reportsListDecorator(reports: SignalReport[]): Decorator {
     return mswDecorator({
         get: {
-            // Mirrors the server's `assignee=me` filter so the Claimed by you scope narrows the rows.
+            // Mirrors the server's `assignee=mine` filter so the Claimed by you scope narrows the rows.
             '/api/projects/:id/signals/reports': ({ request }) => {
-                const claimedByMe = new URL(request.url).searchParams.get('assignee') === 'me'
+                const claimedByMe = new URL(request.url).searchParams.get('assignee') === 'mine'
                 const results = claimedByMe
-                    ? reports.filter((report) => report.assignee?.user?.uuid === MOCK_USER_UUID)
+                    ? reports.filter((report) => report.assignee?.responsible_user?.uuid === MOCK_USER_UUID)
                     : reports
                 return [200, { results, count: results.length, next: null, previous: null }]
             },
@@ -109,13 +109,13 @@ export const ReportsStateFiltered: Story = {
     render: () => <ReportsTabStory searchParams={{ state: 'monitoring' }} />,
 }
 
-// Claim tags on the rows: the user's own claims, a teammate's claim, and unclaimed reports together.
+// Claim tags on the rows: the user's own claim, their agent's claim, a teammate's claim, and unclaimed reports.
 export const ReportsWithClaims: Story = {
     decorators: [reportsListDecorator(claimedReports)],
     render: () => <ReportsTabStory searchParams={{ scope: 'entire-project' }} />,
 }
 
-// The Claimed by you scope narrows the same rows to the user's own claims.
+// The Claimed by you scope narrows the same rows to the claims of the user and their agents.
 export const ReportsClaimedByYou: Story = {
     decorators: [reportsListDecorator(claimedReports)],
     render: () => <ReportsTabStory searchParams={{ scope: 'claimed-by-you' }} />,

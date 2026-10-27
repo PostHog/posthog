@@ -139,7 +139,7 @@ describe('reportListLogic', () => {
 
         it.each([
             { scope: INBOX_SCOPE_FOR_YOU, suggested_reviewers: MOCK_USER_UUID, assignee: undefined },
-            { scope: INBOX_SCOPE_CLAIMED_BY_YOU, suggested_reviewers: undefined, assignee: 'me' },
+            { scope: INBOX_SCOPE_CLAIMED_BY_YOU, suggested_reviewers: undefined, assignee: 'mine' },
             { scope: 'teammate:t-1', suggested_reviewers: 't-1', assignee: undefined },
             { scope: INBOX_SCOPE_ENTIRE_PROJECT, suggested_reviewers: undefined, assignee: undefined },
         ] as { scope: InboxScope; suggested_reviewers?: string; assignee?: string }[])(
@@ -333,7 +333,7 @@ describe('reportListLogic', () => {
                     '/api/projects/:team_id/signals/reports/available_reviewers': {},
                     [REPORTS_URL]: async ({ request }) => {
                         const params = new URL(request.url).searchParams
-                        if (params.get('assignee') === 'me') {
+                        if (params.get('assignee') === 'mine') {
                             return [200, { count: MINE.length, next: null, previous: null, results: MINE }]
                         }
                         if (params.get('offset') === heldOffset) {

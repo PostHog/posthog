@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime
 from uuid import UUID
 
@@ -95,6 +96,42 @@ def responsible_user(claim: ReportClaim) -> User | None:
     if not tasks or tasks[0].created_by_id is None:
         return None
     return User.objects.filter(id=tasks[0].created_by_id).first()
+
+
+def responsible_users(claims: Iterable[ReportClaim]) -> dict[UUID, User]:
+    """`responsible_user` for many claims in a fixed number of queries, keyed by claim id."""
+    claims = list(claims)
+    result = {claim.claim_id: claim.actor_user for claim in claims if claim.actor_user is not None}
+    task_claims = [claim for claim in claims if claim.actor_user is None and claim.actor_task_id is not None]
+    if not task_claims:
+        return result
+    tasks = tasks_facade.get_tasks_by_ids(
+        [claim.actor_task_id for claim in task_claims if claim.actor_task_id is not None],
+        {claim.team_id for claim in task_claims},
+    )
+    creator_by_task = {str(task.id): task.created_by_id for task in tasks if task.created_by_id is not None}
+    users = User.objects.in_bulk(set(creator_by_task.values()))
+    for claim in task_claims:
+        creator_id = creator_by_task.get(str(claim.actor_task_id))
+        if creator_id in users:
+            result[claim.claim_id] = users[creator_id]
+    return result
+
+
+def reports_claimed_for_user(*, team_id: int, user_id: int) -> Q:
+    """Reports whose active claim the user answers for: their own, their external agents', and their tasks'."""
+    claims = active_claims(team_id=team_id)
+    legacy = legacy_claims(team_id=team_id)
+    task_ids = [
+        *claims.filter(created_by__isnull=True, task_id__isnull=False).values_list("task_id", flat=True),
+        *legacy.filter(actor_user__isnull=True, actor_task_id__isnull=False).values_list("actor_task_id", flat=True),
+    ]
+    own_task_ids = [
+        task.id for task in tasks_facade.get_tasks_by_ids(task_ids, [team_id]) if task.created_by_id == user_id
+    ]
+    own_claims = claims.filter(Q(created_by_id=user_id) | Q(created_by__isnull=True, task_id__in=own_task_ids))
+    own_legacy = legacy.filter(Q(actor_user_id=user_id) | Q(actor_user__isnull=True, actor_task_id__in=own_task_ids))
+    return Q(id__in=own_claims.values("report_id")) | Q(id__in=own_legacy.values("report_id"))
 
 
 def reports_with_active_claim(*, team_id: int, actor: ArtefactAttribution | None = None) -> Q:

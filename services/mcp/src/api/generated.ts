@@ -79642,6 +79642,8 @@ export namespace Schemas {
       agent: string | null;
       /** @nullable */
       claimed_at: string | null;
+      /** The person who answers for the claim: the user for a user claim, the user an MCP agent acts for, or the user who started an internal task. Null when no person stands behind the claim. */
+      responsible_user: _User | null;
     }
 
     /**
@@ -138987,7 +138989,7 @@ export namespace Schemas {
      */
     already_addressed?: boolean;
     /**
-     * Use 'me' to return reports claimed by the current user, task, or MCP agent.
+     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, claims by MCP agents acting for them, and claims by internal tasks they started.
      */
     assignee?: SignalsReportsListAssignee;
     /**
@@ -139114,6 +139116,7 @@ export namespace Schemas {
 
     export const SignalsReportsListAssignee = {
       Me: 'me',
+      Mine: 'mine',
     } as const;
 
     export type SignalsReportPrChecksParams = {

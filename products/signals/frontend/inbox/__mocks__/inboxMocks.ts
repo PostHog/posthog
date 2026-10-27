@@ -138,18 +138,27 @@ export const reportTabReports: SignalReport[] = [
 
 // ── Pull requests tab ───────────────────────────────────────────────────────
 
-export function userClaim(user: Pick<_UserApi, 'id' | 'uuid' | 'first_name' | 'email'>): SignalReportAssigneeApi {
+type ClaimUser = Pick<_UserApi, 'id' | 'uuid' | 'first_name' | 'email'>
+
+export function userClaim(user: ClaimUser): SignalReportAssigneeApi {
+    const person = { ...user, last_name: '' }
     return {
         claim_id: null,
         kind: 'user',
-        user: { ...user, last_name: '' },
+        user: person,
         task_id: null,
         agent: null,
         claimed_at: BASE_DATE,
+        responsible_user: person,
     }
 }
 
+export function agentClaim(user: ClaimUser, agent: string): SignalReportAssigneeApi {
+    return { ...userClaim(user), kind: 'agent', agent }
+}
+
 export const myClaim = userClaim(MOCK_DEFAULT_USER)
+export const myAgentClaim = agentClaim(MOCK_DEFAULT_USER, 'claude-code')
 export const teammateClaim = userClaim({
     id: 2,
     uuid: 'teammate-uuid',
@@ -157,10 +166,12 @@ export const teammateClaim = userClaim({
     email: 'robin@example.com',
 })
 
-// The Reports tab rows with two claimed by the current user and one by a teammate.
+// The Reports tab rows with one claimed by the current user, one by their agent, and one by a teammate.
+const CLAIMS_BY_ROW: (SignalReportAssigneeApi | null)[] = [myClaim, teammateClaim, null, myAgentClaim]
+
 export const claimedReports: SignalReport[] = reportTabReports.map((report, index) => ({
     ...report,
-    assignee: index === 0 || index === 3 ? myClaim : index === 1 ? teammateClaim : null,
+    assignee: CLAIMS_BY_ROW[index] ?? null,
 }))
 
 export const pullRequestReports: SignalReport[] = [

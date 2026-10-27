@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { myClaim, teammateClaim } from '../../__mocks__/inboxMocks'
+import { myAgentClaim, myClaim, teammateClaim } from '../../__mocks__/inboxMocks'
 import { SignalReportActionability, SignalReportPriority, SignalReportStatus } from '../../types'
 import { AnimatedEllipsis } from './AnimatedEllipsis'
 import { ReportClaimTag } from './ReportClaimTag'
@@ -53,6 +53,7 @@ export const AllBadges: Story = {
             </Row>
             <Row label="Claim">
                 <ReportClaimTag report={{ assignee: myClaim }} />
+                <ReportClaimTag report={{ assignee: myAgentClaim }} />
                 <ReportClaimTag report={{ assignee: teammateClaim }} />
             </Row>
             <Row label="Working">
