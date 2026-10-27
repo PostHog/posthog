@@ -7,6 +7,7 @@ behind an HTTP service without a change to the callers.
 """
 
 from collections.abc import Iterable, Mapping
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -27,6 +28,14 @@ class CredentialsUnreadableError(ValueError):
 @frozen
 class CredentialsUnreadable:
     """In a `get_many` result: a row exists for this source, but it cannot be read."""
+
+
+@frozen
+class CredentialRowRef:
+    """The key of one row, without its fields."""
+
+    team_id: int
+    source_id: str
 
 
 class WarehouseSourceCredentialsStore:
@@ -98,6 +107,22 @@ class WarehouseSourceCredentialsStore:
             return 0
         deleted, _ = Integration.objects.filter(team_id=team_id, kind=KIND, integration_id__in=ids).delete()
         return deleted
+
+    @staticmethod
+    def list_row_refs(
+        *, after_pk: int = 0, limit: int = 500, created_before: datetime | None = None
+    ) -> list[tuple[int, CredentialRowRef]]:
+        """One page of row keys in primary key order, as ``(cursor, ref)`` pairs. Pass the last cursor as
+        ``after_pk`` for the next page. With ``created_before``, rows created at or after it are left out.
+        Never decrypts a row."""
+        queryset = Integration.objects.filter(kind=KIND, pk__gt=after_pk)
+        if created_before is not None:
+            queryset = queryset.filter(created_at__lt=created_before)
+        rows = queryset.order_by("pk").values_list("pk", "team_id", "integration_id")[:limit]
+        return [
+            (pk, CredentialRowRef(team_id=team_id, source_id=str(integration_id)))
+            for pk, team_id, integration_id in rows
+        ]
 
     @staticmethod
     async def aget(source: ExternalDataSource) -> dict[str, Any] | None:

@@ -420,6 +420,16 @@ def _split(source_type: str, inputs: Mapping[str, Any]) -> "SplitJobInputs":
     return split_job_inputs(ExternalDataSourceType(source_type), inputs)
 
 
+def connection_fields_equal(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
+    """True when two connection field mappings hold the same stored values."""
+    return bool(_comparable(left) == _comparable(right))
+
+
+def split_connection_fields(source_type: str, inputs: Mapping[str, Any]) -> dict[str, Any]:
+    """The connection fields of ``inputs``, which a credentials row holds."""
+    return _connection_fields(source_type, inputs)
+
+
 def _comparable(value: Any) -> Any:
     # EncryptedJSONField stores each leaf as a string, so `5432` and `"5432"` are the same stored value.
     if isinstance(value, Mapping):
