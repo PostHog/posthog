@@ -1,4 +1,5 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 import time_machine
 
@@ -32,6 +33,12 @@ def _date(instant: datetime) -> str:
     return instant.strftime("%Y-%m-%d")
 
 
+def _last_days_bound(timezone: str, days: int) -> str:
+    local_today = NOW.astimezone(ZoneInfo(timezone)).date()
+    date_from = datetime.combine(local_today - timedelta(days=days), time.min)
+    return f"toStartOfInterval(assumeNotNull(toDateTime('{_text(date_from)}')), toIntervalDay(1))"
+
+
 def _where(*conjuncts: str) -> str:
     return f"SELECT count() FROM events WHERE {' AND '.join(conjuncts)}"
 
@@ -50,10 +57,10 @@ def _self_joined(where: str) -> str:
 
 @time_machine.travel(NOW, tick=False)
 class TestCanReadFlagEvaluations(SimpleTestCase):
-    def _can_read(self, query: str, placeholders: dict[str, ast.Expr] | None = None) -> bool:
+    def _can_read(self, query: str, placeholders: dict[str, ast.Expr] | None = None, timezone: str = "UTC") -> bool:
         select = parse_select(query, placeholders=placeholders)
         assert isinstance(select, ast.SelectQuery)
-        return can_read_flag_evaluations(select, datetime.now(UTC))
+        return can_read_flag_evaluations(select, datetime.now(UTC), ZoneInfo(timezone))
 
     def test_complete_days_leave_out_the_day_the_ttl_may_have_dropped(self):
         assert FLAG_EVALUATIONS_COMPLETE_DAYS == FLAG_EVALUATIONS_TTL_DAYS - 1
@@ -169,11 +176,6 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
     @parameterized.expand(
         [
             ("aware_datetime", ast.Constant(value=COVERAGE_START)),
-            # A naive value reads in UTC+14, so the first covered day starts at 14:00.
-            (
-                "naive_datetime_late_on_the_first_covered_day",
-                ast.Constant(value=(COVERAGE_START + timedelta(hours=16)).replace(tzinfo=None)),
-            ),
             ("date", ast.Constant(value=(COVERAGE_START + timedelta(days=1)).date())),
         ]
     )
@@ -238,12 +240,7 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
                 "absolute_date_before_coverage",
                 _bounded_by(f"toDateTime('{_text(COVERAGE_START - timedelta(seconds=1))}', 'UTC')"),
             ),
-            ("date_string_on_the_first_covered_day", _bounded_by(f"'{_date(COVERAGE_START)}'")),
             ("to_date_on_the_first_covered_day", _bounded_by(f"toDate('{_date(COVERAGE_START)}')")),
-            (
-                "to_date_time_without_a_timezone_read_in_utc_plus_14",
-                _bounded_by(f"toDateTime('{_text(COVERAGE_START + timedelta(hours=6))}')"),
-            ),
             (
                 "string_with_an_offset_before_coverage",
                 _bounded_by(f"toDateTime('{_text(COVERAGE_START + timedelta(hours=6))}+14:00')"),
@@ -350,13 +347,50 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
 
     @parameterized.expand(
         [
-            (
-                "naive_datetime_before_14_00",
-                ast.Constant(value=(COVERAGE_START + timedelta(hours=13, minutes=59)).replace(tzinfo=None)),
-            ),
             ("aware_datetime_before_coverage", ast.Constant(value=COVERAGE_START - timedelta(seconds=1))),
-            ("date_on_the_first_covered_day", ast.Constant(value=COVERAGE_START.date())),
         ]
     )
     def test_refuses_a_placeholder_bound_before_coverage(self, _name: str, bound: ast.Expr):
         assert self._can_read(_bounded_by("{bound}"), {"bound": bound}) is False
+
+    @parameterized.expand(
+        [
+            # The trends runner's date range for "Last N days" in a day-interval insight.
+            *[
+                (f"last_{label}_days_in_{zone}", zone, _last_days_bound(zone, days), expected)
+                for zone in ("UTC", "Pacific/Kiritimati", "Etc/GMT+12")
+                for label, days, expected in (
+                    ("complete", FLAG_EVALUATIONS_COMPLETE_DAYS - 1, True),
+                    ("too_many", FLAG_EVALUATIONS_COMPLETE_DAYS + 1, False),
+                )
+            ],
+            # Pacific/Kiritimati is UTC+14, so its midnight on the first covered day is 10:00 the day before in UTC.
+            ("to_date_time_on_the_first_covered_day_in_utc", "UTC", f"toDateTime('{_text(COVERAGE_START)}')", True),
+            (
+                "to_date_time_on_the_first_covered_day_in_kiritimati",
+                "Pacific/Kiritimati",
+                f"toDateTime('{_text(COVERAGE_START)}')",
+                False,
+            ),
+            ("date_string_on_the_first_covered_day_in_utc", "UTC", f"'{_date(COVERAGE_START)}'", True),
+            (
+                "date_string_on_the_first_covered_day_in_kiritimati",
+                "Pacific/Kiritimati",
+                f"'{_date(COVERAGE_START)}'",
+                False,
+            ),
+            (
+                "naive_placeholder_on_the_first_covered_day_in_kiritimati",
+                "Pacific/Kiritimati",
+                "{bound}",
+                False,
+            ),
+            ("naive_placeholder_on_the_first_covered_day_in_utc", "UTC", "{bound}", True),
+        ]
+    )
+    def test_reads_a_time_without_a_zone_in_the_team_timezone(
+        self, _name: str, timezone: str, bound: str, expected: bool
+    ):
+        placeholders: dict[str, ast.Expr] = {"bound": ast.Constant(value=COVERAGE_START.replace(tzinfo=None))}
+
+        assert self._can_read(_bounded_by(bound), placeholders, timezone) is expected

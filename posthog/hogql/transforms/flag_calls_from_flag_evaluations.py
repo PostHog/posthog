@@ -11,7 +11,7 @@ reading `events`.
 import json
 from collections import Counter
 from collections.abc import Callable
-from datetime import UTC, date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from posthog.hogql import ast
@@ -32,7 +32,7 @@ _FLAG_KEY_PROPERTY = "$feature_flag"
 
 _Predicate = Callable[[ast.Expr], bool]
 
-# A naive time can belong to any team timezone. Read in UTC+14, it gives the earliest instant it can mean.
+# The earliest any zone's clock runs ahead of UTC.
 _EARLIEST_UTC_OFFSET = timedelta(hours=14)
 _DAY_IN_ANY_TIMEZONE = timedelta(days=1) + _EARLIEST_UTC_OFFSET
 # A daylight-saving change moves calendar arithmetic in a timezone by up to an hour.
@@ -65,7 +65,7 @@ _START_OF_UNITS = {
     "toStartOfQuarter": "Quarter",
     "toStartOfYear": "Year",
 }
-_TIMEZONE_ARGUMENT = {"toDateTime": 1, "toDateTime64": 2, "toDate": 1}
+_TIMEZONE_ARGUMENT = {"toDateTime": 1, "toDateTime64": 2, "now": 0, "now64": 1}
 _COMPARISON_FUNCTIONS = {
     "equals": ast.CompareOperationOp.Eq,
     "greater": ast.CompareOperationOp.Gt,
@@ -78,13 +78,14 @@ _COMPARISON_FUNCTIONS = {
 _SCAN_COLUMNS = frozenset({"event", "timestamp", "properties"})
 
 
-def can_read_flag_evaluations(node: ast.SelectQuery, now: datetime) -> bool:
+def can_read_flag_evaluations(node: ast.SelectQuery, now: datetime, timezone: ZoneInfo) -> bool:
     """Whether this query's `events` scan selects only rows that `flag_evaluations` holds.
 
     It holds when all of these hold:
 
     1. A top-level conjunct pins the scan's `event` to `$feature_flag_called`.
-    2. A top-level conjunct bounds the scan's `timestamp` from below at or after the coverage start.
+    2. A top-level conjunct bounds the scan's `timestamp` from below at or after the coverage start. A time with no
+       zone reads in `timezone`, the team's zone, wherever the printer reads it that way.
     3. The scan is not sampled, because `flag_evaluations` has no sampling key. Insight runners attach `SAMPLE 1`
        to every events read, and the printer drops it, so it counts as no sampling.
     4. A top-level conjunct pins the scan's `$feature_flag` property to non-empty strings that no other JSON value
@@ -102,7 +103,7 @@ def can_read_flag_evaluations(node: ast.SelectQuery, now: datetime) -> bool:
     if scan.expands_columns(node.select):
         return False
     conjuncts = _conjuncts(node.where) + _conjuncts(node.prewhere)
-    return scan.pins_flag_calls(conjuncts, needs_flag_key=True) and scan.bounds_timestamp(conjuncts, now)
+    return scan.pins_flag_calls(conjuncts, needs_flag_key=True) and scan.bounds_timestamp(conjuncts, now, timezone)
 
 
 def rewrite_flag_calls_to_flag_evaluations(node: _T_AST, context: HogQLContext) -> _T_AST | None:
@@ -114,7 +115,7 @@ def rewrite_flag_calls_to_flag_evaluations(node: _T_AST, context: HogQLContext) 
     if not finder.found:
         return None
     cloned = clone_expr(node)
-    swapper = _EventsScanSwapper(now=datetime.now(UTC))
+    swapper = _EventsScanSwapper(now=datetime.now(UTC), timezone=ZoneInfo(context.database.get_timezone()))
     swapper.visit(cloned)
     return cloned if swapper.swapped else None
 
@@ -207,14 +208,14 @@ class _EventsScan:
             return self.column(expr.args[0]) == ["properties"] and _is_constant(expr.args[1], _FLAG_KEY_PROPERTY)
         return self.column(expr) == ["properties", _FLAG_KEY_PROPERTY]
 
-    def bounds_timestamp(self, conjuncts: list[ast.Expr], now: datetime) -> bool:
+    def bounds_timestamp(self, conjuncts: list[ast.Expr], now: datetime, timezone: ZoneInfo) -> bool:
         coverage_start = _utc_midnight(now) - timedelta(days=FLAG_EVALUATIONS_COMPLETE_DAYS)
         for conjunct in conjuncts:
             bound = self._lower_bound(conjunct)
             if bound is None:
                 continue
             try:
-                value = _earliest_instant(bound, now)
+                value = _earliest_instant(bound, now, timezone)
             except OverflowError:
                 # A date near year 1 or 9999, or a huge interval, leaves datetime's range.
                 continue
@@ -300,14 +301,16 @@ def _utc_midnight(now: datetime) -> datetime:
     return datetime.combine(now.astimezone(UTC).date(), time.min, tzinfo=UTC)
 
 
-def _earliest_instant(expr: ast.Expr, now: datetime) -> datetime | None:
+def _earliest_instant(expr: ast.Expr, now: datetime, timezone: ZoneInfo) -> datetime | None:
     """An instant no later than the value of `expr`, or None when `expr` has a shape this cannot evaluate."""
     if isinstance(expr, ast.Constant):
-        return _constant_instant(expr.value, timezone=None)
+        # The printer prints a naive datetime in the server's zone, which is UTC. A bare string compares in UTC or
+        # in the team's zone.
+        return _constant_instant(expr.value, (timezone, UTC))
     shift = _shift(expr)
     if shift is not None:
         base, interval, sign = shift
-        return _shifted(_earliest_instant(base, now), interval, sign)
+        return _shifted(_earliest_instant(base, now, timezone), interval, sign)
     if not isinstance(expr, ast.Call):
         return None
     name, args = expr.name, expr.args
@@ -316,25 +319,68 @@ def _earliest_instant(expr: ast.Expr, now: datetime) -> datetime | None:
     if name == "today" and not args:
         return _utc_midnight(now) - _DAY_IN_ANY_TIMEZONE
     if name == "assumeNotNull" and len(args) == 1:
-        return _earliest_instant(args[0], now)
-    if name in _TIMEZONE_ARGUMENT and args:
-        timezone_index = _TIMEZONE_ARGUMENT[name]
-        timezone = args[timezone_index] if len(args) > timezone_index else None
+        return _earliest_instant(args[0], now, timezone)
+    if name in ("toDateTime", "toDateTime64") and args:
+        zones = _zones_of(expr, timezone)
         if isinstance(args[0], ast.Constant):
-            timezone_name = (
-                timezone.value if isinstance(timezone, ast.Constant) and isinstance(timezone.value, str) else None
-            )
-            instant = _constant_instant(args[0].value, timezone_name)
-        else:
-            instant = _earliest_instant(args[0], now)
-        if name == "toDate" and instant is not None:
-            return instant - _DAY_IN_ANY_TIMEZONE
-        return instant
+            return _constant_instant(args[0].value, zones) if zones else None
+        return _earliest_instant(args[0], now, timezone)
+    if name == "toDate" and args:
+        instant = _earliest_instant(args[0], now, timezone)
+        # toDate truncates to a day, and the comparison can read that day in a zone the caller does not name.
+        return instant - _DAY_IN_ANY_TIMEZONE if instant is not None else None
+    day_start = _start_of_day(expr, now, timezone)
+    if day_start is not None:
+        return day_start
     if name in _START_OF_UNITS and args:
-        return _shifted(_earliest_instant(args[0], now), (1, _START_OF_UNITS[name]), -1)
+        return _shifted(_earliest_instant(args[0], now, timezone), (1, _START_OF_UNITS[name]), -1)
     if name == "toStartOfInterval" and len(args) >= 2:
-        return _shifted(_earliest_instant(args[0], now), _interval(args[1]), -1)
+        return _shifted(_earliest_instant(args[0], now, timezone), _interval(args[1]), -1)
     return None
+
+
+def _start_of_day(expr: ast.Call, now: datetime, timezone: ZoneInfo) -> datetime | None:
+    """The exact start of the day `toStartOfDay(x)` or `toStartOfInterval(x, toIntervalDay(1))` rounds to, or None
+    for any other call or when the zone it rounds in is unknown."""
+    if expr.name == "toStartOfDay" and expr.args:
+        zone_index = 1
+    elif expr.name == "toStartOfInterval" and len(expr.args) >= 2 and _interval(expr.args[1]) == (1, "Day"):
+        zone_index = 2
+    else:
+        return None
+    value = expr.args[0]
+    instant = _earliest_instant(value, now, timezone)
+    # ClickHouse rounds in the zone argument, or else in the zone of the value.
+    zones = _zone(expr.args[zone_index]) if len(expr.args) > zone_index else _zones_of(value, timezone)
+    if instant is None or not zones:
+        return None
+    return min(datetime.combine(instant.astimezone(zone).date(), time.min, tzinfo=zone) for zone in zones)
+
+
+def _zones_of(expr: ast.Expr, timezone: ZoneInfo) -> tuple[tzinfo, ...]:
+    """The zones a time value can carry. Empty when it names a zone that does not parse."""
+    while True:
+        shift = _shift(expr)
+        if shift is not None:
+            expr = shift[0]
+        elif isinstance(expr, ast.Call) and expr.name == "assumeNotNull" and len(expr.args) == 1:
+            expr = expr.args[0]
+        else:
+            break
+    if isinstance(expr, ast.Call) and expr.name in _TIMEZONE_ARGUMENT:
+        zone_index = _TIMEZONE_ARGUMENT[expr.name]
+        # The printer adds the team's zone to each of these calls that names none.
+        return _zone(expr.args[zone_index]) if len(expr.args) > zone_index else (timezone,)
+    return (timezone, UTC)
+
+
+def _zone(expr: ast.Expr) -> tuple[tzinfo, ...]:
+    if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+        try:
+            return (ZoneInfo(expr.value),)
+        except (ZoneInfoNotFoundError, ValueError):
+            pass
+    return ()
 
 
 def _shift(expr: ast.Expr) -> tuple[ast.Expr, tuple[int, str] | None, int] | None:
@@ -379,7 +425,8 @@ def _integer(expr: ast.Expr) -> int | None:
     return None
 
 
-def _constant_instant(value: object, timezone: str | None) -> datetime | None:
+def _constant_instant(value: object, zones: tuple[tzinfo, ...]) -> datetime | None:
+    """`value` as an instant, reading a naive value in whichever of `zones` gives the earliest one."""
     if isinstance(value, str):
         try:
             value = datetime.fromisoformat(value.strip())
@@ -391,12 +438,7 @@ def _constant_instant(value: object, timezone: str | None) -> datetime | None:
         return None
     if value.tzinfo is not None:
         return value
-    if timezone is not None:
-        try:
-            return value.replace(tzinfo=ZoneInfo(timezone))
-        except (ZoneInfoNotFoundError, ValueError):
-            return None
-    return value.replace(tzinfo=UTC) - _EARLIEST_UTC_OFFSET
+    return min(value.replace(tzinfo=zone) for zone in zones)
 
 
 class _SyntaxVisitor(TraversingVisitor):
@@ -436,14 +478,15 @@ class _FlagCalledConstantFinder(_SyntaxVisitor):
 
 
 class _EventsScanSwapper(_SyntaxVisitor):
-    def __init__(self, now: datetime) -> None:
+    def __init__(self, now: datetime, timezone: ZoneInfo) -> None:
         super().__init__()
         self.now = now
+        self.timezone = timezone
         self.swapped = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         scan = _EventsScan.of(node)
-        if scan is not None and can_read_flag_evaluations(node, self.now):
+        if scan is not None and can_read_flag_evaluations(node, self.now, self.timezone):
             self._swap(node, scan)
         super().visit_select_query(node)
 
