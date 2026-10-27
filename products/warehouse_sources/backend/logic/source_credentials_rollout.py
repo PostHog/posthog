@@ -169,8 +169,11 @@ def mirror_connection_fields(source: ExternalDataSource, inputs: Mapping[str, An
         logger.exception("warehouse_source_credentials.split_failed", **_log_context(source))
         return
     try:
-        # `update_or_create` runs in its own savepoint, so a failed copy leaves a caller's transaction usable.
-        WarehouseSourceCredentialsStore.upsert(source, connection)
+        # A savepoint, so a failed copy leaves a caller's transaction usable. The source row is locked before
+        # the credentials row, in the order that `soft_delete` takes them, so a concurrent delete cannot deadlock.
+        with transaction.atomic():
+            ExternalDataSource._base_manager.select_for_update().filter(pk=source.pk).values_list("pk").first()
+            WarehouseSourceCredentialsStore.upsert(source, connection)
     except Exception:
         DUAL_WRITE_COUNTER.labels(outcome="upsert_error").inc()
         logger.exception("warehouse_source_credentials.upsert_failed", **_log_context(source))
