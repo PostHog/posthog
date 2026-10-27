@@ -24,6 +24,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.orb.orb im
 from products.warehouse_sources.backend.temporal.data_imports.sources.orb.settings import ENDPOINTS, ORB_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.orb.source import OrbSource
 
+TOP_LEVEL_ENDPOINTS = [e for e in ENDPOINTS if ORB_ENDPOINTS[e].fanout is None]
+FANOUT_ENDPOINTS = [e for e in ENDPOINTS if ORB_ENDPOINTS[e].fanout is not None]
+
 
 def _response(body: dict[str, Any]) -> MagicMock:
     response = MagicMock()
@@ -82,7 +85,7 @@ class TestGetResource:
         endpoint = cast(dict[str, Any], resource["endpoint"])
         return cast(dict[str, Any], endpoint["params"])
 
-    @parameterized.expand(list(ENDPOINTS))
+    @parameterized.expand(TOP_LEVEL_ENDPOINTS)
     def test_resource_shape(self, endpoint: str) -> None:
         cfg = ORB_ENDPOINTS[endpoint]
         resource = get_resource(endpoint, should_use_incremental_field=False)
@@ -112,7 +115,7 @@ class TestGetResource:
         assert param["cursor_path"] == cfg.incremental_field
         assert param["convert"] is _format_incremental_value
 
-    @parameterized.expand([e for e in ENDPOINTS if ORB_ENDPOINTS[e].incremental_param is None])
+    @parameterized.expand([e for e in TOP_LEVEL_ENDPOINTS if ORB_ENDPOINTS[e].incremental_param is None])
     def test_full_refresh_endpoint_ignores_incremental_flag(self, endpoint: str) -> None:
         # Items / Coupons have no server-side time filter: even with incremental requested they
         # stay full-refresh (replace) so we never silently emit a bogus filter param.
@@ -161,6 +164,61 @@ class TestOrbSource:
         assert result.rows == [{"id": "customer-1"}, {"id": "customer-2"}]
         assert result.saved_states == [OrbResumeConfig(next_cursor="next-1")]
         assert result.committed_states == [OrbResumeConfig(next_cursor="next-1")]
+
+    @parameterized.expand(
+        [
+            ("CreditLedgerEntries", "credits/ledger"),
+            ("BalanceTransactions", "balance_transactions"),
+        ]
+    )
+    def test_fanout_walks_every_customer_and_tags_rows(self, endpoint: str, child_suffix: str) -> None:
+        result = self._driver().run(
+            endpoint,
+            [
+                self._page([{"id": "cus_1"}, {"id": "cus_gone"}, {"id": "cus_2"}]),
+                self._page([{"id": "entry-1"}], next_cursor="child-next"),
+                self._page([{"id": "entry-2"}]),
+                # A customer deleted after the parent listing must not fail the fan-out.
+                ScriptedResponse(status=404, json={"title": "Not found"}),
+                self._page([{"id": "entry-3"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/customers",
+            f"/v1/customers/cus_1/{child_suffix}",
+            f"/v1/customers/cus_1/{child_suffix}",
+            f"/v1/customers/cus_gone/{child_suffix}",
+            f"/v1/customers/cus_2/{child_suffix}",
+        ]
+        assert result.params("cursor") == [None, None, "child-next", None, None]
+        assert result.rows == [
+            {"id": "entry-1", "customer_id": "cus_1"},
+            {"id": "entry-2", "customer_id": "cus_1"},
+            {"id": "entry-3", "customer_id": "cus_2"},
+        ]
+
+    def test_fanout_resume_skips_completed_customers(self) -> None:
+        result = self._driver().run(
+            "CreditLedgerEntries",
+            [
+                self._page([{"id": "cus_1"}, {"id": "cus_2"}]),
+                self._page([{"id": "entry-3"}]),
+            ],
+            resume_state=OrbResumeConfig(
+                fanout_state={
+                    "completed": ["/customers/cus_1/credits/ledger"],
+                    "current": "/customers/cus_2/credits/ledger",
+                    "child_state": {"next_cursor": "saved-cursor"},
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/customers", "/v1/customers/cus_2/credits/ledger"]
+        assert result.params("cursor") == [None, "saved-cursor"]
+        assert result.rows == [{"id": "entry-3", "customer_id": "cus_2"}]
 
 
 class TestValidateCredentials:
