@@ -3845,6 +3845,28 @@ class TestSurvey(APIBaseTest):
         assert results
         assert all("search_match_type" not in r for r in results)
 
+    @parameterized.expand(
+        [
+            ("events", {"values": {"name": "checkout completed"}}),
+            ("cancelEvents", {"values": "checkout completed"}),
+            ("actions", {"values": {"id": 1}}),
+        ]
+    )
+    def test_create_survey_rejects_condition_values_that_are_not_a_list(self, field, condition):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with a broken trigger",
+                "type": "popover",
+                "questions": [{"type": "open", "question": "What do you think?"}],
+                "conditions": {field: condition},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == f"conditions.{field}.values must be a list"
+
 
 class TestMultipleChoiceQuestions(APIBaseTest):
     def test_create_survey_has_open_choice(self):

@@ -5,6 +5,7 @@ import {
     MultipleSurveyQuestion,
     RatingSurveyQuestion,
     Survey,
+    SurveyEventsWithProperties,
     SurveyMatchType,
     SurveyPosition,
     SurveyQuestionType,
@@ -35,6 +36,18 @@ export type SurveyFeatureRequirement = {
     feature: string
     docsUrl?: string
     unsupportedSdks: UnsupportedSdk[]
+}
+
+/**
+ * The API stores `conditions` as free-form JSON, so a survey can carry a `values` that is not a
+ * list. Read such a survey as having no trigger events, because `getSurveyWarnings` runs in a
+ * selector that the survey scenes depend on, and a throw there replaces the whole scene with an
+ * error page.
+ */
+function triggerEventValues(
+    condition: { values?: SurveyEventsWithProperties[] } | null | undefined
+): SurveyEventsWithProperties[] {
+    return Array.isArray(condition?.values) ? condition.values : []
 }
 
 /**
@@ -215,8 +228,7 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         },
         unsupportedSdks: [],
         check: (s) =>
-            (s.conditions?.events?.values?.length ?? 0) > 0 &&
-            !!s.conditions?.events?.values?.some((e) => Object.keys(e.propertyFilters ?? {}).length > 0),
+            triggerEventValues(s.conditions?.events).some((e) => Object.keys(e.propertyFilters ?? {}).length > 0),
     },
     {
         // No SDK survey matcher implements gte or lte, so a stored filter with either operator never matches.
@@ -230,7 +242,7 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             { sdk: 'posthog_flutter', issue: false },
         ],
         check: (s) =>
-            [...(s.conditions?.events?.values ?? []), ...(s.conditions?.cancelEvents?.values ?? [])].some((e) =>
+            [...triggerEventValues(s.conditions?.events), ...triggerEventValues(s.conditions?.cancelEvents)].some((e) =>
                 Object.values(e.propertyFilters ?? {}).some((filter) =>
                     (['gte', 'lte'] as string[]).includes(filter.operator)
                 )
@@ -245,7 +257,7 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/393' },
             { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/264' },
         ],
-        check: (s) => (s.conditions?.cancelEvents?.values?.length ?? 0) > 0,
+        check: (s) => triggerEventValues(s.conditions?.cancelEvents).length > 0,
     },
     {
         feature: 'Targeting with actions',
