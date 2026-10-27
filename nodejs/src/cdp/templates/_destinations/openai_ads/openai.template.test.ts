@@ -238,6 +238,11 @@ describe('openai template', () => {
             { phone: '0044 20 7946 0000' },
             { phone_numbers_sha256: ['38e62b3e091778f9214de3aa00ae498aa4b78433d73dec5977eb2ec1c8be4a69'] },
         ],
+        [
+            'phone with Unicode spaces',
+            { phone: '+1\u00a0415\u202f555\u20092671' },
+            { phone_numbers_sha256: [DOCS_PHONE_SHA256] },
+        ],
         ['phone without a country code', { phone: '415 555 2671' }, {}],
         [
             'pre-hashed phone',
@@ -264,8 +269,8 @@ describe('openai template', () => {
         ],
         ['name that is only punctuation', { first_name: '---' }, {}],
         [
-            'name with a tab and a non-breaking space',
-            { first_name: 'Mary\tJane', last_name: 'O\u00a0Connor' },
+            'name with a line break and Unicode spaces',
+            { first_name: 'Mary\nJane', last_name: 'O\u2009Connor\u00a0' },
             {
                 first_names_sha256: ['f08f448a5e7a9dc3619bb7c129f6a7d5fc6af002cea17ad71dfdc1c68f4d4e0e'],
                 last_names_sha256: ['7a0fbfdf40cbeb97429bdb88f512cecd27f0d44b7e57986ab578423bb61936ac'],

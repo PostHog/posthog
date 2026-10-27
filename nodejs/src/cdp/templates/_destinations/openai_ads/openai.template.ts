@@ -287,11 +287,16 @@ fn existingSha256(value) {
     return match(lowered, '^[a-f0-9]{64}$') ? lowered : null
 }
 
+// Removes every whitespace character, not only the ASCII space, because OpenAI hashes phones as digits only and names without whitespace
+fn removeWhitespace(value) {
+    return arrayStringConcat(arrayFilter(character -> not match(character, '[\\t\\n\\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]'), splitByString('', value)), '')
+}
+
 // OpenAI hashes the digits only: the country code without the leading + or 00. A number without
 // a country code is dropped, because guessing the country would send a hash that matches the wrong person or nobody.
 fn hashPhone(value) {
-    let phone := trim(toString(value))
-    for (let separator in [' ', '-', '.', '(', ')']) {
+    let phone := removeWhitespace(toString(value))
+    for (let separator in ['-', '.', '(', ')']) {
         phone := replaceAll(phone, separator, '')
     }
     if (startsWith(phone, '+')) {
@@ -307,14 +312,14 @@ fn hashPhone(value) {
     return sha256Hex(phone)
 }
 
-// OpenAI removes whitespace (including tabs and non-breaking spaces) and ASCII punctuation from names, and keeps accents and other non-ASCII characters
+// OpenAI removes all whitespace and ASCII punctuation from names, and keeps accents and other non-ASCII characters
 fn hashName(value) {
-    let name := lower(trim(toString(value)))
-    // Most names have no ASCII punctuation, and one match is cheaper than 33 replaceAll calls
-    if (not match(name, '[ \\t\u00a0!-/:-@[-\`{-~]')) {
+    let name := removeWhitespace(lower(toString(value)))
+    // Most names have no ASCII punctuation, and one match is cheaper than 32 replaceAll calls
+    if (not match(name, '[!-/:-@[-\`{-~]')) {
         return empty(name) ? null : sha256Hex(name)
     }
-    for (let character in splitByString('', ' \\t\u00a0!"#$%&\\'()*+,-./:;<=>?@[\\\\]^_\`{|}~')) {
+    for (let character in splitByString('', '!"#$%&\\'()*+,-./:;<=>?@[\\\\]^_\`{|}~')) {
         name := replaceAll(name, character, '')
     }
     return empty(name) ? null : sha256Hex(name)
