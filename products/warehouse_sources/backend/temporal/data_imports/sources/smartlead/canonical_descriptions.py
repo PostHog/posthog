@@ -124,4 +124,40 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "ISO 8601 timestamp when the client was created.",
         },
     },
+    "lead_categories": {
+        "description": "A lead category, either global or custom, used to label the sales outcome of a lead.",
+        "docs_url": "https://api.smartlead.ai/api-reference/leads/categories",
+        "columns": {
+            "id": "Unique category identifier, referenced by lead_category_id on campaign leads.",
+            "name": "Category name, e.g. Interested, Not Interested, or Meeting Booked.",
+            "sentiment_type": "Sentiment classification: positive, negative, or null for neutral.",
+            "created_at": "ISO 8601 timestamp when the category was created.",
+        },
+    },
+    "all_leads_activities": {
+        "description": "A lead in a campaign across all campaigns, with the timeline of emails sent to it and its opens, clicks, and replies.",
+        "docs_url": "https://api.smartlead.ai/api-reference/leads/activities",
+        "columns": {
+            "lead_id": "Unique lead identifier.",
+            "email_lead_map_id": "Identifier of the lead-to-campaign mapping.",
+            "campaign_id": "ID of the campaign the lead is in.",
+            "campaign_name": "Name of the campaign.",
+            "campaign_status": "Current status of the campaign.",
+            "status": "Status of the lead in the campaign.",
+            "current_seq_num": "Sequence step the lead is currently on.",
+            "created_at": "ISO 8601 timestamp when the lead was added to the campaign.",
+            "activities": "Emails sent to the lead, each with open and click counts, click details, reply details, and thread replies.",
+        },
+    },
+    "warmup_stats": {
+        "description": "Warmup performance of an email account over the last 7 days, with a daily breakdown.",
+        "docs_url": "https://api.smartlead.ai/api-reference/email-accounts/warmup-stats",
+        "columns": {
+            "email_account_id": "ID of the email account these warmup statistics belong to.",
+            "total_sent": "Warmup emails sent in the last 7 days.",
+            "spam_count": "Warmup emails that landed in spam in the last 7 days.",
+            "reputation_score": "Warmup reputation score of the account (0-100).",
+            "daily_stats": "Per-day warmup counts for the last 7 days: date, sent, spam, delivered, opened, and replied.",
+        },
+    },
 }
