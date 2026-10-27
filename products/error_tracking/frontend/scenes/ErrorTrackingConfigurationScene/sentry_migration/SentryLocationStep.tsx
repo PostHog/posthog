@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { Button, CardGroup, Field, FieldDescription, FieldLabel, Input } from '@posthog/quill'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
-import { ImportWizardOption } from './ImportWizardOption'
+import { WizardCard } from 'lib/components/Alerting/AlertWizard/steps/WizardCard'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+
 import { ImportWizardStepHeading } from './ImportWizardStepHeading'
 import { sentryMigrationLogic } from './sentryMigrationLogic'
 
@@ -17,22 +19,22 @@ export function SentryLocationStep(): JSX.Element {
                 title="Where does your Sentry run?"
                 description="PostHog reads your Sentry settings from this address."
             />
-            <CardGroup size="sm">
-                <ImportWizardOption
-                    title="Sentry cloud"
+            <div className="flex flex-col gap-3">
+                <WizardCard
+                    name="Sentry cloud"
                     description="sentry.io, in the US or EU region"
-                    selected={hosting === 'cloud'}
+                    badge={hosting === 'cloud' ? 'Selected' : undefined}
                     onClick={() => selectHosting('cloud')}
-                    dataAttr="error-tracking-import-sentry-cloud"
+                    data-attr="error-tracking-import-sentry-cloud"
                 />
-                <ImportWizardOption
-                    title="Self-hosted"
+                <WizardCard
+                    name="Self-hosted"
                     description="Your own Sentry server"
-                    selected={hosting === 'self_hosted'}
+                    badge={hosting === 'self_hosted' ? 'Selected' : undefined}
                     onClick={() => selectHosting('self_hosted')}
-                    dataAttr="error-tracking-import-sentry-self-hosted"
+                    data-attr="error-tracking-import-sentry-self-hosted"
                 />
-            </CardGroup>
+            </div>
             {hosting === 'self_hosted' && (
                 <form
                     className="flex flex-col gap-4"
@@ -43,21 +45,18 @@ export function SentryLocationStep(): JSX.Element {
                         }
                     }}
                 >
-                    <Field>
-                        <FieldLabel htmlFor="sentry-migration-url">Sentry URL</FieldLabel>
-                        <Input
-                            id="sentry-migration-url"
+                    <LemonField.Pure label="Sentry URL" help="Use the address you open Sentry at.">
+                        <LemonInput
                             value={baseUrl}
-                            onChange={(event) => setBaseUrl(event.target.value)}
+                            onChange={setBaseUrl}
                             placeholder="https://sentry.example.com"
                             data-attr="error-tracking-import-sentry-url"
                         />
-                        <FieldDescription>Use the address you open Sentry at.</FieldDescription>
-                    </Field>
+                    </LemonField.Pure>
                     <div>
-                        <Button type="submit" variant="primary" disabledReason={urlProblem}>
+                        <LemonButton type="primary" htmlType="submit" disabledReason={urlProblem}>
                             Continue
-                        </Button>
+                        </LemonButton>
                     </div>
                 </form>
             )}

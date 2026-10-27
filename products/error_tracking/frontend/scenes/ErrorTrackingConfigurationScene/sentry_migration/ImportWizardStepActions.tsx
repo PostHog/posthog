@@ -1,6 +1,6 @@
 import { ReactNode } from 'react'
 
-import { Button } from '@posthog/quill'
+import { LemonButton } from '@posthog/lemon-ui'
 
 export interface ImportWizardStepActionsProps {
     onBack: () => void
@@ -10,9 +10,9 @@ export interface ImportWizardStepActionsProps {
 export function ImportWizardStepActions({ onBack, children }: ImportWizardStepActionsProps): JSX.Element {
     return (
         <div className="flex flex-wrap items-center justify-between gap-2">
-            <Button variant="outline" onClick={onBack} data-attr="error-tracking-import-back">
+            <LemonButton type="secondary" onClick={onBack} data-attr="error-tracking-import-back">
                 Back
-            </Button>
+            </LemonButton>
             <div className="flex flex-wrap items-center gap-2">{children}</div>
         </div>
     )

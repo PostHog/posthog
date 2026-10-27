@@ -1,6 +1,9 @@
 import { Fragment } from 'react'
 
-import { Badge, Button, Separator } from '@posthog/quill'
+import { IconCheckCircle } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
+
+import { cn } from 'lib/utils/css-classes'
 
 export interface ImportWizardStepperStep<Key extends string> {
     key: Key
@@ -23,27 +26,65 @@ export function ImportWizardStepper<Key extends string>({
     const compact = steps.length > 5
 
     return (
-        <nav aria-label="Import progress" className="flex flex-wrap items-center justify-center gap-1">
-            {steps.map((step, index) => (
-                <Fragment key={step.key}>
-                    {index > 0 && <Separator className="w-4" />}
-                    <Button
-                        variant="default"
-                        aria-label={step.label}
-                        tooltip={compact && index !== currentIndex ? step.label : undefined}
-                        aria-current={index === currentIndex ? 'step' : undefined}
-                        disabledReason={index > currentIndex ? 'Finish the earlier steps first' : undefined}
+        <nav className="flex flex-wrap items-center justify-center" aria-label="Import progress">
+            {steps.map((step, index) => {
+                const isCompleted = index < currentIndex
+                const isCurrent = index === currentIndex
+                const isFuture = index > currentIndex
+                const button = (
+                    <button
+                        type="button"
                         onClick={() => onStepClick(step.key)}
+                        disabled={isFuture}
+                        aria-label={step.label}
+                        aria-current={isCurrent ? 'step' : undefined}
+                        className={cn(
+                            'flex items-center gap-1.5 px-2 py-1 rounded',
+                            'focus:outline-none focus-visible:ring-1 focus-visible:ring-accent',
+                            isFuture ? 'opacity-50 cursor-not-allowed' : 'hover:bg-fill-button-tertiary-hover'
+                        )}
                     >
-                        <Badge variant={index < currentIndex ? 'success' : index === currentIndex ? 'info' : 'default'}>
-                            {index + 1}
-                        </Badge>
-                        <span className={compact && index !== currentIndex ? 'hidden @5xl:inline' : undefined}>
+                        {isCompleted ? (
+                            <IconCheckCircle className="size-5 text-success" />
+                        ) : (
+                            <span
+                                className={cn(
+                                    'flex items-center justify-center size-5 rounded-full text-xs font-semibold',
+                                    isCurrent
+                                        ? 'bg-accent text-primary-inverse'
+                                        : 'bg-surface-secondary text-secondary border border-primary'
+                                )}
+                            >
+                                {index + 1}
+                            </span>
+                        )}
+                        <span
+                            className={cn(
+                                'text-sm',
+                                isCurrent && 'font-semibold text-primary',
+                                isCompleted && 'font-medium text-primary',
+                                !isCompleted && !isCurrent && 'text-secondary',
+                                compact && !isCurrent && 'hidden @5xl:inline'
+                            )}
+                        >
                             {step.label}
                         </span>
-                    </Button>
-                </Fragment>
-            ))}
+                    </button>
+                )
+                return (
+                    <Fragment key={step.key}>
+                        {index > 0 && (
+                            <div
+                                className={cn(
+                                    'w-6 h-px',
+                                    isCompleted || isCurrent ? 'bg-success' : 'bg-border-primary'
+                                )}
+                            />
+                        )}
+                        {compact && !isCurrent ? <Tooltip title={step.label}>{button}</Tooltip> : button}
+                    </Fragment>
+                )
+            })}
         </nav>
     )
 }
