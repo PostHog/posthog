@@ -5,6 +5,7 @@ import { LemonSegmentedButton, Link } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { modelPickerLogic } from '../../modelPickerLogic'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 
 type Method = 'llm_judge' | 'decision' | 'hog' | 'sentiment'
@@ -31,6 +32,7 @@ export function EvaluationMethodPanel(): JSX.Element | null {
     const { evaluation, usesDecisionModel, isNewEvaluation } = useValues(llmEvaluationLogic)
     const { setEvaluationType, setJudgeMethod } = useActions(llmEvaluationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { byokModelsLoading, providerKeysLoading } = useValues(modelPickerLogic)
 
     if (!evaluation) {
         return null
@@ -38,6 +40,9 @@ export function EvaluationMethodPanel(): JSX.Element | null {
     const type = evaluation.evaluation_type
     const method: Method = type === 'llm_judge' && usesDecisionModel ? 'decision' : type
     const isJudge = type === 'llm_judge'
+    // Without capabilities a saved model looks incompatible with the other judge method, and the switch would clear it.
+    const judgeDisabledReason =
+        isJudge && (byokModelsLoading || providerKeysLoading) ? 'Loading model capabilities.' : undefined
     const setMethod = (next: Method): void => {
         // Switching the type resets the prompt, so a move between the two judge methods keeps the type.
         if (next === 'llm_judge' || next === 'decision') {
@@ -57,10 +62,16 @@ export function EvaluationMethodPanel(): JSX.Element | null {
                     value={method}
                     onChange={setMethod}
                     options={[
-                        { value: 'llm_judge', label: 'LLM judge' },
+                        { value: 'llm_judge', label: 'LLM judge', disabledReason: judgeDisabledReason },
                         // A stored decision evaluation keeps the option, so it can still switch back to an LLM judge.
                         ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SYSTEM_ONE_EVALUATIONS] || method === 'decision'
-                            ? [{ value: 'decision' as const, label: 'Decision model' }]
+                            ? [
+                                  {
+                                      value: 'decision' as const,
+                                      label: 'Decision model',
+                                      disabledReason: judgeDisabledReason,
+                                  },
+                              ]
                             : []),
                         { value: 'hog', label: 'Code' },
                         {

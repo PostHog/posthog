@@ -22,7 +22,7 @@ export function EvaluationSentence({
     onPartClick: (part: SentencePart) => void
 }): JSX.Element | null {
     const { props } = useMountedLogic(llmEvaluationLogic)
-    const { evaluation, usesDecisionModel, selectedModelName, selectedModel, isReportableEvaluation } =
+    const { evaluation, usesDecisionModel, selectedModelName, selectedModel, isReportableEvaluation, isNewEvaluation } =
         useValues(llmEvaluationLogic)
     const { configDraft } = useValues(evaluationReportLogic({ evaluationId: props.evaluationId }))
 
@@ -40,7 +40,7 @@ export function EvaluationSentence({
             onClick={() => {
                 if (!activeParts.includes(key)) {
                     // pinned: analytics event name and properties, because the creation funnel reads them
-                    posthog.capture('llma evaluation create part opened', { part: key })
+                    posthog.capture('llma evaluation create part opened', { part: key, is_new: isNewEvaluation })
                 }
                 onPartClick(key)
             }}

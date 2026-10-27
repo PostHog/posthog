@@ -102,6 +102,11 @@ export function AIObservabilityEvaluation(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const settlingStrategyEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_SETTLING_STRATEGY]
     const resultsCardsEnabled = !!featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_EVALUATIONS_OVERVIEW]
+    const { isConfigDirty: reportConfigDirty } = useValues(
+        evaluationReportLogic({ evaluationId: isNewEvaluation || !evaluation?.id ? 'new' : evaluation.id })
+    )
+    // The step layout edits reports with the rest of the configuration, so a report-only edit is unsaved too.
+    const unsaved = hasUnsavedChanges || (resultsCardsEnabled && !isNewEvaluation && reportConfigDirty)
     const {
         setEvaluationName,
         setEvaluationDescription,
@@ -115,6 +120,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
         patchOutputConfig,
         setEvaluationTarget,
         setActiveTab,
+        setFormStep,
     } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
     const triggersRef = useRef<HTMLDivElement>(null)
@@ -184,6 +190,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
 
     const focusTriggers = (): void => {
         setActiveTab('configuration')
+        setFormStep('traffic')
         requestAnimationFrame(() => {
             triggersRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
         })
@@ -218,7 +225,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
     }
 
     const handleCancel = (): void => {
-        if (hasUnsavedChanges) {
+        if (unsaved) {
             resetEvaluation()
         }
         push(evaluationBackTarget.path)
@@ -268,7 +275,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                         {evaluation.enabled ? 'Enabled' : 'Disabled'}
                                     </LemonTag>
                                 )}
-                                {hasUnsavedChanges && <LemonTag type="warning">Unsaved changes</LemonTag>}
+                                {unsaved && <LemonTag type="warning">Unsaved changes</LemonTag>}
                             </>
                         )}
                     </div>
@@ -296,7 +303,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         </LemonButton>
                     ) : null}
                     <LemonButton type="secondary" icon={<IconArrowLeft />} onClick={handleCancel}>
-                        {hasUnsavedChanges ? 'Cancel' : 'Back'}
+                        {unsaved ? 'Cancel' : 'Back'}
                     </LemonButton>
                     {showSaveAction && (
                         <AccessControlAction

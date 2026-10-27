@@ -75,6 +75,7 @@ describe('creationChecklist', () => {
         [7, 'about once a day'],
         [3, 'about 3 times a week'],
         [1, 'once a week'],
+        [0, 'less than once a week'],
     ])('describes %d runs a week as "%s"', (runs, expected) => {
         expect(runRate(runs)).toEqual(expected)
     })

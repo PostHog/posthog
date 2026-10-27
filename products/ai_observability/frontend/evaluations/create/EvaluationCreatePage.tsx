@@ -29,6 +29,7 @@ export function EvaluationCreatePage({ templateKey }: { templateKey?: string }):
         usesDecisionModel,
         selectedModel,
         judgeModelGroups,
+        isReportableEvaluation,
     } = useValues(llmEvaluationLogic)
     const { saveEvaluation, resetEvaluation } = useActions(llmEvaluationLogic)
     const { props: logicProps } = useMountedLogic(llmEvaluationLogic)
@@ -81,7 +82,9 @@ export function EvaluationCreatePage({ templateKey }: { templateKey?: string }):
             has_filters: evaluation.conditions.some((condition) => (condition.properties ?? []).length > 0),
             start_running: evaluation.enabled,
             uses_decision_model: usesDecisionModel,
-            reports_enabled: reportLogic.isMounted() ? reportLogic.values.configDraft.enabled : null,
+            reports_enabled: reportLogic.isMounted()
+                ? reportLogic.values.configDraft.enabled && isReportableEvaluation
+                : null,
             report_frequency: reportLogic.isMounted() ? reportLogic.values.configDraft.frequency : null,
             report_destinations: reportLogic.isMounted()
                 ? buildDeliveryTargets(reportLogic.values.configDraft).length

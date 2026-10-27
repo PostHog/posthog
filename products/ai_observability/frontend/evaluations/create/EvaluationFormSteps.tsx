@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { Fragment, useState } from 'react'
+import { Fragment } from 'react'
 
 import * as judgePng from '@posthog/brand/hoggies/png/judge'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
@@ -166,8 +166,8 @@ export function EvaluationFormSteps({
     onCreate?: () => void
     onCancel?: () => void
 }): JSX.Element | null {
-    const [index, setIndex] = useState(0)
-    const { evaluation } = useValues(llmEvaluationLogic)
+    const { evaluation, formStep } = useValues(llmEvaluationLogic)
+    const { setFormStep } = useActions(llmEvaluationLogic)
     // Mounted here, not only in the name step, so moving between steps does not refetch the folders.
     useMountedLogic(llmEvaluationsLogic())
 
@@ -175,6 +175,10 @@ export function EvaluationFormSteps({
         return null
     }
     const steps = onCreate ? STEPS : STEPS.filter((candidate) => candidate.key !== 'create')
+    const index = Math.max(
+        0,
+        steps.findIndex((candidate) => candidate.key === formStep)
+    )
     const step = steps[index]
     const isLast = index === steps.length - 1
     const isCreateStep = step.key === 'create'
@@ -182,9 +186,12 @@ export function EvaluationFormSteps({
     const stepDone = (candidate: Step): boolean =>
         candidate.checks.every((key) => checklist.find((item) => item.key === key)?.done ?? true)
     const goTo = (next: number, via: 'next' | 'back' | 'sentence' | 'stepper'): void => {
+        if (next === index) {
+            return
+        }
         // pinned: analytics event name and properties, because the creation funnel reads them
         posthog.capture('llma evaluation create step viewed', { step: steps[next].key, via, is_new: !!onCreate })
-        setIndex(next)
+        setFormStep(steps[next].key)
     }
     const Hoggie = step.hoggie
 

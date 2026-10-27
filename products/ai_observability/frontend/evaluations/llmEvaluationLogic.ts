@@ -321,6 +321,7 @@ export interface llmEvaluationLogicValues {
     byokModels: ModelOption[] // modelPickerLogic
     evaluationProviderModelGroups: ProviderModelGroup[] // modelPickerLogic
     activeTab: string
+    formStep: string
     breadcrumbs: Breadcrumb[]
     canEnable: boolean
     canEnableReason: string | null
@@ -484,6 +485,9 @@ export interface llmEvaluationLogicActions {
     }
     setActiveTab: (tab: string) => {
         tab: string
+    }
+    setFormStep: (step: string) => {
+        step: string
     }
     setAllowsNA: (allowsNA: boolean) => {
         allowsNA: boolean
@@ -700,6 +704,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
         // Tab navigation
         setActiveTab: (tab: string) => ({ tab }),
+        setFormStep: (step: string) => ({ step }),
         setRunsBackfillId: (backfillId: string | null) => ({ backfillId }),
         setRunsDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
 
@@ -1210,6 +1215,13 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             {
                 setRunsDates: () => null,
                 setRunsBackfillId: () => null,
+            },
+        ],
+        // The open step of the step layout, here so a failed save can open the step that needs fixing.
+        formStep: [
+            'name' as string,
+            {
+                setFormStep: (_, { step }) => step,
             },
         ],
         activeTab: [

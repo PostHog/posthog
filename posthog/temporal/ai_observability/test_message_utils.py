@@ -783,6 +783,15 @@ class TestFormatToolDefinitions:
             "user",
             "Second question",
         ),
+        (
+            [
+                {"role": "user", "content": "What is the weather in Paris?"},
+                {"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "weather", "input": {}}]},
+                {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "18C sunny"}]},
+            ],
+            "user",
+            "What is the weather in Paris?",
+        ),
         ([{"role": "assistant", "content": "The answer"}], "assistant", "The answer"),
         ([{"role": "system", "content": "Only a system prompt"}], "user", "system: Only a system prompt"),
         ("A plain string", "user", "A plain string"),

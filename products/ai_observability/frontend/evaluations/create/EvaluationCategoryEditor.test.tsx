@@ -33,6 +33,29 @@ describe('EvaluationCategoryEditor', () => {
             passing_rule: { categories: [key] },
         })
     })
+    it('a new row whose label passes through a saved one still takes its key from the label', () => {
+        const onChange = jest.fn()
+        const config: EvaluationOutputConfig = {
+            selection_mode: 'single',
+            options: [
+                { key: 'helpful', label: 'Helpful' },
+                { key: 'helpful', label: 'Helpful' },
+            ],
+            passing_rule: { categories: ['helpful'] },
+        }
+        render(
+            <EvaluationCategoryEditor config={config} onChange={onChange} showKeys={false} storedKeys={['helpful']} />
+        )
+
+        fireEvent.change(screen.getByLabelText('Category 2'), { target: { value: 'Helpful but long' } })
+
+        expect(onChange).toHaveBeenCalledWith(
+            expect.objectContaining({
+                options: [config.options![0], { key: 'helpful-but-long', label: 'Helpful but long' }],
+            })
+        )
+    })
+
     it('turning grading off drops the passing rule, so runs only get a category', () => {
         const onChange = jest.fn()
         const config: EvaluationOutputConfig = {

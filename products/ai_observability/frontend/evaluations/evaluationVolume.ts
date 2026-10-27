@@ -108,5 +108,8 @@ export function runRate(runs: number): string {
     if (perDay === 1) {
         return 'about once a day'
     }
+    if (runs === 0) {
+        return 'less than once a week'
+    }
     return runs === 1 ? 'once a week' : `about ${runs} times a week`
 }

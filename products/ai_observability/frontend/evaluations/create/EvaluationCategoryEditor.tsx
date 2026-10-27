@@ -30,6 +30,9 @@ export function EvaluationCategoryEditor({
     const grades = !!config.passing_rule
     const withPassing = (keys: string[]): EvaluationOutputConfig['passing_rule'] =>
         grades ? { categories: keys } : null
+    // Only the first row with a saved key keeps it. A new row whose label passes through a saved one keeps deriving.
+    const keepsStoredKey = (key: string, index: number): boolean =>
+        storedKeys.includes(key) && options.findIndex((item) => item.key === key) === index
 
     return (
         <div className="flex flex-col gap-2">
@@ -43,7 +46,7 @@ export function EvaluationCategoryEditor({
                             value={option.label}
                             maxLength={256}
                             onChange={(label) => {
-                                const key = storedKeys.includes(option.key) ? option.key : categoryKey(label)
+                                const key = keepsStoredKey(option.key, index) ? option.key : categoryKey(label)
                                 onChange({
                                     options: options.map((item, i) => (i === index ? { label, key } : item)),
                                     passing_rule: withPassing(
@@ -67,7 +70,12 @@ export function EvaluationCategoryEditor({
                         onClick={() =>
                             onChange({
                                 options: options.filter((_, i) => i !== index),
-                                passing_rule: withPassing(passing.filter((value) => value !== option.key)),
+                                // Another row with the same key keeps its pass mark.
+                                passing_rule: withPassing(
+                                    options.some((item, i) => i !== index && item.key === option.key)
+                                        ? passing
+                                        : passing.filter((value) => value !== option.key)
+                                ),
                             })
                         }
                     />
