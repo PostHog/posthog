@@ -7,6 +7,7 @@ import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import {
@@ -16,6 +17,8 @@ import {
     SavedSessionRecordingPlaylistsResult,
     SessionRecordingPlaylistType,
 } from '~/types'
+
+import { sessionRecordingPlaylistsRetrieve } from 'products/replay/frontend/generated/api'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { playlistFiltersLogic } from '../playlist/playlistFiltersLogic'
@@ -36,6 +39,7 @@ export const DEFAULT_PLAYLIST_FILTERS = {
 export interface sessionRecordingSavedFiltersLogicValues {
     replayLayout: ReplayLayout // playerSettingsLogic
     isFiltersExpanded: boolean // playlistFiltersLogic
+    currentProjectId: number | string // teamLogic
     appliedSavedFilter: SessionRecordingPlaylistType | null
     appliedSavedFilterFilters: RecordingUniversalFilters | null
     filters: Record<string, any> | SavedSessionRecordingPlaylistsFilters
@@ -178,7 +182,14 @@ export type sessionRecordingSavedFiltersLogicType = MakeLogicType<
 export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFiltersLogicType>([
     path(() => ['scenes', 'session-recordings', 'filters', 'sessionRecordingSavedFiltersLogic']),
     connect(() => ({
-        values: [playlistFiltersLogic, ['isFiltersExpanded'], playerSettingsLogic, ['replayLayout']],
+        values: [
+            playlistFiltersLogic,
+            ['isFiltersExpanded'],
+            playerSettingsLogic,
+            ['replayLayout'],
+            teamLogic,
+            ['currentProjectId'],
+        ],
         actions: [playlistFiltersLogic, ['setIsFiltersExpanded']],
     })),
     actions(() => ({
@@ -289,7 +300,7 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
             },
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         setIsFiltersExpanded: ({ isFiltersExpanded }) => {
             if (isFiltersExpanded) {
                 actions.loadSavedFiltersIfNeeded()
@@ -313,11 +324,18 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
         checkForSavedFilterRedirect: async () => {
             //If you want to load a saved filter via GET param, you can do it like this: ?savedFilterId=bndnfkxL
             const { savedFilterId, filters } = router.values.searchParams
-            if (savedFilterId) {
+            // The list rewrites the URL while the fetch is out.
+            if (savedFilterId && cache.loadingSavedFilterId !== savedFilterId) {
+                cache.loadingSavedFilterId = savedFilterId
                 // Capture the route before the fetch. The load can resolve after the user has already
                 // navigated elsewhere (e.g. to Replay vision) - only redirect if they are still here.
                 const pathnameBeforeLoad = removeProjectIdIfPresent(router.values.location.pathname)
-                const savedFilter = await api.recordings.getPlaylist(savedFilterId)
+                const savedFilter = (await sessionRecordingPlaylistsRetrieve(
+                    String(values.currentProjectId),
+                    savedFilterId
+                ).finally(() => {
+                    cache.loadingSavedFilterId = null
+                })) as unknown as SessionRecordingPlaylistType
                 if (savedFilter && removeProjectIdIfPresent(router.values.location.pathname) === pathnameBeforeLoad) {
                     if (!filters) {
                         router.actions.push(

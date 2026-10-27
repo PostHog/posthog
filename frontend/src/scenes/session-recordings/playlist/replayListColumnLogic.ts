@@ -111,7 +111,7 @@ export const replayListColumnLogic = kea<replayListColumnLogicType>([
         },
         // Summarize and View details still ask for the Observations tab. In this layout that content is the Moments segment.
         setSidebarTab: ({ tab }) => {
-            if (tab === SessionRecordingSidebarTab.OBSERVATIONS) {
+            if (tab === SessionRecordingSidebarTab.OBSERVATIONS && values.segment !== 'moments') {
                 actions.setSegment('moments', 'observations')
             }
         },

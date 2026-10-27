@@ -174,8 +174,9 @@ function HorizontalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
 function VerticalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
     const playerRef = useRef<HTMLDivElement>(null)
 
-    const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
+    const { isPlaylistCollapsed, replayLayout } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
+    const watchStack = props.watchLayout && isNewReplayLayout(replayLayout)
 
     const resizerLogicProps: ResizerLogicProps = {
         logicKey: 'playlist-resizer-vertical',
@@ -194,8 +195,15 @@ function VerticalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
             <PlayerWrapper
                 {...props}
                 containerRef={playerRef}
-                style={isPlaylistCollapsed ? {} : { height: desiredSize ?? undefined, minHeight: 300 }}
-                className={isPlaylistCollapsed ? 'flex-1' : 'pb-2 shrink-0'}
+                style={
+                    isPlaylistCollapsed
+                        ? {}
+                        : { height: desiredSize ?? (watchStack ? '50vh' : undefined), minHeight: 300 }
+                }
+                className={cn(
+                    isPlaylistCollapsed ? 'flex-1' : 'pb-2 shrink-0',
+                    watchStack && 'Playlist__main--stacked'
+                )}
                 resizer={
                     !isPlaylistCollapsed ? (
                         <Resizer
@@ -207,7 +215,10 @@ function VerticalLayout({ picksInList, ...props }: LayoutProps): JSX.Element {
                     ) : null
                 }
             />
-            <div className={cn('relative flex flex-col min-h-0', isPlaylistCollapsed ? 'h-5' : 'flex-1')}>
+            <div
+                className={cn('relative flex flex-col min-h-0', isPlaylistCollapsed ? 'h-5' : 'flex-1')}
+                data-stacked={watchStack || undefined}
+            >
                 <PlaylistColumn {...props} picksInList={picksInList} />
             </div>
         </>

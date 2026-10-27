@@ -15,6 +15,7 @@ import { ReplayTabs } from '~/types'
 describe('sessionRecordingSavedFiltersLogic', () => {
     let logic: ReturnType<typeof sessionRecordingSavedFiltersLogic.build>
     let savedFiltersRequestCount: number
+    let savedFilterRequestCount: number
     const savedFilter = {
         id: 'abc',
         short_id: 'short_abc',
@@ -27,6 +28,7 @@ describe('sessionRecordingSavedFiltersLogic', () => {
 
     beforeEach(() => {
         savedFiltersRequestCount = 0
+        savedFilterRequestCount = 0
         deleteSucceeds = true
         useMocks({
             get: {
@@ -34,7 +36,10 @@ describe('sessionRecordingSavedFiltersLogic', () => {
                     savedFiltersRequestCount += 1
                     return { results: [], count: 0 }
                 },
-                '/api/projects/:team/session_recording_playlists/:id': savedFilter,
+                '/api/projects/:team/session_recording_playlists/:id': () => {
+                    savedFilterRequestCount += 1
+                    return savedFilter
+                },
             },
             patch: {
                 '/api/projects/:team/session_recording_playlists/:id': () =>
@@ -110,6 +115,18 @@ describe('sessionRecordingSavedFiltersLogic', () => {
             savedFilterId: savedFilter.short_id,
             filters: { date_from: '-7d' },
         })
+    })
+
+    it('fetches a saved filter once while the list rewrites the URL', async () => {
+        router.actions.push(urls.replay(ReplayTabs.Home), { savedFilterId: savedFilter.short_id })
+        logic.mount()
+        router.actions.replace(urls.replay(ReplayTabs.Home), {
+            savedFilterId: savedFilter.short_id,
+            filters: { date_from: '-7d' },
+        })
+
+        await expectLogic(logic).toDispatchActions(['setAppliedSavedFilter'])
+        expect(savedFilterRequestCount).toBe(1)
     })
 
     it('applies a saved filter link while already open', async () => {
