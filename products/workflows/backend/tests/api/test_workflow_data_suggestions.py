@@ -17,6 +17,7 @@ from parameterized import parameterized
 from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.models import PropertyDefinition
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -24,6 +25,8 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.messaging.backend.facade.testing import create_message_template_for_test
 from products.workflows.backend.facade.contracts import DataSuggestionsResult
@@ -55,6 +58,7 @@ from products.workflows.backend.services.data_suggestions.stages import StageCla
 from products.workflows.backend.services.data_suggestions.team_context import (
     email_sender,
     has_verified_email_sender,
+    person_properties,
     saved_workflow_actions,
 )
 from products.workflows.backend.services.email_sending_controls import ensure_workflows_config
@@ -290,6 +294,24 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
         assert set(names) <= set(weekly_counts(self.team))
 
+    def test_person_properties_with_an_access_rule_are_not_offered(self) -> None:
+        for name in ("plan", "tier"):
+            PropertyDefinition.objects.create(
+                team=self.team, name=name, property_type="String", type=PropertyDefinition.Type.PERSON
+            )
+        _create_event(
+            team=self.team, event="signed_up", distinct_id="person-1", person_properties={"plan": "pro", "tier": "gold"}
+        )
+        flush_persons_and_events()
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=PropertyDefinition.objects.get(team=self.team, name="tier"),
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        assert person_properties(self.team) == {"plan": ("pro",)}
+
     @patch(f"{SERVICE}.suggest_ideas")
     def test_a_queued_retry_reads_building_not_the_old_failure(self, suggest_ideas: MagicMock) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
@@ -459,7 +481,15 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
                 _step(
                     "check",
                     "conditional_branch",
-                    branches=[PlannedBranch(label="Is on a paid plan", percentage=None, next=None)],
+                    branches=[
+                        PlannedBranch(
+                            label="Is on a paid plan",
+                            percentage=None,
+                            next=None,
+                            person_property=None,
+                            property_value=None,
+                        )
+                    ],
                     next="nudge",
                 ),
                 _email_step("nudge", "Ready to upgrade?"),
@@ -558,7 +588,15 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
                     _step(
                         "check",
                         "conditional_branch",
-                        branches=[PlannedBranch(label="Is on a paid plan", percentage=None, next=None)],
+                        branches=[
+                            PlannedBranch(
+                                label="Is on a paid plan",
+                                percentage=None,
+                                next=None,
+                                person_property=None,
+                                property_value=None,
+                            )
+                        ],
                     )
                 ],
             ),
