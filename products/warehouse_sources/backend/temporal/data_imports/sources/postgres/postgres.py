@@ -2080,6 +2080,21 @@ class NetworkAsStringLoader(Loader):
         return bytes(data).decode("utf-8")
 
 
+class LenientTextLoader(Loader):
+    """Load PostgreSQL text values, replacing bytes that are not valid UTF-8.
+
+    Postgres does not re-validate stored text on output, so a `SQL_ASCII` database or an
+    extension that writes raw bytes into a `text` column (e.g. Supabase's `pg_net` storing
+    binary HTTP response bodies) can send invalid UTF-8. psycopg's default loader decodes
+    strictly, so one such value fails the whole sync with `UnicodeDecodeError`.
+    """
+
+    def load(self, data):
+        if data is None:
+            return None
+        return bytes(data).decode("utf-8", "replace")
+
+
 class SafeDateLoader(Loader):
     """Load PostgreSQL dates, handling edge cases beyond Python's date range.
 
@@ -4207,6 +4222,10 @@ def postgres_source(
                 connection.adapters.register_loader("timetz", SafeTimetzLoader)
                 connection.adapters.register_loader("inet", NetworkAsStringLoader)
                 connection.adapters.register_loader("cidr", NetworkAsStringLoader)
+                connection.adapters.register_loader("text", LenientTextLoader)
+                connection.adapters.register_loader("varchar", LenientTextLoader)
+                connection.adapters.register_loader("bpchar", LenientTextLoader)
+                connection.adapters.register_loader("name", LenientTextLoader)
                 # Bump statement_timeout for the streaming connection. A server
                 # cursor FETCH inherits the session statement_timeout, and on
                 # wide/partitioned scans the source's default (often 30-60s)

@@ -98,6 +98,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     UNFILTERED_COUNT_CLIENT_DEADLINE_SECONDS,
     XMIN_PROJECTED_COLUMN,
     JsonAsStringLoader,
+    LenientTextLoader,
     NetworkAsStringLoader,
     PostgresDiscoveredSchema,
     PostgresImplementation,
@@ -8624,6 +8625,21 @@ class TestNetworkAsStringLoader:
 
     def test_none_returns_none(self, loader):
         assert loader.load(None) is None
+
+
+class TestLenientTextLoader:
+    @pytest.mark.parametrize(
+        "data,expected",
+        [
+            (b"plain text", "plain text"),
+            ("café 日本".encode(), "café 日本"),
+            (b"\xff\xd8\xffbinary", "\ufffd\ufffd\ufffdbinary"),
+            (memoryview(b"ok\xfe"), "ok\ufffd"),
+            (None, None),
+        ],
+    )
+    def test_load(self, data, expected):
+        assert LenientTextLoader(oid=25).load(data) == expected
 
 
 class TestSSLRequiredAfterDate:
