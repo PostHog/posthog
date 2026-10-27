@@ -1,9 +1,12 @@
 from anthropic import Anthropic
 from pydantic import BaseModel
 
+from posthog.llm.gateway_client import build_ai_gateway_anthropic_client, trace_id_from_seed
+
 from ..backend.facade.enums import DocsChangeKind
 
 JUDGE_MODEL = "claude-haiku-5-5"
+JUDGE_AI_PRODUCT = "knowledge_writer"
 MAX_DIFF_CHARACTERS = 30_000
 
 JUDGE_INSTRUCTIONS = """You decide whether a change merged into PostHog's product code needs a posthog.com docs change.
@@ -19,6 +22,14 @@ class JudgeVerdict(BaseModel):
     change_kind: DocsChangeKind | None
     page_urls: list[str]
     reason: str
+
+
+def judge_client(commit_sha: str) -> Anthropic:
+    return build_ai_gateway_anthropic_client(
+        ai_product=JUDGE_AI_PRODUCT,
+        trace_id=trace_id_from_seed(f"knowledge_writer:merge:{commit_sha}"),
+        properties={"commit_sha": commit_sha},
+    )
 
 
 def judge_merge(

@@ -5,9 +5,9 @@ import argparse
 from pathlib import Path
 
 import httpx
-from anthropic import Anthropic
 
 from .check import run_merge_check
+from .judge import judge_client
 from .sources import POSTHOG_REPOSITORY, github_client
 
 MAX_RECENT_MERGES = 100
@@ -19,7 +19,10 @@ def replay_command(arguments: argparse.Namespace) -> int:
     with github_client(github_token) as github, httpx.Client(timeout=30) as http:
         merges = recent_master_merges(github, arguments.recent) if arguments.recent else read_merges(arguments.merges)
         for merge in merges:
-            report = run_merge_check(merge["commit_sha"], github=github, http=http, anthropic_client=Anthropic())
+            with judge_client(merge["commit_sha"]) as anthropic_client:
+                report = run_merge_check(
+                    merge["commit_sha"], github=github, http=http, anthropic_client=anthropic_client
+                )
             flagged += report.needs_docs
             page_hits = sorted(set(report.page_urls) & set(merge.get("page_urls", [])))
             row = {"commit_sha": merge["commit_sha"], "needs_docs": report.needs_docs, "page_hits": page_hits}

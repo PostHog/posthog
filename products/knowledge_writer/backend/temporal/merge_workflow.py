@@ -1,10 +1,8 @@
 from dataclasses import dataclass
 from datetime import timedelta
 
-from django.conf import settings
-
 import httpx
-from anthropic import Anthropic, APIError
+from anthropic import APIError
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -13,6 +11,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.utils import close_db_connections
 
 from ...merge_check.check import run_merge_check
+from ...merge_check.judge import judge_client
 from ...merge_check.sources import POSTHOG_REPOSITORY, github_client
 from ..adapters import REGISTRY
 from ..facade.contracts import AdapterVerdict
@@ -52,18 +51,17 @@ def posthog_github_token(team_id: int) -> str | None:
 
 def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
     github_token = posthog_github_token(inputs.team_id)
-    anthropic_api_key = getattr(settings, "ANTHROPIC_API_KEY", "")
-    if github_token is None or not anthropic_api_key:
+    if github_token is None:
         record_merge_check_failed(inputs)
         return
     try:
-        with github_client(github_token) as github, httpx.Client(timeout=30) as http:
-            report = run_merge_check(
-                inputs.commit_sha,
-                github=github,
-                http=http,
-                anthropic_client=Anthropic(api_key=anthropic_api_key),
-            )
+        anthropic_client = judge_client(inputs.commit_sha)
+    except ValueError:
+        record_merge_check_failed(inputs)
+        return
+    try:
+        with github_client(github_token) as github, httpx.Client(timeout=30) as http, anthropic_client:
+            report = run_merge_check(inputs.commit_sha, github=github, http=http, anthropic_client=anthropic_client)
     except (httpx.HTTPError, APIError) as error:
         if not is_final_attempt:
             raise
