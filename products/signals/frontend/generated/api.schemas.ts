@@ -10553,7 +10553,7 @@ export type SignalsReportChecksListParams = {
 
 export type SignalsReportsAvailableReviewersRetrieveParams = {
     /**
-     * Case-insensitive filter on name or email.
+     * Case-insensitive filter on name or email. Use search to find members outside the first 100 results.
      */
     query?: string
 }

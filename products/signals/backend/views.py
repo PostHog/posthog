@@ -67,7 +67,6 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
-from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
@@ -197,11 +196,11 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerPayloadIndex,
     bounded_reviewer_reason,
     get_org_member_github_logins_by_user_uuid,
-    get_org_member_users_by_uuid,
     normalized_github_logins_from_suggested_reviewer_artefacts,
     normalized_user_uuids_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
     resolve_org_users_by_uuid,
+    search_org_member_users_by_uuid,
     source_skills_from_suggested_reviewer_artefacts,
 )
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
@@ -328,12 +327,7 @@ from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
-# `available_reviewers` returns every eligible org member in a single unpaginated payload.
-# Org membership is tiny in practice, so even the biggest
-# org today serialises to well under 100 KB. If an org ever exceeds this threshold we want a
-# signal that it's time to add real pagination, rather than silently truncating the list (the
-# old behaviour, which capped at 100 and dropped everyone alphabetically after ~"M").
-REVIEWER_PAGINATION_THRESHOLD = 1200
+AVAILABLE_REVIEWERS_LIMIT = 100
 PR_GITHUB_CACHE_SECONDS = 15
 _PULL_REQUEST_ID_PARAMETER = OpenApiParameter(
     "pull_request_id",
@@ -2958,7 +2952,7 @@ class SignalReportViewSet(
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Case-insensitive filter on name or email.",
+                description="Case-insensitive filter on name or email. Use search to find members outside the first 100 results.",
             )
         ],
         # A map keyed by user UUID, so there is no serializer shape to declare.
@@ -2975,66 +2969,31 @@ class SignalReportViewSet(
                         "required": ["name", "email"],
                     },
                 },
-                description="Candidate reviewers keyed by user UUID.",
+                description="Up to 100 candidate reviewers keyed by user UUID.",
             )
         },
     )
     @action(detail=False, methods=["get"], url_path="available_reviewers", required_scopes=["task:read"])
     def available_reviewers(self, request, **kwargs):
         with tracer.start_as_current_span("signals.available_reviewers") as span:
-            # Every org member, not only the GitHub-linked ones: a reviewer is a PostHog user, so a
-            # teammate who never connected GitHub is still pickable — and can pick themselves.
-            users_by_uuid = get_org_member_users_by_uuid(self.team.id) or {}
+            # Search all org members, not only the GitHub-linked ones: a reviewer is a PostHog user,
+            # so a teammate who never connected GitHub is still pickable — and can pick themselves.
             query = (request.query_params.get("query") or "").strip().lower()
-
-            candidate_count = len(users_by_uuid)
-            span.set_attribute("signals.available_reviewers.candidate_count", candidate_count)
-
-            # The full candidate list is returned unpaginated. If an org grows past the threshold,
-            # report it (non-blocking) so we know to add pagination before the payload gets large.
-            # `capture_exception` logs an exception and is not deduplicated, so we throttle to at
-            # most one report per org per day via the cache — otherwise a >threshold org would log
-            # on every popover open. (The span's candidate_count attribute is recorded every request
-            # regardless, if a metric-based alert is preferred later.)
-            if (
-                not query
-                and candidate_count > REVIEWER_PAGINATION_THRESHOLD
-                and cache.add(f"signals:available_reviewers_over_threshold:{self.team.id}", True, 60 * 60 * 24)
-            ):
-                capture_exception(
-                    Exception(
-                        f"available_reviewers exceeded pagination threshold: {candidate_count} "
-                        f"candidates > {REVIEWER_PAGINATION_THRESHOLD}; this endpoint should be paginated."
-                    ),
-                    additional_properties={
-                        "team_id": self.team.id,
-                        "candidate_count": candidate_count,
-                        "threshold": REVIEWER_PAGINATION_THRESHOLD,
-                    },
+            users_by_uuid = (
+                search_org_member_users_by_uuid(
+                    self.team.id,
+                    query=query,
+                    limit=AVAILABLE_REVIEWERS_LIMIT,
                 )
-
-            filtered_users = [
-                (user_uuid, user)
-                for user_uuid, user in users_by_uuid.items()
-                if not query
-                or query in f"{user.first_name} {user.last_name}".strip().lower()
-                or query in (user.email or "").lower()
-            ]
+                or {}
+            )
 
             reviewers = {
                 user_uuid: {
                     "name": f"{user.first_name} {user.last_name}".strip(),
                     "email": user.email or "",
                 }
-                for user_uuid, user in sorted(
-                    filtered_users,
-                    key=lambda item: (
-                        (item[1].first_name or "").lower(),
-                        (item[1].last_name or "").lower(),
-                        (item[1].email or "").lower(),
-                        item[0],
-                    ),
-                )
+                for user_uuid, user in users_by_uuid.items()
             }
 
             span.set_attribute("signals.available_reviewers.result_count", len(reviewers))
