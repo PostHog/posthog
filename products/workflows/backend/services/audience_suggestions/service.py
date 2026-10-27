@@ -47,6 +47,7 @@ CACHE_TTL_SECONDS = 24 * 60 * 60
 FAILURE_CACHE_TTL_SECONDS = 5 * 60
 _GENERATION_LOCK_SECONDS = 15 * 60
 MAX_SUGGESTIONS = 3
+_MAX_IDEAS = 6
 # A smaller audience is better written to one by one than broadcast to.
 MIN_REACHABLE = 10
 # Broadcast audiences often come from feature use, which busy telemetry events push down a volume ranking, so the
@@ -128,6 +129,10 @@ def run_audience_suggestions(*, team_id: int, user_id: int, lock_token: str) -> 
         except _COUNT_ERRORS:
             logger.warning("workflows.audience_suggestions.query_failed", team_id=team_id, exc_info=True)
             result = _UNAVAILABLE
+        except Exception:
+            # Without a cached failure, the next request would rerun the queries and the model at once.
+            logger.exception("workflows.audience_suggestions.generation_failed", team_id=team_id)
+            result = _UNAVAILABLE
         # A failed refresh keeps the working cards, so a click on one still finds it.
         if result.status != "ready" and previous is not None and previous.status == "ready":
             return
@@ -157,7 +162,8 @@ def _suggest(*, team: Team, user: User, analytics_client: Any) -> AudienceSugges
         return _UNAVAILABLE
     sized: list[AudienceSuggestion] = []
     failed = 0
-    for idea in ideas:
+    # Each idea costs a ClickHouse count, and the prompt asks for at most this many.
+    for idea in ideas[:_MAX_IDEAS]:
         # One audience too costly to count drops that idea only, not the cards that counted fine.
         try:
             suggestion = _sized(team, user, idea, counts)

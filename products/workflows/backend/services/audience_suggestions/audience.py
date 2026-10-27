@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from posthog.schema import HogQLQueryResponse, ProductKey
+from posthog.schema import HogQLQueryModifiers, HogQLQueryResponse, PersonsOnEventsMode, ProductKey
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -62,8 +62,8 @@ def reachable_count(
     min_count: int | None,
     user: User | None = None,
 ) -> int:
-    """How many people match the cohort definition and have an email address. Windows start at
-    the start of the day, like the cohort's relative dates, so the card and the calculated cohort agree."""
+    """How many people match the cohort definition and have an email address. Each window starts where the
+    cohort's window starts, so the card and the calculated cohort agree."""
     placeholders: dict[str, ast.Expr] = {
         "event": ast.Constant(value=event),
         "window": ast.Constant(value=window_days),
@@ -80,11 +80,12 @@ def reachable_count(
                 HAVING countIf(event = {event}) > 0 AND countIf(event = {missing}) = 0
             """
         case "regulars":
+            # The cohort counts repeat events over a rolling window, not from the start of the day.
             placeholders["min_count"] = ast.Constant(value=min_count or 1)
             inner = """
                 SELECT person_id
                 FROM events
-                WHERE timestamp >= toStartOfDay(now() - toIntervalDay({window})) AND event = {event}
+                WHERE timestamp >= now() - toIntervalDay({window}) AND event = {event}
                 GROUP BY person_id
                 HAVING count() >= {min_count}
             """
@@ -99,13 +100,15 @@ def reachable_count(
             """
     # The email comes from the person, not the events, because the send reads it from the person. Only the
     # candidates' rows are read: the persons table would copy the events subquery into its own filter and fail.
+    # The tuple keeps a newer null email, which a bare argMax skips in favor of an older address.
     query = parse_select(
         """
         SELECT count() FROM (
             SELECT id FROM raw_persons
             WHERE id IN (SELECT person_id FROM {matched})
             GROUP BY id
-            HAVING argMax(is_deleted, version) = 0 AND toString(argMax({email}, version)) ILIKE '%@%'
+            HAVING argMax(is_deleted, version) = 0
+                AND toString(tupleElement(argMax(tuple({email}), version), 1)) ILIKE '%@%'
         )
         """,
         placeholders={"matched": parse_select(inner, placeholders=placeholders), "email": placeholders["email"]},
@@ -141,7 +144,15 @@ def _run(
         read_overflow_mode="throw",
     )
     # The user's property access rules apply, so a masked email address counts nobody.
-    return execute_hogql_query(query=query, team=team, query_type=query_type, settings=settings, user=user)
+    return execute_hogql_query(
+        query=query,
+        team=team,
+        query_type=query_type,
+        settings=settings,
+        # Cohorts resolve merged persons this way, so the counts must too.
+        modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+        user=user,
+    )
 
 
 def _performed(event: str, days: int, *, negation: bool = False) -> dict[str, Any]:
