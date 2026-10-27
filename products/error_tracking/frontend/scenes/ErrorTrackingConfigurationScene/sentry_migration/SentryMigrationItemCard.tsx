@@ -42,7 +42,11 @@ export function SentryMigrationItemCard({
                         <Label htmlFor={checkboxId}>{item.sentry_setting}</Label>
                     </div>
                     <div className="flex flex-wrap items-center gap-1">
-                        {item.already_in_posthog && <Badge variant="completed">Already in PostHog</Badge>}
+                        {item.already_in_posthog && (
+                            <Badge variant="completed">
+                                {item.built_in_filter ? 'Already on' : 'Already in PostHog'}
+                            </Badge>
+                        )}
                         <Badge variant={fitBadge.variant}>{fitBadge.label}</Badge>
                     </div>
                 </div>
@@ -56,7 +60,19 @@ export function SentryMigrationItemCard({
                         {item.sentry_value}
                     </Text>
                 </div>
-                {item.rate_limit ? (
+                {item.built_in_filter ? (
+                    <div className="flex flex-col gap-1">
+                        <Text size="xs" variant="muted" weight="medium" className="m-0">
+                            Automatic suppression rule in PostHog
+                        </Text>
+                        <Text size="xs" weight="medium" className="m-0">
+                            {item.built_in_filter.name}
+                        </Text>
+                        <Text size="xs" className="m-0">
+                            {item.built_in_filter.description}
+                        </Text>
+                    </div>
+                ) : item.rate_limit ? (
                     <div className="flex flex-col gap-1">
                         <Text size="xs" variant="muted" weight="medium" className="m-0">
                             Project rate limit in PostHog
@@ -68,7 +84,7 @@ export function SentryMigrationItemCard({
                 ) : filters && filterRows.length > 0 ? (
                     <div className="flex flex-col gap-1">
                         <Text size="xs" variant="muted" weight="medium" className="m-0">
-                            Suppression rule in PostHog, matching {filters.type === 'OR' ? 'any' : 'all'} of
+                            Manual suppression rule in PostHog, matching {filters.type === 'OR' ? 'any' : 'all'} of
                         </Text>
                         {filterRows.map((row, index) => (
                             <Text key={index} size="xs" className="m-0 break-all">

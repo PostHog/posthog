@@ -84,6 +84,14 @@ class SentryMigrationRateLimitSerializer(serializers.Serializer):
     bucket_size_minutes = serializers.IntegerField(help_text="Bucket window of the rate limit, in minutes.")
 
 
+class SentryMigrationBuiltInFilterSerializer(serializers.Serializer):
+    key = serializers.CharField(
+        help_text="Key of the automatic suppression rule, as the built-in filters endpoint lists it."
+    )
+    name = serializers.CharField(help_text="Name of the automatic suppression rule in PostHog settings.")
+    description = serializers.CharField(help_text="What the automatic suppression rule drops.")
+
+
 class SentryMigrationItemSerializer(serializers.Serializer):
     id = serializers.CharField(help_text="Stable ID of the item. Send it in `item_ids` to import the item.")
     category = serializers.ChoiceField(
@@ -106,8 +114,18 @@ class SentryMigrationItemSerializer(serializers.Serializer):
     rate_limit = SentryMigrationRateLimitSerializer(
         allow_null=True, help_text="Project rate limit that the import sets. Null when the item isn't a rate limit."
     )
+    built_in_filter = SentryMigrationBuiltInFilterSerializer(
+        allow_null=True,
+        help_text=(
+            "Automatic suppression rule that the import turns on. Null when the item isn't covered by an "
+            "automatic rule."
+        ),
+    )
     already_in_posthog = serializers.BooleanField(
-        help_text="True when the project already has a suppression rule with the same filters, or the same rate limit."
+        help_text=(
+            "True when the project already has a suppression rule with the same filters, the same automatic rule "
+            "turned on, or the same rate limit."
+        )
     )
 
 
@@ -117,6 +135,9 @@ class SentryMigrationPreviewResponseSerializer(serializers.Serializer):
 
 class SentryMigrationApplyResponseSerializer(serializers.Serializer):
     suppression_rules_created = serializers.IntegerField(help_text="Number of suppression rules the import created.")
+    built_in_filters_enabled = serializers.IntegerField(
+        help_text="Number of automatic suppression rules the import turned on."
+    )
     rate_limit_updated = serializers.BooleanField(help_text="True when the import set the project rate limit.")
 
 
@@ -138,6 +159,8 @@ class ErrorTrackingSentryMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
     scope_object = "error_tracking"
     scope_object_read_actions = ["projects", "preview"]
     scope_object_write_actions = ["apply"]
+    # An import changes rules and limits for the whole project, so a grant on one error tracking object is not enough.
+    requires_resource_level_access = True
 
     def _capture(self, request: ValidatedRequest, event: str, properties: dict) -> None:
         posthoganalytics.capture(
@@ -208,6 +231,7 @@ class ErrorTrackingSentryMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
             {
                 "selected_item_count": len(request.validated_data["item_ids"]),
                 "suppression_rules_created": result.suppression_rules_created,
+                "built_in_filters_enabled": result.built_in_filters_enabled,
                 "rate_limit_updated": result.rate_limit_updated,
             },
         )

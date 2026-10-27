@@ -2257,6 +2257,8 @@ export interface SentryMigrationApplyRequestApi {
 export interface SentryMigrationApplyResponseApi {
     /** Number of suppression rules the import created. */
     suppression_rules_created: number
+    /** Number of automatic suppression rules the import turned on. */
+    built_in_filters_enabled: number
     /** True when the import set the project rate limit. */
     rate_limit_updated: boolean
 }
@@ -2326,6 +2328,15 @@ export interface SentryMigrationRateLimitApi {
     bucket_size_minutes: number
 }
 
+export interface SentryMigrationBuiltInFilterApi {
+    /** Key of the automatic suppression rule, as the built-in filters endpoint lists it. */
+    key: string
+    /** Name of the automatic suppression rule in PostHog settings. */
+    name: string
+    /** What the automatic suppression rule drops. */
+    description: string
+}
+
 export interface SentryMigrationItemApi {
     /** Stable ID of the item. Send it in `item_ids` to import the item. */
     id: string
@@ -2355,7 +2366,9 @@ export interface SentryMigrationItemApi {
     suppression_rule_filters: PropertyGroupFilterValueApi | null
     /** Project rate limit that the import sets. Null when the item isn't a rate limit. */
     rate_limit: SentryMigrationRateLimitApi | null
-    /** True when the project already has a suppression rule with the same filters, or the same rate limit. */
+    /** Automatic suppression rule that the import turns on. Null when the item isn't covered by an automatic rule. */
+    built_in_filter: SentryMigrationBuiltInFilterApi | null
+    /** True when the project already has a suppression rule with the same filters, the same automatic rule turned on, or the same rate limit. */
     already_in_posthog: boolean
 }
 

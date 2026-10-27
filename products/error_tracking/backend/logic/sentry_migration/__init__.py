@@ -9,6 +9,7 @@ from products.error_tracking.backend.facade.contracts import (
     SentryProjectRef,
 )
 from products.error_tracking.backend.logic import get_or_create_settings, update_settings
+from products.error_tracking.backend.logic.built_in_filters import list_built_in_filters, set_built_in_filter_enabled
 from products.error_tracking.backend.logic.rules import create_suppression_rule, list_suppression_rules
 from products.error_tracking.backend.logic.sentry_migration.client import SentryApiClient
 from products.error_tracking.backend.logic.sentry_migration.errors import SentryMigrationSelectionError
@@ -36,8 +37,15 @@ def preview_sentry_migration(
     active_full_rules = list_suppression_rules(team_id).filter(
         disabled_data__isnull=True, bytecode__isnull=False, sampling_rate__gte=1.0
     )
+    # An automatic rule that ingestion turned off drops nothing, so the import can turn it on again.
+    enabled_built_in_filters = [
+        state.definition.key
+        for state in list_built_in_filters(team_id)
+        if state.enabled and state.disabled_reason is None
+    ]
     planner = SentryMigrationPlanner(
         existing_suppression_filters=active_full_rules.values_list("filters", flat=True),
+        enabled_built_in_filters=enabled_built_in_filters,
         project_rate_limit=project_rate_limit,
     )
     return planner.build(config)
@@ -73,9 +81,12 @@ def apply_sentry_migration(
     suppression_filters = [
         item.suppression_rule_filters for item in pending if item.suppression_rule_filters is not None
     ]
+    built_in_keys = [item.built_in_filter.key for item in pending if item.built_in_filter is not None]
     with transaction.atomic():
         for filters in suppression_filters:
             create_suppression_rule(team_id, filters=filters, sampling_rate=1.0)
+        for key in built_in_keys:
+            set_built_in_filter_enabled(team_id, key, enabled=True)
         if new_rate_limits:
             update_settings(
                 team_id,
@@ -87,5 +98,6 @@ def apply_sentry_migration(
 
     return SentryMigrationResult(
         suppression_rules_created=len(suppression_filters),
+        built_in_filters_enabled=len(built_in_keys),
         rate_limit_updated=bool(new_rate_limits),
     )

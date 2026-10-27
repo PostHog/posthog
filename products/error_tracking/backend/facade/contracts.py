@@ -521,6 +521,15 @@ class SentryMigrationRateLimit:
 
 
 @dataclass(frozen=True)
+class SentryMigrationBuiltInFilter:
+    """An automatic suppression rule that PostHog maintains, which the import turns on."""
+
+    key: str
+    name: str
+    description: str
+
+
+@dataclass(frozen=True)
 class SentryMigrationItem:
     """One Sentry setting and the PostHog configuration it becomes."""
 
@@ -532,6 +541,7 @@ class SentryMigrationItem:
     note: str | None
     suppression_rule_filters: dict | None
     rate_limit: SentryMigrationRateLimit | None
+    built_in_filter: SentryMigrationBuiltInFilter | None
     already_in_posthog: bool
 
     @property
@@ -542,4 +552,5 @@ class SentryMigrationItem:
 @dataclass(frozen=True)
 class SentryMigrationResult:
     suppression_rules_created: int
+    built_in_filters_enabled: int
     rate_limit_updated: bool
