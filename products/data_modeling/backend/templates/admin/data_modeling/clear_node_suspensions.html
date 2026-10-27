@@ -31,6 +31,7 @@
         <h2>{{ markers|length }} matching suspension(s)</h2>
         {% if markers %}
             <p>New or changed suspensions will not be cleared. Other engines will keep their suspensions.</p>
+            <p><strong>By / note:</strong> {{ resumed_by }}</p>
             <div class="suspension-preview">
                 <table>
                     <thead>

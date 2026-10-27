@@ -32,7 +32,8 @@ class TestClearNodeSuspensionsAdmin(BaseTest):
         node.save()
         return node
 
-    def test_preview_and_clear_only_reviewed_markers(self) -> None:
+    @parameterized.expand([("default_actor", ""), ("operator_note", "Retry after the query limit was restored.")])
+    def test_preview_and_clear_only_reviewed_markers(self, _name: str, note: str) -> None:
         selected = self._node()
         mark_node_suspended(selected, engine="managed_warehouse", reason="TEST_QUERY_LIMIT", job_id=str(uuid4()))
         selected.save()
@@ -48,23 +49,30 @@ class TestClearNodeSuspensionsAdmin(BaseTest):
                 "reason_contains": "TEST_QUERY_LIMIT\nTEST_OTHER_LIMIT",
                 "team_id": self.team.pk,
                 "suspended_from": (timezone.now() - timedelta(days=1)).isoformat(),
+                "by": note,
             },
         )
 
         assert response.status_code == 200
         assert [marker.node.pk for marker in response.context["markers"]] == [selected.pk]
+        expected_by = note or f"admin:{self.user.pk}"
+        assert response.context["resumed_by"] == expected_by
         selected.refresh_from_db()
         assert is_node_suspended(selected, "clickhouse")
         new = self._node()
 
-        result = self.client.post(self.url, {"action": "clear", "preview_token": response.context["preview_token"]})
+        result = self.client.post(
+            self.url,
+            {"action": "clear", "preview_token": response.context["preview_token"], "by": "Unreviewed note"},
+        )
 
         assert result.status_code == 302
         selected.refresh_from_db()
         assert not is_node_suspended(selected, "clickhouse")
         assert is_node_suspended(selected, "managed_warehouse")
-        assert selected.properties["system"]["suspension_reset"]["clickhouse"]["by"] == f"admin:{self.user.pk}"
-        assert LogEntry.objects.filter(user=self.user, object_id=str(selected.pk)).exists()
+        assert selected.properties["system"]["suspension_reset"]["clickhouse"]["by"] == expected_by
+        log = LogEntry.objects.get(user=self.user, object_id=str(selected.pk))
+        assert expected_by in log.change_message
         for node in (unrelated, old, new):
             node.refresh_from_db()
             assert is_node_suspended(node, "clickhouse")

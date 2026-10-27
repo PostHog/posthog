@@ -32,6 +32,13 @@ class ClearNodeSuspensionsForm(forms.Form):
     suspended_to = forms.DateTimeField(
         required=False, help_text="Exclusive. Use an ISO date and time with a UTC offset."
     )
+    by = forms.CharField(
+        label="By / note",
+        required=False,
+        max_length=500,
+        widget=forms.Textarea(attrs={"rows": 2, "cols": 60}),
+        help_text="Optional. Explain why you are clearing these suspensions. Leave empty to use your admin user ID.",
+    )
 
     def _uuid_list(self, field: str) -> list[UUID]:
         try:

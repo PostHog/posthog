@@ -69,15 +69,16 @@ class DataModelingDAGAdmin(admin.ModelAdmin):
             return redirect("admin:data_modeling_clear_node_suspensions")
 
         del request.session[SUSPENSION_PREVIEW_SESSION_KEY]
+        resumed_by = preview.get("by", f"admin:{request.user.pk}")
         cleared = 0
         for item in preview["markers"]:
             node = Node.objects.filter(pk=item["node_id"], team_id=item["team_id"]).first()
             if node is None:
                 continue
             marker = Marker(node=node, engine=item["engine"], at=item["at"], reason="")
-            if unsuspend_nodes([node], by=f"admin:{request.user.pk}", engine=marker.engine, only_if=marker.unchanged):
+            if unsuspend_nodes([node], by=resumed_by, engine=marker.engine, only_if=marker.unchanged):
                 cleared += 1
-                self.log_change(request, node, f"Cleared {marker.engine} suspension.")
+                self.log_change(request, node, f"Cleared {marker.engine} suspension. By / note: {resumed_by}")
         skipped = len(preview["markers"]) - cleared
         self.message_user(
             request,
@@ -95,6 +96,7 @@ class DataModelingDAGAdmin(admin.ModelAdmin):
         form = ClearNodeSuspensionsForm(request.POST if request.method == "POST" else None)
         markers: list[Marker] | None = None
         token = ""
+        resumed_by = f"admin:{request.user.pk}"
         if request.method == "POST":
             request.session.pop(SUSPENSION_PREVIEW_SESSION_KEY, None)
             if form.is_valid():
@@ -104,8 +106,10 @@ class DataModelingDAGAdmin(admin.ModelAdmin):
                     form.add_error(None, error)
                 else:
                     token = str(uuid4())
+                    resumed_by = form.cleaned_data["by"] or resumed_by
                     request.session[SUSPENSION_PREVIEW_SESSION_KEY] = {
                         "token": token,
+                        "by": resumed_by,
                         "markers": [
                             {
                                 "node_id": str(marker.node.pk),
@@ -127,6 +131,7 @@ class DataModelingDAGAdmin(admin.ModelAdmin):
                 "form": form,
                 "markers": markers,
                 "preview_token": token,
+                "resumed_by": resumed_by,
             },
         )
 
