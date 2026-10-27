@@ -20774,12 +20774,18 @@ export namespace Schemas {
         | "confirm";
     /**
      * * `wrong_area` - Not their area
+     * * `moved_off_area` - Moved off this area
+     * * `already_covered` - Someone else is on it
      * * `unavailable` - Not available
+     * * `overloaded` - Too many reports
      * * `other` - Other
      */
     export type ReviewerRemovalReasonEnum =
         | "wrong_area"
+        | "moved_off_area"
+        | "already_covered"
         | "unavailable"
+        | "overloaded"
         | "other";
     export type ReviewerState = {
         /**
