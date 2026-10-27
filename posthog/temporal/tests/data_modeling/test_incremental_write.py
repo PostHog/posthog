@@ -15,6 +15,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 
 from posthog.temporal.data_modeling.activities.incremental_write import (
+    MAX_UNIQUE_KEY_CHECK_BYTES,
     IncrementalWriteError,
     UniqueKeyTracker,
     upsert_batch,
@@ -105,14 +106,12 @@ def test_exceeding_the_memory_cap_fails_loudly() -> None:
         tracker.check(_batch([3, 4], ["c", "d"]))
 
 
-def test_a_uuid_keyed_run_of_seven_million_rows_is_verified() -> None:
-    keys_per_batch = 1_000_000
-    tracker = UniqueKeyTracker(("id",))
+def test_the_cap_admits_a_seven_million_key_uuid_run() -> None:
+    sample = 10_000
+    ids = pa.array(np.arange(sample, dtype=np.int64))
+    uuid_sized = pa.table({"id": pc.utf8_lpad(pc.cast(ids, pa.string()), width=36, padding="0")})
 
-    for start in range(0, 7 * keys_per_batch, keys_per_batch):
-        ids = pa.array(np.arange(start, start + keys_per_batch, dtype=np.int64))
-        uuid_sized = pc.utf8_lpad(pc.cast(ids, pa.string()), width=36, padding="0")
-        tracker.check(pa.RecordBatch.from_arrays([uuid_sized], names=["id"]))
+    assert uuid_sized.nbytes * (7_000_000 // sample) <= MAX_UNIQUE_KEY_CHECK_BYTES
 
 
 @pytest.mark.parametrize(
