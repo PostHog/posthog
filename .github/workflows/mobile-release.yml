@@ -21,6 +21,7 @@ jobs:
         timeout-minutes: 5
         outputs:
             present: ${{ steps.plan.outputs.present }}
+            kind: ${{ steps.plan.outputs.kind }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -93,14 +94,26 @@ jobs:
             - uses: expo/expo-github-action@eab7a230208c952974db8c3245cfd78402c7b385 # 9.0.0
               with:
                   eas-version: 24.8.0
-                  token: ${{ secrets.EXPO_TOKEN }}
+                  token: ${{ secrets.MOBILE_PRODUCTION_EXPO_TOKEN }}
             - name: Stage and publish the exact tested source
               env:
                   GH_TOKEN: ${{ github.token }}
                   MOBILE_RELEASE_RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
                   APP_VARIANT: production
                   EXPO_PUBLIC_SIGNUP_LINK: '0'
-              run: node scripts/releases/release.mjs publish
+                  MOBILE_OTA_SIGNING_KEY: ${{ needs.plan.outputs.kind == 'ota' && secrets.MOBILE_OTA_SIGNING_KEY || '' }}
+              run: |
+                  # Keep the OTA key outside the uploaded project, and unavailable to
+                  # dependency installation. Native builds never receive this key.
+                  if [[ -n "$MOBILE_OTA_SIGNING_KEY" ]]; then
+                    umask 077
+                    MOBILE_OTA_SIGNING_KEY_PATH=$(mktemp "$RUNNER_TEMP/mobile-ota-private-key.XXXXXX")
+                    export MOBILE_OTA_SIGNING_KEY_PATH
+                    printf '%s' "$MOBILE_OTA_SIGNING_KEY" > "$MOBILE_OTA_SIGNING_KEY_PATH"
+                    trap 'rm -f "$MOBILE_OTA_SIGNING_KEY_PATH"' EXIT
+                  fi
+                  unset MOBILE_OTA_SIGNING_KEY
+                  node scripts/releases/release.mjs publish
             - name: Preserve the release receipt
               if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0

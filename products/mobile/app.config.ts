@@ -49,6 +49,9 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
     // The HedgehogWidget target and both Swift readers of the shared store derive the same name from the bundle id.
     const appGroup = `group.${appId}`
     const icons = ICONS[variant]
+    const otaCertificate = './releases/ota-certificate.pem'
+    // Local builds work before key provisioning; the hosted publisher refuses this unsigned configuration.
+    const hasOtaCertificate = existsSync(join(projectRoot, otaCertificate))
 
     return {
         ...config,
@@ -155,6 +158,14 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         ],
         updates: {
             url: `https://u.expo.dev/${EAS_PROJECT_ID}`,
+            ...(variant === 'production'
+                ? hasOtaCertificate
+                    ? {
+                          codeSigningCertificate: otaCertificate,
+                          codeSigningMetadata: { keyid: 'main', alg: 'rsa-v1_5-sha256' },
+                      }
+                    : { enabled: false }
+                : {}),
         },
         runtimeVersion: {
             policy: 'appVersion',

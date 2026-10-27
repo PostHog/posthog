@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createPrivateKey, sign, verify, X509Certificate } from 'node:crypto'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { basename } from 'node:path'
 
@@ -42,6 +43,17 @@ if (tool === 'eas') {
             process.exit(1)
         }
     } else if (command === 'update' || command === 'update:republish') {
+        // Model the EAS signing boundary: both new manifests and republished
+        // manifests must be signed by the key pinned in the installed binary.
+        if (!args.includes('--private-key-path')) {
+            throw new Error('An OTA manifest cannot be published without its signing key')
+        }
+        const key = createPrivateKey(readFileSync(flag('--private-key-path')))
+        const certificate = new X509Certificate(readFileSync('releases/ota-certificate.pem'))
+        const manifest = Buffer.from(JSON.stringify({ command, runtimeVersion: process.env.MOBILE_FAKE_VERSION }))
+        if (!verify('sha256', manifest, certificate.publicKey, sign('sha256', manifest, key))) {
+            throw new Error('The OTA signature does not match the binary certificate')
+        }
         done(
             ['ios', 'android'].map((platform) => ({
                 id: 'a'.repeat(36),

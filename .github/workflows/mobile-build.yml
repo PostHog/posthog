@@ -40,6 +40,8 @@ permissions:
 
 jobs:
     build:
+        if: github.repository == 'PostHog/posthog' && github.ref == 'refs/heads/master'
+        environment: mobile-build
         name: EAS build (${{ inputs.profile }}, ${{ inputs.platform }})
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 20
@@ -50,6 +52,7 @@ jobs:
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  ref: ${{ github.sha }}
                   persist-credentials: false
                   sparse-checkout: products/mobile
                   sparse-checkout-cone-mode: false
@@ -93,7 +96,7 @@ jobs:
               with:
                   # Pinned so a new eas-cli release cannot change a release build unannounced.
                   eas-version: 24.8.0
-                  token: ${{ secrets.EXPO_TOKEN }}
+                  token: ${{ secrets.MOBILE_BUILD_EXPO_TOKEN }}
 
             - name: EAS internal build
               env:

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, createPrivateKey, X509Certificate } from 'node:crypto'
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { basename, dirname, join, resolve } from 'node:path'
@@ -142,11 +142,12 @@ function plan(base, head) {
             return { status, path: changedPath }
         })
     )
-    if (path) {
-        readRequest(join(repoRoot, path))
-    }
+    const request = path ? readRequest(join(repoRoot, path)) : null
     if (process.env.GITHUB_OUTPUT) {
-        appendFileSync(process.env.GITHUB_OUTPUT, `present=${Boolean(path)}\nrequest=${path ?? ''}\n`)
+        appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `present=${Boolean(path)}\nrequest=${path ?? ''}\nkind=${request?.kind ?? ''}\n`
+        )
     }
     return path
 }
@@ -157,6 +158,44 @@ function expoConfig() {
     const require = createRequire(join(appRoot, 'package.json'))
     const expoRequire = createRequire(require.resolve('expo/package.json'))
     return { exp: expoRequire('@expo/config').getConfig(appRoot).exp, expoRequire }
+}
+
+function productionSigning(exp, kind) {
+    const updates = exp.updates
+    if (
+        updates?.enabled === false ||
+        updates?.codeSigningCertificate !== './releases/ota-certificate.pem' ||
+        updates?.codeSigningMetadata?.keyid !== 'main' ||
+        updates?.codeSigningMetadata?.alg !== 'rsa-v1_5-sha256'
+    ) {
+        throw new Error('Production releases require the pinned OTA signing certificate; see RELEASING.md')
+    }
+    let certificate
+    try {
+        certificate = new X509Certificate(readFileSync(join(appRoot, updates.codeSigningCertificate)))
+    } catch {
+        throw new Error('Production OTA signing certificate is missing or invalid; see RELEASING.md')
+    }
+    if (
+        certificate.publicKey.asymmetricKeyType !== 'rsa' ||
+        certificate.publicKey.asymmetricKeyDetails.modulusLength < 2048 ||
+        Date.now() < Date.parse(certificate.validFrom) ||
+        Date.now() >= Date.parse(certificate.validTo)
+    ) {
+        throw new Error('Production OTA signing certificate must be valid and contain an RSA public key')
+    }
+    if (kind === 'native') {
+        return { privateKeyPath: null, certificateFingerprint: certificate.fingerprint256 }
+    }
+    const path = process.env.MOBILE_OTA_SIGNING_KEY_PATH
+    try {
+        if (!path || !certificate.checkPrivateKey(createPrivateKey(readFileSync(path)))) {
+            throw new Error('Missing or mismatched key')
+        }
+    } catch {
+        throw new Error('OTA release requires the private key matching the pinned certificate; see RELEASING.md')
+    }
+    return { privateKeyPath: path, certificateFingerprint: certificate.fingerprint256 }
 }
 
 async function nativeFingerprints(expoRequire) {
@@ -366,6 +405,10 @@ async function publish() {
     ) {
         throw new Error('Release requires the configured EAS project and one appVersion runtime for both platforms')
     }
+    const { privateKeyPath, certificateFingerprint } = productionSigning(exp, request.kind)
+    if (request.kind === 'ota' && previous?.native?.certificateFingerprint !== certificateFingerprint) {
+        throw new Error('OTA signing certificate changed; request a native release with a higher app version')
+    }
     const fingerprints = await nativeFingerprints(expoRequire)
     validatePlan({
         request,
@@ -446,6 +489,8 @@ async function publish() {
                 } else {
                     const output = run('eas', [
                         'update',
+                        '--private-key-path',
+                        privateKeyPath,
                         '--branch',
                         `mobile-staging-${request.id}`,
                         '--environment',
@@ -505,6 +550,8 @@ async function publish() {
                 }
                 const output = run('eas', [
                     'update:republish',
+                    '--private-key-path',
+                    privateKeyPath,
                     '--group',
                     staged.group,
                     '--destination-channel',
@@ -523,7 +570,7 @@ async function publish() {
                 receipt.result = result
                 receipt.native =
                     request.kind === 'native'
-                        ? { commit, runtimeVersion: request.runtimeVersion, fingerprints }
+                        ? { commit, runtimeVersion: request.runtimeVersion, fingerprints, certificateFingerprint }
                         : previous.native
                 run('gh', [
                     'release',

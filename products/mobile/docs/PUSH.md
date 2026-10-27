@@ -15,6 +15,10 @@ Code: `src/features/notifications/`, `src/api/pushTokens.ts`. The root layout in
 | Sign out or account switch                      | Waits for in-flight registration, then sends `POST /api/users/@me/push_tokens/unregister/` `{ token }` before changing credentials. A failed delete keeps the session and offers a retry.                       |
 
 The server keeps at most 20 tokens per user and evicts the oldest. Both endpoints need `user:write`.
+A successful registration assigns the token to the current user and removes other users' registrations of that token on the same instance. Concurrent registrations of the same token are serialized, including when no row exists yet.
+
+An expired session cannot authenticate an unregister request. Until the device successfully registers again on that instance, its previous registration can still receive pushes. Registration on another region or self-hosted instance cannot remove registrations on the old host. Explicit sign-out therefore still requires push cleanup before credentials are discarded. Messages already queued for delivery can also arrive after cleanup.
+
 The app saves a newly issued token before its registration POST, because a lost response does not prove the server rejected it. Registration and unregistration requests have bounded deadlines. A failed storage read lets the launch gate settle with default push state.
 
 Push is unavailable, and the app skips it without errors, on the web, in simulators and emulators, and in Expo Go.

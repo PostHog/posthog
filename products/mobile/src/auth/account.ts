@@ -7,6 +7,8 @@ export interface AuthUser {
     uuid: string
     distinctId: string
     email: string
+    /** Unknown in older persisted sessions until the account reloads; analytics must withhold email. */
+    anonymizeData?: boolean
     name: string
 }
 
@@ -51,7 +53,14 @@ export function buildAccount(me: MeApi, organizations: OrganizationApi[]): Accou
         }
     }
     return {
-        user: { id: me.id, uuid: me.uuid, distinctId: me.distinct_id, email: me.email, name: displayName(me) },
+        user: {
+            id: me.id,
+            uuid: me.uuid,
+            distinctId: me.distinct_id,
+            email: me.email,
+            anonymizeData: me.anonymize_data !== false,
+            name: displayName(me),
+        },
         organizations: organizations.map((organization) => ({
             id: organization.id,
             name: organization.name,

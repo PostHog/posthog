@@ -50,6 +50,15 @@ export function initAnalytics(): void {
     const posthog = new PostHog(apiKey, {
         host: process.env.EXPO_PUBLIC_POSTHOG_HOST || DEFAULT_HOST,
         captureAppLifecycleEvents: true,
+        before_send: (event) => {
+            if (!event || event.event !== 'Application Opened') {
+                return event
+            }
+            // The SDK adds the launch URL, which can contain OAuth credentials or private object labels.
+            const properties = { ...event.properties }
+            delete properties.url
+            return { ...event, properties }
+        },
     })
     const registerSuperProperties = (): void => {
         void posthog.register(superProperties())
@@ -59,8 +68,8 @@ export function initAnalytics(): void {
     const syncFlagContext = (force = false): void => {
         const { status, host, user } = useAuthStore.getState()
         const projectId = signedInProjectId()
-        const email = status === 'signed_in' ? (user?.email.trim().toLowerCase() ?? null) : null
-        const context = JSON.stringify([status, host, user?.uuid, email, projectId])
+        const email = status === 'signed_in' && user?.anonymizeData === false ? user.email.trim().toLowerCase() : null
+        const context = JSON.stringify([status, host, user?.uuid, user?.anonymizeData, email, projectId])
         if (context === flagContext && !force) {
             return
         }
@@ -70,10 +79,10 @@ export function initAnalytics(): void {
         flagContext = context
         const request = ++flagRequest
         posthog.resetPersonPropertiesForFlags(false)
+        posthog.setPersonPropertiesForFlags({ project_id: projectId, email }, false)
         if (status !== 'signed_in' || !user) {
             return
         }
-        posthog.setPersonPropertiesForFlags({ project_id: projectId, email }, false)
         void posthog
             .reloadFeatureFlagsAsync()
             .then((flags) => {
@@ -96,7 +105,8 @@ export function initAnalytics(): void {
             state.status !== previous.status ||
             state.projectId !== previous.projectId ||
             state.user?.uuid !== previous.user?.uuid ||
-            state.user?.email !== previous.user?.email
+            state.user?.email !== previous.user?.email ||
+            state.user?.anonymizeData !== previous.user?.anonymizeData
         ) {
             registerSuperProperties()
             syncFlagContext()

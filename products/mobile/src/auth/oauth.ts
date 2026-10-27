@@ -36,7 +36,7 @@ const REVOKE_TIMEOUT_MS = 5_000
 
 /**
  * `posthog://callback` in store builds, `posthog-dev://callback` and `posthog-preview://callback` in internal builds.
- * Each one must be a redirect URI of the OAuth application. Expo Go gets its own `exp://` URL.
+ * Internal schemes belong to separate non-first-party OAuth applications so sign-in requires consent.
  */
 export function redirectUri(): string {
     return makeRedirectUri({ scheme: appScheme, path: 'callback' })

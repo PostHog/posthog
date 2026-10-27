@@ -1,4 +1,4 @@
-import { isInternalBuild, isLoopbackHost } from '@/lib/environment'
+import { buildVariant, isInternalBuild, isLoopbackHost } from '@/lib/environment'
 
 export type RegionId = 'us' | 'eu' | 'custom'
 
@@ -14,8 +14,15 @@ export interface CloudRegion extends Region {
     flag: string
 }
 
-export const US_CLIENT_ID = 'a5TY7w9IjFYfes6dkPgZe6envclWw3bm2UD8ZTlm'
-export const EU_CLIENT_ID = '1A7vO138Fh5sYmJislicN4F5HnttI6urmFttxPDU'
+// Internal callback schemes require separate apps with consent enabled. Never fall back to a first-party app.
+export const US_CLIENT_ID =
+    buildVariant === 'production'
+        ? 'a5TY7w9IjFYfes6dkPgZe6envclWw3bm2UD8ZTlm'
+        : (process.env.EXPO_PUBLIC_OAUTH_US_CLIENT_ID?.trim() ?? '')
+export const EU_CLIENT_ID =
+    buildVariant === 'production'
+        ? '1A7vO138Fh5sYmJislicN4F5HnttI6urmFttxPDU'
+        : (process.env.EXPO_PUBLIC_OAUTH_EU_CLIENT_ID?.trim() ?? '')
 // The OAuth app that `setup_tasks_oauth` creates for a local stack, so a dev build signs in there without typing an id.
 export const DEV_CLIENT_ID = 'DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ'
 

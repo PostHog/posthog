@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
+import { generateKeyPairSync } from 'node:crypto'
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -9,6 +10,16 @@ import { fileURLToPath } from 'node:url'
 
 const scriptRoot = dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
+const { privateKey } = generateKeyPairSync('rsa', {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+    publicKeyEncoding: { type: 'spki', format: 'pem' },
+})
+const certificate = execFileSync(
+    'openssl',
+    ['req', '-new', '-x509', '-key', '/dev/stdin', '-subj', '/CN=Invented mobile release test', '-days', '1'],
+    { input: privateKey, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }
+)
 
 function fixture(t) {
     const temporary = mkdtempSync(join(tmpdir(), 'mobile-hosted-test-'))
@@ -20,6 +31,8 @@ function fixture(t) {
     const bin = join(temporary, 'bin')
     const stateFile = join(temporary, 'state.json')
     const preload = join(temporary, 'expo-api.mjs')
+    const keyPath = join(temporary, 'private-key.pem')
+    writeFileSync(keyPath, privateKey, { mode: 0o600 })
     writeFileSync(
         preload,
         `import {readFileSync,writeFileSync} from 'node:fs';globalThis.fetch=async()=>{const state=JSON.parse(readFileSync(process.env.MOBILE_FAKE_STATE,'utf8'));state.expoReads=(state.expoReads??0)+1;writeFileSync(process.env.MOBILE_FAKE_STATE,JSON.stringify(state));const variables=process.env.MOBILE_FAKE_SECRET==='1'?[{name:'NATIVE_CONFIG',type:'STRING',visibility:'SECRET',value:null}]:process.env.MOBILE_FAKE_FILE==='unreadable'?[{name:'GOOGLE_SERVICES_JSON',type:'FILE_BASE64',visibility:'SENSITIVE'}]:process.env.MOBILE_FAKE_CHANGE==='remove'&&state.expoReads===1?[{name:'NATIVE_SWITCH',type:'STRING',visibility:'SENSITIVE',value:'on'}]:[];return {ok:true,json:async()=>({data:{app:{byId:{environmentVariablesIncludingSensitive:variables,ownerAccount:{environmentVariablesIncludingSensitive:[]}}}}})}}`
@@ -42,13 +55,14 @@ function fixture(t) {
     writeFileSync(join(expo, 'package.json'), '{"name":"expo","version":"57.0.0"}')
     writeFileSync(
         join(expo, 'node_modules/@expo/config/index.js'),
-        `exports.getConfig=()=>({exp:{version:process.env.MOBILE_FAKE_VERSION,runtimeVersion:{policy:'appVersion'},extra:{eas:{projectId:'example-project'}},ios:{bundleIdentifier:'com.example.ios'},android:{package:'com.example.android'}}})`
+        `exports.getConfig=()=>({exp:{version:process.env.MOBILE_FAKE_VERSION,runtimeVersion:{policy:'appVersion'},updates:process.env.MOBILE_FAKE_SIGNING==='disabled'?{enabled:false}:{codeSigningCertificate:'./releases/ota-certificate.pem',codeSigningMetadata:{keyid:'main',alg:'rsa-v1_5-sha256'}},extra:{eas:{projectId:'example-project'}},ios:{bundleIdentifier:'com.example.ios'},android:{package:'com.example.android'}}})`
     )
     writeFileSync(
         join(expo, 'node_modules/@expo/fingerprint/index.js'),
         `exports.createFingerprintAsync=async(_root,options)=>({hash:options.platforms[0]+'-native-hash'})`
     )
     symlinkSync(dirname(require.resolve('typescript/package.json')), join(app, 'node_modules/typescript'))
+    writeFileSync(join(app, 'releases/ota-certificate.pem'), certificate)
     writeFileSync(join(app, '.gitignore'), 'node_modules/\n')
     writeFileSync(join(app, 'package.json'), '{"name":"mobile-test","private":true}')
     writeFileSync(join(app, 'app.config.ts'), `export default {version:'1.3.0'}`)
@@ -132,6 +146,7 @@ function fixture(t) {
                 GITHUB_OUTPUT: join(temporary, 'output'),
                 MOBILE_RELEASE_RUN_URL: 'https://example.com/run',
                 MOBILE_RELEASE_BASE: '',
+                MOBILE_OTA_SIGNING_KEY_PATH: keyPath,
                 ...options,
             },
         })
@@ -139,6 +154,8 @@ function fixture(t) {
         root,
         app,
         temporary,
+        keyPath,
+        stateFile,
         addRequest,
         invoke,
         git,
@@ -170,6 +187,11 @@ test('real CLI stages exact native builds, submits their IDs, then promotes an O
     const promote = state.commands.find(({ command }) => command === 'update:republish')
     assert.ok(promote.args.includes('b'.repeat(36)))
     assert.ok(promote.args.includes('--destination-channel'))
+    const updates = state.commands.filter(({ command }) => ['update', 'update:republish'].includes(command))
+    assert.equal(updates.length, 2)
+    for (const { args } of updates) {
+        assert.equal(args[args.indexOf('--private-key-path') + 1], f.keyPath)
+    }
     const effectsBefore = state.commands.filter(({ tool }) => tool === 'eas').length
     outcome = f.invoke(['publish'])
     assert.equal(outcome.status, 0, outcome.stderr)
@@ -244,4 +266,42 @@ test('removing a build-time variable during staging cannot inherit a stale value
     assert.match(outcome.stderr, /names, types or contents changed/)
     assert.deepEqual(f.state().submissions, [])
     assert.equal(f.state().pointer, null)
+})
+
+test('signing configuration and a matching private key are required before a release is claimed', (t) => {
+    const f = fixture(t)
+    f.addRequest('native-140', 'native', null)
+    const unsigned = f.invoke(['publish'], { MOBILE_FAKE_SIGNING: 'disabled' })
+    assert.notEqual(unsigned.status, 0)
+    assert.match(unsigned.stderr, /pinned OTA signing certificate/)
+    assert.deepEqual(f.state().releases, {})
+    assert.equal(f.invoke(['publish']).status, 0)
+    f.addRequest('chart-fix', 'ota', 'native-140')
+    const mismatchedKey = join(f.temporary, 'mismatched-key.pem')
+    writeFileSync(
+        mismatchedKey,
+        generateKeyPairSync('rsa', {
+            modulusLength: 2048,
+            privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+            publicKeyEncoding: { type: 'spki', format: 'pem' },
+        }).privateKey
+    )
+    for (const path of ['', mismatchedKey]) {
+        const outcome = f.invoke(['publish'], { MOBILE_OTA_SIGNING_KEY_PATH: path })
+        assert.notEqual(outcome.status, 0)
+        assert.match(outcome.stderr, /private key matching the pinned certificate/)
+        assert.equal(f.state().releases['mobile-release/chart-fix'], undefined)
+        assert.equal(f.state().commands.filter(({ command }) => command.startsWith('update')).length, 0)
+    }
+    for (const fingerprint of [undefined, 'different-certificate']) {
+        const state = f.state()
+        const receipt = JSON.parse(state.releases['mobile-release/native-140'].body)
+        receipt.native.certificateFingerprint = fingerprint
+        state.releases['mobile-release/native-140'].body = JSON.stringify(receipt)
+        writeFileSync(f.stateFile, JSON.stringify(state))
+        const outcome = f.invoke(['publish'])
+        assert.notEqual(outcome.status, 0)
+        assert.match(outcome.stderr, /signing certificate changed; request a native release/)
+        assert.equal(f.state().releases['mobile-release/chart-fix'], undefined)
+    }
 })

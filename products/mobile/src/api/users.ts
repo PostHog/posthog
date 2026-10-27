@@ -27,6 +27,7 @@ export interface MeApi {
     uuid: string
     distinct_id: string
     email: string
+    anonymize_data?: boolean | null
     first_name: string
     last_name: string
     team: TeamApi | null

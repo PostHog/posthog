@@ -22,7 +22,7 @@ Sign in ──► AuthRequest (PKCE S256, state) ──► system browser: {host
   It refreshes first when the access token has less than a minute left.
 - Any request that gets a 401 refreshes once and retries (`src/api/client.ts`).
   Concurrent 401s share one refresh, because each refresh rotates the token.
-- A refresh rejected with 400, 401 or 403 ends the session: tokens and the query cache are cleared and every screen goes to sign in, which says the session ended.
+- A refresh rejected with 400, 401 or 403 ends the session: tokens and the query cache are cleared and every screen goes to sign in, which says the session ended. Push cleanup needs valid credentials, so expiry cannot unregister the old token. The next successful registration on the same instance transfers that device token to the signed-in user; see [Push](PUSH.md#token-lifecycle).
   A network error or 5xx keeps the session; the request fails and the next one tries again.
 - Sign out waits for the push registration queue, unregisters the device token, revokes the refresh token (`POST {host}/oauth/revoke`, form body, `client_id`), then clears tokens, the query cache and the analytics identity.
   If push unregistration fails, sign out keeps the session and shows a retry action. OAuth revocation failures are ignored after push cleanup succeeds.
@@ -33,8 +33,8 @@ Sign in ──► AuthRequest (PKCE S256, state) ──► system browser: {host
 
 | Region                              | Host                     | Client id                                                                                                                   |
 | ----------------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
-| US                                  | `https://us.posthog.com` | `a5TY7w9IjFYfes6dkPgZe6envclWw3bm2UD8ZTlm`                                                                                  |
-| EU                                  | `https://eu.posthog.com` | `1A7vO138Fh5sYmJislicN4F5HnttI6urmFttxPDU`                                                                                  |
+| US                                  | `https://us.posthog.com` | Production: `a5TY7w9IjFYfes6dkPgZe6envclWw3bm2UD8ZTlm`; internal: `EXPO_PUBLIC_OAUTH_US_CLIENT_ID`                          |
+| EU                                  | `https://eu.posthog.com` | Production: `1A7vO138Fh5sYmJislicN4F5HnttI6urmFttxPDU`; internal: `EXPO_PUBLIC_OAUTH_EU_CLIENT_ID`                          |
 | Self-hosted (`custom` in the store) | typed by the user        | internal builds prefill `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ` (the local dev app); store builds start empty. Editable. |
 
 ### Redirect URIs
@@ -51,7 +51,9 @@ The scheme follows the variant the native build was made as (see [RELEASING.md](
 The scheme comes from the bundle id, not from Metro, so a Metro session in a store-identity build still uses `posthog://callback`.
 Every redirect URI a build uses must be registered on the OAuth application it signs in to, or the authorize page rejects the request:
 
-- The US and EU mobile applications need all three URIs for dev and preview builds to sign in to PostHog Cloud. Add the two internal ones in Django admin.
+- The production US and EU mobile applications register only `posthog://callback`. Remove `posthog-dev://callback` and `posthog-preview://callback` from those first-party applications if they were added.
+- For Cloud development and preview builds, create a separate public OAuth application in each region, with **Is first party off**, and register `posthog-dev://callback` and `posthog-preview://callback` there. These builds require the consent screen. Put the generated IDs in `EXPO_PUBLIC_OAUTH_US_CLIENT_ID` and `EXPO_PUBLIC_OAUTH_EU_CLIENT_ID` in both EAS internal environments and local `.env.local`. They are public client identifiers, not secrets. Missing IDs leave Cloud sign-in unconfigured; there is no production fallback.
+- Client selection follows the native build variant, matching the callback scheme. A Metro bundle in a store-identity binary still uses the production registration.
 - The local dev app from `setup_tasks_oauth` registers all three callbacks, so an EAS development or preview build signs in to a local stack without a manual edit. A stack set up before that change needs `python manage.py setup_tasks_oauth` run again, which appends the missing URIs.
 
 Expo Go produces an `exp://` redirect that no app registers, so sign in needs a development build.
@@ -203,7 +205,7 @@ The sign-in, session and settings events never carry the host, the error text or
 
 - **Local stack.** Run `python manage.py setup_tasks_oauth` in the main checkout.
   It creates the dev app `DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ` with `posthog://callback` among its redirect URIs.
-  That covers `pnpm ios` and other local builds without `APP_VARIANT`. For an EAS development or preview build, add its URI as described in [Redirect URIs](#redirect-uris).
+  That covers `pnpm ios` and other local builds without `APP_VARIANT`. The command also registers development and preview callbacks; see [Redirect URIs](#redirect-uris).
   In the app tap "Use a self-hosted instance", enter `http://localhost:8010`, keep the default client id.
   The dev app is not first-party, so the consent screen shows and access tokens last 1 hour, which exercises refresh often.
   - iOS simulator: `localhost` reaches the Mac.
@@ -216,15 +218,17 @@ The sign-in, session and settings events never carry the host, the error text or
 
 For a self-hosted instance or a new environment, create the app in Django admin (`/admin/posthog/oauthapplication/add/`):
 
-| Field                    | Value                                                                                                    |
-| ------------------------ | -------------------------------------------------------------------------------------------------------- |
-| Name                     | PostHog mobile                                                                                           |
-| Client type              | Public                                                                                                   |
-| Authorization grant type | Authorization code                                                                                       |
-| Redirect URIs            | `posthog://callback`, plus `posthog-dev://callback` and `posthog-preview://callback` for internal builds |
-| Algorithm                | RS256                                                                                                    |
-| Is first party           | On only for apps PostHog ships. It skips the consent screen and gives 7 day access tokens.               |
-| Scopes                   | Leave empty or `@default`, or list every scope above as the ceiling                                      |
+| Field                    | Value                                                                                                            |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| Name                     | PostHog mobile                                                                                                   |
+| Client type              | Public                                                                                                           |
+| Authorization grant type | Authorization code                                                                                               |
+| Redirect URIs            | Production app: `posthog://callback`. Separate internal app: `posthog-dev://callback posthog-preview://callback` |
+| Algorithm                | RS256                                                                                                            |
+| Is first party           | Off for internal apps. Only the production app may enable it; it skips consent and gives 7 day access tokens.    |
+| Scopes                   | Leave empty or `@default`, or list every scope above as the ceiling                                              |
+
+For a non-first-party internal app, put feature scopes in `optional_scopes` so callers can request them without forcing every client to require them. Never attach an internal callback scheme to a first-party registration.
 
 Copy the generated client id into the Client ID field that "Use a self-hosted instance" shows on the sign-in screen.
 

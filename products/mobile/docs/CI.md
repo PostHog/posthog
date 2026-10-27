@@ -45,7 +45,7 @@ The simulator demo flows do not run in CI. Run them locally before you merge a c
 
 ## Mobile Build
 
-`.github/workflows/mobile-build.yml` queues an EAS build. It runs only when someone starts it from the Actions tab.
+`.github/workflows/mobile-build.yml` queues an EAS build. It runs only when someone starts it from the Actions tab on `master`; other refs are skipped before checkout or credentials. The `mobile-build` environment must also allow only `master`.
 
 | Input      | Values                   | Default   |
 | ---------- | ------------------------ | --------- |
@@ -56,7 +56,7 @@ The simulator demo flows do not run in CI. Run them locally before you merge a c
 - This workflow makes internal builds only. Store submission is owned by Mobile Release.
 - The build message is `<branch>@<commit>`, because EAS cannot read git when it uploads only this directory.
 - eas-cli is pinned in the workflow. Raise it on purpose, after reading its changelog.
-- It needs an `EXPO_TOKEN` Actions secret available to the repository. Store keys stay on EAS.
+- It needs a dedicated `MOBILE_BUILD_EXPO_TOKEN` secret only in the `mobile-build` environment. Store keys stay on EAS. See the protected environment setup in [RELEASING.md](RELEASING.md#one-time-hosted-release-setup).
 
 ## Mobile Release
 
@@ -64,12 +64,12 @@ The simulator demo flows do not run in CI. Run them locally before you merge a c
 
 The request selects `native` or `ota`, names the app/runtime version, describes the changes, and identifies the preceding completed release. Requests are append-only; each release push adds exactly one. Use `pnpm release:request` to prepare the file, then include it in the app PR. See [RELEASING.md](RELEASING.md) for commands and first-release setup.
 
-After the required checks pass, the hosted publish job uses the exact tested commit:
+After the required checks pass and an authorized `mobile-production` reviewer approves the deployment, the hosted publish job uses the exact tested commit:
 
 - **Native:** verify a higher app/runtime version, build both platforms, wait for successful builds, and submit those exact build IDs to TestFlight and Play internal testing. Public-store promotion remains manual.
-- **OTA:** verify the runtime and native fingerprints against the last completed native release, upload to an unlinked staging branch, and promote that exact update group to the production channel.
+- **OTA:** verify the runtime and native fingerprints against the last completed native release, sign and upload to an unlinked staging branch, and sign the promotion of that exact update group to the production channel. The native receipt pins the signing certificate as well as native compatibility.
 
-The `mobile-production` environment and Expo credentials govern publication. A durable release receipt prevents a completed request from publishing twice. Interrupted publication requires reconciliation rather than blindly retrying; the request's predecessor prevents a later release from silently overtaking a missing one. See the release guide for recovery.
+The `mobile-production` environment must require reviewer Chris Volzer (`@cvolzer3`), allow self-review, disable administrator bypass and allow only `master`; these settings are configured by an administrator outside the workflow. It holds `MOBILE_PRODUCTION_EXPO_TOKEN` and `MOBILE_OTA_SIGNING_KEY`, with no repository/organization secret fallback. The private OTA key is available only to the OTA publish step, after dependency installation; native builds need only the checked-in public certificate. A durable release receipt prevents a completed request from publishing twice. Interrupted publication requires reconciliation rather than blindly retrying; the request's predecessor prevents a later release from silently overtaking a missing one. See the release guide for recovery.
 
 Production build/submit/OTA package commands now direct developers to this request flow. No active release request is included with the automation itself.
 

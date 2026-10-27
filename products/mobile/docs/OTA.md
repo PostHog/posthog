@@ -3,13 +3,14 @@
 EAS Update ships JavaScript and asset changes to installed builds without a store release.
 Native changes still need a new build, see [RELEASING.md](RELEASING.md).
 
-Production OTA updates use a release request merged to `master`. See [Releasing](RELEASING.md#request-a-hosted-release) for request creation, prerequisites and recovery.
+Production OTA updates use a release request merged to `master` and approval from a required `mobile-production` environment reviewer. See [Releasing](RELEASING.md#request-a-hosted-release) for request creation, prerequisites and recovery.
 
 ## How a device gets an update
 
 - `expo-updates` checks `https://u.expo.dev/4eb57b2f-79f6-4ab0-ae2c-bbd82af2cef9` each time the app starts.
 - The app also checks on return to the foreground and approximately every 15 minutes while open. Checks are at least 15 minutes apart,
   including the native startup check, and cannot overlap. Failed checks or downloads retry at a later check.
+- Production builds verify each update signature using the public certificate embedded in the native binary before applying it. Unsigned updates or updates signed by another key are rejected. Local production config disables OTA until its certificate is provisioned; hosted releases require it. See [OTA signing setup](RELEASING.md#ota-signing-setup-and-rotation).
 - Available updates download silently without blocking startup. Downloads wait for the native startup procedure to finish.
 - A downloaded update applies automatically when the app returns after at least five minutes in the background, provided
   it is on an Inbox, Chats or Views tab, the keyboard is closed, and no API request, notification navigation or TanStack
@@ -55,7 +56,7 @@ An incompatible OTA request fails before publication. The first hosted release m
 
 ## Validate an update
 
-Complete the [mobile app release checks](../../../docs/internal/mobile-release-checks.md). A preview build can verify behavior before merge, but it has a separate identity and channel. Hosted staging uses the production identity on an unlinked branch; it does not deliver the candidate to preview builds or provide a manual tester gate before promotion.
+Complete the [mobile app release checks](../../../docs/internal/mobile-release-checks.md). A preview build can verify behavior before merge, but it has a separate identity and channel. Hosted staging uses the production identity on an unlinked branch; it does not deliver the candidate to preview builds or provide a second manual tester gate after staging. The protected environment approval happens before staging.
 
 1. Keep `version` unchanged for a JavaScript/assets-only fix. Find the preceding completed request in the latest mobile release receipt.
 2. Prepare a request locally; this command only writes a file:
@@ -65,7 +66,7 @@ Complete the [mobile app release checks](../../../docs/internal/mobile-release-c
    pnpm release:request ota --id fix-chat-layout --previous <completed-request-id> --notes "Fix the chat layout"
    ```
 
-3. Include the request and fix in a PR. On merge to `master`, Mobile Release runs the required checks, verifies native compatibility, stages the update on an unlinked EAS branch, and promotes that exact group to production. Local `update:production` and `update:preview` commands no longer publish.
+3. Include the request and fix in a PR. On merge to `master`, Mobile Release runs the required checks, waits for the required deployment review, verifies native compatibility, stages the update on an unlinked EAS branch, and promotes that exact group to production. Local `update:production` and `update:preview` commands no longer publish.
 4. Verify the completed receipt and device behavior. Open the app on an Inbox, Chats or Views tab with no keyboard open. Once a check has downloaded the update,
    background the app for at least five minutes and return. Settings in an internal build shows the new update id.
    Checks are throttled to once per 15 minutes, so a return immediately after publishing may not fetch it yet.

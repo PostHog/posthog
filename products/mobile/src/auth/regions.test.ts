@@ -1,6 +1,56 @@
 import { validateHost } from './regions'
 
-describe('validateHost', () => {
+describe('regions', () => {
+    const originalUsClientId = process.env.EXPO_PUBLIC_OAUTH_US_CLIENT_ID
+    const originalEuClientId = process.env.EXPO_PUBLIC_OAUTH_EU_CLIENT_ID
+
+    afterEach(() => {
+        if (originalUsClientId === undefined) {
+            delete process.env.EXPO_PUBLIC_OAUTH_US_CLIENT_ID
+        } else {
+            process.env.EXPO_PUBLIC_OAUTH_US_CLIENT_ID = originalUsClientId
+        }
+        if (originalEuClientId === undefined) {
+            delete process.env.EXPO_PUBLIC_OAUTH_EU_CLIENT_ID
+        } else {
+            process.env.EXPO_PUBLIC_OAUTH_EU_CLIENT_ID = originalEuClientId
+        }
+        jest.dontMock('@/lib/environment')
+    })
+
+    test.each(['production', 'development', 'preview'] as const)(
+        '%s builds select the matching cloud OAuth registration',
+        (variant) => {
+            jest.isolateModules(() => {
+                jest.doMock('@/lib/environment', () => ({
+                    ...jest.requireActual('@/lib/environment'),
+                    buildVariant: variant,
+                }))
+                process.env.EXPO_PUBLIC_OAUTH_US_CLIENT_ID = 'internal-us-client'
+                process.env.EXPO_PUBLIC_OAUTH_EU_CLIENT_ID = 'internal-eu-client'
+                const { CLOUD_REGIONS } = jest.requireActual<typeof import('./regions')>('./regions')
+                expect(CLOUD_REGIONS.map((region) => region.clientId)).toEqual(
+                    variant === 'production'
+                        ? ['a5TY7w9IjFYfes6dkPgZe6envclWw3bm2UD8ZTlm', '1A7vO138Fh5sYmJislicN4F5HnttI6urmFttxPDU']
+                        : ['internal-us-client', 'internal-eu-client']
+                )
+            })
+        }
+    )
+
+    test('an unconfigured internal build has no production cloud client fallback', () => {
+        jest.isolateModules(() => {
+            jest.doMock('@/lib/environment', () => ({
+                ...jest.requireActual('@/lib/environment'),
+                buildVariant: 'preview',
+            }))
+            delete process.env.EXPO_PUBLIC_OAUTH_US_CLIENT_ID
+            delete process.env.EXPO_PUBLIC_OAUTH_EU_CLIENT_ID
+            const { CLOUD_REGIONS } = jest.requireActual<typeof import('./regions')>('./regions')
+            expect(CLOUD_REGIONS.map((region) => region.clientId)).toEqual(['', ''])
+        })
+    })
+
     test.each([
         ['us.posthog.com', 'https://us.posthog.com'],
         ['https://posthog.example.com/project/2/', 'https://posthog.example.com'],

@@ -7,7 +7,7 @@ Over-the-air JavaScript updates are in [OTA.md](OTA.md). The CI workflows are in
 
 ## Request a hosted release
 
-Production releases run in GitHub Actions after a release request merges to `master`.
+Production releases run in GitHub Actions after a release request merges to `master` and an authorized reviewer approves the `mobile-production` deployment.
 Add the request to the same PR as the app changes. Do not publish production builds or updates from a local checkout.
 The implementation includes no active request, so merging the release tooling alone publishes nothing.
 
@@ -49,28 +49,46 @@ This deliberately establishes new binaries and a verified baseline instead of gu
 
 1. `Mobile Release` checks the exact master push diff. It selects only the newly added request, rather than sweeping historical requests.
 2. The reusable `Mobile CI` runs typecheck, lint, Jest, release metadata validation and release policy tests on that exact commit. The simulator demo flows do not run in CI; run them locally before you merge.
-3. The publisher enters the `mobile-production` GitHub environment, loads the EAS `production` environment, fixes `APP_VARIANT=production` and disables the signup link.
+3. An authorized reviewer approves the exact commit in the protected `mobile-production` GitHub environment. The publisher then loads the EAS `production` environment, fixes `APP_VARIANT=production` and disables the signup link.
 4. Before contacting EAS to build or publish, it creates a durable draft GitHub receipt at `mobile-release/<id>`. This claims the request so an interrupted retry cannot duplicate a release.
-5. A `mobile-staging` deployment records the stage. Native requests build production binaries; OTA requests publish to an unlinked `mobile-staging-<id>` EAS branch.
-6. Native requests submit the completed binaries. OTA requests republish the exact staged group to the production channel; they do not rebuild the bundle during promotion.
-7. The receipt records the source commit, request, staging deployment, build IDs or update groups, and the native runtime/fingerprints. It becomes a GitHub prerelease, and the dedicated annotated `mobile-production` tag points at the completed source.
+5. A `mobile-staging` deployment records the stage. Native requests build production binaries with the pinned public OTA certificate; OTA requests sign and publish to an unlinked `mobile-staging-<id>` EAS branch.
+6. Native requests submit the completed binaries. OTA requests sign and republish the exact staged group to the production channel; they do not rebuild the bundle during promotion.
+7. The receipt records the source commit, request, staging deployment, build IDs or update groups, and the native runtime/fingerprints and OTA certificate fingerprint. It becomes a GitHub prerelease, and the dedicated annotated `mobile-production` tag points at the completed source.
 
 The workflow runs only on trusted master pushes in `PostHog/posthog`. Pull requests have no publishing step or Expo token.
-Development/preview builds remain manually available through `Mobile Build`; production is handled by release requests.
+Development/preview builds remain manually available from `master` through `Mobile Build`; production is handled by release requests.
 The package's old production build, submit and update commands stop with a hosted-release instruction.
 
 ### One-time hosted release setup
 
 Keep the EAS credentials and store setup below. Also:
 
-- Create the `mobile-production` GitHub environment, restrict deployments to `master`, and make `EXPO_TOKEN` available there (or retain the existing repository secret).
-  No manual reviewer gate is required by this workflow; environment protection settings can add one if the team wants it.
+- Protect the `mobile-production` GitHub environment with **required reviewer Chris Volzer (`@cvolzer3`)**, allow self-review so the release owner can explicitly approve their own requests, disable administrator bypass, and restrict deployments to `master`. Review the request and full source diff of the exact deployment commit before approval. The workflow's `environment` field does not configure these server-side protections: a repository administrator must set them before any release request merges.
+- Store a dedicated `MOBILE_PRODUCTION_EXPO_TOKEN` only in `mobile-production`. Create a separate `mobile-build` environment restricted to `master`, with a different `MOBILE_BUILD_EXPO_TOKEN` environment secret for internal builds. Do not create repository or organization secrets under these names; that would make them available outside their environment. Neither workflow falls back to the shared `EXPO_TOKEN`. Remove or revoke the inherited shared `EXPO_TOKEN` access to this production EAS project; changing these workflow references does not revoke an organization secret or its Expo authority. Coordinate any other workflows that still use it. Use the narrowest Expo account/project access available for the new tokens. Separate tokens do not impose EAS channel or build-profile authorization: both workflows also require trusted master source, and production OTA has an independent signing key.
+- Provision OTA signing as described below before the first hosted native release. The public certificate belongs in the repository; the private key belongs only in the protected `mobile-production` environment. Native build jobs and dependency installation do not receive the private key.
 - Permit the workflow's `GITHUB_TOKEN` to create releases/tags and deployment records. The workflow requests only contents and deployments write access in its publishing job.
-- Keep production build-time variables readable as Plain text or Sensitive. The publisher audits both project variables and linked account variables before claiming a request; any Secret value blocks the release because it cannot be included in the compatibility check. Signing/submission keys belong in EAS credentials, not these variables.
+- Keep production build-time variables readable as Plain text or Sensitive. The publisher audits both project variables and linked account variables before claiming a request; any Secret value blocks the release because it cannot be included in the compatibility check. Native signing/submission keys belong in EAS credentials; the OTA signing key belongs in the protected GitHub environment. Neither belongs in these variables.
 - Set `GOOGLE_SERVICES_JSON` to a **Sensitive file** variable. The publisher reads its base64 file content through the authenticated Expo API, writes an ignored file with owner-only permissions, and uses it during fingerprinting and configuration. Neither contents nor other variable values appear in receipts or artifacts. Secret files, unreadable file values and other file-variable names fail closed before an EAS build or OTA publish. Native EAS fingerprint results must match these materialized inputs.
 - The native environment is audited and fingerprinted again after staging. A change to variable names, types or contents blocks production publication, including removed values. Snapshot hashes stay in memory. Variables that overwrite GitHub identity, credentials or the runner command environment are rejected before any values are applied; the script imports the audited environment itself.
 - Complete the initial Play Console app/signing/internal-tester setup before requesting the first Android submission. Confirm the production iOS App Store Connect record and stored API key.
 - Stop using the older Desktop Mobile Build/Promote workflows for this iOS store identity. The release request flow does not retire those separate workflows.
+
+### OTA signing setup and rotation
+
+An operator must provision the signing material; no production key or certificate is generated by this implementation.
+Follow [Expo's code-signing guide](https://docs.expo.dev/eas-update/code-signing/) using an account with the required EAS plan.
+Generate an RSA key of at least 2048 bits outside this checkout. Commit only its public certificate as `releases/ota-certificate.pem`; keep the private key in the team's secure key store and as the `MOBILE_OTA_SIGNING_KEY` PEM secret only in `mobile-production`.
+Never put it in EAS variables, the app directory, artifacts or a repository/organization secret.
+
+Production config pins that certificate with key id `main` and algorithm `rsa-v1_5-sha256`.
+Without the certificate, local development still works with production OTA disabled, and hosted native/OTA releases fail before claiming a request.
+The publisher rejects an invalid or expired certificate and requires its matching private key before OTA staging.
+Only an approved OTA publishing step writes the private key to an owner-readable temporary file outside the app upload; it deletes the file on exit.
+Staging and promotion both pass the key to EAS, which signs the manifests locally. The native client verifies updates against its embedded certificate before applying them.
+
+The first signed release must be **native**, with a version above the unsigned `1.4.0` baseline. Existing unsigned binaries must upgrade through TestFlight or the stores; this change cannot add verification to them through OTA.
+The native receipt records the certificate fingerprint. An OTA request must match it as well as the native fingerprints; a receipt without a certificate fingerprint cannot authorize an OTA.
+Rotate the key and certificate together, retain the old material securely for older runtimes, and raise the app version in a new native release before publishing updates with the new key.
 
 ### Receipts, ordering and retries
 
@@ -218,9 +236,8 @@ Someone with these accounts does each step once. An agent cannot do them.
 
    Do not add `APP_VARIANT` or `EXPO_PUBLIC_SIGNUP_LINK` here. `eas.json` and the hosted publisher set them.
 
-9. Add `posthog-dev://callback` and `posthog-preview://callback` to the redirect URIs of the US and EU mobile OAuth applications in Django admin, so internal builds can sign in to PostHog Cloud. See [AUTH.md](AUTH.md#redirect-uris).
-10. Check that the repository secret `EXPO_TOKEN` exists. The desktop mobile workflows already use it.
-    Mobile Build and Mobile Release read the same secret.
+9. Create separate non-first-party public OAuth applications in US and EU for `posthog-dev://callback` and `posthog-preview://callback`. Set their IDs as `EXPO_PUBLIC_OAUTH_US_CLIENT_ID` and `EXPO_PUBLIC_OAUTH_EU_CLIENT_ID` in both EAS internal environments. Production first-party applications must keep only `posthog://callback`; remove internal callback URIs if already added. See [AUTH.md](AUTH.md#redirect-uris).
+10. Complete the protected environments and separate token setup in [One-time hosted release setup](#one-time-hosted-release-setup). The desktop mobile workflows' shared `EXPO_TOKEN` is not used by these workflows.
 
 ## Install a development build on an iPhone
 
