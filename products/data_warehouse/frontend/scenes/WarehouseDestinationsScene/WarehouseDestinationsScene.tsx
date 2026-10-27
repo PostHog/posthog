@@ -16,12 +16,15 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
+import { warehouseAlertModalLogic } from '../../shared/alerts/warehouseAlertModalLogic'
+import { WarehouseAlertsSection } from '../../shared/alerts/WarehouseAlertsSection'
 import { DestinationModal } from '../../shared/components/DestinationModal'
 import { destinationModalLogic } from '../../shared/logics/destinationModalLogic'
 import { warehouseDestinationsSceneLogic } from './warehouseDestinationsSceneLogic'
 import { WarehouseDestinationsTable } from './WarehouseDestinationsTable'
 
 const MODAL_KEY = 'warehouse-destinations-scene'
+const ALERTS_PROPS = { kind: 'warehouse_destination' } as const
 
 export const scene: SceneExport = {
     component: WarehouseDestinationsScene,
@@ -42,6 +45,7 @@ export function WarehouseDestinationsScene(): JSX.Element {
     }
     const { openForCreate, openForEdit } = useActions(destinationModalLogic(modalProps))
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const showAlerts = !!featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS]
 
     if (!featureFlags[FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]) {
         return <NotFound object="page" caption="Warehouse destinations isn't available for this project yet." />
@@ -124,6 +128,15 @@ export function WarehouseDestinationsScene(): JSX.Element {
                     loading={destinationsLoading || destinations === null}
                     onEdit={openForEdit}
                     onDelete={deleteDestination}
+                    onCreateAlert={
+                        showAlerts
+                            ? // The alerts section below mounts this logic, so the row only reaches for it.
+                              (destination) =>
+                                  warehouseAlertModalLogic
+                                      .findMounted(ALERTS_PROPS)
+                                      ?.actions.openForCreate('destination_row', [destination.id])
+                            : undefined
+                    }
                     deletingId={deletingId}
                     emptyState={
                         <div className="flex flex-col gap-2 items-center py-4">
@@ -138,6 +151,8 @@ export function WarehouseDestinationsScene(): JSX.Element {
                     }
                 />
             )}
+
+            {showAlerts ? <WarehouseAlertsSection {...ALERTS_PROPS} entry="destinations_page" /> : null}
 
             <DestinationModal {...modalProps} />
         </SceneContent>

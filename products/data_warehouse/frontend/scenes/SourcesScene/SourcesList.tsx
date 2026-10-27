@@ -4,6 +4,7 @@ import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 import { urls } from 'scenes/urls'
 
@@ -14,6 +15,7 @@ import {
     CATEGORY_SEARCH_PARAM,
     SELF_MANAGED_CATEGORY,
 } from 'products/data_warehouse/frontend/scenes/NewSourceScene/sourceCategories'
+import { WarehouseAlertsSection } from 'products/data_warehouse/frontend/shared/alerts/WarehouseAlertsSection'
 import { DirectConnectSourcesTable } from 'products/data_warehouse/frontend/shared/components/DirectConnectSourcesTable'
 import { ManagedSourcesTable } from 'products/data_warehouse/frontend/shared/components/ManagedSourcesTable'
 import { SelfManagedSourcesTable } from 'products/data_warehouse/frontend/shared/components/SelfManagedSourcesTable'
@@ -28,6 +30,13 @@ export function SourcesList(): JSX.Element {
                 <ManagedSourcesTable />
             </SceneSection>
             <SceneDivider />
+
+            <FlaggedFeature flag={FEATURE_FLAGS.PLATFORM_ALERTS}>
+                <>
+                    <WarehouseAlertsSection kind="warehouse_source" entry="sources_page" />
+                    <SceneDivider />
+                </>
+            </FlaggedFeature>
 
             <FlaggedFeature flag="cdp-hog-sources">
                 <>
