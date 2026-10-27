@@ -1,7 +1,9 @@
 from .check_upstream_reloads import (
     CheckUpstreamReloadsInputs,
     CheckUpstreamReloadsResult,
+    NodesWaitingOnUpstreamReloadsInputs,
     check_upstream_reloads_activity,
+    nodes_waiting_on_upstream_reloads_activity,
 )
 from .create_data_modeling_job import (
     UPSTREAM_NAMES_IN_SKIP_REASON,
@@ -55,6 +57,7 @@ __all__ = [
     "UPSTREAM_NAMES_IN_SKIP_REASON",
     "CheckUpstreamReloadsInputs",
     "CheckUpstreamReloadsResult",
+    "NodesWaitingOnUpstreamReloadsInputs",
     "ClearCDPStagingInputs",
     "CreateDataModelingJobInputs",
     "RecordSkippedDataModelingJobsInputs",
@@ -80,6 +83,7 @@ __all__ = [
     "check_managed_warehouse_shadow_enabled_activity",
     "check_team_managed_warehouse_shadow_eligibility_activity",
     "check_upstream_reloads_activity",
+    "nodes_waiting_on_upstream_reloads_activity",
     "clear_cdp_staging_activity",
     "create_data_modeling_job_activity",
     "record_skipped_data_modeling_jobs_activity",

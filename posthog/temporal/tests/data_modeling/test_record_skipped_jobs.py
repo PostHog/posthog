@@ -1,9 +1,6 @@
-import datetime as dt
 import dataclasses
 
 import pytest
-
-from django.utils import timezone
 
 import pytest_asyncio
 from temporalio.testing import ActivityEnvironment
@@ -11,7 +8,9 @@ from temporalio.testing import ActivityEnvironment
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.activities.check_upstream_reloads import (
     CheckUpstreamReloadsInputs,
+    NodesWaitingOnUpstreamReloadsInputs,
     check_upstream_reloads_activity,
+    nodes_waiting_on_upstream_reloads_activity,
 )
 from posthog.temporal.data_modeling.activities.create_data_modeling_job import (
     RecordSkippedDataModelingJobsInputs,
@@ -163,21 +162,20 @@ def _start_full_refresh_upstream_of(team, dag, node, *, built: bool = True) -> N
         schema_snapshot={"sync_type": "full_refresh"},
     )
     if built:
-        previous = DataModelingJob.objects.create(
+        DataModelingJob.objects.create(
             team=team,
             saved_query=node.saved_query,
             status=DataModelingJobStatus.COMPLETED,
             engine=DataModelingJobEngine.CLICKHOUSE,
         )
-        DataModelingJob.objects.filter(id=previous.id).update(created_at=timezone.now() - dt.timedelta(days=2))
 
 
-async def _check(team, dag, node, **inputs):
+async def _skip_if_reloading(team, dag, node):
     env = ActivityEnvironment()
     env.info = dataclasses.replace(env.info, workflow_id=WORKFLOW_ID, workflow_run_id="run-1")
     return await env.run(
         check_upstream_reloads_activity,
-        CheckUpstreamReloadsInputs(team_id=team.pk, dag_id=str(dag.id), node_id=str(node.id), **inputs),
+        CheckUpstreamReloadsInputs(team_id=team.pk, dag_id=str(dag.id), node_id=str(node.id)),
     )
 
 
@@ -190,51 +188,38 @@ def _status_and_error(saved_query) -> list[tuple[str, str | None]]:
 
 
 class TestCheckUpstreamReloads:
-    @pytest.mark.parametrize("record_skipped_job,built", [(True, True), (False, True), (True, False)])
-    async def test_a_running_full_refresh_upstream_writes_one_skip_row_naming_the_table(
-        self, ateam, adag_local, record_skipped_job, built
-    ):
+    @pytest.mark.parametrize("built", [True, False])
+    async def test_a_running_full_refresh_upstream_writes_one_skip_row_naming_the_table(self, ateam, adag_local, built):
         node, saved_query = await _make_node(ateam, adag_local, "revenue_daily")
         await database_sync_to_async(_start_full_refresh_upstream_of)(ateam, adag_local, node, built=built)
 
-        result = await _check(ateam, adag_local, node, record_skipped_job=record_skipped_job)
+        result = await _skip_if_reloading(ateam, adag_local, node)
         # An activity retry runs the same check again.
-        await _check(ateam, adag_local, node, record_skipped_job=record_skipped_job)
+        await _skip_if_reloading(ateam, adag_local, node)
 
         reason = (
             "Skipped because a sync is loading the upstream table stripe_charges again from the start. "
             "The view keeps its previous data and runs again when the sync finishes."
         )
         jobs = await database_sync_to_async(_status_and_error)(saved_query)
-        if not built:
-            assert result.reason is None
-            assert jobs == []
-        elif record_skipped_job:
+        if built:
             assert result.reason == reason
             assert jobs == [(DataModelingJobStatus.SKIPPED, reason)]
         else:
-            assert result.reason == reason
-            assert result.skipped_job_id is None
+            assert result.reason is None
             assert jobs == []
 
-    @pytest.mark.parametrize(
-        "later_status,superseded",
-        [(DataModelingJobStatus.RUNNING, True), (DataModelingJobStatus.SKIPPED, False)],
-    )
-    async def test_a_follow_up_stands_down_once_a_later_run_takes_the_node(
-        self, ateam, adag_local, later_status, superseded
-    ):
-        node, saved_query = await _make_node(ateam, adag_local, "revenue_daily")
-        await database_sync_to_async(_start_full_refresh_upstream_of)(ateam, adag_local, node)
-        wait_started = timezone.now() - dt.timedelta(hours=1)
-        later_job = await database_sync_to_async(DataModelingJob.objects.create)(
-            team=ateam,
-            saved_query=saved_query,
-            status=later_status,
-            engine=DataModelingJobEngine.CLICKHOUSE,
+    async def test_lists_only_the_nodes_still_waiting_and_writes_nothing(self, ateam, adag_local):
+        waiting, waiting_query = await _make_node(ateam, adag_local, "revenue_daily")
+        unaffected, _ = await _make_node(ateam, adag_local, "orders_daily")
+        await database_sync_to_async(_start_full_refresh_upstream_of)(ateam, adag_local, waiting)
+
+        result = await ActivityEnvironment().run(
+            nodes_waiting_on_upstream_reloads_activity,
+            NodesWaitingOnUpstreamReloadsInputs(
+                team_id=ateam.pk, dag_id=str(adag_local.id), node_ids=[str(waiting.id), str(unaffected.id)]
+            ),
         )
 
-        result = await _check(ateam, adag_local, node, superseded_after=wait_started)
-
-        assert result.superseded_by_job_id == (str(later_job.id) if superseded else None)
-        assert (result.reason is None) is superseded
+        assert result == [str(waiting.id)]
+        assert await database_sync_to_async(_status_and_error)(waiting_query) == []

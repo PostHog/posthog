@@ -21,8 +21,7 @@ from posthog.temporal.data_modeling.activities import (
 )
 from posthog.temporal.data_modeling.activities.enrich_view_semantics import EnrichViewSemanticsInputs
 from posthog.temporal.data_modeling.workflows.materialize_view import (
-    UPSTREAM_RELOAD_RECHECK_INTERVAL,
-    WAIT_FOR_UPSTREAM_RELOADS_PATCH,
+    SKIP_ON_UPSTREAM_RELOADS_PATCH,
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
     _StagedAuditVerdict,
@@ -71,7 +70,6 @@ class TestQualityGateBranching:
         execute_activity: AsyncMock | None = None,
         patched: bool = True,
         upstream_reload_patched: bool = False,
-        now: MagicMock | None = None,
     ) -> tuple:
         execute_activity = execute_activity or AsyncMock(side_effect=activity_results)
         child = (
@@ -88,16 +86,14 @@ class TestQualityGateBranching:
                 patch.object(temporalio.workflow, "start_child_workflow", new=start_child or AsyncMock())
             )
             stack.enter_context(patch.object(temporalio.workflow, "info", return_value=info))
-            stack.enter_context(
-                patch.object(temporalio.workflow, "now", new=now or MagicMock(return_value=dt.datetime(2026, 8, 1)))
-            )
+            stack.enter_context(patch.object(temporalio.workflow, "now", return_value=dt.datetime(2026, 8, 1)))
             stack.enter_context(patch.object(temporalio.workflow, "logger"))
             stack.enter_context(
                 patch.object(
                     temporalio.workflow,
                     "patched",
                     side_effect=lambda patch_id: (
-                        upstream_reload_patched if patch_id == WAIT_FOR_UPSTREAM_RELOADS_PATCH else patched
+                        upstream_reload_patched if patch_id == SKIP_ON_UPSTREAM_RELOADS_PATCH else patched
                     ),
                 )
             )
@@ -272,14 +268,12 @@ class TestQualityGateBranching:
                 raise RuntimeError("check failed")
             return results.get(activity.__name__)
 
-        start_child = AsyncMock()
         inputs = dataclasses.replace(_inputs(), defer_for_upstream_reloads=scenario != "run_that_does_not_defer")
         result, executed = await self._run(
             [],
             {},
             inputs=inputs,
             execute_activity=AsyncMock(side_effect=execute_activity),
-            start_child=start_child,
             upstream_reload_patched=True,
         )
 
@@ -288,71 +282,10 @@ class TestQualityGateBranching:
             assert ("check_upstream_reloads_activity" in started) is (scenario == "check_fails")
             assert result.skip_reason is None
             assert result.rows_materialized == 10
-            start_child.assert_not_awaited()
             return
         assert result.skip_reason == reason
         assert result.job_id == "skipped-job"
         assert started == ["check_upstream_reloads_activity"]
-        follow_up = start_child.await_args
-        assert follow_up is not None
-        assert follow_up.args[1] == dataclasses.replace(_inputs(), wait_for_upstream_reloads=True)
-        assert follow_up.kwargs["id"] == "materialize-view-dag-1-node-1-after-reload-clickhouse"
-        assert follow_up.kwargs["parent_close_policy"] == temporalio.workflow.ParentClosePolicy.ABANDON
-        assert follow_up.kwargs["execution_timeout"] is not None
-
-    @pytest.mark.parametrize(
-        "reload_checks,expected_sleeps,materializes",
-        [
-            ([CheckUpstreamReloadsResult(reason="reloading")] * 2 + [CheckUpstreamReloadsResult()], 2, True),
-            ([CheckUpstreamReloadsResult(reason="reloading")] * 60, 48, True),
-            (
-                [
-                    CheckUpstreamReloadsResult(reason="reloading"),
-                    CheckUpstreamReloadsResult(superseded_by_job_id="later"),
-                ],
-                1,
-                False,
-            ),
-        ],
-    )
-    async def test_a_follow_up_run_waits_for_the_reload_then_materializes(
-        self, reload_checks: list[CheckUpstreamReloadsResult], expected_sleeps: int, materializes: bool
-    ) -> None:
-        checks = iter(reload_checks)
-        clock = [dt.datetime(2026, 8, 1)]
-
-        async def execute_activity(activity, *args, **kwargs):
-            if activity.__name__ == "check_upstream_reloads_activity":
-                return next(checks)
-            return {
-                "create_data_modeling_job_activity": "job-1",
-                "materialize_view_activity": _materialize_result("skip"),
-                "prepare_queryable_table_activity": PrepareQueryableTableResult(
-                    storage_delta_mib=None, total_storage_mib=None
-                ),
-            }.get(activity.__name__)
-
-        async def sleep(duration: dt.timedelta) -> None:
-            clock[0] += duration
-
-        start_child = AsyncMock()
-        with patch.object(temporalio.workflow, "sleep", new=AsyncMock(side_effect=sleep)) as slept:
-            result, _ = await self._run(
-                [],
-                {},
-                inputs=dataclasses.replace(_inputs(), wait_for_upstream_reloads=True),
-                execute_activity=AsyncMock(side_effect=execute_activity),
-                start_child=start_child,
-                upstream_reload_patched=True,
-                now=MagicMock(side_effect=lambda: clock[0]),
-            )
-
-        assert slept.await_count == expected_sleeps
-        assert all(call.args[0] == UPSTREAM_RELOAD_RECHECK_INTERVAL for call in slept.await_args_list)
-        assert result.skip_reason is None
-        assert result.rows_materialized == (10 if materializes else 0)
-        assert result.job_id == ("job-1" if materializes else "later")
-        start_child.assert_not_awaited()
 
     async def test_blocking_failures_stop_the_publish(self):
         activity_results = [

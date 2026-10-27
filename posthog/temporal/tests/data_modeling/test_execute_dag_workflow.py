@@ -29,6 +29,8 @@ from posthog.temporal.data_modeling.activities import (
 )
 from posthog.temporal.data_modeling.activities.get_dag_structure import DAG as DAGPlan
 from posthog.temporal.data_modeling.workflows.execute_dag import (
+    MAX_UPSTREAM_RELOAD_WAIT,
+    UPSTREAM_RELOAD_RECHECK_INTERVAL,
     EmptyDAGOrCycleError,
     ExecuteDAGInputs,
     ExecuteDAGResult,
@@ -542,7 +544,6 @@ _mock_workflow_calls: list[str] = []
 _mock_workflow_should_fail: set[str] = set()
 _mock_workflow_should_block_on_quality: set[str] = set()
 _mock_workflow_should_self_audit: set[str] = set()
-_mock_workflow_should_wait_for_reload: set[str] = set()
 _mock_workflow_triggered_by: list[tuple[int | None, bool]] = []
 _recorded_skipped_nodes: list[RecordSkippedDataModelingJobsInputs] = []
 _notified_dag_failures: list[NotifyDAGMaterializationFailuresInputs] = []
@@ -568,15 +569,13 @@ class MockMaterializeViewWorkflow:
         if inputs.node_id in _mock_workflow_should_fail:
             raise temporalio.exceptions.ApplicationError(f"Node {inputs.node_id} failed")
         blocked = inputs.node_id in _mock_workflow_should_block_on_quality
-        waits_for_reload = inputs.node_id in _mock_workflow_should_wait_for_reload
         return MaterializeViewWorkflowResult(
             job_id="test-job",
             node_id=inputs.node_id,
-            rows_materialized=0 if waits_for_reload else 100,
+            rows_materialized=100,
             duration_seconds=1.0,
             quality_blocking_failures=1 if blocked else None,
             quality_audited=blocked or inputs.node_id in _mock_workflow_should_self_audit,
-            skip_reason="Skipped because a sync is loading the upstream table again." if waits_for_reload else None,
         )
 
 
@@ -587,14 +586,12 @@ class TestExecuteDAGWorkflowWithMocks:
     def reset_mock_state(self):
         _mock_workflow_calls.clear()
         _mock_workflow_should_fail.clear()
-        _mock_workflow_should_wait_for_reload.clear()
         _mock_workflow_triggered_by.clear()
         _recorded_skipped_nodes.clear()
         _notified_dag_failures.clear()
         yield
         _mock_workflow_calls.clear()
         _mock_workflow_should_fail.clear()
-        _mock_workflow_should_wait_for_reload.clear()
         _recorded_skipped_nodes.clear()
         _notified_dag_failures.clear()
 
@@ -933,51 +930,6 @@ class TestExecuteDAGWorkflowWithMocks:
         assert _notified_dag_failures == []
         assert _mock_workflow_triggered_by == [(7, False)] * 3
 
-    async def test_a_node_skipped_for_an_upstream_reload_does_not_block_downstream(self):
-        dag_id = "test-dag"
-        node_a_id = str(uuid.uuid4())
-        node_b_id = str(uuid.uuid4())
-
-        @temporal_activity.defn(name="get_dag_structure_activity")
-        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAGPlan:
-            return DAGPlan(
-                nodes=[node_a_id, node_b_id],
-                executable_nodes=[node_a_id, node_b_id],
-                edges=[(node_a_id, node_b_id)],
-            )
-
-        _mock_workflow_should_wait_for_reload.add(node_a_id)
-
-        async with await WorkflowEnvironment.start_time_skipping() as env:
-            async with temporalio.worker.Worker(
-                env.client,
-                task_queue="test-queue",
-                workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
-                activities=[
-                    stub_preempt_dag_run,
-                    stub_check_team_shadow_eligibility,
-                    stub_get_dag_structure,
-                    stub_record_skipped_data_modeling_jobs,
-                    stub_notify_dag_materialization_failures,
-                ],
-                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-            ):
-                result: ExecuteDAGResult = await env.client.execute_workflow(
-                    ExecuteDAGWorkflow.run,
-                    ExecuteDAGInputs(team_id=1, dag_id=dag_id),
-                    id=f"test-upstream-reload-{uuid.uuid4()}",
-                    task_queue="test-queue",
-                    execution_timeout=dt.timedelta(seconds=30),
-                )
-
-        assert _mock_workflow_calls == [node_a_id, node_b_id]
-        assert _mock_workflow_triggered_by == [(None, True)] * 2
-        assert (result.successful_nodes, result.failed_nodes, result.skipped_nodes) == (1, 0, 1)
-        node_a_result = next(r for r in result.node_results if r.node_id == node_a_id)
-        assert node_a_result.skip_reason == "Skipped because a sync is loading the upstream table again."
-        assert _recorded_skipped_nodes == []
-        assert _notified_dag_failures == []
-
     async def test_ephemeral_nodes_are_skipped(self):
         """Test that ephemeral nodes are recorded as successful no-ops without starting child workflows."""
         dag_id = "test-dag"
@@ -1284,3 +1236,99 @@ class TestTrinoShadowRun:
             if call.args[0] == preempt_dag_run_activity
         )
         assert preempt_inputs.engine == engine.value
+
+
+class TestRunAfterUpstreamReloads:
+    async def _run(self, inputs: ExecuteDAGInputs, *, waiting_checks: list[list[str] | Exception] | None = None):
+        plan = DAGPlan(nodes=["a", "b"], executable_nodes=["a", "b"], edges=[("a", "b")])
+        checks = iter(waiting_checks or [])
+        clock = [dt.datetime(2026, 1, 1, tzinfo=dt.UTC)]
+
+        async def start_child(workflow: object, child_inputs: object, **kwargs: object) -> object:
+            if isinstance(child_inputs, ExecuteDAGInputs):
+                return MagicMock()
+            assert isinstance(child_inputs, MaterializeViewWorkflowInputs)
+            future = asyncio.get_running_loop().create_future()
+            skipped = child_inputs.node_id == "a" and child_inputs.defer_for_upstream_reloads
+            future.set_result(
+                MaterializeViewWorkflowResult(
+                    job_id=f"job-{child_inputs.node_id}",
+                    node_id=child_inputs.node_id,
+                    rows_materialized=0 if skipped else 10,
+                    duration_seconds=1,
+                    skip_reason="Skipped because a sync is loading the upstream table again." if skipped else None,
+                )
+            )
+            return future
+
+        async def execute_activity(fn: object, *args: object, **kwargs: object) -> object:
+            if fn == get_dag_structure_activity:
+                return plan
+            if fn == check_team_managed_warehouse_shadow_eligibility_activity:
+                return False
+            if getattr(fn, "__name__", None) == "nodes_waiting_on_upstream_reloads_activity":
+                check = next(checks)
+                if isinstance(check, Exception):
+                    raise check
+                return check
+            return None
+
+        async def sleep(duration: dt.timedelta) -> None:
+            clock[0] += duration
+
+        info = MagicMock()
+        info.workflow_id = "execute-dag-dag:3600-2026-01-01T00:00:00Z"
+        start_child_mock = AsyncMock(side_effect=start_child)
+        execute_activity_mock = AsyncMock(side_effect=execute_activity)
+        sleep_mock = AsyncMock(side_effect=sleep)
+        with (
+            patch.object(temporal_workflow, "execute_activity", new=execute_activity_mock),
+            patch.object(temporal_workflow, "start_child_workflow", new=start_child_mock),
+            patch.object(temporal_workflow, "sleep", new=sleep_mock),
+            patch.object(temporal_workflow, "now", side_effect=lambda: clock[0]),
+            patch.object(temporal_workflow, "info", return_value=info),
+            patch.object(temporal_workflow, "metric_meter", return_value=MagicMock()),
+            patch.object(temporal_workflow, "logger"),
+            patch.object(temporal_workflow, "patched", return_value=True),
+            patch("posthog.temporal.data_modeling.workflows.execute_dag.capture_exception"),
+        ):
+            result = await ExecuteDAGWorkflow().run(inputs)
+        children = {
+            call.args[1].node_id: call.args[1].defer_for_upstream_reloads
+            for call in start_child_mock.await_args_list
+            if isinstance(call.args[1], MaterializeViewWorkflowInputs)
+        }
+        follow_ups = [call for call in start_child_mock.await_args_list if isinstance(call.args[1], ExecuteDAGInputs)]
+        return result, children, follow_ups, sleep_mock
+
+    async def test_a_scheduled_run_starts_one_follow_up_for_the_skipped_node_and_its_downstream(self) -> None:
+        result, children, follow_ups, _ = await self._run(ExecuteDAGInputs(team_id=1, dag_id="dag"))
+
+        assert children == {"a": True, "b": True}
+        assert (result.successful_nodes, result.failed_nodes, result.skipped_nodes) == (1, 0, 1)
+        [follow_up] = follow_ups
+        assert follow_up.args[1] == ExecuteDAGInputs(
+            team_id=1, dag_id="dag", node_ids=["a", "b"], wait_for_upstream_reloads=True
+        )
+        assert follow_up.kwargs["id"] == "execute-dag-after-reload-clickhouse-dag:3600"
+        assert follow_up.kwargs["parent_close_policy"] == ParentClosePolicy.ABANDON
+
+    @pytest.mark.parametrize(
+        "waiting_checks,expected_sleeps",
+        [
+            ([["a"], []], 1),
+            ([["a"]] * 100, int(MAX_UPSTREAM_RELOAD_WAIT / UPSTREAM_RELOAD_RECHECK_INTERVAL)),
+            ([RuntimeError("check failed")], 0),
+        ],
+    )
+    async def test_a_follow_up_waits_for_the_reload_then_runs_its_nodes_without_deferring(
+        self, waiting_checks: list[list[str] | Exception], expected_sleeps: int
+    ) -> None:
+        inputs = ExecuteDAGInputs(team_id=1, dag_id="dag", node_ids=["a", "b"], wait_for_upstream_reloads=True)
+
+        result, children, follow_ups, sleep_mock = await self._run(inputs, waiting_checks=waiting_checks)
+
+        assert sleep_mock.await_count == expected_sleeps
+        assert children == {"a": False, "b": False}
+        assert result.successful_nodes == 2
+        assert follow_ups == []

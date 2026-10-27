@@ -15,12 +15,14 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.data_modeling.activities import (
     UPSTREAM_NAMES_IN_SKIP_REASON,
     GetDAGStructureInputs,
+    NodesWaitingOnUpstreamReloadsInputs,
     NotifyDAGMaterializationFailuresInputs,
     PreemptDAGRunInputs,
     RecordSkippedDataModelingJobsInputs,
     SkippedDataModelingNode,
     check_team_managed_warehouse_shadow_eligibility_activity,
     get_dag_structure_activity,
+    nodes_waiting_on_upstream_reloads_activity,
     notify_dag_materialization_failures_activity,
     preempt_dag_run_activity,
     record_skipped_data_modeling_jobs_activity,
@@ -53,6 +55,21 @@ TRINO_SHADOW_DAG_RUN_PATCH = "data-modeling-trino-shadow-dag-run"
 # Under a day, so a run that uses its whole budget still ends before the next daily shadow starts.
 TRINO_SHADOW_RUN_TIMEOUT = dt.timedelta(hours=23)
 
+AFTER_UPSTREAM_RELOADS_PATCH = "data-modeling-run-after-upstream-reloads"
+UPSTREAM_RELOAD_RECHECK_INTERVAL = dt.timedelta(minutes=30)
+# A full refresh can take most of a day. A table that is loaded again without a break must still
+# get a materialization, so after this long the wait ends and the run uses the partial table.
+MAX_UPSTREAM_RELOAD_WAIT = dt.timedelta(hours=24)
+# The wait plus room for the run itself, so a wedged follow-up frees its id for the next one.
+AFTER_UPSTREAM_RELOADS_RUN_TIMEOUT = MAX_UPSTREAM_RELOAD_WAIT + dt.timedelta(hours=8)
+
+
+def _tier(workflow_id: str, dag_id: str) -> str | None:
+    tier_prefix = f"execute-dag-{dag_id}:"
+    if workflow_id.startswith(tier_prefix):
+        return workflow_id[len(tier_prefix) :].split("-", 1)[0] or None
+    return None
+
 
 def trino_shadow_workflow_id(workflow_id: str, dag_id: str) -> str:
     """The fixed id of the Trino shadow run for the DAG run with this workflow id.
@@ -61,12 +78,18 @@ def trino_shadow_workflow_id(workflow_id: str, dag_id: str) -> str:
     its own shadow id. Any other run shares one id per DAG. A fixed id lets Temporal refuse a
     second shadow while the previous one is still running.
     """
-    tier_prefix = f"execute-dag-{dag_id}:"
-    if workflow_id.startswith(tier_prefix):
-        tier = workflow_id[len(tier_prefix) :].split("-", 1)[0]
-        if tier:
-            return f"execute-dag-trino-{dag_id}:{tier}"
-    return f"execute-dag-trino-{dag_id}"
+    tier = _tier(workflow_id, dag_id)
+    return f"execute-dag-trino-{dag_id}:{tier}" if tier else f"execute-dag-trino-{dag_id}"
+
+
+def after_upstream_reloads_workflow_id(workflow_id: str, dag_id: str, engine: str) -> str:
+    """The fixed id of the follow-up run for the nodes a DAG run skipped during an upstream reload.
+
+    One per tier and engine, so a later skipping run of the same tier finds the follow-up still waiting.
+    """
+    tier = _tier(workflow_id, dag_id)
+    base = f"execute-dag-after-reload-{engine}-{dag_id}"
+    return f"{base}:{tier}" if tier else base
 
 
 class EmptyDAGOrCycleError(Exception):
@@ -98,6 +121,8 @@ class ExecuteDAGInputs:
     shadow: bool = False
     # The person who asked for this run. A run with one does not wait for upstream reloads.
     manually_triggered_by_id: int | None = None
+    # A follow-up run for nodes an earlier run skipped. It waits for the upstream reloads, then runs.
+    wait_for_upstream_reloads: bool = False
 
     @property
     def properties_to_log(self) -> dict:
@@ -248,6 +273,8 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: ExecuteDAGInputs) -> ExecuteDAGResult:
         temporalio.workflow.logger.info("Starting ExecuteDAGWorkflow", extra=inputs.properties_to_log)
+        if inputs.wait_for_upstream_reloads:
+            await self._wait_for_upstream_reloads(inputs)
         # NOTE: this should be handled by temporal's cancellation policy but
         # we leave this in to clean up any jobs left in a dirty state
         await temporalio.workflow.execute_activity(
@@ -305,7 +332,12 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 node_results=[],
             )
 
-        if not inputs.managed_warehouse_only and temporalio.workflow.patched(TRINO_SHADOW_DAG_RUN_PATCH):
+        # A follow-up's nodes already got a shadow, which starts its own follow-up when it skips.
+        if (
+            not inputs.managed_warehouse_only
+            and not inputs.wait_for_upstream_reloads
+            and temporalio.workflow.patched(TRINO_SHADOW_DAG_RUN_PATCH)
+        ):
             await self._maybe_start_trino_shadow(inputs)
 
         edge_lookup = _get_edge_lookup(dag_structure.edges)
@@ -428,7 +460,9 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                         dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
                         skip_trino=bool(blocked_trino_upstreams),
                         manually_triggered_by_id=inputs.manually_triggered_by_id,
-                        defer_for_upstream_reloads=inputs.manually_triggered_by_id is None,
+                        defer_for_upstream_reloads=(
+                            inputs.manually_triggered_by_id is None and not inputs.wait_for_upstream_reloads
+                        ),
                     )
                     trino_skip = (
                         SkippedDataModelingNode(
@@ -607,6 +641,17 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
             )
 
+        # A reload skip keeps its node's previous data and succeeds, unlike every other skip.
+        reload_skipped = {r.node_id for r in node_results if r.skipped and r.success}
+        if (
+            reload_skipped
+            and not inputs.wait_for_upstream_reloads
+            and temporalio.workflow.patched(AFTER_UPSTREAM_RELOADS_PATCH)
+        ):
+            # The nodes downstream ran on the old data, so they run again after the skipped ones.
+            follow_up_nodes = reload_skipped.union(*(downstreams[node_id] for node_id in reload_skipped))
+            await self._start_run_after_upstream_reloads(inputs, sorted(follow_up_nodes & set(executable_nodes)))
+
         return ExecuteDAGResult(
             dag_id=inputs.dag_id,
             scheduled_nodes=len(node_results),
@@ -616,6 +661,74 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             duration_seconds=duration_seconds,
             node_results=node_results,
         )
+
+    async def _wait_for_upstream_reloads(self, inputs: ExecuteDAGInputs) -> None:
+        """Return once no sync is loading a table these nodes read, or after the longest wait.
+
+        A failed check ends the wait, so a broken check never stops a materialization.
+        """
+        wait_started = temporalio.workflow.now()
+        while temporalio.workflow.now() - wait_started < MAX_UPSTREAM_RELOAD_WAIT:
+            try:
+                waiting = await temporalio.workflow.execute_activity(
+                    nodes_waiting_on_upstream_reloads_activity,
+                    NodesWaitingOnUpstreamReloadsInputs(
+                        team_id=inputs.team_id,
+                        dag_id=inputs.dag_id,
+                        node_ids=inputs.node_ids or [],
+                        engine=_serving_engine(inputs),
+                    ),
+                    start_to_close_timeout=dt.timedelta(minutes=5),
+                    retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
+                )
+            except Exception as e:
+                if _is_cancellation(e):
+                    raise
+                capture_exception(e)
+                temporalio.workflow.logger.warning(
+                    "Could not check for upstream reloads, running without the check",
+                    extra={"error": str(e), **inputs.properties_to_log},
+                )
+                return
+            if not waiting:
+                return
+            await temporalio.workflow.sleep(UPSTREAM_RELOAD_RECHECK_INTERVAL)
+        temporalio.workflow.logger.warning(
+            "Upstream tables are still being loaded again, materializing anyway", extra=inputs.properties_to_log
+        )
+
+    async def _start_run_after_upstream_reloads(self, inputs: ExecuteDAGInputs, node_ids: list[str]) -> None:
+        """Start the run that materializes these nodes once the upstream reloads end.
+
+        A run of the DAG keeps the concurrency limit, the node order, preemption and the failure
+        notifications. ABANDON, so it outlives this run.
+        """
+        try:
+            await temporalio.workflow.start_child_workflow(
+                ExecuteDAGWorkflow.run,
+                dataclasses.replace(
+                    inputs, node_ids=node_ids, wait_for_upstream_reloads=True, manually_triggered_by_id=None
+                ),
+                id=after_upstream_reloads_workflow_id(
+                    temporalio.workflow.info().workflow_id, inputs.dag_id, _serving_engine(inputs)
+                ),
+                parent_close_policy=ParentClosePolicy.ABANDON,
+                execution_timeout=AFTER_UPSTREAM_RELOADS_RUN_TIMEOUT,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+            )
+        except WorkflowAlreadyStartedError:
+            # The waiting run may not hold every node skipped here. The next scheduled run covers them.
+            temporalio.workflow.logger.info(
+                "A run after upstream reloads is already waiting", extra=inputs.properties_to_log
+            )
+        except Exception as e:
+            if _is_cancellation(e):
+                raise
+            capture_exception(e)
+            temporalio.workflow.logger.warning(
+                "Could not start the run after upstream reloads",
+                extra={"error": str(e), **inputs.properties_to_log},
+            )
 
     async def _maybe_start_trino_shadow(self, inputs: ExecuteDAGInputs) -> None:
         """Start a managed_warehouse_only run of the same nodes when the org shadows into Trino.

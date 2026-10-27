@@ -94,13 +94,7 @@ NON_RETRYABLE_ERRORS = [
 ]
 
 CLICKHOUSE_RUN_WITHOUT_TRINO_SHADOW_PATCH = "data-modeling-clickhouse-run-without-trino-shadow"
-WAIT_FOR_UPSTREAM_RELOADS_PATCH = "data-modeling-wait-for-upstream-reloads"
-UPSTREAM_RELOAD_RECHECK_INTERVAL = dt.timedelta(minutes=30)
-# A full refresh can take most of a day. A table that is loaded again without a break must still
-# get a materialization, so after this long the wait ends and the run uses the partial table.
-MAX_UPSTREAM_RELOAD_WAIT = dt.timedelta(hours=24)
-# The wait plus room for the materialization itself, so a wedged follow-up frees its id for the next one.
-FOLLOW_UP_RUN_TIMEOUT = MAX_UPSTREAM_RELOAD_WAIT + dt.timedelta(hours=8)
+SKIP_ON_UPSTREAM_RELOADS_PATCH = "data-modeling-skip-on-upstream-reloads"
 
 
 def _is_cancellation(error: BaseException) -> bool:
@@ -132,8 +126,6 @@ class MaterializeViewWorkflowInputs:
     skip_trino: bool = False
     # A scheduled DAG run sets this. It skips while a sync loads an upstream table again from empty.
     defer_for_upstream_reloads: bool = False
-    # A follow-up run started by a run that skipped for an upstream reload. It waits for the reload.
-    wait_for_upstream_reloads: bool = False
     # Old workflow payloads contain this field, so removing it would prevent replay after deployment.
     duckgres_only: bool = False
 
@@ -243,18 +235,14 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         temporalio.workflow.logger.info("Starting MaterializeViewWorkflow", extra=inputs.properties_to_log)
         start_time = temporalio.workflow.now()
         parent_info = temporalio.workflow.info().parent
-        # A follow-up run outlives the run that started it and no DAG reports its failures, so it
-        # records no parent and notifies like any other run started outside a DAG.
-        parent_workflow_id = parent_info.workflow_id if parent_info and not inputs.wait_for_upstream_reloads else None
+        parent_workflow_id = parent_info.workflow_id if parent_info else None
         tier = tier_label(parent_workflow_id)
         job_id = None
         managed_warehouse_job_id = None
         managed_warehouse_only = inputs.managed_warehouse_only
 
-        if (inputs.defer_for_upstream_reloads or inputs.wait_for_upstream_reloads) and temporalio.workflow.patched(
-            WAIT_FOR_UPSTREAM_RELOADS_PATCH
-        ):
-            skipped = await self._skip_or_wait_for_upstream_reloads(inputs, parent_workflow_id)
+        if inputs.defer_for_upstream_reloads and temporalio.workflow.patched(SKIP_ON_UPSTREAM_RELOADS_PATCH):
+            skipped = await self._skip_on_upstream_reloads(inputs, parent_workflow_id)
             if skipped is not None:
                 return skipped
 
@@ -607,45 +595,23 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             trino_materialized=trino_materialized,
         )
 
-    async def _skip_or_wait_for_upstream_reloads(
+    async def _skip_on_upstream_reloads(
         self, inputs: MaterializeViewWorkflowInputs, parent_workflow_id: str | None
     ) -> MaterializeViewWorkflowResult | None:
         """A result when the run skips because a sync is loading an upstream table, else None.
 
-        A scheduled run skips at once, so it does not hold a DAG slot, and starts one follow-up run
-        per node. The follow-up run waits until the sync finishes, then materializes.
+        The run skips at once, so it does not hold a DAG slot. The DAG run starts one follow-up run
+        for the skipped nodes, which waits for the sync and then materializes them.
         """
         engine = MANAGED_WAREHOUSE_ENGINE if inputs.managed_warehouse_only else CLICKHOUSE_ENGINE
-        check_inputs = CheckUpstreamReloadsInputs(
-            team_id=inputs.team_id, dag_id=inputs.dag_id, node_id=inputs.node_id, engine=engine
-        )
-        if inputs.wait_for_upstream_reloads:
-            wait_started = temporalio.workflow.now()
-            while True:
-                check = await self._check_upstream_reloads(
-                    dataclasses.replace(check_inputs, superseded_after=wait_started)
-                )
-                if check.superseded_by_job_id is not None:
-                    # A scheduled run took the node after the reload ended. Running too would
-                    # write the same table twice, possibly at the same time.
-                    return MaterializeViewWorkflowResult(
-                        job_id=check.superseded_by_job_id,
-                        node_id=inputs.node_id,
-                        rows_materialized=0,
-                        duration_seconds=0,
-                    )
-                if check.reason is None:
-                    return None
-                if temporalio.workflow.now() - wait_started >= MAX_UPSTREAM_RELOAD_WAIT:
-                    temporalio.workflow.logger.warning(
-                        "Upstream table is still being loaded again, materializing anyway",
-                        extra=inputs.properties_to_log,
-                    )
-                    return None
-                await temporalio.workflow.sleep(UPSTREAM_RELOAD_RECHECK_INTERVAL)
-
         check = await self._check_upstream_reloads(
-            dataclasses.replace(check_inputs, record_skipped_job=True, parent_workflow_id=parent_workflow_id)
+            CheckUpstreamReloadsInputs(
+                team_id=inputs.team_id,
+                dag_id=inputs.dag_id,
+                node_id=inputs.node_id,
+                engine=engine,
+                parent_workflow_id=parent_workflow_id,
+            )
         )
         if check.reason is None or check.skipped_job_id is None:
             return None
@@ -656,35 +622,6 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         get_node_finished_metric("skipped", engine, tier=tier_label(parent_workflow_id), run_mode=UNKNOWN_RUN_MODE).add(
             1
         )
-        try:
-            await temporalio.workflow.start_child_workflow(
-                MaterializeViewWorkflow.run,
-                MaterializeViewWorkflowInputs(
-                    team_id=inputs.team_id,
-                    dag_id=inputs.dag_id,
-                    node_id=inputs.node_id,
-                    managed_warehouse_only=inputs.managed_warehouse_only,
-                    dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
-                    wait_for_upstream_reloads=True,
-                ),
-                # One follow-up per node and engine: a later skipped run finds this one still waiting.
-                # The DAG prefix lets the next DAG run preempt it like one of its own children.
-                id=f"materialize-view-{inputs.dag_id}-{inputs.node_id}-after-reload-{engine}",
-                id_reuse_policy=temporalio.common.WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
-                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
-                execution_timeout=FOLLOW_UP_RUN_TIMEOUT,
-            )
-        except WorkflowAlreadyStartedError:
-            pass
-        except Exception as e:
-            if _is_cancellation(e):
-                raise
-            capture_exception(e)
-            temporalio.workflow.logger.warning(
-                "Could not start the run that waits for the upstream reload",
-                extra={"error": str(e), **inputs.properties_to_log},
-            )
         return MaterializeViewWorkflowResult(
             job_id=check.skipped_job_id,
             node_id=inputs.node_id,
