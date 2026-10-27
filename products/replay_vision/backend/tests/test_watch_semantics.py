@@ -203,9 +203,10 @@ class TestAssignSemantics(BaseTest):
 
     def test_the_backfill_fills_only_what_a_ranked_row_is_missing(self) -> None:
         grouped = self._observation()
-        ReplayObservation.objects.filter(id=grouped.id).update(watch_rank={**_rank(), "group": "kept"})
-        vector = np.zeros(3072, dtype=np.float32)
-        vector[0] = 1.0
+        ReplayObservation.objects.filter(id=grouped.id).update(
+            watch_rank={**_rank(), "group": "kept"}, status="succeeded", completed_at=timezone.now()
+        )
+        vector = np.array([1.0, 0.0, 0.0], dtype=np.float32)
         with (
             patch(f"{_BACKFILL}._stored_vectors", return_value={str(grouped.id): vector}),
             patch(f"{_BACKFILL}.anchor_vectors", AsyncMock(return_value=axis_anchors())),

@@ -137,11 +137,10 @@ class TestWatchRankConsumer(BaseTest):
             assert observation.watch_rank is not None
             assert expected_rank.items() <= observation.watch_rank.items()
             assert observation.watch_rank.get("group")
-            assert (
-                ReplayObservationAnchorSimilarity.objects.for_team(self.team.id)
-                .filter(observation=observation)
-                .exists()
-            )
+            # A redelivery returns before ranking, so only a fresh rank writes the similarity row.
+            assert ReplayObservationAnchorSimilarity.objects.for_team(self.team.id).filter(
+                observation=observation
+            ).exists() == (outcome == "ranked")
 
     @parameterized.expand(
         [

@@ -46,18 +46,23 @@ def backfill_team_semantics(team_id: int, since: datetime, *, dry_run: bool = Fa
             observation_id=OuterRef("id"), anchor_version=ANCHOR_VERSION
         )
     )
-    rows = (
+    pending = (
         ReplayObservation.objects.filter(
             team_id=team_id, status="succeeded", created_at__gte=since, watch_rank__anchor_version=ANCHOR_VERSION
         )
         .annotate(has_similarities=has_similarities)
         .filter(Q(watch_rank__group__isnull=True) | Q(watch_rank__scores__isnull=True) | Q(has_similarities=False))
-        .order_by("scanner_id", "created_at")
-        .values_list("id", "scanner_id", "created_at", "watch_rank", "has_similarities")
     )
-    by_scanner: dict[str, list[_Pending]] = {}
-    for observation_id, scanner_id, created_at, rank, has_row in rows.iterator(chunk_size=2_000):
-        by_scanner.setdefault(str(scanner_id), []).append(
+    scanner_ids = [str(scanner_id) for scanner_id in pending.values_list("scanner_id", flat=True).distinct()]
+    if dry_run:
+        return SemanticBackfillResult(observations=pending.count(), assigned=0, named=0)
+
+    anchors = async_to_sync(anchor_vectors)(team_id)
+    observations = 0
+    assigned = 0
+    # One scanner at a time, so memory stays at one scanner's pending rows however large the team's window is.
+    for scanner_id in scanner_ids:
+        scanner_rows = [
             _Pending(
                 observation_id=str(observation_id),
                 created_at=created_at,
@@ -65,14 +70,12 @@ def backfill_team_semantics(team_id: int, since: datetime, *, dry_run: bool = Fa
                 needs_scores=(rank or {}).get("scores") is None,
                 needs_similarities=not has_row,
             )
-        )
-    observations = sum(len(scanner_rows) for scanner_rows in by_scanner.values())
-    if dry_run:
-        return SemanticBackfillResult(observations=observations, assigned=0, named=0)
-
-    anchors = async_to_sync(anchor_vectors)(team_id)
-    assigned = 0
-    for scanner_id, scanner_rows in by_scanner.items():
+            for observation_id, created_at, rank, has_row in pending.filter(scanner_id=scanner_id)
+            .order_by("created_at")
+            .values_list("id", "created_at", "watch_rank", "has_similarities")
+            .iterator(chunk_size=2_000)
+        ]
+        observations += len(scanner_rows)
         for start in range(0, len(scanner_rows), _VECTOR_CHUNK):
             chunk = scanner_rows[start : start + _VECTOR_CHUNK]
             vectors = _stored_vectors(team_id, scanner_id, [row.observation_id for row in chunk], since)
