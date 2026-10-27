@@ -1,3 +1,4 @@
+import sys
 import math
 import time
 import asyncio
@@ -5315,6 +5316,29 @@ class TestBatchPhaseTracking:
         consumer._report_health()
         assert BATCHES_IN_PHASE.labels(phase="write")._value.get() == 0
 
+    @pytest.mark.parametrize(
+        "ticks, expected_dumps",
+        [
+            pytest.param(["a"], 1, id="first_trip_dumps"),
+            pytest.param(["a", "a", "a"], 1, id="same_batch_dumps_once"),
+            pytest.param(["a", "b"], 2, id="different_batch_dumps_again"),
+        ],
+    )
+    def test_watchdog_trip_dumps_thread_stacks_once_per_stuck_batch(
+        self, ticks: list[str], expected_dumps: int
+    ) -> None:
+        consumer = _make_consumer(stuck_batch_timeout_seconds=0.0)
+        consumer._health_reporter = lambda: None
+
+        with patch.object(batch_consumer_module.faulthandler, "dump_traceback") as dump:
+            for batch_id in ticks:
+                consumer._inflight_started = {batch_id: time.monotonic() - 10}
+                consumer._report_health()
+
+        assert dump.call_count == expected_dumps
+        for call in dump.call_args_list:
+            assert call.kwargs == {"file": sys.stderr, "all_threads": True}
+
     def test_watchdog_trip_names_the_phase_the_batch_stopped_in(self) -> None:
         from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_phase
 
@@ -5328,8 +5352,9 @@ class TestBatchPhaseTracking:
             consumer._report_health()
 
         assert calls == []  # tripped: liveness withheld
-        logger.error.assert_called_once()
-        kwargs = logger.error.call_args.kwargs
+        tripped = [c for c in logger.error.call_args_list if "stuck_batch_watchdog_tripped" in c.args[0]]
+        assert len(tripped) == 1
+        kwargs = tripped[0].kwargs
         assert kwargs.get("batch_id") == batch.id
         assert kwargs.get("phase") == "write"
         assert kwargs.get("phase_seconds") is not None

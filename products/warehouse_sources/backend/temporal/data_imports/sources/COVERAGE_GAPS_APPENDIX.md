@@ -8850,10 +8850,10 @@ Today (4): `air_pollution`, `air_pollution_forecast`, `current_weather`, `foreca
 
 Diffed against: <https://openweathermap.org/api>
 
-- [ ] `/data/2.5/air_pollution/history` — historical air quality back to Nov 2020 — the only way to trend AQI; today only current + forecast are synced (high)
-- [ ] `Geocoding API (/geo/1.0/direct, /geo/1.0/reverse, /geo/1.0/zip)` — lookup table resolving city/state/country/ZIP to the lat/lon that every synced row is keyed on (high)
-- [ ] `One Call API 3.0/4.0 (/data/3.0/onecall)` — unified current + minutely + hourly + daily + government weather alerts in one row set; the vendor's headline product (high)
-- [ ] `Weather History API (/data/3.0/onecall/timemachine, /data/2.5/history/city)` — hourly historical observations — required for any backward-looking weather correlation (high)
+- [x] `/data/2.5/air_pollution/history` — historical air quality back to Nov 2020 — the only way to trend AQI; today only current + forecast are synced (high)
+- [x] `Geocoding API (/geo/1.0/direct, /geo/1.0/reverse, /geo/1.0/zip)` — lookup table resolving city/state/country/ZIP to the lat/lon that every synced row is keyed on (high)
+- [x] `One Call API 3.0/4.0 (/data/3.0/onecall)` — unified current + minutely + hourly + daily + government weather alerts in one row set; the vendor's headline product (high)
+- [x] `Weather History API (/data/3.0/onecall/timemachine, /data/2.5/history/city)` — hourly historical observations — required for any backward-looking weather correlation (high)
 - [ ] `One Call day summary (/data/3.0/onecall/day_summary)` — pre-aggregated daily weather rollup, the natural grain for joining against daily business metrics (medium)
 - [ ] `Daily Forecast 16 days (/data/2.5/forecast/daily)` — extends forecast horizon past the 5-day/3-hour table already synced (medium)
 - [ ] `Hourly Forecast 4 days (/data/2.5/forecast/hourly)` — finer-grained forecast than the 3-hour table (medium)
@@ -8917,10 +8917,10 @@ Today (6): `audiences`, `campaigns`, `events`, `experiments`, `pages`, `projects
 
 Diffed against: <https://api.optimizely.com/v2/swagger.json>
 
-- [ ] `GET /experiments/{experiment_id}/results` — the experiment results payload (variation conversions, lift, significance) — the product's headline metric, entirely absent today (high)
-- [ ] `GET /experiments/{experiment_id}/timeseries` — day-by-day results series, required to plot experiment progression rather than a single snapshot (high)
-- [ ] `GET /campaigns/{campaign_id}/results` — same headline metric for the campaigns table already synced (high)
-- [ ] `GET /attributes` — lookup resolving the visitor attribute IDs referenced by synced audiences and experiment targeting (high)
+- [x] `GET /experiments/{experiment_id}/results` — the experiment results payload (variation conversions, lift, significance) — the product's headline metric, entirely absent today (high)
+- [x] `GET /experiments/{experiment_id}/timeseries` — day-by-day results series, required to plot experiment progression rather than a single snapshot (high)
+- [x] `GET /campaigns/{campaign_id}/results` — same headline metric for the campaigns table already synced (high)
+- [x] `GET /attributes` — lookup resolving the visitor attribute IDs referenced by synced audiences and experiment targeting (high)
 - [ ] `GET /environments` — lookup resolving the environment IDs carried on experiments and features (medium)
 - [ ] `GET /features` — feature (flag) definitions are a first-class experimentation object here, not vendor plumbing — needed to join rollout results (medium)
 - [ ] `GET /changes` — change history across experiments and pages — audit/transition table for who changed what and when (medium)
@@ -8944,10 +8944,10 @@ Today (7): `Coupons`, `CreditNotes`, `Customers`, `Invoices`, `Items`, `Plans`, 
 
 Diffed against: <https://raw.githubusercontent.com/orbcorp/orb-node/main/api.md>
 
-- [ ] `GET /prices` — lookup resolving the price IDs carried on every synced plan, subscription and invoice line item (high)
-- [ ] `GET /metrics (billable metrics)` — lookup resolving the billable-metric IDs that prices reference; without it usage-based charges are unexplainable (high)
-- [ ] `GET /customers/{customer_id}/credits/ledger` — credit grant/decrement transaction log — the ledger a warehouse user needs for prepaid-balance analysis (high)
-- [ ] `GET /customers/{customer_id}/balance_transactions` — customer account balance movements over time, joined to synced customers and invoices (high)
+- [x] `GET /prices` — lookup resolving the price IDs carried on every synced plan, subscription and invoice line item (high)
+- [x] `GET /metrics (billable metrics)` — lookup resolving the billable-metric IDs that prices reference; without it usage-based charges are unexplainable (high)
+- [x] `GET /customers/{customer_id}/credits/ledger` — credit grant/decrement transaction log — the ledger a warehouse user needs for prepaid-balance analysis (high)
+- [x] `GET /customers/{customer_id}/balance_transactions` — customer account balance movements over time, joined to synced customers and invoices (high)
 - [ ] `GET /customers/{customer_id}/costs` — per-customer cost breakdown by price/metric over a timeframe — Orb's headline revenue metric (high)
 - [ ] `GET /subscriptions/{subscription_id}/usage` — usage quantities per billable metric per subscription, the raw driver of every invoice line (medium)
 - [ ] `GET /subscription_changes` — state-transition history for the subscriptions table already synced (upgrades, downgrades, cancellations) (medium)
@@ -9003,10 +9003,10 @@ Today (6): `budgets`, `campaign_performance`, `campaigns`, `marketer_performance
 
 Diffed against: <https://jsapi.apiary.io/apis/amplifyv01/api-description-document>
 
-- [ ] `/reports/marketers/{id}/promotedContent` — per-ad (promoted link) performance - we sync promoted_links metadata but no spend/clicks/conversions against them (high)
-- [ ] `/reports/marketers/{id}/publishers` — publisher breakdown, the core Outbrain optimization dimension (high)
-- [ ] `/reports/marketers/{id}/sections` — section/placement breakdown - the finest-grained supply dimension advertisers block or bid on (high)
-- [ ] `/marketers/{id}/conversionEvents` — lookup table resolving the conversion event ids that appear in every report's conversion details (high)
+- [x] `/reports/marketers/{id}/promotedContent` — per-ad (promoted link) performance - we sync promoted_links metadata but no spend/clicks/conversions against them (high)
+- [x] `/reports/marketers/{id}/publishers` — publisher breakdown, the core Outbrain optimization dimension (high)
+- [x] `/reports/marketers/{id}/sections` — section/placement breakdown - the finest-grained supply dimension advertisers block or bid on (high)
+- [x] `/marketers/{id}/conversionEvents` — lookup table resolving the conversion event ids that appear in every report's conversion details (high)
 - [ ] `/reports/marketers/{id}/campaigns/periodic` — daily per-campaign time series; campaign_performance today is only a date-range rollup (high)
 - [ ] `/reports/marketers/{id}/geo` — geo breakdown with country/region granularity (medium)
 - [ ] `/reports/marketers/{id}/platforms` — device/platform breakdown (medium)
@@ -9024,10 +9024,10 @@ Today (9): `Bookings`, `Deposits`, `Fees`, `Guests`, `Payments`, `Properties`, `
 
 Diffed against: <https://api.ownerreservations.com/openapi/v2.json>
 
-- [ ] `Owners (GET /v2/owners)` — resolve owner_id values on properties and bookings for revenue analysis by owner (high)
-- [ ] `Listing Sites (GET /v2/listingsites)` — resolve listing_site_id values on bookings and quotes for acquisition channel analysis (high)
-- [ ] `Calendar (GET /v2/calendar)` — measure available nights, blocked nights, occupancy, and nightly rates by property (high)
-- [ ] `Inquiries (GET /v2/inquiries)` — measure inquiry conversion into quotes and bookings (medium)
+- [x] `Owners (GET /v2/owners)` — resolve owner_id values on properties and bookings for revenue analysis by owner (high)
+- [x] `Listing Sites (GET /v2/listingsites)` — resolve listing_site_id values on bookings and quotes for acquisition channel analysis (high)
+- [x] `Calendar (GET /v2/calendar)` — measure available nights, blocked nights, occupancy, and nightly rates by property (high)
+- [x] `Inquiries (GET /v2/inquiries)` — measure inquiry conversion into quotes and bookings (medium)
 - [ ] `Listings (GET /v2/listings)` — compare property amenities and room details with booking demand and revenue (medium)
 - [ ] `Messages (GET /v2/messages)` — analyze guest communication volume and response times by booking thread (medium)
 - [ ] `Fields (GET /v2/fields)` — add custom entity attributes to booking, guest, and property analysis (medium)
@@ -9085,10 +9085,10 @@ Diffed against: <https://raw.githubusercontent.com/PagerDuty/api-schema/main/ref
 - [x] `/incidents/{id}/alerts` — alert-level rows under each incident; the actual monitoring events, and where dedup/noise analysis happens (high)
 - [x] `/teams/{id}/members` — membership lookup joining users to the teams we already sync (high)
 - [x] `/change_events` — deploy/change events, the standard correlate-incidents-to-deploys join (high)
-- [ ] `/analytics/raw/incidents (POST)` — precomputed per-incident MTTA/MTTR, engaged seconds, and escalation counts (high)
-- [ ] `/incidents/{id}/notes` — responder notes attached to incidents, for postmortem/context analysis (medium)
-- [ ] `/schedules/{id}/users` — membership lookup resolving which users belong to each schedule we already sync (medium)
-- [ ] `/v3/schedules/{id}/rotations (and /overrides)` — rotation and override rows - the actual shift structure behind a schedule (medium)
+- [x] `/analytics/raw/incidents (POST)` — precomputed per-incident MTTA/MTTR, engaged seconds, and escalation counts (high). Added as `incident_analytics` (incremental on `updated_at`)
+- [x] `/incidents/{id}/notes` — responder notes attached to incidents, for postmortem/context analysis (medium). Added as `incident_notes` (fan-out over `incidents`)
+- [ ] `/schedules/{id}/users` — skipped: the endpoint lists the users on call in a time window, not schedule membership; membership is already in the `users` column of `schedules`, and who is on call is in `oncalls` (medium)
+- [ ] `/v3/schedules/{id}/rotations (and /overrides)` — skipped: these belong to the separate v3 shift-based schedules API, not the REST v2 API this source implements; v3 schedules need their own `/v3/schedules` parent, and overrides require a `since`/`until` shift window, so a synced table would silently drop history outside it (medium)
 - [ ] `/business_services` — business service layer plus /business_services/impacts, needed to roll incidents up to business impact (medium)
 - [ ] `/maintenance_windows` — suppression windows; without them uptime and alert-volume math is wrong (medium)
 - [ ] `/audit/records` — state/transition history across services, schedules, and policies (medium)

@@ -153,6 +153,7 @@ class Suggestion:
     can_act: bool
     subject_source_id: UUID | None = None
     subject_schema_id: UUID | None = None
+    assignee: SuggestionReviewer | None = None
 
 
 @frozen
@@ -250,6 +251,14 @@ class AcceptOptionRefusedError(Exception):
 
 
 class SuggestionOutdatedError(Exception):
+    pass
+
+
+class AssigneeCannotActError(Exception):
+    pass
+
+
+class SuggestionNotOpenError(Exception):
     pass
 
 
