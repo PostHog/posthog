@@ -2041,8 +2041,9 @@ class TestAlertTestDelivery(TrendsInsightAPITest):
 
     @mock.patch("products.alerts.backend.presentation.views.alert.trigger_alert_hog_functions")
     @mock.patch("products.alerts.backend.facade.email.EmailMessage")
+    @mock.patch("products.alerts.backend.facade.email.is_email_available", return_value=True)
     def test_sends_test_delivery_to_subscribed_users_without_a_destination(
-        self, mock_email_message, mock_trigger
+        self, _mock_available, mock_email_message, mock_trigger
     ) -> None:
         alert = AlertConfiguration.objects.get(id=self.alert["id"])
         AlertSubscription.objects.create(alert_configuration=alert, user=self.user)
@@ -2062,12 +2063,10 @@ class TestAlertTestDelivery(TrendsInsightAPITest):
         mock_trigger.assert_not_called()
 
     @mock.patch("products.alerts.backend.presentation.views.alert.is_email_available", return_value=False)
-    @mock.patch(
-        "products.alerts.backend.presentation.views.alert.send_test_alert_email",
-        side_effect=RuntimeError("email unavailable"),
-    )
+    @mock.patch("products.alerts.backend.facade.email.is_email_available", return_value=False)
+    @mock.patch("products.alerts.backend.facade.email.EmailMessage")
     def test_returns_email_unavailable_when_email_delivery_is_not_configured(
-        self, _mock_email, _mock_available
+        self, mock_email_message, _mock_facade_available, _mock_view_available
     ) -> None:
         alert = AlertConfiguration.objects.get(id=self.alert["id"])
         AlertSubscription.objects.create(alert_configuration=alert, user=self.user)
@@ -2078,6 +2077,7 @@ class TestAlertTestDelivery(TrendsInsightAPITest):
         assert response.json() == {
             "detail": "Email delivery is unavailable for this instance. Configure email settings before trying again."
         }
+        mock_email_message.assert_not_called()
 
     @mock.patch(
         "products.alerts.backend.presentation.views.alert.send_test_alert_email",
@@ -2876,7 +2876,12 @@ class TestAlertDestinations(APIBaseTest):
             {"key": "alert_id", "value": str(self.alert.id), "operator": "exact", "type": "event"}
         ]
         # The Slack snooze handler finds its alert through these two ids.
-        actions = next(block for block in (hog_function.inputs or {})["blocks"]["value"] if _is_actions_block(block))
+        attachment_blocks = [
+            block
+            for attachment in (hog_function.inputs or {})["attachments"]["value"]
+            for block in attachment["blocks"]
+        ]
+        actions = next(block for block in attachment_blocks if _is_actions_block(block))
         assert actions["block_id"] == "insight_alert_snooze:{event.properties.alert_id}"
         assert any(element.get("action_id") == "insight_alert_snooze" for element in actions["elements"])
 

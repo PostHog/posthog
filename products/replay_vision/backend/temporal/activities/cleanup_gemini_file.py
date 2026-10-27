@@ -3,8 +3,8 @@
 from google.genai import Client as RawGenAIClient
 from temporalio import activity
 
+from products.replay_vision.backend.gemini_client import gemini_api_key
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.gemini import gemini_api_key
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.tracking import delete_and_untrack
 from products.replay_vision.backend.temporal.types import CleanupGeminiFileInputs
 

@@ -423,14 +423,19 @@ class TestSignalReportListAPI(APIBaseTest):
             scout_config=config,
             skill_name=config.skill_name,
             skill_version=1,
-            emitted_report_ids=[str(authored.id)],
+            emitted_report_ids=[str(authored.id), None],
             edited_report_ids=[str(edited_only.id)],
         )
 
-        default_ids = {row["id"] for row in self.client.get(self._list_url()).json()["results"]}
+        with CaptureQueriesContext(connection) as ctx:
+            default_ids = {row["id"] for row in self.client.get(self._list_url()).json()["results"]}
+        report_list_sql = [q["sql"] for q in ctx.captured_queries if 'FROM "signals_signalreport"' in q["sql"]]
         opt_in_ids = {row["id"] for row in self.client.get(self._list_url(include_unlisted="true")).json()["results"]}
         retrieve_response = self.client.get(f"{self._list_url()}{authored.id}/")
 
+        assert report_list_sql
+        # A per-report containment probe of the scout run table runs before the page limit and slows every inbox load.
+        assert not any("@>" in sql for sql in report_list_sql)
         assert default_ids == {str(listed.id), str(edited_only.id)}
         assert opt_in_ids == {str(listed.id), str(edited_only.id), str(authored.id)}
         assert retrieve_response.status_code == status.HTTP_200_OK
@@ -2401,7 +2406,7 @@ class TestSignalReportListAPI(APIBaseTest):
         self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
 
         with CaptureQueriesContext(connection) as ctx:
-            # `include_unlisted` drops the inbox-listing subquery, which also aliases a table as V0.
+            # `include_unlisted` drops the inbox-listing filter, whose lateral join would match the JOIN check below.
             response = self.client.get(
                 self._list_url(has_implementation_pr="true", count_only="true", include_unlisted="true")
             )
@@ -3082,6 +3087,21 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["repo_slug"] is None
+
+    @parameterized.expand(
+        [
+            ("Scout self-improvement: signals-scout-errors - noisy rule", True),
+            ("Error rate increased", False),
+        ]
+    )
+    def test_list_classifies_scout_self_improvement_reports(self, title: str, expected: bool):
+        report = self._create_report(title=title)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["is_self_improvement_report"] is expected
 
 
 class TestAssociatedTaskRunsForReports(APIBaseTest):
