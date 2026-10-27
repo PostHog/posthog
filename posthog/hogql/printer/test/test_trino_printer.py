@@ -648,6 +648,40 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
         ("SELECT toDate(user_id) FROM users", "TRY", 'CAST("users"."user_id" AS DATE)'),
         # Fractional seconds just before midnight must not round up into the next day.
         ("SELECT toDate(user_id) FROM users", "AS TIMESTAMP(12)", "AS TIMESTAMP)"),
+        (
+            "SELECT parseDateTimeBestEffort(user_id) FROM users",
+            "'(Z|[+-][0-9]{2}:?[0-9]{2})$'",
+            "'(Z|[+-][0-9]{2}:[0-9]{2})$'",
+        ),
+        # A direct Trino table declares its physical types, so a native UUID column keeps pushdown.
+        (
+            "SELECT 1 FROM users WHERE uuid = toUUID(user_id)",
+            '("users"."uuid" = CAST("users"."user_id" AS UUID))',
+            "AS VARCHAR",
+        ),
+        ("SELECT id, NULL AS missing FROM users", 'CAST(NULL AS VARCHAR) AS "missing"', ' NULL AS "missing"'),
+        (
+            "SELECT NULL AS missing FROM users UNION ALL SELECT NULL AS missing FROM users",
+            'CAST(NULL AS VARCHAR) AS "missing"',
+            ' NULL AS "missing"',
+        ),
+        (
+            "SELECT toUnixTimestamp(created_at) + 1 AS created_at, fromUnixTimestamp(created_at) AS later FROM users",
+            'from_unixtime((CAST(to_unixtime("users"."created_at") AS BIGINT) + 1))',
+            'CAST("created_at" AS BIGINT)',
+        ),
+        (
+            "SELECT toFloat(tupleElement(kv, 2)) FROM users ARRAY JOIN JSONExtractKeysAndValuesRaw(user_id) AS kv",
+            'TRY_CAST(("__trino_unnest_0"."kv")[2] AS DOUBLE)',
+            'CAST(("__trino_unnest_0"."kv")[2] AS DOUBLE)',
+        ),
+        # ClickHouse returns NULL for a fractional float but truncates a decimal.
+        (
+            "SELECT toInt(id / 3) FROM users",
+            "= truncate(TRY_CAST(__hogql_accurate_cast_value AS DECIMAL(38, 18)))",
+            "TRY_CAST(truncate(",
+        ),
+        ("SELECT toInt(toDecimal(id, 2)) FROM users", "TRY_CAST(truncate(CAST(", "__hogql_accurate_cast_value"),
     ],
 )
 def test_lowers_clickhouse_semantics_trino_rejects(query: str, required: str, forbidden: str) -> None:
@@ -891,6 +925,22 @@ def test_lowers_event_element_materializations_to_the_physical_chain() -> None:
 
     assert 'regexp_extract("tenant"."posthog"."events"."elements_chain", %(hogql_val_0)s, 1)' in sql
     assert 'array_distinct(regexp_extract_all("tenant"."posthog"."events"."elements_chain"' in sql
+
+
+def test_uuid_comparison_on_exported_table_compares_as_varchar() -> None:
+    context = HogQLContext(
+        database=Database(include_posthog_tables=True),
+        modifiers=_trino_modifiers(),
+        enable_select_queries=True,
+        trino_table_locators={"events": ("tenant", "posthog", "events")},
+    )
+
+    sql, _ = prepare_and_print_ast(parse_select("SELECT 1 FROM events WHERE uuid = toUUID(event)"), context, "trino")
+
+    assert (
+        '(CAST("tenant"."posthog"."events"."uuid" AS VARCHAR) = '
+        'CAST(CAST("tenant"."posthog"."events"."event" AS UUID) AS VARCHAR))'
+    ) in sql
 
 
 @pytest.mark.parametrize(
@@ -2712,6 +2762,12 @@ def test_removes_noop_sample_one_for_trino() -> None:
         (
             "SELECT * FROM users UNPIVOT((value1, value2) FOR (key1, key2) IN ((user_id, id)))",
             "TRINO_UNPIVOT_SHAPE_UNSUPPORTED",
+        ),
+        # Inside a lambda, a qualifier that is also a column name would read that column instead of the table.
+        ("SELECT arrayMap(x -> x + id, [1]) AS id FROM users AS properties", "TRINO_LAMBDA_QUALIFIER_AMBIGUOUS"),
+        (
+            "SELECT arrayMap(x -> concat(x, user_id), ['a']) AS user_id FROM users AS id",
+            "TRINO_LAMBDA_QUALIFIER_AMBIGUOUS",
         ),
     ],
 )
