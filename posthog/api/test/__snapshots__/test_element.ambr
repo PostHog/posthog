@@ -47,7 +47,9 @@
 # ---
 # name: TestElement.test_element_stats_postgres_queries_are_as_expected.1
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -301,7 +303,9 @@
 # ---
 # name: TestElement.test_element_stats_postgres_queries_are_as_expected.3
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -354,6 +358,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -432,6 +438,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",

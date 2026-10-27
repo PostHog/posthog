@@ -47,7 +47,9 @@
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.1
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -100,6 +102,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -148,7 +152,9 @@
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.11
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -201,6 +207,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -288,6 +296,8 @@
          "posthog_plugin"."created_at",
          "posthog_plugin"."updated_at",
          "posthog_plugin"."log_level",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -389,7 +399,9 @@
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.16
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -435,7 +447,9 @@
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.17
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -488,6 +502,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -536,7 +552,9 @@
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.19
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -582,7 +600,9 @@
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.2
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -635,6 +655,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -722,6 +744,8 @@
          "posthog_plugin"."created_at",
          "posthog_plugin"."updated_at",
          "posthog_plugin"."log_level",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -823,7 +847,9 @@
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.24
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -869,7 +895,9 @@
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.25
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -922,6 +950,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -970,7 +1000,9 @@
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.27
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -1023,6 +1055,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1092,6 +1126,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1165,6 +1201,8 @@
          "posthog_plugin"."created_at",
          "posthog_plugin"."updated_at",
          "posthog_plugin"."log_level",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1220,7 +1258,9 @@
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.4
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -1273,6 +1313,8 @@
          "posthog_organizationmembership"."joined_at",
          "posthog_organizationmembership"."updated_at",
          "posthog_organizationmembership"."invited_by_id",
+         "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
          "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
@@ -1381,7 +1423,9 @@
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.8
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
@@ -1427,7 +1471,9 @@
 # ---
 # name: TestPluginAPI.test_listing_plugins_is_not_nplus1.9
   '''
-  SELECT "posthog_organization"."id",
+  SELECT "posthog_organization"."deleted",
+         "posthog_organization"."deleted_at",
+         "posthog_organization"."id",
          "posthog_organization"."name",
          "posthog_organization"."slug",
          "posthog_organization"."logo_media_id",
