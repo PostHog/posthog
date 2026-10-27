@@ -672,11 +672,18 @@ describe('HogFunctionHandler', () => {
             jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockImplementation(
                 async (hogFunctionInvocation, options) => {
                     const functionResult = await executeWithAsyncFunctions(hogFunctionInvocation, options)
-                    if (outcome === 'sent') {
+                    if (outcome === 'sent' && billingType === 'email') {
+                        functionResult.emailSendResult = { status: 'accepted' }
+                    }
+                    if (outcome === 'sent' && billingType === 'push') {
                         functionResult.deliveredToRecipient = true
                     }
                     if (outcome === 'failed') {
                         functionResult.error = 'send failed'
+                        functionResult.emailSendResult = { status: 'failed', reason: 'send failed' }
+                    }
+                    if (outcome === 'sent nothing') {
+                        functionResult.emailSendResult = { status: 'skipped', reason: 'suppressed' }
                     }
                     if (outcome === 'reached no device') {
                         functionResult.deliveredToRecipient = false
