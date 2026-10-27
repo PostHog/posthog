@@ -7258,21 +7258,23 @@ export async function withRequestTiming<T>(
     options: ApiMethodOptions | undefined,
     request: (timing?: ApiRequestTimingRecorder) => Promise<T>
 ): Promise<T> {
-    const timing = options?.onRequestTiming ? new ApiRequestTimingRecorder() : undefined
+    const onRequestTiming = options?.onRequestTiming
+    if (!onRequestTiming) {
+        return await request()
+    }
+    const timing = new ApiRequestTimingRecorder()
     try {
         return await request(timing)
     } catch (error) {
         if (error instanceof ApiError) {
-            timing?.recordFailure(error)
+            timing.recordFailure(error)
         }
         throw error
     } finally {
-        if (timing) {
-            try {
-                options?.onRequestTiming?.(timing.finish())
-            } catch {
-                // Observability must not change request success, failure, or cancellation.
-            }
+        try {
+            onRequestTiming(timing.finish())
+        } catch {
+            // Observability must not change request success, failure, or cancellation.
         }
     }
 }

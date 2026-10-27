@@ -4,35 +4,66 @@ const REQUEST_ID = '11111111-1111-4111-8111-111111111111'
 const OTHER_REQUEST_ID = '22222222-2222-4222-8222-222222222222'
 
 describe('API request timing', () => {
+    const url = 'https://example.com/api/query/'
+    let now: number
+    let pending: PerformanceEntry[]
+    let observer: ResourceObserver
+    const originalObserver = Object.getOwnPropertyDescriptor(globalThis, 'PerformanceObserver')
+
+    class ResourceObserver {
+        observe = jest.fn()
+        disconnect = jest.fn()
+        takeRecords = jest.fn(() => pending.splice(0))
+
+        constructor(private readonly callback: PerformanceObserverCallback) {
+            observer = this
+        }
+
+        deliver(entries: PerformanceEntry[]): void {
+            this.callback(
+                { getEntries: () => entries } as PerformanceObserverEntryList,
+                this as unknown as PerformanceObserver
+            )
+        }
+    }
+
+    const resource = (requestId = REQUEST_ID): PerformanceResourceTiming =>
+        ({
+            name: url,
+            entryType: 'resource',
+            startTime: 10,
+            requestStart: 110,
+            responseStart: 210,
+            responseEnd: 310,
+            serverTiming: [{ name: 'request_id', description: requestId, duration: 0 }],
+        }) as unknown as PerformanceResourceTiming
+
+    beforeEach(() => {
+        now = 10
+        pending = []
+        Object.defineProperty(globalThis, 'PerformanceObserver', { configurable: true, value: ResourceObserver })
+    })
+
+    afterEach(() => {
+        if (originalObserver) {
+            Object.defineProperty(globalThis, 'PerformanceObserver', originalObserver)
+        } else {
+            delete (globalThis as { PerformanceObserver?: unknown }).PerformanceObserver
+        }
+    })
+
     describe('API request resource timing attribution', () => {
-        let now: number
-        let entries: PerformanceResourceTiming[]
         let recorder: ApiRequestTimingRecorder
 
-        const resource = (requestId = REQUEST_ID): PerformanceResourceTiming =>
-            ({
-                startTime: 10,
-                requestStart: 110,
-                responseStart: 210,
-                responseEnd: 310,
-                serverTiming: [{ name: 'request_id', description: requestId }],
-            }) as unknown as PerformanceResourceTiming
-
         beforeEach(() => {
-            now = 10
-            entries = []
-            recorder = new ApiRequestTimingRecorder({ now: () => now, getEntriesByName: () => entries })
+            recorder = new ApiRequestTimingRecorder({ now: () => now })
             now = 210
-            recorder.recordHeaders({
-                status: 200,
-                url: 'https://example.com/api/query/',
-                headers: new Headers({ 'X-Request-ID': REQUEST_ID }),
-            })
+            recorder.recordHeaders({ status: 200, url, headers: new Headers({ 'X-Request-ID': REQUEST_ID }) })
             now = 320
         })
 
         it('uses the exact response ID even when another request to the same URL overlaps', () => {
-            entries = [resource(OTHER_REQUEST_ID), resource()]
+            pending = [resource(OTHER_REQUEST_ID), resource()]
             expect(recorder.finish()).toEqual(
                 expect.objectContaining({
                     resource_timing_status: 'matched',
@@ -45,13 +76,13 @@ describe('API request timing', () => {
         })
 
         it('does not associate an entry by URL or proximity when its ID differs', () => {
-            entries = [resource(OTHER_REQUEST_ID)]
+            pending = [resource(OTHER_REQUEST_ID)]
             expect(recorder.finish()).toEqual(expect.objectContaining({ resource_timing_status: 'not_found' }))
             expect(recorder.finish()).not.toHaveProperty('resource_ttfb_ms')
         })
 
         it('rejects ambiguous matches instead of selecting the most recent request', () => {
-            entries = [resource(), resource()]
+            pending = [resource(), resource()]
             expect(recorder.finish()).toEqual(expect.objectContaining({ resource_timing_status: 'ambiguous' }))
             expect(recorder.finish()).not.toHaveProperty('resource_pre_request_ms')
         })
@@ -59,7 +90,7 @@ describe('API request timing', () => {
         it.each([OTHER_REQUEST_ID, REQUEST_ID, 'invalid-id'])(
             'rejects a resource containing the response identity alongside %s',
             (secondIdentity) => {
-                entries = [
+                pending = [
                     {
                         ...resource(),
                         serverTiming: [
@@ -75,48 +106,53 @@ describe('API request timing', () => {
         )
 
         it('leaves unavailable cross-origin phases unknown', () => {
-            entries = [{ ...resource(), requestStart: 0, responseStart: 0 } as PerformanceResourceTiming]
+            pending = [{ ...resource(), requestStart: 0, responseStart: 0 } as PerformanceResourceTiming]
             expect(recorder.finish()).toEqual(expect.objectContaining({ resource_timing_status: 'restricted' }))
             expect(recorder.finish()).not.toHaveProperty('resource_ttfb_ms')
         })
 
-        it('rejects stale or out-of-order timing entries', () => {
-            entries = [{ ...resource(), startTime: 1 } as PerformanceResourceTiming]
-            expect(recorder.finish()).toEqual(expect.objectContaining({ resource_timing_status: 'invalid' }))
-            entries = [{ ...resource(), responseEnd: 400 } as PerformanceResourceTiming]
+        it.each([
+            ['stale', { startTime: 1 }],
+            ['out-of-order', { responseEnd: 400 }],
+        ])('rejects %s timing entries', (_name, override) => {
+            pending = [{ ...resource(), ...override } as PerformanceResourceTiming]
             expect(recorder.finish()).toEqual(expect.objectContaining({ resource_timing_status: 'invalid' }))
         })
 
         it('does not use malformed request IDs or upstream durations', () => {
             recorder.recordHeaders({
                 status: 200,
-                url: 'https://example.com/api/query/',
+                url,
                 headers: new Headers({ 'X-Request-ID': 'not-a-uuid', 'X-Envoy-Upstream-Service-Time': '-10' }),
             })
-            entries = [resource()]
+            pending = [resource()]
             expect(recorder.finish()).toEqual(expect.objectContaining({ resource_timing_status: 'missing_request_id' }))
             expect(recorder.finish()).not.toHaveProperty('http_request_id')
             expect(recorder.finish()).not.toHaveProperty('envoy_upstream_ms')
         })
 
         it('retains application timings when resource timing is unavailable', () => {
-            recorder = new ApiRequestTimingRecorder({
-                now: () => now,
-                getEntriesByName: () => {
-                    throw new Error('Unavailable')
+            Object.defineProperty(globalThis, 'PerformanceObserver', {
+                configurable: true,
+                value: class {
+                    constructor() {
+                        throw new Error('Unavailable')
+                    }
                 },
             })
-            recorder.recordHeaders({
-                status: 200,
-                url: 'https://example.com/api/query/',
-                headers: new Headers({ 'X-Request-ID': REQUEST_ID }),
-            })
-            expect(recorder.finish()).toEqual(expect.objectContaining({ resource_timing_status: 'unavailable' }))
+            recorder = new ApiRequestTimingRecorder({ now: () => now })
+            recorder.recordHeaders({ status: 200, url, headers: new Headers({ 'X-Request-ID': REQUEST_ID }) })
+            expect(recorder.finish()).toEqual(
+                expect.objectContaining({
+                    resource_timing_status: 'unavailable',
+                    http_request_id: REQUEST_ID,
+                })
+            )
         })
 
         it.each(['abort', 'network'])('does not attribute an auth retry %s to the preceding response', (failure) => {
-            entries = [resource()]
-            recorder.startFetch('https://example.com/api/query/')
+            pending = [resource()]
+            recorder.startFetch(url)
             if (failure === 'network') {
                 recorder.recordFailure({})
             }
@@ -129,15 +165,11 @@ describe('API request timing', () => {
         })
 
         it('rejects the preceding auth response when a successful retry reuses its request ID', () => {
-            entries = [resource()]
+            pending = [resource()]
             now = 500
-            recorder.startFetch('https://example.com/api/query/')
+            recorder.startFetch(url)
             now = 600
-            recorder.recordHeaders({
-                status: 200,
-                url: 'https://example.com/api/query/',
-                headers: new Headers({ 'X-Request-ID': REQUEST_ID }),
-            })
+            recorder.recordHeaders({ status: 200, url, headers: new Headers({ 'X-Request-ID': REQUEST_ID }) })
             now = 700
             const timing = recorder.finish()
             expect(timing.request_total_ms).toBe(690)
@@ -148,56 +180,8 @@ describe('API request timing', () => {
     })
 
     describe('resource observation during an active request', () => {
-        const url = 'https://example.com/api/query/'
-        let now: number
-        let pending: PerformanceEntry[]
-        let observer: ResourceObserver
-        const originalObserver = Object.getOwnPropertyDescriptor(globalThis, 'PerformanceObserver')
-
-        class ResourceObserver {
-            observe = jest.fn()
-            disconnect = jest.fn()
-            takeRecords = jest.fn(() => pending.splice(0))
-
-            constructor(private readonly callback: PerformanceObserverCallback) {
-                observer = this
-            }
-
-            deliver(entries: PerformanceEntry[]): void {
-                this.callback(
-                    { getEntries: () => entries } as PerformanceObserverEntryList,
-                    this as unknown as PerformanceObserver
-                )
-            }
-        }
-
-        const resource = (requestId = REQUEST_ID): PerformanceResourceTiming =>
-            ({
-                name: url,
-                entryType: 'resource',
-                startTime: 10,
-                requestStart: 110,
-                responseStart: 210,
-                responseEnd: 310,
-                serverTiming: [{ name: 'request_id', description: requestId, duration: 0 }],
-            }) as unknown as PerformanceResourceTiming
-
-        beforeEach(() => {
-            now = 10
-            pending = []
-            Object.defineProperty(globalThis, 'PerformanceObserver', { configurable: true, value: ResourceObserver })
-        })
-
-        afterEach(() => {
-            if (originalObserver) {
-                Object.defineProperty(globalThis, 'PerformanceObserver', originalObserver)
-            } else {
-                delete (globalThis as { PerformanceObserver?: unknown }).PerformanceObserver
-            }
-        })
-
         it('attributes a completed request even when the global resource buffer has stopped recording', () => {
-            const recorder = new ApiRequestTimingRecorder({ now: () => now, getEntriesByName: () => [] })
+            const recorder = new ApiRequestTimingRecorder({ now: () => now })
             recorder.startFetch(url)
             now = 210
             recorder.recordHeaders({ status: 200, url, headers: new Headers({ 'X-Request-ID': REQUEST_ID }) })
@@ -211,7 +195,7 @@ describe('API request timing', () => {
         })
 
         it('retains the matching identity when unrelated resources complete during the request', () => {
-            const recorder = new ApiRequestTimingRecorder({ now: () => now, getEntriesByName: () => [] })
+            const recorder = new ApiRequestTimingRecorder({ now: () => now })
             recorder.recordHeaders({ status: 200, url, headers: new Headers({ 'X-Request-ID': REQUEST_ID }) })
             observer.deliver([resource(), ...Array.from({ length: 1000 }, () => resource(OTHER_REQUEST_ID))])
             now = 320
@@ -229,7 +213,7 @@ describe('API request timing', () => {
                 }),
             ],
         ])('retains resource phases when %s complete before response headers', (_name, count, unrelated) => {
-            const recorder = new ApiRequestTimingRecorder({ now: () => now, getEntriesByName: () => [] })
+            const recorder = new ApiRequestTimingRecorder({ now: () => now })
             recorder.startFetch(url)
             observer.deliver([...Array.from({ length: count }, unrelated), resource()])
             recorder.recordHeaders({ status: 200, url, headers: new Headers({ 'X-Request-ID': REQUEST_ID }) })
@@ -240,7 +224,7 @@ describe('API request timing', () => {
         })
 
         it('rejects duplicate identities observed within the request', () => {
-            const recorder = new ApiRequestTimingRecorder({ now: () => now, getEntriesByName: () => [] })
+            const recorder = new ApiRequestTimingRecorder({ now: () => now })
             recorder.recordHeaders({ status: 200, url, headers: new Headers({ 'X-Request-ID': REQUEST_ID }) })
             observer.deliver([resource(), resource()])
             now = 320
@@ -248,7 +232,7 @@ describe('API request timing', () => {
         })
 
         it('leaves ownership unknown when bounded collection could have discarded a duplicate identity', () => {
-            const recorder = new ApiRequestTimingRecorder({ now: () => now, getEntriesByName: () => [] })
+            const recorder = new ApiRequestTimingRecorder({ now: () => now })
             recorder.startFetch(url)
             observer.deliver([resource(), ...Array.from({ length: 64 }, () => resource(OTHER_REQUEST_ID)), resource()])
             recorder.recordHeaders({ status: 200, url, headers: new Headers({ 'X-Request-ID': REQUEST_ID }) })
@@ -260,7 +244,7 @@ describe('API request timing', () => {
         })
 
         it('disconnects after a request fails before receiving an identity', () => {
-            const recorder = new ApiRequestTimingRecorder({ now: () => now, getEntriesByName: () => [] })
+            const recorder = new ApiRequestTimingRecorder({ now: () => now })
             recorder.startFetch(url)
             recorder.recordFailure({})
             expect(recorder.finish().resource_timing_status).toBe('missing_request_id')

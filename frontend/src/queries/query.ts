@@ -210,6 +210,18 @@ export function queryExportContext<N extends DataNode>(
     return { source: query }
 }
 
+function annotatePollError(e: any, queryId: string): void {
+    // Parse error message to extract clean message and code if present
+    const parsed = parseErrorMessage(e.data?.query_status?.error_message ?? e.data?.detail ?? e.detail)
+    e.detail = parsed.message
+
+    // Prefer the structured code from QueryStatus over one parsed out of the message
+    e.code = e.data?.query_status?.error_code ?? e.data?.code ?? parsed.code ?? e.code
+
+    // Attach queryId to error for downstream error handling
+    e.queryId = queryId
+}
+
 export async function pollForResults(
     queryId: string,
     methodOptions?: ApiMethodOptions,
@@ -231,11 +243,15 @@ export async function pollForResults(
         try {
             let pollTiming: ApiRequestTiming | undefined
             const statusResponse = (
-                await api.queryStatus.get(queryId, true, {
-                    onRequestTiming: (timing) => {
-                        pollTiming = timing
-                    },
-                })
+                await api.queryStatus.get(
+                    queryId,
+                    true,
+                    onResultPollTiming && {
+                        onRequestTiming: (timing) => {
+                            pollTiming = timing
+                        },
+                    }
+                )
             ).query_status
             if (statusResponse.complete) {
                 if (pollTiming) {
@@ -250,16 +266,7 @@ export async function pollForResults(
             if (e instanceof NetworkError && e.reason === 'offline') {
                 continue
             }
-            // Parse error message to extract clean message and code if present
-            const parsed = parseErrorMessage(e.data?.query_status?.error_message ?? e.data?.detail ?? e.detail)
-            e.detail = parsed.message
-
-            // Prefer the structured code from QueryStatus over one parsed out of the message
-            e.code = e.data?.query_status?.error_code ?? e.data?.code ?? parsed.code ?? e.code
-
-            // Attach queryId to error for downstream error handling
-            e.queryId = queryId
-
+            annotatePollError(e, queryId)
             throw e
         }
     }
