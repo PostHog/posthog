@@ -4,6 +4,7 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 
 import { openDismissReportDialog } from '../components/shell/DismissReportDialog'
+import { openRemoveYourselfDialog } from '../components/shell/RemoveYourselfDialog'
 import { openResolveReportDialog } from '../components/shell/ResolveReportDialog'
 import { captureInboxReportAction } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
@@ -127,8 +128,10 @@ export interface inboxTriageLogicActions {
     } // reportListLogic
     unassignMe: (
         reportId: string,
-        surface: import('../inboxAnalytics').InboxReportActionSurface
+        surface: import('../inboxAnalytics').InboxReportActionSurface,
+        reason?: import('../../generated/api.schemas').ReviewerRemovalReasonEnumApi | undefined
     ) => {
+        reason: import('../../generated/api.schemas').ReviewerRemovalReasonEnumApi | undefined
         reportId: string
         surface: import('../inboxAnalytics').InboxReportActionSurface
     } // reportListLogic
@@ -471,14 +474,19 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 if (!report || values.unassignDisabledReason) {
                     return
                 }
-                // Only a list scoped to you drops the report, and only once the request succeeds. Pin
-                // the next report by id, so triage lands on it whether or not this one leaves the queue.
-                const next = values.nextReport
-                actions.unassignMe(report.id, 'triage_mode')
-                if (next) {
-                    actions.goToReport(next.id, values.currentIndex + 1)
-                }
-                prefetchNearEnd()
+                openRemoveYourselfDialog({
+                    reportTitle: displayConventionalCommitTitle(report.title, 'Untitled report'),
+                    onConfirm: (reason) => {
+                        // Only a list scoped to you drops the report, and only once the request succeeds. Pin
+                        // the next report by id, so triage lands on it whether or not this one leaves the queue.
+                        const next = values.nextReport
+                        actions.unassignMe(report.id, 'triage_mode', reason)
+                        if (next) {
+                            actions.goToReport(next.id, values.currentIndex + 1)
+                        }
+                        prefetchNearEnd()
+                    },
+                })
             },
             createPrForCurrent: () => {
                 const report = values.currentReport
