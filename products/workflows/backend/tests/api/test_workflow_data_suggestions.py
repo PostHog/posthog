@@ -1,3 +1,4 @@
+from copy import deepcopy
 from io import StringIO
 
 import time_machine
@@ -91,10 +92,31 @@ def _step(step_id: str, step_type: str, **overrides: object) -> PlannedStep:
         "email_subject": None,
         "email_heading": None,
         "email_paragraphs": None,
+        "push_title": None,
+        "push_body": None,
         "slack_message": None,
     }
     values.update(overrides)
     return PlannedStep(**values)
+
+
+def _push_function_template() -> dict:
+    template = deepcopy(webhook_template)
+    template["id"] = "template-native-push"
+    template["name"] = "Push notification"
+    template["inputs_schema"] = [
+        {"key": "distinctId", "type": "string", "label": "Distinct ID", "required": True},
+        {
+            "key": "channels",
+            "type": "integration_multi",
+            "integration": "firebase,apns",
+            "label": "Push channels",
+            "required": True,
+        },
+        {"key": "title", "type": "string", "label": "Notification title", "required": True},
+        {"key": "body", "type": "string", "label": "Notification body", "required": False, "templating": "liquid"},
+    ]
+    return template
 
 
 def _email_step(step_id: str, subject: str, **overrides: object) -> PlannedStep:
@@ -471,6 +493,61 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         )
         assert create.status_code == 201, create.json()
         assert create.json()["trigger"]["filters"]["events"][0]["id"] == "trial_started"
+
+    @parameterized.expand(
+        [
+            ("web app", "web", False, False),
+            ("mobile app without a push provider", "posthog-ios", False, True),
+            ("mobile app with a push provider", "posthog-android", True, True),
+        ]
+    )
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_mobile_first_project_gets_push_drafts_the_create_endpoint_accepts(
+        self,
+        _name: str,
+        lib: str,
+        has_provider: bool,
+        mobile_first: bool,
+        suggest_ideas: MagicMock,
+        plan_steps: MagicMock,
+    ) -> None:
+        sync_template_to_db(_push_function_template())
+        for index in range(4):
+            _create_event(team=self.team, event="app opened", distinct_id=f"person-{index}", properties={"$lib": lib})
+        flush_persons_and_events()
+        provider = Integration.objects.create(team=self.team, kind="firebase", config={}) if has_provider else None
+        suggest_ideas.return_value = [_idea("trial_started")]
+        plan_steps.return_value = PlannedWorkflow(
+            first_step="notify",
+            steps=[_step("notify", "push", push_title="Your trial started", push_body="See what is included.")],
+        )
+        suggestion_id = self._list()["suggestions"][0]["id"]
+
+        idea_context = suggest_ideas.call_args.kwargs["context"]
+        assert (idea_context.mobile_first, "push" in idea_context.channels) == (mobile_first, mobile_first)
+        build = self.client.post(
+            f"/api/projects/{self.team.id}/workflow_data_suggestions/build/",
+            {"suggestion_id": suggestion_id},
+            format="json",
+        ).json()
+
+        if not mobile_first:
+            assert build["status"] == "failed"
+            return
+        assert plan_steps.call_args.kwargs["context"].mobile_first is True
+        push = build["workflow"]["actions"][1]
+        assert push["config"]["inputs"]["channels"]["value"] == ([provider.id] if provider else [])
+        missing = [item["field"] for item in build["missing_inputs"]]
+        assert ("Push channels" in missing) is (provider is None)
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", {**build["workflow"], "status": "draft"}, format="json"
+        )
+        assert create.status_code == 201, create.json()
+        enable = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{create.json()['id']}", {"status": "active"}, format="json"
+        )
+        assert enable.status_code == (200 if provider else 400), enable.json()
 
     def test_a_built_branch_has_unset_conditions_shaped_like_an_editor_branch(self) -> None:
         built = build_workflow(

@@ -87,6 +87,7 @@ const CONVERSATIONS = [
         status: 'idle',
         type: 'assistant',
         updated_at: '2026-09-28T16:10:00Z',
+        user: ADA,
     },
     {
         id: 'chat-2',
@@ -94,6 +95,7 @@ const CONVERSATIONS = [
         status: 'idle',
         type: 'assistant',
         updated_at: '2026-09-25T09:00:00Z',
+        user: ADA,
     },
 ]
 
@@ -860,6 +862,8 @@ const meta: Meta = {
                 '/api/users/@me/integrations/codex/': { status: 'not_connected' },
                 '/api/code/invites/check-access/': { has_access: true, has_loops_access: false },
                 '/api/projects/:team_id/tasks/repositories/': { repositories: [] },
+                '/api/projects/:team_id/sandbox_environments/': { results: [], next: null },
+                '/api/projects/:team_id/sandbox_custom_images/': { results: [], next: null },
                 '/api/projects/:team_id/tasks/': ({ request }) => {
                     const params = new URL(request.url).searchParams
                     const results = params.get('pinned')
@@ -1060,6 +1064,20 @@ export const ReportInANarrowWindow: Story = {
 }
 
 export const ChatsPane: Story = {
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.TODAY_RAIL_NAV,
+            FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS,
+            FEATURE_FLAGS.PHAI_SANDBOX_MODE,
+        ],
+    },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByLabelText('Chats'))
+    },
+}
+
+// Without the sandbox flag, the Chats pane starts a legacy chat instead of a task.
+export const ChatsPaneOnLegacyPostHogAi: Story = {
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByLabelText('Chats'))
     },

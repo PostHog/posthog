@@ -233,6 +233,7 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
     - AND it has not errored within the last hour. A population task stamps last_error_at when
       it schedules a retry, and reset_stuck_cohorts stamps it when it re-dispatches, so a recent
       error means the run is alive and resetting it would dispatch a duplicate population.
+    A cohort at the error cap is still released, so a query or CSV update can claim it again, but it is not re-run.
     """
     one_hour_ago = timezone.now() - relativedelta(hours=1)
     return (
@@ -240,7 +241,6 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
             is_static=True,
             is_calculating=True,
             deleted=False,
-            errors_calculating__lt=MAX_ERRORS_CALCULATING,
         )
         .filter(
             Q(last_calculation__isnull=True, created_at__lte=one_hour_ago)

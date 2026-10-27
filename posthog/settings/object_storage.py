@@ -115,6 +115,12 @@ INBOX_RANKING_LABELS_REFRESH_MAX_RUNS = get_from_env("INBOX_RANKING_LABELS_REFRE
 # no mirror.
 INBOX_RANKING_SERVING_MIRROR_BUCKET = os.getenv("INBOX_RANKING_SERVING_MIRROR_BUCKET", "")
 INBOX_RANKING_SERVING_MIRROR_REGION = os.getenv("INBOX_RANKING_SERVING_MIRROR_REGION", "")
+# Project vectors in the mirror region (products/signals/dags/inbox_ranking/mirror). The region builds
+# them from its own report embeddings and the engagement export the training region writes to its
+# object store. Off by default: the schedule skips its ticks until this is set.
+INBOX_RANKING_MIRROR_PROJECT_VECTORS_ENABLED = get_from_env(
+    "INBOX_RANKING_MIRROR_PROJECT_VECTORS_ENABLED", False, type_cast=str_to_bool
+)
 # Serving manifest (products/signals/dags/inbox_ranking/training/serving.py): how many of the served
 # family's newest versions the sweep also scores, read from the last 2N days. Each one costs the
 # sweep one more model per pass. The served entry, these versions and one challenger per other family

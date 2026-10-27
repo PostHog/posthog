@@ -58,7 +58,7 @@ describe('inboxFiltersLogic', () => {
         })
 
         it('leads with the ranking field for a model sort', () => {
-            expect(buildSignalReportListOrdering('ranking_fixed', 'desc')).toBe('-ranking_fixed,status,-updated_at')
+            expect(buildSignalReportListOrdering('ranking_fix', 'desc')).toBe('-ranking_fix,status,-updated_at')
         })
 
         // The server ignores the `sort` preset whenever `ordering` is present.
@@ -154,6 +154,13 @@ describe('inboxFiltersLogic', () => {
                 'asc',
             ],
             ['keeps an explicit Priority first from a shared link', 'priority:asc', false, 'priority', 'asc'],
+            [
+                'moves a link with the old Fix sort name to the current one',
+                'ranking_fixed:desc',
+                true,
+                'ranking_fix',
+                'desc',
+            ],
         ] as const)('%s', (_name, sort, modelSortAvailable, sortField, sortDirection) => {
             expect(parseFilterSearchParams({ sort }, { modelSortAvailable })).toEqual({
                 ...DEFAULT_STATE,

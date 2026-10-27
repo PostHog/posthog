@@ -1,10 +1,13 @@
 import math
 
+import pytest
+
 from parameterized import parameterized
 
 from products.experiments.backend.running_time_calculator import (
     BaselineStats,
     calculate_baseline_value,
+    calculate_detectable_effect,
     calculate_running_time_days,
     calculate_sample_size,
     calculate_variance,
@@ -171,6 +174,25 @@ class TestCalculateSampleSize:
     def test_returns_none_for_negative_variance(self):
         # The delta method can return a negative variance, which yields a negative sample size.
         assert calculate_sample_size("ratio", 10, 10, 2, variance=-32) is None
+
+
+class TestCalculateDetectableEffect:
+    @parameterized.expand(
+        [
+            ("mean_count", 4, 5),
+            ("mean_sum_or_avg", 50, 5),
+            ("funnel", 0.1, 50),
+            ("funnel", 0.03, 30),
+        ]
+    )
+    def test_inverts_the_sample_size(self, metric_type, baseline_value, mde):
+        sample_size = calculate_sample_size(metric_type, baseline_value, mde, 2)
+        assert sample_size is not None
+        samples_per_variant = sample_size // 2
+
+        detectable = calculate_detectable_effect(metric_type, baseline_value, samples_per_variant, samples_per_variant)
+
+        assert detectable == pytest.approx(mde, rel=0.01)
 
 
 class TestCalculateRunningTimeDays:

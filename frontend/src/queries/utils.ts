@@ -25,6 +25,7 @@ import {
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
     ErrorTrackingIssueCorrelationQuery,
+    ErrorTrackingIssueEventsQuery,
     ErrorTrackingQuery,
     EventsNode,
     EventsQuery,
@@ -340,6 +341,12 @@ export function isErrorTrackingIssueCorrelationQuery(
     node?: Record<string, any> | null
 ): node is ErrorTrackingIssueCorrelationQuery {
     return node?.kind === NodeKind.ErrorTrackingIssueCorrelationQuery
+}
+
+export function isErrorTrackingIssueEventsQuery(
+    node?: Record<string, any> | null
+): node is ErrorTrackingIssueEventsQuery {
+    return node?.kind === NodeKind.ErrorTrackingIssueEventsQuery
 }
 
 export function containsHogQLQuery(node?: Record<string, any> | null): boolean {

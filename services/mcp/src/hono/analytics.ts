@@ -23,6 +23,7 @@ import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
+import { MCP_INTENT_PROMPT_FLAG } from './intent-prompt'
 import { interviewRecruitmentProperties } from './interview-recruitment'
 import { buildMCPSessionAnalyticsProperties, getEffectiveMCPClientIdentity } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
@@ -172,7 +173,7 @@ export async function trackToolCall(
         return
     }
     try {
-        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
+        const analyticsContext = state.analyticsContext ?? (await state.reqCtx.safelyGetAnalyticsContext(state.context))
         const requestContext = state.requestContext
         const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
 
@@ -239,6 +240,7 @@ export async function trackToolCall(
                     state.noDataAction
                 ),
                 ...extraProperties,
+                [`$feature/${MCP_INTENT_PROMPT_FLAG}`]: state.toolFeatureFlags?.[MCP_INTENT_PROMPT_FLAG],
                 is_impersonated: state.isImpersonated === true,
                 suppress_analytics: state.suppressAnalytics === true,
             },
@@ -335,6 +337,15 @@ function isMetadataQuery(query: string): boolean {
 // way. `$mcp_tool_call` still records that the call happened.
 const PRESIGNED_UPLOAD_TOOL_NAME = 'media-image-upload-start'
 
+// Their output is another project's data, possibly from another region: a wrapped
+// execute-sql result or any API response. The execute-sql exemption below checks only
+// the outer tool name, so without this check the wrapped query's rows land in
+// `$ai_output_state`.
+const POSTHOG_CONNECTION_TOOL_NAMES: ReadonlySet<string> = new Set([
+    'posthog-connection-call',
+    'posthog-connection-forward',
+])
+
 function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     if (isPrivateScoutTrialTool(toolName)) {
         return false
@@ -349,6 +360,9 @@ function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
         return false
     }
     if (toolName === PRESIGNED_UPLOAD_TOOL_NAME) {
+        return false
+    }
+    if (POSTHOG_CONNECTION_TOOL_NAMES.has(toolName)) {
         return false
     }
     // execute-sql can't be captured wholesale: its payload is the query result,

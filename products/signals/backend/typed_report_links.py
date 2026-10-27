@@ -6,11 +6,9 @@ live on `SignalReportArtefact`. Every reader goes through this module instead of
 itself, so the tolerance for a row that no longer parses, the graph budgets, and the direction
 vocabulary are decided once.
 
-Reading outgoing edges is a seek on `(report, type)`. Reading incoming edges is a team-scoped scan,
-because `content` is a `TextField` and nothing mirrors the row onto the target: the candidate rows
-are narrowed with a `content__contains` on the target's UUID and then confirmed by parsing. Links
-are rare and team-scoped, so the scan is cheap. If it ever shows up in query timings, the fix is a
-materialised target column or a JSON index, not a mirror row, because the direction is the payload.
+Reading outgoing edges is a seek on `(report, type)`. Reading incoming edges is a seek on
+`link_target_id`, which every write copies out of `content`, and the candidates are then confirmed by
+parsing. Nothing mirrors the row onto the target, because the direction is the payload.
 """
 
 import uuid
@@ -86,6 +84,25 @@ def outgoing_links(
     return _edges_from_rows(list(rows), kinds=kinds)
 
 
+def outgoing_links_by_report(
+    *, team_id: int, report_ids: Collection[str], kinds: Collection[ReportLinkKind] | None = None
+) -> dict[str, list[ReportEdge]]:
+    """`outgoing_links` for several reports in one query, keyed by source report id."""
+    source_ids = [source_id for source_id in map(_canonical_report_id, report_ids) if source_id is not None]
+    if not source_ids:
+        return {}
+    rows = (
+        SignalReportArtefact.objects.using("default")
+        .filter(team_id=team_id, report_id__in=source_ids, type=SignalReportArtefact.ArtefactType.REPORT_LINK)
+        .order_by("created_at", "id")
+        .values_list("report_id", "content")[: SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS]
+    )
+    edges_by_report: dict[str, list[ReportEdge]] = {}
+    for edge in _edges_from_rows(list(rows), kinds=kinds):
+        edges_by_report.setdefault(edge.source_id, []).append(edge)
+    return edges_by_report
+
+
 def incoming_links(
     *,
     team_id: int,
@@ -105,7 +122,7 @@ def incoming_links(
     candidates = SignalReportArtefact.objects.using("default").filter(
         team_id=team_id,
         type=SignalReportArtefact.ArtefactType.REPORT_LINK,
-        content__contains=target_id,
+        link_target_id=target_id,
     )
     if not include_deleted_sources:
         candidates = candidates.exclude(report__status=SignalReport.Status.DELETED)
@@ -114,8 +131,7 @@ def incoming_links(
             : SignalReportArtefact.MAX_REPORT_LINK_GRAPH_ROWS
         ]
     )
-    # `content__contains` also matches a row whose free-text `reason` quotes the UUID, so the
-    # parsed target decides.
+    # `link_target_id` is a copy of the target in `content`, so the parsed target decides if they differ.
     return [edge for edge in _edges_from_rows(rows, kinds=kinds) if edge.target_id == target_id]
 
 

@@ -2138,25 +2138,42 @@ export const experimentLogic = kea<experimentLogicType>([
             })
             const combinedMetricsIds = [...existingMetricsIds, ...newMetricsIds]
 
+            let response: Experiment
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsPartialUpdate() from 'products/experiments/frontend/generated/api' instead.
-                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                    ...toConcurrencyPayload(values.unmodifiedExperiment),
-                    saved_metrics_ids: combinedMetricsIds,
-                    update_feature_flag_params: false,
-                })
+                response = await api.update(
+                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                    {
+                        ...toConcurrencyPayload(values.unmodifiedExperiment),
+                        saved_metrics_ids: combinedMetricsIds,
+                        update_feature_flag_params: false,
+                    }
+                )
             } catch (error: any) {
                 if (isExperimentConflictError(error)) {
                     lemonToast.error(
                         error.data?.detail ||
                             'This experiment was changed while you were editing it. Review the latest changes and try again.'
                     )
-                } else {
-                    throw error
+                    actions.loadExperiment({ triggeredBy: 'metric_config_change' })
+                    return
                 }
+                throw error
             }
 
-            actions.loadExperiment({ triggeredBy: 'metric_config_change' })
+            /** A reload would unmount the metrics view and drop the recalculation trigger, so apply the response. */
+            actions.setUnmodifiedExperiment(structuredClone(response))
+            actions.setExperiment(response)
+
+            const metricsLogic = experimentMetricsLogic({ experiment: values.experiment })
+            metricsLogic.actions.setPrimaryMetricsResults([])
+            metricsLogic.actions.setPrimaryMetricsResultsErrors([])
+            metricsLogic.actions.setSecondaryMetricsResults([])
+            metricsLogic.actions.setSecondaryMetricsResultsErrors([])
+
+            if (isLaunched(response)) {
+                actions.refreshExperimentResults(false, 'metric_config_change')
+            }
         },
         duplicateSharedMetricAsInlineMetric: ({ isSecondary, newUuid }) => {
             // Listeners run after reducers, so the copy is only there if the shared metric was actually found
@@ -2181,27 +2198,44 @@ export const experimentLogic = kea<experimentLogicType>([
                 (m) => !('isSharedMetric' in m && m.isSharedMetric && m.sharedMetricId === sharedMetricId)
             )
 
+            let response: Experiment
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsPartialUpdate() from 'products/experiments/frontend/generated/api' instead.
-                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                    ...toConcurrencyPayload(values.unmodifiedExperiment),
-                    saved_metrics_ids: sharedMetricsIds,
-                    metrics: cleanedMetrics,
-                    metrics_secondary: cleanedMetricsSecondary,
-                    update_feature_flag_params: false,
-                })
+                response = await api.update(
+                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                    {
+                        ...toConcurrencyPayload(values.unmodifiedExperiment),
+                        saved_metrics_ids: sharedMetricsIds,
+                        metrics: cleanedMetrics,
+                        metrics_secondary: cleanedMetricsSecondary,
+                        update_feature_flag_params: false,
+                    }
+                )
             } catch (error: any) {
                 if (isExperimentConflictError(error)) {
                     lemonToast.error(
                         error.data?.detail ||
                             'This experiment was changed while you were editing it. Review the latest changes and try again.'
                     )
-                } else {
-                    throw error
+                    actions.loadExperiment({ triggeredBy: 'metric_config_change' })
+                    return
                 }
+                throw error
             }
 
-            actions.loadExperiment({ triggeredBy: 'metric_config_change' })
+            /** A reload would unmount the metrics view and drop the recalculation trigger, so apply the response. */
+            actions.setUnmodifiedExperiment(structuredClone(response))
+            actions.setExperiment(response)
+
+            const metricsLogic = experimentMetricsLogic({ experiment: values.experiment })
+            metricsLogic.actions.setPrimaryMetricsResults([])
+            metricsLogic.actions.setPrimaryMetricsResultsErrors([])
+            metricsLogic.actions.setSecondaryMetricsResults([])
+            metricsLogic.actions.setSecondaryMetricsResultsErrors([])
+
+            if (isLaunched(response)) {
+                actions.refreshExperimentResults(false, 'metric_config_change')
+            }
         },
         createExperimentDashboard: async () => {
             actions.setIsCreatingExperimentDashboard(true)

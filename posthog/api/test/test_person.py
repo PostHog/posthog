@@ -319,6 +319,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_at=timezone.now() - timedelta(days=1),
             immediate=True,
         )
+        PropertyDefinition.objects.create(team=self.team, name="Email", type=PropertyDefinition.Type.PERSON)
         by_name = _create_person(
             team=self.team,
             distinct_ids=["0198f3c1-6c2a-7a5b-9d41-9a1b2c3d4e61"],

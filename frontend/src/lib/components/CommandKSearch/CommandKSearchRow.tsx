@@ -141,6 +141,7 @@ const rowContent = (row: CommandKRow): unknown => {
         case 'message':
             return row.text
         case 'skeleton':
+        case 'loading-more':
             return null
     }
 }

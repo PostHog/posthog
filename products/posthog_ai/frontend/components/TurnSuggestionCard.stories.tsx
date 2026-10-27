@@ -6,6 +6,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { mockIntegration } from '~/test/mocks'
 
 import { runStreamLogic } from '../logics/runStreamLogic'
+import { turnSuggestionLogic } from '../logics/turnSuggestionLogic'
 import { ThreadView } from './ThreadView'
 import { TurnFeedbackActions } from './TurnFeedbackActions'
 import { TurnSuggestionCard } from './TurnSuggestionCard'
@@ -14,6 +15,7 @@ type Kind = 'scout' | 'notebook' | 'alert' | 'subscription' | 'error_alert'
 
 interface StoryArgs {
     kind: Kind
+    expanded?: boolean
     /** The scene width next to an open side panel on a 1280px window. */
     narrow?: boolean
 }
@@ -237,7 +239,9 @@ const FRAMES_BY_KIND: Record<Kind, Record<string, unknown>[]> = {
     error_alert: ERROR_ALERT_TURN_FRAMES,
 }
 
-function TurnSuggestionStory({ kind, narrow }: StoryArgs): JSX.Element {
+const CARD_PROPS = { streamKey: STREAM_KEY, turnIndex: 0, sessionId: SESSION_ID, revealDelayMs: 0 }
+
+function TurnSuggestionStory({ kind, expanded, narrow }: StoryArgs): JSX.Element {
     useEffect(() => {
         const stream = runStreamLogic({ streamKey: STREAM_KEY })
         const unmountStream = stream.mount()
@@ -245,8 +249,16 @@ function TurnSuggestionStory({ kind, narrow }: StoryArgs): JSX.Element {
             stream.actions.ingestAcpFrame(frame as any, 'replay')
         }
         stream.actions.setTurnSuggestionLedger({ taskId: SESSION_ID, muted: false, resolvedTurns: [] })
-        return unmountStream
-    }, [kind])
+        const card = turnSuggestionLogic(CARD_PROPS)
+        const unmountCard = card.mount()
+        if (expanded) {
+            card.actions.expand()
+        }
+        return () => {
+            unmountCard()
+            unmountStream()
+        }
+    }, [kind, expanded])
 
     return (
         <div className={`${narrow ? 'w-130' : 'w-180'} max-w-full rounded border p-4`}>
@@ -313,13 +325,15 @@ function mocks(): Parameters<typeof mswDecorator>[0] {
 const meta: Meta<StoryArgs> = {
     title: 'Products/PostHog AI/TurnSuggestionCard',
     parameters: { mockDate: '2026-09-16', testOptions: { waitForLoadersToDisappear: true } },
-    args: { kind: 'scout' },
+    args: { kind: 'scout', expanded: true },
     decorators: [mswDecorator(mocks())],
-    render: ({ kind, narrow }) => <TurnSuggestionStory kind={kind} narrow={narrow} />,
+    render: ({ kind, expanded, narrow }) => <TurnSuggestionStory kind={kind} expanded={expanded} narrow={narrow} />,
 }
 export default meta
 
 type Story = StoryObj<StoryArgs>
+
+export const CondensedSuggestion: Story = { args: { kind: 'alert', expanded: false } }
 
 export const ScoutSuggestion: Story = {}
 
