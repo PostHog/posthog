@@ -13,7 +13,6 @@ import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { DashboardTemplateModal } from 'scenes/dashboard/dashboards/templates/DashboardTemplateModal'
-import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
 import { DashboardTemplateEditor } from 'scenes/dashboard/DashboardTemplateEditor'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
@@ -36,6 +35,7 @@ import { DashboardsSceneMenuBar } from './DashboardsSceneMenuBar'
 import { DashboardsTableContainer } from './DashboardsTable'
 import { NewDashboardMenu } from './NewDashboardMenu'
 import { QuillDashboardsActions } from './QuillDashboardsActions'
+import { DashboardTemplatesTable } from './templates/DashboardTemplatesTable'
 
 export const scene: SceneExport = {
     component: Dashboards,
