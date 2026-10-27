@@ -5908,6 +5908,17 @@ class FeatureFlagViewSet(
                     }
                     flag_dict.update({"id": feature_flag.id, "key": feature_flag.key, "team_id": feature_flag.team_id})
 
+                    # A successful reconstruction proves the flag existed and was not
+                    # deleted at the timestamp (find_version_at_timestamp returns None
+                    # for deleted-at-timestamp flags, which raises VersionNotFound
+                    # above). The walk-back cannot be trusted for ``deleted`` itself:
+                    # bulk deletes write deleted=True without a version bump and log
+                    # activity with empty changes, so reconstruction starts from the
+                    # deleted row and keeps deleted=True. The flags service skips
+                    # deleted flags, which surfaced as reason="flag_not_found", so
+                    # ship the override undeleted.
+                    flag_dict["deleted"] = False
+
                     # Stringify datetime fields for JSON serialization.
                     if flag_dict.get("created_at") and hasattr(flag_dict["created_at"], "isoformat"):
                         flag_dict["created_at"] = flag_dict["created_at"].isoformat()
