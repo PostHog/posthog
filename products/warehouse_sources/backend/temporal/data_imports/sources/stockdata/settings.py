@@ -24,7 +24,12 @@ _PUBLISHED_AT_INCREMENTAL_FIELDS: list[IncrementalField] = [
 ]
 
 
-@dataclasses.dataclass
+# StockData.org caps any paginated news result set at 20,000 records (limit × page); requesting
+# beyond it can't return more rows, so pagination stops there and logs the truncation.
+MAX_NEWS_RESULTS = 20_000
+
+
+@dataclasses.dataclass(frozen=False)
 class StockDataEndpointConfig:
     name: str
     path: str
@@ -45,6 +50,8 @@ class StockDataEndpointConfig:
     flatten_data: bool = False
     # News, entity search, and news sources paginate (page param, `meta.found`); the rest return one page.
     paginated: bool = False
+    # Documented result-set cap for paginated endpoints; None when the vendor documents no cap.
+    max_results: int | None = None
     # News stats time series rows arrive as `{date, data: [{key, ...}]}` buckets; the transport
     # explodes each bucket into one row per key.
     explode_buckets: bool = False
@@ -66,6 +73,7 @@ STOCKDATA_ENDPOINTS: dict[str, StockDataEndpointConfig] = {
         partition_key="published_at",
         params={"sort": "published_on"},
         paginated=True,
+        max_results=MAX_NEWS_RESULTS,
         sort_mode="desc",
         description="Financial and market news articles with per-entity sentiment scores. Optionally filtered to the configured symbols. Incremental on published_at.",
     ),

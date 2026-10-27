@@ -79,6 +79,15 @@ class TestNewsPagination:
         assert len(result.rows) == 6
         assert len(result.requests) == 2
 
+    def test_news_sources_is_not_held_to_the_news_result_cap(self) -> None:
+        pages = [[{"source_id": f"p{page}"}] for page in (1, 2, 3)]
+        result = _driver().run(
+            "news_sources",
+            [_news_page(rows, found=30_000, limit=10_000, page=page) for page, rows in enumerate(pages, start=1)],
+        )
+
+        assert [request.param("page") for request in result.requests] == ["1", "2", "3"]
+
     def test_stops_on_empty_first_page(self) -> None:
         result = _driver().run("news", [_news_page([], found=0, limit=100, page=1)])
 
@@ -208,15 +217,7 @@ class TestNewsStatsRowShaping:
                     {"date": "2026-10-01T00:00:00.000Z", "key": "TSLA", "total_documents": 1, "sentiment_avg": 0.0},
                 ],
             ),
-            (
-                "empty_and_malformed_buckets_yield_nothing",
-                [
-                    {"date": "2026-10-02T00:00:00.000Z", "data": []},
-                    {"date": "2026-10-03T00:00:00.000Z", "data": None},
-                    {"date": "2026-10-04T00:00:00.000Z", "data": ["not-a-dict"]},
-                ],
-                [],
-            ),
+            ("empty_bucket_yields_nothing", [{"date": "2026-10-02T00:00:00.000Z", "data": []}], []),
             ("empty_object_result", {}, []),
         ]
     )
@@ -227,6 +228,21 @@ class TestNewsStatsRowShaping:
 
         assert result.raised is None
         assert result.rows == expected_rows
+
+    @parameterized.expand(
+        [
+            ("missing_data", {"date": "2026-10-03T00:00:00.000Z"}),
+            ("non_list_data", {"date": "2026-10-03T00:00:00.000Z", "data": None}),
+            ("non_dict_entry", {"date": "2026-10-04T00:00:00.000Z", "data": ["not-a-dict"]}),
+        ]
+    )
+    def test_malformed_bucket_fails_the_sync(self, _name: str, bucket: dict[str, Any]) -> None:
+        valid = {"date": "2026-10-05T00:00:00.000Z", "data": [{"key": "TSLA", "total_documents": 1}]}
+        result = _driver().run("news_stats_intraday", [_data_page([bucket, valid])])
+
+        # Dropping the bucket would let the later one advance the watermark past its date.
+        assert isinstance(result.raised, ValueError)
+        assert "malformed news stats bucket" in str(result.raised)
 
     def test_aggregation_rows_pass_through_unchanged(self) -> None:
         rows = [{"key": "TSLA", "total_documents": 55, "sentiment_avg": 0.33}]

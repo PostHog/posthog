@@ -21,12 +21,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stockdata.
 logger = logging.getLogger(__name__)
 
 STOCKDATA_BASE_URL = "https://api.stockdata.org/v1"
-# StockData.org caps any paginated news result set at 20,000 records (limit × page); requesting
-# beyond it can't return more rows, so pagination stops there and logs the truncation.
-MAX_PAGINATED_RESULTS = 20_000
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class StockDataResumeConfig:
     # Number of the next page to fetch — StockData.org uses page-number pagination.
     next_page: int
@@ -66,21 +63,24 @@ def _explode_stats_bucket(row: dict[str, Any]) -> list[dict[str, Any]]:
     """News stats time series rows arrive as `{date, data: [{key, total_documents, sentiment_avg}]}`
     — emit one row per key, carrying the bucket date."""
     entries = row.get("data")
-    if not isinstance(entries, list):
-        return []
-    return [{"date": row.get("date"), **entry} for entry in entries if isinstance(entry, dict)]
+    # A malformed bucket must fail the sync: dropping it would let later buckets advance the
+    # incremental watermark past its date, so that day would never be re-fetched.
+    if not isinstance(entries, list) or not all(isinstance(entry, dict) for entry in entries):
+        raise ValueError(f"StockData.org returned a malformed news stats bucket for date {row.get('date')!r}")
+    return [{"date": row.get("date"), **entry} for entry in entries]
 
 
 class StockDataPagePaginator(PageNumberPaginator):
-    """Page-number paginator that stops on the documented 20,000-result cap.
+    """Page-number paginator that stops on an endpoint's result-set cap, when it has one.
 
     The paginated responses' `meta` block carries `found` (total matches), `limit` (page size), and
     `page`, so the paginator stops after the last real page instead of paying an extra empty-page
     request, and terminates cleanly at the result-set cap instead of erroring past it.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, max_results: int | None = None) -> None:
         super().__init__(base_page=1, page_param="page", stop_after_empty_page=True)
+        self.max_results = max_results
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         if data is None or len(data) == 0:
@@ -109,11 +109,11 @@ class StockDataPagePaginator(PageNumberPaginator):
                 if fetched >= found:
                     self._has_next_page = False
                     return
-                if fetched >= MAX_PAGINATED_RESULTS:
+                if self.max_results is not None and fetched >= self.max_results:
                     logger.info(
                         "StockData.org pagination reached the API's %s-result cap; %s matching "
                         "records were not fetched. Older news articles sync as the incremental watermark advances.",
-                        MAX_PAGINATED_RESULTS,
+                        self.max_results,
                         found - fetched,
                     )
                     self._has_next_page = False
@@ -173,7 +173,7 @@ def stockdata_source(
             # api_token rides in the query string (the API's only auth method); the framework auth
             # redacts its value from every logged URL, captured sample, and raised error message.
             "auth": {"type": "api_key", "api_key": api_token, "name": "api_token", "location": "query"},
-            "paginator": StockDataPagePaginator() if config.paginated else "single_page",
+            "paginator": StockDataPagePaginator(config.max_results) if config.paginated else "single_page",
         },
         "resources": [resource],
     }
