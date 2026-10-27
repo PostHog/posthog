@@ -8,19 +8,23 @@ from unittest.mock import MagicMock
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
-from django.http import HttpResponse
+from django.http import HttpRequest, HttpResponse
 from django.template.loader import render_to_string
 from django.test import RequestFactory, SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.api.tagged_item import set_tags_on_object
-from posthog.models import UserHomeSettings
+from posthog.frontend_views import app_context
+from posthog.models import Team, User, UserHomeSettings
 from posthog.stable_chunks import StableChunks
+from posthog.templatetags.posthog_filters import TolerantJSONEncoder
 from posthog.utils import (
+    DEFERRED_APP_CONTEXT_FLAG,
     flags_for_app_evaluation_context,
     get_context_for_template,
     get_persisted_feature_flags_for_app_context,
+    should_defer_app_context,
 )
 
 from products.conversations.backend.services.identity import IDENTITY_CLAIM_MAX_AGE_SECONDS
@@ -123,6 +127,36 @@ class TestFlagsForAppEvaluationContext(SimpleTestCase):
         definitions = [{"key": "the-flag", "evaluation_contexts": ["posthog-website"]}]
 
         assert flags_for_app_evaluation_context(None, definitions) is None
+
+
+class TestShouldDeferAppContext(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("test variant defers and reports", "", "test", True, True),
+            ("control variant renders inline and reports", "", "control", False, True),
+            ("outside the experiment renders inline silently", "", None, False, False),
+            ("param on beats control", "?deferred_app_context=1", "control", True, False),
+            ("param off beats test", "?deferred_app_context=0", "test", False, False),
+        ]
+    )
+    def test_only_the_test_variant_defers(self, _name, query, variant, expect_deferred, expect_exposure):
+        request = RequestFactory().get(f"/{query}")
+        user = User(distinct_id="user-1", email="someone@example.com")
+
+        with (
+            mock.patch("posthog.utils.posthoganalytics.get_feature_flag", return_value=variant),
+            mock.patch("posthog.utils.posthoganalytics.capture") as capture,
+        ):
+            assert should_defer_app_context(request, user) is expect_deferred
+
+        if expect_exposure:
+            capture.assert_called_once_with(
+                "$feature_flag_called",
+                distinct_id="user-1",
+                properties={"$feature_flag": DEFERRED_APP_CONTEXT_FLAG, "$feature_flag_response": variant},
+            )
+        else:
+            capture.assert_not_called()
 
 
 class TestGetContextForTemplate(APIBaseTest):
@@ -359,3 +393,42 @@ class TestGetContextForTemplate(APIBaseTest):
             }
         else:
             assert "stable_chunks_importmap" not in context
+
+    @mock.patch("posthog.utils.posthoganalytics.get_all_flags", return_value={"some-flag": True})
+    @mock.patch("posthog.utils.posthoganalytics.feature_flag_definitions", return_value=None)
+    def test_deferred_page_gets_the_user_data_from_app_context(self, _mock_definitions, _mock_get_all_flags):
+        def user_request(path: str) -> HttpRequest:
+            request = RequestFactory().get(path)
+            SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
+            request.user = self.user
+            return request
+
+        inline = get_context_for_template("index.html", user_request("/?deferred_app_context=0"))
+        deferred = get_context_for_template("index.html", user_request("/?deferred_app_context=1"))
+        fetched = json.loads(app_context(user_request("/_app_context")).content)
+
+        assert deferred["posthog_app_context"]["deferred"] is True
+        assert deferred["posthog_app_context"]["current_user"] is None
+        assert "featureFlags" not in deferred["posthog_bootstrap"]
+        page_with_fetched = {**deferred["posthog_app_context"], **fetched["app_context"]}
+        page_with_fetched.pop("deferred")
+        assert page_with_fetched == json.loads(json.dumps(inline["posthog_app_context"], cls=TolerantJSONEncoder))
+        assert fetched["feature_flags"] == inline["posthog_bootstrap"]["featureFlags"]
+
+    def test_app_context_loads_the_project_in_its_path_not_the_saved_one(self):
+        page_team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+        assert self.user.team == self.team
+
+        response = self.client.get(f"/project/{page_team.pk}/_app_context")
+
+        assert response.status_code == 200
+        assert response.json()["app_context"]["current_team"]["id"] == page_team.pk
+
+    def test_app_context_refuses_an_anonymous_request(self):
+        request = RequestFactory().get("/_app_context")
+        request.user = AnonymousUser()
+
+        response = app_context(request)
+
+        assert response.status_code == 401
+        assert b"current_user" not in response.content
