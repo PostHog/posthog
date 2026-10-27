@@ -1520,9 +1520,9 @@ export const getExperimentsSetupContextCreateUrl = (projectId: string) => {
 /**
  * Facts about this project that decide how to configure a new experiment.
  *
- * Returns the team's experiment defaults, which SDKs call feature flags, traffic on a target
- * surface, the baseline of a candidate metric, how recent experiments were set up, and the
- * most reused shared metrics. Each section has its own status, so a slow or failed read
+ * Returns the team's experiment defaults, which SDKs call feature flags, traffic across the
+ * project, traffic on a target surface, the baseline of a candidate metric, how recent
+ * experiments were set up, and the most reused shared metrics. Each section has its own status, so a slow or failed read
  * leaves the others valid. POST because the inputs describe a plan rather than a resource;
  * the endpoint only reads.
  */

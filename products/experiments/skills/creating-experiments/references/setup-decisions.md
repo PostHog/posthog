@@ -101,6 +101,8 @@ Then read `previous_experiments.experiments[].primary_metric_events`. When the e
 
 ## Feasibility and running time
 
+For a first read of traffic before you know the target, use `project_traffic.unique_persons`: the people who viewed any page or screen in the project over `project_traffic.window_days` days, test accounts filtered. It needs no input, and it is not an exposure rate.
+
 When `candidate_metric.status` is `ok` and it has baseline stats:
 
 1. Call `experiment-calculate-running-time`:

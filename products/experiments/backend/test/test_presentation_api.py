@@ -9525,12 +9525,14 @@ class TestExperimentSetupContextEndpoint(ClickhouseTestMixin, APILicensedTest):
         assert {name: section["status"] for name, section in context.items()} == {
             "team_defaults": "ok",
             "sdk_profile": "ok",
+            "project_traffic": "ok",
             "target_surface": "ok",
             "candidate_metric": "ok",
             "previous_experiments": "ok",
             "shared_metrics": "ok",
         }
         assert context["sdk_profile"]["data"]["libs"][0]["lib"] == "web"
+        assert context["project_traffic"]["data"]["unique_persons"] == 1
         # The echoed filters are parsed and dumped through pydantic, so the operator reaches JSON
         # as its value rather than as an enum the renderer cannot write.
         assert context["target_surface"]["data"]["target_properties"] == [

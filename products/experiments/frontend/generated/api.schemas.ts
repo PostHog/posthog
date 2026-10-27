@@ -4713,6 +4713,29 @@ export interface ExperimentSetupContextInputApi {
     shared_metrics_limit?: number
 }
 
+export interface ExperimentSetupProjectTrafficApi {
+    /** Days of events read, ending now. */
+    window_days: number
+    /** When the numbers were computed. They are cached for an hour. */
+    computed_at: string
+    /** Whether test accounts were left out, the same way target_surface leaves them out. False when the project defines no test-account filters. */
+    test_accounts_filtered: boolean
+    /** Persons who sent a $pageview or a $screen in the window, anywhere in the project. A first read of the project's traffic before a target event is known. */
+    unique_persons: number
+}
+
+export interface ExperimentSetupProjectTrafficSectionApi {
+    /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+     *
+     * * `ok` - Ok
+     * * `skipped` - Skipped
+     * * `timed_out` - Timed Out
+     * * `error` - Error */
+    status: SetupContextSectionStatusEnumApi
+    /** Persons who viewed a page or a screen anywhere in the project. Needs no input. */
+    data: ExperimentSetupProjectTrafficApi | null
+}
+
 export interface ExperimentSetupLibReachApi {
     /**
      * The $lib value that sent the target events.
@@ -5176,6 +5199,8 @@ export interface ExperimentSetupContextResponseApi {
     team_defaults: ExperimentSetupTeamDefaultsSectionApi
     /** Which SDKs call feature flags and where flags are evaluated. */
     sdk_profile: ExperimentSetupSdkProfileSectionApi
+    /** Traffic across the whole project. */
+    project_traffic: ExperimentSetupProjectTrafficSectionApi
     /** Traffic on the surface under test. */
     target_surface: ExperimentSetupTargetSurfaceSectionApi
     /** Traffic and baseline of the candidate primary metric. */

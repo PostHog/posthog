@@ -2816,6 +2816,23 @@ class ExperimentSetupSdkProfileSerializer(serializers.Serializer):
     )
 
 
+class ExperimentSetupProjectTrafficSerializer(serializers.Serializer):
+    window_days = serializers.IntegerField(help_text="Days of events read, ending now.")
+    computed_at = serializers.DateTimeField(help_text="When the numbers were computed. They are cached for an hour.")
+    test_accounts_filtered = serializers.BooleanField(
+        help_text=(
+            "Whether test accounts were left out, the same way target_surface leaves them out. False when the "
+            "project defines no test-account filters."
+        )
+    )
+    unique_persons = serializers.IntegerField(
+        help_text=(
+            "Persons who sent a $pageview or a $screen in the window, anywhere in the project. A first read of "
+            "the project's traffic before a target event is known."
+        )
+    )
+
+
 class ExperimentSetupLibReachSerializer(serializers.Serializer):
     lib = serializers.CharField(allow_null=True, help_text="The $lib value that sent the target events.")
     category = serializers.ChoiceField(
@@ -3209,6 +3226,13 @@ class ExperimentSetupSdkProfileSectionSerializer(serializers.Serializer):
     )
 
 
+class ExperimentSetupProjectTrafficSectionSerializer(serializers.Serializer):
+    status = _section_status_field()
+    data = ExperimentSetupProjectTrafficSerializer(  # type: ignore[assignment]
+        allow_null=True, help_text="Persons who viewed a page or a screen anywhere in the project. Needs no input."
+    )
+
+
 class ExperimentSetupTargetSurfaceSectionSerializer(serializers.Serializer):
     status = _section_status_field()
     data = ExperimentSetupTargetSurfaceSerializer(  # type: ignore[assignment]
@@ -3243,6 +3267,7 @@ class ExperimentSetupContextResponseSerializer(serializers.Serializer):
     sdk_profile = ExperimentSetupSdkProfileSectionSerializer(
         help_text="Which SDKs call feature flags and where flags are evaluated."
     )
+    project_traffic = ExperimentSetupProjectTrafficSectionSerializer(help_text="Traffic across the whole project.")
     target_surface = ExperimentSetupTargetSurfaceSectionSerializer(help_text="Traffic on the surface under test.")
     candidate_metric = ExperimentSetupCandidateMetricSectionSerializer(
         help_text="Traffic and baseline of the candidate primary metric."

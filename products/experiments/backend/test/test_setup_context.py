@@ -37,6 +37,7 @@ from products.experiments.backend.presentation import serializers as experiment_
 from products.experiments.backend.presentation.serializers import RunningTimeBaselineStatsSerializer
 from products.experiments.backend.running_time_calculator import BaselineStats, calculate_baseline_value
 from products.experiments.backend.setup_context import (
+    PROJECT_TRAFFIC_WINDOW_DAYS,
     SDK_PROFILE_MAX_LIBS,
     SERVER_LIBS,
     TARGET_SURFACE_MAX_LIBS,
@@ -45,6 +46,7 @@ from products.experiments.backend.setup_context import (
     classify_lib,
     get_candidate_metric,
     get_previous_experiments,
+    get_project_traffic,
     get_sdk_profile,
     get_shared_metrics,
     get_target_surface,
@@ -208,6 +210,7 @@ class TestResponseCoversEveryFact(SimpleTestCase):
         ("SdkLibProfile", "ExperimentSetupSdkLibSerializer"),
         ("LibActivity", "ExperimentSetupLibActivitySerializer"),
         ("SdkProfile", "ExperimentSetupSdkProfileSerializer"),
+        ("ProjectTraffic", "ExperimentSetupProjectTrafficSerializer"),
         ("LibReach", "ExperimentSetupLibReachSerializer"),
         ("TargetSurface", "ExperimentSetupTargetSurfaceSerializer"),
         ("FunnelBaselineStats", "ExperimentSetupFunnelBaselineSerializer"),
@@ -452,6 +455,67 @@ class TestSdkProfile(ClickhouseTestMixin, APIBaseTest):
 
         assert profile.evaluated_on_server_and_web is expected
         assert profile.flags_evaluated_on_server_and_web == int(expected)
+
+
+class TestProjectTraffic(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+        # The test team starts with a person filter. Each test sets the filters it needs.
+        self.team.test_account_filters = []
+        self.team.save()
+
+    def _view(self, distinct_id: str, event: str, days_ago: float, **properties: Any) -> None:
+        _create_event(
+            team=self.team,
+            event=event,
+            distinct_id=distinct_id,
+            timestamp=timezone.now() - timedelta(days=days_ago),
+            properties=properties,
+        )
+
+    def test_counts_persons_who_viewed_a_page_or_a_screen(self) -> None:
+        for distinct_id in ["web-visitor", "app-user", "both", "custom-only", "lapsed"]:
+            _create_person(team=self.team, distinct_ids=[distinct_id])
+        self._view("web-visitor", "$pageview", 2)
+        self._view("web-visitor", "$pageview", 1)
+        self._view("app-user", "$screen", 3)
+        # A person on web and mobile counts once.
+        self._view("both", "$pageview", 5)
+        self._view("both", "$screen", 4)
+        # Neither a custom event nor a view outside the window is traffic.
+        self._view("custom-only", "signed up", 1)
+        self._view("lapsed", "$pageview", PROJECT_TRAFFIC_WINDOW_DAYS + 1)
+
+        traffic = get_project_traffic(self.team)
+
+        assert (traffic.window_days, traffic.unique_persons) == (PROJECT_TRAFFIC_WINDOW_DAYS, 3)
+        assert traffic.test_accounts_filtered is False
+
+    def test_test_accounts_are_left_out(self) -> None:
+        self.team.test_account_filters = [
+            {"key": "is_internal", "type": "event", "operator": "is_not", "value": ["true"]}
+        ]
+        self.team.save()
+        for distinct_id in ["visitor", "internal"]:
+            _create_person(team=self.team, distinct_ids=[distinct_id])
+        self._view("visitor", "$pageview", 1)
+        self._view("internal", "$pageview", 1, is_internal="true")
+
+        filtered = get_project_traffic(self.team)
+        assert (filtered.test_accounts_filtered, filtered.unique_persons) == (True, 1)
+
+        # The filters are part of the cache key, so an edit is never hidden behind a cached count.
+        self.team.test_account_filters = []
+        self.team.save()
+
+        unfiltered = get_project_traffic(self.team)
+        assert (unfiltered.test_accounts_filtered, unfiltered.unique_persons) == (False, 2)
+
+    def test_an_empty_project_has_no_traffic(self) -> None:
+        traffic = get_project_traffic(self.team)
+
+        assert traffic.unique_persons == 0
 
 
 class TestTargetSurfaceAndCandidateMetric(ClickhouseTestMixin, APIBaseTest):
@@ -1218,10 +1282,13 @@ class TestBuildSetupContext(ClickhouseTestMixin, APIBaseTest):
                 saved_metrics=ExperimentSavedMetric.objects.filter(team_id=self.team.pk),
             )
 
-        assert [context.sdk_profile.status, context.target_surface.status, context.candidate_metric.status] == [
-            expected
-        ] * 3
-        assert context.sdk_profile.data is None
+        assert [
+            context.sdk_profile.status,
+            context.project_traffic.status,
+            context.target_surface.status,
+            context.candidate_metric.status,
+        ] == [expected] * 4
+        assert (context.sdk_profile.data, context.project_traffic.data) == (None, None)
         assert [
             context.team_defaults.status,
             context.previous_experiments.status,
@@ -1237,4 +1304,5 @@ class TestBuildSetupContext(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert (context.target_surface.status, context.candidate_metric.status) == ("skipped", "skipped")
-        assert context.sdk_profile.status == "ok"
+        # The project-wide sections need no input, so they always run.
+        assert (context.sdk_profile.status, context.project_traffic.status) == ("ok", "ok")
