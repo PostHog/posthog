@@ -414,6 +414,16 @@ class TestWorkflowImportAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         _sync_email_template()
+        flag = patch("posthoganalytics.feature_enabled", return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
+
+    def test_import_needs_the_feature_flag(self) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            response = self._post({"source": "customerio", "campaigns": [], "dry_run": False})
+
+        assert response.status_code == 403
+        assert response.json()["code"] == "feature_flag_required"
 
     def _post(self, body: dict[str, Any]) -> Any:
         return self.client.post(f"/api/projects/{self.team.id}/workflow_imports/", body, format="json")

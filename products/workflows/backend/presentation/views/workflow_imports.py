@@ -14,6 +14,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models import User
+from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.workflows.backend.facade.contracts import ImportOptions, WorkflowImportRecord
@@ -190,6 +191,9 @@ class WorkflowImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "hog_flow"
     serializer_class = WorkflowImportRequestSerializer
     scope_object_read_actions = ["for_workflow"]
+    # Only importing is gated: the editor reads `for_workflow` on every workflow and expects a 404, not a 403.
+    posthog_feature_flag = {"workflows-customerio-import": ["create"]}
+    permission_classes = [PostHogFeatureFlagPermission]
 
     @validated_request(
         WorkflowImportRequestSerializer,
