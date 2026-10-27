@@ -1,0 +1,1 @@
+- Replay the merge check against real merges: `python -m products.knowledge_writer.merge_check replay --recent 5` (or a `merges.jsonl` of `{"commit_sha": ...}` rows). Needs `GH_TOKEN` and `ANTHROPIC_API_KEY`, both Coder user secrets on a devbox (`hogli devbox:secret:set`); it makes real GitHub and Anthropic calls.
