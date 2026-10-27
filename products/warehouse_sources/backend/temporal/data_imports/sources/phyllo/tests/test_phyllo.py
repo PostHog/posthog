@@ -130,16 +130,7 @@ class TestFanOut:
 
 
 class TestCommerceTransactionDateWindow:
-    @parameterized.expand(
-        [
-            ("full_refresh_ignores_stored_value", False, datetime(2026, 3, 1, tzinfo=UTC), "2000-01-01"),
-            ("incremental_datetime", True, datetime(2026, 3, 1, 23, 30, tzinfo=UTC), "2026-03-01"),
-            ("incremental_iso_string", True, "2026-02-10T08:00:00Z", "2026-02-10"),
-            ("incremental_without_stored_value", True, None, "2000-01-01"),
-            ("incremental_future_value_capped_to_today", True, datetime(2026, 4, 1, tzinfo=UTC), "2026-03-15"),
-        ]
-    )
-    def test_window_params(self, _name: str, use_incremental: bool, last_value: Any, expected_from: str) -> None:
+    def test_window_covers_full_history(self) -> None:
         with time_machine.travel(datetime(2026, 3, 15, 12, 0, tzinfo=UTC), tick=False):
             result = _driver().run(
                 "commerce_income_transactions",
@@ -149,16 +140,13 @@ class TestCommerceTransactionDateWindow:
                         "/v1/commerce/income/transactions": [_response([{"id": "txn_1"}])],
                     }
                 ),
-                incremental_field="transaction_at",
-                should_use_incremental_field=use_incremental,
-                db_incremental_field_last_value=last_value,
             )
 
         assert result.raised is None
         assert result.rows == [{"id": "txn_1"}]
         [request] = [r for r in result.requests if r.path == "/v1/commerce/income/transactions"]
         assert request.param("account_id") == "acc_a"
-        assert request.param("transaction_from_date") == expected_from
+        assert request.param("transaction_from_date") == "2000-01-01"
         assert request.param("transaction_to_date") == "2026-03-15"
 
 
@@ -217,6 +205,11 @@ class TestPhylloSourceResponse:
         assert result.response.primary_keys == ["id"]
         # Phyllo doesn't guarantee ordering or a stable creation timestamp, so we don't partition.
         assert result.response.partition_mode is None
+        # The two-level comments fan-out has no framework checkpoint, so it must not claim resume.
+        assert result.response.supports_resume is (endpoint != "social_comments")
+        assert PhylloSource().resume_covers_run(incremental_or_append=False, schema_name=endpoint) is (
+            endpoint != "social_comments"
+        )
 
     def test_fan_out_endpoints_are_account_scoped(self) -> None:
         # These endpoints require an account_id query param; a config regression here would 400 on

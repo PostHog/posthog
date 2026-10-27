@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.phyllo import PhylloSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.phyllo.phyllo import (
     PhylloResumeConfig,
+    endpoint_supports_resume,
     phyllo_source,
     validate_credentials,
 )
@@ -125,10 +126,9 @@ You can find your client ID and secret in the [Phyllo developer dashboard](https
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Only commerce_income_transactions is incremental — see the note in settings.py on the
-        # unverified from_date/to_date filters of the other endpoints. Its day-granular window reads
-        # the last synced day again, which only a merge dedupes, so it does not offer append.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=INCREMENTAL_FIELDS.keys())
+        # Every endpoint is full refresh only (INCREMENTAL_FIELDS is empty) — see the note in
+        # settings.py on the unverified from_date/to_date filters.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
         self,
@@ -139,6 +139,16 @@ You can find your client ID and secret in the [Phyllo developer dashboard](https
     ) -> tuple[bool, str | None]:
         # Credentials are environment-wide, so a single probe validates access to every schema.
         return validate_credentials(config.client_id, config.client_secret, config.environment)
+
+    def resume_covers_run(
+        self,
+        *,
+        incremental_or_append: bool,
+        schema_name: str | None = None,
+    ) -> bool:
+        # An endpoint that cannot checkpoint restarts from the first account on every attempt, so the
+        # larger resumable retry budget would only repeat the whole fan-out.
+        return schema_name is None or schema_name not in PHYLLO_ENDPOINTS or endpoint_supports_resume(schema_name)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[PhylloResumeConfig]:
         return ResumableSourceManager[PhylloResumeConfig](inputs, PhylloResumeConfig)
@@ -160,7 +170,5 @@ You can find your client ID and secret in the [Phyllo developer dashboard](https
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            db_incremental_field_last_value=(
-                inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
-            ),
+            db_incremental_field_last_value=None,  # every Phyllo endpoint is full refresh
         )

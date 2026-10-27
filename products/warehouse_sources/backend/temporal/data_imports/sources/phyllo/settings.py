@@ -1,9 +1,11 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 
-from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@frozen
 class PhylloEndpointConfig:
     name: str
     path: str
@@ -21,11 +23,13 @@ class PhylloEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
 
 
-# Phyllo v1 REST list endpoints (https://docs.getphyllo.com). All except commerce_income_transactions
-# are full refresh only: the content and income endpoints document optional from_date/to_date
-# filters, but we could not verify that they are honored server-side (and no endpoint documents an
-# updated-after cursor), so we conservatively re-pull each stream every sync (see the
-# implementing-warehouse-sources skill).
+# Phyllo v1 REST list endpoints (https://docs.getphyllo.com). All are full refresh only: the
+# content and income endpoints document from_date/to_date filters, but we could not verify that
+# they are honored server-side (and no endpoint documents an updated-after cursor), so we
+# conservatively re-pull each stream every sync (see the implementing-warehouse-sources skill).
+# commerce_income_transactions requires its date window, but one table-wide watermark would skip the
+# history of an account connected after the first sync, and the status updates of older
+# transactions, so it also re-pulls the full window every sync.
 PHYLLO_ENDPOINTS: dict[str, PhylloEndpointConfig] = {
     "work_platforms": PhylloEndpointConfig(name="work_platforms", path="/v1/work-platforms"),
     "users": PhylloEndpointConfig(name="users", path="/v1/users"),
@@ -55,15 +59,4 @@ PHYLLO_ENDPOINTS: dict[str, PhylloEndpointConfig] = {
 
 ENDPOINTS = tuple(PHYLLO_ENDPOINTS.keys())
 
-# The commerce transaction date window is required on every request, so the server always applies
-# it and an incremental sync can start the window at the last synced `transaction_at` date.
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    "commerce_income_transactions": [
-        IncrementalField(
-            label="transaction_at",
-            type=IncrementalFieldType.DateTime,
-            field="transaction_at",
-            field_type=IncrementalFieldType.DateTime,
-        )
-    ],
-}
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}

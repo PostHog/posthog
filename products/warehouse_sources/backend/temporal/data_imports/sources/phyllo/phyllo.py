@@ -65,26 +65,13 @@ def _base_headers() -> dict[str, str]:
     return {"Accept": "application/json"}
 
 
-def _as_date(value: Any) -> date | None:
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    if isinstance(value, str) and value:
-        return date.fromisoformat(value[:10])
-    return None
-
-
-def _date_window_params(endpoint: str, db_incremental_field_last_value: Optional[Any], today: date) -> dict[str, str]:
+def _date_window_params(endpoint: str, today: date) -> dict[str, str]:
     config = PHYLLO_ENDPOINTS[endpoint]
     if config.date_window_params is None:
         return {}
 
-    # The window is inclusive and day-granular, so an incremental run reads the whole day of the
-    # last synced row again; the merge dedupes those rows on the primary key.
-    start = _as_date(db_incremental_field_last_value) or DATE_WINDOW_START
     from_param, to_param = config.date_window_params
-    return {from_param: min(start, today).isoformat(), to_param: today.isoformat()}
+    return {from_param: DATE_WINDOW_START.isoformat(), to_param: today.isoformat()}
 
 
 def _child_endpoint(path: str, params: dict[str, Any], *, single_object: bool = False) -> Endpoint:
@@ -174,6 +161,12 @@ def _build_resources(endpoint: str, extra_params: dict[str, str]) -> list[Endpoi
     return [accounts_parent, child]
 
 
+def endpoint_supports_resume(endpoint: str) -> bool:
+    # The framework cannot checkpoint the two-level accounts -> contents -> comments fan-out, so a
+    # retry of that table starts again from the first account.
+    return not PHYLLO_ENDPOINTS[endpoint].fan_out_by_content
+
+
 def phyllo_source(
     client_id: str,
     client_secret: str,
@@ -196,13 +189,12 @@ def phyllo_source(
             "paginator": OffsetPaginator(limit=PAGE_SIZE, total_path=None),
         },
         "resource_defaults": {},
-        "resources": _build_resources(
-            endpoint, _date_window_params(endpoint, db_incremental_field_last_value, datetime.now(UTC).date())
-        ),
+        "resources": _build_resources(endpoint, _date_window_params(endpoint, datetime.now(UTC).date())),
     }
 
+    supports_resume = endpoint_supports_resume(endpoint)
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
+    if supports_resume and resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
         if resume is not None and resume.paginator_state is not None:
             initial_paginator_state = resume.paginator_state
@@ -218,7 +210,7 @@ def phyllo_source(
         team_id,
         job_id,
         db_incremental_field_last_value,
-        resume_hook=save_checkpoint,
+        resume_hook=save_checkpoint if supports_resume else None,
         initial_paginator_state=initial_paginator_state,
     )
     target = next(resource for resource in resources if resource.name == endpoint)
@@ -232,6 +224,7 @@ def phyllo_source(
         partition_count=1,
         partition_size=1,
         column_hints=target.column_hints,
+        supports_resume=supports_resume,
     )
 
 
