@@ -172,6 +172,16 @@ pub struct FlagRequest {
 }
 ```
 
+#### SDK classification
+
+An explicit `evaluation_runtime` takes precedence over runtime inference from request headers.
+Without it, recognized SDK User-Agents determine the runtime: `posthog-rs-mcp`, `posthog-go-mcp`, and `posthog-ruby-mcp` are server SDKs; `posthog-godot` and `posthog-unreal` are client SDKs.
+Unrecognized User-Agents fall back to browser-header detection, then to an unknown runtime that excludes flags restricted to either client or server execution.
+
+SDK usage attribution also reads `person_properties.$lib`, which overrides the header-derived library category.
+The browser aliases `web` and `js` both map to the existing `posthog-js` category.
+The Rust `Library` categories and Python `SDK_LIBRARIES` list in `products/feature_flags/backend/flag_analytics.py` must stay in sync so Python consumes each SDK's request-count buckets.
+
 #### GeoIP enrichment of `person_properties`
 
 Unless `geoip_disable: true` is set in the body, `handler::properties::get_person_property_overrides` looks up the request IP in MaxMind and merges the resulting `$geoip_*` properties into `person_properties` before evaluation.

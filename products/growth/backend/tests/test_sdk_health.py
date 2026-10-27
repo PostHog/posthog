@@ -324,6 +324,11 @@ class TestAssessReleaseIsOld(SimpleTestCase):
             ("posthog-convex",),
             ("posthog-rails",),
             ("posthog-aspnetcore",),
+            ("posthog-rs",),
+            ("posthog-rs-mcp",),
+            ("posthog-go-mcp",),
+            ("posthog-ruby-mcp",),
+            ("js",),
         ]
     )
     def test_desktop_old_flagged(self, sdk_type: str) -> None:
@@ -421,6 +426,8 @@ class TestAssessSdkTrafficAlerts(SimpleTestCase):
             ("posthog-react-native",),
             ("posthog-kmp",),
             ("posthog-unity",),
+            ("posthog-godot",),
+            ("posthog-unreal",),
         ]
     )
     def test_mobile_never_gets_traffic_alerts(self, sdk_type: str):
@@ -445,6 +452,13 @@ class TestComputeSdkHealth(SimpleTestCase):
             ("posthog-convex", "Convex"),
             ("posthog-rails", "Ruby on Rails"),
             ("posthog-aspnetcore", "ASP.NET Core"),
+            ("posthog-rs", "Rust"),
+            ("posthog-rs-mcp", "Rust MCP"),
+            ("posthog-godot", "Godot"),
+            ("posthog-unreal", "Unreal Engine"),
+            ("posthog-go-mcp", "Go MCP"),
+            ("posthog-ruby-mcp", "Ruby MCP"),
+            ("js", "JavaScript Lite"),
         ]
     )
     def test_healthy_when_all_current(self, sdk_type: str, readable_name: str) -> None:

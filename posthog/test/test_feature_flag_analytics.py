@@ -644,6 +644,9 @@ class TestSdkBreakdown(BaseTest):
             "posthog-convex",
             "posthog-python",
             "posthog-python-mcp",
+            "posthog-rs-mcp",
+            "posthog-go-mcp",
+            "posthog-ruby-mcp",
             "posthog-php",
             "posthog-ruby",
             "posthog-rails",
@@ -659,6 +662,8 @@ class TestSdkBreakdown(BaseTest):
             "posthog-flutter",
             "posthog-kmp",
             "posthog-unity",
+            "posthog-godot",
+            "posthog-unreal",
             "posthog-server",
             "other",
         ]
@@ -856,6 +861,11 @@ class TestSdkBreakdown(BaseTest):
                 "posthog-python": 300,
                 "posthog-android": 200,
                 "posthog-ios": 150,
+                "posthog-rs-mcp": 80,
+                "posthog-go-mcp": 70,
+                "posthog-ruby-mcp": 60,
+                "posthog-godot": 40,
+                "posthog-unreal": 30,
                 "other": 50,
             }
 

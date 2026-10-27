@@ -23,6 +23,13 @@ export const SDK_TYPE_READABLE_NAME: Record<SdkType, string> = {
     'posthog-convex': 'Convex',
     'posthog-rails': 'Ruby on Rails',
     'posthog-aspnetcore': 'ASP.NET Core',
+    'posthog-rs': 'Rust',
+    'posthog-rs-mcp': 'Rust MCP',
+    'posthog-godot': 'Godot',
+    'posthog-unreal': 'Unreal Engine',
+    'posthog-go-mcp': 'Go MCP',
+    'posthog-ruby-mcp': 'Ruby MCP',
+    js: 'JavaScript Lite',
 }
 
 export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }> = {
@@ -113,5 +120,33 @@ export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }>
     'posthog-aspnetcore': {
         releases: 'https://github.com/PostHog/posthog-dotnet/releases',
         docs: 'https://posthog.com/docs/libraries/dotnet',
+    },
+    'posthog-rs': {
+        releases: 'https://github.com/PostHog/posthog-rs/releases',
+        docs: 'https://posthog.com/docs/libraries/rust',
+    },
+    'posthog-rs-mcp': {
+        releases: 'https://github.com/PostHog/posthog-rs/releases',
+        docs: 'https://posthog.com/docs/mcp-analytics',
+    },
+    'posthog-godot': {
+        releases: 'https://github.com/PostHog/posthog-godot/releases',
+        docs: 'https://github.com/PostHog/posthog-godot#readme',
+    },
+    'posthog-unreal': {
+        releases: 'https://github.com/PostHog/posthog-unreal/releases',
+        docs: 'https://github.com/PostHog/posthog-unreal#readme',
+    },
+    'posthog-go-mcp': {
+        releases: 'https://github.com/PostHog/posthog-go/releases',
+        docs: 'https://posthog.com/docs/mcp-analytics',
+    },
+    'posthog-ruby-mcp': {
+        releases: 'https://github.com/PostHog/posthog-ruby/releases',
+        docs: 'https://posthog.com/docs/mcp-analytics',
+    },
+    js: {
+        releases: 'https://github.com/PostHog/posthog-js/blob/main/packages/web/CHANGELOG.md',
+        docs: 'https://github.com/PostHog/posthog-js/blob/main/packages/web/README.md',
     },
 }
