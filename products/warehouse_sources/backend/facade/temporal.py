@@ -55,6 +55,10 @@ from products.warehouse_sources.backend.temporal.data_imports.table_metadata_set
     WORKFLOWS as METADATA_WORKFLOWS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
+from products.warehouse_sources.backend.temporal.sync_alert_evaluate import (
+    WAREHOUSE_ALERT_EVALUATION_ACTIVITIES,
+    WAREHOUSE_ALERT_EVALUATION_WORKFLOWS,
+)
 
 __all__ = [
     "ACTIVITIES",
@@ -64,6 +68,8 @@ __all__ = [
     "PERSON_PROPERTY_BACKFILL_WORKFLOWS",
     "PERSON_PROPERTY_SYNC_ACTIVITIES",
     "PERSON_PROPERTY_SYNC_WORKFLOWS",
+    "WAREHOUSE_ALERT_EVALUATION_ACTIVITIES",
+    "WAREHOUSE_ALERT_EVALUATION_WORKFLOWS",
     "WORKFLOWS",
     "ExternalDataSchemaSyncPausedError",
     "AccountPropertyRowSink",

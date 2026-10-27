@@ -1227,18 +1227,16 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
     @parameterized.expand(
         [
-            ("allow", ThreadJoinMode.ALLOW, None, True, False, True),
+            ("allow", ThreadJoinMode.ALLOW, None, True, False),
             # A creator who never picked a mode lets anyone join.
-            ("unset", None, None, True, False, True),
-            ("ask_per_person", ThreadJoinMode.ASK_PER_PERSON, None, False, True, True),
-            ("ask_per_person_already_joined", ThreadJoinMode.ASK_PER_PERSON, ["U_BOB"], True, False, True),
-            ("ask_per_person_after_someone_else_joined", ThreadJoinMode.ASK_PER_PERSON, ["U_CAROL"], False, True, True),
-            ("ask_per_thread", ThreadJoinMode.ASK_PER_THREAD, None, False, True, True),
-            ("ask_per_thread_after_someone_else_joined", ThreadJoinMode.ASK_PER_THREAD, ["U_CAROL"], True, False, True),
-            ("never", ThreadJoinMode.NEVER, None, False, False, True),
-            ("never_after_joining", ThreadJoinMode.NEVER, ["U_BOB"], True, False, True),
-            # Turning the rollout flag off brings back today's behavior, whatever was stored.
-            ("never_with_the_flag_off", ThreadJoinMode.NEVER, None, True, False, False),
+            ("unset", None, None, True, False),
+            ("ask_per_person", ThreadJoinMode.ASK_PER_PERSON, None, False, True),
+            ("ask_per_person_already_joined", ThreadJoinMode.ASK_PER_PERSON, ["U_BOB"], True, False),
+            ("ask_per_person_after_someone_else_joined", ThreadJoinMode.ASK_PER_PERSON, ["U_CAROL"], False, True),
+            ("ask_per_thread", ThreadJoinMode.ASK_PER_THREAD, None, False, True),
+            ("ask_per_thread_after_someone_else_joined", ThreadJoinMode.ASK_PER_THREAD, ["U_CAROL"], True, False),
+            ("never", ThreadJoinMode.NEVER, None, False, False),
+            ("never_after_joining", ThreadJoinMode.NEVER, ["U_BOB"], True, False),
         ]
     )
     @patch("products.slack_app.backend.api.post_thread_join_prompt")
@@ -1252,7 +1250,6 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         joined,
         delivered,
         prompted,
-        flag_on,
         mock_slack_cls,
         mock_resolve,
         mock_signal,
@@ -1270,13 +1267,9 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
 
         inputs = _make_inputs(self.integration.id, self.user.id)
-        with patch(
-            "products.slack_app.backend.logic.thread_join.is_slack_app_multiplayer_approvals_enabled",
-            return_value=flag_on,
-        ):
-            result = forward_posthog_code_followup_activity(
-                inputs, "C123", "1234.5678", "U_BOB", "<@BOT> ship it", "1234.5679"
-            )
+        result = forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_BOB", "<@BOT> ship it", "1234.5679"
+        )
 
         assert result is True
         assert mock_signal.called is delivered
@@ -1372,11 +1365,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
 
         inputs = _make_inputs(self.integration.id, self.user.id)
-        with patch(
-            "products.slack_app.backend.logic.thread_join.is_slack_app_multiplayer_approvals_enabled",
-            return_value=True,
-        ):
-            forward_posthog_code_followup_activity(inputs, "C123", "1234.5678", "U_BOB", "<@BOT> ship it", "1234.5679")
+        forward_posthog_code_followup_activity(inputs, "C123", "1234.5678", "U_BOB", "<@BOT> ship it", "1234.5679")
 
         assert mock_signal.called is delivered
         assert mock_prompt.called is prompted

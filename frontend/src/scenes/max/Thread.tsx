@@ -846,16 +846,14 @@ const Message = React.memo(function Message({
                     } else if (isArtifactMessage(message)) {
                         if (isVisualizationArtifactContent(message.content)) {
                             return (
-                                // A chart card needs more room from the text around it than the thread's row gap gives.
-                                <div key={key} className={quill ? 'my-2' : undefined}>
-                                    <VisualizationArtifact
-                                        message={message}
-                                        content={message.content}
-                                        status={message.status}
-                                        isEditingInsight={editInsightToolRegistered}
-                                        activeSceneId={activeSceneId}
-                                    />
-                                </div>
+                                <VisualizationArtifact
+                                    key={key}
+                                    message={message}
+                                    content={message.content}
+                                    status={message.status}
+                                    isEditingInsight={editInsightToolRegistered}
+                                    activeSceneId={activeSceneId}
+                                />
                             )
                         } else if (isNotebookArtifactContent(message.content)) {
                             return (
