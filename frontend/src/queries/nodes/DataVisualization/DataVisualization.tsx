@@ -125,6 +125,7 @@ export function DataTableVisualization({
     const vizKey = insightVizDataNodeKey(insightProps)
     const dataNodeCollectionId = insightVizDataCollectionId(insightProps, key)
     const dataVisualizationLogicProps: DataVisualizationLogicProps = {
+        loadQueue: context?.loadQueue,
         key: vizKey,
         query,
         dashboardId: insightProps.dashboardId,
@@ -142,6 +143,7 @@ export function DataTableVisualization({
     }
 
     const dataNodeLogicProps: DataNodeLogicProps = {
+        loadQueue: context?.loadQueue,
         query: getBIVisualizationSource(query),
         retainResponseOnUnmount: insightProps.retainResponseOnUnmount,
         key: vizKey,

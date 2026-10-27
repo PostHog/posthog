@@ -1,35 +1,21 @@
+import { z } from 'zod'
+
 import { BIConfig } from '~/queries/schema/schema-business-intelligence'
 
 import { getBIResultDimensions } from './biEditorTypes'
 
-export interface BIDashboardFilterLink {
-    dashboardId: number
-    tileId: number
-    record: Record<string, string | number | boolean | null>
-}
+const filterLinkSchema = z.object({
+    dashboardId: z.number().int().safe(),
+    tileId: z.number().int().safe(),
+    record: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.null()])),
+})
+
+export type BIDashboardFilterLink = z.infer<typeof filterLinkSchema>
 
 export function readBIDashboardFilterLink(value: unknown): BIDashboardFilterLink | null {
     try {
-        const parsed = typeof value === 'string' ? JSON.parse(value) : value
-        if (!parsed || typeof parsed !== 'object') {
-            return null
-        }
-        const { dashboardId, tileId, record } = parsed as Record<string, unknown>
-        if (
-            typeof dashboardId !== 'number' ||
-            !Number.isSafeInteger(dashboardId) ||
-            typeof tileId !== 'number' ||
-            !Number.isSafeInteger(tileId) ||
-            !record ||
-            Array.isArray(record) ||
-            typeof record !== 'object' ||
-            !Object.values(record).every(
-                (value) => value === null || ['string', 'number', 'boolean'].includes(typeof value)
-            )
-        ) {
-            return null
-        }
-        return { dashboardId, tileId, record: record as BIDashboardFilterLink['record'] }
+        const result = filterLinkSchema.safeParse(typeof value === 'string' ? JSON.parse(value) : value)
+        return result.success ? result.data : null
     } catch {
         return null
     }

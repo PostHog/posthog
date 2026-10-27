@@ -39,8 +39,6 @@ import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLog
 import { DashboardLayoutSize, DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
 import { biDashboardCrossFilterLogic } from 'products/business_intelligence/frontend/biDashboardCrossFilterLogic'
-import { isCrossFilterWorksheet } from 'products/business_intelligence/frontend/biDashboardCrossFilters'
-import { BIDashboardTile } from 'products/business_intelligence/frontend/BIDashboardTile'
 import { DashboardGridBackground } from 'products/dashboards/frontend/components/DashboardGridBackground'
 import { DashboardInsightTile } from 'products/dashboards/frontend/components/DashboardInsightTile'
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
@@ -128,10 +126,15 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         collapsedTileGroupKeys,
         tileGroupMoveOptions,
         activeTileGroupTab,
+        queryLoadQueue,
     } = useValues(dashboardLogic)
     const canCrossFilter = placement === DashboardPlacement.Dashboard && !isSharedView() && !layoutEditMode
     useMountedLogic(
-        biDashboardCrossFilterLogic({ dashboardId: dashboard?.id ?? 0, tiles: canCrossFilter ? (tiles ?? []) : [] })
+        biDashboardCrossFilterLogic({
+            dashboardId: dashboard?.id ?? 0,
+            tiles: canCrossFilter ? (tiles ?? []) : [],
+            loadQueue: queryLoadQueue,
+        })
     )
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
@@ -656,19 +659,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     tile={tile}
                     insight={insight}
                     resultMenuEnabled={canCrossFilter}
-                    visualization={
-                        canCrossFilter && dashboard && isCrossFilterWorksheet(insight.query) ? (
-                            <BIDashboardTile
-                                dashboardId={dashboard.id}
-                                tileId={tile.id}
-                                insight={insight}
-                                query={insight.query}
-                                filtersOverride={effectiveEditBarFilters}
-                                variablesOverride={currentDashboardVariables}
-                                loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
-                            />
-                        ) : undefined
-                    }
+                    biDashboardTileId={canCrossFilter ? tile.id : undefined}
                     loadingQueued={loadingQueued}
                     loading={loading}
                     // The dashboard load queue owns this tile, so the card must not start its own query.

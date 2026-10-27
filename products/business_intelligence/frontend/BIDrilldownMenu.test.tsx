@@ -80,7 +80,10 @@ describe('native result-menu links', () => {
                     fireEvent.click(screen.getByText('Remove filter'))
                     expect(onFilterDashboard).toHaveBeenCalledWith({ status: 'paid' })
                     expect(logic.values.record).toBeNull()
-                    act(() => logic.actions.inspect({ status: 'refunded' }))
+                    act(() => {
+                        logic.actions.setInteraction({ x: 40, y: 40 })
+                        logic.actions.inspect({ status: 'refunded' })
+                    })
                     expect(screen.getByText('Filter dashboard by this result')).toBeInTheDocument()
                 }
                 fireEvent.click(screen.getByText('View underlying rows'))

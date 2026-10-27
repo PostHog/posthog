@@ -47,6 +47,8 @@ import {
 } from '~/types'
 
 import type { AlertType } from 'products/alerts/frontend/types'
+import { isCrossFilterWorksheet } from 'products/business_intelligence/frontend/biDashboardCrossFilters'
+import { BIDashboardTile } from 'products/business_intelligence/frontend/BIDashboardTile'
 import { DashboardInsightResultMenu } from 'products/dashboards/frontend/components/DashboardInsightResultMenu'
 import type { TileGroupMoveOptions } from 'products/dashboards/frontend/dashboardTileSections'
 
@@ -92,7 +94,7 @@ type AlertModalState = {
 }
 
 export interface InsightCardProps extends Resizeable {
-    visualization?: JSX.Element
+    biDashboardTileId?: number
     resultMenuEnabled?: boolean
     /** Insight to display. */
     insight: InsightModel
@@ -214,7 +216,7 @@ function InsightCardInternal(
         filtersOverride,
         variablesOverride,
         resultMenuEnabled,
-        visualization,
+        biDashboardTileId,
         children,
         projectId,
         projectTimezone,
@@ -404,26 +406,35 @@ function InsightCardInternal(
         if (BlockingEmptyState) {
             return BlockingEmptyState
         }
-        return (
-            visualization ?? (
-                <Query
+        if (biDashboardTileId !== undefined && dashboardId && isCrossFilterWorksheet(insight.query)) {
+            return (
+                <BIDashboardTile
+                    dashboardId={dashboardId}
+                    tileId={biDashboardTileId}
+                    insight={insight}
                     query={insight.query}
-                    cachedResults={insight}
-                    context={{
-                        insightProps: insightLogicProps,
-                        dashboardResultMenu: resultMenuEnabled,
-                        dataVisualizationTableVirtualized:
-                            renderVizWhenMounted && placement === DashboardPlacement.Dashboard,
-                        // Small tables keep natural column widths because their full row count is cheap to render.
-                        dataVisualizationTableVirtualizationCellThreshold: 100,
-                    }}
-                    readOnly
-                    embedded
-                    inSharedMode={placement === DashboardPlacement.Public}
-                    variablesOverride={variablesOverride}
-                    editMode={false}
+                    loadPriority={loadPriority}
                 />
             )
+        }
+        return (
+            <Query
+                query={insight.query}
+                cachedResults={insight}
+                context={{
+                    insightProps: insightLogicProps,
+                    dashboardResultMenu: resultMenuEnabled,
+                    dataVisualizationTableVirtualized:
+                        renderVizWhenMounted && placement === DashboardPlacement.Dashboard,
+                    // Small tables keep natural column widths because their full row count is cheap to render.
+                    dataVisualizationTableVirtualizationCellThreshold: 100,
+                }}
+                readOnly
+                embedded
+                inSharedMode={placement === DashboardPlacement.Public}
+                variablesOverride={variablesOverride}
+                editMode={false}
+            />
         )
     }, [
         BlockingEmptyState,
@@ -433,7 +444,9 @@ function InsightCardInternal(
         placement,
         renderVizWhenMounted,
         resultMenuEnabled,
-        visualization,
+        biDashboardTileId,
+        dashboardId,
+        loadPriority,
     ])
 
     const vizContent = shouldRenderViz ? (

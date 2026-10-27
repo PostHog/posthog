@@ -75,7 +75,7 @@ import type {
     TraceSpansQueryResponse,
 } from '../../schema/schema-general'
 import type { TraceSpansTreeQueryResponse } from '../../schema/schema-general'
-import { dataNodeLogic } from '../DataNode/dataNodeLogic'
+import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
 import { getAutoBoxPlotSettings } from './Components/Charts/sqlBoxPlotAdapter'
 import { humanizeEventColumnValue } from './eventColumnLabels'
@@ -123,6 +123,7 @@ export interface AxisSeries<T> {
 }
 
 export interface DataVisualizationLogicProps {
+    loadQueue?: DataNodeLogicProps['loadQueue']
     key: string
     query: VisualizationNode
     editMode?: boolean
@@ -990,6 +991,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             teamLogic,
             ['currentTeamId'],
             dataNodeLogic({
+                loadQueue: props.loadQueue,
                 cachedResults: props.cachedResults,
                 key: props.key,
                 query: getBIVisualizationSource(props.query),
@@ -1014,6 +1016,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         actions: [
             dataNodeLogic({
+                loadQueue: props.loadQueue,
                 cachedResults: props.cachedResults,
                 retainResponseOnUnmount: props.retainResponseOnUnmount,
                 key: props.key,

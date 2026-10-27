@@ -8,7 +8,6 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { Query } from '~/queries/Query/Query'
 import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
-import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import { InsightModel } from '~/types'
 
 import { biDashboardCrossFilterLogic } from './biDashboardCrossFilterLogic'
@@ -20,8 +19,6 @@ export interface BIDashboardTileProps {
     tileId: number
     insight: InsightModel
     query: BIVisualizationNode
-    filtersOverride?: DashboardFilter | null
-    variablesOverride?: Record<string, HogQLVariable>
     loadPriority?: number
 }
 
@@ -30,11 +27,9 @@ export function BIDashboardTile({
     tileId,
     insight,
     query,
-    filtersOverride,
-    variablesOverride,
     loadPriority,
 }: BIDashboardTileProps): JSX.Element {
-    const { selection, targets } = useValues(biDashboardCrossFilterLogic({ dashboardId }))
+    const { selection, targets, loadQueue } = useValues(biDashboardCrossFilterLogic({ dashboardId }))
     const { selectMark } = useActions(biDashboardCrossFilterLogic({ dashboardId }))
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const filtered = targets[tileId]
@@ -64,10 +59,9 @@ export function BIDashboardTile({
             <Query
                 query={effectiveQuery}
                 cachedResults={filtered ? undefined : insight}
-                filtersOverride={filtersOverride}
-                variablesOverride={variablesOverride}
                 context={{
                     dashboardResultMenu: true,
+                    loadQueue,
                     isBIMarkActiveFilter: isActiveFilter,
                     dataVisualizationTableVirtualized: true,
                     dataVisualizationTableVirtualizationCellThreshold: 100,

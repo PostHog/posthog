@@ -161,6 +161,46 @@ describe('dashboard worksheet cross filters', () => {
         ).toBeNull()
     })
 
+    it.each(['dashboard filters', 'variables', 'presentation', 'source', 'dimensions'])(
+        'keeps selections only when their meaning survives a change to %s',
+        (change) => {
+            initKeaTests()
+            router.actions.push('/dashboard/1')
+            const query = worksheet()
+            const tiles = [1, 2].map((id) => tileFromInsight({ ...insightOnDashboard(id, [1]), query }, id))
+            const logic = biDashboardCrossFilterLogic({ dashboardId: 1, tiles })
+            const unmount = logic.mount()
+            try {
+                logic.actions.selectMark(1, 'Countries', query, mark(query, 'US'))
+                const updated: BIVisualizationNode = JSON.parse(JSON.stringify(query))
+                if (change === 'dashboard filters') {
+                    updated.source.filters = { dateRange: { date_from: '-30d' }, filterTestAccounts: true }
+                } else if (change === 'variables') {
+                    updated.source.variables = { plan: { variableId: 'plan', code_name: 'plan', value: 'pro' } }
+                } else if (change === 'presentation') {
+                    updated.chartSettings = { showLegend: false }
+                } else if (change === 'source') {
+                    updated.config.source = { table: 'customers' }
+                } else {
+                    updated.config.rows = [{ ...country, expression: 'billing_country' }]
+                }
+                biDashboardCrossFilterLogic({
+                    dashboardId: 1,
+                    tiles: tiles.map((tile) => ({ ...tile, insight: { ...tile.insight!, query: updated } })),
+                })
+                const shouldKeep = !['source', 'dimensions'].includes(change)
+                expect(!!logic.values.selection).toBe(shouldKeep)
+                expect(!!router.values.currentLocation.hashParams.bi_filter).toBe(shouldKeep)
+                if (shouldKeep) {
+                    expect(logic.values.targets[2].source.filters).toEqual(updated.source.filters)
+                    expect(logic.values.targets[2].source.variables).toEqual(updated.source.variables)
+                }
+            } finally {
+                unmount()
+            }
+        }
+    )
+
     it('toggles a selection, replaces it from another tile, clears on exit, and isolates dashboards', () => {
         initKeaTests()
         router.actions.push('/dashboard/1', { date_from: '-7d' }, { other: 'preserved' })

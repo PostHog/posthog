@@ -27,6 +27,17 @@ export function isCrossFilterWorksheet(query: unknown): query is BIVisualization
     )
 }
 
+export function getBIDashboardSelectionScope(query: unknown): unknown {
+    return isCrossFilterWorksheet(query)
+        ? {
+              source: query.config.source,
+              dimensions: getBIResultDimensions(query.config),
+              comparisonPeriod: query.config.comparisonPeriod,
+              topN: query.config.topN,
+          }
+        : null
+}
+
 export function createBIDashboardSelection(
     tileId: number,
     title: string,
