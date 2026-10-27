@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import SimpleTestCase
 
-import numpy as np
 from asgiref.sync import async_to_sync
 from confluent_kafka import KafkaException
 from parameterized import parameterized
@@ -19,8 +18,9 @@ from products.replay_vision.backend.embeddings import (
     OBSERVATION_EMBEDDING_MODEL,
 )
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
+from products.replay_vision.backend.models.replay_observation_anchor_similarity import ReplayObservationAnchorSimilarity
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.tests.helpers import snapshot_for
+from products.replay_vision.backend.tests.helpers import axis_anchors, snapshot_for
 from products.replay_vision.backend.watch_rank import ANCHOR_VERSION, RankRequest
 from products.replay_vision.backend.watch_rank_consumer import WatchRankConsumer, parse_rank_request
 
@@ -80,12 +80,7 @@ class TestParseRankRequest(SimpleTestCase):
 
 
 class TestWatchRankConsumer(BaseTest):
-    _ANCHORS = {
-        "failure": np.array([[1.0, 0.0, 0.0]]),
-        "struggle": np.array([[0.0, 1.0, 0.0]]),
-        "revenue": np.array([[0.0, -1.0, 0.0]]),
-        "routine": np.array([[0.0, 0.0, 1.0]]),
-    }
+    _ANCHORS = axis_anchors()
 
     def _observation(self, scanner: ReplayScanner, session_id: str, **overrides: Any) -> ReplayObservation:
         return ReplayObservation.objects.create(
@@ -142,6 +137,11 @@ class TestWatchRankConsumer(BaseTest):
             assert observation.watch_rank is not None
             assert expected_rank.items() <= observation.watch_rank.items()
             assert observation.watch_rank.get("group")
+            assert (
+                ReplayObservationAnchorSimilarity.objects.for_team(self.team.id)
+                .filter(observation=observation)
+                .exists()
+            )
 
     @parameterized.expand(
         [

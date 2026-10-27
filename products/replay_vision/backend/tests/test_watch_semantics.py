@@ -119,9 +119,12 @@ class TestAssignSemantics(BaseTest):
         assert joined[0].theme.theme_id == joined[1].theme.theme_id
         assert self._assign(first, _vector(1.0)) is None
         assert self._assign(far, _vector(0.0, 1.0)).group_id != joined[0].group_id
-        assert self._assign(routine, _vector(1.0)) is None
+        # A routine row joins a feed group, so a viewer who counts it as an issue finds it grouped, but never a theme.
+        routine_assignment = self._assign(routine, _vector(1.0))
+        assert routine_assignment.group_id == joined[0].group_id
+        assert routine_assignment.theme is None
 
-        assert self._counts(ReplayScannerFeedGroup) == [1, 2]
+        assert self._counts(ReplayScannerFeedGroup) == [1, 3]
         assert self._counts(ReplayScannerSearchTheme) == [1, 2]
         first.refresh_from_db()
         assert first.watch_rank is not None
