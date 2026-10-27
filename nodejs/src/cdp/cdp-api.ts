@@ -48,7 +48,6 @@ import {
 } from './services/hogflows/batch-resolver.types'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
-import { checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
 import { TRANSACTIONAL_EMAIL_EVENT } from './services/hogflows/hogflow-sensitivity'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
@@ -1297,10 +1296,6 @@ export class CdpApi {
         }
         if (await this.emailSuppressionService.isSuppressed(teamId, to, { transactional: true })) {
             return { outcome: 'recipient_suppressed', status: 422 }
-        }
-        const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
-        if (isLimited) {
-            return { outcome: 'quota_limited', status: 429 }
         }
         return null
     }

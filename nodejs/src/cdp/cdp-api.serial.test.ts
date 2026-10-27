@@ -2257,15 +2257,15 @@ describe('CDP API', () => {
             })
         })
 
-        it('refuses a send when the team is over its email quota', async () => {
+        it('queues a send when the team is over its email quota', async () => {
             jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
-            const limitedBefore = await outcomeCount('quota_limited')
+            const queuedBefore = await outcomeCount('queued')
 
             const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
 
-            expect(res.status).toEqual(429)
-            expect(await outcomeCount('quota_limited')).toEqual(limitedBefore + 1)
-            expect(mockQueueInvocations).not.toHaveBeenCalled()
+            expect(res.status).toEqual(202)
+            expect(await outcomeCount('queued')).toEqual(queuedBefore + 1)
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
 
         it.each([
