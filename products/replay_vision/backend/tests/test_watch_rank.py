@@ -1,11 +1,18 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from unittest.mock import patch
+
+from django.db.models import Q
 from django.test import SimpleTestCase
 
 import numpy as np
 from parameterized import parameterized
 
+from posthog.exceptions import ClickHouseAtCapacity
+
+from products.replay_vision.backend import watch_rank_backfill
+from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.watch_feed import SESSION_SPACING
 from products.replay_vision.backend.watch_rank import (
     ANCHOR_VERSION,
@@ -14,7 +21,7 @@ from products.replay_vision.backend.watch_rank import (
     duplicate_root,
     rank_watch_feed_by_embedding,
 )
-from products.replay_vision.backend.watch_rank_backfill import _rank_scanner, _RecentVectors
+from products.replay_vision.backend.watch_rank_backfill import _rank_scanner, _RecentVectors, _stored_vectors
 
 _NOW = datetime(2026, 10, 23, 12, 0, tzinfo=UTC)
 
@@ -70,6 +77,15 @@ class TestClassify(SimpleTestCase):
         got_category, contrast = classify(vector, anchors)
         assert got_category == category
         assert (contrast > 0) is positive
+
+
+class TestPickIndexes(SimpleTestCase):
+    @parameterized.expand([("rlo_ranked_count_idx",), ("rlo_ranked_contrast_idx",)])
+    def test_pick_index_matches_the_current_anchor_version(self, name: str) -> None:
+        index = next(index for index in ReplayObservation._meta.indexes if index.name == name)
+        assert index.condition == Q(
+            status="succeeded", watch_rank__isnull=False, watch_rank__anchor_version=ANCHOR_VERSION
+        )
 
 
 class TestDuplicateRoot(SimpleTestCase):
@@ -206,3 +222,33 @@ class TestBackfillRankScanner(SimpleTestCase):
         assert written["stale"]["duplicate_of"] == "root"
         assert written["calm"]["category"] == "routine"
         assert written["calm"]["duplicate_of"] is None
+
+    @parameterized.expand(
+        [
+            ("cluster_frees_up", 2, {"obs-1"}),
+            ("cluster_stays_full", 99, None),
+        ]
+    )
+    def test_vector_read_waits_out_a_cluster_at_capacity(
+        self, _name: str, refusals: int, expected: set[str] | None
+    ) -> None:
+        calls = 0
+
+        def execute(*args: Any, **kwargs: Any) -> list[tuple[str, list[float]]]:
+            nonlocal calls
+            calls += 1
+            if calls <= refusals:
+                raise ClickHouseAtCapacity()
+            return [("obs-1", [1.0, 0.0, 0.0])]
+
+        with (
+            patch.object(watch_rank_backfill, "sync_execute", side_effect=execute),
+            patch.object(watch_rank_backfill.time, "sleep") as sleep,
+        ):
+            if expected is None:
+                with self.assertRaises(ClickHouseAtCapacity):
+                    _stored_vectors(2, "scanner-a", ["obs-1"], _NOW)
+                assert calls == watch_rank_backfill._CAPACITY_RETRY_ATTEMPTS
+            else:
+                assert set(_stored_vectors(2, "scanner-a", ["obs-1"], _NOW)) == expected
+                assert sleep.call_count == refusals

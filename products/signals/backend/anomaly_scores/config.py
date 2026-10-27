@@ -108,7 +108,8 @@ class AnomalyScoringConfig:
     allow_team_ids: tuple[int, ...] = ()
     skip_team_ids: tuple[int, ...] = ()
     intervals: tuple[IntervalType, ...] = DEFAULT_TICK_INTERVALS
-    # Smooths the spend over the hour, so one tick cannot use the whole query budget.
+    # Smooths the spend over the hour, so one tick cannot use the whole query budget. With the split on,
+    # the two passes use the per-pass caps below instead.
     max_insights_per_tick: int = 8
     max_concurrency: int = 2
     # Scoring queries per clock hour. One pick sends one query per series, see `scoring.query_cost`.
@@ -122,7 +123,10 @@ class AnomalyScoringConfig:
     )
     # Score step queries per clock hour. Train steps use the budgets above, so a cheap score step never waits for them.
     max_score_queries_per_hour: int = 600
-    max_score_queries_per_project_per_hour: int = 150
+    max_score_queries_per_project_per_hour: int = 500
+    # Per-tick picks of each pass when the split is on. Score steps are cheap, so the score pass gets most slots.
+    max_score_insights_per_tick: int = 20
+    max_train_insights_per_tick: int = 2
 
 
 DISABLED = AnomalyScoringConfig()
@@ -133,6 +137,8 @@ MAX_QUERIES_PER_HOUR = 2000
 MAX_QUERIES_PER_PROJECT_PER_HOUR = 500
 MAX_SCORE_QUERIES_PER_HOUR = 5000
 MAX_SCORE_QUERIES_PER_PROJECT_PER_HOUR = 1000
+MAX_SCORE_INSIGHTS_PER_TICK = 200
+MAX_TRAIN_INSIGHTS_PER_TICK = 50
 
 
 def _positive_int(value: Any, default: int) -> int:
@@ -231,6 +237,18 @@ def parse_config(payload: Any) -> AnomalyScoringConfig:
                 payload.get("max_score_queries_per_project_per_hour"), defaults.max_score_queries_per_project_per_hour
             ),
             MAX_SCORE_QUERIES_PER_PROJECT_PER_HOUR,
+        ),
+        max_score_insights_per_tick=min(
+            _positive_int(payload.get("max_score_insights_per_tick"), defaults.max_score_insights_per_tick),
+            MAX_SCORE_INSIGHTS_PER_TICK,
+        ),
+        # A payload from before the split sets only `max_insights_per_tick`, and keeps it as its train cap.
+        max_train_insights_per_tick=min(
+            _positive_int(
+                payload.get("max_train_insights_per_tick"),
+                _positive_int(payload.get("max_insights_per_tick"), defaults.max_train_insights_per_tick),
+            ),
+            MAX_TRAIN_INSIGHTS_PER_TICK,
         ),
     )
 

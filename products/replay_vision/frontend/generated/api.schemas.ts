@@ -1345,9 +1345,9 @@ export interface ReplayScannerApi {
      * @nullable
      */
     readonly estimated_monthly_credits: number | null
-    /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+    /** Credits billed for this scanner's observations created in the current billing period (1 credit = $0.01), each at the price frozen when it succeeded. Deleted observations still count. */
     readonly credits_this_month: number
-    /** Succeeded observations this scanner produced in the current billing period. */
+    /** Billed observations this scanner created in the current billing period, including deleted ones. */
     readonly observations_this_month: number
     /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the organization's free credits, this is the organization's usage, not the scanner's own. */
     readonly credits_used_against_limit: number
@@ -1489,9 +1489,9 @@ export interface PatchedReplayScannerApi {
      * @nullable
      */
     readonly estimated_monthly_credits?: number | null
-    /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+    /** Credits billed for this scanner's observations created in the current billing period (1 credit = $0.01), each at the price frozen when it succeeded. Deleted observations still count. */
     readonly credits_this_month?: number
-    /** Succeeded observations this scanner produced in the current billing period. */
+    /** Billed observations this scanner created in the current billing period, including deleted ones. */
     readonly observations_this_month?: number
     /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the organization's free credits, this is the organization's usage, not the scanner's own. */
     readonly credits_used_against_limit?: number
@@ -2912,69 +2912,6 @@ export interface ScannerStatsResponseApi {
 }
 
 /**
- * Body of POST /vision/scanners/suggest_tags/ — the classifier config currently being edited.
- */
-export interface SuggestTagsRequestApi {
-    /**
-     * The classifier's instruction prompt — the single dimension to categorize sessions by.
-     * @maxLength 10000
-     */
-    prompt: string
-    /**
-     * The categories already configured, so suggestions never duplicate one the user has.
-     * @maxItems 200
-     * @items.maxLength 200
-     */
-    tags?: string[]
-    /** Whether the classifier assigns multiple tags per session. */
-    multi_label?: boolean
-    /** Whether the classifier may emit tags outside the fixed vocabulary. */
-    allow_freeform_tags?: boolean
-    /**
-     * Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner.
-     * @nullable
-     */
-    scanner_id?: string | null
-}
-
-/**
- * * `observed` - observed
- * * `product` - product
- * * `prompt` - prompt
- */
-export type TagSuggestionSourceEnumApi = (typeof TagSuggestionSourceEnumApi)[keyof typeof TagSuggestionSourceEnumApi]
-
-export const TagSuggestionSourceEnumApi = {
-    Observed: 'observed',
-    Product: 'product',
-    Prompt: 'prompt',
-} as const
-
-/**
- * One grounded tag suggestion.
- */
-export interface TagSuggestionApi {
-    /** Suggested tag to add to the vocabulary, normalized to lowercase. */
-    tag: string
-    /** One sentence explaining the specific evidence this tag is grounded in. */
-    rationale: string
-    /** Primary grounding: observed=a category this scanner already emitted on recordings; product=the org's events/screens; prompt=the scanner's stated goal.
-     *
-     * * `observed` - observed
-     * * `product` - product
-     * * `prompt` - prompt */
-    source: TagSuggestionSourceEnumApi
-}
-
-/**
- * Grounded tag suggestions for the classifier config editor.
- */
-export interface SuggestTagsResponseApi {
-    /** Suggested tags to add, most relevant first. May be empty when the evidence is too thin. */
-    suggestions: TagSuggestionApi[]
-}
-
-/**
  * * `signal_emitted` - Signal Emitted
  * * `unusual_verdict` - Unusual Verdict
  * * `notable` - Notable
@@ -3340,6 +3277,10 @@ export type VisionObservationsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionObservationsThumbnailRetrieveParams = {
@@ -3348,7 +3289,23 @@ export type VisionObservationsThumbnailRetrieveParams = {
      * @minimum 0
      */
     chapter?: number
+    /**
+     * `large` is up to 1280px wide, for detail views. `small` is up to 480px wide, for lists and grids. A frame rendered before small copies existed serves the large image for both.
+     *
+     * * `large` - Large
+     * * `small` - Small
+     * @minLength 1
+     */
+    size?: VisionObservationsThumbnailRetrieveSize
 }
+
+export type VisionObservationsThumbnailRetrieveSize =
+    (typeof VisionObservationsThumbnailRetrieveSize)[keyof typeof VisionObservationsThumbnailRetrieveSize]
+
+export const VisionObservationsThumbnailRetrieveSize = {
+    Large: 'large',
+    Small: 'small',
+} as const
 
 export type VisionObservationsSearchRetrieveParams = {
     /**
@@ -3567,6 +3524,10 @@ export type VisionScannersObservationsListParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionScannersObservationsRetrieveParams = {
@@ -3626,6 +3587,10 @@ export type VisionScannersObservationsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionScannersObservationsSignalReportsListParams = {
@@ -3685,6 +3650,10 @@ export type VisionScannersObservationsSignalReportsListParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionScannersObservationsThumbnailRetrieveParams = {
@@ -3693,7 +3662,23 @@ export type VisionScannersObservationsThumbnailRetrieveParams = {
      * @minimum 0
      */
     chapter?: number
+    /**
+     * `large` is up to 1280px wide, for detail views. `small` is up to 480px wide, for lists and grids. A frame rendered before small copies existed serves the large image for both.
+     *
+     * * `large` - Large
+     * * `small` - Small
+     * @minLength 1
+     */
+    size?: VisionScannersObservationsThumbnailRetrieveSize
 }
+
+export type VisionScannersObservationsThumbnailRetrieveSize =
+    (typeof VisionScannersObservationsThumbnailRetrieveSize)[keyof typeof VisionScannersObservationsThumbnailRetrieveSize]
+
+export const VisionScannersObservationsThumbnailRetrieveSize = {
+    Large: 'large',
+    Small: 'small',
+} as const
 
 export type VisionScannersObservationsStatsRetrieveParams = {
     /**
@@ -3752,6 +3737,10 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionScannersWatchFeedRetrieveParams = {

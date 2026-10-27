@@ -197,6 +197,9 @@ export const Full: Story = {
     render: () => (
         <LineageGraph nodes={GRAPH_NODES} edges={GRAPH_EDGES} currentNodeId="4" variant="full" showControls />
     ),
+    play: async ({ canvasElement }) => {
+        await expectNodeCentered(canvasElement, '4', 'The current node must be centered when the lineage opens')
+    },
 }
 
 export const Canvas: Story = {

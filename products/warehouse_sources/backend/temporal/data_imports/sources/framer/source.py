@@ -120,7 +120,7 @@ class FramerSource(SimpleSource[FramerSourceConfig]):
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Framer",
             releaseStatus=ReleaseStatus.GA,
-            caption="""Sync your Framer site's pages, CMS collections and items, locales, redirects, and deployments into the PostHog Data warehouse.
+            caption="""Sync your Framer site's pages, CMS collections and items, locales, localization groups, redirects, deployments, and unpublished page changes into the PostHog Data warehouse.
 
 Create an API key in your Framer project under **Site Settings → General**, then paste your project URL (https://framer.com/projects/...) and the API key. API keys are project-specific, so add one source per project.""",
             iconPath="/static/services/framer.png",

@@ -1,0 +1,69 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "filters": {
+            "additionalProperties": {},
+            "description": "The complete new configuration. It replaces the stored `filters`.",
+            "properties": {
+                "default_value": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "additionalProperties": {},
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Value served when no rule returns one. Must match `return_type`, or null."
+                },
+                "return_type": {
+                    "description": "Copy it from the flag you read. It cannot change.",
+                    "type": "string"
+                },
+                "rules": {
+                    "description": "The complete ordered rule list, in the shape the flag read returns. Keep `id` and `seed` on every rule you keep; omit both on a new rule.",
+                    "items": {
+                        "additionalProperties": {},
+                        "propertyNames": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "version": {
+                    "const": 2,
+                    "description": "Config format. Always 2 here; unrelated to the top-level `version`.",
+                    "type": "number"
+                }
+            },
+            "required": ["version", "return_type", "default_value", "rules"],
+            "type": "object"
+        },
+        "id": {
+            "description": "A unique integer value identifying this feature flag.",
+            "type": "number"
+        },
+        "version": {
+            "description": "The flag's top-level `version` from your latest read. The write is refused with 409 when the flag changed after it.",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+        }
+    },
+    "required": ["id", "version", "filters"],
+    "type": "object"
+}

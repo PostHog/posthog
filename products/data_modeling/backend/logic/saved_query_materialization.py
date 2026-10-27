@@ -36,7 +36,10 @@ from products.data_modeling.backend.logic.node_materialization import SavedQuery
 from products.data_modeling.backend.logic.saved_query_dag_sync import materializes, update_node_type
 from products.data_modeling.backend.logic.saved_query_reads import get_saved_query_columns
 from products.data_modeling.backend.logic.schedule_reconcile import check_saved_query_frequency_target
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import (
+    DataWarehouseSavedQuery,
+    SchedulingUnavailableError,
+)
 from products.data_modeling.backend.models.node import Node, NodeType
 
 logger = structlog.get_logger(__name__)
@@ -182,6 +185,13 @@ def _enable_materialization(
         _store_incremental_config(saved_query, incremental_config, user)
     _save_materialization(saved_query, is_materialized=True, sync_frequency_interval=sync_frequency_interval)
 
+    def restore_previous_state() -> None:
+        _save_materialization(
+            saved_query, is_materialized=previously_materialized, sync_frequency_interval=previous_interval
+        )
+        if incremental_config is not KEEP_INCREMENTAL_CONFIG:
+            _restore_incremental_config(saved_query, previous_incremental_config)
+
     # If this fails, it will set is_materialized = False
     try:
         saved_query.schedule_materialization(trigger_immediate_run=True, triggered_by_id=user.pk)
@@ -192,12 +202,13 @@ def _enable_materialization(
         # applying its disable-on-failure contract, and this action is not inside an atomic
         # block, so undo the enable by hand: otherwise the 400 leaves is_materialized=True
         # behind and the UI reads the rejection as a success.
-        _save_materialization(
-            saved_query, is_materialized=previously_materialized, sync_frequency_interval=previous_interval
-        )
-        if incremental_config is not KEEP_INCREMENTAL_CONFIG:
-            _restore_incremental_config(saved_query, previous_incremental_config)
+        restore_previous_state()
         raise MaterializationRefusedError(LINEAGE_CHANGED_REFUSAL) from error
+    except SchedulingUnavailableError as error:
+        # Temporal was unreachable, so nothing changed on its side. Put the row back as it was:
+        # a query that was materialized keeps its schedule, and a new one stays off.
+        restore_previous_state()
+        raise MaterializationFailedError(MATERIALIZATION_FAILED_MESSAGE) from error
 
     # Refresh from DB to check if schedule_materialization set is_materialized = False on failure
     saved_query.refresh_from_db()

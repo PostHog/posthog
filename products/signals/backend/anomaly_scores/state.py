@@ -51,6 +51,34 @@ class RunPlan:
     run: ScoringRun | None = None
 
 
+def _schedule_needs_training(
+    interval: IntervalType,
+    *,
+    trained_at: datetime.datetime,
+    scored_through: datetime.datetime,
+    missing_series: int,
+    series_count: int,
+    now: datetime.datetime,
+    timezone: ZoneInfo,
+    train_every: int,
+    max_backfill: int,
+) -> bool:
+    """The retrain triggers that a state row answers alone, without the insight's query."""
+    if trained_at + interval_spec(interval).period * train_every <= now:
+        return True
+    # More due buckets than one visit scores. A train step scores the newest of them, as a first visit does.
+    due = buckets_to_score(
+        interval,
+        now=now,
+        after=scored_through,
+        timezone=timezone,
+        limits=dataclasses.replace(DEFAULT_LIMITS, max_backfill_buckets=max_backfill + 1),
+    )
+    if due > max_backfill:
+        return True
+    return missing_series * 2 > series_count
+
+
 def needs_training(
     state: TrainedState | None,
     *,
@@ -68,20 +96,17 @@ def needs_training(
         or state.scored_through is None
     ):
         return True
-    interval = identity.interval
-    if state.trained_at + interval_spec(interval).period * train_every <= now:
-        return True
-    # More due buckets than one visit scores. A train step scores the newest of them, as a first visit does.
-    due = buckets_to_score(
-        interval,
+    return _schedule_needs_training(
+        identity.interval,
+        trained_at=state.trained_at,
+        scored_through=state.scored_through,
+        missing_series=state.missing_series,
+        series_count=len(state.series_keys),
         now=now,
-        after=state.scored_through,
         timezone=timezone,
-        limits=dataclasses.replace(DEFAULT_LIMITS, max_backfill_buckets=max_backfill + 1),
+        train_every=train_every,
+        max_backfill=max_backfill,
     )
-    if due > max_backfill:
-        return True
-    return state.missing_series * 2 > len(state.series_keys)
 
 
 def plan_run(
@@ -117,6 +142,45 @@ def load_states(team: Team, insights: Collection[Insight]) -> dict[int, TrainedS
         return {}
     rows = AnomalyScoringState.objects.for_team(team.id).filter(insight_id__in=list(profiles))
     return {row.insight_id: _from_row(row) for row in rows if profiles.get(row.insight_id) == row.profile}
+
+
+def scored_through_by_insight(
+    team: Team, insight_ids: Collection[int], config: AnomalyScoringConfig, now: datetime.datetime
+) -> dict[int, datetime.datetime]:
+    """Insight id to the newest scored bucket of its stored state, for the rows that a score step can read.
+
+    A row whose retrain is due by age, by due buckets or by missing series is left out, so its insight goes to
+    the train pass without a plan. The identity and the profile are not checked here, because they need the
+    insight's query. `plan_run` checks them, and the score pass hands an insight that fails them to the train pass.
+    """
+    if not insight_ids:
+        return {}
+    rows = (
+        AnomalyScoringState.objects.for_team(team.id)
+        .filter(insight_id__in=list(insight_ids), scored_through__isnull=False)
+        .exclude(artifact_key="")
+        .exclude(series_keys=[])
+        .values_list("insight_id", "interval", "trained_at", "scored_through", "missing_series", "series_keys")
+    )
+    scored: dict[int, datetime.datetime] = {}
+    scorable = {interval.value: interval for interval in config.train_every_buckets}
+    for insight_id, interval, trained_at, scored_through, missing_series, series_keys in rows:
+        if scored_through is None or interval not in scorable:
+            continue
+        if _schedule_needs_training(
+            scorable[interval],
+            trained_at=trained_at,
+            scored_through=scored_through,
+            missing_series=missing_series,
+            series_count=len(series_keys),
+            now=now,
+            timezone=team.timezone_info,
+            train_every=config.train_every_buckets[scorable[interval]],
+            max_backfill=config.limits.max_backfill_buckets,
+        ):
+            continue
+        scored[insight_id] = max(scored_through, scored.get(insight_id, scored_through))
+    return scored
 
 
 def load_state(team: Team, insight: Insight) -> TrainedState | None:

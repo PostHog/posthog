@@ -32,6 +32,8 @@ from products.posthog_ai.eval_harness.scorers import (
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 __all__ = [
+    "AnswerTableQueried",
+    "AnswerValueStated",
     "CanonicalMetricRun",
     "DeprecationProposed",
     "SemanticMetadataQueried",
@@ -747,6 +749,13 @@ class GovernedBehaviorCorrectness(JudgedScorer):
         }
 
 
+def _selects_star_from(query: str, surface: str) -> bool:
+    # A star projection read directly from the surface returns every column, so it reads the required columns
+    # without naming them. A star over a subquery or another table exposes only what that input selects.
+    pattern = rf"\bselect\s+(?:distinct\s+)?(?:[\w.]+\.)?\*\s+from\s+(?:[\w.]+\.)?{re.escape(surface)}\b"
+    return re.search(pattern, query) is not None
+
+
 class SemanticMetadataQueried(Scorer):
     def _name(self) -> str:
         return "semantic_metadata_queried"
@@ -775,7 +784,7 @@ class SemanticMetadataQueried(Scorer):
             query
             for call in _successful_sql(parser)
             if normalized_surface in (query := _query_text(call))
-            and all(column in query for column in normalized_columns)
+            and (_selects_star_from(query, normalized_surface) or all(column in query for column in normalized_columns))
         ]
         return Score(
             name=self._name(),
@@ -784,6 +793,87 @@ class SemanticMetadataQueried(Scorer):
                 "surface": normalized_surface,
                 "required_columns": normalized_columns,
                 "matching_queries": matching_queries,
+            },
+        )
+
+
+def _is_negated(text: str, start: int) -> bool:
+    # A minus sign directly before the number flips its meaning, so "-437.50" does not state 437.50. A digit before
+    # the sign makes it a range such as "400-437.50", which still states the value.
+    if start == 0 or text[start - 1] not in "-\u2212":
+        return False
+    return start < 2 or not text[start - 2].isdigit()
+
+
+class AnswerValueStated(Scorer):
+    """Binary: does the final answer state the seeded value? Commas and currency signs are ignored."""
+
+    def _name(self) -> str:
+        return "answer_value_stated"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = expected.get(self._name()) if isinstance(expected, dict) else None
+        if not isinstance(spec, dict):
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        value = spec.get("value")
+        if not isinstance(value, str) or not value:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
+
+        answer = (output or {}).get("last_message") or ""
+        if not answer:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "no final answer"})
+
+        normalized = answer.replace(",", "").replace("$", "")
+        # Trailing decimal zeros are optional so that "437.5" matches "437.50". The digit guards stop "1437.50"
+        # or "437.55" from matching. The zeros may only follow the decimal point, so "800.00" does not match "8000".
+        # The trailing guard also rejects a decimal point followed by a digit, so "18050.88" does not state 18050.00.
+        whole, _, fraction = value.partition(".")
+        fraction = fraction.rstrip("0")
+        decimals = rf"\.{re.escape(fraction)}0*" if fraction else r"(?:\.0*)?"
+        pattern = rf"(?<![\d.]){re.escape(whole)}{decimals}(?!\.?\d)"
+        found = any(not _is_negated(normalized, match.start()) for match in re.finditer(pattern, normalized))
+        return Score(name=self._name(), score=1.0 if found else 0.0, metadata={"value": value})
+
+
+# A table name inside a string literal is a catalog filter such as `WHERE table_name = '...'`, not a read.
+_STRING_LITERAL = re.compile(r"'(?:[^'\\]|\\.)*'")
+
+
+def _reads_table(query: str, names: list[str]) -> bool:
+    # The guards stop "postgres_contracts_acv" from matching "postgres_contracts_acv_v2" or a longer dotted name.
+    code = _STRING_LITERAL.sub("''", query)
+    return any(re.search(rf"(?<![\w.]){re.escape(name.lower())}(?![\w])", code) for name in names)
+
+
+class AnswerTableQueried(Scorer):
+    """Binary: did a successful query read the expected table without reading any decoy?
+
+    Every decoy holds different rows, so paired with ``AnswerValueStated`` this shows that the answer came from the
+    expected table. A synced table answers to two names, so ``tables`` lists both.
+    """
+
+    def _name(self) -> str:
+        return "answer_table_queried"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = expected.get(self._name()) if isinstance(expected, dict) else None
+        if not isinstance(spec, dict):
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        tables, decoys = spec.get("tables"), spec.get("decoys")
+        if not isinstance(tables, list) or not tables or not isinstance(decoys, list):
+            return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
+
+        queries = [_query_text(call) for call in _successful_sql(parser)]
+        matching = [query for query in queries if _reads_table(query, tables) and not _reads_table(query, decoys)]
+        return Score(
+            name=self._name(),
+            score=1.0 if matching else 0.0,
+            metadata={
+                "matching_queries": matching,
+                "candidate_queries": [query for query in queries if _reads_table(query, [*tables, *decoys])],
             },
         )
 
