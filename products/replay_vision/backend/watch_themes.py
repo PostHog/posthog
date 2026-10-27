@@ -7,6 +7,7 @@ findings rather than a schedule.
 
 import re
 import uuid
+from collections import Counter
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -45,6 +46,11 @@ THEME_MIN_RAW_SIMILARITY = 0.85
 THEME_ACTIVE_WINDOW = timedelta(days=30)
 # Bounds the themes one assignment reads while it holds the scanner's lock.
 MAX_ACTIVE_THEMES = 2_000
+MAX_SUGGESTED_QUERIES = 4
+# A cross-scanner view takes at most this many suggestions from one scanner, so one busy scanner never fills it.
+_PER_SCANNER_SUGGESTIONS = 2
+# Enough candidates to fill every slot after the per-scanner cap and dedupe drop some.
+_SUGGESTION_CANDIDATES = 50
 THEME_NAME_SAMPLES = 8
 THEME_NAMING_DAILY_CAP = 100
 MAX_THEME_LABEL_WORDS = 10
@@ -207,11 +213,6 @@ async def name_theme(team_id: int, theme_id: uuid.UUID, now: datetime) -> str | 
     return label
 
 
-MAX_SUGGESTED_QUERIES = 4
-# A cross-scanner view takes at most this many suggestions from one scanner, so one busy scanner never fills it.
-_PER_SCANNER_SUGGESTIONS = 2
-
-
 def theme_suggestions(team_id: int, scanner_ids: list[str], now: datetime) -> list[str]:
     """The names of the largest active themes among the given scanners, as example searches."""
     themes = (
@@ -219,15 +220,15 @@ def theme_suggestions(team_id: int, scanner_ids: list[str], now: datetime) -> li
         .filter(scanner_id__in=scanner_ids, last_member_at__gte=now - THEME_ACTIVE_WINDOW)
         .exclude(name="")
         .order_by("-member_count", "id")
-        .values_list("scanner_id", "name")[:50]
+        .values_list("scanner_id", "name")[:_SUGGESTION_CANDIDATES]
     )
     per_scanner_cap = MAX_SUGGESTED_QUERIES if len(scanner_ids) == 1 else _PER_SCANNER_SUGGESTIONS
-    taken: dict[Any, int] = {}
+    taken: Counter[uuid.UUID] = Counter()
     queries: list[str] = []
     for scanner_id, name in themes:
-        if name in queries or taken.get(scanner_id, 0) >= per_scanner_cap:
+        if name in queries or taken[scanner_id] >= per_scanner_cap:
             continue
-        taken[scanner_id] = taken.get(scanner_id, 0) + 1
+        taken[scanner_id] += 1
         queries.append(name)
         if len(queries) == MAX_SUGGESTED_QUERIES:
             break
