@@ -84,7 +84,7 @@ from products.signals.backend.typed_report_links import (
     outgoing_links,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext, SandboxRunFailed
 
 logger = structlog.get_logger(__name__)
 
@@ -1097,6 +1097,9 @@ def _capture_research_steering_attached(*, team_id: int, report_id: str, steerin
         logger.exception("Failed to capture signals_research_steering_attached", report_id=report_id)
 
 
+RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE = "ResearchSandboxUnavailable"
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -1271,6 +1274,19 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             research_task_id=result.research_task_id,
             charts_enabled=True,
         )
+    except SandboxRunFailed as error:
+        logger.exception(
+            "signals agentic report failed",
+            report_id=input.report_id,
+            team_id=input.team_id,
+            error=str(error),
+            sandbox_error_type=error.error_type,
+        )
+        if error.transient:
+            raise temporalio.exceptions.ApplicationError(
+                str(error), type=RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
+            ) from error
+        raise
     except Exception as error:
         logger.exception(
             "signals agentic report failed",
