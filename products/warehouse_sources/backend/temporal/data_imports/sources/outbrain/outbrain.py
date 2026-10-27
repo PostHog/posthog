@@ -42,6 +42,9 @@ class OutbrainResumeConfig:
     next_index: int
     # Report offset to resume at within that marketer (paginated breakdown reports only).
     next_offset: int = 0
+    # Report window the offset belongs to, so a resume after UTC midnight keeps paging the same window.
+    window_from: str | None = None
+    window_to: str | None = None
 
 
 def _get_session(password: str, token: Optional[str] = None) -> requests.Session:
@@ -211,7 +214,12 @@ def get_rows(
                 # Conversions restate for ~30 days — re-pull the lookback window.
                 window_start = watermark - timedelta(days=REPORT_LOOKBACK_DAYS)
 
-    start_offset = resume_config.next_offset if resume_config is not None and config.paginated else 0
+    start_offset = 0
+    if resume_config is not None and config.paginated and resume_config.next_offset:
+        start_offset = resume_config.next_offset
+        saved_from, saved_to = _to_date(resume_config.window_from), _to_date(resume_config.window_to)
+        if saved_from is not None and saved_to is not None:
+            window_start, today = saved_from, saved_to
     marketer_ids = list_marketer_ids()
     for index in range(start_index, len(marketer_ids)):
         marketer_id = marketer_ids[index]
@@ -243,7 +251,12 @@ def get_rows(
 
             has_more = config.paginated and len(rows) >= REPORT_ROW_LIMIT
             next_state = (
-                OutbrainResumeConfig(next_index=index, next_offset=offset + len(rows))
+                OutbrainResumeConfig(
+                    next_index=index,
+                    next_offset=offset + len(rows),
+                    window_from=window_start.isoformat(),
+                    window_to=today.isoformat(),
+                )
                 if has_more
                 else OutbrainResumeConfig(next_index=index + 1)
             )

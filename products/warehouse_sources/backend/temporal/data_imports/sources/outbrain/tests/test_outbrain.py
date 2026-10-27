@@ -208,8 +208,9 @@ class TestReportStreams:
         assert [request.param("offset") for request in result.requests[1:]] == ["0", str(REPORT_ROW_LIMIT)]
         assert all(request.param("includeArchivedCampaigns") == "true" for request in result.requests[1:])
         assert all(request.param("enabledCampaignsOnly") == "false" for request in result.requests[1:])
+        window = {"window_from": result.requests[1].param("from"), "window_to": result.requests[1].param("to")}
         assert result.saved_states == [
-            OutbrainResumeConfig(next_index=0, next_offset=REPORT_ROW_LIMIT),
+            OutbrainResumeConfig(next_index=0, next_offset=REPORT_ROW_LIMIT, **window),
             OutbrainResumeConfig(next_index=1),
         ]
 
@@ -222,10 +223,15 @@ class TestReportStreams:
                 ScriptedResponse(json={"results": [{"metadata": {"id": "m1-last"}, "metrics": {}}]}),
                 ScriptedResponse(json={"results": [{"metadata": {"id": "m2-first"}, "metrics": {}}]}),
             ],
-            resume_state=OutbrainResumeConfig(next_index=0, next_offset=REPORT_ROW_LIMIT),
+            resume_state=OutbrainResumeConfig(
+                next_index=0, next_offset=REPORT_ROW_LIMIT, window_from="2020-01-01", window_to="2020-01-31"
+            ),
         )
 
         assert result.raised is None
+        assert [(request.param("from"), request.param("to")) for request in result.requests[1:]] == [
+            ("2020-01-01", "2020-01-31")
+        ] * 2
         assert [request.param("offset") for request in result.requests[1:]] == [str(REPORT_ROW_LIMIT), "0"]
         assert [row["_marketer_id"] for row in result.rows] == ["m1", "m2"]
 
