@@ -1115,6 +1115,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'anomalies-search',
             'workflows-email-domain-agent-setup',
             'feature-flag-rules-v2-mcp',
+            'investigate-insight',
             'workflows-customerio-import',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
