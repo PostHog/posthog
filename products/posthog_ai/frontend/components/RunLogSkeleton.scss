@@ -1,20 +1,20 @@
 // Waits before it shows, so a fast load never flashes a skeleton. The component sets the delay.
 .RunLogSkeleton {
-    animation: run-log-fade-in 200ms ease-out both;
+    animation: RunLogSkeleton__fadeIn 200ms ease-out both;
 }
 
 .RunLogReveal {
-    animation: run-log-reveal 150ms ease-out both;
+    animation: RunLogSkeleton__reveal 150ms ease-out both;
 }
 
-@keyframes run-log-fade-in {
+@keyframes RunLogSkeleton__fadeIn {
     from {
         opacity: 0;
     }
 }
 
 // Starts part-way in, so the swap from the skeleton never shows an empty frame.
-@keyframes run-log-reveal {
+@keyframes RunLogSkeleton__reveal {
     from {
         opacity: 0.4;
     }
