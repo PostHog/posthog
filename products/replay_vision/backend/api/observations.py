@@ -8,9 +8,9 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Case, CharField, IntegerField, Q, QuerySet, Subquery, Value, When
+from django.db.models import Case, IntegerField, Q, QuerySet, Subquery, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Cast, Coalesce
+from django.db.models.functions import Cast
 from django.http.response import HttpResponseBase
 from django.utils.timezone import now
 
@@ -60,6 +60,7 @@ from products.replay_vision.backend.models.replay_observation import (
     annotate_output_number,
     hydrate_for_serialization,
     jsonb_typeof,
+    watch_group_root,
 )
 from products.replay_vision.backend.models.replay_observation_feed_dismissal import (
     FeedDismissalReason,
@@ -905,9 +906,7 @@ class ReplayObservationFilter(django_filters.FilterSet):
     ) -> QuerySet[ReplayObservation]:
         if self._team is None:
             return queryset.none()
-        root = Coalesce(
-            KeyTextTransform("duplicate_of", "watch_rank"), Cast("id", CharField()), output_field=CharField()
-        )
+        root = watch_group_root()
         current = Q(
             status=ObservationStatus.SUCCEEDED, watch_rank__isnull=False, watch_rank__anchor_version=ANCHOR_VERSION
         )

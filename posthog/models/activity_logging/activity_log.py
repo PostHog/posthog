@@ -752,7 +752,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "backfills",
         "learned_rulesets",
         "alerts",
-        "themes",
     ],
     "VisionAlertConfiguration": [*vision_alert_machine_fields, "events", "matches"],
     # The reverse relations hold runtime state per group and per notification thread.

@@ -1,10 +1,8 @@
-"""Themes: clusters of a scanner's issue observations, each named as a search the Search tab suggests.
+"""Search themes: broad clusters of a scanner's issue observations, each named as a search the Search tab suggests.
 
-The embedding consumer hands every ranked observation to `assign_theme`. An issue observation joins the nearest
-theme of its scanner, or starts one when none is close. Vectors are compared with the scanner's mean taken out,
-because every observation of one scanner shares the wording of its question and would otherwise look alike.
-A theme is named by a small model when it reaches a few members and renamed each time it doubles, so model calls
-follow new findings rather than a schedule.
+An issue observation joins the closest active theme of its scanner, or starts one when none is close. A theme is
+named by a small model when it reaches a few members and renamed each time it doubles, so model calls follow new
+findings rather than a schedule.
 """
 
 import re
@@ -13,8 +11,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from django.core.cache import cache
-from django.db import transaction
-from django.db.models import F, Func, JSONField, Value
+from django.db.models import F
 
 import numpy as np
 import structlog
@@ -29,20 +26,20 @@ from products.replay_vision.backend.distinct_ids import replay_vision_distinct_i
 from products.replay_vision.backend.gemini_client import AI_PRODUCT, replay_gemini_client
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import PromptValence, ReplayScanner, ScannerType
-from products.replay_vision.backend.models.replay_scanner_theme import ReplayScannerTheme, ReplayScannerThemeCenter
+from products.replay_vision.backend.models.replay_scanner_semantics import ReplayScannerSearchTheme
 from products.replay_vision.backend.observation_formatting import explanation_text
-from products.replay_vision.backend.watch_rank import ISSUE_CATEGORIES, current_rank
+from products.replay_vision.backend.semantic_space import (
+    SEMANTIC_DIMENSIONS,
+    SemanticSpace,
+    nearest_cluster,
+    pack,
+    unpack,
+)
+from products.replay_vision.backend.watch_rank import ISSUE_CATEGORIES
 
 logger = structlog.get_logger(__name__)
 
-# text-embedding-3 vectors keep their meaning when cut short and renormalised, and a short one keeps each
-# scanner's themes small enough to read on every observation.
-THEME_DIMENSIONS = 512
-# Centred similarity at which an observation joins a theme rather than starting one.
 THEME_MIN_SIMILARITY = 0.40
-# A young scanner's mean is mostly its few observations, so taking it out leaves noise. Until the centre has this
-# many members, themes compare plain vectors at a plain similarity.
-THEME_CENTRE_MIN_MEMBERS = 50
 THEME_MIN_RAW_SIMILARITY = 0.85
 # A theme with no new member for this long no longer takes members or counts as a suggestion.
 THEME_ACTIVE_WINDOW = timedelta(days=30)
@@ -84,26 +81,6 @@ class ThemeAssignment:
     name_due: bool
 
 
-def theme_vector(vector: list[float] | np.ndarray) -> np.ndarray:
-    head = np.zeros(THEME_DIMENSIONS, dtype=np.float32)
-    values = np.asarray(vector[:THEME_DIMENSIONS], dtype=np.float32)
-    head[: len(values)] = values
-    return _unit(head)
-
-
-def _unit(vector: np.ndarray) -> np.ndarray:
-    norm = float(np.linalg.norm(vector))
-    return vector / norm if norm else vector
-
-
-def _pack(vector: np.ndarray) -> bytes:
-    return vector.astype(np.float32).tobytes()
-
-
-def _unpack(data: bytes | memoryview) -> np.ndarray:
-    return np.frombuffer(bytes(data), dtype=np.float32)
-
-
 def belongs_in_theme(*, category: str, scanner_type: str, valence: str, output: dict[str, Any]) -> bool:
     """An issue observation, and for a monitor with a known valence only the answer the team looks for, so a
     monitor's many reasons why nothing went wrong never become a suggestion."""
@@ -118,98 +95,38 @@ def belongs_in_theme(*, category: str, scanner_type: str, valence: str, output: 
     return True
 
 
-def assign_theme(
-    *, team_id: int, scanner_id: str, observation_id: str, vector: list[float], now: datetime
-) -> ThemeAssignment | None:
-    """Put one ranked observation in its scanner's nearest theme, or start a theme for it.
-
-    None when the observation is not an issue, already has a theme, or is gone. The scanner's centre row is locked
-    for the whole assignment, so two observations of one scanner never race on its themes, and a redelivered
-    message finds its theme already written.
-    """
-    scanner = (
-        ReplayScanner.objects.filter(team_id=team_id, id=scanner_id).values("scanner_type", "prompt_valence").first()
+def assign_theme(*, team_id: int, scanner_id: str, space: SemanticSpace, now: datetime) -> ThemeAssignment:
+    """Put one observation in its scanner's closest active theme, or start a theme. Call under the centre lock."""
+    themes = list(
+        ReplayScannerSearchTheme.objects.for_team(team_id)
+        .filter(scanner_id=scanner_id, last_member_at__gte=now - THEME_ACTIVE_WINDOW)
+        .only("id", "vector_sum", "member_count", "name_at", "last_member_at")
     )
-    if scanner is None:
-        return None
-    with transaction.atomic():
-        center, _ = (
-            ReplayScannerThemeCenter.objects.for_team(team_id)
-            .select_for_update()
-            .get_or_create(
-                scanner_id=scanner_id,
-                defaults={"team_id": team_id, "vector_sum": _pack(np.zeros(THEME_DIMENSIONS, dtype=np.float32))},
-            )
+    best = nearest_cluster(
+        np.array([unpack(theme.vector_sum) for theme in themes], dtype=np.float32).reshape(-1, SEMANTIC_DIMENSIONS),
+        np.array([theme.member_count for theme in themes], dtype=np.float32),
+        space,
+        THEME_MIN_SIMILARITY,
+        THEME_MIN_RAW_SIMILARITY,
+    )
+    if best is None:
+        theme = ReplayScannerSearchTheme.objects.for_team(team_id).create(
+            team_id=team_id, scanner_id=scanner_id, vector_sum=pack(space.vector), member_count=1, last_member_at=now
         )
-        row = (
-            ReplayObservation.objects.filter(team_id=team_id, id=observation_id)
-            .values("watch_rank", "scanner_result")
-            .first()
-        )
-        if row is None:
-            return None
-        rank = current_rank({"watch_rank": row["watch_rank"]})
-        if rank is None or rank.get("theme"):
-            return None
-        output = (row["scanner_result"] or {}).get("model_output") or {}
-        if not belongs_in_theme(
-            category=rank["category"],
-            scanner_type=scanner["scanner_type"],
-            valence=scanner["prompt_valence"],
-            output=output,
-        ):
-            return None
-
-        v = theme_vector(vector)
-        center_sum = _unpack(center.vector_sum) + v
-        centring = center.member_count >= THEME_CENTRE_MIN_MEMBERS
-        mean = center_sum / (center.member_count + 1) if centring else np.zeros_like(v)
-        themes = list(
-            ReplayScannerTheme.objects.for_team(team_id)
-            .filter(scanner_id=scanner_id, last_member_at__gte=now - THEME_ACTIVE_WINDOW)
-            .only("id", "vector_sum", "member_count", "name_at")
-        )
-        theme = _nearest_theme(themes, v, mean, THEME_MIN_SIMILARITY if centring else THEME_MIN_RAW_SIMILARITY)
-        if theme is None:
-            theme = ReplayScannerTheme.objects.for_team(team_id).create(
-                team_id=team_id, scanner_id=scanner_id, vector_sum=_pack(v), member_count=1, last_member_at=now
-            )
-        else:
-            theme.vector_sum = _pack(_unpack(theme.vector_sum) + v)
-            theme.member_count += 1
-            theme.last_member_at = now
-            theme.save(update_fields=["vector_sum", "member_count", "last_member_at"])
-        center.vector_sum = _pack(center_sum)
-        center.member_count += 1
-        center.save(update_fields=["vector_sum", "member_count"])
-        ReplayObservation.objects.filter(team_id=team_id, id=observation_id).update(
-            watch_rank=Func(
-                F("watch_rank"),
-                Value("{theme}"),
-                Value(str(theme.id), output_field=JSONField()),
-                function="jsonb_set",
-                output_field=JSONField(),
-            )
-        )
+    else:
+        theme = themes[best]
+        theme.vector_sum = pack(unpack(theme.vector_sum) + space.vector)
+        theme.member_count += 1
+        # The backfill replays old rows while the consumer adds new ones, so the latest member time never moves back.
+        theme.last_member_at = max(theme.last_member_at, now)
+        theme.save(update_fields=["vector_sum", "member_count", "last_member_at"])
     return ThemeAssignment(theme_id=theme.id, name_due=theme.member_count >= theme.name_at)
-
-
-def _nearest_theme(
-    themes: list[ReplayScannerTheme], vector: np.ndarray, mean: np.ndarray, threshold: float
-) -> ReplayScannerTheme | None:
-    """The theme whose mean is closest to the vector once the scanner's mean is taken out of both."""
-    if not themes:
-        return None
-    centroids = np.stack([_unit(_unpack(t.vector_sum) / t.member_count - mean) for t in themes])
-    similarities = centroids @ _unit(vector - mean)
-    best = int(np.argmax(similarities))
-    return themes[best] if similarities[best] >= threshold else None
 
 
 def _claim_naming(team_id: int, theme_id: uuid.UUID) -> bool:
     """Move the theme's next naming to double its size, and say whether this caller won the right to name it now."""
     return bool(
-        ReplayScannerTheme.objects.for_team(team_id)
+        ReplayScannerSearchTheme.objects.for_team(team_id)
         .filter(id=theme_id, member_count__gte=F("name_at"))
         .update(name_at=F("member_count") * 2)
     )
@@ -222,7 +139,7 @@ def _take_naming_budget(team_id: int, now: datetime) -> bool:
 
 
 def _naming_context(team_id: int, theme_id: uuid.UUID) -> tuple[ReplayScanner, list[str]] | None:
-    theme = ReplayScannerTheme.objects.for_team(team_id).filter(id=theme_id).select_related("scanner").first()
+    theme = ReplayScannerSearchTheme.objects.for_team(team_id).filter(id=theme_id).select_related("scanner").first()
     if theme is None:
         return None
     rows = (
@@ -237,7 +154,7 @@ def _naming_context(team_id: int, theme_id: uuid.UUID) -> tuple[ReplayScanner, l
 
 
 def _save_label(team_id: int, theme_id: uuid.UUID, label: str, now: datetime) -> None:
-    ReplayScannerTheme.objects.for_team(team_id).filter(id=theme_id).update(label=label, named_at=now)
+    ReplayScannerSearchTheme.objects.for_team(team_id).filter(id=theme_id).update(label=label, named_at=now)
 
 
 def finalize_label(raw: str) -> str:

@@ -35,7 +35,8 @@ from products.replay_vision.backend.embeddings import (
     OBSERVATION_EMBEDDING_MODEL,
 )
 from products.replay_vision.backend.watch_rank import RankRequest, rank_observation
-from products.replay_vision.backend.watch_themes import assign_theme, name_theme
+from products.replay_vision.backend.watch_semantics import assign_semantics
+from products.replay_vision.backend.watch_themes import name_theme
 
 logger = structlog.get_logger(__name__)
 
@@ -137,7 +138,7 @@ class WatchRankConsumer:
             try:
                 outcome = await rank_observation(request)
                 if outcome != "missing":
-                    await self._theme(request)
+                    await self._semantics(request)
                 self._first_failed_at.pop(request.observation_id, None)
                 return outcome
             except Exception:
@@ -159,19 +160,19 @@ class WatchRankConsumer:
                 return "interrupted"
             backoff = min(backoff * 2, _RETRY_BACKOFF_MAX_S)
 
-    async def _theme(self, request: RankRequest) -> None:
-        """Put a ranked observation in a theme, and name the theme in the background once it is due."""
+    async def _semantics(self, request: RankRequest) -> None:
+        """Put a ranked observation in a feed group and a theme, and name the theme in the background once it is due."""
         now = timezone.now()
-        assignment = await sync_to_async(assign_theme)(
+        assignment = await sync_to_async(assign_semantics)(
             team_id=request.team_id,
             scanner_id=request.scanner_id,
             observation_id=request.observation_id,
             vector=request.vector,
             now=now,
         )
-        if assignment is None or not assignment.name_due:
+        if assignment is None or assignment.theme is None or not assignment.theme.name_due:
             return
-        task = asyncio.create_task(self._name(request.team_id, assignment.theme_id, now))
+        task = asyncio.create_task(self._name(request.team_id, assignment.theme.theme_id, now))
         self._naming.add(task)
         task.add_done_callback(self._naming.discard)
 

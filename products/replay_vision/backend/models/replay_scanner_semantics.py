@@ -7,9 +7,9 @@ from posthog.models.utils import UUIDModel
 THEME_FIRST_NAME_AT = 5
 
 
-class ReplayScannerThemeCenter(TeamScopedRootMixin, models.Model):
-    """A scanner's running sum of observation vectors. Themes compare vectors with this mean taken out, because
-    every observation of one scanner shares its question's wording."""
+class ReplayScannerSemanticCenter(TeamScopedRootMixin, models.Model):
+    """A scanner's running sum of issue observation vectors. Themes and feed groups compare vectors with this mean
+    taken out, because every observation of one scanner shares its question's wording."""
 
     scanner = models.OneToOneField(
         "replay_vision.ReplayScanner", on_delete=models.CASCADE, primary_key=True, related_name="+"
@@ -22,12 +22,12 @@ class ReplayScannerThemeCenter(TeamScopedRootMixin, models.Model):
         app_label = "replay_vision"
 
 
-class ReplayScannerTheme(TeamScopedRootMixin, UUIDModel):
-    """A cluster of one scanner's issue observations, named as a search the Search tab suggests."""
+class ReplayScannerSearchTheme(TeamScopedRootMixin, UUIDModel):
+    """A broad cluster of one scanner's issue observations, named as a search the Search tab suggests."""
 
     # The scanner and recency index serves every read, so the foreign key needs no index of its own.
     scanner = models.ForeignKey(
-        "replay_vision.ReplayScanner", on_delete=models.CASCADE, related_name="themes", db_index=False
+        "replay_vision.ReplayScanner", on_delete=models.CASCADE, related_name="+", db_index=False
     )
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     vector_sum = models.BinaryField()
@@ -42,3 +42,21 @@ class ReplayScannerTheme(TeamScopedRootMixin, UUIDModel):
     class Meta:
         app_label = "replay_vision"
         indexes = [models.Index(fields=["scanner", "-last_member_at"], name="rv_theme_scanner_recent_idx")]
+
+
+class ReplayScannerFeedGroup(TeamScopedRootMixin, UUIDModel):
+    """A tight cluster of one scanner's issue observations that tell the same story, shown as one feed card."""
+
+    # The scanner and recency index serves every read, so the foreign key needs no index of its own.
+    scanner = models.ForeignKey(
+        "replay_vision.ReplayScanner", on_delete=models.CASCADE, related_name="+", db_index=False
+    )
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    vector_sum = models.BinaryField()
+    member_count = models.PositiveIntegerField(default=0)
+    last_member_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        app_label = "replay_vision"
+        indexes = [models.Index(fields=["scanner", "-last_member_at"], name="rv_feed_group_recent_idx")]
