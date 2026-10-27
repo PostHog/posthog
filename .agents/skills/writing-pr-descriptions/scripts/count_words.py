@@ -1,14 +1,20 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#     "markdown-it-py>=3.0.0",
+# ]
+# ///
 # ruff: noqa: T201 allow print statements
 """
-Print the number of words a reviewer reads in a PR body, table cells included.
+Print the number of words a reviewer reads in a PR body, table cells and inline code included.
 
 Headings, code blocks, HTML tags, images, task list checkboxes, and everything inside <details> do not count.
 List markers and other words without a letter or digit do not count.
 
 Usage:
-    uv run python count_words.py pr-body.md
-    gh pr view 123 --json body --jq .body | uv run python count_words.py -
+    uv run count_words.py pr-body.md
+    gh pr view 123 --json body --jq .body | uv run count_words.py -
 """
 
 from __future__ import annotations
@@ -74,7 +80,9 @@ def main() -> None:
     parser.add_argument("body", help="PR body markdown file, or - to read stdin")
     args = parser.parse_args()
     try:
-        markdown = sys.stdin.read() if args.body == "-" else Path(args.body).read_text()
+        markdown = (
+            sys.stdin.buffer.read().decode("utf-8") if args.body == "-" else Path(args.body).read_text(encoding="utf-8")
+        )
         print(count_words(markdown))
     except (OSError, ValueError) as error:
         parser.error(str(error))

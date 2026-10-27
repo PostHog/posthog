@@ -192,17 +192,22 @@ A body that would fit any PR tells a reader nothing about this one. A reader who
 When the diff is six lines, the body has to read as the body of a six-line change.
 
 - Aim for 150 words or fewer across the whole body, table cells included. A reviewer reads a table as closely as a bullet, so moving a sentence into one shortens nothing.
-- Headings, diagrams, code, images, HTML tags and `<details>` blocks do not count. Moving evidence and transcripts into `<details>` is the first cut.
+- Headings, diagrams, code blocks, images, HTML tags and `<details>` blocks do not count. Inline code counts.
+- Moving evidence and transcripts into `<details>` is the first cut. Problem and Changes never move there: a reviewer skips collapsed text, so a fact they need stays visible and counts.
 - The template's fixed lines, such as the release status and agent context labels, use about 25 of the 150 words.
 - Give a one-file fix 3 to 6 bullets across the whole body.
 - Write `- None.` under every heading that does not apply. That is a complete answer, not a gap. It is a bullet, like the release status line the changelog bot reads, so empty sections look the same.
 - Keep numbers, file paths and identifiers when you cut. Cut adjectives and second explanations.
 
-Run the counter on the body before every `gh pr create` or `gh pr edit`. It reads a file, or stdin when the argument is `-`:
+Run the counter on the body before every `gh pr create` or `gh pr edit`. Pass the body on stdin, as you pass it to `gh`:
 
 ```sh
-uv run python .agents/skills/writing-pr-descriptions/scripts/count_words.py pr-body.md
+uv run .agents/skills/writing-pr-descriptions/scripts/count_words.py - <<'EOF'
+<body>
+EOF
 ```
+
+`uv run` installs the script's one dependency in its own environment and leaves the repo's virtualenv alone.
 
 When the count is still over 150 after cutting, the PR is probably too big to review in one pass.
 Suggest a stack to the PR author, name the layers you would split it into, and point to `/stacking-prs`.
@@ -301,8 +306,8 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 ### The line check
 
 1. Is the body shorter than your first draft? If it is longer, you split without cutting. Go back to pass 3.
-2. Does the size of the body track the size of the diff, and does `scripts/count_words.py` print 150 or less? If not, go back to "150 words".
-3. Are Problem and Changes together longer than the sections under them? If not, cut the lower ones.
+2. Does the size of the body track the size of the diff, and does `scripts/count_words.py` print 150 or less? If not, cut, or suggest a stack as "150 words" says.
+3. Are Problem and Changes together longer than the sections under them, with nothing of theirs inside `<details>`? If not, cut the lower ones.
 4. Read the body with the diff closed. Can you say why the PR exists and what it does? If not, you cut something a reader needs.
 5. Does Problem state a need that no source in the request, an issue, or a thread gave? Delete it, and say the reason was not given.
 6. Read Changes alone. Can you say what a person will now see or do differently, or that nothing user-visible changed? If neither, go back to pass 1.
@@ -316,7 +321,7 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 14. Does the PR change architecture or topology, as defined under Mermaid? Include branded before-and-after diagrams under one short sentence, also for a one-step change. Delete any diagram of a UI flow.
 15. Does prose compare several values across the same dimensions? Replace it with a table.
 16. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
-17. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.
+17. Did a `<!-- -->` template comment or a placeholder such as `tool, model`, `/skill` or `link, tools used` survive anywhere, collapsed blocks included? That field is unfilled. Fill it or delete it.
 18. Is the `## 🤖 Agent context` section filled, naming the exact model and listing the skills invoked? Does the collapsed block still describe the PR as pushed?
 19. Does the body claim manual testing that did not happen? Delete it.
 20. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.

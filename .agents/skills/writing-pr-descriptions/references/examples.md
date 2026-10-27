@@ -14,7 +14,7 @@ The measurements behind these rules live in the PR that introduced them, reachab
 
 [fix(dashboards): tolerate legacy keys in persisted dashboard filters](https://github.com/PostHog/posthog/pull/78235).
 
-### Problem as shipped, 82 words
+### Problem as shipped, 78 words
 
 ```markdown
 - `Dashboard.filters` persists opaquely, and readers rebuild the `extra="forbid"` `DashboardFilter` from it on every tile refresh.
@@ -23,7 +23,7 @@ The measurements behind these rules live in the PR that introduced them, reachab
 - A support ticket hit exactly this: a REST client wrote the legacy insight-format key `filter_test_accounts`, and the dashboards stayed broken until the blob is rewritten by hand.
 ```
 
-### After pass 1, 71 words
+### After pass 1, 67 words
 
 ```markdown
 - One legacy key in a dashboard's saved filters errors every tile on that dashboard.
@@ -52,7 +52,7 @@ The rejected alternative is the one line a reviewer needs to judge the design. I
 
 [fix(data-warehouse): recognize Neon's pooler rejection of libpq options](https://github.com/PostHog/posthog/pull/77899). Problem and Changes only.
 
-### As shipped, 297 words
+### As shipped, 296 words
 
 ```markdown
 ## Problem
@@ -115,7 +115,7 @@ ERROR:  unsupported startup parameter in options: statement_timeout.
 
 Pass 1 moved the effect to the top. The shipped body led with a fact about libpq and stated the effect last.
 
-Pass 3 cut 173 words:
+Pass 3 cut 172 words:
 
 | Cut                                                                                                    | Why                                                                                                                                            |
 | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -138,7 +138,7 @@ Both fenced blocks survived untouched. Pass 4 governs prose only.
 
 [fix(flags): drop custom codecs from flag_evaluations columns](https://github.com/PostHog/posthog/pull/77910). Problem and Changes only.
 
-### As shipped, 190 words
+### As shipped, 191 words
 
 ```markdown
 ## Problem
@@ -152,7 +152,7 @@ Migration 0293 sets the codecs 0292 declared and then removes them with `MODIFY 
 `posthog/models/flag_evaluations/sql.py` is the shared column template other DDL reads from, so the per-column `CODEC(...)` clauses are stripped there too. The HCL golden/SQL mirrors and the `test_schema.ambr` snapshot are regenerated to match.
 ```
 
-### After the remaining passes, 111 words
+### After the remaining passes, 112 words
 
 ```markdown
 ## Problem
@@ -186,4 +186,4 @@ Nobody sees this change, which is the case pass 1 is easiest to skip on. There i
 
 > - The codecs on `flag_evaluations` take those columns out of the cluster's central compression tuning and buy nothing back.
 
-The line check's first item is what makes this a rewrite rather than a reformat: the body has to come out shorter. Both cut examples do, 297 words to 124 and 190 to 111, and the reorder in example 1 came out shorter too.
+The line check's first item is what makes this a rewrite rather than a reformat: the body has to come out shorter. Both cut examples do, 296 words to 124 and 191 to 112, and the reorder in example 1 came out shorter too.
