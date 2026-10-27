@@ -4,11 +4,11 @@ from __future__ import annotations
 import sys
 import json
 import subprocess
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-LARGE_CONTEXT_TOKENS = 100_000
+LARGE_CONTEXT_TOKENS = 300_000
 PROMPT_CACHE_COLD_AFTER = timedelta(hours=1)
 TRANSCRIPT_TAIL_BYTES = 4 * 1024 * 1024
 
@@ -76,7 +76,7 @@ def resume_hints(event: dict[str, Any], now: datetime) -> list[str]:
 
 def main() -> None:
     try:
-        hints = resume_hints(json.load(sys.stdin), datetime.now(UTC))
+        hints = resume_hints(json.load(sys.stdin), datetime.now(timezone.utc))  # noqa: UP017 — the hook may run on a system Python older than 3.11
     except Exception:
         return
     if hints:
