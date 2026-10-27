@@ -87,6 +87,7 @@ Start date is optional and sets how far back the first sync reaches. Without it,
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
