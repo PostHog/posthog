@@ -37,6 +37,7 @@ from products.experiments.backend.metric_resolution import MetricRole, saved_met
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.metric_validation import defined_event_names, extract_entity_nodes
 from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
+from products.experiments.backend.running_time_target import RunningTimeTarget
 from products.feature_flags.backend.facade.edits import (
     BucketingChange,
     ConditionsChange,
@@ -210,11 +211,8 @@ class PrimaryMetric:
 
     name: str
     is_funnel: bool
-    # The relative effect, as a percentage, that the experiment plans to detect.
-    minimum_detectable_effect: float
-    # Whether the running time estimate is in manual mode, where its target comes from a baseline the user entered
-    # instead of from the results.
-    manual_running_time: bool
+    # The target of the running time estimate, which the header of the experiment page shows.
+    target: RunningTimeTarget
     # The current stored result, the one the results page shows after its last calculation. None when no completed
     # result is stored under the metric's current calculation key. Only read for a funnel.
     result: MetricResultStats | None
