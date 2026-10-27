@@ -2,10 +2,12 @@ import clsx from 'clsx'
 
 import { IconChevronRight } from '@posthog/icons'
 
+import type { DashboardWidgetPlacementDestination } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenu'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { pluralize } from 'lib/utils/strings'
 
 import type { DashboardTileGroupApi } from '../../generated/api.schemas'
+import { DashboardTileGroupCopyMenu } from './DashboardTileGroupCopyMenu'
 import { TileGroupColorDot } from './TileGroupColorDot'
 
 interface DashboardTileGroupProps {
@@ -13,6 +15,9 @@ interface DashboardTileGroupProps {
     tileCount: number
     collapsed: boolean
     onToggle: () => void
+    copyToDestinations?: DashboardWidgetPlacementDestination[]
+    onCopyToDashboard?: (dashboardId: number, dashboardName: string) => void
+    copyLoading?: boolean
     children: React.ReactNode
 }
 
@@ -21,6 +26,9 @@ export function DashboardTileGroup({
     tileCount,
     collapsed,
     onToggle,
+    copyToDestinations,
+    onCopyToDashboard,
+    copyLoading,
     children,
 }: DashboardTileGroupProps): JSX.Element {
     const tileCountLabel = pluralize(tileCount, 'tile')
@@ -51,6 +59,14 @@ export function DashboardTileGroup({
                 </LemonButton>
                 {group.title && collapsed && <span className="shrink-0 text-secondary text-xs">{tileCountLabel}</span>}
                 <div className="min-w-4 flex-1 border-t border-primary" />
+                {onCopyToDashboard && (
+                    <DashboardTileGroupCopyMenu
+                        label="Copy group to dashboard"
+                        destinations={copyToDestinations ?? []}
+                        onCopyToDashboard={onCopyToDashboard}
+                        loading={copyLoading}
+                    />
+                )}
             </div>
             {!collapsed && children}
         </section>
