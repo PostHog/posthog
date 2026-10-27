@@ -1,5 +1,5 @@
 import { setupServer } from 'msw/node'
-import { afterAll, beforeAll } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { createApp } from '@/hono/app'
 import type { RedisLike } from '@/hono/cache/RedisCache'
@@ -92,3 +92,34 @@ defineCatalogFilterTests('Hono', harness)
 defineExecModeTests('Hono', harness)
 defineSessionTrackingTests('Hono', harness)
 defineStatelessProtocolTests('Hono', harness)
+
+describe('Hono request body limit', () => {
+    it('stops reading a streamed body once it passes the size cap', async () => {
+        const chunk = new Uint8Array(256 * 1024).fill(0x20)
+        let sent = 0
+        const body = new ReadableStream<Uint8Array>({
+            pull(controller) {
+                // A reader that buffers the whole body reaches this error, and the request fails with a 500.
+                if (sent === 16) {
+                    controller.error(new Error('read past the size cap'))
+                    return
+                }
+                sent += 1
+                controller.enqueue(chunk)
+            },
+        })
+        const res = await fetchViaApp(new URL('/mcp', 'http://hono.test'), {
+            method: 'POST',
+            headers: {
+                Authorization: 'Bearer phx_integration_test_token',
+                'Content-Type': 'application/json',
+                Accept: 'application/json, text/event-stream',
+            },
+            body,
+            duplex: 'half',
+        } as RequestInit)
+
+        expect(res.status).toBe(200)
+        expect(await res.json()).toMatchObject({ error: { code: -32600 } })
+    })
+})

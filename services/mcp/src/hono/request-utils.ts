@@ -16,6 +16,7 @@ import { trackAuthFailure } from './analytics'
 import { resolveClientIp } from './client-ip'
 import { getEdgeClientIpSigningKeys } from './constants'
 import { authFailuresTotal, clientIpResolutionsTotal } from './metrics'
+import { bodyTooLargeResponse, MAX_BODY_BYTES, readBodyWithinLimit } from './request-body'
 import type { HonoCtx } from './types'
 
 const InitializeParamsSchema = z.object({
@@ -87,9 +88,13 @@ function authenticate(c: HonoCtx): Response | null {
     return error
 }
 
-async function preserveBody(c: HonoCtx): Promise<string> {
+// This is the first read of the body, so the size cap applies here, before any of it is buffered.
+async function preserveBody(c: HonoCtx): Promise<string | undefined> {
     const raw = c.req.raw
-    const bodyText = await raw.text()
+    const bodyText = await readBodyWithinLimit(raw, MAX_BODY_BYTES)
+    if (bodyText === undefined) {
+        return undefined
+    }
     const fresh = new Request(raw.url, { method: raw.method, headers: raw.headers, body: bodyText })
     Object.defineProperty(c.req, 'raw', { value: fresh, writable: true, configurable: true })
     return bodyText
@@ -105,6 +110,9 @@ export async function authenticateAndParse(
     }
 
     const bodyText = await preserveBody(c)
+    if (bodyText === undefined) {
+        return { error: bodyTooLargeResponse() }
+    }
     const props = parseRequestProperties(c.req.raw, parseClientInfo(bodyText), transport)
 
     props.mcpSessionId = sanitizeHeaderValue(c.req.header('mcp-session-id') || undefined)

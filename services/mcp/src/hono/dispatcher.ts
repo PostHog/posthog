@@ -45,6 +45,7 @@ import { getEnv, MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import { InstructionsBuilder } from './instructions'
 import { InterviewRecruitment, InterviewRequestError } from './interview-recruitment'
 import { initDurationSeconds, initTotal } from './metrics'
+import { bodyTooLargeResponse, MAX_BODY_BYTES, readBodyWithinLimit } from './request-body'
 import { RequestStateResolver, type ResolvedState } from './request-state-resolver'
 import { ResourceCatalog } from './resource-catalog'
 import { SkillCatalogService } from './skill-catalog-service'
@@ -55,31 +56,6 @@ export { McpDispatcher }
 export type { ResolvedState } from './request-state-resolver'
 
 const MAX_BATCH_SIZE = 100
-const MAX_BODY_BYTES = 1_048_576
-
-// A chunked request carries no Content-Length, so the cap must also hold while the body streams in.
-async function readBodyWithinLimit(req: Request, maxBytes: number): Promise<string | undefined> {
-    if (!req.body) {
-        return ''
-    }
-    const reader = req.body.getReader()
-    const decoder = new TextDecoder()
-    let size = 0
-    let text = ''
-    for (;;) {
-        const { done, value } = await reader.read()
-        if (done) {
-            return text + decoder.decode()
-        }
-        size += value.byteLength
-        if (size > maxBytes) {
-            await reader.cancel()
-            return undefined
-        }
-        text += decoder.decode(value, { stream: true })
-    }
-}
-
 const Method = {
     Initialize: 'initialize' as InitializeRequest['method'],
     Discover: SERVER_DISCOVER_METHOD,
@@ -218,14 +194,14 @@ class McpDispatcher {
     async handleRequest(req: Request, props: RequestProperties): Promise<Response> {
         const contentLength = req.headers.get('content-length')
         if (contentLength && parseInt(contentLength, 10) > MAX_BODY_BYTES) {
-            return jsonRpcErrorResponse(null, ErrorCode.InvalidRequest, 'Request body too large')
+            return bodyTooLargeResponse()
         }
 
         let body: unknown
         try {
             const text = await readBodyWithinLimit(req, MAX_BODY_BYTES)
             if (text === undefined) {
-                return jsonRpcErrorResponse(null, ErrorCode.InvalidRequest, 'Request body too large')
+                return bodyTooLargeResponse()
             }
             body = JSON.parse(text)
         } catch {
