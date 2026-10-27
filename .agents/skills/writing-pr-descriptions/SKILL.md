@@ -6,7 +6,7 @@ description: >-
   States who is affected and what is wrong for them in Problem, taken from a source and never invented, then the visible effect and mechanism in Changes.
   Selects bullets, tables, diagrams, screenshots, or collapsed blocks for each fact.
   Removes unnecessary detail and checks one fact per bullet, sentences under 25 words, active voice, and no idioms.
-  Keeps the body complete without the diff, aims for 150 words of prose and suggests a stack when the PR needs more, and links evidence or marks claims as unchecked.
+  Keeps the body complete without the diff, aims for 150 words and suggests a stack when the PR needs more, and links evidence or marks claims as unchecked.
   Checks the title and first lines of Problem and Changes.
   Not for commit messages (see AGENTS.md, "Commit types") or product copy (see `/writing-user-facing-copy`).
 ---
@@ -129,11 +129,12 @@ Touching UI code without a visible change is common, and the mandate has to be d
 
 ### Mermaid
 
-Draw before-and-after diagrams for every architecture or topology change.
+Draw before-and-after diagrams for every architecture or topology change, under one short sentence that states the change.
 Architecture and topology mean CI wiring, pipelines, services and the calls between them, or module and package boundaries.
 They also mean a state machine with several states, or a request path across systems.
 This includes a small change, such as one step added to a straight chain or one fallback added to a lookup.
 A reviewer sees a diagram at a glance, and can miss one sentence among the bullets.
+The sentence gives a scanner the point, and the diagrams carry the flow, so the sentence never grows complex to explain it.
 A UI flow or a linear sequence of screens is not a topology.
 It gets screenshots or a reel, not a diagram.
 
@@ -185,12 +186,13 @@ Delete:
 ✅ Delete all three.
 The first is a number the reviewer cannot use. CI already reports the second. The third tells the reviewer nothing to check or decide.
 
-### 150 words of prose
+### 150 words
 
 A body that would fit any PR tells a reader nothing about this one. A reader who meets a few learns to skip them all.
 When the diff is six lines, the body has to read as the body of a six-line change.
 
-- Aim for 150 words of prose or fewer across the whole body. Headings, tables, diagrams, code, images, HTML and `<details>` blocks do not count, so moving evidence into them is the first cut.
+- Aim for 150 words or fewer across the whole body, table cells included. A reviewer reads a table as closely as a bullet, so moving a sentence into one shortens nothing.
+- Headings, diagrams, code, images, HTML tags and `<details>` blocks do not count. Moving evidence and transcripts into `<details>` is the first cut.
 - The template's fixed lines, such as the release status and agent context labels, use about 25 of the 150 words.
 - Give a one-file fix 3 to 6 bullets across the whole body.
 - Write one line or "None" under every heading that does not apply. That is a complete answer, not a gap.
@@ -199,7 +201,7 @@ When the diff is six lines, the body has to read as the body of a six-line chang
 Run the counter on the body before every `gh pr create` or `gh pr edit`. It reads a file, or stdin when the argument is `-`:
 
 ```sh
-uv run python .agents/skills/writing-pr-descriptions/scripts/count_prose_words.py pr-body.md
+uv run python .agents/skills/writing-pr-descriptions/scripts/count_words.py pr-body.md
 ```
 
 When the count is still over 150 after cutting, the PR is probably too big to review in one pass.
@@ -299,7 +301,7 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 ### The line check
 
 1. Is the body shorter than your first draft? If it is longer, you split without cutting. Go back to pass 3.
-2. Does the size of the body track the size of the diff, and does `scripts/count_prose_words.py` print 150 or less? If not, go back to "150 words of prose".
+2. Does the size of the body track the size of the diff, and does `scripts/count_words.py` print 150 or less? If not, go back to "150 words".
 3. Are Problem and Changes together longer than the sections under them? If not, cut the lower ones.
 4. Read the body with the diff closed. Can you say why the PR exists and what it does? If not, you cut something a reader needs.
 5. Does Problem state a need that no source in the request, an issue, or a thread gave? Delete it, and say the reason was not given.
@@ -311,7 +313,7 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 11. Does any sentence take its author as the subject? Rewrite it around the change. "I", "me" and "my" appear nowhere.
 12. Does the PR change anything a person sees? Include before-and-after screenshots, or say why nothing looks different.
 13. Did you rewrite an existing body? Every image, video, link and ticked box a person put there still appears.
-14. Does the PR change architecture or topology, as defined under Mermaid? Include branded before-and-after diagrams, also for a one-step change. Delete any diagram of a UI flow.
+14. Does the PR change architecture or topology, as defined under Mermaid? Include branded before-and-after diagrams under one short sentence, also for a one-step change. Delete any diagram of a UI flow.
 15. Does prose compare several values across the same dimensions? Replace it with a table.
 16. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
 17. Did a `<!-- -->` template comment survive anywhere? That section is unfilled. Fill it or delete it.

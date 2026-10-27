@@ -1,4 +1,4 @@
-<!-- This has to stand on its own: a reader who opens no files should still know why the PR is necessary and what it does. Aim for 150 words of prose or fewer. Tables, diagrams and code blocks do not count. A section you have nothing for gets one line or "None". -->
+<!-- This has to stand on its own: a reader who opens no files should still know why the PR is necessary and what it does. Aim for 150 words or fewer, table cells included. Diagrams, code blocks and <details> blocks do not count. A section you have nothing for gets one line or "None". -->
 
 ## Problem
 
@@ -91,9 +91,9 @@
 - Description: high-level rationale, not a step-by-step replay.
 - Voice: the subject of every sentence is the change, never its author. No "I", "me" or "my" anywhere in the body. "I (actually Claude)" is worse than either half: it hands the assignee an account of work they did not do. Authorship is one stated fact in the Agent context section below.
 - Body: pass it straight to the creation tool's `body` arg (GitHub MCP `create_pull_request` body, or `gh pr create --body-file -` via stdin) — don't write it to a temp file first; the arg preserves markdown and newlines verbatim.
-- Architecture and topology changes: include separate before-and-after Mermaid `flowchart` blocks with PostHog colors, also for a one-step change. This covers CI wiring, pipelines, services and their calls, module or package boundaries, state machines with several states, and request paths across systems. A UI flow or a linear sequence of screens gets screenshots or a reel, not a diagram. Use `/writing-pr-descriptions` for the palette and role mapping.
+- Architecture and topology changes: include separate before-and-after Mermaid `flowchart` blocks with PostHog colors under one short sentence that states the change, also for a one-step change. This covers CI wiring, pipelines, services and their calls, module or package boundaries, state machines with several states, and request paths across systems. A UI flow or a linear sequence of screens gets screenshots or a reel, not a diagram. Use `/writing-pr-descriptions` for the palette and role mapping.
 - Public OSS repo: no internal customers, incidents, or operational metrics.
-- Stack instead of stuffing: if the diff holds two or more separable steps (migration then behavior, rename then rewrite), open a stack rather than one big PR. If the body needs more than 150 words of prose, suggest a stack to the person who directed the work. See AGENTS.md, "Stacked PRs" and /stacking-prs.
+- Stack instead of stuffing: if the diff holds two or more separable steps (migration then behavior, rename then rewrite), open a stack rather than one big PR. If the body needs more than 150 words, suggest a stack to the person who directed the work. See AGENTS.md, "Stacked PRs" and /stacking-prs.
 - Simplify before opening: if your agent has a behavior-preserving cleanup pass (Claude Code: `/simplify`), run it on a non-trivial diff before final tests and preflight, since it edits the tree. Skip it for small mechanical changes.
 - Draft by default: open new PRs as drafts (`gh pr create --draft`) — drafts run only a narrow CI subset and save runner credits. Fix CI and run affected tests locally before marking ready for review.
 - Labels: apply `skip-agent-review` for trivial/chore PRs that don't need an automatic review.
@@ -103,5 +103,5 @@
 - Do not add a human Co-authored-by just for the sake of attribution — if no human was involved in the changes, own it as agent-authored.
 - Agent-authored PRs always require human review — do not self-merge or auto-approve.
 - Do NOT claim manual testing you haven't done.
-- Shape and style: invoke the `/writing-pr-descriptions` skill before writing this body. In short: lead Problem with who is affected and what is wrong for them, taken from a source and true under any solution, then lead Changes with the effect a person sees rather than the code path behind it. Make the body stand alone for a reader who opens no files, aim for 150 words of prose, link evidence rather than asserting what CI already reports, then hold what's left to one fact per bullet in under 25 words. A body that got longer as bullets was not cut.
+- Shape and style: invoke the `/writing-pr-descriptions` skill before writing this body. In short: lead Problem with who is affected and what is wrong for them, taken from a source and true under any solution, then lead Changes with the effect a person sees rather than the code path behind it. Make the body stand alone for a reader who opens no files, aim for 150 words, link evidence rather than asserting what CI already reports, then hold what's left to one fact per bullet in under 25 words. A body that got longer as bullets was not cut.
 -->
