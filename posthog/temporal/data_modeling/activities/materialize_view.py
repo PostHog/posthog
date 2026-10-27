@@ -1,8 +1,10 @@
+import time
 import uuid
 import random
 import typing
 import asyncio
 import datetime as dt
+import collections
 import dataclasses
 
 from django.conf import settings
@@ -203,20 +205,42 @@ DELTA_TABLE_RETENTION_HOURS = 24
 DELTA_KERNEL_ERROR_MARKER = "DELTA_KERNEL_ERROR"
 DELTA_KERNEL_ERROR_RETRY_DELAY = dt.timedelta(minutes=2)
 
-# A saturated cluster refuses every model a spike reaches at once. The default backoff sends them
-# all back within seconds, so wait longer, and jitter the wait so they do not return together.
-TOO_MANY_SIMULTANEOUS_QUERIES_RETRY_DELAY_SECONDS = (60, 120)
+# A saturated cluster refuses every model a spike reaches at once, so a refused query waits minutes,
+# with jitter so the refused models do not return together. Most timeouts hit one query on its own
+# and pass on a quick retry, so a timeout starts from seconds. Both delays grow with the number of
+# refusals and timeouts this worker saw recently, so during a spike the retries stop landing in it.
+TOO_MANY_SIMULTANEOUS_QUERIES_RETRY_BASE_DELAY = dt.timedelta(minutes=2)
+QUERY_TIMEOUT_RETRY_BASE_DELAY = dt.timedelta(seconds=20)
+RETRY_PRESSURE_WINDOW = dt.timedelta(minutes=5)
+RETRY_PRESSURE_ERRORS_PER_STEP = 5
+RETRY_PRESSURE_MAX = 12
+MAX_ADAPTIVE_RETRY_DELAY = dt.timedelta(minutes=10)
 
-# A timed-out query already used CPU for its whole max_execution_time, and a load spike that slowed
-# it lasts minutes. The default backoff retries within seconds, into the same spike, so start in
-# minutes and double the band on each attempt. Jitter keeps the timed-out models from returning together.
-QUERY_TIMEOUT_RETRY_FIRST_DELAY_SECONDS = (120, 240)
+
+class _RecentCapacityErrors:
+    def __init__(self, window: dt.timedelta) -> None:
+        self._window_seconds = window.total_seconds()
+        self._seen_at: collections.deque[float] = collections.deque()
+
+    def record(self, now: float) -> int:
+        """Record one error and return how many came before it inside the window."""
+        while self._seen_at and self._seen_at[0] <= now - self._window_seconds:
+            self._seen_at.popleft()
+        earlier = len(self._seen_at)
+        self._seen_at.append(now)
+        return earlier
+
+    def clear(self) -> None:
+        self._seen_at.clear()
 
 
-def _query_timeout_retry_delay(attempt: int) -> dt.timedelta:
-    growth = 2 ** (max(attempt, 1) - 1)
-    low, high = QUERY_TIMEOUT_RETRY_FIRST_DELAY_SECONDS
-    return dt.timedelta(seconds=random.uniform(low * growth, high * growth))
+_recent_capacity_errors = _RecentCapacityErrors(RETRY_PRESSURE_WINDOW)
+
+
+def _adaptive_retry_delay(base: dt.timedelta, attempt: int, recent_errors: int) -> dt.timedelta:
+    pressure = min(1 + recent_errors / RETRY_PRESSURE_ERRORS_PER_STEP, RETRY_PRESSURE_MAX)
+    delay = base * (2 ** (max(attempt, 1) - 1)) * pressure * random.uniform(0.5, 1.0)
+    return min(delay, MAX_ADAPTIVE_RETRY_DELAY)
 
 
 # Above this many files, the per-run compaction is worth its full-table rewrite. Below it, skipping
@@ -1382,16 +1406,17 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
             raise ApplicationError(
                 str(error), type=type(error).__name__, next_retry_delay=DELTA_KERNEL_ERROR_RETRY_DELAY
             ) from error
-        if isinstance(error, ClickHouseTooManySimultaneousQueriesError):
-            delay = random.uniform(*TOO_MANY_SIMULTANEOUS_QUERIES_RETRY_DELAY_SECONDS)
-            raise ApplicationError(
-                str(error), type=type(error).__name__, next_retry_delay=dt.timedelta(seconds=delay)
-            ) from error
-        if isinstance(error, ClickHouseQueryTimeoutError):
+        if isinstance(error, ClickHouseTooManySimultaneousQueriesError | ClickHouseQueryTimeoutError):
+            base_delay = (
+                TOO_MANY_SIMULTANEOUS_QUERIES_RETRY_BASE_DELAY
+                if isinstance(error, ClickHouseTooManySimultaneousQueriesError)
+                else QUERY_TIMEOUT_RETRY_BASE_DELAY
+            )
+            recent_errors = _recent_capacity_errors.record(time.monotonic())
             raise ApplicationError(
                 str(error),
                 type=type(error).__name__,
-                next_retry_delay=_query_timeout_retry_delay(activity.info().attempt),
+                next_retry_delay=_adaptive_retry_delay(base_delay, activity.info().attempt, recent_errors),
             ) from error
         raise
     except (Exception, asyncio.CancelledError):

@@ -52,7 +52,10 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
     DuplicateOutputColumnError,
     EmptyHogQLResponseColumnsError,
     InvalidNodeTypeException,
+    _adaptive_retry_delay,
     _describe_columns,
+    _recent_capacity_errors,
+    _RecentCapacityErrors,
     get_aws_storage_options,
     get_s3_client,
     hogql_table,
@@ -1979,14 +1982,14 @@ class TestMaterializeViewActivity:
                     "Code: 159. DB::Exception: Timeout exceeded: elapsed 600 seconds, maximum: 600. (TIMEOUT_EXCEEDED)"
                 ),
                 1,
-                (dt.timedelta(minutes=2), dt.timedelta(minutes=4)),
+                (dt.timedelta(seconds=10), dt.timedelta(seconds=20)),
             ),
             (
                 ClickHouseQueryTimeoutError(
                     "Code: 159. DB::Exception: Timeout exceeded: elapsed 600 seconds, maximum: 600. (TIMEOUT_EXCEEDED)"
                 ),
                 2,
-                (dt.timedelta(minutes=4), dt.timedelta(minutes=8)),
+                (dt.timedelta(seconds=20), dt.timedelta(seconds=40)),
             ),
             (
                 ClickHouseError("Code: 241. DB::Exception: Memory limit (total) exceeded. (MEMORY_LIMIT_EXCEEDED)"),
@@ -2011,6 +2014,7 @@ class TestMaterializeViewActivity:
             raise clickhouse_error
 
         activity_environment.info = replace(activity_environment.info, attempt=attempt)
+        _recent_capacity_errors.clear()
 
         with (
             override_settings(
@@ -2043,6 +2047,27 @@ class TestMaterializeViewActivity:
             assert min_delay <= error.next_retry_delay <= max_delay
         else:
             assert type(error) is type(clickhouse_error)
+
+
+class TestAdaptiveRetryDelay:
+    @pytest.mark.parametrize(
+        "base,attempt,recent_errors,expected_bounds",
+        [
+            (dt.timedelta(seconds=20), 1, 0, (dt.timedelta(seconds=10), dt.timedelta(seconds=20))),
+            (dt.timedelta(seconds=20), 1, 10, (dt.timedelta(seconds=30), dt.timedelta(seconds=60))),
+            (dt.timedelta(seconds=20), 2, 10, (dt.timedelta(seconds=60), dt.timedelta(seconds=120))),
+            (dt.timedelta(minutes=2), 3, 1000, (dt.timedelta(minutes=10), dt.timedelta(minutes=10))),
+        ],
+    )
+    async def test_delay_grows_with_the_attempt_and_recent_errors(self, base, attempt, recent_errors, expected_bounds):
+        min_delay, max_delay = expected_bounds
+        assert min_delay <= _adaptive_retry_delay(base, attempt, recent_errors) <= max_delay
+
+    async def test_recent_errors_count_only_the_window(self):
+        errors = _RecentCapacityErrors(dt.timedelta(minutes=5))
+
+        assert [errors.record(now) for now in (0.0, 10.0, 20.0)] == [0, 1, 2]
+        assert errors.record(315.0) == 1
 
 
 class _EmptyArrowClient:
