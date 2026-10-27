@@ -18,7 +18,7 @@ from posthog.models.team.event_retention import (
 from posthog.models.user import User
 from posthog.permissions import OrganizationAdminWritePermissions, TeamMemberStrictManagementPermission
 
-from products.product_analytics.backend.events_retention import (
+from products.product_analytics.backend.facade.events_retention import (
     organization_events_retention,
     project_events_retention_months,
     set_organization_events_retention,

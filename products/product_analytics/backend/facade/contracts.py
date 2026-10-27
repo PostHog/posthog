@@ -182,3 +182,16 @@ class InsightDashboardContext:
     filters: dict[str, Any]
     tile_filters: dict[str, Any] | None = None
     variables: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class OrganizationEventsRetention:
+    """The window an organization set for its projects, and the windows its admins can set, in months."""
+
+    organization_months: int | None
+    plan_months: int
+    min_months: int
+    max_months: int
+    # The monthly cleanup deletes by the organization's window whatever the rollout flag says, so the
+    # window can be set only once retention applies to one of the organization's projects.
+    available: bool

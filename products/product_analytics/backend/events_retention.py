@@ -1,7 +1,6 @@
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
-from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.events_retention_config import (
     OrganizationEventsRetentionConfig,
@@ -14,24 +13,7 @@ from posthog.models.team import Team
 from posthog.models.team.event_retention import organization_events_retention_months, should_enforce_events_retention
 from posthog.models.user import User
 
-
-@frozen
-class OrganizationEventsRetention:
-    """The window an organization set for its projects, and the windows its admins can set, in months."""
-
-    organization_months: int | None
-    plan_months: int
-    min_months: int
-    max_months: int
-    # The monthly cleanup deletes by the organization's window whatever the rollout flag says, so the
-    # window can be set only once retention applies to one of the organization's projects.
-    available: bool
-
-    def check_allowed(self, months: int | None) -> None:
-        if months is not None and not self.min_months <= months <= self.max_months:
-            raise ValidationError(
-                f"Events retention has to be {describe_months_range(self.min_months, self.max_months)}."
-            )
+from products.product_analytics.backend.facade.contracts import OrganizationEventsRetention
 
 
 def organization_events_retention(organization: Organization) -> OrganizationEventsRetention:
@@ -57,6 +39,13 @@ def project_events_retention_months(team: Team) -> int | None:
     )
 
 
+def _check_allowed(retention: OrganizationEventsRetention, months: int | None) -> None:
+    if months is not None and not retention.min_months <= months <= retention.max_months:
+        raise ValidationError(
+            f"Events retention has to be {describe_months_range(retention.min_months, retention.max_months)}."
+        )
+
+
 def set_organization_events_retention(
     organization: Organization, months: int | None, *, user: User, was_impersonated: bool
 ) -> None:
@@ -67,7 +56,7 @@ def set_organization_events_retention(
         before = config.default_events_retention_months if config else None
         if months == before:
             return
-        organization_events_retention(organization).check_allowed(months)
+        _check_allowed(organization_events_retention(organization), months)
         config = config or OrganizationEventsRetentionConfig(organization_id=organization.id)
         config.default_events_retention_months = months
         config.full_clean()
@@ -99,7 +88,7 @@ def set_project_events_retention(team: Team, months: int | None, *, user: User, 
         before = config.events_retention_months if config else None
         if months == before:
             return
-        organization_events_retention(team.organization).check_allowed(months)
+        _check_allowed(organization_events_retention(team.organization), months)
         if months is None:
             TeamEventsRetentionConfig.objects.filter(team_id=team.id).delete()
         else:
