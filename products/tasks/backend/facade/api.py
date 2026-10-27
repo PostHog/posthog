@@ -3449,7 +3449,7 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
 def enforce_self_driving_free_trial(
     team: Team, *, report_id: str | None = None, stage: str = "manual_create", enabled: bool | None = None
 ) -> None:
-    """Gate automatic implementation; manual runs use PostHog AI credits.
+    """Keep PR-opening report work unavailable during the self-driving trial.
 
     Resolve enabled before taking database locks, since flag evaluation can use the network.
     """
@@ -7785,6 +7785,9 @@ def create_task(
     """
     from posthog.models import Team  # noqa: PLC0415
 
+    from products.signals.backend.report_task_actions import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        is_pull_request_run_request,
+    )
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
         enforce_report_task_cap,
         record_report_task,
@@ -8096,6 +8099,11 @@ def create_task(
         if report_ref and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
         else None
     )
+    if signal_report_id and (
+        signal_report_task_relationship in (None, "implementation")
+        or is_pull_request_run_request(validated_data.get("description"))
+    ):
+        enforce_self_driving_free_trial(team, report_id=signal_report_id)
     if refuse_without_repository and signal_report is not None:
         _capture_report_task_refused_without_repository(team=team, report_id=str(signal_report.id))
         raise ValidationError({"repository": REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED})
@@ -8922,12 +8930,17 @@ def _report_task_github_integration_id(team: Team, *, code_access_allowed: bool)
 def _reserve_report_warm_activation(
     team: Team, task: Task, *, relationship: str | None, description: str | None = None
 ) -> Model:
+    from products.signals.backend.report_task_actions import (  # noqa: PLC0415 — cross-product read kept off the api import path
+        is_pull_request_run_request,
+    )
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the api import path
         enforce_report_task_cap,
         record_report_task,
     )
 
     report_id = str(task.signal_report_id)
+    if is_pull_request_run_request(description):
+        enforce_self_driving_free_trial(team, report_id=report_id)
     with transaction.atomic():
         enforce_report_task_cap(
             team_id=task.team_id,
@@ -9385,7 +9398,7 @@ def run_task(
         is_implementation = is_report_implementation_task(
             team_id=team_id, report_id=report_id_for_slot_check, task_id=str(task.id)
         )
-        if is_implementation and pipeline_rerun:
+        if is_implementation:
             enforce_self_driving_free_trial(
                 Team.objects.select_related("organization").get(id=team_id),
                 report_id=report_id_for_slot_check,

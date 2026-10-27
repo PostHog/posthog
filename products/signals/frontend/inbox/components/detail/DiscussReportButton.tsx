@@ -37,7 +37,7 @@ function isEditOf(draft: string, suggestion: string): boolean {
 }
 
 export function DiscussReportButton({ report, reportUrl }: { report: SignalReport; reportUrl: string }): JSX.Element {
-    const { isDiscussing, isCreatingPr, aiConsentDisabledReason, lastQuickAskFailure } =
+    const { isDiscussing, isCreatingPr, aiConsentDisabledReason, freeTrialDisabledReason, lastQuickAskFailure } =
         useValues(inboxTaskKickoffLogic)
     const { openReportDiscussion, discussReport } = useActions(inboxTaskKickoffLogic)
     const { prChecksFailing, selectedPullRequest } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
@@ -133,7 +133,7 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
             icon: <IconGitBranch />,
             tooltip: 'Fix CI on the approved PR and merge it',
             onClick: () => startPrAction(MERGE_PR_REQUEST, 'merge_pr'),
-            disabledReason: aiConsentDisabledReason,
+            disabledReason: freeTrialDisabledReason,
             'data-attr': 'inbox-report-ask-ai-merge-pr',
         },
         canMakeGreen && {
@@ -141,7 +141,7 @@ export function DiscussReportButton({ report, reportUrl }: { report: SignalRepor
             icon: <IconCheckCircle />,
             tooltip: 'Fix failing CI on the PR and stop, so you can review and merge it',
             onClick: () => startPrAction(FIX_CI_REQUEST, 'fix_ci', selectedPullRequest.url),
-            disabledReason: aiConsentDisabledReason,
+            disabledReason: freeTrialDisabledReason,
             'data-attr': 'inbox-report-ask-ai-fix-ci',
         },
     ]

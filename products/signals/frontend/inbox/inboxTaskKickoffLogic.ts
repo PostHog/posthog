@@ -84,6 +84,10 @@ export interface ReportChatContext {
     reportUrl: string
 }
 
+// Mirrors the server's `FREE_TRIAL_PR_MESSAGE`, so the disabled button and a refused call read the same.
+export const FREE_TRIAL_PR_DISABLED_REASON =
+    "During your free trial, Self-driving writes reports but doesn't open pull requests. Contact us to upgrade."
+
 // The run endpoint rejects a model without its runtime adapter, so the two are always sent together.
 type ClaudeRuntimeSelection = Pick<ClaudeTaskRunCreateSchemaApi, 'runtime_adapter' | 'model' | 'reasoning_effort'>
 
@@ -438,6 +442,7 @@ export interface inboxTaskKickoffLogicValues {
     defaultsResolved: boolean // taskRunDefaultsLogic
     aiConsentDisabledReason: string | null
     createPrDisabledReason: string | null
+    freeTrialDisabledReason: string | null
     isCreatingPr: boolean
     isDiscussing: boolean
     lastQuickAskFailure: {
@@ -561,7 +566,11 @@ export interface inboxTaskKickoffLogicMeta {
             dataProcessingAccepted: boolean,
             dataProcessingApprovalDisabledReason: string | null
         ) => string | null
-        createPrDisabledReason: (aiConsentDisabledReason: string | null) => string | null
+        freeTrialDisabledReason: (featureFlags: FeatureFlagsSet) => string | null
+        createPrDisabledReason: (
+            aiConsentDisabledReason: string | null,
+            freeTrialDisabledReason: string | null
+        ) => string | null
     }
 }
 
@@ -703,9 +712,19 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             (dataProcessingAccepted: boolean, dataProcessingApprovalDisabledReason: string | null): string | null =>
                 aiConsentDisabledReason(dataProcessingAccepted, dataProcessingApprovalDisabledReason),
         ],
+        // The flag is keyed on the organization group, so it resolves once the org group is
+        // registered and flags are re-fetched. The server refuses the call regardless.
+        freeTrialDisabledReason: [
+            (s) => [s.featureFlags],
+            (featureFlags: import('lib/logic/featureFlagLogic').FeatureFlagsSet): string | null =>
+                featureFlags[FEATURE_FLAGS.SELF_DRIVING_FREE_TRIAL] ? FREE_TRIAL_PR_DISABLED_REASON : null,
+        ],
+        // Why Create PR is unavailable before any report is considered: consent first, then the
+        // trial. Discuss keeps only the consent reason, because a trial org can still discuss.
         createPrDisabledReason: [
-            (s) => [s.aiConsentDisabledReason],
-            (aiConsentDisabledReason: string | null): string | null => aiConsentDisabledReason,
+            (s) => [s.aiConsentDisabledReason, s.freeTrialDisabledReason],
+            (aiConsentDisabledReason: string | null, freeTrialDisabledReason: string | null): string | null =>
+                aiConsentDisabledReason ?? freeTrialDisabledReason,
         ],
     }),
 
@@ -829,7 +848,8 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             // run endpoint enforces no consent of its own.
             const disabledReason =
                 values.aiConsentDisabledReason ??
-                (intent === 'check_metrics' ? values.metricCheckReplacementDisabledReason : null)
+                (intent === 'check_metrics' ? values.metricCheckReplacementDisabledReason : null) ??
+                (intent === 'merge_pr' || intent === 'fix_ci' ? values.freeTrialDisabledReason : null)
             if (disabledReason) {
                 lemonToast.error(disabledReason)
                 captureInboxReportActionCompleted({

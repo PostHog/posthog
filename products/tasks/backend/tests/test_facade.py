@@ -2677,35 +2677,51 @@ class TestSelfDrivingFreeTrialFacadeGates(TestCase):
         SignalReport = apps.get_model("signals", "SignalReport")
         return SignalReport.objects.create(team=self.team, status="ready", title="t", summary="s")
 
-    @parameterized.expand([(None,), ("implementation",), ("discussion",)])
-    def test_manual_report_tasks_are_not_self_driving_trial_usage(self, relationship):
+    @parameterized.expand([(None,), ("implementation",)])
+    def test_create_task_refuses_create_pr_from_report_on_trial(self, relationship):
+        from products.signals.backend.free_trial import FreeTrialPullRequestRefused
+
         report = self._report()
-        apps.get_model("signals", "SignalReportArtefact").objects.create(
-            team=self.team,
-            report=report,
-            type="repo_selection",
-            content='{"repository": "example/repository", "reason": "Matches the example application"}',
-        )
-        with self._on_trial():
-            dto = facade.create_task(
+        with (
+            self._on_trial(),
+            patch("products.signals.backend.free_trial.capture_signal_report_free_trial_paused") as capture_mock,
+            self.assertRaises(FreeTrialPullRequestRefused) as raised,
+        ):
+            facade.create_task(
                 self.team.id,
                 self.user.id,
                 validated_data={
-                    "title": "Report task",
+                    "title": "Implementation: t",
                     "description": "d",
                     "origin_product": Task.OriginProduct.SIGNAL_REPORT,
                     "signal_report": report,
                     "signal_report_task_relationship": relationship,
                 },
             )
-        self.assertEqual(Task.objects.get(id=dto.id).signal_report_id, report.id)
+        self.assertEqual(raised.exception.get_codes(), "self_driving_free_trial")
+        self.assertFalse(Task.objects.filter(team=self.team).exists())
+        self.assertEqual(capture_mock.call_args.kwargs, {"report_id": str(report.id), "stage": "manual_create"})
+
+    def test_create_task_allows_discussion_from_report_on_trial(self):
+        report = self._report()
+        with self._on_trial():
+            dto = facade.create_task(
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "title": "Discuss: t",
+                    "description": "d",
+                    "origin_product": Task.OriginProduct.SIGNAL_REPORT,
+                    "signal_report": report,
+                    "signal_report_task_relationship": "discussion",
+                },
+            )
+        self.assertTrue(Task.objects.filter(id=dto.id).exists())
 
     @parameterized.expand(
-        [("implementation", True, True), ("implementation", False, False), ("discussion", False, False)]
+        [("implementation", True, True), ("implementation", False, True), ("discussion", False, False)]
     )
-    def test_run_task_trial_gate_applies_only_to_pipeline_implementation(
-        self, relationship, pipeline_rerun, expect_refusal
-    ):
+    def test_run_task_refuses_report_implementation_on_trial(self, relationship, pipeline_rerun, expect_refusal):
         from products.signals.backend.free_trial import FreeTrialPullRequestRefused
         from products.signals.backend.task_run_artefacts import record_report_task
 
