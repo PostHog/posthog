@@ -54,6 +54,7 @@ from products.signals.backend.report_metrics import (
     REPORT_METRIC_GOAL_FIELDS,
     ReportMetric,
 )
+from products.signals.backend.report_tags import coerce_report_tags
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT, ImplementationResearchContext
 
 # Deferred: importing temporal.types here runs the signals temporal package __init__, which
@@ -239,6 +240,30 @@ Hard rules:
             "Null unless the product would have answered a question you could not answer during research."
         ),
     )
+
+    tags: list[str] | None = Field(
+        default=None,
+        description=(
+            "The report's whole tag set: lowercase kebab-case slugs that group this report with related "
+            "reports, such as the product area, the feature, or the affected entity (`session-replay`, "
+            "`billing`, `ingestion`). At most 10. The list replaces the report's current tags, so return "
+            "the current tags that still fit, and an empty list to clear them. Do not repeat the title type "
+            "(fix, feat), the title scope, the signal source (error tracking, GitHub issue, scout), or the "
+            "priority: other fields carry those."
+        ),
+    )
+
+    @field_validator("tags", mode="before")
+    @classmethod
+    def coerce_tags(cls, v: object) -> list[str] | None:
+        # The presentation turn has no retry, so a bad tag must not fail it. Invalid tags are dropped
+        # with a warning, and a value that is not a list keeps the report's current tags.
+        if v is None:
+            return None
+        if not isinstance(v, list):
+            logger.warning("presentation: dropped tags that are not a list (%s)", type(v).__name__)
+            return None
+        return coerce_report_tags(v)
 
     @field_validator("layers", mode="before")
     @classmethod
@@ -555,6 +580,10 @@ class ReportResearchOutput(BaseModel):
     title: str = Field(description="Generated report title.")
     summary: str = Field(description="Generated factual report summary.")
     checks_summary: str | None = Field(default=None, description="Summary to apply only with reconciled checks.")
+    tags: list[str] | None = Field(
+        default=None,
+        description="The report's whole tag set, replaced with title and summary. `None` keeps the stored set.",
+    )
     charts: list[ReportChart] = Field(
         default_factory=list,
         description="Charts the summary illustrates itself with. The report's whole set — the caller "
@@ -1307,6 +1336,15 @@ Respond with JSON matching this schema:
 </jsonschema>"""
 
 
+def _render_tags_guidance(current_tags: Sequence[str], team_tags: Sequence[str]) -> str:
+    return f"""## Tag the report
+
+Return `tags`, the report's whole tag set. Keep a current tag when it still fits, and drop it when it does not.
+Prefer a tag from the team's most-used tags when one fits. Add a new tag only when none of them covers the concept.
+Current tags on this report: {json.dumps(list(current_tags))}
+The team's most-used report tags, most-used first: {json.dumps(list(team_tags))}"""
+
+
 def build_report_presentation_prompt(
     total_signals: int,
     *,
@@ -1318,6 +1356,8 @@ def build_report_presentation_prompt(
     metrics_enabled: bool = False,
     suggestable_products: Sequence[SuggestedSourceProduct] = (),
     reviewer_selection_enabled: bool = False,
+    current_tags: Sequence[str] = (),
+    team_tags: Sequence[str] = (),
 ) -> str:
     schema_dict = ReportPresentationOutput.model_json_schema()
     if not suggestable_products:
@@ -1391,6 +1431,7 @@ Do not edit report reviewers or GitHub assignments through tools. Return your de
         )
     if suggestable_products:
         visual_sections.append(_render_source_suggestion_guidance(suggestable_products))
+    visual_sections.append(_render_tags_guidance(current_tags, team_tags))
     visual_context = "".join(f"\n\n{section}" for section in visual_sections)
 
     return f"""Now write the final **report title and summary** based on your research across all {total_signals} signal(s).
@@ -1617,6 +1658,8 @@ async def run_multi_turn_research(
     steering_section: str = "",
     implementation_context: ImplementationResearchContext = NO_IMPLEMENTATION_CONTEXT,
     suggestable_products: Sequence[SuggestedSourceProduct] = (),
+    current_tags: Sequence[str] = (),
+    team_tags: Sequence[str] = (),
 ) -> ReportResearchOutput:
     """Orchestrate a multi-turn sandbox session that investigates each signal individually.
 
@@ -1800,6 +1843,8 @@ async def run_multi_turn_research(
             previous_checks=previous_checks,
             suggestable_products=suggestable_products,
             reviewer_selection_enabled=reviewer_selection_enabled,
+            current_tags=current_tags,
+            team_tags=team_tags,
         )
         presentation_result = await session.send_followup(
             presentation_prompt,
@@ -1919,6 +1964,7 @@ async def run_multi_turn_research(
         charts=presentation_result.charts,
         metrics=presentation_result.metrics if metrics_enabled else [],
         layers=presentation_result.layers,
+        tags=presentation_result.tags,
         research_task_id=str(session.task.id),
         verification_note=verification_note,
         checks=checks,

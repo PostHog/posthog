@@ -70,6 +70,7 @@ from products.signals.backend.report_generation.select_repo import RepoSelection
 from products.signals.backend.report_lifecycle import report_status_filter
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, ReportMetric, metric_batch_error
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
+from products.signals.backend.report_tags import team_tag_vocabulary
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules, StaleReviewerProposal
 from products.signals.backend.source_suggestions import unused_suggestable_products
 from products.signals.backend.supersession import research_implementation_context
@@ -146,6 +147,10 @@ class RunAgenticReportOutput:
     # that chose not to chart apart from one that was never allowed to, which would otherwise read
     # as the agent's charting rate moving on every rollout step. `None` predates the field.
     charts_enabled: bool | None = None
+    # The report's whole tag set, already normalized. The transition activity writes it with the
+    # matching title and summary. `None` keeps the stored set, which is also what an older workflow
+    # history replays as.
+    tags: list[str] | None = None
 
 
 _ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
@@ -240,6 +245,11 @@ async def _load_previous_research(team_id: int, report_id: str) -> ReportResearc
         # reuses these writes nothing; only what it changes lands in new_artefacts.
         old_artefacts=[*findings, actionability, *([priority] if priority else [])],
     )
+
+
+def _load_tag_context(team_id: int, report_id: str) -> tuple[list[str], list[str]]:
+    current = SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("tags", flat=True).first()
+    return list(current or []), team_tag_vocabulary(team_id)
 
 
 def _parse_stored_charts(raw: object, report_id: str) -> list[ReportChart]:
@@ -1200,6 +1210,9 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             await database_sync_to_async(_capture_research_steering_attached, thread_sensitive=False)(
                 team_id=input.team_id, report_id=input.report_id, steering=steering
             )
+            current_tags, team_tags = await database_sync_to_async(_load_tag_context, thread_sensitive=False)(
+                input.team_id, input.report_id
+            )
             # 3. Run the agentic research in the sandbox
             # The report's current PR, when it has one. It keeps the in-flight check from reading
             # the report's own draft as somebody else's work, and it is what the supersede turn asks
@@ -1226,6 +1239,8 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 agent_checks_enabled=agent_checks_enabled,
                 steering_section=steering.section,
                 suggestable_products=suggestable_products,
+                current_tags=current_tags,
+                team_tags=team_tags,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(
@@ -1277,6 +1292,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             layers=[layer.model_dump(mode="json") for layer in result.layers],
             research_task_id=result.research_task_id,
             charts_enabled=True,
+            tags=result.tags,
         )
     except SandboxRunFailed as error:
         logger.exception(

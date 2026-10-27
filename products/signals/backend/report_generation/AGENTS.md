@@ -131,6 +131,13 @@ A figure with no event or action query behind it, such as a database statistic, 
 
 The caller activity passes `has_business_knowledge=True` when the team's business knowledge product is both feature-flagged on and has at least one READY source (via `products.business_knowledge.backend.logic.is_available_for_team`). When true, the research prompt includes a `## Business knowledge` block that instructs the agent to search the team's curated knowledge base via MCP tools.
 
+### Tags
+
+The presentation step can also return `tags`, the report's whole slug tag set. The prompt shows the report's current tags and the team's most-used report tags (`report_tags.team_tag_vocabulary`, a bounded query over the newest tagged reports), so a run reuses a tag before it invents a near duplicate.
+
+- **A bad tag never fails the run.** `ReportPresentationOutput` coerces `tags` through `report_tags.coerce_report_tags`: it drops each tag that does not normalize and keeps the first `SignalReport.MAX_TAGS`, with a warning. A value that is not a list reads as omitted.
+- **Each pass replaces the whole set, atomically with the prose.** The ready and pending-input transitions write `tags` with the title and summary. `None` (an omitted field, the no-repo branch, or an older workflow history) keeps the stored set.
+
 ### Fleet steering
 
 The caller activity also passes `steering_section`, resolved by `report_steering.load_research_steering`. `build_initial_research_prompt` renders it verbatim under the research protocol, and renders nothing when it is empty, so a team with no notes pays no tokens for a heading.
