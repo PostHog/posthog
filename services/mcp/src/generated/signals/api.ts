@@ -313,9 +313,11 @@ export const SignalsReportsListQueryParams = () => zod.object({
             'Filter by whether the latest actionability judgment says the issue is already being handled. False also includes older reports where that judgment did not record a value.'
         ),
     assignee: zod
-        .enum(['me'])
+        .enum(['me', 'mine'])
         .optional()
-        .describe("Use 'me' to return reports claimed by the current user, task, or MCP agent."),
+        .describe(
+            "'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, claims by MCP agents acting for them, and claims by internal tasks they started."
+        ),
     channel_id: zod
         .string()
         .optional()

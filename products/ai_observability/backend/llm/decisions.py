@@ -13,8 +13,6 @@ from posthog.llm.system_one import (
     build_system_one_body,
     parse_system_one_response,
 )
-from posthog.models import Team
-from posthog.ph_client import get_feature_flag_or_none
 from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import UNRESOLVED_HOST_REASON, has_authority_bypass_chars, validate_url_and_pin_ips
 
@@ -43,7 +41,6 @@ def is_decision_model(
     provider: str | None,
     model: str | None,
     *,
-    openrouter_enabled: bool,
     decision_only: bool = False,
     openai_enabled: bool = False,
 ) -> bool:
@@ -51,32 +48,12 @@ def is_decision_model(
         return True
     if provider == "openai":
         return openai_enabled and model in OpenAIConfig.DECISION_MODELS
-    # Disabled projects keep the chat path independent of catalogue availability.
-    if provider != "openrouter" or not model or not openrouter_enabled:
+    if provider != "openrouter" or not model:
         return False
     models = decision_model_ids(decision_only=decision_only)
     if models is None:
         raise ProviderConnectionError("Could not load OpenRouter model capabilities. Try again.")
     return model in models
-
-
-def decision_evaluations_enabled(team_id: int, *, base_url: str) -> bool:
-    try:
-        host = (urlsplit(base_url).hostname or "").encode("idna").decode("ascii").lower().rstrip(".")
-    except (ValueError, UnicodeError):
-        return False
-    if not host or host == "typesafe.ai" or host.endswith(".typesafe.ai"):
-        return False
-    team = Team.objects.only("uuid", "organization_id").get(id=team_id)
-    return (
-        get_feature_flag_or_none(
-            "llm-analytics-system-one-evaluations",
-            str(team.uuid),
-            groups={"organization": str(team.organization_id), "project": str(team.uuid)},
-            send_feature_flag_events=False,
-        )
-        is True
-    )
 
 
 class DecisionRequestRejectedError(ProviderRequestRejectedError):
@@ -109,11 +86,9 @@ class DecisionClient:
         ):
             raise ValueError("Use an HTTPS base URL without credentials, a query, or a fragment.")
         try:
-            host = parsed.hostname.encode("idna").decode("ascii").lower().rstrip(".")
+            parsed.hostname.encode("idna")
         except UnicodeError as error:
             raise ValueError("Use a valid HTTPS hostname.") from error
-        if host == "typesafe.ai" or host.endswith(".typesafe.ai"):
-            raise ValueError("This hosted endpoint is not available for evaluations.")
         return base_url.rstrip("/")
 
     @staticmethod

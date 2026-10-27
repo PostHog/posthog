@@ -67,7 +67,6 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
-from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
@@ -132,12 +131,8 @@ from products.signals.backend.dismissal_notes import forward_dismissal_note
 from products.signals.backend.enums import ReportPriority, ReportTaskActionKind
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
-from products.signals.backend.free_trial import (
-    FREE_TRIAL_PR_MESSAGE,
-    FreeTrialPullRequestRefused,
-    capture_signal_report_free_trial_paused,
-)
 from products.signals.backend.implementation_pr import (
+    ImplementationPr,
     fetch_implementation_prs_for_reports,
     implementation_pr_report_filter,
     primary_pull_request,
@@ -182,10 +177,13 @@ from products.signals.backend.report_check_authoring import (
     replace_metric_check,
 )
 from products.signals.backend.report_claims import (
+    ReportClaim,
     actor_works_under_claim,
     get_active_claim,
     get_active_claims,
+    reports_claimed_for_user,
     reports_with_active_claim,
+    responsible_users,
 )
 from products.signals.backend.report_content_gates import organization_report_monitoring_enabled
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -193,11 +191,11 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     ReviewerPayloadIndex,
     bounded_reviewer_reason,
     get_org_member_github_logins_by_user_uuid,
-    get_org_member_users_by_uuid,
     normalized_github_logins_from_suggested_reviewer_artefacts,
     normalized_user_uuids_from_suggested_reviewer_artefacts,
     resolve_org_github_login_to_users,
     resolve_org_users_by_uuid,
+    search_org_member_users_by_uuid,
     source_skills_from_suggested_reviewer_artefacts,
 )
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
@@ -234,7 +232,7 @@ from products.signals.backend.report_task_actions import (
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
 from products.signals.backend.reviewer_rules import ReviewerRules, ReviewerWriteError, StaleReviewerProposal
-from products.signals.backend.scout_authorship import inbox_hidden_report_exists
+from products.signals.backend.scout_authorship import inbox_hidden_report_filter
 from products.signals.backend.scout_harness.trial_access import trial_state_errors, trial_store_for_request
 from products.signals.backend.scout_report.trial_inbox import TrialInboxReads, private_report_artefacts
 from products.signals.backend.serializers import (
@@ -324,12 +322,7 @@ from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
-# `available_reviewers` returns every eligible org member in a single unpaginated payload.
-# Org membership is tiny in practice, so even the biggest
-# org today serialises to well under 100 KB. If an org ever exceeds this threshold we want a
-# signal that it's time to add real pagination, rather than silently truncating the list (the
-# old behaviour, which capped at 100 and dropped everyone alphabetically after ~"M").
-REVIEWER_PAGINATION_THRESHOLD = 1200
+AVAILABLE_REVIEWERS_LIMIT = 100
 PR_GITHUB_CACHE_SECONDS = 15
 _PULL_REQUEST_ID_PARAMETER = OpenApiParameter(
     "pull_request_id",
@@ -1602,7 +1595,7 @@ class SignalReportViewSet(
         # List-only: a report a scout kept out of the inbox stays reachable by id and by its other actions.
         if self.action != "list" or self._bool_query_param("include_unlisted") is True:
             return queryset
-        return queryset.exclude(inbox_hidden_report_exists(self.team_id))
+        return queryset.filter(inbox_hidden_report_filter(self.team_id))
 
     def _apply_signal_report_search_filter(self, queryset):
         search = self.request.query_params.get("search")
@@ -1718,8 +1711,14 @@ class SignalReportViewSet(
         raw = self.request.query_params.get("assignee")
         if raw is None or not raw.strip():
             return queryset
-        if raw.strip().lower() != "me":
-            raise serializers.ValidationError({"assignee": "Invalid value. Allowed: me."})
+        value = raw.strip().lower()
+        if value == "mine":
+            user_id = self.request.user.id
+            if user_id is None:  # unreachable behind authentication
+                raise exceptions.NotAuthenticated()
+            return queryset.filter(reports_claimed_for_user(team_id=self.team_id, user_id=user_id))
+        if value != "me":
+            raise serializers.ValidationError({"assignee": "Invalid value. Allowed: me, mine."})
         actor = self._request_attribution()
         return queryset.filter(reports_with_active_claim(team_id=self.team_id, actor=actor))
 
@@ -2295,6 +2294,22 @@ class SignalReportViewSet(
             "billing_period_bounds": current_billing_period_bounds(self.organization),
         }
 
+    @staticmethod
+    def _claim_and_pull_request_context(
+        report_ids: list[str],
+        pull_requests_map: dict[str, list[ImplementationPr]],
+        claims: dict[str, ReportClaim],
+    ) -> dict[str, object]:
+        implementation_pr_by_report = {rid: primary_pull_request(prs) for rid, prs in pull_requests_map.items()}
+        return {
+            "pull_requests_map": pull_requests_map,
+            "claims_map": dict.fromkeys(report_ids) | claims,
+            "claim_responsible_users_map": responsible_users(claims.values()),
+            "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
+            "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
+            "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
+        }
+
     def _enriched_report_context(self, report: SignalReport) -> dict:
         # Detail-view parity with list(): inject the source metadata map the serializer reads.
         # This lookup is best-effort so a ClickHouse failure cannot hide the report.
@@ -2306,10 +2321,8 @@ class SignalReportViewSet(
             signal_meta_map = {}
         try:
             pull_requests_map = fetch_implementation_prs_for_reports(report_ids, team_id=self.team_id)
-            implementation_pr_by_report = {rid: primary_pull_request(prs) for rid, prs in pull_requests_map.items()}
         except Exception:
             logger.exception("signals.enriched_context.implementation_pr_failed", report_id=str(report.id))
-            implementation_pr_by_report = {}
             pull_requests_map = {}
         try:
             source_suggestion = current_source_suggestion(self.team, str(report.id))
@@ -2321,15 +2334,12 @@ class SignalReportViewSet(
         except Exception:
             logger.exception("signals.enriched_context.report_plan_failed", report_id=str(report.id))
             plan = None
+        claims = get_active_claims(team_id=self.team_id, report_ids=report_ids)
         return {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
-            "pull_requests_map": pull_requests_map,
-            "claims_map": dict.fromkeys(report_ids) | get_active_claims(team_id=self.team_id, report_ids=report_ids),
-            "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
-            "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
-            "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
+            **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
             "source_suggestions_map": {str(report.id): source_suggestion},
             "report_plans_map": {str(report.id): plan},
         }
@@ -2745,8 +2755,12 @@ class SignalReportViewSet(
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                enum=["me"],
-                description="Use 'me' to return reports claimed by the current user, task, or MCP agent.",
+                enum=["me", "mine"],
+                description=(
+                    "'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or "
+                    "the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, "
+                    "claims by MCP agents acting for them, and claims by internal tasks they started."
+                ),
             ),
         ],
     )
@@ -2889,16 +2903,14 @@ class SignalReportViewSet(
         with tracer.start_as_current_span("signals.reports.list.fetch_implementation_prs"):
             try:
                 pull_requests_map = fetch_implementation_prs_for_reports(report_ids, team_id=self.team_id)
-                implementation_pr_by_report = {rid: primary_pull_request(prs) for rid, prs in pull_requests_map.items()}
             except Exception:
                 logger.exception("signals.reports.list.implementation_pr_failed", report_count=len(report_ids))
-                implementation_pr_by_report = {}
                 pull_requests_map = {}
 
         # One grouped query for the whole page, in place of the per-row annotation the other
         # actions carry, for the serializer's refund_ineligibility_reason field.
         with tracer.start_as_current_span("signals.reports.list.fetch_billable_pr_runs"):
-            first_billable_pr_run_at_map = first_billable_pr_run_at_by_report(report_ids)
+            first_billable_pr_run_at_map = first_billable_pr_run_at_by_report(report_ids, team_id=self.team_id)
 
         # Same trade for the two artefact-derived fields the row renders: one query each over the
         # page, rather than a correlated subquery the sort makes Postgres run for every report in
@@ -2913,15 +2925,12 @@ class SignalReportViewSet(
                     artefact_count=artefact_counts.get(str(report.id), 0),
                     channel_id=live_channel_ids.get(str(report.id)),
                 )
+        claims = get_active_claims(team_id=self.team_id, report_ids=report_ids)
         context = {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
-            "pull_requests_map": pull_requests_map,
-            "claims_map": dict.fromkeys(report_ids) | get_active_claims(team_id=self.team_id, report_ids=report_ids),
-            "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
-            "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
-            "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
+            **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
             "inbox_ranker": self._inbox_ranker,
         }
@@ -2938,7 +2947,7 @@ class SignalReportViewSet(
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="Case-insensitive filter on name or email.",
+                description="Case-insensitive filter on name or email. Use search to find members outside the first 100 results.",
             )
         ],
         # A map keyed by user UUID, so there is no serializer shape to declare.
@@ -2955,66 +2964,31 @@ class SignalReportViewSet(
                         "required": ["name", "email"],
                     },
                 },
-                description="Candidate reviewers keyed by user UUID.",
+                description="Up to 100 candidate reviewers keyed by user UUID.",
             )
         },
     )
     @action(detail=False, methods=["get"], url_path="available_reviewers", required_scopes=["task:read"])
     def available_reviewers(self, request, **kwargs):
         with tracer.start_as_current_span("signals.available_reviewers") as span:
-            # Every org member, not only the GitHub-linked ones: a reviewer is a PostHog user, so a
-            # teammate who never connected GitHub is still pickable — and can pick themselves.
-            users_by_uuid = get_org_member_users_by_uuid(self.team.id) or {}
+            # Search all org members, not only the GitHub-linked ones: a reviewer is a PostHog user,
+            # so a teammate who never connected GitHub is still pickable — and can pick themselves.
             query = (request.query_params.get("query") or "").strip().lower()
-
-            candidate_count = len(users_by_uuid)
-            span.set_attribute("signals.available_reviewers.candidate_count", candidate_count)
-
-            # The full candidate list is returned unpaginated. If an org grows past the threshold,
-            # report it (non-blocking) so we know to add pagination before the payload gets large.
-            # `capture_exception` logs an exception and is not deduplicated, so we throttle to at
-            # most one report per org per day via the cache — otherwise a >threshold org would log
-            # on every popover open. (The span's candidate_count attribute is recorded every request
-            # regardless, if a metric-based alert is preferred later.)
-            if (
-                not query
-                and candidate_count > REVIEWER_PAGINATION_THRESHOLD
-                and cache.add(f"signals:available_reviewers_over_threshold:{self.team.id}", True, 60 * 60 * 24)
-            ):
-                capture_exception(
-                    Exception(
-                        f"available_reviewers exceeded pagination threshold: {candidate_count} "
-                        f"candidates > {REVIEWER_PAGINATION_THRESHOLD}; this endpoint should be paginated."
-                    ),
-                    additional_properties={
-                        "team_id": self.team.id,
-                        "candidate_count": candidate_count,
-                        "threshold": REVIEWER_PAGINATION_THRESHOLD,
-                    },
+            users_by_uuid = (
+                search_org_member_users_by_uuid(
+                    self.team.id,
+                    query=query,
+                    limit=AVAILABLE_REVIEWERS_LIMIT,
                 )
-
-            filtered_users = [
-                (user_uuid, user)
-                for user_uuid, user in users_by_uuid.items()
-                if not query
-                or query in f"{user.first_name} {user.last_name}".strip().lower()
-                or query in (user.email or "").lower()
-            ]
+                or {}
+            )
 
             reviewers = {
                 user_uuid: {
                     "name": f"{user.first_name} {user.last_name}".strip(),
                     "email": user.email or "",
                 }
-                for user_uuid, user in sorted(
-                    filtered_users,
-                    key=lambda item: (
-                        (item[1].first_name or "").lower(),
-                        (item[1].last_name or "").lower(),
-                        (item[1].email or "").lower(),
-                        item[0],
-                    ),
-                )
+                for user_uuid, user in users_by_uuid.items()
             }
 
             span.set_attribute("signals.available_reviewers.result_count", len(reviewers))
@@ -3412,9 +3386,6 @@ class SignalReportViewSet(
 
         if report_action.disabled_reason is not None:
             capture("blocked")
-            if report_action.disabled_reason == FREE_TRIAL_PR_MESSAGE:
-                capture_signal_report_free_trial_paused(self.team, report_id=str(report.id), stage="report_action")
-                raise FreeTrialPullRequestRefused()
             error_status: int = (
                 status.HTTP_403_FORBIDDEN
                 if report_action.disabled_reason == AI_CONSENT_DISABLED_REASON
@@ -4258,7 +4229,7 @@ class SignalReportViewSet(
 
             # Same decision the serializer's `refund_ineligibility_reason` field renders from,
             # so the UI's button state and this endpoint's 400s can never disagree.
-            billable_run = first_billable_pr_run(report.id)
+            billable_run = first_billable_pr_run(report.id, team_id=report.team_id)
             # Computed once and frozen onto the refund row below: the credited-path sync must
             # report the period the refund was accepted in, not whatever period is current when
             # the Celery task eventually reaches billing.

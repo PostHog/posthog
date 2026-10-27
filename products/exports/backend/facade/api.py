@@ -1,7 +1,9 @@
 """Public Python interface for creating and retrieving one-off exports."""
 
 import io
+from copy import deepcopy
 from datetime import datetime, timedelta
+from typing import Any
 
 from django.conf import settings
 from django.db.models import Q
@@ -244,6 +246,7 @@ def _create_png_export_asset(
     is_system: bool = False,
     expires_after: datetime | None = None,
     execution_mode: ExecutionMode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+    reference_lines: list[dict[str, Any]] | None = None,
 ) -> ExportedAsset:
     if execution_mode not in _EXPORT_EXECUTION_MODES:
         raise ValueError(f"Unsupported execution mode for an export: {execution_mode}")
@@ -276,6 +279,9 @@ def _create_png_export_asset(
             raise ValueError("Dashboard not found")
     if execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
         export_context = {**(export_context or {}), "execution_mode": execution_mode.value}
+
+    if reference_lines:
+        export_context = {**(export_context or {}), "reference_lines": reference_lines}
 
     asset = ExportedAsset.objects.create(
         team=team,
@@ -328,6 +334,28 @@ def create_png_export(
     ).id
 
 
+def query_with_reference_lines(query: dict[str, Any], reference_lines: list[dict[str, Any]]) -> dict[str, Any]:
+    query = deepcopy(query)
+    target = query
+    if query.get("kind") == "InsightVizNode":
+        target = query.get("source") or {}
+    settings_key = {
+        "TrendsQuery": "trendsFilter",
+        "FunnelsQuery": "funnelsFilter",
+        "RetentionQuery": "retentionFilter",
+        "DataVisualizationNode": "chartSettings",
+        "BIVisualizationNode": "chartSettings",
+        "MetricsQuery": "display",
+    }.get(target.get("kind", ""))
+    if settings_key is None:
+        return query
+    settings = target.get(settings_key) or {}
+    target[settings_key] = settings
+    existing = settings.get("goalLines") or []
+    settings["goalLines"] = existing + [line for line in reference_lines if line not in existing]
+    return query
+
+
 def png_export_has_content(*, team_id: int, asset_id: int) -> bool:
     return (
         ExportedAsset.objects.filter(team_id=team_id, id=asset_id, export_format=ExportedAsset.ExportFormat.PNG)
@@ -347,6 +375,7 @@ def render_png_export(
     dashboard_id: int | None = None,
     is_system: bool = False,
     expires_after: datetime | None = None,
+    reference_lines: list[dict[str, Any]] | None = None,
 ) -> tuple[ExportedAsset, bytes | None]:
     """Render a PNG export synchronously and return the asset together with its content bytes.
 
@@ -367,6 +396,7 @@ def render_png_export(
         dashboard_id=dashboard_id,
         is_system=is_system,
         expires_after=expires_after,
+        reference_lines=reference_lines,
     )
 
     async def _run() -> None:

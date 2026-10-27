@@ -423,14 +423,19 @@ class TestSignalReportListAPI(APIBaseTest):
             scout_config=config,
             skill_name=config.skill_name,
             skill_version=1,
-            emitted_report_ids=[str(authored.id)],
+            emitted_report_ids=[str(authored.id), None],
             edited_report_ids=[str(edited_only.id)],
         )
 
-        default_ids = {row["id"] for row in self.client.get(self._list_url()).json()["results"]}
+        with CaptureQueriesContext(connection) as ctx:
+            default_ids = {row["id"] for row in self.client.get(self._list_url()).json()["results"]}
+        report_list_sql = [q["sql"] for q in ctx.captured_queries if 'FROM "signals_signalreport"' in q["sql"]]
         opt_in_ids = {row["id"] for row in self.client.get(self._list_url(include_unlisted="true")).json()["results"]}
         retrieve_response = self.client.get(f"{self._list_url()}{authored.id}/")
 
+        assert report_list_sql
+        # A per-report containment probe of the scout run table runs before the page limit and slows every inbox load.
+        assert not any("@>" in sql for sql in report_list_sql)
         assert default_ids == {str(listed.id), str(edited_only.id)}
         assert opt_in_ids == {str(listed.id), str(edited_only.id), str(authored.id)}
         assert retrieve_response.status_code == status.HTTP_200_OK
@@ -808,12 +813,20 @@ class TestSignalReportListAPI(APIBaseTest):
     def test_plan_shows_on_the_detail_of_a_step_and_not_in_the_list(self):
         plan = self._create_report(title="feat(x): the plan")
         step = self._create_report(title="feat(x): a step")
-        SignalReportArtefact.add_log(
-            team_id=self.team.id,
-            report_id=str(step.id),
-            content=ReportLink(kind=ReportLinkKind.PART_OF, report_id=str(plan.id)),
-            attribution=ArtefactAttribution.system(),
+        held_back_step = self._create_report(title="feat(x): a held back step", status=SignalReport.Status.SUPPRESSED)
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=held_back_step,
+            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
+            content=json.dumps({"choice": False, "explanation": "Asks to disable a safety control."}),
         )
+        for step_report in (step, held_back_step):
+            SignalReportArtefact.add_log(
+                team_id=self.team.id,
+                report_id=str(step_report.id),
+                content=ReportLink(kind=ReportLinkKind.PART_OF, report_id=str(plan.id)),
+                attribution=ArtefactAttribution.system(),
+            )
 
         detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{step.id}/").json()
         assert detail["plan"] == {
@@ -828,7 +841,17 @@ class TestSignalReportListAPI(APIBaseTest):
                     "depends_on": [],
                     "implementation_pr_url": None,
                     "implementation_pr_state": None,
-                }
+                    "suppression_source": None,
+                },
+                {
+                    "id": str(held_back_step.id),
+                    "title": "feat(x): a held back step",
+                    "status": "suppressed",
+                    "depends_on": [],
+                    "implementation_pr_url": None,
+                    "implementation_pr_state": None,
+                    "suppression_source": "safety_judge",
+                },
             ],
         }
         row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(step.id))
@@ -1752,10 +1775,10 @@ class TestSignalReportListAPI(APIBaseTest):
 
         with (
             self.settings(CLOUD_DEPLOYMENT=cloud_deployment),
-            patch(
-                "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", **flag_result
-            ) as get_flag,
+            patch("products.signals.backend.ranking.inbox_sort.posthoganalytics") as analytics,
         ):
+            get_flag = analytics.get_feature_flag
+            get_flag.configure_mock(**flag_result)
             response = self.client.get(self._list_url(status="ready", sort="recommended"))
 
         if cloud_deployment == "EU":
@@ -1804,9 +1827,9 @@ class TestSignalReportListAPI(APIBaseTest):
             content=json.dumps({"old_title": "Old", "new_title": "Stale P0"}),
         )
 
-        with patch(
-            "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", return_value=outcome
-        ) as get_flag:
+        with patch("products.signals.backend.ranking.inbox_sort.posthoganalytics") as analytics:
+            get_flag = analytics.get_feature_flag
+            get_flag.return_value = outcome
             response = self.client.get(self._list_url(status="ready", sort="recommended"))
 
         assert response.status_code == status.HTTP_200_OK
@@ -2383,7 +2406,7 @@ class TestSignalReportListAPI(APIBaseTest):
         self._create_implementation_task_with_run(report_with_pr, pr_url="https://github.com/org/repo/pull/42")
 
         with CaptureQueriesContext(connection) as ctx:
-            # `include_unlisted` drops the inbox-listing subquery, which also aliases a table as V0.
+            # `include_unlisted` drops the inbox-listing filter, whose lateral join would match the JOIN check below.
             response = self.client.get(
                 self._list_url(has_implementation_pr="true", count_only="true", include_unlisted="true")
             )
@@ -3064,6 +3087,21 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["repo_slug"] is None
+
+    @parameterized.expand(
+        [
+            ("Scout self-improvement: signals-scout-errors - noisy rule", True),
+            ("Error rate increased", False),
+        ]
+    )
+    def test_list_classifies_scout_self_improvement_reports(self, title: str, expected: bool):
+        report = self._create_report(title=title)
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["is_self_improvement_report"] is expected
 
 
 class TestAssociatedTaskRunsForReports(APIBaseTest):
@@ -4505,12 +4543,7 @@ class TestSignalReportMergeAPI(APIBaseTest):
 
 
 class TestAvailableReviewersAPI(APIBaseTest):
-    """GET signals/reports/available_reviewers/: returns every eligible org member (no cap), with server-side search."""
-
-    def setUp(self):
-        super().setUp()
-        # The over-threshold report is throttled via the cache; clear it so each test starts fresh.
-        cache.clear()
+    """GET signals/reports/available_reviewers/: returns a capped, searchable org-member list."""
 
     def _url(self, **query) -> str:
         base = f"/api/projects/{self.team.id}/signals/reports/available_reviewers/"
@@ -4518,79 +4551,52 @@ class TestAvailableReviewersAPI(APIBaseTest):
             return base
         return f"{base}?{urlencode(query)}"
 
-    def _fake_user(self, n: int) -> SimpleNamespace:
-        return SimpleNamespace(
-            uuid=uuid.UUID(int=n),
-            first_name=f"User{n:04d}",
-            last_name="Tester",
-            email=f"user{n:04d}@example.com",
-        )
+    @patch("products.signals.backend.views.AVAILABLE_REVIEWERS_LIMIT", 2)
+    def test_caps_unfiltered_members(self):
+        for first_name in ("Alice", "Bob", "Carol"):
+            User.objects.create_and_join(
+                self.organization,
+                f"{first_name.lower()}@example.com",
+                None,
+                first_name=first_name,
+                last_name="Tester",
+            )
 
-    def _member_map(self, count: int) -> dict[str, SimpleNamespace]:
-        return {str(uuid.UUID(int=n)): self._fake_user(n) for n in range(count)}
-
-    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
-    def test_returns_all_members_without_cap(self, mock_map):
-        # 250 > the old hard cap of 100: every member must come back now.
-        mock_map.return_value = self._member_map(250)
         response = self.client.get(self._url())
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()) == 250
 
-    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
-    def test_search_query_filters_server_side(self, mock_map):
-        mock_map.return_value = self._member_map(250)
-        response = self.client.get(self._url(query="User0123"))
+        assert response.status_code == status.HTTP_200_OK
+        emails = [reviewer["email"] for reviewer in response.json().values()]
+        assert len(emails) == 2
+        assert "alice@example.com" in emails
+        assert "carol@example.com" not in emails
+
+    @patch("products.signals.backend.views.AVAILABLE_REVIEWERS_LIMIT", 2)
+    def test_search_query_filters_before_applying_the_cap(self):
+        for first_name, last_name in (("Alice", "Zephyr"), ("Bob", "Yellow"), ("Carol", "Xavier")):
+            User.objects.create_and_join(
+                self.organization,
+                f"{first_name.lower()}@example.com",
+                None,
+                first_name=first_name,
+                last_name=last_name,
+            )
+
+        response = self.client.get(self._url(query="Carol Xavier"))
+
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert len(body) == 1
-        assert next(iter(body.values()))["email"] == "user0123@example.com"
+        assert next(iter(body.values()))["email"] == "carol@example.com"
 
-    @patch("products.signals.backend.views.capture_exception")
-    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
-    def test_no_exception_captured_under_threshold(self, mock_map, mock_capture):
-        mock_map.return_value = self._member_map(50)
-        response = self.client.get(self._url())
-        assert response.status_code == status.HTTP_200_OK
-        mock_capture.assert_not_called()
-
-    @patch("products.signals.backend.views.capture_exception")
-    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
-    def test_exception_captured_over_threshold(self, mock_map, mock_capture):
-        mock_map.return_value = self._member_map(1201)
-        response = self.client.get(self._url())
-        assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()) == 1201
-        mock_capture.assert_called_once()
-
-    @patch("products.signals.backend.views.capture_exception")
-    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
-    def test_threshold_capture_deduplicated_across_requests(self, mock_map, mock_capture):
-        # Repeated popover opens for the same over-threshold org must report at most once.
-        mock_map.return_value = self._member_map(1201)
-        for _ in range(3):
-            assert self.client.get(self._url()).status_code == status.HTTP_200_OK
-        mock_capture.assert_called_once()
-
-    @patch("products.signals.backend.views.capture_exception")
-    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
-    def test_threshold_not_triggered_by_search_requests(self, mock_map, mock_capture):
-        # A search-as-you-type request must not spam the threshold capture.
-        mock_map.return_value = self._member_map(1201)
-        response = self.client.get(self._url(query="User0001"))
-        assert response.status_code == status.HTTP_200_OK
-        mock_capture.assert_not_called()
-
-    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
+    @patch("products.signals.backend.views.search_org_member_users_by_uuid")
     def test_empty_org_returns_empty(self, mock_map):
         mock_map.return_value = {}
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {}
 
-    @patch("products.signals.backend.views.get_org_member_users_by_uuid")
+    @patch("products.signals.backend.views.search_org_member_users_by_uuid")
     def test_missing_team_map_returns_empty(self, mock_map):
-        # The helper returns None for an unknown team; the view coalesces it to an empty result.
         mock_map.return_value = None
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK

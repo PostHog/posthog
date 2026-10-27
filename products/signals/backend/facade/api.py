@@ -119,7 +119,8 @@ from products.signals.backend.scout_harness.workflow_runs import (
     start_workflow_scout_run as start_workflow_scout_run,
 )
 from products.signals.backend.signal_metadata import SourceSliceSignalStats, fetch_signal_stats_for_source_slice
-from products.signals.backend.spend import signal_id_for
+from products.signals.backend.spend import complete_signal_pipeline, finalized_signal_ids, signal_id_for
+from products.signals.backend.spend_billing import system_source_exempt
 
 # Re-exported for external products (tasks presentation catches it around facade create_task).
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded as ReportTaskCapExceeded
@@ -869,12 +870,20 @@ async def emit_signal(
 
     organization = await database_sync_to_async(lambda: team.organization)()
     if not organization.is_ai_data_processing_approved:
+        if signal_id:
+            await database_sync_to_async(complete_signal_pipeline)(
+                team_id=team.id, signal_id=signal_id, billing_exempt=system_source_exempt(source_product)
+            )
         return
 
     is_enabled = await database_sync_to_async(SignalSourceConfig.is_source_enabled, thread_sensitive=False)(
         team.id, source_product, source_type
     )
     if not is_enabled:
+        if signal_id:
+            await database_sync_to_async(complete_signal_pipeline)(
+                team_id=team.id, signal_id=signal_id, billing_exempt=system_source_exempt(source_product)
+            )
         return
 
     description_tokens = _token_count(description)
@@ -934,6 +943,8 @@ async def emit_signal(
     signal_id = signal_id or signal_id_for(
         team_id=team.id, source_product=source_product, source_type=source_type, idempotency_key=idempotency_key
     )
+    if await database_sync_to_async(finalized_signal_ids)(team_id=team.id, signal_ids=[signal_id]):
+        return
 
     # Below the started event on purpose: a filtered signal then has a top-of-funnel event to be
     # counted against, so a steering drop reads apart from a dispatch failure rather than as one.
@@ -953,6 +964,9 @@ async def emit_signal(
             weight=weight,
             extra=extra or {},
         ):
+            await database_sync_to_async(complete_signal_pipeline, thread_sensitive=False)(
+                team_id=team.id, signal_id=signal_id, billing_exempt=system_source_exempt(source_product)
+            )
             return
 
     client = await async_connect()

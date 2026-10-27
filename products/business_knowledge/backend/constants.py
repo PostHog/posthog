@@ -73,6 +73,10 @@ PREFETCH_CACHE_MAX_BYTES = 64 * 1024 * 1024
 # Hard cap on uploaded file size (compressed). Above this the serializer
 # rejects immediately — the file never hits the parser.
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024
+# Parsed text from an uploaded file. The upload form states this same 50 MB cap,
+# and for markdown the file size is the text size. Paste and crawled pages stay
+# on MAX_TEXT_SIZE_BYTES.
+MAX_PARSED_FILE_TEXT_BYTES = MAX_FILE_SIZE_BYTES
 # Decompressed size cap for ZIP-based formats (DOCX, XLSX, ODT). A 1 MB
 # docx can decompress to 10 GB — 100 MB is generous for any legitimate
 # knowledge document while keeping per-request memory bounded.
@@ -91,11 +95,11 @@ CLASSIFY_WINDOW_CHARS = 100_000
 CLASSIFY_WINDOW_OVERLAP_CHARS = 1_000
 # Hard cap on how much of one document we will classify. Documents longer than
 # this are failed CLOSED (left excluded from search) rather than partially
-# inspected and waved through — never apply a partial-document verdict to the
-# full, searchable document. Also bounds per-doc memory + LLM calls. Sized to
-# the text-source cap (MAX_TEXT_SIZE_BYTES); larger crawled/file docs are rare
-# and an operator can split them.
-CLASSIFY_MAX_TOTAL_CHARS = 1_000_000
+# inspected and waved through. A partial verdict must not apply to the full
+# searchable document. Also bounds per-doc memory and LLM calls. Set to the
+# parsed-file byte cap. UTF-8 uses at least one byte per character, so a file
+# under that cap still fits here and can be classified in full.
+CLASSIFY_MAX_TOTAL_CHARS = MAX_PARSED_FILE_TEXT_BYTES
 # How many coordinator passes may try to classify a single doc before we give
 # up and leave it excluded. The classifier fails closed, so an unclassifiable
 # doc stays `unknown` (never searchable); this only bounds the retry churn. At

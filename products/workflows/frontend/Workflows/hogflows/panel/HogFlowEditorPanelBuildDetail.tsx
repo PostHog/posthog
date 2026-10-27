@@ -503,11 +503,11 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                 <span className="flex-1">Error handling</span>
                                                 <LemonTag
                                                     size="small"
-                                                    type={action.on_error === 'continue' ? 'success' : 'danger'}
+                                                    type={action.on_error === 'abort' ? 'danger' : 'success'}
                                                 >
-                                                    {action.on_error === 'continue'
-                                                        ? 'Continue on error'
-                                                        : 'Exit on error'}
+                                                    {action.on_error === 'abort'
+                                                        ? 'Exit on error'
+                                                        : 'Continue on error'}
                                                 </LemonTag>
                                             </>
                                         ),

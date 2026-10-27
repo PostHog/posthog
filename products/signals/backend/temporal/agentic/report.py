@@ -11,6 +11,7 @@ import structlog
 import temporalio
 import posthoganalytics
 from pydantic import BaseModel, ValidationError
+from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
@@ -84,7 +85,7 @@ from products.signals.backend.typed_report_links import (
     outgoing_links,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext, SandboxRunFailed, turn_failure_error_type
 
 logger = structlog.get_logger(__name__)
 
@@ -100,6 +101,7 @@ class RunAgenticReportInput:
     # correcting or clearing it) so the run does not bury that newer row. Defaults to None so an
     # older workflow history that predates this field replays cleanly (guard off).
     repo_selection_as_of: datetime | None = None
+    signal_id: str | None = None
 
 
 @frozen
@@ -1097,6 +1099,9 @@ def _capture_research_steering_attached(*, team_id: int, report_id: str, steerin
         logger.exception("Failed to capture signals_research_steering_attached", report_id=report_id)
 
 
+RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE = "ResearchSandboxUnavailable"
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -1142,6 +1147,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 runtime_adapter=agent_runtime.runtime_adapter,
                 reasoning_effort=agent_runtime.reasoning_effort,
                 service_tier=agent_runtime.service_tier,
+                disable_repo_hooks=True,
             )
             has_bk = await database_sync_to_async(_team_has_business_knowledge, thread_sensitive=False)(input.team_id)
             metrics_enabled = await database_sync_to_async(team_report_metrics_enabled, thread_sensitive=False)(
@@ -1209,6 +1215,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 previous_checks=previous_checks,
                 implementation_context=implementation_context,
                 signal_report_id=input.report_id,
+                spend_signal_id=input.signal_id,
                 has_business_knowledge=has_bk,
                 resolved_report_title=resolved_report_title,
                 resolved_report_summary=resolved_report_summary,
@@ -1271,6 +1278,19 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             research_task_id=result.research_task_id,
             charts_enabled=True,
         )
+    except SandboxRunFailed as error:
+        logger.exception(
+            "signals agentic report failed",
+            report_id=input.report_id,
+            team_id=input.team_id,
+            error=str(error),
+            sandbox_error_type=error.error_type,
+        )
+        if error.transient:
+            raise temporalio.exceptions.ApplicationError(
+                str(error), type=RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
+            ) from error
+        raise
     except Exception as error:
         logger.exception(
             "signals agentic report failed",
@@ -1278,4 +1298,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             team_id=input.team_id,
             error=str(error),
         )
+        error_type = turn_failure_error_type(error)
+        if error_type is not None:
+            raise ApplicationError(str(error), type=error_type) from error
         raise

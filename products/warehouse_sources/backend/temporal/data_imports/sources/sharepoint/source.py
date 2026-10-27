@@ -259,6 +259,7 @@ class SharePointSource(ResumableSource[SharePointSourceConfig, SharePointResumeC
                     ),
                     SourceFieldInputConfig(
                         name="site_urls",
+                        sync_setting=True,
                         label="Site URLs (optional)",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=False,
@@ -268,6 +269,7 @@ class SharePointSource(ResumableSource[SharePointSourceConfig, SharePointResumeC
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="import_files",
+                        sync_setting=True,
                         label="Import CSV and Excel file contents?",
                         default=False,
                         caption=(

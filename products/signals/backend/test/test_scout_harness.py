@@ -2059,7 +2059,7 @@ async def test_trial_runs_keep_runtime_and_state_separate_from_the_production_sc
     assert captured[0]["max_poll_seconds"] == 30 * 60
     sandbox_context = captured[0]["context"]
     assert isinstance(sandbox_context, CustomPromptSandboxContext)
-    assert sandbox_context.sandbox_timeout_seconds == 37 * 60
+    assert sandbox_context.sandbox_timeout_seconds == 52 * 60
     assert sandbox_context.model == "gpt-5.6-sol"
     assert sandbox_context.reasoning_effort == "high"
     assert sandbox_context.posthog_mcp_scopes == "signals_scout_experiment"
@@ -3374,6 +3374,7 @@ async def test_stale_in_progress_run_is_reaped_and_unblocks_dispatch(ateam, aerr
     with (
         patch("products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team", return_value=42),
         patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
+        patch("products.signals.backend.tasks.settle_scout_spend.delay"),
     ):
         result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
@@ -3466,6 +3467,7 @@ async def test_stale_run_reap_captures_run_reaped_event(ateam, aerrors_skill, st
     with (
         patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+        patch("products.signals.backend.tasks.settle_scout_spend.delay"),
     ):
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
         # A second dispatch must not report the same run again.
@@ -3849,6 +3851,21 @@ _ROUTED_MODEL_KEYS = ("model", "runtime_adapter", "reasoning_effort", "service_t
 
 
 class TestRunRowProvenanceStamps(BaseTest):
+    def test_accounting_failure_rolls_back_scout_registration(self) -> None:
+        config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name="signals-scout-general")
+        run_id = uuid7()
+        task_run = _make_task_run(self.team)
+        with patch("products.signals.backend.scout_harness.runner.record_task_spend", side_effect=RuntimeError("db")):
+            with self.assertRaises(RuntimeError):
+                _create_run_row(
+                    run_id=run_id,
+                    task_run_id=task_run.id,
+                    team=self.team,
+                    config=config,
+                    skill=self._skill(allowed_tools=["emit_report"], origin="custom"),
+                )
+        assert not SignalScoutRun.objects.for_team(self.team.id).filter(id=run_id).exists()
+
     # The three dimensions an eval or A/B has to hold constant. Each is unrecoverable after the
     # fact, so a regression that hardcodes one (rather than reading it off the loaded skill)
     # silently mislabels every run from then on instead of failing loudly.
@@ -3998,7 +4015,7 @@ async def test_activity_wakes_the_workflow_step_that_started_the_run(ateam, work
 )
 @pytest.mark.parametrize(
     "workflow_origin_key,trial_launch_id,timeout_minutes",
-    [("job:step:1", None, 21), (None, None, 21), (None, "11111111-1111-1111-1111-111111111111", 36)],
+    [("job:step:1", None, 36), (None, None, 36), (None, "11111111-1111-1111-1111-111111111111", 51)],
 )
 async def test_workflow_delivers_scout_outcomes_even_when_the_run_activity_cannot(
     outcome, workflow_origin_key, trial_launch_id, timeout_minutes

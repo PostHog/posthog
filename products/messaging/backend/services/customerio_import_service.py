@@ -1,10 +1,16 @@
 import io
 import csv
 import json
+import time
 import logging
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 from django.db import transaction
+from django.utils import timezone
+
+from posthog.dataclasses import frozen
+from posthog.models.scoping.manager import resolve_effective_team_id
 
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_preferences import (
@@ -12,10 +18,31 @@ from products.messaging.backend.models.message_preferences import (
     MessageRecipientPreference,
     PreferenceStatus,
 )
+from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
 
 from .customerio_client import CustomerIOClient
 
 logger = logging.getLogger(__name__)
+
+# Customer.io suppression lists to import, with the suppression source and reason each one maps to. A bounced or
+# invalid address can't receive mail, so it blocks every email. A spam report blocks marketing email only. Blocks
+# are not imported, because a provider block is often temporary.
+CUSTOMERIO_SUPPRESSION_TYPES: dict[str, tuple[SuppressionSource, str]] = {
+    "bounces": (SuppressionSource.BOUNCE, "Imported from Customer.io (bounced)"),
+    "invalid_emails": (SuppressionSource.BOUNCE, "Imported from Customer.io (invalid address)"),
+    "spam_reports": (SuppressionSource.COMPLAINT, "Imported from Customer.io (spam report)"),
+}
+SUPPRESSION_PAGE_SIZE = 1000
+# Customer.io allows 10 App API requests per second.
+SUPPRESSION_PAGE_DELAY_SECONDS = 0.2
+
+
+@frozen
+class _ImportedSuppression:
+    # When Customer.io suppressed the address, or None when the entry has no time.
+    suppressed_at: datetime | None
+    # The bounce status code and Mailgun's reason, for example "550 Mailbox full". None for spam reports.
+    diagnostic: str | None
 
 
 class CustomerIOImportService:
@@ -34,12 +61,13 @@ class CustomerIOImportService:
             "customers_processed": 0,
             "preferences_updated": 0,
             "globally_unsubscribed_count": 0,
+            "suppressions_imported": 0,
             "errors": [],
             "details": "",
         }
 
     def import_api_data(self) -> dict[str, Any]:
-        """Import categories and globally unsubscribed users via API"""
+        """Import categories, globally unsubscribed users and suppressed addresses via API"""
         if not self.api_key:
             self.progress["status"] = "failed"
             self.progress["errors"].append("API key is required for Customer.io API import")
@@ -66,7 +94,12 @@ class CustomerIOImportService:
             self.progress["topics_found"] = len(topics)
             self._import_categories(topics)
 
-            # Step 3: Process globally unsubscribed users
+            # Step 3: Import addresses Customer.io's email provider suppressed. They go before the global
+            # unsubscribes because those can run to hundreds of pages, past the request timeout, and each page
+            # saves on its own, so the shorter suppression lists finish first.
+            self._import_suppressions()
+
+            # Step 4: Process globally unsubscribed users
             self._process_globally_unsubscribed_users()
 
             self.progress["status"] = "completed"
@@ -393,6 +426,83 @@ class CustomerIOImportService:
 
         self.progress["details"] = f"Processed {total_processed} globally unsubscribed users"
 
+    def _import_suppressions(self) -> None:
+        """Add Customer.io's bounced, invalid and spam-reported addresses to the suppression list.
+
+        Without them, the first send to each of these addresses after moving to Workflows bounces again, and the
+        bounces count against the shared sender reputation.
+        """
+        if not self.client:
+            return
+
+        # bulk_create skips the save() that moves a child environment's rows to its parent project.
+        team_id = resolve_effective_team_id(self.team_id)
+        for suppression_type, (source, reason) in CUSTOMERIO_SUPPRESSION_TYPES.items():
+            offset = 0
+            while True:
+                try:
+                    page = self.client.get_suppressions(suppression_type, limit=SUPPRESSION_PAGE_SIZE, offset=offset)
+                except Exception as e:
+                    self.progress["errors"].append(f"Error importing Customer.io {suppression_type}: {str(e)[:200]}")
+                    break
+
+                imported = {
+                    email.strip().lower(): _imported_suppression(entry)
+                    for entry in page
+                    if isinstance(entry, dict) and isinstance(email := entry.get("email"), str) and "@" in email
+                }
+                if imported:
+                    self.progress["suppressions_imported"] += self._add_suppressions(team_id, imported, source, reason)
+                if len(page) < SUPPRESSION_PAGE_SIZE:
+                    break
+                offset += len(page)
+                time.sleep(SUPPRESSION_PAGE_DELAY_SECONDS)
+
+    def _add_suppressions(
+        self, team_id: int, imported: dict[str, _ImportedSuppression], source: SuppressionSource, reason: str
+    ) -> int:
+        """Suppress the addresses that have no suppression row yet, and return how many it added.
+
+        An existing row is left alone. It can be a manual entry, an address someone removed from the list on
+        purpose, or a row the bounce feedback already manages. The one exception is a row an earlier import of
+        this list created without Customer.io's date and diagnostic, which gets them filled in.
+        """
+        suppressions = MessageSuppression.objects.for_team(team_id, canonical=True)
+        existing = {row.identifier: row for row in suppressions.filter(identifier__in=list(imported))}
+        now = timezone.now()
+        is_bounce = source == SuppressionSource.BOUNCE
+        new_rows = [
+            MessageSuppression(
+                team_id=team_id,
+                identifier=email,
+                source=source,
+                reason=reason,
+                suppressed=True,
+                suppressed_at=details.suppressed_at or now,
+                last_bounce_at=details.suppressed_at if is_bounce else None,
+                last_bounce_diagnostic=details.diagnostic,
+                created_by_id=self.created_by_id,
+            )
+            for email, details in sorted(imported.items())
+            if email not in existing
+        ]
+        # ignore_conflicts covers an address the bounce feedback inserts between the read above and this write.
+        suppressions.bulk_create(new_rows, batch_size=500, ignore_conflicts=True)
+
+        backfilled = []
+        for email, row in existing.items():
+            details = imported[email]
+            if row.reason != reason or row.deleted or row.last_bounce_diagnostic or not details.suppressed_at:
+                continue
+            row.suppressed_at = details.suppressed_at
+            row.last_bounce_at = details.suppressed_at if is_bounce else row.last_bounce_at
+            row.last_bounce_diagnostic = details.diagnostic
+            backfilled.append(row)
+        suppressions.bulk_update(
+            backfilled, ["suppressed_at", "last_bounce_at", "last_bounce_diagnostic"], batch_size=500
+        )
+        return len(new_rows)
+
     def _bulk_update_all_preferences(self, emails: list[str], category_ids: list[str]) -> None:
         """Bulk update preferences to opt out users from ALL categories"""
         try:
@@ -458,3 +568,15 @@ class CustomerIOImportService:
 
     def get_progress(self) -> dict[str, Any]:
         return self.progress
+
+
+def _imported_suppression(entry: dict[str, Any]) -> _ImportedSuppression:
+    """The date and bounce diagnostic Customer.io returns for one suppressed address."""
+    created = entry.get("created")
+    suppressed_at = (
+        datetime.fromtimestamp(created, tz=UTC) if isinstance(created, int | float) and created > 0 else None
+    )
+    parts = [
+        part.strip() for part in (entry.get("status"), entry.get("reason")) if isinstance(part, str) and part.strip()
+    ]
+    return _ImportedSuppression(suppressed_at=suppressed_at, diagnostic=" ".join(parts)[:1000] or None)

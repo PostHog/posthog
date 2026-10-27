@@ -665,7 +665,8 @@ def test_human_pin_does_not_authorize_automatic_execution(
 @pytest.mark.parametrize(
     "concurrent_change", [None, {"summary": "A newer fix"}, {"run_count": 2}, {"content_revision_count": 1}]
 )
-def test_create_implementation_task_if_absent_is_idempotent(organization, team, concurrent_change):
+@pytest.mark.parametrize("spend_kind", ["reviewer_triggered_implementation", "scout_triggered_implementation"])
+def test_create_implementation_task_if_absent_is_idempotent(organization, team, concurrent_change, spend_kind):
     # The locked create guards against duplicate auto-start tasks: a second evaluation that
     # observes the link row must no-op rather than spawn another Task / draft PR. It also asserts
     # the facade is invoked with the SIGNAL_REPORT origin and ai_stage="implementation" so the
@@ -694,6 +695,7 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team, 
     kwargs = {
         "team_id": team.id,
         "report_id": str(report.id),
+        "implementation_spend_kind": spend_kind,
         "title": "t",
         "description": "d",
         "expected_content": ImplementationReportContent.from_report(report),
@@ -725,6 +727,7 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team, 
     call_kwargs = mock_create.call_args.kwargs
     assert call_kwargs["origin_product"] == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
     assert call_kwargs["ai_stage"] == "implementation"
+    assert call_kwargs["implementation_spend_kind"] == spend_kind
     assert call_kwargs["internal"] is True
     # The description's memory protocol is rendered from this same posture, so a posture that stops
     # granting the scratchpad would leave the run told to remember with no tool to remember with.

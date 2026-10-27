@@ -2509,6 +2509,8 @@ export interface BillingType {
     billing_plan: BillingPlan | null
     startup_program_label?: StartupProgramLabel | null
     startup_program_label_previous?: StartupProgramLabel | null
+    /** False when the YC credits do not renew, for example after a YC program block */
+    startup_program_credits_renew?: boolean
     is_annual_plan_customer?: boolean | null
     account_owner?: {
         email?: string
@@ -5337,6 +5339,8 @@ export interface TiledIconModuleProps {
 export type EventOrPropType = EventDefinition & PropertyDefinition
 
 export interface AppContext {
+    /** The page left out the user's data, and the app fetches it at boot. See lib/utils/deferredAppContext. */
+    deferred?: boolean
     run_mode?: 'US' | 'EU' | 'DEV' | 'E2E' | 'LOCAL' | 'HOBBY'
     current_user: UserType | null
     current_project: ProjectType | null

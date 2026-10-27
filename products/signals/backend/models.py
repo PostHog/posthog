@@ -1535,6 +1535,11 @@ class SignalReportArtefact(UUIDModel):
         db_index=False,
         related_name="+",
     )
+    # The report a `report_link` row points at, copied out of `content` on every write, so finding
+    # the links that point at a report is an index seek instead of a text search of the team's link
+    # rows. Null on every other type. A plain id, not a foreign key, because the row is the source
+    # report's record of what it said, and `content` keeps naming the target after the target is gone.
+    link_target_id = models.UUIDField(null=True, blank=True)
 
     class Meta:
         indexes = [
@@ -1554,6 +1559,11 @@ class SignalReportArtefact(UUIDModel):
                 fields=["id"],
                 condition=models.Q(type="implementation_decision"),
                 name="signals_dispatch_sweep_idx",
+            ),
+            models.Index(
+                fields=["link_target_id"],
+                condition=models.Q(type="report_link"),
+                name="signals_link_target_idx",
             ),
         ]
 
@@ -1670,6 +1680,7 @@ class SignalReportArtefact(UUIDModel):
             task_id=attribution.task_id,
             claim_id=claim_id,
             channel_id=content.channel_id if isinstance(content, ChannelAssignment) else None,
+            link_target_id=content.report_id if isinstance(content, ReportLink) else None,
         )
 
     @classmethod
@@ -2198,6 +2209,9 @@ class SignalReportArtefact(UUIDModel):
             if isinstance(parsed, ChannelAssignment):
                 self.channel_id = parsed.channel_id
                 update_fields.append("channel_id")
+            if isinstance(parsed, ReportLink):
+                self.link_target_id = parsed.report_id
+                update_fields.append("link_target_id")
             self.save(update_fields=update_fields)
         if self.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
             self._schedule_autostart_reevaluation(team_id=self.team_id, report_id=str(self.report_id))
@@ -3944,34 +3958,77 @@ class SignalScoutBackgroundBand(TeamScopedRootMixin, UUIDModel):
 
 
 class SignalSpend(TeamScopedRootMixin, UUIDModel):
-    """One absolute cost observation per gateway request or task run."""
+    class Kind(models.TextChoices):
+        RESEARCH = "research"
+        REPO_SELECTION = "repo_selection"
+        AD_HOC = "ad-hoc"
+        SCOUT_RUN = "scout_run"
+        REVIEWER_TRIGGERED_IMPLEMENTATION = "reviewer_triggered_implementation"
+        SCOUT_TRIGGERED_IMPLEMENTATION = "scout_triggered_implementation"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    # Old workers omit kind during rolling deploys; their receipts remain unbillable.
+    kind = models.CharField(max_length=40, choices=Kind.choices, null=True)
     signal_id = models.UUIDField(null=True, blank=True)
-    scout_run = models.ForeignKey(SignalScoutRun, on_delete=models.CASCADE, null=True, blank=True)
-    task_id = models.UUIDField(null=True, blank=True, db_index=True)
-    source_id = models.CharField(max_length=255)
-    stage = models.CharField(max_length=100, default="unknown")
+    scout_run = models.ForeignKey(
+        SignalScoutRun, on_delete=models.DO_NOTHING, db_constraint=False, null=True, blank=True, related_name="+"
+    )
+    # Only implementation spend is report-owned; signals and scout runs drive all other spend.
+    report = models.ForeignKey(
+        SignalReport, on_delete=models.DO_NOTHING, db_constraint=False, null=True, blank=True, related_name="+"
+    )
+    task_run_id = models.UUIDField(null=True, blank=True, unique=True)
+    llm_failed_stages = ArrayField(models.CharField(max_length=100), default=list, db_default=[])
+    spend = models.DecimalField(
+        max_digits=20, decimal_places=4, default=0, db_default=0, help_text="Customer spend in USD cents"
+    )
     accounting_failed = models.BooleanField(default=False)
-    is_task = models.BooleanField(default=False)
-    token_cost_microusd = models.BigIntegerField(null=True, blank=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    finalized_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    billing_exempt = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        indexes = [models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx")]
         constraints = [
-            models.UniqueConstraint(fields=["team", "source_id", "is_task"], name="signals_spend_source_unique"),
+            models.UniqueConstraint(
+                fields=["team", "signal_id"], condition=models.Q(kind="ad-hoc"), name="signals_owner_spend_ad_hoc"
+            ),
             models.CheckConstraint(
                 condition=(
-                    models.Q(signal_id__isnull=False, scout_run__isnull=True)
-                    | models.Q(signal_id__isnull=True, scout_run__isnull=False)
+                    models.Q(kind__isnull=False)
+                    & (
+                        models.Q(signal_id__isnull=False, scout_run__isnull=True, report__isnull=True)
+                        & (
+                            models.Q(kind="ad-hoc", task_run_id__isnull=True)
+                            | models.Q(kind__in=["research", "repo_selection"], task_run_id__isnull=False)
+                        )
+                        | models.Q(
+                            kind="scout_run",
+                            scout_run__isnull=False,
+                            signal_id__isnull=True,
+                            report__isnull=True,
+                            task_run_id__isnull=False,
+                        )
+                        | models.Q(
+                            kind__in=["reviewer_triggered_implementation", "scout_triggered_implementation"],
+                            report__isnull=False,
+                            signal_id__isnull=True,
+                            scout_run__isnull=True,
+                            task_run_id__isnull=False,
+                        )
+                    )
+                    | models.Q(
+                        kind__isnull=True,
+                        task_run_id__isnull=True,
+                        report__isnull=True,
+                        finalized_at__isnull=True,
+                        spend=0,
+                    )
                 ),
-                name="signals_spend_one_owner",
+                name="signals_owner_spend_kind_owner",
             ),
-            models.CheckConstraint(condition=models.Q(token_cost_microusd__gte=0), name="signals_spend_nonnegative"),
-        ]
-        indexes = [
-            models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx"),
+            models.CheckConstraint(condition=models.Q(spend__gte=0), name="signals_owner_spend_nonnegative"),
         ]
 
 

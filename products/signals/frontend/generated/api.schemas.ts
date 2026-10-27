@@ -614,7 +614,7 @@ export interface AnomalyInsightRowApi {
 export interface AnomalySearchResponseApi {
     /** Whether anomaly scoring covers this project. */
     scoring_enabled: boolean
-    /** Insights that scoring watches: saved trends insights on a dashboard or viewed in the last 30 days. */
+    /** Active insights that scoring checks: saved trends insights that a person viewed, that sit on a dashboard someone opened, or that were edited in the active window (90 days by default), or that have an enabled alert or subscription. */
     watched_insights: number
     /** Insights with at least one scored bucket in the range. Results cover only these insights. */
     insights_scored_in_range: number
@@ -1927,6 +1927,8 @@ export interface SignalReportAssigneeApi {
     agent: string | null
     /** @nullable */
     claimed_at: string | null
+    /** The person who answers for the claim: the user for a user claim, the user an MCP agent acts for, or the user who started an internal task. Null when no person stands behind the claim. */
+    responsible_user: _UserApi | null
 }
 
 /**
@@ -2119,6 +2121,8 @@ export interface ReportPlanStepApi {
      * * `closed` - Closed
      * * `merged` - Merged */
     readonly implementation_pr_state: SignalReportAssignmentPrStateEnumApi | null
+    /** Who or what suppressed the step, with the same values as the report's `suppression_source`. Null unless the step is suppressed. */
+    readonly suppression_source: SignalReportSuppressionSourceEnumApi | null
 }
 
 export interface ReportPlanApi {
@@ -2218,6 +2222,8 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly repo_slug: string | null
+    /** Whether this is a scout self-improvement report. Most update a team-owned skill in the skills store, but reports with a selected repository can still produce a pull request. */
+    readonly is_self_improvement_report: boolean
     readonly is_suggested_reviewer: boolean
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
@@ -2273,7 +2279,7 @@ export interface SignalReportListApi {
     readonly channel_id: string | null
     /** The served ranking model's predictions from the latest ranking score artefact. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
     readonly ranking: ReportRankingApi
-    /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps scans the project's report links. */
+    /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps costs several queries per report. */
     readonly plan: ReportPlanApi | null
     /**
      * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's outcome (open, action or fix), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
@@ -2468,6 +2474,8 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly repo_slug: string | null
+    /** Whether this is a scout self-improvement report. Most update a team-owned skill in the skills store, but reports with a selected repository can still produce a pull request. */
+    readonly is_self_improvement_report: boolean
     readonly is_suggested_reviewer: boolean
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
@@ -2523,7 +2531,7 @@ export interface SignalReportApi {
     readonly channel_id: string | null
     /** The served ranking model's predictions from the latest ranking score artefact. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
     readonly ranking: ReportRankingApi
-    /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps scans the project's report links. */
+    /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps costs several queries per report. */
     readonly plan: ReportPlanApi | null
 }
 
@@ -3984,6 +3992,36 @@ export interface ShortcutStorySignalExtraApi {
     created_at: string | null
 }
 
+export interface ClickupTaskSignalExtraApi {
+    status_name: string | null
+    status_type: string | null
+    url: string | null
+    date_created: string | null
+}
+
+export interface WrikeTaskSignalExtraApi {
+    status: string | null
+    importance: string | null
+    permalink: string | null
+    created_date: string | null
+}
+
+export interface TrelloCardSignalExtraApi {
+    url: string | null
+    id_board: string | null
+    id_list: string | null
+    created_at: string | null
+}
+
+export interface BugherdTaskSignalExtraApi {
+    status: string | null
+    priority: string | null
+    site: string | null
+    url: string | null
+    tag_names: unknown[]
+    created_at: string | null
+}
+
 export interface SentryIssueSignalExtraApi {
     level: string | null
     status: string | null
@@ -4643,6 +4681,10 @@ export type SignalExtraApi =
     | GitlabIssueSignalExtraApi
     | GiteaIssueSignalExtraApi
     | ShortcutStorySignalExtraApi
+    | ClickupTaskSignalExtraApi
+    | WrikeTaskSignalExtraApi
+    | TrelloCardSignalExtraApi
+    | BugherdTaskSignalExtraApi
     | SentryIssueSignalExtraApi
     | RollbarItemSignalExtraApi
     | BugsnagErrorSignalExtraApi
@@ -10315,7 +10357,7 @@ export type SignalsReportsListParams = {
      */
     already_addressed?: boolean
     /**
-     * Use 'me' to return reports claimed by the current user, task, or MCP agent.
+     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, claims by MCP agents acting for them, and claims by internal tasks they started.
      */
     assignee?: SignalsReportsListAssignee
     /**
@@ -10441,6 +10483,7 @@ export type SignalsReportsListAssignee = (typeof SignalsReportsListAssignee)[key
 
 export const SignalsReportsListAssignee = {
     Me: 'me',
+    Mine: 'mine',
 } as const
 
 export type SignalsReportPrChecksParams = {
@@ -10516,7 +10559,7 @@ export type SignalsReportChecksListParams = {
 
 export type SignalsReportsAvailableReviewersRetrieveParams = {
     /**
-     * Case-insensitive filter on name or email.
+     * Case-insensitive filter on name or email. Use search to find members outside the first 100 results.
      */
     query?: string
 }

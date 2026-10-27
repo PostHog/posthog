@@ -13,7 +13,6 @@ from django.db.models import Q
 
 import pydantic
 import structlog
-from rest_framework.exceptions import ValidationError
 
 from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
@@ -37,15 +36,21 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     resolve_default_exposure_event,
 )
 from products.experiments.backend.models.experiment import Experiment as ExperimentModel
+from products.experiments.backend.running_time_target import load_running_time_target
 
 from .contracts import (
     CreateExperimentInput,
     EndedExperiment,
     Experiment,
     ExperimentActivityEvent,
+    ExperimentDetectableEffectCheckpoint,
     ExperimentHealth,
     ExperimentHealthReaderAccess,
+    ExperimentRunningTimeOutlook,
+    ExperimentRunningTimeTarget,
+    ExperimentValidationError,
     RunningExperiment,
+    RunningTimeMode,
 )
 
 logger = structlog.get_logger(__name__)
@@ -104,7 +109,8 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
         Experiment DTO
 
     Raises:
-        ValidationError: If validation fails in service layer
+        ExperimentValidationError: If the holdout does not exist for this team
+        rest_framework.exceptions.ValidationError: If validation fails in service layer
     """
 
     # Load holdout if ID provided
@@ -115,7 +121,7 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
         try:
             holdout = ExperimentHoldout.objects.get(id=input_dto.holdout_id, team_id=team.id)
         except ExperimentHoldout.DoesNotExist:
-            raise ValidationError(f"Holdout with id {input_dto.holdout_id} does not exist for this team")
+            raise ExperimentValidationError(f"Holdout with id {input_dto.holdout_id} does not exist for this team")
 
     # Convert tuple to list for ordering fields (DTO uses tuple for immutability)
     primary_metrics_ordered_uuids = list(input_dto.metrics_ordering) if input_dto.metrics_ordering else None
@@ -187,11 +193,14 @@ def count_running_experiments_on_feature_flag_called(organization_id: UUID) -> i
 
 
 def get_experiment_health(
-    *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess
+    *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess, user: User | None
 ) -> ExperimentHealth:
     """The findings and the result of each health check that reads the experiment, its flag, its linked metrics,
-    and the changes of the flag since launch and the flag's recent calls, as far as `reader_access` allows."""
-    context = load_experiment_health_context(team_id=team_id, experiment_id=experiment_id, reader_access=reader_access)
+    and the changes of the flag since launch and the flag's recent calls, as far as `reader_access` allows. The
+    metric queries compile with `user`'s warehouse access."""
+    context = load_experiment_health_context(
+        team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user
+    )
     return evaluate_health(context, EXPERIMENT_HEALTH_CHECKS)
 
 
@@ -205,6 +214,36 @@ def get_experiment_health_inputs(
         team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user
     )
     return health_inputs_payload(inputs)
+
+
+def get_running_time_target(
+    *, team_id: int, experiment_id: int, mode: RunningTimeMode | None = None
+) -> ExperimentRunningTimeTarget:
+    """The target sample of the experiment's running time estimate, with what the experiment can detect over time.
+    `mode` replaces the saved one, so that the page can show the automatic target while the user switches to it."""
+    experiment = ExperimentModel.objects.select_related("feature_flag").get(team_id=team_id, id=experiment_id)
+    target = load_running_time_target(experiment, mode=mode)
+    outlook = target.outlook
+    return ExperimentRunningTimeTarget(
+        minimum_detectable_effect=target.minimum_detectable_effect,
+        recommended_sample_size=target.recommended_sample_size,
+        current_sample_size=target.current_sample_size,
+        outlook=ExperimentRunningTimeOutlook(
+            days_since_launch=outlook.days_since_launch,
+            exposures_per_day=outlook.exposures_per_day,
+            detectable_effect_now=outlook.detectable_effect_now,
+            upcoming_checkpoints=tuple(
+                ExperimentDetectableEffectCheckpoint(
+                    weeks_since_launch=checkpoint.weeks_since_launch,
+                    detectable_effect=checkpoint.detectable_effect,
+                )
+                for checkpoint in outlook.upcoming_checkpoints
+            ),
+            reachable_effect=outlook.reachable_effect,
+        )
+        if outlook
+        else None,
+    )
 
 
 def list_ended_experiments_without_conclusion(

@@ -60,7 +60,7 @@ from posthog.rate_limit import TaskRunChartRenderThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.security.outbound_proxy import internal_requests_session
-from posthog.temporal.oauth import TASK_AGENT_OAUTH_APP_CLIENT_IDS
+from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 from posthog.token_bucket import (
     BucketDecision,
     BucketUnavailable,
@@ -550,7 +550,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not isinstance(authenticator, OAuthAccessTokenAuthentication):
             raise PermissionDenied("Task comments are available only to the current task agent.")
         application = authenticator.access_token.application
-        if application is None or application.client_id not in TASK_AGENT_OAUTH_APP_CLIENT_IDS:
+        if application is None or application.client_id not in SANDBOX_OAUTH_APP_CLIENT_IDS:
             raise PermissionDenied("Task comments are available only to the current task agent.")
         try:
             parsed_task_id = UUID(task_id)
@@ -3761,7 +3761,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # (see products/tasks/backend/logic/services/warm.py) stops counting it. No-op for Runs
             # that were never warm; best-effort, since a failure only over-counts the pool until terminal.
             try:
-                tasks_facade.update_task_run_state(pk, remove_keys=["await_user_message"])
+                tasks_facade.activate_warm_task_run(pk)
             except Exception:
                 logger.warning("Failed to clear await_user_message for task run %s", pk)
 

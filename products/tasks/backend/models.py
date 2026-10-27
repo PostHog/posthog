@@ -62,6 +62,7 @@ from products.tasks.backend.logic.stream.redis_stream import publish_task_run_st
 from products.tasks.backend.metrics import (
     observe_task_run_created,
     observe_task_run_dispatch_callback,
+    observe_task_run_started_beside_live_run,
     observe_task_run_terminal,
 )
 from products.tasks.backend.pr_urls import read_pr_urls
@@ -80,6 +81,23 @@ def execute_after_commit(callback: Callable[[], object]) -> None:
         callback()
     else:
         transaction.on_commit(callback)
+
+
+def log_run_started_beside_live_run(task_run: "TaskRun", live_run_ids: list[uuid.UUID]) -> None:
+    observe_task_run_started_beside_live_run(task_run)
+    state = task_run.state or {}
+    logger.warning(
+        "task_run_started_beside_live_run",
+        task_id=str(task_run.task_id),
+        team_id=task_run.team_id,
+        run_id=str(task_run.id),
+        live_run_ids=[str(run_id) for run_id in live_run_ids],
+        origin_product=task_run.task.origin_product,
+        mode=state.get("mode"),
+        interaction_origin=state.get("interaction_origin"),
+        resume_from_run_id=state.get("resume_from_run_id"),
+        prewarmed=bool(state.get("prewarmed")),
+    )
 
 
 LogLevel = Literal["debug", "info", "warn", "error"]
@@ -808,6 +826,27 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             state["initial_permission_mode"] = permission_mode
         state["ai_defaults_source"] = resolved.source
 
+    def live_cloud_run_ids(self, exclude_run_id: uuid.UUID) -> list[uuid.UUID]:
+        live_runs = (
+            self.runs.filter(
+                team_id=self.team_id,
+                environment=TaskRun.Environment.CLOUD,
+                status__in=[TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS],
+            )
+            .exclude(id=exclude_run_id)
+            .values_list("id", "state")
+        )
+        return [
+            run_id
+            for run_id, state in live_runs
+            if not (state or {}).get("await_user_message") and not (state or {}).get("cancel_requested_at")
+        ]
+
+    def observe_run_started_beside_live_runs(self, task_run: "TaskRun") -> None:
+        live_run_ids = self.live_cloud_run_ids(exclude_run_id=task_run.id)
+        if live_run_ids:
+            execute_after_commit(lambda: log_run_started_beside_live_run(task_run, live_run_ids))
+
     def create_run(
         self,
         environment: Optional["TaskRun.Environment"] = None,
@@ -818,6 +857,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         scheduled_at: datetime | None = None,
         startup_requested_at: datetime | None = None,
         subscription_owner_id: int | None = None,
+        spend_signal_id: str | None = None,
+        implementation_spend_kind: str | None = None,
     ) -> "TaskRun":
         startup_requested_at = startup_requested_at or django_timezone.now()
         if scheduled_at is not None and django_timezone.is_naive(scheduled_at):
@@ -915,6 +956,30 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 if task.origin_product != Task.OriginProduct.SIGNAL_REPORT or task.signal_report_id:
                     state["ai_stage"] = interactive_stage
 
+            # A manual resume can share an internal Task with an automated run. Freeze billing
+            # on this run so historical PR charges and pipeline attribution do not change.
+            if (
+                task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+                and state.get("ai_stage")
+                not in {
+                    "research",
+                    "implementation",
+                    "repo_selection",
+                    "custom_agent",
+                }
+            ) or (task.origin_product == Task.OriginProduct.SIGNALS_SCOUT and not state.get("ai_stage")):
+                state["billing_product"] = "posthog_ai"
+
+            if (
+                environment == TaskRun.Environment.CLOUD
+                and task.origin_product in (Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT)
+                and state.get("billing_product") != "posthog_ai"
+            ):
+                # A new automated run has no usage yet, including when provisioning fails.
+                # Gateway fallback marks coverage incomplete before any agent can start.
+                state.setdefault("unprocessed_request_ids", [])
+                state.setdefault("token_cost", {})
+
             resume_from_run_id = (extra_state or {}).get("resume_from_run_id")
             if resume_from_run_id is not None:
                 resume_source = TaskRun.objects.filter(id=resume_from_run_id, task_id=task.id).only("state").first()
@@ -949,6 +1014,22 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 state=state,
                 branch=branch,
             )
+            if effective_environment == TaskRun.Environment.CLOUD and scheduled_at is None:
+                task.observe_run_started_beside_live_runs(task_run)
+
+            if task.origin_product == Task.OriginProduct.SIGNAL_REPORT and task.signal_report_id:
+                from products.signals.backend.facade.spend import (  # noqa: PLC0415 — avoids the task-model import cycle
+                    register_report_task_spend,
+                )
+
+                register_report_task_spend(
+                    team_id=task.team_id,
+                    run_id=str(task_run.id),
+                    report_id=str(task.signal_report_id),
+                    stage=state.get("ai_stage"),
+                    signal_id=spend_signal_id,
+                    implementation_kind=implementation_spend_kind,
+                )
 
             def emit_created_events() -> None:
                 task_run.publish_stream_state_event()
@@ -1531,6 +1612,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         posthog_mcp_scopes: PosthogMcpScopes = "full",
         branch: str | None = None,
         signal_report_id: str | None = None,
+        spend_signal_id: str | None = None,
+        implementation_spend_kind: str | None = None,
         hog_flow_id: uuid.UUID | None = None,
         origin_key: str | None = None,
         extra_run_state: dict[str, Any] | None = None,
@@ -1661,6 +1744,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 acting_user_id=user_id,
                 scheduled_at=scheduled_at,
                 startup_requested_at=startup_requested_at,
+                spend_signal_id=spend_signal_id,
+                implementation_spend_kind=implementation_spend_kind,
             )
             if before_task_dispatch is not None:
                 initial_state = before_task_dispatch(task_run.id)
@@ -2412,6 +2497,7 @@ class TaskRun(models.Model):
         "sandbox_connect_token",
         "sandbox_backend",
         "failure_error_type",
+        "cancel_requested_at",
     )
 
     def restore_cloud_resume_state(self, prior_state: dict[str, Any]) -> None:

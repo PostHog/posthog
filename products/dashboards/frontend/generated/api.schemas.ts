@@ -344,7 +344,7 @@ export interface DashboardBasicApi {
      * @nullable
      */
     readonly name: string | null
-    /** Description of the dashboard. */
+    /** Short note for people who open the dashboard. Say what it shows in one or two sentences, about 30 words. Leave it empty when the name already says it. Do not write how it was built or changed. */
     readonly description: string
     /** Whether the dashboard is pinned to the top of the list. */
     readonly pinned: boolean
@@ -1377,6 +1377,16 @@ export interface PatchedPatchedDashboardOpenApiApi {
     use_dashboard?: number | null
     /** When deleting, also delete insights that are only on this dashboard. */
     delete_insights?: boolean
+}
+
+export interface CopyDashboardGroupRequestApi {
+    /** Dashboard id the group currently belongs to. */
+    fromDashboardId: number
+    /**
+     * Key of the tile group to copy.
+     * @maxLength 100
+     */
+    groupKey: string
 }
 
 export interface CopyDashboardTileRequestApi {
@@ -6766,60 +6776,16 @@ export interface ExperimentBreakdownResultApi {
     variants: ExperimentVariantResultFrequentistApi[] | ExperimentVariantResultBayesianApi[]
 }
 
-export type ExperimentSignificanceCodeApi =
-    (typeof ExperimentSignificanceCodeApi)[keyof typeof ExperimentSignificanceCodeApi]
-
-export const ExperimentSignificanceCodeApi = {
-    Significant: 'significant',
-    NotEnoughExposure: 'not_enough_exposure',
-    LowWinProbability: 'low_win_probability',
-    HighLoss: 'high_loss',
-    HighPValue: 'high_p_value',
-} as const
-
-export interface ExperimentVariantTrendsBaseStatsApi {
-    absolute_exposure: number
-    count: number
-    exposure: number
-    key: string
-}
-
-export interface ExperimentVariantFunnelsBaseStatsApi {
-    failure_count: number
-    key: string
-    success_count: number
-}
-
-export type ExperimentQueryResponseApiCredibleIntervals = { [key: string]: number[] } | null
-
-export type ExperimentQueryResponseApiInsight = { [key: string]: unknown }[] | null
-
-export type ExperimentQueryResponseApiProbability = { [key: string]: number } | null
-
 export interface ExperimentQueryResponseApi {
     baseline?: ExperimentStatsBaseValidatedApi | null
     /** Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data. */
     breakdown_results?: ExperimentBreakdownResultApi[] | null
     clickhouse_sql?: string | null
-    credible_intervals?: ExperimentQueryResponseApiCredibleIntervals
     hogql?: string | null
-    insight?: ExperimentQueryResponseApiInsight
     /** Whether exposures were served from the precomputation system */
     is_precomputed?: boolean | null
     kind?: 'ExperimentQuery'
-    metric?:
-        | ExperimentMeanMetricApi
-        | ExperimentFunnelMetricApi
-        | ExperimentRatioMetricApi
-        | ExperimentRetentionMetricApi
-        | null
-    p_value?: number | null
-    probability?: ExperimentQueryResponseApiProbability
-    significance_code?: ExperimentSignificanceCodeApi | null
-    significant?: boolean | null
-    stats_version?: number | null
     variant_results?: ExperimentVariantResultFrequentistApi[] | ExperimentVariantResultBayesianApi[] | null
-    variants?: ExperimentVariantTrendsBaseStatsApi[] | ExperimentVariantFunnelsBaseStatsApi[] | null
     /** Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics. */
     warnings?: DataWarehouseSyncWarningApi[] | null
 }
@@ -10981,6 +10947,18 @@ export type DashboardsDestroyParams = {
 export type DashboardsDestroyFormat = (typeof DashboardsDestroyFormat)[keyof typeof DashboardsDestroyFormat]
 
 export const DashboardsDestroyFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsCopyGroupCreateParams = {
+    format?: DashboardsCopyGroupCreateFormat
+}
+
+export type DashboardsCopyGroupCreateFormat =
+    (typeof DashboardsCopyGroupCreateFormat)[keyof typeof DashboardsCopyGroupCreateFormat]
+
+export const DashboardsCopyGroupCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

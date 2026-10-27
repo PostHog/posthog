@@ -150,7 +150,7 @@ class InsightDataChecks:
 
 
 @dataclass(frozen=True)
-class WatchedTrendsInsight:
+class SavedTrendsInsight:
     team_id: int
     insight_id: int
     # The trends interval, "day" when the query sets none.
