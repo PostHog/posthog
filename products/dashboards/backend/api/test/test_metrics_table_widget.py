@@ -19,7 +19,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.dashboards.backend.constants import METRICS_TABLE_SPARKLINE_POINTS
 from products.dashboards.backend.widget_registry import METRICS_TABLE_WIDGET_TYPE, validate_widget_config
-from products.metrics.backend.facade.contracts import MetricQueryTooManyRowsError
+from products.metrics.backend.facade.contracts import MetricPoint, MetricQueryTooManyRowsError, MetricSeries
 from products.metrics.backend.facade.testing import seed_metric, truncate_metrics_tables
 
 QUEUE_COLUMN = {"label": "Queue depth", "metricName": "queue_depth", "aggregation": "avg"}
@@ -418,3 +418,32 @@ class TestMetricsTableWidgetRun(ClickhouseTestMixin, APIBaseTest):
         assert rows["/t3"]["values"][1] is None
         assert rows["/t2"]["values"][0] is None
         assert rows["/t2"]["values"][1] > 0
+
+    def test_counter_column_stays_empty_when_a_series_without_the_label_fills_the_series_cap(self) -> None:
+        def counter_series(clause: str, labels: dict[str, str]) -> MetricSeries:
+            return MetricSeries(
+                labels=labels,
+                points=(MetricPoint(time=self.now.isoformat(), value=1.0),),
+                metric_name="responses_total",
+                clause=clause,
+            )
+
+        series = [
+            counter_series("c0", {}),
+            counter_series("c0", {"route": "/a"}),
+            counter_series("c1", {"route": "/a"}),
+            counter_series("c1", {"route": "/b"}),
+        ]
+        columns = [
+            {"label": "Requests", "metricName": "responses_total", "aggregation": "rate"},
+            {"label": "All", "metricName": "responses_total", "aggregation": "increase"},
+        ]
+
+        with (
+            patch("products.dashboards.backend.widgets.metrics_table.run_metric_query", return_value=series),
+            patch("products.dashboards.backend.widgets.metrics_table.MAX_SERIES_PER_CLAUSE", 2),
+        ):
+            result = self._run({"groupBy": "route", "columns": columns})
+
+        rows = {row["key"]: row for row in result["rows"]}
+        assert rows["/b"]["values"] == [None, 1.0]

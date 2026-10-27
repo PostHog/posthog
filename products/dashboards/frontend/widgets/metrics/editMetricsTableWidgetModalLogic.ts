@@ -95,7 +95,12 @@ export function metricsTableAggregationDisabledReason(
     return aggregation === 'histogram_quantile' ? 'A percentile needs a histogram metric' : undefined
 }
 
-function fittingAggregation(aggregation: MetricsTableAggregation, metricType: string): MetricsTableAggregation {
+function fittingAggregation(column: MetricsTableColumn, metricType: string): MetricsTableAggregation {
+    const { aggregation } = column
+    // A new column starts as an average, and the average of a running counter total means nothing.
+    if (metricType === 'sum' && !column.metricName && aggregation === NEW_COLUMN.aggregation) {
+        return 'rate'
+    }
     if (!metricsTableAggregationDisabledReason(metricType, aggregation)) {
         return aggregation
     }
@@ -218,9 +223,7 @@ export const editMetricsTableWidgetModalLogic = kea<editMetricsTableWidgetModalL
                             ? withQuantileRule({
                                   ...column,
                                   metricName,
-                                  aggregation: metricType
-                                      ? fittingAggregation(column.aggregation, metricType)
-                                      : column.aggregation,
+                                  aggregation: metricType ? fittingAggregation(column, metricType) : column.aggregation,
                               })
                             : column
                     ),
