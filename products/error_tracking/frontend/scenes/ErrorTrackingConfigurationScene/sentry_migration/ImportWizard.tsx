@@ -4,28 +4,27 @@ import { IconX } from '@posthog/icons'
 import { Button, TooltipProvider, cn } from '@posthog/quill'
 
 import { ImportSourceStep } from './ImportSourceStep'
-import { ImportWizardStepper, ImportWizardStepperStep } from './ImportWizardStepper'
-import { SentryImportStep } from './SentryImportStep'
+import { ImportWizardStepper } from './ImportWizardStepper'
+import { SentryCategoryStep } from './SentryCategoryStep'
 import { SentryLocationStep } from './SentryLocationStep'
-import { ImportWizardStep, sentryMigrationLogic } from './sentryMigrationLogic'
+import { sentryMigrationLogic } from './sentryMigrationLogic'
+import { IMPORT_CATEGORIES, ImportWizardStep } from './sentryMigrationSteps'
+import { SentryProjectStep } from './SentryProjectStep'
+import { SentryReviewStep } from './SentryReviewStep'
 import { SentryTokenStep } from './SentryTokenStep'
 
-const STEPS: ImportWizardStepperStep<ImportWizardStep>[] = [
-    { key: ImportWizardStep.Source, label: 'Tool' },
-    { key: ImportWizardStep.Location, label: 'URL' },
-    { key: ImportWizardStep.Token, label: 'Token' },
-    { key: ImportWizardStep.Import, label: 'Import' },
-]
+const FORM_STEPS = [ImportWizardStep.Source, ImportWizardStep.Location, ImportWizardStep.Token]
 
 export function ImportWizard(): JSX.Element {
-    const { step } = useValues(sentryMigrationLogic)
+    const { step, steps } = useValues(sentryMigrationLogic)
+    const category = IMPORT_CATEGORIES.find((importCategory) => importCategory.step === step)
     const { setStep, resetWizard } = useActions(sentryMigrationLogic)
 
     return (
         <TooltipProvider>
-            <div className="flex flex-col gap-6" data-quill>
+            <div className="@container flex flex-col gap-6" data-quill>
                 <div className="flex flex-wrap items-center justify-center gap-2">
-                    <ImportWizardStepper steps={STEPS} currentStep={step} onStepClick={setStep} />
+                    <ImportWizardStepper steps={steps} currentStep={step} onStepClick={setStep} />
                     {step !== ImportWizardStep.Source && (
                         <Button
                             variant="default"
@@ -39,11 +38,11 @@ export function ImportWizard(): JSX.Element {
                         </Button>
                     )}
                 </div>
-                {/* The preview lists long filter patterns, so the last step gets more room than the forms. */}
+                {/* The project and import steps list long filter patterns, so they get more room than the forms. */}
                 <div
                     className={cn(
                         'mx-auto flex w-full flex-col gap-4',
-                        step === ImportWizardStep.Import ? 'max-w-3xl' : 'max-w-lg'
+                        FORM_STEPS.includes(step) ? 'max-w-lg' : 'max-w-3xl'
                     )}
                 >
                     {step === ImportWizardStep.Source ? (
@@ -52,8 +51,12 @@ export function ImportWizard(): JSX.Element {
                         <SentryLocationStep />
                     ) : step === ImportWizardStep.Token ? (
                         <SentryTokenStep />
+                    ) : step === ImportWizardStep.Project ? (
+                        <SentryProjectStep />
+                    ) : category ? (
+                        <SentryCategoryStep category={category} />
                     ) : (
-                        <SentryImportStep />
+                        <SentryReviewStep />
                     )}
                 </div>
             </div>

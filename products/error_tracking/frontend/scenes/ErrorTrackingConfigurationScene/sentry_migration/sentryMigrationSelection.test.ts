@@ -26,8 +26,34 @@ const ITEMS = [
 ]
 
 describe('sentryMigrationSelection', () => {
-    it('selects every new suppression rule by default and leaves rate limits for the user to pick', () => {
-        expect(defaultSelectedItemIds(ITEMS)).toEqual(['error_message:1'])
+    it.each([
+        ['selects every new rule and the first rate limit', ITEMS, ['rate_limit:a', 'error_message:1']],
+        [
+            'prefers the rate limit whose window converts exactly',
+            [
+                item('rate_limit:a', {
+                    category: 'rate_limit',
+                    fit: 'partial',
+                    rate_limit: { value: 1, bucket_size_minutes: 15 },
+                }),
+                ...ITEMS.slice(1),
+            ],
+            ['rate_limit:b', 'error_message:1'],
+        ],
+        [
+            'selects no rate limit when the project already has one of them',
+            [
+                item('rate_limit:a', {
+                    category: 'rate_limit',
+                    already_in_posthog: true,
+                    rate_limit: { value: 100, bucket_size_minutes: 60 },
+                }),
+                ...ITEMS.slice(1),
+            ],
+            ['error_message:1'],
+        ],
+    ])('default selection %s', (_name, items, expected) => {
+        expect(defaultSelectedItemIds(items)).toEqual(expected)
     })
 
     it.each([

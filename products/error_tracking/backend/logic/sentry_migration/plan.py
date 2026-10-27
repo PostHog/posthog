@@ -132,7 +132,7 @@ def _item_id(prefix: str, value: str) -> str:
 
 
 def _format_window(seconds: int) -> str:
-    for unit_seconds, unit in ((86400, "day"), (3600, "hour"), (60, "minute")):
+    for unit_seconds, unit in ((86400, "day"), (3600, "hour"), (60, "minute"), (1, "second")):
         if seconds % unit_seconds == 0:
             amount = seconds // unit_seconds
             return f"{amount} {unit}" if amount == 1 else f"{amount} {unit}s"
