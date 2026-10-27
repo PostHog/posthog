@@ -120,7 +120,7 @@ describe('insightsTableDataLogic', () => {
                 'unique users',
                 { series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.UniqueUsers }] },
                 false,
-                true,
+                false,
             ],
             [
                 'an average of a property',

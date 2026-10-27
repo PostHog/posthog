@@ -58,15 +58,10 @@ export function compareResultKey(item: IndexedTrendResult): string {
     return JSON.stringify([getResultOrder(item), item.label ?? '', item.breakdown_value ?? ''])
 }
 
-// Maths that count something, so a day's values across breakdown values add up to that day's total.
+// Each event lands in exactly one breakdown value. Unique counts don't: one person can be in several rows.
 const DAY_ADDITIVE_MATHS = new Set<string>([
     'total',
     'sum',
-    'dau',
-    'weekly_active',
-    'monthly_active',
-    'unique_session',
-    'unique_group',
     'first_time_for_user',
     'first_matching_event_for_user',
     'first_time_for_group',
