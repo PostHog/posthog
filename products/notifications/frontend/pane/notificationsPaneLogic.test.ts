@@ -45,6 +45,7 @@ describe('notificationsPaneLogic', () => {
     let requests: URL[]
     let requestBodies: unknown[]
     let archiveStatus: number
+    let releaseSlowList: () => void
 
     beforeEach(() => {
         requests = []
@@ -60,7 +61,19 @@ describe('notificationsPaneLogic', () => {
             get: {
                 '/api/projects/:team/notifications/': async (req) => {
                     await record(req)
-                    return [200, { count: 0, results: [], next: null, previous: null, next_cursor: null }]
+                    const params = new URL(req.request.url).searchParams
+                    const slow = params.get('notification_type')?.includes('reminder') ?? false
+                    if (slow) {
+                        await new Promise<void>((resolve) => {
+                            releaseSlowList = resolve
+                        })
+                    }
+                    const results = slow
+                        ? [makeNotification({ id: 'from-mentions-view' })]
+                        : params.has('notification_type')
+                          ? []
+                          : [makeNotification({ id: 'from-default-view' })]
+                    return [200, { count: 1, results, next: null, previous: null, next_cursor: null }]
                 },
                 '/api/projects/:team/notifications/unread_count/': async (req) => {
                     await record(req)
@@ -74,7 +87,10 @@ describe('notificationsPaneLogic', () => {
                 },
                 '/api/projects/:team/notifications/archive_all/': async (req) => {
                     await record(req)
-                    return [200, { updated: 2, notification_ids: ['read-1', 'unread-1'] }]
+                    return [
+                        200,
+                        { updated: 2, notification_ids: ['read-1', 'unread-1'], unread_notification_ids: ['unread-1'] },
+                    ]
                 },
                 '/api/projects/:team/notifications/unarchive_bulk/': async (req) => {
                     await record(req)
@@ -154,7 +170,7 @@ describe('notificationsPaneLogic', () => {
 
         await expectLogic(logic, () => logic.actions.archive(logic.values.entries[0])).toDispatchActions([
             'removeItems',
-            'setItems',
+            'restoreItems',
         ])
 
         expect(logic.values.items.map((item) => item.id)).toEqual(['keep-me'])
@@ -168,5 +184,15 @@ describe('notificationsPaneLogic', () => {
         const params = lastRequestTo('/mark_all_read/')?.searchParams
         expect(params?.get('team_id')).toBe(String(teamLogic.values.currentTeamId))
         expect(params?.has('archived')).toBe(false)
+    })
+
+    it('ignores a list response that arrives after the filters changed again', async () => {
+        logic.actions.setFilters({ read: 'all', category: 'mentions', project: 'all' })
+        await expectLogic(logic, () => logic.actions.clearFilters()).toDispatchActions(['setItems'])
+
+        releaseSlowList()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.items.map((item) => item.id)).toEqual(['from-default-view'])
     })
 })

@@ -33,7 +33,7 @@ function emptyKind(showArchived: boolean, filtersActive: boolean): Notifications
 }
 
 export function TodayNotificationsPane({ source }: { source: NotificationsPaneOpenSource }): JSX.Element {
-    const { status, entries, showArchived, filtersActive, summary } = useValues(notificationsPaneLogic)
+    const { status, entries, nextCursor, showArchived, filtersActive, summary } = useValues(notificationsPaneLogic)
     const { paneOpened, loadNotifications } = useActions(notificationsPaneLogic)
 
     useEffect(() => {
@@ -69,7 +69,7 @@ export function TodayNotificationsPane({ source }: { source: NotificationsPaneOp
                         Retry
                     </Button>
                 </div>
-            ) : entries.length === 0 ? (
+            ) : entries.length === 0 && !nextCursor ? (
                 <NotificationsPaneEmpty kind={emptyKind(showArchived, filtersActive)} />
             ) : (
                 <NotificationsInbox />
