@@ -1,4 +1,8 @@
+import re
+import json
 import hashlib
+from typing import Any
+from urllib.parse import quote, urlencode
 
 from products.error_tracking.backend.facade.api import get_issue_basics
 from products.web_analytics.backend.facade.rage_pages import (
@@ -22,6 +26,8 @@ RAGE_PRODUCTS = ("Session replay", "Web analytics", "Heatmaps")
 MIN_ERROR_SESSIONS = 3
 MIN_ERROR_SHARE = 0.3
 NO_ERRORS = ErrorsBeforeRage(sessions=0, issue_id=None, issue_sessions=0)
+# Reverses the id placeholder that the rage page query puts into paths, so replay matches the same pages.
+ID_SEGMENT = "/(?:[0-9a-f-]{8,}|[0-9]+)"
 
 
 def find(context: Context) -> Found:
@@ -64,7 +70,7 @@ def find(context: Context) -> Found:
                 detail=RAGE_PAGE_DETAIL.format(clicks=clicks, element=element)
                 if element
                 else RAGE_PAGE_NO_ELEMENT_DETAIL.format(clicks=clicks),
-                url="/replay/home",
+                url=_replay_url(page.path),
             ),
         )
     )
@@ -90,6 +96,18 @@ def _error_item(context: Context, page: RagePage, errors: ErrorsBeforeRage, titl
         url=f"/error_tracking/{issue_id}",
         ref=issue_id,
     )
+
+
+def _replay_url(path: str) -> str:
+    rage_click: dict[str, Any] = {"id": "$rageclick", "name": "$rageclick", "type": "events"}
+    if path:
+        pattern = ID_SEGMENT.join(re.escape(part) for part in path.split("/…"))
+        rage_click["properties"] = [{"key": "$pathname", "type": "event", "operator": "regex", "value": f"^{pattern}$"}]
+    filters = {
+        "date_from": "-7d",
+        "filter_group": {"type": "AND", "values": [{"type": "AND", "values": [rage_click]}]},
+    }
+    return f"/replay/home?{urlencode({'filters': json.dumps(filters, separators=(',', ':'))}, quote_via=quote)}"
 
 
 SOURCE = Source(name="rage", find=find)
