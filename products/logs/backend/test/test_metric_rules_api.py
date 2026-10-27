@@ -1,8 +1,11 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import Mock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
@@ -10,7 +13,7 @@ from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.logs.backend.models import MAX_ENABLED_METRIC_RULES, LogsMetricRule
-from products.logs.backend.presentation.views.metric_rules_api import LogsMetricRuleViewSet
+from products.logs.backend.presentation.views.metric_rules_api import LogsMetricRuleSerializer, LogsMetricRuleViewSet
 from products.logs.backend.test.metric_rule_fixtures import VALID_FILTER_GROUP
 
 
@@ -335,3 +338,9 @@ class TestLogsMetricRulesAPI(APIBaseTest):
             self.base_url, self._payload(), format="json", HTTP_AUTHORIZATION=f"Bearer {key_value}"
         )
         assert response.status_code == expected_status, response.json()
+
+
+class TestLogsMetricRuleNameValidation(SimpleTestCase):
+    def test_rejects_the_reserved_derived_metric_prefix(self) -> None:
+        with self.assertRaises(ValidationError):
+            LogsMetricRuleSerializer().validate_metric_name("posthog.derived.spans.requests")

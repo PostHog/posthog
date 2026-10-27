@@ -10,7 +10,7 @@ import math
 import bisect
 import datetime as dt
 from collections.abc import Iterator, Sequence
-from typing import Any, Literal, NamedTuple
+from typing import Any, Literal, NamedTuple, Protocol
 from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
@@ -84,6 +84,10 @@ def attribute_field(name: str, *, scope: AttributeScope = "auto") -> ast.Expr:
         "if(arrayElement(resource_attributes, {name}) != '', arrayElement(resource_attributes, {name}), arrayElement(attributes, {name}))",
         placeholders={"name": name_constant},
     )
+
+
+class FieldResolver(Protocol):
+    def __call__(self, name: str, *, scope: AttributeScope = "auto") -> ast.Expr: ...
 
 
 def _series_key_expr() -> ast.Expr:
@@ -412,12 +416,12 @@ def counter_lookback(interval: str) -> dt.timedelta:
     return max(_interval_step(interval), _MIN_COUNTER_LOOKBACK)
 
 
-def _filter_condition(filter: MetricFilter) -> ast.Expr:
+def _filter_condition(filter: MetricFilter, field_for: FieldResolver = attribute_field) -> ast.Expr:
     """Return one label predicate as a HogQL boolean expression.
 
     Negative matchers include missing map keys, as in Prometheus.
     """
-    field = attribute_field(filter.key, scope=filter.scope.value)
+    field = field_for(filter.key, scope=filter.scope.value)
     if filter.op in (FilterOp.REGEX, FilterOp.NOT_REGEX):
         # Return 400 for invalid patterns. Python accepts all valid RE2 syntax.
         try:
@@ -436,11 +440,14 @@ def _filter_condition(filter: MetricFilter) -> ast.Expr:
     raise ValueError(f"Unsupported filter op: {filter.op!r}")
 
 
-def filters_expr(filters: Sequence[MetricFilter]) -> ast.Expr:
-    """AND of all filter conditions; TRUE when there are none."""
+def filters_expr(filters: Sequence[MetricFilter], *, field_for: FieldResolver = attribute_field) -> ast.Expr:
+    """AND of all filter conditions; TRUE when there are none.
+
+    `field_for` resolves a label key to the expression it compares, for tables other than `metrics`.
+    """
     if not filters:
         return ast.Constant(value=True)
-    conditions = [_filter_condition(f) for f in filters]
+    conditions = [_filter_condition(f, field_for) for f in filters]
     if len(conditions) == 1:
         return conditions[0]
     return ast.And(exprs=conditions)

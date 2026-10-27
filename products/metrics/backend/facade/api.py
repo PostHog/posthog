@@ -33,6 +33,12 @@ from posthog.models import Team, User
 from products.error_tracking.backend.facade.api import list_spike_events
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
 from products.metrics.backend.date_range import metrics_query_date_range
+from products.metrics.backend.derived import (
+    DerivedMetricQueryRunner,
+    derived_metrics_enabled,
+    is_derived_metric_name as _is_derived_metric_name,
+    list_derived_metric_names,
+)
 from products.metrics.backend.facade.contracts import (
     CompanionMetric,
     DashboardImportRequest,
@@ -175,13 +181,16 @@ def _assemble_series(
     grid: list[str],
     units_by_fingerprint: dict[int, str],
     zero_fill: bool = True,
+    ingested_unit: str | None = None,
 ) -> list[MetricSeries]:
     """Split bucketed rows into one series per label-set, zero-filled onto
     the shared grid so every series (and later, every clause of a formula)
     has identical timestamps.
 
     A row with a `series_key` stays apart from rows of another key, even when
-    their labels match: two physical series can share a label-set."""
+    their labels match: two physical series can share a label-set.
+
+    `ingested_unit` sets the unit of a clause whose rows carry no fingerprints, such as a derived metric."""
     by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], dict[str, float | None]] = {}
     fingerprints_by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], set[int]] = {}
     bounds_by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], set[float]] = {}
@@ -205,7 +214,12 @@ def _assemble_series(
             points=tuple(MetricPoint(time=time, value=values.get(time, 0.0 if zero_fill else None)) for time in grid),
             metric_name=clause.metric_name,
             clause=clause.name,
-            unit=_output_unit(_unit_for_fingerprints(fingerprints_by_labels[key], units_by_fingerprint), clause),
+            unit=_output_unit(
+                ingested_unit
+                if ingested_unit is not None
+                else _unit_for_fingerprints(fingerprints_by_labels[key], units_by_fingerprint),
+                clause,
+            ),
             histogram_bounds=tuple(sorted(bounds_by_labels[key])) if key in bounds_by_labels else None,
         )
         for key, values in ranked[:MAX_SERIES_PER_CLAUSE]
@@ -365,8 +379,23 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
         if request.formula is not None
         else None
     )
-    runners: list[tuple[MetricQueryClause, MetricQueryRunner, bool]] = []
+    runners: list[tuple[MetricQueryClause, MetricQueryRunner | DerivedMetricQueryRunner, bool]] = []
+    derived_units: dict[str, str] = {}
+    derived_enabled = any(_is_derived_metric_name(c.metric_name) for c in request.clauses) and derived_metrics_enabled(
+        team
+    )
     for clause in request.clauses:
+        if derived_enabled and _is_derived_metric_name(clause.metric_name):
+            derived_runner = DerivedMetricQueryRunner(
+                team=team,
+                clause=clause,
+                date_from=request.date_from,
+                date_to=request.date_to,
+                interval=request.interval,
+            )
+            derived_units[clause.name] = derived_runner.unit
+            runners.append((clause, derived_runner, False))
+            continue
         runner_aggregation = _resolve_runner_aggregation(clause)
         runner = build_metric_query_runner(
             team=team,
@@ -385,7 +414,7 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
     rows_by_clause: dict[str, list[dict[str, Any]]] = {clause.name: [] for clause in request.clauses}
     units_by_fingerprint: dict[int, str] = {}
 
-    def run_clause(clause: MetricQueryClause, runner: MetricQueryRunner, raw: bool) -> None:
+    def run_clause(clause: MetricQueryClause, runner: MetricQueryRunner | DerivedMetricQueryRunner, raw: bool) -> None:
         rows = runner.run()
         if raw:
             _attach_series_labels(team, clause.metric_name, rows)
@@ -421,6 +450,7 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
             grid=grid,
             units_by_fingerprint=units_by_fingerprint,
             zero_fill=request.zero_fill,
+            ingested_unit=derived_units.get(clause.name),
         )
         for clause in request.clauses
     }
@@ -467,11 +497,25 @@ def list_metric_names(
     Raises `ValueError` for an out-of-range limit or too many services.
 
     The unsearched list is cached per team and service scope for a minute;
-    searches are not.
+    searches are not. Behind the derived series flag, the derived metrics the
+    team can query follow the ingested names.
     """
     if names:
         return MetricNamesQueryRunner(team=team, services=services, names=names, limit=len(names)).run()
-    return cached_metric_names(team=team, search=search, limit=limit, services=services)
+    ingested = cached_metric_names(team=team, search=search, limit=limit, services=services)
+    if not derived_metrics_enabled(team):
+        return ingested
+    derived: list[dict[str, Any]] = [
+        {
+            "name": metric.name,
+            "metric_type": metric.metric_type.value,
+            "unit": metric.unit,
+            "last_seen": None,
+            "sparkline": [],
+        }
+        for metric in list_derived_metric_names(team, search=search)
+    ]
+    return [*ingested, *derived]
 
 
 def list_metric_picker_names(
@@ -482,7 +526,19 @@ def list_metric_picker_names(
     services: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
     """List current metric names and types for the viewer picker, without sparklines or caching."""
-    return MetricNamesQueryRunner(team=team, search=search, limit=limit, services=services).run_picker()
+    ingested = MetricNamesQueryRunner(team=team, search=search, limit=limit, services=services).run_picker()
+    if not derived_metrics_enabled(team):
+        return ingested
+    derived: list[dict[str, Any]] = [
+        {"name": metric.name, "metric_type": metric.metric_type.value}
+        for metric in list_derived_metric_names(team, search=search)
+    ]
+    return [*ingested, *derived]
+
+
+def is_derived_metric_name(name: str) -> bool:
+    """True for a name that the query computes from spans and logs instead of reading ingested samples."""
+    return _is_derived_metric_name(name)
 
 
 def get_metrics_overview(*, team: Team, lookback: dt.timedelta | None = None) -> MetricsOverview:
