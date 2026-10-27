@@ -8,6 +8,8 @@ if TYPE_CHECKING:
 
     from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
+from temporalio import activity
+
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.facade.source_config import (
@@ -46,6 +48,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.slack.slac
     validate_credentials as validate_slack_credentials,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+# The setup wizard and a manual refresh discover schemas inside a web request, which the gateway ends
+# at 120 seconds. Joining is one rate-limited call per channel, so a large workspace can't finish there.
+_REQUEST_JOIN_BUDGET_SECONDS = 30.0
 
 
 @frozen
@@ -382,7 +388,14 @@ Prefer a manifest? Paste this when creating the app — it wires the request URL
         # Joining is idempotent and only touches public channels the bot isn't in, so running it on
         # each discovery/refresh also picks up channels created since the last pass.
         if config.slack_access_token and config.join_public_channels and config.join_public_channels.enabled:
-            join_public_channels(access.access_token, access.cache_id, access.authed_user_id)
+            # The discovery activity runs as soon as a source is created and has no request timeout,
+            # so it joins whatever a request pass leaves.
+            join_public_channels(
+                access.access_token,
+                access.cache_id,
+                access.authed_user_id,
+                time_budget_seconds=None if activity.in_activity() else _REQUEST_JOIN_BUDGET_SECONDS,
+            )
         channels = get_channels(
             access.cache_id, access.access_token, access.authed_user_id, force_refresh=force_refresh
         )

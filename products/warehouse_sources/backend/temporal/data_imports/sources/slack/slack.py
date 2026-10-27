@@ -1,3 +1,4 @@
+import time
 import hashlib
 import datetime
 import dataclasses
@@ -380,12 +381,13 @@ def get_channels(
 _SKIP_JOIN_ERRORS = {"already_in_channel", "is_archived", "method_not_supported_for_channel_type"}
 
 
-def _join_public_channels(access_token: str, channels: list[dict[str, Any]]) -> int:
+def _join_public_channels(access_token: str, channels: list[dict[str, Any]], deadline: float | None = None) -> int:
     """Join every public channel the bot isn't already in, so their message events reach the webhook.
 
     ``conversations.join`` only works for public channels — private channels must be invited manually.
     Joins are idempotent (``already_in_channel`` is a no-op) and archived channels are skipped. A
     missing ``channels:join`` scope is surfaced immediately, since it means auto-join can never work.
+    Stops once ``time.monotonic()`` passes ``deadline``; a later pass joins the rest.
     Returns the number of channels newly joined.
     """
     url = "https://slack.com/api/conversations.join"
@@ -394,6 +396,9 @@ def _join_public_channels(access_token: str, channels: list[dict[str, Any]]) -> 
     for ch in channels:
         if ch.get("is_private") or ch.get("is_archived") or ch.get("is_member"):
             continue
+        if deadline is not None and time.monotonic() >= deadline:
+            logger.info("Slack auto-join stopped at its time budget", joined=joined)
+            break
         response = _slack_post(url, headers=headers, data={"channel": ch["id"]}, timeout=10)
         response.raise_for_status()
         data = response.json()
@@ -410,10 +415,16 @@ def _join_public_channels(access_token: str, channels: list[dict[str, Any]]) -> 
     return joined
 
 
-def join_public_channels(access_token: str, cache_id: str, authed_user: str | None = None) -> int:
+def join_public_channels(
+    access_token: str,
+    cache_id: str,
+    authed_user: str | None = None,
+    time_budget_seconds: float | None = None,
+) -> int:
     """Auto-join all public channels the bot isn't in yet (see ``_join_public_channels``)."""
+    deadline = time.monotonic() + time_budget_seconds if time_budget_seconds is not None else None
     channels = _fetch_all_channels_cached(cache_id, access_token, authed_user)
-    return _join_public_channels(access_token, channels)
+    return _join_public_channels(access_token, channels, deadline)
 
 
 def _add_timestamp(msg: dict[str, Any]) -> dict[str, Any]:

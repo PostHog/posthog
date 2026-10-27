@@ -1,3 +1,4 @@
+import time
 from typing import Any
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -660,6 +661,13 @@ class TestJoinPublicChannels:
         with patch(self._POST, return_value=_make_response({"ok": False, "error": "already_in_channel"})):
             assert _join_public_channels("xoxb", channels) == 0
 
+    def test_stops_joining_once_the_deadline_passes(self) -> None:
+        channels = [{"id": "C1"}, {"id": "C2"}]
+        with patch(self._POST, return_value=_make_response({"ok": True})) as mock_post:
+            assert _join_public_channels("xoxb", channels, deadline=time.monotonic() - 1) == 0
+
+        mock_post.assert_not_called()
+
     def test_missing_scope_raises(self) -> None:
         # Auto-join silently doing nothing would be worse than failing — surface the missing scope.
         channels = [{"id": "C1"}]
@@ -734,6 +742,7 @@ class TestGetSchemasAutoJoin:
             source.get_schemas(config, team_id=1)
 
         mock_join.assert_called_once()
+        assert mock_join.call_args.kwargs["time_budget_seconds"] is not None
 
     def test_toggle_can_be_explicitly_disabled(self) -> None:
         from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.slack import (
