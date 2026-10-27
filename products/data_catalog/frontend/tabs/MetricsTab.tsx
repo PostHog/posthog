@@ -475,25 +475,20 @@ export function MetricsTab(): JSX.Element {
                                     Drifted metrics come first, then your proposals, then AI proposals by confidence.
                                 </span>
                             </div>
-                            {/* A fixed cap with its own scroll, so a long queue never pushes the approved table out of reach. */}
-                            <div className="grid max-h-120 grid-rows-[minmax(0,1fr)]">
-                                <LemonTable
-                                    id="data-catalog-review-queue"
-                                    data-attr="data-catalog-review-queue-table"
-                                    dataSource={reviewQueue}
-                                    rowKey="name"
-                                    columns={reviewColumns}
-                                    loading={tableLoading}
-                                    allowContentScroll
-                                    // stickyHeader pins to the page, not to this scroll area, so pin the header here.
-                                    // z-[7] matches LemonTable's own pinned header: above pinned cells, below the shadows.
-                                    className="[&_thead]:sticky [&_thead]:top-0 [&_thead]:z-[7] [&_th]:bg-[var(--lemon-table-background-color)]"
-                                    emptyState={metricsLoadState === 'failed' ? LOAD_FAILED : 'Nothing to review.'}
-                                    nouns={['metric', 'metrics']}
-                                    onSort={(sorting) => reportCatalogTableSorted('metrics', sorting)}
-                                    bulkSelection={bulkSelection(reviewQueue, bulkBarTarget, true)}
-                                />
-                            </div>
+                            <LemonTable
+                                id="data-catalog-review-queue"
+                                data-attr="data-catalog-review-queue-table"
+                                dataSource={reviewQueue}
+                                rowKey="name"
+                                columns={reviewColumns}
+                                loading={tableLoading}
+                                // A short page keeps the approved table near the top, however long the queue is.
+                                pagination={{ pageSize: 10 }}
+                                emptyState={metricsLoadState === 'failed' ? LOAD_FAILED : 'Nothing to review.'}
+                                nouns={['metric', 'metrics']}
+                                onSort={(sorting) => reportCatalogTableSorted('metrics', sorting)}
+                                bulkSelection={bulkSelection(reviewQueue, bulkBarTarget, true)}
+                            />
                             <div ref={setBulkBarTarget} className={BULK_BAR_CLASS} />
                         </section>
                     )}
