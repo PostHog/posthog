@@ -43,19 +43,13 @@ export function LoadNext({ query, nouns = ['entry', 'entries'], expectedTotalRow
         } else if (isHogQLQuery(query) && !canLoadNextData && hasMoreData && dataLimit) {
             return `Default limit of ${dataLimit} rows reached. Try adding a LIMIT clause to adjust.`
         }
-        if (
-            !canLoadNextData &&
-            !hasMoreData &&
-            numberOfRows &&
-            expectedTotalRows &&
-            numberOfRows !== expectedTotalRows
-        ) {
+        if (!canLoadNextData && !hasMoreData && numberOfRows && expectedTotalRows && numberOfRows < expectedTotalRows) {
             return `Showing ${humanFriendlyNumber(numberOfRows)} of ${humanFriendlyNumber(expectedTotalRows)} ${nouns[1]}`
         }
         const noun = numberOfRows === 1 ? nouns[0] : nouns[1]
         let result = `Showing ${
             hasMoreData && (numberOfRows ?? 0) > 1 ? 'first ' : canLoadNextData || numberOfRows === 1 ? '' : 'all '
-        }${numberOfRows === 1 ? 'one' : numberOfRows} ${noun}`
+        }${numberOfRows === 1 ? 'one' : humanFriendlyNumber(numberOfRows)} ${noun}`
         if (canLoadNextData) {
             result += nextDataLoading ? ' – loading more…' : ' – click to load more'
         } else if (hasMoreData) {

@@ -661,6 +661,7 @@ describe('cohortEditLogic', () => {
         it.each([
             { count: 2455, expectedFooter: 'Showing 2 of 2,455 entries' },
             { count: 2, expectedFooter: 'Showing all 2 entries' },
+            { count: 1, expectedFooter: 'Showing all 2 entries' },
         ])('shows "$expectedFooter" when the cohort count is $count', async ({ count, expectedFooter }) => {
             const cohortId = 7
             useMocks({
