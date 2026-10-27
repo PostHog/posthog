@@ -264,12 +264,9 @@ export function ActionFilterRow({
     )
 
     /**
-     * Shared selection handler for both the legacy `TaxonomicPopover` and the
-     * new `TaxonomicFilterMenu` / `TaxonomicAutocomplete`. The pseudo-event
-     * groups (Pageview / Screen / Autocapture events) and quick filters don't
-     * map to a plain `EntityType` — they expand into a base event plus a
-     * property filter. Keeping one handler guarantees the new picker behaves
-     * identically to the legacy one.
+     * The pseudo-event groups (Pageview / Screen / Autocapture events) and
+     * quick filters don't map to a plain `EntityType` — they expand into a
+     * base event plus a property filter.
      */
     const applyTaxonomicSelection = useCallback(
         (
@@ -833,7 +830,6 @@ export function ActionFilterRow({
                         excludedProperties={excludedProperties}
                         hogQLGlobals={hogQLGlobals}
                         operatorAllowlist={operatorAllowlist}
-                        triggerVariant="input"
                         framedRows={behavioralFiltersEnabled}
                         addText={behavioralFiltersEnabled ? 'Filter' : undefined}
                         addFilterSuffix={
