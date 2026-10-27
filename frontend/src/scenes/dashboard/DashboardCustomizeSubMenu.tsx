@@ -23,8 +23,14 @@ import {
 import { dashboardLogic } from './dashboardLogic'
 
 export function DashboardCustomizeSubMenu(): JSX.Element | null {
-    const { dashboard, currentLayoutSize, layoutEditMode, tileGroupSections, tileGroupDisplay } =
-        useValues(dashboardLogic)
+    const {
+        dashboard,
+        currentLayoutSize,
+        layoutEditMode,
+        tileGroupSections,
+        tileGroupDisplay,
+        dashboardGridCompactionSaving,
+    } = useValues(dashboardLogic)
     const { setDashboardEditing, changeDashboardTileSpacing, changeDashboardGridCompaction, changeTileGroupDisplay } =
         useActions(dashboardLogic)
 
@@ -81,6 +87,7 @@ export function DashboardCustomizeSubMenu(): JSX.Element | null {
                             <SceneMenuBarRadioItem
                                 key={mode}
                                 value={mode}
+                                disabled={dashboardGridCompactionSaving}
                                 data-attr={`dashboard-menubar-tile-movement-${mode}`}
                             >
                                 {DASHBOARD_GRID_COMPACTION_LABELS[mode]}

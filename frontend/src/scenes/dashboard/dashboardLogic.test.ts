@@ -1652,66 +1652,38 @@ describe('dashboardLogic', () => {
             }
         })
 
-        it('previews layout compaction immediately and persists only the final choice', async () => {
+        it('ignores movement mode changes while a mode save is in flight', async () => {
             await expectLogic(logic).toFinishAllListeners()
-            ;(api.update as jest.Mock).mockClear()
-            jest.useFakeTimers()
+            let resolveSave: (dashboard: DashboardType) => void = () => {}
+            ;(api.update as jest.Mock)
+                .mockClear()
+                .mockImplementationOnce(() => new Promise((resolve) => (resolveSave = resolve)))
 
-            try {
-                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Vertical)
-                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Vertical)
-                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Horizontal)
-                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+            logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+            logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Stable)
 
-                expect(logic.values.dashboard?.customization?.layout_compaction).toBe(
-                    DashboardGridCompaction.Horizontal
-                )
-                expect(api.update).not.toHaveBeenCalled()
-
-                await jest.advanceTimersByTimeAsync(750)
-                await expectLogic(logic).toFinishAllListeners()
-
-                expect(api.update).toHaveBeenCalledTimes(1)
-                expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
-                    layout_compaction: DashboardGridCompaction.Horizontal,
-                    grid_spacing: 'standard',
-                })
-            } finally {
-                jest.useRealTimers()
-            }
-        })
-
-        it('persists the latest movement mode after a save is already in flight', async () => {
-            await expectLogic(logic).toFinishAllListeners()
-            let resolveFirstSave: (dashboard: DashboardType) => void = () => {
-                throw new Error('First save resolver is unavailable')
-            }
-            const firstSave = new Promise<DashboardType>((resolve) => {
-                resolveFirstSave = resolve
+            expect(logic.values.dashboardGridCompactionSaving).toBe(true)
+            expect(logic.values.dashboard?.customization?.layout_compaction).toBe(DashboardGridCompaction.Horizontal)
+            expect(api.update).toHaveBeenCalledTimes(1)
+            expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
+                layout_compaction: DashboardGridCompaction.Horizontal,
+                grid_spacing: 'standard',
             })
-            ;(api.update as jest.Mock).mockImplementationOnce(() => firstSave)
-            jest.useFakeTimers()
 
-            try {
-                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Horizontal)
-                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Horizontal)
-                await jest.advanceTimersByTimeAsync(750)
+            resolveSave({
+                ...logic.values.dashboard!,
+                customization: { layout_compaction: DashboardGridCompaction.Horizontal },
+            })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.dashboardGridCompactionSaving).toBe(false)
 
-                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Stable)
-                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Stable)
-                await jest.advanceTimersByTimeAsync(750)
+            logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Stable)
+            await expectLogic(logic).toFinishAllListeners()
 
-                resolveFirstSave(logic.values.dashboard!)
-                await jest.advanceTimersByTimeAsync(750)
-                await expectLogic(logic).toFinishAllListeners()
-
-                expect(api.update).toHaveBeenLastCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
-                    layout_compaction: DashboardGridCompaction.Stable,
-                    grid_spacing: 'standard',
-                })
-            } finally {
-                jest.useRealTimers()
-            }
+            expect(api.update).toHaveBeenLastCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
+                layout_compaction: DashboardGridCompaction.Stable,
+                grid_spacing: 'standard',
+            })
         })
 
         it('saving without changes does not call api', async () => {
@@ -3446,58 +3418,6 @@ describe('dashboardLogic', () => {
                 logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Horizontal)
 
                 expect(dialogOpenSpy).not.toHaveBeenCalled()
-            })
-
-            it('saves the latest mode when a queued save replays while a newer choice waits', async () => {
-                await expectLogic(logic).toFinishAllListeners()
-                let resolveFirstSave: (dashboard: DashboardType) => void = () => {}
-                ;(api.update as jest.Mock)
-                    .mockClear()
-                    .mockImplementationOnce(() => new Promise((resolve) => (resolveFirstSave = resolve)))
-                jest.useFakeTimers()
-
-                try {
-                    logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Horizontal)
-                    await jest.advanceTimersByTimeAsync(750)
-                    logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Stable)
-                    await jest.advanceTimersByTimeAsync(750)
-                    logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Vertical)
-                    await jest.advanceTimersByTimeAsync(100)
-
-                    resolveFirstSave({
-                        ...logic.values.dashboard!,
-                        customization: { layout_compaction: DashboardGridCompaction.Horizontal },
-                    })
-                    await jest.advanceTimersByTimeAsync(750)
-                    await expectLogic(logic).toFinishAllListeners()
-
-                    expect((api.update as jest.Mock).mock.calls.at(-1)?.[1]).toMatchObject({
-                        layout_compaction: DashboardGridCompaction.Vertical,
-                    })
-                    expect(logic.values.dashboard?.customization?.layout_compaction).toBe(
-                        DashboardGridCompaction.Vertical
-                    )
-                } finally {
-                    jest.useRealTimers()
-                }
-            })
-
-            it('keeps the chosen mode when another dashboard update lands before the mode save', async () => {
-                await expectLogic(logic).toFinishAllListeners()
-                const staleDashboard = {
-                    ...logic.values.dashboard!,
-                    customization: {
-                        ...logic.values.dashboard!.customization,
-                        layout_compaction: DashboardGridCompaction.Vertical,
-                    },
-                }
-
-                logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Horizontal)
-                dashboardsModel.actions.updateDashboardSuccess(staleDashboard)
-
-                expect(logic.values.dashboard?.customization?.layout_compaction).toBe(
-                    DashboardGridCompaction.Horizontal
-                )
             })
 
             it('prompts before changing the movement mode when the layout is unsaved', async () => {

@@ -718,6 +718,7 @@ export interface dashboardLogicValues {
     dashboardSettingsDraft: DashboardSettings | null
     dashboardSettingsState: DashboardSettingsState
     dashboardStreaming: boolean
+    dashboardGridCompactionSaving: boolean
     dashboardTileSpacingSaving: boolean
     dataColorTheme: DataColorTheme | null
     dataColorThemeId: number | null
@@ -1321,6 +1322,9 @@ export interface dashboardLogicActions {
     }
     setDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => {
         tileSpacing: DashboardTileSpacing
+    }
+    setDashboardGridCompactionSaving: (saving: boolean) => {
+        saving: boolean
     }
     setDashboardTileSpacingSaving: (saving: boolean) => {
         saving: boolean
@@ -2213,6 +2217,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setDataColorThemeId: (dataColorThemeId: number | null) => ({ dataColorThemeId }),
         setDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => ({ tileSpacing }),
         setDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => ({ layoutCompaction }),
+        setDashboardGridCompactionSaving: (saving: boolean) => ({ saving }),
         setDashboardTileSpacingSaving: (saving: boolean) => ({ saving }),
         restoreTemporaryColorState: (colors: BreakdownColorConfig[], themeId: { themeId: number | null } | null) => ({
             colors,
@@ -2681,6 +2686,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 loadDashboardStreaming: () => true,
                 tileStreamingComplete: () => false,
                 tileStreamingFailure: () => false,
+            },
+        ],
+        dashboardGridCompactionSaving: [
+            false,
+            {
+                setDashboardGridCompactionSaving: (_, { saving }) => saving,
             },
         ],
         dashboardTileSpacingSaving: [
@@ -4624,13 +4635,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             })
 
-            // An update that lands while a mode save waits, such as the previous mode save's response, has an older mode.
-            const unsavedLayoutCompaction = cache.unsavedLayoutCompaction as DashboardGridCompaction | undefined
-            const customization = unsavedLayoutCompaction
-                ? { ...dashboard.customization, layout_compaction: unsavedLayoutCompaction }
-                : dashboard.customization
-
-            actions.applyDashboardUpdate({ ...dashboard, customization, tiles }, savedPlacements)
+            actions.applyDashboardUpdate({ ...dashboard, tiles }, savedPlacements)
         },
         scheduleRefreshDashboardWidgets: ({ tileId }: { tileId: number }) => {
             if (!cache.widgetTileRefreshScheduler) {
@@ -5158,20 +5163,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
             }
         },
-        saveDashboardGridCompaction: async ({ layoutCompaction }, breakpoint) => {
-            await breakpoint(750)
-
-            if (cache.dashboardGridCompactionSaveInFlight) {
-                cache.pendingDashboardGridCompaction = layoutCompaction
-                return
-            }
-
+        saveDashboardGridCompaction: async ({ layoutCompaction }) => {
             const persistedDashboard = dashboardsModel.values.rawDashboards[props.id]
             const persistedLayoutCompaction =
                 persistedDashboard && 'customization' in persistedDashboard
                     ? (persistedDashboard.customization?.layout_compaction ?? DashboardGridCompaction.Vertical)
                     : DashboardGridCompaction.Vertical
-            cache.dashboardGridCompactionSaveInFlight = true
+            actions.setDashboardGridCompactionSaving(true)
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use dashboardsPartialUpdate() from 'products/dashboards/frontend/generated/api' instead.
                 const dashboard = await api.update<DashboardType>(
@@ -5186,28 +5184,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             } catch (error) {
                 posthog.captureException(error)
-                if (!cache.pendingDashboardGridCompaction) {
-                    cache.unsavedLayoutCompaction = undefined
-                    actions.setDashboardGridCompaction(persistedLayoutCompaction)
-                    actions.loadDashboard({ action: DashboardLoadAction.Update })
-                }
+                actions.setDashboardGridCompaction(persistedLayoutCompaction)
+                actions.loadDashboard({ action: DashboardLoadAction.Update })
                 lemonToast.error("Couldn't update tile movement. Try again.")
             } finally {
-                cache.dashboardGridCompactionSaveInFlight = false
-                const pendingLayoutCompaction = cache.pendingDashboardGridCompaction as
-                    | DashboardGridCompaction
-                    | undefined
-                cache.pendingDashboardGridCompaction = undefined
-                if (pendingLayoutCompaction) {
-                    // Replaying cancels any choice still in its debounce, so save the latest choice, not the queued one.
-                    const latestLayoutCompaction =
-                        (cache.unsavedLayoutCompaction as DashboardGridCompaction | undefined) ??
-                        pendingLayoutCompaction
-                    actions.setDashboardGridCompaction(latestLayoutCompaction)
-                    actions.saveDashboardGridCompaction(latestLayoutCompaction)
-                } else if (cache.unsavedLayoutCompaction === layoutCompaction) {
-                    cache.unsavedLayoutCompaction = undefined
-                }
+                actions.setDashboardGridCompactionSaving(false)
             }
         },
         forceRefreshIfStale: () => {
@@ -5973,9 +5954,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.saveDashboardTileSpacing(tileSpacing)
         },
         changeDashboardGridCompaction: ({ layoutCompaction }) => {
+            // The options are disabled while a save is in flight, so a save response never carries an older choice.
             if (
+                values.dashboardGridCompactionSaving ||
                 layoutCompaction ===
-                (values.dashboard?.customization?.layout_compaction ?? DashboardGridCompaction.Vertical)
+                    (values.dashboard?.customization?.layout_compaction ?? DashboardGridCompaction.Vertical)
             ) {
                 return
             }
@@ -5987,7 +5970,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     )
                     actions.clearDraftLayouts()
                 }
-                cache.unsavedLayoutCompaction = layoutCompaction
                 actions.setDashboardGridCompaction(layoutCompaction)
                 actions.saveDashboardGridCompaction(layoutCompaction)
             }
