@@ -77,7 +77,7 @@ class TestExpoTransport:
 
 
 class TestExpoCredentials:
-    # Expo resolves `viewer` to null for robot tokens, so the probe must accept any actor.
+    # A robot token gets no `viewer` from Expo, so the probe must accept the token on `meActor` alone.
     @pytest.mark.parametrize("actor", [{"__typename": "User", "id": "u1"}, {"__typename": "Robot", "id": "r1"}])
     def test_a_valid_token_with_project_access_passes(self, actor: dict[str, Any]) -> None:
         session = mock.MagicMock()
