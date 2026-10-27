@@ -105,7 +105,7 @@ Prose is the slowest form on the page. Before writing a sentence, ask what carri
 | A behavior change or a risk a reviewer must not miss                     | `> [!WARNING]` or `> [!NOTE]`                             |
 | Anything else                                                            | Bullets, under the shape rule in pass 4                   |
 
-No PR needs every form. Reach for one because it makes review faster, never as decoration. An empty section gets one bullet or "None".
+No PR needs every form. Reach for one because it makes review faster, never as decoration. An empty section gets one bullet: `- None.`
 
 ### Screenshots and reels
 
@@ -195,7 +195,7 @@ When the diff is six lines, the body has to read as the body of a six-line chang
 - Headings, diagrams, code, images, HTML tags and `<details>` blocks do not count. Moving evidence and transcripts into `<details>` is the first cut.
 - The template's fixed lines, such as the release status and agent context labels, use about 25 of the 150 words.
 - Give a one-file fix 3 to 6 bullets across the whole body.
-- Write one line or "None" under every heading that does not apply. That is a complete answer, not a gap.
+- Write `- None.` under every heading that does not apply. That is a complete answer, not a gap. It is a bullet, like the release status line the changelog bot reads, so empty sections look the same.
 - Keep numbers, file paths and identifiers when you cut. Cut adjectives and second explanations.
 
 Run the counter on the body before every `gh pr create` or `gh pr edit`. It reads a file, or stdin when the argument is `-`:

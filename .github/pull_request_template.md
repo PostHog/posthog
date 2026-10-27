@@ -1,4 +1,4 @@
-<!-- This has to stand on its own: a reader who opens no files should still know why the PR is necessary and what it does. Aim for 150 words or fewer, table cells included. Diagrams, code blocks and <details> blocks do not count. A section you have nothing for gets one line or "None". -->
+<!-- This has to stand on its own: a reader who opens no files should still know why the PR is necessary and what it does. Aim for 150 words or fewer, table cells included. Diagrams, code blocks and <details> blocks do not count. A section you have nothing for gets one bullet: "- None." -->
 
 ## Problem
 
