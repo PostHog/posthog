@@ -502,7 +502,6 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
         return sorted_results, response.columns or []
 
-    @experiment_error_handler
     def _refuse_warehouse_sources(self) -> None:
         exposure_config = (self.experiment.exposure_criteria or {}).get("exposure_config") or {}
         if (
@@ -511,6 +510,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         ):
             raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
 
+    @experiment_error_handler
     def _calculate(self) -> ExperimentQueryResponse:
         self._refuse_warehouse_sources()
         variant_results = self._prepare_variant_results()
