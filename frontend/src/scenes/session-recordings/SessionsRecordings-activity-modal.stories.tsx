@@ -19,9 +19,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28',
-        testOptions: {
-            loaderTimeout: 15000,
-        },
     },
     decorators: [
         mswDecorator({
