@@ -5,10 +5,9 @@ import { LemonSwitch } from '@posthog/lemon-ui'
 import { ReportFormFields } from '../components/EvaluationReportConfig'
 import { evaluationReportLogic } from '../evaluationReportLogic'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
-import { CreateStep, type StepProgress } from './CreateStep'
 
-/** Step four: scheduled reports, with the same settings as on the evaluation's page. */
-export function EvaluationReportsStep(progress: StepProgress): JSX.Element | null {
+/** Scheduled reports, with the same settings as on the evaluation's page. */
+export function EvaluationReportsPanel(): JSX.Element | null {
     const { evaluation, isReportableEvaluation } = useValues(llmEvaluationLogic)
     const { configDraft } = useValues(evaluationReportLogic({ evaluationId: 'new' }))
     const { setDraftEnabled } = useActions(evaluationReportLogic({ evaluationId: 'new' }))
@@ -20,20 +19,18 @@ export function EvaluationReportsStep(progress: StepProgress): JSX.Element | nul
     const unavailableReason = isReportableEvaluation
         ? null
         : evaluation.output_type === 'numeric'
-          ? 'Set a passing score in step 2 to get reports.'
+          ? 'Set a passing score under Return to get reports.'
           : evaluation.output_type === 'categorical'
-            ? 'Mark a category as a pass in step 2 to get reports.'
+            ? 'Mark a category as a pass under Return to get reports.'
             : 'Reports are not available for this kind of evaluation.'
     const enabled = configDraft.enabled && !unavailableReason
 
     return (
-        <CreateStep
-            number={4}
-            title="Scheduled reports"
-            summary={enabled ? 'On' : 'Off'}
-            {...progress}
-            description="An agent reads the results and writes up what changed, with examples."
-            action={
+        <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="mb-0 text-sm text-secondary">
+                    An agent reads the results and writes up what changed, with examples.
+                </p>
                 <LemonSwitch
                     checked={enabled}
                     onChange={setDraftEnabled}
@@ -42,13 +39,12 @@ export function EvaluationReportsStep(progress: StepProgress): JSX.Element | nul
                     label={enabled ? 'Enabled' : 'Disabled'}
                     data-attr="llma-evaluation-create-reports-switch"
                 />
-            }
-        >
+            </div>
             {unavailableReason ? (
                 <p className="mb-0 text-sm text-secondary">{unavailableReason}</p>
             ) : (
                 enabled && <ReportFormFields evaluationId="new" />
             )}
-        </CreateStep>
+        </div>
     )
 }

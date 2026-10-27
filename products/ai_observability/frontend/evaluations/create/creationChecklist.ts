@@ -9,8 +9,6 @@ export interface ChecklistItem {
     done: boolean
     /** What to do next when the item is not done. Also the reason the create button is disabled. */
     todo: string
-    /** Set for an item that starts out done, so the summary only lists it once something breaks it. */
-    hiddenWhenDone?: boolean
     /** Set when the fix lives on another page, such as adding a provider key in settings. */
     fixInSettings?: boolean
 }
@@ -50,7 +48,6 @@ export function creationChecklist(input: ChecklistInput): ChecklistItem[] {
             label: 'Result',
             done: input.resultError === null,
             todo: input.resultError ?? '',
-            hiddenWhenDone: true,
         })
     }
     if (input.modelSelectionRequired) {
@@ -69,7 +66,6 @@ export function creationChecklist(input: ChecklistInput): ChecklistItem[] {
         label: 'Sampling',
         done: !input.hasUnsetSampling,
         todo: 'Set a sampling percentage between 0.1% and 100%',
-        hiddenWhenDone: true,
     })
     return items
 }

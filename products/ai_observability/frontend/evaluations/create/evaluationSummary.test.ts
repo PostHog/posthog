@@ -1,5 +1,5 @@
 import type { EvaluationConditionSet, EvaluationConfig } from '../types'
-import { summarySentence } from './evaluationSummary'
+import { reportText, triggerText } from './evaluationSummary'
 
 const evaluation = (overrides: Partial<EvaluationConfig>): EvaluationConfig =>
     ({
@@ -19,42 +19,37 @@ const filtered = (rollout: number, filters: number): EvaluationConditionSet => (
     properties: Array.from({ length: filters }, (_, i) => ({ key: `p${i}`, type: 'event' })) as any,
 })
 
-describe('summarySentence', () => {
+describe('evaluation sentence parts', () => {
     test.each([
+        { name: 'all traffic', input: evaluation({}), expected: '100% of all traces' },
         {
-            name: 'judge with its model and daily volume',
-            input: { evaluation: evaluation({}), usesDecisionModel: false, modelName: 'gpt-4o-mini', runs: 98 },
-            expected: 'Helpfulness runs an LLM judge (gpt-4o-mini) on 100% of all traces, about 14 times a day.',
+            name: 'sampled, filtered traffic',
+            input: evaluation({ conditions: [filtered(10, 2)] }),
+            expected: '10% of matching traces (2 filters)',
         },
         {
-            name: 'decision model on sampled, filtered traffic',
-            input: {
-                evaluation: evaluation({ conditions: [filtered(10, 2)] }),
-                usesDecisionModel: true,
-                runs: null,
-            },
-            expected: 'Helpfulness runs a decision model on 10% of matching traces (2 filters).',
+            name: 'sentiment counts generations, whatever target is stored',
+            input: evaluation({ evaluation_type: 'sentiment' } as Partial<EvaluationConfig>),
+            expected: '100% of all generations',
         },
         {
-            name: 'sentiment always runs on generations, whatever target is stored',
-            input: {
-                evaluation: evaluation({ name: '', evaluation_type: 'sentiment' } as Partial<EvaluationConfig>),
-                usesDecisionModel: false,
-                runs: 2,
-            },
-            expected: 'This evaluation runs a sentiment classifier on 100% of all generations, about 2 times a week.',
+            name: 'several condition sets sample on their own, so no single percentage',
+            input: evaluation({ conditions: [filtered(100, 1), filtered(20, 0)] }),
+            expected: '2 condition sets',
         },
+    ])('triggers: $name', ({ input, expected }) => {
+        expect(triggerText(input).replace(/\u00a0/g, ' ')).toEqual(expected)
+    })
+
+    test.each([
+        { name: 'off', input: { enabled: false, frequency: 'scheduled' }, expected: 'no reports' },
+        { name: 'scheduled', input: { enabled: true, frequency: 'scheduled' }, expected: 'weekly reports' },
         {
-            name: 'several condition sets',
-            input: {
-                evaluation: evaluation({ evaluation_type: 'hog', conditions: [filtered(5, 1), filtered(50, 0)] }),
-                usesDecisionModel: false,
-                runs: null,
-            },
-            expected: 'Helpfulness runs your code on 2 condition sets.',
+            name: 'by result count',
+            input: { enabled: true, frequency: 'every_n' },
+            expected: 'a report every 100 results',
         },
-    ])('$name', ({ input, expected }) => {
-        // pluralize joins the count and noun with a non-breaking space.
-        expect(summarySentence(input).replace(/\u00a0/g, ' ')).toEqual(expected)
+    ])('reports: $name', ({ input, expected }) => {
+        expect(reportText({ scheduleCadence: 'weekly', triggerThreshold: 100, ...input })).toEqual(expected)
     })
 })

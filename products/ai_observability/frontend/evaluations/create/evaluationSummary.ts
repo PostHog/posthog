@@ -1,6 +1,6 @@
 import { pluralize } from 'lib/utils/strings'
 
-import { evaluationTarget, runRate } from '../evaluationVolume'
+import { evaluationTarget } from '../evaluationVolume'
 import type { EvaluationConfig, EvaluationTarget } from '../types'
 
 const UNIT_NOUNS: Record<EvaluationTarget, string> = {
@@ -17,17 +17,37 @@ const RETURN_LABELS = {
     sentiment: 'a sentiment',
 } as const
 
-/** What the evaluation runs on, such as "10% of matching traces (2 filters)". */
-export function scopeText(evaluation: EvaluationConfig): string {
+/** What one run covers, such as "each trace". */
+export function targetText(evaluation: EvaluationConfig): string {
+    return `each ${evaluationTarget(evaluation)}`
+}
+
+/** How much traffic the triggers take. Each condition set samples on its own, so several sets get no one percentage. */
+export function triggerText(evaluation: EvaluationConfig): string {
     if (evaluation.conditions.length > 1) {
         return `${evaluation.conditions.length} condition sets`
     }
-    const target = evaluationTarget(evaluation)
     const [condition] = evaluation.conditions
     const filterCount = (condition?.properties ?? []).length
-    return `${condition?.rollout_percentage ?? 0}% of ${filterCount ? 'matching' : 'all'} ${UNIT_NOUNS[target]}${
-        filterCount ? ` (${pluralize(filterCount, 'filter')})` : ''
-    }`
+    return `${condition?.rollout_percentage ?? 0}% of ${filterCount ? 'matching' : 'all'} ${
+        UNIT_NOUNS[evaluationTarget(evaluation)]
+    }${filterCount ? ` (${pluralize(filterCount, 'filter')})` : ''}`
+}
+
+/** When reports arrive, such as "weekly reports", or "no reports". */
+export function reportText(report: {
+    enabled: boolean
+    frequency: string
+    scheduleCadence: string
+    triggerThreshold: number
+}): string {
+    if (!report.enabled) {
+        return 'no reports'
+    }
+    if (report.frequency === 'scheduled') {
+        return `${report.scheduleCadence} reports`
+    }
+    return `a report every ${report.triggerThreshold} results`
 }
 
 /** Who does the checking, such as "an LLM judge (gpt-4o-mini)". */
@@ -49,22 +69,4 @@ export function returnText(evaluation: EvaluationConfig): string {
         return RETURN_LABELS.categorical_multiple
     }
     return RETURN_LABELS[evaluation.output_type]
-}
-
-/** One sentence for the whole evaluation, such as "Helpfulness runs an LLM judge on 100% of all traces, about 14 a day." */
-export function summarySentence({
-    evaluation,
-    usesDecisionModel,
-    modelName,
-    runs,
-}: {
-    evaluation: EvaluationConfig
-    usesDecisionModel: boolean
-    modelName?: string
-    /** Runs over the lookback week, or null before the estimate loads. */
-    runs: number | null
-}): string {
-    const name = evaluation.name.trim() || 'This evaluation'
-    const rate = runs !== null ? `, ${runRate(runs)}` : ''
-    return `${name} runs ${methodText(evaluation, usesDecisionModel, modelName)} on ${scopeText(evaluation)}${rate}.`
 }

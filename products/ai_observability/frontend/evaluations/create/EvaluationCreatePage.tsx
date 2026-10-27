@@ -1,31 +1,34 @@
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useRef } from 'react'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { cn } from 'lib/utils/css-classes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SceneStickyBar, useSceneStickyBarBottom } from '~/layout/scenes/components/SceneStickyBar'
 
+import { EvaluationCodeEditor } from '../components/EvaluationCodeEditor'
+import { EvaluationPromptEditor } from '../components/EvaluationPromptEditor'
 import { booleanOutputConfigError, numericOutputConfigError } from '../constants'
 import { evaluationSupportsReports } from '../evaluationCapabilities'
 import { evaluationReportLogic } from '../evaluationReportLogic'
+import { evaluationSampleLogic } from '../evaluationSampleLogic'
 import { evaluationVolumeLogic } from '../evaluationVolumeLogic'
 import { hasUnsetConditionRollout, llmEvaluationLogic } from '../llmEvaluationLogic'
 import { defaultEvaluationTemplates } from '../templates'
-import type { StepProgress } from './CreateStep'
 import { categoryResultError, creationChecklist } from './creationChecklist'
 import { EvaluationCreateButton } from './EvaluationCreateButton'
-import { EvaluationCreateSummary } from './EvaluationCreateSummary'
-import { EvaluationDefineStep } from './EvaluationDefineStep'
-import { EvaluationNameStep } from './EvaluationNameStep'
-import { EvaluationReportsStep } from './EvaluationReportsStep'
-import { EvaluationTargetStep } from './EvaluationTargetStep'
+import { EvaluationNameFields } from './EvaluationNameFields'
+import { EvaluationOutputFields } from './EvaluationOutputFields'
+import { EvaluationResultPreview } from './EvaluationResultPreview'
+import { EvaluationSamplePanel } from './EvaluationSamplePanel'
+import { EvaluationSentence } from './EvaluationSentence'
 
-/** The new evaluation form, as numbered steps: name it, define it, choose what it runs on, and reports. */
+/** The new evaluation form: its name, one sentence for the whole setup, and the instructions next to a real example. */
 export function EvaluationCreatePage({ templateKey }: { templateKey?: string }): JSX.Element | null {
     const {
         evaluation,
@@ -41,7 +44,6 @@ export function EvaluationCreatePage({ templateKey }: { templateKey?: string }):
     const template = defaultEvaluationTemplates.find((entry) => entry.key === templateKey)
     const headerRef = useRef<HTMLDivElement>(null)
     const headerBottom = useSceneStickyBarBottom(headerRef)
-    const [activeStep, setActiveStep] = useState(1)
 
     const checklist = useMemo(() => {
         if (!evaluation) {
@@ -72,12 +74,6 @@ export function EvaluationCreatePage({ templateKey }: { templateKey?: string }):
         return null
     }
 
-    const progress = (keys: string[]): StepProgress => ({
-        done: keys.length > 0 && checklist.filter((item) => keys.includes(item.key)).every((item) => item.done),
-        activeStep,
-        onActivate: setActiveStep,
-    })
-
     const handleCreate = (): void => {
         const reportLogic = evaluationReportLogic({ evaluationId: 'new' })
         if (evaluationSupportsReports(evaluation) && reportLogic.isMounted() && reportLogic.values.configError) {
@@ -104,51 +100,68 @@ export function EvaluationCreatePage({ templateKey }: { templateKey?: string }):
 
     return (
         <BindLogic logic={evaluationVolumeLogic} props={logicProps}>
-            <div className="@container/evaluation min-w-0 flex flex-col gap-4 pb-8">
-                <SceneBreadcrumbBackButton />
-                <SceneStickyBar
-                    ref={headerRef}
-                    hasSceneTitleSection={false}
-                    className="flex flex-wrap items-center justify-between gap-2"
-                >
-                    <div className="flex flex-wrap items-center gap-2">
-                        <h1 className="mb-0 text-2xl font-semibold">New evaluation</h1>
-                        {template && <LemonTag type="muted">{`From the ${template.name} template`}</LemonTag>}
-                    </div>
-                    {/* Narrow screens stack the summary under the form, so the actions also sit up here. */}
-                    <div className="flex gap-2 @min-[64rem]/evaluation:hidden">
-                        <LemonButton type="secondary" onClick={handleCancel}>
-                            Cancel
-                        </LemonButton>
-                        <EvaluationCreateButton
-                            onCreate={handleCreate}
-                            disabledReason={checklist.find((item) => !item.done)?.todo}
-                            data-attr="llma-evaluation-create-submit-top"
-                        />
-                    </div>
-                </SceneStickyBar>
-                {/* Fixed column widths keep the summary next to the form instead of drifting to the window's edge. */}
-                <div className="grid gap-4 grid-cols-1 @min-[64rem]/evaluation:grid-cols-[minmax(0,56rem)_18rem] items-start">
-                    <div className="bg-bg-light border rounded p-4 @min-[40rem]/evaluation:p-6 min-w-0">
-                        <EvaluationNameStep {...progress(['name'])} />
-                        <EvaluationDefineStep {...progress(['criteria', 'result', 'model'])} />
-                        <EvaluationTargetStep {...progress(['sampling'])} />
-                        <EvaluationReportsStep {...progress([])} />
-                    </div>
-                    {/* Pinned just under the sticky header, so scrolling never hides the checklist behind it. */}
-                    <div
-                        className="@min-[64rem]/evaluation:sticky"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ top: headerBottom + 16 }}
+            <BindLogic logic={evaluationSampleLogic} props={logicProps}>
+                <div className="@container/evaluation min-w-0 flex flex-col gap-4 pb-8">
+                    <SceneBreadcrumbBackButton />
+                    <SceneStickyBar
+                        ref={headerRef}
+                        hasSceneTitleSection={false}
+                        className="flex flex-wrap items-center justify-between gap-2"
                     >
-                        <EvaluationCreateSummary
-                            checklist={checklist}
-                            onCreate={handleCreate}
-                            onCancel={handleCancel}
-                        />
+                        <div className="flex flex-wrap items-center gap-2">
+                            <h1 className="mb-0 text-2xl font-semibold">New evaluation</h1>
+                            {template && <LemonTag type="muted">{`From the ${template.name} template`}</LemonTag>}
+                        </div>
+                        {/* Narrow screens stack the summary under the form, so the actions also sit up here. */}
+                        <div className="flex gap-2 @min-[64rem]/evaluation:hidden">
+                            <LemonButton type="secondary" onClick={handleCancel}>
+                                Cancel
+                            </LemonButton>
+                            <EvaluationCreateButton
+                                onCreate={handleCreate}
+                                disabledReason={checklist.find((item) => !item.done)?.todo}
+                                data-attr="llma-evaluation-create-submit-top"
+                            />
+                        </div>
+                    </SceneStickyBar>
+                    {/* Fixed column widths keep the summary next to the form instead of drifting to the window's edge. */}
+                    <div className="grid gap-4 grid-cols-1 @min-[64rem]/evaluation:grid-cols-[minmax(0,56rem)_18rem] items-start">
+                        <div className="bg-bg-light border rounded p-4 @min-[40rem]/evaluation:p-6 min-w-0 flex flex-col gap-6">
+                            <EvaluationNameFields />
+                            <EvaluationSentence />
+                            <div className="@container/instructions">
+                                <div
+                                    className={cn(
+                                        'grid grid-cols-1 gap-6 items-start',
+                                        // Sentiment has no instructions to write, so the example takes the whole row.
+                                        evaluation.evaluation_type !== 'sentiment' &&
+                                            '@min-[48rem]/instructions:grid-cols-2'
+                                    )}
+                                >
+                                    <div className="flex flex-col gap-4 min-w-0">
+                                        {evaluation.evaluation_type === 'llm_judge' && <EvaluationPromptEditor />}
+                                        {evaluation.evaluation_type === 'hog' && <EvaluationCodeEditor />}
+                                        <EvaluationOutputFields />
+                                    </div>
+                                    <EvaluationSamplePanel />
+                                </div>
+                            </div>
+                        </div>
+                        {/* Pinned just under the sticky header, so scrolling never hides the checklist behind it. */}
+                        <div
+                            className="@min-[64rem]/evaluation:sticky"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ top: headerBottom + 16 }}
+                        >
+                            <EvaluationResultPreview
+                                checklist={checklist}
+                                onCreate={handleCreate}
+                                onCancel={handleCancel}
+                            />
+                        </div>
                     </div>
                 </div>
-            </div>
+            </BindLogic>
         </BindLogic>
     )
 }
