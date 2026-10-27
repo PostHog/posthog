@@ -421,6 +421,20 @@ def upstream_saved_query_ids(team_id: int, saved_query_id: UUID | str) -> frozen
     )
 
 
+def unbuilt_upstream_saved_query_ids(
+    team_id: int, saved_query_id: UUID | str, *, engine: DataModelingJobEngine
+) -> frozenset[UUID]:
+    """The upstream saved queries of this one that have never completed a build on ``engine``."""
+    upstream_ids = upstream_saved_query_ids(team_id, saved_query_id)
+    built_ids = DataModelingJob.objects.filter(
+        team_id=team_id,
+        saved_query_id__in=upstream_ids,
+        engine=engine,
+        status=DataModelingJobStatus.COMPLETED,
+    ).values_list("saved_query_id", flat=True)
+    return upstream_ids - frozenset(built_ids)
+
+
 def last_query_change_at(team_id: int, saved_query_ids: Collection[UUID]) -> datetime | None:
     """When someone last changed the query of any of these saved queries, per the activity log."""
     return ActivityLog.objects.filter(
