@@ -80,7 +80,7 @@ The workflow allows four channels and two concurrent registry workers. A local r
 | Work                           | Bound              |
 | ------------------------------ | ------------------ |
 | Tree and policy fetching       | 60 seconds         |
-| Fetch retry waits              | 5 and 15 seconds, within the fetch bound |
+| Retry waits within fetching    | 5 and 15 seconds   |
 | History comparison             | 30 seconds         |
 | Combined command output        | 64 MiB             |
 | Registry operation             | 15 seconds         |
