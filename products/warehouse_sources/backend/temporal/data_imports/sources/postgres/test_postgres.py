@@ -6,6 +6,7 @@ from collections.abc import Generator, Iterable, Iterator
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -8629,17 +8630,23 @@ class TestNetworkAsStringLoader:
 
 class TestLenientTextLoader:
     @pytest.mark.parametrize(
-        "data,expected",
+        "encoding,data,expected",
         [
-            (b"plain text", "plain text"),
-            ("café 日本".encode(), "café 日本"),
-            (b"\xff\xd8\xffbinary", "\ufffd\ufffd\ufffdbinary"),
-            (memoryview(b"ok\xfe"), "ok\ufffd"),
-            (None, None),
+            (None, b"plain text", "plain text"),
+            (None, "café 日本".encode(), "café 日本"),
+            (None, b"\xff\xd8\xffbinary", "\ufffd\ufffd\ufffdbinary"),
+            (None, memoryview(b"ok\xfe"), "ok\ufffd"),
+            (None, None, None),
+            ("utf-8", b"ok\xff", "ok\ufffd"),
+            ("iso8859-1", "café".encode("latin-1"), "café"),
+            ("ascii", b"caf\xc3\xa9\xff", "café\ufffd"),
         ],
     )
-    def test_load(self, data, expected):
-        assert LenientTextLoader(oid=25).load(data) == expected
+    def test_load(self, encoding, data, expected):
+        context = (
+            SimpleNamespace(connection=SimpleNamespace(info=SimpleNamespace(encoding=encoding))) if encoding else None
+        )
+        assert LenientTextLoader(oid=25, context=context).load(data) == expected
 
 
 class TestSSLRequiredAfterDate:
