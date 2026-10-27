@@ -96,19 +96,24 @@ def _onboarding_campaign() -> CampaignSource:
     return CampaignSource(campaign=campaign, actions=actions, templates=templates)
 
 
+def _sync_email_template() -> None:
+    sync_template_to_db(
+        {
+            **MOCK_NODE_TEMPLATES[0],
+            "id": "template-email",
+            "name": "Email",
+            "inputs_schema": [{"key": "email", "type": "native_email", "label": "Email", "required": True}],
+        }
+    )
+
+
 _OPTIONS = ImportOptions(snippets={"footer": '<a href="{% unsubscribe_url %}">Unsubscribe</a>'}, segment_cohorts={})
 
 
 class TestCustomerioCampaignTranslation(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        email_template = {
-            **MOCK_NODE_TEMPLATES[0],
-            "id": "template-email",
-            "name": "Email",
-            "inputs_schema": [{"key": "email", "type": "native_email", "label": "Email", "required": True}],
-        }
-        sync_template_to_db(email_template)
+        _sync_email_template()
 
     def test_translated_campaign_saves_as_a_draft_with_the_same_paths(self) -> None:
         translated = translate_campaign(_onboarding_campaign(), _OPTIONS)
@@ -408,14 +413,10 @@ class TestCustomerioLiquid(SimpleTestCase):
 class TestWorkflowImportAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        sync_template_to_db(
-            {
-                **MOCK_NODE_TEMPLATES[0],
-                "id": "template-email",
-                "name": "Email",
-                "inputs_schema": [{"key": "email", "type": "native_email", "label": "Email", "required": True}],
-            }
-        )
+        _sync_email_template()
+
+    def _post(self, body: dict[str, Any]) -> Any:
+        return self.client.post(f"/api/projects/{self.team.id}/workflow_imports/", body, format="json")
 
     def _import(self, **overrides: Any) -> dict[str, Any]:
         source = _onboarding_campaign()
@@ -427,7 +428,7 @@ class TestWorkflowImportAPI(APIBaseTest):
             "snippets": {"footer": "<p>Footer</p>"},
             **overrides,
         }
-        response = self.client.post(f"/api/projects/{self.team.id}/workflow_imports/", body, format="json")
+        response = self._post(body)
         assert response.status_code == 200, response.json()
         return response.json()["results"][0]
 
@@ -468,7 +469,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         if "templates" in change:
             entry["templates"] = change["templates"]
         body = {"source": "customerio", "campaigns": [entry]}
-        response = self.client.post(f"/api/projects/{self.team.id}/workflow_imports/", body, format="json")
+        response = self._post(body)
 
         assert response.status_code == 400
         assert not HogFlow.objects.filter(team=self.team).exists()
@@ -483,7 +484,7 @@ class TestWorkflowImportAPI(APIBaseTest):
                 {"campaign": {**source.campaign, "id": "43"}, "actions": source.actions},
             ],
         }
-        response = self.client.post(f"/api/projects/{self.team.id}/workflow_imports/", body, format="json")
+        response = self._post(body)
 
         assert response.status_code == 200, response.json()
         assert [result["status"] for result in response.json()["results"]] == ["failed", "created"]
@@ -525,7 +526,7 @@ class TestWorkflowImportAPI(APIBaseTest):
             {**action, "subscription_topic_id": 3} if action["id"] == "1" else action for action in source.actions
         ]
         body = {"source": "customerio", "campaigns": [{"campaign": source.campaign, "actions": actions}]}
-        response = self.client.post(f"/api/projects/{self.team.id}/workflow_imports/", body, format="json")
+        response = self._post(body)
 
         assert response.status_code == 200, response.json()
         assert response.json()["content_fetched"] is True
@@ -548,7 +549,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         mock_get.return_value = MagicMock(status_code=401, headers={})
         source = _onboarding_campaign()
         body = {"source": "customerio", "campaigns": [{"campaign": source.campaign, "actions": source.actions}]}
-        response = self.client.post(f"/api/projects/{self.team.id}/workflow_imports/", body, format="json")
+        response = self._post(body)
 
         assert response.status_code == 200, response.json()
         assert response.json()["content_fetched"] is False
