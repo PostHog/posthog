@@ -1,7 +1,5 @@
 import { IconCalendar, IconLetter, IconPeople } from '@posthog/icons'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 const NEXT_STEPS = [
     { icon: <IconPeople />, title: 'Recipients', description: 'Pick a cohort, or filter people by their properties.' },
     { icon: <IconLetter />, title: 'Email', description: 'Choose the sender, write the subject and design the email.' },
@@ -20,8 +18,7 @@ const SEND_ON_CALENDAR = {
 }
 
 export function WizardBroadcastStep(): JSX.Element {
-    const showSendCalendar = useFeatureFlag('WORKFLOWS_SEND_CALENDAR')
-    const steps = showSendCalendar ? [...NEXT_STEPS.slice(0, -1), SEND_ON_CALENDAR] : NEXT_STEPS
+    const steps = [...NEXT_STEPS.slice(0, -1), SEND_ON_CALENDAR]
 
     return (
         <ol className="m-0 flex list-none flex-col gap-4 p-0">

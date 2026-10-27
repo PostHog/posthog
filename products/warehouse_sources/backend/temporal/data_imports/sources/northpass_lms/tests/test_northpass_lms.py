@@ -93,6 +93,14 @@ class TestTopLevelPagination:
         # The first page is skipped entirely — resume starts at the saved URL.
         assert result.urls == [COURSES_P2]
 
+    def test_properties_endpoint_sends_no_page_size(self) -> None:
+        # The /properties endpoints document no `limit`, so the request must not carry the default one.
+        result = _driver().run("person_properties", [_page([{"id": "p1", "attributes": {"properties": {"a": 1}}}])])
+
+        assert result.raised is None
+        assert result.urls == ["https://api.northpass.com/v2/properties/people"]
+        assert result.rows[0]["properties"] == {"a": 1}
+
     @parameterized.expand(
         [
             ("attacker_host", "https://evil.example.com/steal?limit=100"),
@@ -142,6 +150,29 @@ class TestFanOut:
         assert [row["id"] for row in result.rows] == ["e2"]
         # c1's enrollments must not be re-fetched when resuming past it.
         assert "https://api.northpass.com/v2/courses/c1/enrollments?limit=100" not in result.urls
+
+    def test_group_memberships_link_each_person_to_their_group(self) -> None:
+        def membership(membership_id: str, person_id: str) -> dict[str, Any]:
+            return {
+                "id": membership_id,
+                "type": "memberships",
+                "attributes": {"created_at": "2024-10-08T08:37:24Z"},
+                "relationships": {"person": {"data": {"type": "people", "id": person_id}}},
+            }
+
+        result = _driver().run(
+            "group_memberships",
+            route(
+                {
+                    "/v2/groups": [_page([{"id": "g1"}, {"id": "g2"}])],
+                    "/v2/groups/g1/memberships": [_page([membership("m1", "p1")])],
+                    "/v2/groups/g2/memberships": [_page([membership("m2", "p1")])],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["group_id"], row["person_id"]) for row in result.rows] == [("g1", "p1"), ("g2", "p1")]
 
     def test_reraises_non_404_child_error(self) -> None:
         pages = self._parent_and_children()
