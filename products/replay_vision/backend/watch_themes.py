@@ -135,10 +135,18 @@ def _claim_naming(team_id: int, theme_id: uuid.UUID) -> bool:
     )
 
 
-def _take_naming_budget(team_id: int, now: datetime) -> bool:
-    key = f"replay_vision:theme_naming:{team_id}:{now:%Y-%m-%d}"
+def _naming_budget_key(team_id: int, now: datetime) -> str:
+    return f"replay_vision:theme_naming:{team_id}:{now:%Y-%m-%d}"
+
+
+def _naming_budget_left(team_id: int, now: datetime) -> bool:
+    return (cache.get(_naming_budget_key(team_id, now)) or 0) < THEME_NAMING_DAILY_CAP
+
+
+def _spend_naming_budget(team_id: int, now: datetime) -> None:
+    key = _naming_budget_key(team_id, now)
     cache.add(key, 0, timeout=2 * 24 * 3600)
-    return cache.incr(key) <= THEME_NAMING_DAILY_CAP
+    cache.incr(key)
 
 
 def _naming_context(team_id: int, theme_id: uuid.UUID) -> tuple[ReplayScanner, list[str]] | None:
@@ -146,7 +154,13 @@ def _naming_context(team_id: int, theme_id: uuid.UUID) -> tuple[ReplayScanner, l
     if theme is None:
         return None
     rows = (
-        ReplayObservation.objects.filter(team_id=team_id, scanner_id=theme.scanner_id, watch_rank__theme=str(theme_id))
+        # The window keeps the walk to recent rows of the scanner, since the JSON key has no index of its own.
+        ReplayObservation.objects.filter(
+            team_id=team_id,
+            scanner_id=theme.scanner_id,
+            created_at__gte=theme.last_member_at - THEME_ACTIVE_WINDOW,
+            watch_rank__theme=str(theme_id),
+        )
         .order_by("-created_at")
         .values_list("scanner_result", flat=True)[:THEME_NAME_SAMPLES]
     )
@@ -173,11 +187,13 @@ async def name_theme(team_id: int, theme_id: uuid.UUID, now: datetime) -> str | 
     # Consent and budget come before the claim, so a theme that cannot be named now is tried again on its next member.
     if not await sync_to_async(is_ai_data_processing_approved)(team_id):
         return None
-    if not await sync_to_async(_take_naming_budget)(team_id, now):
+    if not await sync_to_async(_naming_budget_left)(team_id, now):
         logger.info("replay_vision.watch_themes.naming_budget_spent", team_id=team_id)
         return None
     if not await sync_to_async(_claim_naming)(team_id, theme_id):
         return None
+    # Spent only by the caller that won the claim, so two callers racing for one theme cost one call.
+    await sync_to_async(_spend_naming_budget)(team_id, now)
     context = await sync_to_async(_naming_context)(team_id, theme_id)
     if context is None or not context[1]:
         return None

@@ -7,6 +7,7 @@ to the observation's rank in one update, so a redelivered message finds them alr
 
 import uuid
 from datetime import datetime, timedelta
+from typing import Any
 
 from django.db import transaction
 from django.db.models import F, Func, JSONField, Value
@@ -66,7 +67,7 @@ def assign_semantics(
             )
             row = (
                 ReplayObservation.objects.filter(team_id=team_id, id=observation_id)
-                .values("watch_rank", "scanner_result")
+                .values("watch_rank", "scanner_result", "scanner_snapshot")
                 .first()
             )
             if row is None:
@@ -83,7 +84,9 @@ def assign_semantics(
             )
             theme = None
             output = (row["scanner_result"] or {}).get("model_output") or {}
-            if belongs_in_theme(
+            # A theme name surfaces as a suggestion to anyone who can read the scanner, so an observation scanned
+            # under experiment targeting, which only that experiment's viewers may read, never joins one.
+            if not _experiment_scoped(row["scanner_snapshot"]) and belongs_in_theme(
                 category=rank["category"],
                 scanner_type=scanner["scanner_type"],
                 valence=scanner["prompt_valence"],
@@ -111,6 +114,13 @@ def assign_semantics(
         feed_group_cache.forget(scanner_id)
         raise
     return SemanticAssignment(group_id=group_id, theme=theme)
+
+
+def _experiment_scoped(snapshot: dict[str, Any] | None) -> bool:
+    snapshot = snapshot or {}
+    targeting = snapshot.get("experiment_targeting") or {}
+    config = snapshot.get("scanner_config") or {}
+    return bool(targeting.get("experiment_id") or config.get("experiment_id"))
 
 
 def _prune(team_id: int, scanner_id: str, now: datetime) -> None:

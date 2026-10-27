@@ -6,9 +6,9 @@ from django.db import migrations, models
 import posthog.uuidt
 
 
-def _scanner(**kwargs: object) -> models.ForeignKey:
+def _scanner() -> models.ForeignKey:
     return models.ForeignKey(
-        on_delete=django.db.models.deletion.CASCADE, related_name="+", to="replay_vision.replayscanner", **kwargs
+        db_index=False, on_delete=django.db.models.deletion.CASCADE, related_name="+", to="replay_vision.replayscanner"
     )
 
 
@@ -33,7 +33,7 @@ class Migration(migrations.Migration):
             name="ReplayScannerFeedGroup",
             fields=[
                 ("id", _uuid_id()),
-                ("scanner", _scanner(db_index=False)),
+                ("scanner", _scanner()),
                 ("team", _team()),
                 ("vector_sum", models.BinaryField()),
                 ("member_count", models.PositiveIntegerField(default=0)),
@@ -48,7 +48,7 @@ class Migration(migrations.Migration):
             name="ReplayScannerSearchTheme",
             fields=[
                 ("id", _uuid_id()),
-                ("scanner", _scanner(db_index=False)),
+                ("scanner", _scanner()),
                 ("team", _team()),
                 ("vector_sum", models.BinaryField()),
                 ("member_count", models.PositiveIntegerField(default=0)),

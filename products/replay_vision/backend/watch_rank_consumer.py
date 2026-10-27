@@ -50,6 +50,8 @@ _MAX_POLL_INTERVAL_S = 360.0
 # How long one observation keeps failing, across batches, before the consumer moves past it.
 _RETRY_WINDOW_S = 600.0
 _NAMING_DRAIN_S = 20.0
+# A due theme left unnamed while this many are in flight is named when its next member arrives.
+_MAX_NAMING_TASKS = 8
 _RETRY_BACKOFF_S = 2.0
 _RETRY_BACKOFF_MAX_S = 60.0
 
@@ -168,6 +170,8 @@ class WatchRankConsumer:
             now=now,
         )
         if assignment is None or assignment.theme is None or not assignment.theme.name_due:
+            return
+        if len(self._naming) >= _MAX_NAMING_TASKS:
             return
         task = asyncio.create_task(self._name(request.team_id, assignment.theme.theme_id, now))
         self._naming.add(task)

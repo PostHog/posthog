@@ -128,9 +128,21 @@ class TestAssignSemantics(BaseTest):
         assert first.watch_rank["group"] == str(joined[0].group_id)
         assert first.watch_rank["theme"] == str(joined[0].theme.theme_id)
 
-    def test_a_monitor_answer_the_scanner_is_not_looking_for_gets_a_group_but_no_theme(self) -> None:
-        monitor = self._scanner(ScannerType.MONITOR, PromptValence.BAD, name="checkout errors")
-        observation = self._observation(output={"scanner_type": "monitor", "verdict": "no"}, scanner=monitor)
+    @parameterized.expand(
+        [
+            ("monitor_answer_the_scanner_is_not_looking_for", False),
+            # A theme name reaches every scanner reader, so a row only the experiment's viewers may read stays out.
+            ("observation_scanned_under_experiment_targeting", True),
+        ]
+    )
+    def test_some_rows_get_a_feed_group_but_no_theme(self, _name: str, experiment_scoped: bool) -> None:
+        if experiment_scoped:
+            observation = self._observation()
+            snapshot = {**observation.scanner_snapshot, "experiment_targeting": {"experiment_id": 7}}
+            ReplayObservation.objects.filter(id=observation.id).update(scanner_snapshot=snapshot)
+        else:
+            monitor = self._scanner(ScannerType.MONITOR, PromptValence.BAD, name="checkout errors")
+            observation = self._observation(output={"scanner_type": "monitor", "verdict": "no"}, scanner=monitor)
 
         assignment = self._assign(observation, _vector(1.0))
 
