@@ -348,34 +348,12 @@ RUN groupadd -g 10001 posthog && \
     chown posthog:posthog /code
 USER posthog
 
-# Add the commit hash
-ARG COMMIT_HASH
-RUN echo $COMMIT_HASH > /code/commit.txt
+# Rarely changed layers go first. A changed layer forces a rebuild of every layer after it.
 
-# The error tracking release this build belongs to. The CD workflow creates the release before the
-# build and passes its id in (see "Resolve error tracking release" in
-# .github/workflows/container-images-cd.yml). The Python SDK reads POSTHOG_RELEASE_ID and sends it as
-# $release_id on every event, so a backend exception resolves to the same release as the frontend
-# bundles. Empty in every other build, which the SDK treats as unset.
-ARG POSTHOG_RELEASE_ID
-ENV POSTHOG_RELEASE_ID=$POSTHOG_RELEASE_ID
-
-# Copy the Python dependencies and Django staticfiles from the posthog-build stage.
-COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
+# Copy the Python dependencies from the posthog-build stage.
 COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtime
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
-
-# frontend/dist is read at runtime (Django template DIR in settings/web.py + the array.js disk
-# fallback in js_snippet_versioning.py), so this COPY is load-bearing. Sourced from posthog-build,
-# where the JS sourcemaps have already been stripped.
-COPY --from=posthog-build --chown=posthog:posthog /code/frontend/dist /code/frontend/dist
-
-# Ensure sourcemap-upload stage runs (the file itself is not needed in the final image).
-COPY --from=sourcemap-upload /tmp/.sourcemaps-processed /tmp/.sourcemaps-processed
-
-# Copy products.json from the frontend-build stage
-COPY --from=frontend-build --chown=posthog:posthog /code/frontend/src/products.json /code/frontend/src/products.json
 
 # Copy the GeoLite2-City database from the fetch-geoip-db stage.
 COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
@@ -392,6 +370,20 @@ COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_trans
 COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/node_modules /code/common/plugin_transpiler/node_modules
 COPY --from=node-scripts-build --chown=posthog:posthog /code/common/plugin_transpiler/package.json /code/common/plugin_transpiler/package.json
 COPY --from=node-scripts-build --chown=posthog:posthog /code/products/canvas/packages/canvas_builder /code/products/canvas/packages/canvas_builder
+
+# Copy the Django staticfiles from the posthog-build stage.
+COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
+
+# frontend/dist is read at runtime (Django template DIR in settings/web.py + the array.js disk
+# fallback in js_snippet_versioning.py), so this COPY is load-bearing. Sourced from posthog-build,
+# where the JS sourcemaps have already been stripped.
+COPY --from=posthog-build --chown=posthog:posthog /code/frontend/dist /code/frontend/dist
+
+# Ensure sourcemap-upload stage runs (the file itself is not needed in the final image).
+COPY --from=sourcemap-upload /tmp/.sourcemaps-processed /tmp/.sourcemaps-processed
+
+# Copy products.json from the frontend-build stage
+COPY --from=frontend-build --chown=posthog:posthog /code/frontend/src/products.json /code/frontend/src/products.json
 
 # Add in custom bin files and Django deps.
 COPY --chown=posthog:posthog ./bin ./bin/
@@ -437,6 +429,19 @@ EXPOSE 8000
 
 # Expose the port from which we serve OpenMetrics data.
 EXPOSE 8001
+
+# Add the commit hash
+ARG COMMIT_HASH
+RUN echo $COMMIT_HASH > /code/commit.txt
+
+# The error tracking release this build belongs to. The CD workflow creates the release before the
+# build and passes its id in (see "Resolve error tracking release" in
+# .github/workflows/container-images-cd.yml). The Python SDK reads POSTHOG_RELEASE_ID and sends it as
+# $release_id on every event, so a backend exception resolves to the same release as the frontend
+# bundles. Empty in every other build, which the SDK treats as unset.
+ARG POSTHOG_RELEASE_ID
+ENV POSTHOG_RELEASE_ID=$POSTHOG_RELEASE_ID
+
 # Root is needed only so bin/docker-server can drop the app to nobody with setpriv.
 # nosemgrep: dockerfile.security.last-user-is-root.last-user-is-root
 USER root

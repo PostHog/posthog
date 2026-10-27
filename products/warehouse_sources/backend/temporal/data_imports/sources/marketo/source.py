@@ -114,6 +114,7 @@ Leads, activities, and program members backfill from the start date you set belo
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
