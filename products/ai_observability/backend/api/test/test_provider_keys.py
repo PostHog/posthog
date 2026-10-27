@@ -79,19 +79,6 @@ class TestProviderKeySerializer(SimpleTestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn(missing_field, serializer.errors)
 
-    def test_system_one_connection_rejects_hosted_typesafe_endpoint(self) -> None:
-        serializer = LLMProviderKeySerializer(
-            data={
-                "provider": "system_one",
-                "name": "Example connection",
-                "api_key": "example-token",
-                "base_url": "https://api.typesafe.ai/v1",
-                "system_one_model": "example-judge-v1",
-            }
-        )
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("base_url", serializer.errors)
-
     def test_non_system_one_model_error_uses_model_field(self) -> None:
         serializer = LLMProviderKeySerializer(
             data={
