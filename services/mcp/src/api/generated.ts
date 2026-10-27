@@ -43806,6 +43806,8 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingIssuesListQueryRequest {
+      /** Only include issues first seen strictly after this ISO timestamp or relative date, such as -24h or -7d. Independent of dateRange, which filters occurrences. */
+      firstSeenAfter?: string;
       /** Date range for issue aggregates. Defaults to the last 7 days. */
       dateRange?: ErrorTrackingDateRange;
       /** Filter by issue status. Defaults to active.
@@ -64682,6 +64684,16 @@ export namespace Schemas {
       Insight: 'insight',
     } as const;
 
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type InsightPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type InsightPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
     export interface InsightPlatformAlertSourceConfig {
       /** The insight the alert checks. It cannot change through this API. */
       insight_id: number;
@@ -64726,6 +64738,10 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       cooldown_minutes: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: InsightPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: InsightPlatformAlertConfigurationEditAnnotations;
     }
 
     /**
@@ -68711,6 +68727,16 @@ export namespace Schemas {
       Logs: 'logs',
     } as const;
 
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type LogsPlatformAlertConfigurationCreateLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type LogsPlatformAlertConfigurationCreateAnnotations = {[key: string]: string};
+
     export interface LogsPlatformAlertSourceConfig {
       /** The logs the alert counts: severityLevels, serviceNames, or a filterGroup of property filters. An enabled alert needs at least one. */
       filters: LogsAlertFilters;
@@ -68755,6 +68781,10 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: LogsPlatformAlertConfigurationCreateLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: LogsPlatformAlertConfigurationCreateAnnotations;
     }
 
     /**
@@ -68766,6 +68796,16 @@ export namespace Schemas {
     export const LogsPlatformAlertConfigurationEditSourceKind = {
       Logs: 'logs',
     } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type LogsPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type LogsPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
 
     /**
      * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
@@ -68804,6 +68844,10 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       cooldown_minutes: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: LogsPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: LogsPlatformAlertConfigurationEditAnnotations;
     }
 
     export interface LogsRetentionRule {
@@ -77413,6 +77457,16 @@ export namespace Schemas {
      */
     export type PlatformAlertConfigurationSourceConfig = { [key: string]: unknown };
 
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type PlatformAlertConfigurationLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type PlatformAlertConfigurationAnnotations = {[key: string]: string};
+
     export interface PlatformAlertConfiguration {
       /** Unique identifier of the alert configuration. */
       readonly id: string;
@@ -77490,6 +77544,10 @@ export namespace Schemas {
       readonly updated_at: string;
       /** Runtime state for each result group of this configuration. */
       readonly alerts: readonly PlatformAlert[];
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      readonly labels: PlatformAlertConfigurationLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      readonly annotations: PlatformAlertConfigurationAnnotations;
     }
 
     export interface PaginatedPlatformAlertConfigurationList {
@@ -87956,6 +88014,16 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type PatchedInsightPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type PatchedInsightPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
+    /**
      * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
      */
     export interface PatchedInsightPlatformAlertConfigurationEdit {
@@ -87992,6 +88060,10 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: PatchedInsightPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: PatchedInsightPlatformAlertConfigurationEditAnnotations;
     }
 
     export interface PatchedInsightVariable {
@@ -88368,6 +88440,16 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type PatchedLogsPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type PatchedLogsPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
+    /**
      * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
      */
     export interface PatchedLogsPlatformAlertConfigurationEdit {
@@ -88404,6 +88486,10 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: PatchedLogsPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: PatchedLogsPlatformAlertConfigurationEditAnnotations;
     }
 
     export interface PatchedLogsRetentionRule {
@@ -89156,6 +89242,16 @@ export namespace Schemas {
     }
 
     /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type PatchedWarehouseDestinationPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type PatchedWarehouseDestinationPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
+
+    /**
      * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
      */
     export interface PatchedWarehouseDestinationPlatformAlertConfigurationEdit {
@@ -89192,6 +89288,10 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: PatchedWarehouseDestinationPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: PatchedWarehouseDestinationPlatformAlertConfigurationEditAnnotations;
     }
 
     /**
@@ -89225,6 +89325,16 @@ export namespace Schemas {
       /** Whether project members who get data pipeline error emails also get an email when this alert fires or resolves. */
       email_project_members?: boolean;
     }
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type PatchedWarehouseSourcePlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type PatchedWarehouseSourcePlatformAlertConfigurationEditAnnotations = {[key: string]: string};
 
     /**
      * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
@@ -89263,6 +89373,10 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: PatchedWarehouseSourcePlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: PatchedWarehouseSourcePlatformAlertConfigurationEditAnnotations;
     }
 
     export type PatchedPlatformAlertConfigurationEdit = PatchedInsightPlatformAlertConfigurationEdit | PatchedLogsPlatformAlertConfigurationEdit | PatchedWarehouseDestinationPlatformAlertConfigurationEdit | PatchedWarehouseSourcePlatformAlertConfigurationEdit;
@@ -94393,6 +94507,16 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type WarehouseDestinationPlatformAlertConfigurationCreateLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type WarehouseDestinationPlatformAlertConfigurationCreateAnnotations = {[key: string]: string};
+
+    /**
      * The settings of a new alert. Every one but source_config has a default, which is stored.
      */
     export interface WarehouseDestinationPlatformAlertConfigurationCreate {
@@ -94429,6 +94553,10 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: WarehouseDestinationPlatformAlertConfigurationCreateLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: WarehouseDestinationPlatformAlertConfigurationCreateAnnotations;
     }
 
     /**
@@ -94440,6 +94568,16 @@ export namespace Schemas {
     export const WarehouseSourcePlatformAlertConfigurationCreateSourceKind = {
       WarehouseSource: 'warehouse_source',
     } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type WarehouseSourcePlatformAlertConfigurationCreateLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type WarehouseSourcePlatformAlertConfigurationCreateAnnotations = {[key: string]: string};
 
     /**
      * The settings of a new alert. Every one but source_config has a default, which is stored.
@@ -94478,6 +94616,10 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       cooldown_minutes?: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: WarehouseSourcePlatformAlertConfigurationCreateLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: WarehouseSourcePlatformAlertConfigurationCreateAnnotations;
     }
 
     export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate | WarehouseDestinationPlatformAlertConfigurationCreate | WarehouseSourcePlatformAlertConfigurationCreate;
@@ -94491,6 +94633,16 @@ export namespace Schemas {
     export const WarehouseDestinationPlatformAlertConfigurationEditSourceKind = {
       WarehouseDestination: 'warehouse_destination',
     } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type WarehouseDestinationPlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type WarehouseDestinationPlatformAlertConfigurationEditAnnotations = {[key: string]: string};
 
     /**
      * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
@@ -94529,6 +94681,10 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       cooldown_minutes: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: WarehouseDestinationPlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: WarehouseDestinationPlatformAlertConfigurationEditAnnotations;
     }
 
     /**
@@ -94540,6 +94696,16 @@ export namespace Schemas {
     export const WarehouseSourcePlatformAlertConfigurationEditSourceKind = {
       WarehouseSource: 'warehouse_source',
     } as const;
+
+    /**
+     * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates.
+     */
+    export type WarehouseSourcePlatformAlertConfigurationEditLabels = {[key: string]: string};
+
+    /**
+     * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://.
+     */
+    export type WarehouseSourcePlatformAlertConfigurationEditAnnotations = {[key: string]: string};
 
     /**
      * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
@@ -94578,6 +94744,10 @@ export namespace Schemas {
          * @maximum 2147483647
          */
       cooldown_minutes: number;
+      /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. */
+      labels?: WarehouseSourcePlatformAlertConfigurationEditLabels;
+      /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
+      annotations?: WarehouseSourcePlatformAlertConfigurationEditAnnotations;
     }
 
     export type PlatformAlertConfigurationEdit = InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit | WarehouseDestinationPlatformAlertConfigurationEdit | WarehouseSourcePlatformAlertConfigurationEdit;
