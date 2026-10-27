@@ -752,8 +752,11 @@ describe('DashboardItems', () => {
             expect(mockUpdateContainerWidth).toHaveBeenCalledWith(1200, 12)
         })
 
-        it('shows group copy only to dashboard editors', () => {
-            showBands()
+        it.each([
+            { layout: 'bands', overrides: {} },
+            { layout: 'tabs', overrides: { activeTileGroupTab: 'plans' } },
+        ])('shows group copy only to dashboard editors in $layout', ({ overrides }) => {
+            showBands(overrides)
             const { container, rerender } = render(<DashboardItems />)
             expect(container.querySelector('[data-attr="dashboard-tile-group-menu"]')).toBeInTheDocument()
 

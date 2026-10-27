@@ -856,6 +856,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         sections={tileGroupSections}
                         activeSectionKey={tileGroupSections[activeTabIndex].key}
                         onSelect={selectTileGroupTab}
+                        copyToDestinations={copyToDestinations}
+                        onCopyGroupToDashboard={
+                            canEditDashboard && isEditablePlacement ? copyGroupToDashboard : undefined
+                        }
+                        copyLoading={copyGroupToDashboardLoading}
                     >
                         {renderSectionGrid(tileGroupSections[activeTabIndex], activeTabIndex)}
                     </DashboardTileGroupTabs>
