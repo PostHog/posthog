@@ -112,8 +112,10 @@ class MasterSchemaCache:
     def validate(self, *, key: str, epoch: str, dump: Path) -> bool:
         try:
             reason = self._incompatibility_reason(key, epoch)
-        except (GitError, OSError, subprocess.TimeoutExpired, yaml.YAMLError) as error:
-            reason = f"cannot read cached schema inputs: {error}"
+        # Discarding is always safe and a crash fails the job, so any error that stops
+        # the proof of compatibility discards the dump.
+        except Exception as error:
+            reason = f"cannot read cached schema inputs: {type(error).__name__}: {error}"
         if reason is not None:
             # The restore step treats an existing dump as a cache hit.
             dump.unlink(missing_ok=True)

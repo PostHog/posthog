@@ -1803,11 +1803,10 @@ jobs:
               with:
                   path: schema.sql.gz
                   key: ${{ steps.master-schema-key.outputs.key }}
-                  # Only master pushes save posthog-schema-master-<sha>, so the PR-base key
-                  # matches when the base is a master commit. A merge queue or stacked base
-                  # matches nothing and falls through to the newest master snapshot.
+                  # The newest master snapshot is the one most likely to pass the check below.
+                  # A merge queue or stacked base has no saved dump, and an older PR base often
+                  # predates a uv.lock change that the check rejects.
                   restore-keys: |
-                      posthog-schema-master-${{ github.event.pull_request.base.sha }}
                       posthog-schema-master-
             - name: Validate fallback master schema
               id: validate-master-schema
