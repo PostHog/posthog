@@ -239,8 +239,8 @@ _recent_capacity_errors = _RecentCapacityErrors(RETRY_PRESSURE_WINDOW)
 
 def _adaptive_retry_delay(base: dt.timedelta, attempt: int, recent_errors: int) -> dt.timedelta:
     pressure = min(1 + recent_errors / RETRY_PRESSURE_ERRORS_PER_STEP, RETRY_PRESSURE_MAX)
-    delay = base * (2 ** (max(attempt, 1) - 1)) * pressure * random.uniform(0.5, 1.0)
-    return min(delay, MAX_ADAPTIVE_RETRY_DELAY)
+    delay = min(base * (2 ** (max(attempt, 1) - 1)) * pressure, MAX_ADAPTIVE_RETRY_DELAY)
+    return delay * random.uniform(0.5, 1.0)
 
 
 # Above this many files, the per-run compaction is worth its full-table rewrite. Below it, skipping

@@ -2051,17 +2051,23 @@ class TestMaterializeViewActivity:
 
 class TestAdaptiveRetryDelay:
     @pytest.mark.parametrize(
-        "base,attempt,recent_errors,expected_bounds",
+        "base,attempt,recent_errors,jitter,expected_delay",
         [
-            (dt.timedelta(seconds=20), 1, 0, (dt.timedelta(seconds=10), dt.timedelta(seconds=20))),
-            (dt.timedelta(seconds=20), 1, 10, (dt.timedelta(seconds=30), dt.timedelta(seconds=60))),
-            (dt.timedelta(seconds=20), 2, 10, (dt.timedelta(seconds=60), dt.timedelta(seconds=120))),
-            (dt.timedelta(minutes=2), 3, 1000, (dt.timedelta(minutes=10), dt.timedelta(minutes=10))),
+            (dt.timedelta(seconds=20), 1, 0, 0.5, dt.timedelta(seconds=10)),
+            (dt.timedelta(seconds=20), 1, 0, 1.0, dt.timedelta(seconds=20)),
+            (dt.timedelta(seconds=20), 1, 10, 0.5, dt.timedelta(seconds=30)),
+            (dt.timedelta(seconds=20), 2, 10, 1.0, dt.timedelta(seconds=120)),
+            (dt.timedelta(minutes=2), 3, 1000, 0.5, dt.timedelta(minutes=5)),
+            (dt.timedelta(minutes=2), 3, 1000, 1.0, dt.timedelta(minutes=10)),
         ],
     )
-    async def test_delay_grows_with_the_attempt_and_recent_errors(self, base, attempt, recent_errors, expected_bounds):
-        min_delay, max_delay = expected_bounds
-        assert min_delay <= _adaptive_retry_delay(base, attempt, recent_errors) <= max_delay
+    async def test_delay_grows_with_the_attempt_and_recent_errors(
+        self, base, attempt, recent_errors, jitter, expected_delay
+    ):
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.random.uniform", return_value=jitter
+        ):
+            assert _adaptive_retry_delay(base, attempt, recent_errors) == expected_delay
 
     async def test_recent_errors_count_only_the_window(self):
         errors = _RecentCapacityErrors(dt.timedelta(minutes=5))
