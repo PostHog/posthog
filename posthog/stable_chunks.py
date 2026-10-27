@@ -67,7 +67,7 @@ class StableChunks:
 
 def read_stable_chunks_manifest(manifest_path: str) -> Optional[StableChunks]:
     """
-    Parse the manifest defensively. A missing or malformed manifest turns the opt-in off rather
+    Parse the manifest defensively. A missing or malformed manifest serves the hashed build rather
     than breaking page rendering, and is reported, because the caller caches the result per process.
     """
     try:
@@ -113,7 +113,8 @@ def read_stable_chunks_manifest(manifest_path: str) -> Optional[StableChunks]:
 
 @lru_cache(maxsize=1)
 def _resolve_stable_chunks() -> Optional[StableChunks]:
-    if settings.DEBUG or settings.TEST:
+    # The Vite dev server serves source modules, so a manifest left in dist from an older build is stale.
+    if settings.DEBUG and not settings.TEST:
         return None
     return read_stable_chunks_manifest(
         os.path.join(settings.BASE_DIR, "frontend", "dist", "stable-chunks-manifest.json")

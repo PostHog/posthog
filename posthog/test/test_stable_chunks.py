@@ -13,7 +13,12 @@ from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
 
 from posthog.models import User
-from posthog.stable_chunks import StableChunks, read_stable_chunks_manifest, stable_chunks_for_request
+from posthog.stable_chunks import (
+    StableChunks,
+    _resolve_stable_chunks,
+    read_stable_chunks_manifest,
+    stable_chunks_for_request,
+)
 from posthog.utils import get_context_for_template
 
 VALID_MANIFEST = {
@@ -60,6 +65,27 @@ class TestStableChunks(SimpleTestCase):
 
         assert stable is not None
         assert "</script>" not in stable.import_map_json("https://cdn.example.com</script><script>")
+
+    @parameterized.expand(
+        [
+            ("production", False, False, True),
+            ("tests", False, True, True),
+            ("tests with debug on", True, True, True),
+            ("the vite dev server", True, False, False),
+        ]
+    )
+    def test_only_the_vite_dev_server_skips_the_stable_build(
+        self, _name: str, debug: bool, test: bool, expect_stable: bool
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            dist = Path(directory) / "frontend" / "dist"
+            dist.mkdir(parents=True)
+            (dist / "stable-chunks-manifest.json").write_text(json.dumps(VALID_MANIFEST))
+            _resolve_stable_chunks.cache_clear()
+            self.addCleanup(_resolve_stable_chunks.cache_clear)
+
+            with override_settings(BASE_DIR=directory, DEBUG=debug, TEST=test):
+                assert (_resolve_stable_chunks() is not None) == expect_stable
 
     @parameterized.expand(
         [
