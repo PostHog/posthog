@@ -335,7 +335,7 @@ def test_site_metrics_daily_reads_each_day_once(
     assert result.raised is None
     assert result.response is not None and result.response.sort_mode == "asc"
     assert [row["date"] for row in result.rows] == expected_days
-    expected_requests = [("/v3/site-audit/projects", None)] if expected_days else []
+    expected_requests: list[tuple[str, str | None]] = [("/v3/site-audit/projects", None)] if expected_days else []
     expected_requests += [(path, day) for day in expected_days for path in SITE_METRICS_PATHS]
     assert [(request.path, request.param("date")) for request in result.requests] == expected_requests
 
