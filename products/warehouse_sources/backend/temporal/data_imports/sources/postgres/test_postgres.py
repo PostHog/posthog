@@ -5667,6 +5667,11 @@ class TestValidateCredentialsErrorMapping:
                 "The database rejected the username or password. Check the user and password for this source and try again.",
             ),
             (
+                'connection failed: connection to server at "203.0.113.20", port 5432 failed: '
+                "FATAL:  password authentication failed",
+                "The database rejected the username or password. Check the user and password for this source and try again.",
+            ),
+            (
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 'FATAL:  PAM authentication failed for user "example_user"',
                 "The database rejected the username or password. Check the user and password for this source and try again.",
