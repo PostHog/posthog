@@ -3,6 +3,8 @@ import { IconWarning } from '@posthog/icons'
 import { cn } from 'lib/utils/css-classes'
 
 import type { TraceNodeApi } from '../../../generated/api.schemas'
+import { EvalRollupOutcome } from '../types'
+import { EvalOutcomeMarker } from './EvalOutcomeMarker'
 import { NodeKindGlyph } from './NodeKindGlyph'
 import { NodeStatsLine } from './NodeStatsLine'
 
@@ -12,6 +14,7 @@ export interface TraceTreeRowProps {
     selectedNodeId: string | null
     onSelectNode: (id: string) => void
     onPrefetchNode: (id: string) => void
+    evalOutcomes: Record<string, EvalRollupOutcome>
 }
 
 export function TraceTreeRow({
@@ -20,8 +23,10 @@ export function TraceTreeRow({
     selectedNodeId,
     onSelectNode,
     onPrefetchNode,
+    evalOutcomes,
 }: TraceTreeRowProps): JSX.Element {
     const isSelected = node.id === selectedNodeId
+    const evalOutcome = evalOutcomes[node.id]
     return (
         <li>
             <button
@@ -49,6 +54,7 @@ export function TraceTreeRow({
                     >
                         <span className="truncate">{node.name}</span>
                         {node.hasError ? <IconWarning className="shrink-0" role="img" aria-label="Error" /> : null}
+                        {evalOutcome ? <EvalOutcomeMarker outcome={evalOutcome} /> : null}
                     </span>
                     <NodeStatsLine stats={node.stats} model={node.model} compact />
                 </span>
@@ -63,6 +69,7 @@ export function TraceTreeRow({
                             selectedNodeId={selectedNodeId}
                             onSelectNode={onSelectNode}
                             onPrefetchNode={onPrefetchNode}
+                            evalOutcomes={evalOutcomes}
                         />
                     ))}
                 </ul>
