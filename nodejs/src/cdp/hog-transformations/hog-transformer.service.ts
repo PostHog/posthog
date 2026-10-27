@@ -248,8 +248,8 @@ export class HogTransformerService implements HogTransformer {
                 }
             }
 
-            // Filters read a copy of the globals, so the event is unchanged until the first
-            // transformation runs. Legacy plugins write to event.properties in place.
+            // A filter cannot change the event, because the Hog VM copies each global it reads.
+            // A legacy plugin changes event.properties in place, so the copy is taken before it runs.
             protectedProperties ??= pickProtectedProperties(event.properties)
 
             let result: CyclotronJobInvocationResult
