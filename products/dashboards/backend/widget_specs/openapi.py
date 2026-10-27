@@ -420,6 +420,7 @@ class DashboardFiltersOpenApiSerializer(serializers.Serializer):
             'Example: {"breakdown_type": "event", "breakdown": "$browser"}. Null clears it.'
         ),
     )
+    # nosemgrep: choices-need-a-class -- generated query schema enum, ENUM_NAME_OVERRIDES pins IntervalTypeEnum
     interval = serializers.ChoiceField(
         choices=[interval.value for interval in IntervalType],
         required=False,
