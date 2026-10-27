@@ -128,6 +128,8 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     firstColumnSticky?: boolean
     /** Array of column keys to pin (make sticky). Columns won't be pinned in order. */
     pinnedColumns?: string[]
+    /** Rows shown above all others, outside sorting and pagination, e.g. a totals row. */
+    pinnedRows?: T[]
     // Max width for the column headers
     maxHeaderWidth?: string
     /** Whether to hide the scrollbar. */
@@ -202,6 +204,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     footer,
     firstColumnSticky,
     pinnedColumns,
+    pinnedRows,
     maxHeaderWidth,
     hideScrollbar,
     allowContentScroll = false,
@@ -974,6 +977,38 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                 </thead>
                             )}
                             <tbody>
+                                {!!paginationState.dataSourcePage.length &&
+                                    pinnedRows?.map((record, rowIndex) => (
+                                        <TableRow
+                                            key={`LemonTable-tr-pinned-${rowIndex}`}
+                                            record={record}
+                                            recordIndex={rowIndex}
+                                            rowKeyDetermined={`pinned-${rowIndex}`}
+                                            rowClassNameDetermined={clsx(
+                                                'LemonTable__row--pinned',
+                                                typeof rowClassName === 'function'
+                                                    ? rowClassName(record, rowIndex)
+                                                    : rowClassName
+                                            )}
+                                            rowRibbonColorDetermined={
+                                                typeof rowRibbonColor === 'function'
+                                                    ? rowRibbonColor(record, rowIndex) || 'var(--color-border-primary)'
+                                                    : rowRibbonColor
+                                            }
+                                            rowStatusDetermined={undefined}
+                                            columnGroups={renderedColumnGroups}
+                                            columnWindow={columnWindow}
+                                            onRow={undefined}
+                                            expandable={undefined}
+                                            rowCount={pinnedRows.length}
+                                            firstColumnSticky={firstColumnSticky}
+                                            pinnedColumns={pinnedColumns}
+                                            pinnedColumnWidths={pinnedColumnWidths}
+                                            columns={columns}
+                                            rowActions={undefined}
+                                            onCellContextMenu={enableCellCopy ? handleCellContextMenu : undefined}
+                                        />
+                                    ))}
                                 {virtualizeRows && paddingTop > 0 && (
                                     <tr aria-hidden style={{ border: 0 }}>
                                         <td

@@ -188,6 +188,10 @@ body.is-resizing-column {
                 }
             }
 
+            &.LemonTable__row--pinned {
+                font-weight: 600;
+            }
+
             &.LemonTable__row--status-highlight-new {
                 animation: LemonTable__row__highlight__animation 1.5s ease-out;
             }

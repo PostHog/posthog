@@ -9335,6 +9335,13 @@ class TrendsQueryResponse(BaseModel):
         extra="forbid",
     )
     boxplot_data: list[BoxPlotDatum] | None = None
+    breakdownTotals: list[dict[str, Any]] | None = Field(
+        default=None,
+        description=(
+            "For unique-count series with a breakdown: the same series without the"
+            " breakdown, so each day's distinct count."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -16140,6 +16147,13 @@ class CachedTrendsQueryResponse(BaseModel):
         extra="forbid",
     )
     boxplot_data: list[BoxPlotDatum] | None = None
+    breakdownTotals: list[dict[str, Any]] | None = Field(
+        default=None,
+        description=(
+            "For unique-count series with a breakdown: the same series without the"
+            " breakdown, so each day's distinct count."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -23929,6 +23943,13 @@ class QueryResponseAlternative60(BaseModel):
         extra="forbid",
     )
     boxplot_data: list[BoxPlotDatum] | None = None
+    breakdownTotals: list[dict[str, Any]] | None = Field(
+        default=None,
+        description=(
+            "For unique-count series with a breakdown: the same series without the"
+            " breakdown, so each day's distinct count."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(

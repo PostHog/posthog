@@ -2002,6 +2002,8 @@ export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
     /** Wether more breakdown values are available. */
     hasMore?: boolean
+    /** For unique-count series with a breakdown: the same series without the breakdown, so each day's distinct count. */
+    breakdownTotals?: Record<string, any>[]
     /** @deprecated Box plot data is now returned in results. This field is no longer populated. */
     boxplot_data?: BoxPlotDatum[]
 }

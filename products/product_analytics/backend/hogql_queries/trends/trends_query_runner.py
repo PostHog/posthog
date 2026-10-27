@@ -99,6 +99,8 @@ from products.product_analytics.backend.hogql_queries.trends.trends_actors_query
 from products.product_analytics.backend.hogql_queries.trends.trends_query_builder import TrendsQueryBuilder
 from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
+UNIQUE_COUNT_MATHS = {"dau", "weekly_active", "monthly_active", "unique_session", "unique_group"}
+
 
 class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     query: TrendsQuery
@@ -211,35 +213,52 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return ast.SelectSetQuery.create_from_queries(self.to_queries(), "UNION ALL")
 
     def to_queries(self) -> list[ast.SelectQuery | ast.SelectSetQuery]:
-        queries = []
         with self.timings.measure("trends_to_query"):
-            earliest_timestamp = self._earliest_timestamp
-            for series in self.series:
-                if not series.is_previous_period_series:
-                    query_date_range = self.query_date_range
-                else:
-                    query_date_range = self.query_previous_date_range
+            return [self._build_series_query(series, series.overriden_query or self.query) for series in self.series]
 
-                query_date_range._earliest_timestamp_fallback = earliest_timestamp
+    def _build_series_query(
+        self, series: SeriesWithExtras, trends_query: TrendsQuery
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        query_date_range = self.query_previous_date_range if series.is_previous_period_series else self.query_date_range
+        query_date_range._earliest_timestamp_fallback = self._earliest_timestamp
 
-                query_builder = TrendsQueryBuilder(
-                    trends_query=series.overriden_query or self.query,
-                    team=self.team,
-                    query_date_range=query_date_range,
-                    series=series.series,
-                    timings=self.timings,
-                    modifiers=self.modifiers,
-                    limit_context=self.limit_context,
-                )
-                query = query_builder.build_query()
+        query = TrendsQueryBuilder(
+            trends_query=trends_query,
+            team=self.team,
+            query_date_range=query_date_range,
+            series=series.series,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+        ).build_query()
 
-                # Get around the default 100 limit, bump to the max 10000.
-                # This is useful for the world map view and other cases with a lot of breakdowns.
-                if isinstance(query, ast.SelectQuery) and query.limit is None:
-                    query.limit = ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
-                queries.append(query)
+        # Get around the default 100 limit, bump to the max 10000.
+        # This is useful for the world map view and other cases with a lot of breakdowns.
+        if isinstance(query, ast.SelectQuery) and query.limit is None:
+            query.limit = ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
+        return query
 
-        return queries
+    @cached_property
+    def _breakdown_totals_runner(self) -> Optional["TrendsQueryRunner"]:
+        # Unique counts don't add up across breakdown values, so a day's total needs its own distinct count.
+        if (
+            not self.breakdown_enabled
+            or self._trends_display.is_total_value()
+            or (self.query.trendsFilter and self.query.trendsFilter.formulaNodes)
+            or (self.query.breakdownFilter and self.query.breakdownFilter.breakdown_type == "cohort")
+            or not any(getattr(series, "math", None) in UNIQUE_COUNT_MATHS for series in self.query.series)
+        ):
+            return None
+        return TrendsQueryRunner(
+            query=self.query.model_copy(update={"breakdownFilter": None}, deep=True),
+            team=self.team,
+            timings=self.timings,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+            user=self.user,
+            workload=self.workload,
+            hogql_settings=self.hogql_settings,
+        )
 
     def to_events_query(self, *args, **kwargs) -> ast.SelectQuery:
         with self.timings.measure("trends_to_events_query"):
@@ -448,8 +467,28 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             queries, team=self.team, timings=self.timings, modifiers=self.modifiers, database=self.shared_database
         )
 
-        res_matrix: list[list[Any] | Any | None] = [None] * len(queries)
-        timings_matrix: list[list[QueryTiming] | None] = [None] * (2 + len(queries))
+        totals_runner = self._breakdown_totals_runner
+        total_series = (
+            [s for s in totals_runner.series if getattr(s.series, "math", None) in UNIQUE_COUNT_MATHS]
+            if totals_runner
+            else []
+        )
+        jobs: list[tuple[TrendsQueryRunner, SeriesWithExtras, int, ast.SelectQuery | ast.SelectSetQuery]] = [
+            (self, series, len(queries), query) for series, query in zip(self.series, queries)
+        ]
+        if totals_runner:
+            jobs.extend(
+                (
+                    totals_runner,
+                    series,
+                    len(totals_runner.series),
+                    self._build_series_query(series, totals_runner.query),
+                )
+                for series in total_series
+            )
+
+        res_matrix: list[list[Any] | Any | None] = [None] * len(jobs)
+        timings_matrix: list[list[QueryTiming] | None] = [None] * (2 + len(jobs))
         errors: list[Exception] = []
         debug_errors: list[str] = []
 
@@ -460,7 +499,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             is_parallel: bool,
         ):
             try:
-                series_with_extra = self.series[index]
+                job_runner, series_with_extra, series_count, _ = jobs[index]
 
                 response = execute_hogql_query(
                     query_type="TrendsQuery",
@@ -477,7 +516,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 )
 
                 timings_matrix[index + 1] = response.timings
-                res_matrix[index] = self.build_series_response(response, series_with_extra, len(queries))
+                res_matrix[index] = job_runner.build_series_response(response, series_with_extra, series_count)
                 if response.error:
                     debug_errors.append(response.error)
             except Exception as e:
@@ -496,14 +535,14 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             # A count of 0 or 1 needs no thread, and an empty series expansion produces 0 queries.
             # IN_UNIT_TESTING keeps a test class on this path as well, because Django does not make
             # the test transaction visible to another thread.
-            if len(queries) <= 1 or settings.IN_UNIT_TESTING:
-                for index, query in enumerate(queries):
+            if len(jobs) <= 1 or settings.IN_UNIT_TESTING:
+                for index, (_, _, _, query) in enumerate(jobs):
                     run(index, query, self.timings.clone_for_subquery(index), False)
             else:
                 run_in_parallel_threads(
                     [
                         partial(run, index, query, self.timings.clone_for_subquery(index), True)
-                        for index, query in enumerate(queries)
+                        for index, (_, _, _, query) in enumerate(jobs)
                     ],
                     thread_name_prefix="trends_series",
                 )
@@ -513,14 +552,19 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             raise errors[0]
 
         # Flatten res and timings
-        returned_results: list[list[dict[str, Any]]] = []
-        for result in res_matrix:
-            if isinstance(result, list):
-                returned_results.append(result)
-            elif isinstance(result, dict):
-                returned_results.append([result])
+        def flatten(results: list[list[Any] | Any | None]) -> list[list[dict[str, Any]]]:
+            flattened: list[list[dict[str, Any]]] = []
+            for result in results:
+                if isinstance(result, list):
+                    flattened.append(result)
+                elif isinstance(result, dict):
+                    flattened.append([result])
+            return flattened
 
-        final_result, has_more = self.format_results(returned_results)
+        final_result, has_more = self.format_results(flatten(res_matrix[: len(queries)]))
+        breakdown_totals = (
+            totals_runner.format_results(flatten(res_matrix[len(queries) :]))[0] if totals_runner else None
+        )
 
         timings_matrix[-1] = self.timings.to_list()
 
@@ -532,6 +576,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         return TrendsQueryResponse(
             results=final_result,
             hasMore=has_more,
+            breakdownTotals=breakdown_totals,
             timings=timings,
             hogql=response_hogql,
             modifiers=self.modifiers,

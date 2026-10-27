@@ -2641,6 +2641,37 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         assert response.results[0]["data"] == [1, 0, 1, 3, 1, 0, 2, 0, 1, 0, 1, 0]
 
+    @parameterized.expand([(BaseMathType.DAU, [[1, 2, 0]]), (BaseMathType.TOTAL, None)])
+    def test_breakdown_totals_count_each_person_once_per_day(self, math, expected_totals):
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"])
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"])
+        for distinct_id, timestamp, browser in [
+            ("p1", "2020-01-09T12:00:00Z", "Chrome"),
+            ("p1", "2020-01-10T12:00:00Z", "Chrome"),
+            ("p1", "2020-01-10T13:00:00Z", "Firefox"),
+            ("p2", "2020-01-10T12:00:00Z", "Chrome"),
+        ]:
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id=distinct_id,
+                timestamp=timestamp,
+                properties={"$browser": browser},
+            )
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-11",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=math)],
+            None,
+            BreakdownFilter(breakdown="$browser", breakdown_type=BreakdownType.EVENT),
+        )
+
+        totals = None if response.breakdownTotals is None else [total["data"] for total in response.breakdownTotals]
+        assert totals == expected_totals
+
     def test_trends_aggregation_wau(self):
         self._create_test_events()
 

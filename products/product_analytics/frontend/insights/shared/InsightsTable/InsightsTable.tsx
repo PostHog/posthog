@@ -32,7 +32,12 @@ import { SeriesCheckColumnItem, SeriesCheckColumnTitle } from './columns/SeriesC
 import { SeriesColumnItem, formatCompareLabel } from './columns/SeriesColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { WorldMapColumnItem, WorldMapColumnTitle } from './columns/WorldMapColumn'
-import { AggregationType, getAggregatedValue, insightsTableDataLogic } from './insightsTableDataLogic'
+import {
+    AggregationType,
+    getAggregatedValue,
+    insightsTableDataLogic,
+    isBreakdownTotalRow,
+} from './insightsTableDataLogic'
 
 export type CalcColumnState = 'total' | 'average' | 'median'
 
@@ -111,6 +116,7 @@ export function InsightsTable({
         getPercentOfTotal,
         showPercentOfDayTotal,
         getPercentOfDayTotal,
+        totalRows,
     } = useValues(insightsTableDataLogic(insightProps))
     const { setDetailedResultsAggregationType, toggleColumnPin } = useActions(insightsTableDataLogic(insightProps))
     const { weekStartDay, timezone, baseCurrency } = useValues(teamLogic)
@@ -200,6 +206,13 @@ export function InsightsTable({
             </div>
         ),
         render: (_, item) => {
+            if (isBreakdownTotalRow(item)) {
+                const seriesName = isSingleSeriesDefinition
+                    ? null
+                    : getResultSeriesName(getResultSeries(querySource, item)) || item.action?.name
+                const compareLabel = item.compare_label && !isCompareTable ? formatCompareLabel(item) : null
+                return <span>{['Total', seriesName, compareLabel].filter(Boolean).join(' · ')}</span>
+            }
             const label = isSingleSeriesWithBreakdown ? (
                 <BreakdownColumnItem
                     item={item}
@@ -264,15 +277,14 @@ export function InsightsTable({
                         onTogglePin={() => toggleColumnPin('breakdown')}
                     />
                 ),
-                render: (_, item) => {
-                    return (
+                render: (_, item) =>
+                    isBreakdownTotalRow(item) ? null : (
                         <BreakdownColumnItem
                             item={item}
                             formatItemBreakdownLabel={formatItemBreakdownLabel!}
                             breakdownFilter={breakdownFilter}
                         />
-                    )
-                },
+                    ),
                 key: 'breakdown',
                 sorter: (a, b) => {
                     if (typeof a.breakdown_value === 'number' && typeof b.breakdown_value === 'number') {
@@ -318,15 +330,14 @@ export function InsightsTable({
                         {extractDisplayLabel(breakdown.property?.toString())}
                     </MultipleBreakdownColumnTitle>
                 ),
-                render: (_, item) => {
-                    return (
+                render: (_, item) =>
+                    isBreakdownTotalRow(item) ? null : (
                         <BreakdownColumnItem
                             item={item}
                             formatItemBreakdownLabel={formatItemBreakdownLabel}
                             breakdownFilter={breakdownFilter}
                         />
-                    )
-                },
+                    ),
                 key: columnKey,
                 sorter: (a, b) => {
                     const leftValue = Array.isArray(a.breakdown_value) ? a.breakdown_value[index] : a.breakdown_value
@@ -350,7 +361,7 @@ export function InsightsTable({
     if (!isMainInsightView && !embedded && display !== ChartDisplayType.WorldMap) {
         columns.push({
             title: <ColorCustomizationColumnTitle />,
-            render: (_, item) => <ColorCustomizationColumnItem item={item} />,
+            render: (_, item) => (isBreakdownTotalRow(item) ? null : <ColorCustomizationColumnItem item={item} />),
             key: 'color',
         })
     }
@@ -545,11 +556,15 @@ export function InsightsTable({
             loading={insightDataLoading}
             disableTableWhileLoading={false}
             emptyState={emptyState}
+            pinnedRows={totalRows}
             data-attr="insights-table-graph"
             useURLForSorting={!editMode}
             rowRibbonColor={
                 isLegend
                     ? (item) => {
+                          if (isBreakdownTotalRow(item)) {
+                              return undefined
+                          }
                           const isPrevious = !!item.compare && item.compare_label === 'previous'
 
                           const themeColor = getTrendsColor(item)

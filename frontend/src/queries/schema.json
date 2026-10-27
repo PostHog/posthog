@@ -15840,6 +15840,13 @@
                     },
                     "type": "array"
                 },
+                "breakdownTotals": {
+                    "description": "For unique-count series with a breakdown: the same series without the breakdown, so each day's distinct count.",
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
                 "cache_key": {
                     "type": "string"
                 },
@@ -46855,6 +46862,13 @@
                             },
                             "type": "array"
                         },
+                        "breakdownTotals": {
+                            "description": "For unique-count series with a breakdown: the same series without the breakdown, so each day's distinct count.",
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -56604,6 +56618,13 @@
                     "deprecated": "Box plot data is now returned in results. This field is no longer populated.",
                     "items": {
                         "$ref": "#/definitions/BoxPlotDatum"
+                    },
+                    "type": "array"
+                },
+                "breakdownTotals": {
+                    "description": "For unique-count series with a breakdown: the same series without the breakdown, so each day's distinct count.",
+                    "items": {
+                        "type": "object"
                     },
                     "type": "array"
                 },

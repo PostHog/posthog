@@ -463,6 +463,34 @@ describe('insightsTableDataLogic', () => {
             expect(logic.values.getPercentOfDayTotal(logic.values.indexedResults[0], 0)).toBeNull()
         })
 
+        it('unique users divide by the distinct daily totals from the backend', async () => {
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.UniqueUsers }],
+                breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+            }
+            const insight = {
+                result: [
+                    makeCompareResult({ breakdown_value: 'Chrome', data: [1, 2] }),
+                    makeCompareResult({ breakdown_value: 'Firefox', data: [0, 1] }),
+                ],
+                breakdownTotals: [makeCompareResult({ data: [1, 2] })],
+            }
+
+            await expectLogic(logic, () => {
+                insightVizDataLogic.findMounted(props)?.actions.updateQuerySource(query)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toFinishAllListeners()
+
+            const { indexedResults, getPercentOfDayTotal, totalRows } = logic.values
+            expect(logic.values.showPercentOfDayTotal).toBe(true)
+            expect(indexedResults.map((r) => [getPercentOfDayTotal(r, 0), getPercentOfDayTotal(r, 1)])).toEqual([
+                [1, 1],
+                [0, 0.5],
+            ])
+            expect(totalRows.map((r) => r.data)).toEqual([[1, 2]])
+        })
+
         it('percent of total divides by the total of the same series and period', async () => {
             const row = (
                 order: number,
