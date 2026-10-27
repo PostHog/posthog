@@ -36,6 +36,9 @@ class OutbrainEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Entity and breakdown report endpoints paginate with limit/offset.
     paginated: bool = False
+    # Reports default to enabled, unarchived campaigns only, which would drop
+    # spend from campaigns paused or archived inside the window.
+    include_inactive_campaigns: bool = False
 
 
 OUTBRAIN_ENDPOINTS: dict[str, OutbrainEndpointConfig] = {
@@ -101,6 +104,7 @@ OUTBRAIN_ENDPOINTS: dict[str, OutbrainEndpointConfig] = {
         data_key="results",
         primary_keys=None,
         paginated=True,
+        include_inactive_campaigns=True,
     ),
     "publisher_performance": OutbrainEndpointConfig(
         name="publisher_performance",
@@ -109,6 +113,7 @@ OUTBRAIN_ENDPOINTS: dict[str, OutbrainEndpointConfig] = {
         data_key="results",
         primary_keys=None,
         paginated=True,
+        include_inactive_campaigns=True,
     ),
     "section_performance": OutbrainEndpointConfig(
         name="section_performance",
@@ -117,6 +122,7 @@ OUTBRAIN_ENDPOINTS: dict[str, OutbrainEndpointConfig] = {
         data_key="results",
         primary_keys=None,
         paginated=True,
+        include_inactive_campaigns=True,
     ),
 }
 

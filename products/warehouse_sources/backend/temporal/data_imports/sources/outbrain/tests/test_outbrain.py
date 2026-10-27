@@ -206,6 +206,8 @@ class TestReportStreams:
         assert all(row["_marketer_id"] == "m1" for row in result.rows)
         assert result.paths[1:] == [f"/amplify/v0.1/reports/marketers/m1/{report_path}"] * 2
         assert [request.param("offset") for request in result.requests[1:]] == ["0", str(REPORT_ROW_LIMIT)]
+        assert all(request.param("includeArchivedCampaigns") == "true" for request in result.requests[1:])
+        assert all(request.param("enabledCampaignsOnly") == "false" for request in result.requests[1:])
         assert result.saved_states == [
             OutbrainResumeConfig(next_index=0, next_offset=REPORT_ROW_LIMIT),
             OutbrainResumeConfig(next_index=1),

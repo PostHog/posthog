@@ -224,6 +224,9 @@ def get_rows(
             params["limit"] = REPORT_ROW_LIMIT
             if config.paginated:
                 params["offset"] = offset
+            if config.include_inactive_campaigns:
+                params["includeArchivedCampaigns"] = "true"
+                params["enabledCampaignsOnly"] = "false"
             rows = rows_of(fetch(f"{OUTBRAIN_BASE_URL}{path}?{urlencode(params)}"), config.data_key)
 
             out: list[dict[str, Any]] = []
