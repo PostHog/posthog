@@ -2,11 +2,18 @@
 set -uo pipefail
 
 compute_tag() {
-    local fetch_status=0 attempt wait_seconds
+    local fetch_started="$SECONDS" fetch_total_seconds="${FETCH_TOTAL_TIMEOUT_SECONDS:-100}"
+    local fetch_status=0 attempt wait_seconds remaining_seconds attempt_seconds
+    local minimum_attempt_seconds=3 kill_grace_seconds=10
     local -a fetch_retry_delays
+    if ! [[ "$fetch_total_seconds" =~ ^[1-9][0-9]{0,2}$ ]] || [ "$fetch_total_seconds" -gt 100 ]; then
+        echo 'Invalid ordered source fetch budget' >&2
+        return 1
+    fi
     read -r -a fetch_retry_delays <<< "${FETCH_RETRY_DELAYS_SECONDS:-5 15}"
     if [ "${#fetch_retry_delays[@]}" -ne 2 ] ||
-        ! [[ "${fetch_retry_delays[0]}" =~ ^[0-9]{1,3}$ && "${fetch_retry_delays[1]}" =~ ^[0-9]{1,3}$ ]]; then
+        ! [[ "${fetch_retry_delays[0]}" =~ ^(0|[1-9][0-9]{0,2})$ && "${fetch_retry_delays[1]}" =~ ^(0|[1-9][0-9]{0,2})$ ]] ||
+        [ "${fetch_retry_delays[0]}" -gt "$fetch_total_seconds" ] || [ "${fetch_retry_delays[1]}" -gt "$fetch_total_seconds" ]; then
         echo 'Invalid ordered source fetch retry delays' >&2
         return 1
     fi
@@ -15,8 +22,15 @@ compute_tag() {
             fetch_status=0
             break
         fi
+        remaining_seconds=$((fetch_total_seconds - (SECONDS - fetch_started)))
+        attempt_seconds=$((remaining_seconds - kill_grace_seconds))
+        if [ "$attempt_seconds" -lt "$minimum_attempt_seconds" ]; then
+            if [ "$fetch_status" -eq 0 ]; then fetch_status=124; fi
+            break
+        fi
+        if [ "$attempt_seconds" -gt 90 ]; then attempt_seconds=90; fi
         fetch_status=0
-        timeout --kill-after=10s 90s git fetch \
+        timeout --kill-after="${kill_grace_seconds}s" "${attempt_seconds}s" git fetch \
             --no-tags --prune --no-recurse-submodules --unshallow --filter=tree:0 \
             origin "+${GITHUB_REF}:refs/remotes/origin/${GITHUB_REF_NAME}" || fetch_status=$?
         if [ "$fetch_status" -eq 0 ]; then
@@ -24,6 +38,8 @@ compute_tag() {
         fi
         if [ "$attempt" -lt 3 ]; then
             wait_seconds="${fetch_retry_delays[$((attempt - 1))]}"
+            remaining_seconds=$((fetch_total_seconds - (SECONDS - fetch_started)))
+            if [ "$remaining_seconds" -lt "$((wait_seconds + minimum_attempt_seconds + kill_grace_seconds))" ]; then break; fi
             echo "::notice title=Ordered source fetch retry::Source history fetch attempt $attempt of 3 failed (status $fetch_status); retrying in $wait_seconds seconds."
             sleep "$wait_seconds"
         fi
@@ -169,8 +185,5 @@ case "${1:-}" in
     install) install_regctl "$2" ;;
     read) read_alias ;;
     publish) publish_alias ;;
-    *)
-        echo 'usage: ordered-image-release.sh tag|install PATH|read|publish' >&2
-        echo 'tag: FETCH_RETRY_DELAYS_SECONDS sets two retry waits in seconds (default: "5 15").' >&2
-        exit 2 ;;
+    *) echo 'usage: ordered-image-release.sh tag|install PATH|read|publish' >&2; exit 2 ;;
 esac

@@ -237,6 +237,16 @@ fi
 exec "$REAL_GIT" "$@"
 SHIM
 chmod +x "$scratch/shims/git"
+
+check_fetch_timeouts() {
+    awk -v attempts="$1" -v maximum="$2" '
+        NR % 2 == 1 { if ($0 != "--kill-after=10s") exit 1; next }
+        $0 !~ /^[1-9][0-9]*s$/ { exit 1 }
+        { sub(/s$/, ""); if ($0 > maximum) exit 1 }
+        END { if (NR != 2 * attempts) exit 1 }
+    ' "$TIMEOUT_ARGUMENTS"
+}
+
 for failures in 2 3; do
     git clone -q --depth 1 "file://$scratch/executing" "$scratch/retry-$failures"
     export FETCH_FAILURES="$failures"
@@ -248,7 +258,7 @@ for failures in 2 3; do
     test "$(grep -c '^::notice ' "$scratch/retry-annotations")" = 2
     grep -Fq 'attempt 1 of 3 failed (status 121); retrying in 0 seconds.' "$scratch/retry-annotations"
     grep -Fq 'attempt 2 of 3 failed (status 122); retrying in 0 seconds.' "$scratch/retry-annotations"
-    test "$(cat "$TIMEOUT_ARGUMENTS")" = "$(printf '%s\n' --kill-after=10s 90s --kill-after=10s 90s --kill-after=10s 90s)"
+    check_fetch_timeouts 3 90
     if [ "$failures" -eq 2 ]; then
         test "$(cat "$GITHUB_OUTPUT")" = "$executing_tag"
         test "$(git -C "$scratch/retry-$failures" rev-parse --is-shallow-repository)" = false
@@ -260,6 +270,41 @@ for failures in 2 3; do
         echo 'PASS tag stops after three failed fetches with the last status and no tag'
     fi
 done
+for failures in 2 0; do
+    git clone -q --depth 1 "file://$scratch/executing" "$scratch/budget-$failures"
+    printf '0\n' > "$FETCH_CALLS"
+    : > "$GITHUB_OUTPUT"
+    : > "$TIMEOUT_ARGUMENTS"
+    (cd "$scratch/budget-$failures" && FETCH_FAILURES="$failures" FETCH_TOTAL_TIMEOUT_SECONDS=20 \
+        FETCH_RETRY_DELAYS_SECONDS='8 0' bash "$helper" tag) > "$scratch/budget-annotations"
+    test "$(cat "$FETCH_CALLS")" = 1
+    check_fetch_timeouts 1 10
+    if [ "$failures" -gt 0 ]; then
+        test ! -s "$GITHUB_OUTPUT"
+        grep -Fxq '::warning title=Ordered release tag skipped::Source history could not be fetched (status 121).' "$scratch/budget-annotations"
+        if grep -q '^::notice ' "$scratch/budget-annotations"; then exit 1; fi
+        echo 'PASS tag skips a retry that cannot fit the total fetch budget and warns'
+    else
+        test "$(cat "$GITHUB_OUTPUT")" = "$executing_tag"
+        test ! -s "$scratch/budget-annotations"
+        echo 'PASS tag shortens its attempt timeout to fit the total fetch budget'
+    fi
+done
+for delays in '21 0' '0 21'; do
+    printf '0\n' > "$FETCH_CALLS"
+    : > "$GITHUB_OUTPUT"
+    : > "$TIMEOUT_ARGUMENTS"
+    if (cd "$scratch/executing" && FETCH_TOTAL_TIMEOUT_SECONDS=20 \
+        FETCH_RETRY_DELAYS_SECONDS="$delays" bash "$helper" tag) > "$scratch/invalid-fetch-budget" 2>&1; then
+        echo 'FAIL tag accepted a retry wait beyond its total budget' >&2
+        exit 1
+    fi
+    test "$(cat "$FETCH_CALLS")" = 0
+    test ! -s "$GITHUB_OUTPUT"
+    test ! -s "$TIMEOUT_ARGUMENTS"
+    grep -Fq 'Invalid ordered source fetch retry delays' "$scratch/invalid-fetch-budget"
+done
+echo 'PASS tag rejects either retry wait beyond the total fetch budget'
 printf '0\n' > "$FETCH_CALLS"
 : > "$GITHUB_OUTPUT"
 : > "$TIMEOUT_ARGUMENTS"

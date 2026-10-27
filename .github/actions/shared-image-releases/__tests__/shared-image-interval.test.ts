@@ -20,7 +20,7 @@ const commit = (name: string): string => {
   return git('rev-parse', 'HEAD')
 }
 const options = (overrides: {timeoutMs?: number; maxBuffer?: number} = {}): GitRunner => {
-  const history = new SourceHistory(repo, {fetchMs: 30000, comparisonMs: 30000, maxBuffer: overrides.maxBuffer ?? 1024 * 1024})
+  const history = new SourceHistory(repo, {fetchMs: 30000, comparisonMs: 30000, maxBuffer: overrides.maxBuffer ?? 1024 * 1024, retryDelaysMs: [0, 0]})
   const deadline = Date.now() + (overrides.timeoutMs ?? 30000)
   return args => history.git(args, deadline)
 }
@@ -115,7 +115,7 @@ describe('executing checkout first-parent interval', () => {
     const revisions = Array.from({length: count}, (_, index) => index % 2 ? head : base)
     const input = revisions.join('\n') + '\n'
     if (size === 'long') expect(Buffer.byteLength(input)).toBeGreaterThan(argumentLimit)
-    const history = new SourceHistory(repo, {fetchMs: 30000, comparisonMs: 30000, maxBuffer: 4 * 1024 * 1024})
+    const history = new SourceHistory(repo, {fetchMs: 30000, comparisonMs: 30000, maxBuffer: 4 * 1024 * 1024, retryDelaysMs: [0, 0]})
     const runner = jest.spyOn(history, 'git')
     try {
       await expect(history['trees'](revisions, Date.now() + 30000)).resolves.toBeUndefined()
@@ -155,7 +155,7 @@ describe('executing checkout first-parent interval', () => {
   test.each(['fetch', 'action'])('fetch retries stop when the %s deadline cannot fit the next wait', async budget => {
     jest.useFakeTimers()
     const deadline = Date.now() + 7999
-    const history = new SourceHistory(repo, {fetchMs: budget === 'fetch' ? 7999 : 30000, comparisonMs: 30000, maxBuffer: 1024}, budget === 'action' ? deadline : Infinity)
+    const history = new SourceHistory(repo, {fetchMs: budget === 'fetch' ? 7999 : 30000, comparisonMs: 30000, maxBuffer: 1024, retryDelaysMs: [5000, 15000]}, budget === 'action' ? deadline : Infinity)
     const tree = 'b'.repeat(40)
     const runner = jest.spyOn(commands, 'command').mockImplementation(async (_executable, args) => {
       if (args[0] === 'fetch') throw new Error('transient fetch failure')
@@ -165,7 +165,7 @@ describe('executing checkout first-parent interval', () => {
     })
     try {
       const result = expect(history.policyAt('a'.repeat(40)))
-        .rejects.toThrow(/^Interval trees remain unavailable after bounded fetch: Error: attempt 1 of 3: Error: transient fetch failure$/)
+        .rejects.toThrow(/^Interval trees remain unavailable after bounded fetch: Error: attempt 1 of 3: Error: transient fetch failure; retries skipped: fetch budget exhausted$/)
       await jest.runAllTimersAsync()
       await result
       expect(runner.mock.calls.filter(([_executable, args]) => args[0] === 'fetch')).toHaveLength(1)

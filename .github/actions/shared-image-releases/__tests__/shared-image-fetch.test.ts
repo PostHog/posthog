@@ -137,7 +137,7 @@ describe('publisher bounded tree fetching with the real command runner', () => {
       }
       expect(fetches.some(fetch => fetch.args.includes('--filter=blob:none') && fetch.args.includes('--stdin'))).toBe(true)
       expect(fetches.some(fetch => !fetch.args.some(arg => arg.startsWith('--filter=')) && fetch.input?.includes(policyBlob))).toBe(true)
-      const comparison = await new SourceHistory(cwd, options.budgets).compare(base, revision)
+      const comparison = await new SourceHistory(cwd, {...options.budgets, retryDelaysMs: [0, 0]}).compare(base, revision)
       expect(comparison.policies.map(policy => policyDigest(policy!.filters.worker))).toEqual([policyDigest(['worker/**']), policyDigest(['new-worker/**'])])
       expect(new Filter(JSON.stringify({worker: ['new-worker/**']})).match(comparison.files).worker).toEqual([])
     } else {

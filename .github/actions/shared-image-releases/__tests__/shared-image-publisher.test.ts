@@ -110,7 +110,7 @@ describe('shared-image publication', () => {
     const text = 'version: 1\nimages:\n  posthog-cloud:\n    channels:\n      worker:\n        repository: workers/worker\n        filter: worker\nfilters:\n  worker:\n    - |+\n      worker/**\n\n\n'
     put(POLICY_PATH, text)
     git('add', '-A'); git('update-index', '--chmod=+x', POLICY_PATH); git('commit', '-m', 'policy bytes')
-    const current = await new SourceHistory(repo, options.budgets).current(git('rev-parse', 'HEAD'))
+    const current = await new SourceHistory(repo, {...options.budgets, retryDelaysMs: [0, 0]}).current(git('rev-parse', 'HEAD'))
     expect(current.filters.worker).toEqual(['worker/**\n\n\n'])
     expect(policyDigest(current.filters.worker)).toBe(policyDigest(loadPolicy(text).filters.worker))
   })
@@ -538,7 +538,7 @@ describe('shared-image publication', () => {
     build()
     if (mode === 'symlink policy') { git('rm', POLICY_PATH); git('update-index', '--add', '--cacheinfo', `120000,${git('hash-object', '-w', '--stdin')},${POLICY_PATH}`); git('commit', '-m', 'symlink') }
     if (mode === 'missing policy') { git('rm', POLICY_PATH); commit() }
-    const history = new SourceHistory(repo, options.budgets)
+    const history = new SourceHistory(repo, {...options.budgets, retryDelaysMs: [0, 0]})
     if (mode.startsWith('ordinal')) external.mockImplementation(async (exe, args, config) => args.includes('--count') ? mode === 'ordinal zero' ? '0' : '1000000000000' : invoke(exe, args, config))
     const result = mode === 'missing policy' || mode === 'symlink policy' ? history.current(git('rev-parse', 'HEAD')) : history.alias(mode === 'short revision' ? 'abcdef' : options.revision)
     await expect(result).rejects.toThrow(mode === 'short revision' ? 'Expected full source revision' : mode.startsWith('ordinal') ? 'Source ordinal is out of range' : mode === 'missing policy' ? 'policy is missing' : 'expected a regular policy file')

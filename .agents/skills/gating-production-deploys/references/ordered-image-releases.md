@@ -10,7 +10,7 @@ The common alias uses `.github/scripts/ordered-image-release.sh`. `.github/actio
 
 After a successful default-branch build, reuse the helper under the repository-owner, `CD_DEPLOY_ENABLED` and `ORDERED_IMAGE_ALIAS_PAUSED` gates from `ordered_image_alias` in `.github/workflows/container-images-cd.yml`. Keep one active production publisher during switchover or rollback.
 
-Run `bash .github/scripts/ordered-image-release.sh tag` in the executing checkout with `GITHUB_SHA` equal to the built revision. It writes `tag` to `GITHUB_OUTPUT`, preserving first-parent ordering and `r<12-digit ordinal>-<sha6>`. A shallow checkout fetches complete history from its configured origin, with up to three attempts under the existing 90 second timeout per attempt and caller budget. Missing history yields a warning and no tag; surface that result as the common caller does.
+Run `bash .github/scripts/ordered-image-release.sh tag` in the executing checkout with `GITHUB_SHA` equal to the built revision. It writes `tag` to `GITHUB_OUTPUT`, preserving first-parent ordering and `r<12-digit ordinal>-<sha6>`. A shallow checkout fetches complete history from its configured origin, with up to three attempts within a 100 second total bound that leaves time in the step's 2 minute budget for follow-up messages. Missing history yields a warning and no tag; surface that result as the common caller does.
 
 Install the pinned, checksum-verified client with `bash .github/scripts/ordered-image-release.sh install "$RUNNER_TEMP/regctl"`. After approved registry authentication, run the helper's `publish` command:
 
@@ -80,6 +80,7 @@ The workflow allows four channels and two concurrent registry workers. A local r
 | Work                           | Bound              |
 | ------------------------------ | ------------------ |
 | Tree and policy fetching       | 60 seconds         |
+| Fetch retry waits              | 5 and 15 seconds, within the fetch bound |
 | History comparison             | 30 seconds         |
 | Combined command output        | 64 MiB             |
 | Registry operation             | 15 seconds         |
