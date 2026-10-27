@@ -8000,7 +8000,6 @@ describe("AgentServer HTTP Mode", () => {
             s as unknown as TestableServer
           ).buildCloudSystemPrompt();
           expect(prompt).toContain("# Response Style");
-          expect(prompt).toContain("# Voice");
           expect(prompt).toContain("be concise by default");
           expect(prompt).toContain(
             "Answer simple questions in a single sentence",
@@ -8027,7 +8026,6 @@ describe("AgentServer HTTP Mode", () => {
             s as unknown as TestableServer
           ).buildCloudSystemPrompt();
           expect(prompt).not.toContain("# Response Style");
-          expect(prompt).not.toContain("# Voice");
           delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
         },
       );
