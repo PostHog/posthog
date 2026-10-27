@@ -70,6 +70,23 @@ class TestBroadcastAudienceSuggestions(ClickhouseTestMixin, APIBaseTest):
         for index in range(11):
             self._person(f"regular-{index}", [("$pageview", now - timedelta(days=day)) for day in (1, 2, 3)])
             self._person(f"lapsed-{index}", [("$pageview", now - timedelta(days=40))])
+        # A regulars window is rolling and ends now, so the third view of each reader falls outside it.
+        window_edge = now - timedelta(days=7)
+        edge_day_start = window_edge.replace(hour=0, minute=0, second=0, microsecond=0)
+        self._person("steady-reader", [("report_viewed", now - timedelta(days=day)) for day in (1, 2, 3)])
+        self._person(
+            "edge-reader",
+            [
+                ("report_viewed", now - timedelta(days=1)),
+                ("report_viewed", now - timedelta(days=2)),
+                ("report_viewed", edge_day_start + (window_edge - edge_day_start) / 2),
+            ],
+        )
+        self._person(
+            "future-reader",
+            [("report_viewed", now - timedelta(days=day)) for day in (1, 2)]
+            + [("report_viewed", now + timedelta(days=1))],
+        )
         flush_persons_and_events()
 
     def _person(self, distinct_id: str, events: list[tuple[str, datetime]], email: str | None = "set") -> None:
@@ -91,6 +108,7 @@ class TestBroadcastAudienceSuggestions(ClickhouseTestMixin, APIBaseTest):
         [
             ("not_yet", "signed_up", "project_created", 14, None, 13),
             ("regulars", "$pageview", None, 7, 3, 11),
+            ("regulars", "report_viewed", None, 7, 3, 1),
             ("lapsed", "$pageview", None, 30, None, 11),
         ]
     )
