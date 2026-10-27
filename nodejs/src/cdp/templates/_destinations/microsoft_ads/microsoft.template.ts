@@ -133,16 +133,14 @@ export const template: HogFunctionTemplate = {
     code_language: 'hog',
     code: `
 // A value that is already a SHA-256 hash is sent as is, so a mapping that hashes upstream is not hashed twice
-fn isSha256(value) {
-    return match(value, '^[a-f0-9]{64}$')
+fn existingSha256(value) {
+    let lowered := lower(trim(toString(value)))
+    return match(lowered, '^[a-f0-9]{64}$') ? lowered : null
 }
 
 // Microsoft removes dots and any +alias from the part before the @ for every email domain, not only Gmail
 fn hashEmail(value) {
     let email := lower(trim(toString(value)))
-    if (isSha256(email)) {
-        return email
-    }
     let parts := splitByString('@', email)
     if (length(parts) != 2) {
         return null
@@ -158,9 +156,6 @@ fn hashEmail(value) {
 // is dropped, because guessing the country would send a hash that matches the wrong person or nobody.
 fn hashPhone(value) {
     let phone := trim(toString(value))
-    if (isSha256(lower(phone))) {
-        return lower(phone)
-    }
     for (let separator in [' ', '-', '.', '(', ')']) {
         phone := replaceAll(phone, separator, '')
     }
@@ -182,7 +177,7 @@ if (not empty(inputs.microsoftClickId)) {
     userData.msclkid := match(clickIdWithoutHyphens, '^[0-9a-fA-F]{32}$') ? clickIdWithoutHyphens : clickId
 }
 if (not empty(inputs.email)) {
-    let em := hashEmail(inputs.email)
+    let em := existingSha256(inputs.email) ?? hashEmail(inputs.email)
     if (empty(em)) {
         print('\`email\` is not a valid email address. Sending the conversion without it.')
     } else {
@@ -190,7 +185,7 @@ if (not empty(inputs.email)) {
     }
 }
 if (not empty(inputs.phone)) {
-    let ph := hashPhone(inputs.phone)
+    let ph := existingSha256(inputs.phone) ?? hashPhone(inputs.phone)
     if (empty(ph)) {
         print('\`phone\` has no country code or is not a valid phone number. Sending the conversion without it.')
     } else {
@@ -198,8 +193,7 @@ if (not empty(inputs.phone)) {
     }
 }
 if (not empty(inputs.externalId)) {
-    let externalId := trim(toString(inputs.externalId))
-    userData.externalId := isSha256(externalId) ? externalId : sha256Hex(externalId)
+    userData.externalId := existingSha256(inputs.externalId) ?? sha256Hex(trim(toString(inputs.externalId)))
 }
 // Microsoft can only attribute a conversion that carries at least one identifier;
 // IP address and user agent alone are not enough
@@ -257,12 +251,8 @@ if (res.status >= 400) {
     if (empty(details)) {
         throw Error(f'Error from capi.uet.microsoft.com (status {res.status}): {res.body}')
     }
-    let problems := []
-    for (let detail in details) {
-        problems := arrayPushBack(problems, f'{detail.propertyName}: {detail.errorMessage}')
-    }
-    let separator := '; '
-    throw Error(f'Error from capi.uet.microsoft.com (status {res.status}): {arrayStringConcat(problems, separator)}')
+    let problems := arrayStringConcat(arrayMap(detail -> f'{detail.propertyName}: {detail.errorMessage}', details), '; ')
+    throw Error(f'Error from capi.uet.microsoft.com (status {res.status}): {problems}')
 }
 // Microsoft answers 200 when an optional field fails validation, and processes the event without that field
 for (let detail in details) {

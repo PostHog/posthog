@@ -193,49 +193,45 @@ describe('microsoft template', () => {
         })
         expect(JSON.stringify(response.logs)).not.toContain('425')
     })
+    const phWarning = {
+        index: 0,
+        propertyName: 'data[0].userData.ph',
+        attemptedValue: 'attempted-value',
+        errorMessage: "'ph' must be a valid SHA256 string.",
+        errorCode: 'InvalidSha256',
+        isWarning: true,
+    }
+    const eventTimeError = {
+        index: 0,
+        propertyName: 'data[0].eventTime',
+        attemptedValue: 'attempted-value',
+        errorMessage: "'eventTime' must be a valid UNIX UTC timestamp in seconds within last 7 days.",
+        errorCode: 'InvalidEventTime',
+        isWarning: false,
+    }
     it.each([
         [
             'logs a warning without the attempted value when a field is dropped',
-            200,
+            { status: 200, body: { eventsReceived: 1, error: { code: 'ValidationError', details: [phWarning] } } },
             undefined,
             ["Microsoft accepted the conversion without `data[0].userData.ph`: 'ph' must be a valid SHA256 string."],
         ],
         [
             'reports validation errors without the attempted value',
-            400,
+            {
+                status: 400,
+                body: { eventsReceived: 0, error: { code: 'ValidationError', details: [eventTimeError, phWarning] } },
+            },
             "Error from capi.uet.microsoft.com (status 400): data[0].eventTime: 'eventTime' must be a valid UNIX UTC timestamp in seconds within last 7 days.; data[0].userData.ph: 'ph' must be a valid SHA256 string.",
             [],
         ],
-    ])('%s', async (_, status, expectedError, expectedLogs) => {
+    ])('%s', async (_, fetchResult, expectedError, expectedLogs) => {
         const response = await tester.invokeMapping(
             'Conversion',
             { tagId: '12345678', apiToken: 'api-token', eventName: 'purchase' },
             createAdDestinationPayload()
         )
-        const details = [
-            {
-                index: 0,
-                propertyName: 'data[0].userData.ph',
-                attemptedValue: 'attempted-value',
-                errorMessage: "'ph' must be a valid SHA256 string.",
-                errorCode: 'InvalidSha256',
-                isWarning: true,
-            },
-        ]
-        if (status === 400) {
-            details.unshift({
-                index: 0,
-                propertyName: 'data[0].eventTime',
-                attemptedValue: 'attempted-value',
-                errorMessage: "'eventTime' must be a valid UNIX UTC timestamp in seconds within last 7 days.",
-                errorCode: 'InvalidEventTime',
-                isWarning: false,
-            })
-        }
-        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
-            status,
-            body: { eventsReceived: status === 200 ? 1 : 0, error: { code: 'ValidationError', details } },
-        })
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, fetchResult)
         expect(fetchResponse.finished).toBe(true)
         expect(fetchResponse.error).toEqual(expectedError)
         expect(
