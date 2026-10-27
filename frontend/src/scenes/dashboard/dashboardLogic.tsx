@@ -706,6 +706,7 @@ export interface dashboardLogicValues {
     dashboardEditing: DashboardEditing | null
     dashboardFailedToLoad: boolean
     dashboardFiltersSaving: boolean
+    dashboardGridCompactionSaving: boolean
     dashboardLoadData: {
         action: DashboardLoadAction | undefined
         dashboardQueryId: string
@@ -718,7 +719,6 @@ export interface dashboardLogicValues {
     dashboardSettingsDraft: DashboardSettings | null
     dashboardSettingsState: DashboardSettingsState
     dashboardStreaming: boolean
-    dashboardGridCompactionSaving: boolean
     dashboardTileSpacingSaving: boolean
     dataColorTheme: DataColorTheme | null
     dataColorThemeId: number | null
@@ -1307,6 +1307,9 @@ export interface dashboardLogicActions {
     setDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
         layoutCompaction: DashboardGridCompaction
     }
+    setDashboardGridCompactionSaving: (saving: boolean) => {
+        saving: boolean
+    }
     setDashboardMode: (
         mode: DashboardMode | null,
         source: DashboardEventSource
@@ -1322,9 +1325,6 @@ export interface dashboardLogicActions {
     }
     setDashboardTileSpacing: (tileSpacing: DashboardTileSpacing) => {
         tileSpacing: DashboardTileSpacing
-    }
-    setDashboardGridCompactionSaving: (saving: boolean) => {
-        saving: boolean
     }
     setDashboardTileSpacingSaving: (saving: boolean) => {
         saving: boolean
