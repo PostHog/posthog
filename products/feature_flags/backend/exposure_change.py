@@ -48,7 +48,6 @@ class ExposureChangeKind(StrEnum):
     CONDITION_REMOVED = "condition_removed"
     # The criteria of a condition changed, or the flag-level aggregation changed.
     PROPERTIES_CHANGED = "properties_changed"
-    # The split or a variant override changed.
     VARIANT_CHANGED = "variant_changed"
     # The conditions have a new order, and the order decides the value of a person who matches two of them.
     CONDITIONS_REORDERED = "conditions_reordered"
@@ -160,7 +159,6 @@ def _side(filters: Mapping[str, Any] | None) -> _Side:
             filters.get("groups"), flag_aggregation=aggregation, variant_keys=split_variant_keys(split)
         ),
         aggregation=aggregation,
-        # The flag service reads a missing value as false.
         early_exit=filters.get("early_exit") is True,
     )
 
