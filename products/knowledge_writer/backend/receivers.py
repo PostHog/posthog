@@ -6,10 +6,10 @@ from products.tasks.backend.facade.task_run_signals import TaskOriginProduct, co
 
 
 def connect() -> None:
-    connect_task_run_post_save(publish_finished_writer_run, dispatch_uid="knowledge_writer_publish")
+    connect_task_run_post_save(open_docs_pull_request, dispatch_uid="knowledge_writer_docs_pull_request")
 
 
-def publish_finished_writer_run(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
+def open_docs_pull_request(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
     if created or instance.origin_product != TaskOriginProduct.KNOWLEDGE_WRITER:
         return
     if instance.status != instance.Status.COMPLETED:
@@ -19,7 +19,7 @@ def publish_finished_writer_run(sender: type, instance: Any, created: bool, **kw
         return
     if not (instance.output or {}).get("head_branches"):
         return
-    from .logic import publish  # noqa: PLC0415 — keeps the GitHub client off the setup import path
+    from .logic import pull_requests  # noqa: PLC0415 — keeps the GitHub client off the setup import path
 
     task_run_id, team_id = instance.id, instance.team_id
-    transaction.on_commit(lambda: publish.open_or_join_pull_request(task_run_id, team_id=team_id), robust=True)
+    transaction.on_commit(lambda: pull_requests.open_or_join_pull_request(task_run_id, team_id=team_id), robust=True)

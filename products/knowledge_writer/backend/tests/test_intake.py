@@ -10,7 +10,7 @@ from products.knowledge_writer.backend.adapters import REGISTRY
 from products.knowledge_writer.backend.facade.contracts import DocsCommandRequest
 from products.knowledge_writer.backend.facade.enums import DocsRequestSource
 from products.knowledge_writer.backend.logic import caps, intake
-from products.knowledge_writer.backend.logic.publish import LINK_BACK_START
+from products.knowledge_writer.backend.logic.pull_requests import LINK_BACK_START
 from products.knowledge_writer.backend.logic.records import PULL_REQUEST_STATE_KEY, REQUEST_STATE_KEY
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import TaskRun

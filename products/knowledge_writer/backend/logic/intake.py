@@ -15,7 +15,7 @@ from ..feature_flags import is_agent_launch_enabled
 from ..settings import writer_settings
 from .caps import OPEN_PULL_REQUEST_CAP, alert_cap_reached, daily_run_cap_reached, unpublished_writer_runs
 from .launch import start_writer
-from .publish import open_writer_pull_requests
+from .pull_requests import open_writer_pull_requests
 from .routing import route_request
 
 logger = structlog.get_logger(__name__)
