@@ -395,7 +395,9 @@ jobs:
             # The pages in this image name content-hashed files that browsers fetch from the CDN, and the
             # CDN reads each environment's static-assets bucket. Publishing from the pushed digest before
             # any dispatch below means no pod can serve a page whose files the bucket lacks, whichever sync
-            # path rolls it out. A file that did not land fails the job, and with it every dispatch.
+            # path rolls it out. An upload error fails the job, and with it every dispatch. The pushed image
+            # is the only correct source: the sourcemap stage rewrites the JS and deletes the maps after
+            # the frontend build stage, so only the final image's dist matches what pods serve.
             - name: Extract the frontend build from the image
               env:
                   IMAGE: ${{ steps.docker-meta.outputs.ecr-registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.image.outputs.digest }}
@@ -405,7 +407,7 @@ jobs:
                   docker cp "$container:/code/frontend/dist" "$RUNNER_TEMP/frontend-dist"
                   docker rm "$container" > /dev/null
 
-            - name: Install uv for the asset publisher
+            - name: Install uv for the asset publisher and dependency analysis
               uses: ./.github/actions/setup-uv
               with:
                   enable-cache: false
@@ -881,11 +883,6 @@ jobs:
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
-
-            - name: Install uv for dependency analysis
-              uses: ./.github/actions/setup-uv
-              with:
-                  enable-cache: false
 
             - name: Check for Python dependency changes that affect analytics platform temporal worker
               id: check_python_changes_analytics_platform_temporal_worker

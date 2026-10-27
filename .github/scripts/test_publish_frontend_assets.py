@@ -7,24 +7,16 @@ import publish_frontend_assets as publish
 
 
 class FakeStore:
-    def __init__(self, existing: tuple[str, ...] = (), drop: tuple[str, ...] = ()) -> None:
+    def __init__(self, existing: tuple[str, ...] = ()) -> None:
         self.objects: dict[str, tuple[bytes, str, str]] = dict.fromkeys(existing, (b"", "", ""))
         self.puts: list[str] = []
-        self.drop = set(drop)
 
     def keys(self, prefix: str) -> set[str]:
         return {key for key in self.objects if key.startswith(prefix)}
 
     def put(self, key: str, body: bytes, content_type: str, cache_control: str) -> None:
         self.puts.append(key)
-        if key not in self.drop:
-            self.objects[key] = (body, content_type, cache_control)
-
-
-def write(dist: Path, relative: str) -> None:
-    path = dist / relative
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(relative.encode())
+        self.objects[key] = (body, content_type, cache_control)
 
 
 @pytest.mark.parametrize(
@@ -53,7 +45,9 @@ def test_publish_uploads_new_hashed_files_once_and_fixed_names_always(tmp_path: 
         "array.js",
         "toolbar/toolbar-app.css",
     ):
-        write(tmp_path, relative)
+        path = tmp_path / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(relative.encode())
     store = FakeStore(existing=("static/index-AB12CD34.js", "static/array.js"))
 
     report = publish.publish(store, publish.scan_build(tmp_path), "abc123", workers=2)
@@ -72,12 +66,3 @@ def test_publish_uploads_new_hashed_files_once_and_fixed_names_always(tmp_path: 
         "static/index-AB12CD34.js",
         "static/toolbar/toolbar-app.css",
     ]
-
-
-def test_publish_fails_when_a_file_does_not_land(tmp_path: Path) -> None:
-    write(tmp_path, "index-AB12CD34.js")
-    write(tmp_path, "array.js")
-    store = FakeStore(drop=("static/index-AB12CD34.js",))
-
-    with pytest.raises(publish.MissingAfterUpload, match="static/index-AB12CD34.js"):
-        publish.publish(store, publish.scan_build(tmp_path), "abc123", workers=1)

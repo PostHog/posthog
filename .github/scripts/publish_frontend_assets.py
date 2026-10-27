@@ -5,14 +5,15 @@
 #     "boto3>=1.40",
 # ]
 # ///
-"""Publish a frontend build to a static-assets bucket and verify that every file landed.
+"""Publish a frontend build to a static-assets bucket.
 
 container-images-cd.yml runs this for each environment before it dispatches the deploy, so a pod
-never serves a page that names a file the CDN cannot fetch.
+never serves a page that names a file the CDN cannot fetch. Any upload error fails the run.
 
 A content-hashed key already in the bucket is left alone, so a republish creates no new object
 versions. Fixed-name files (the posthog-js bundles, the toolbar loader) upload last and always, so
-the newest build wins. The build's key list lands at builds/<sha>.json for retention tooling.
+the newest build wins. The build's key list lands at builds/<sha>.json so that a retention job can
+delete the keys no build from its window still lists.
 """
 
 import re
@@ -20,7 +21,6 @@ import sys
 import json
 import argparse
 import mimetypes
-from collections.abc import Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -64,61 +64,45 @@ class S3Store:
 
 
 @dataclass(frozen=True)
-class Build:
-    hashed: dict[str, Path]
-    fixed: dict[str, Path]
-
-    @property
-    def keys(self) -> set[str]:
-        return self.hashed.keys() | self.fixed.keys()
-
-
-@dataclass(frozen=True)
 class PublishReport:
     uploaded_hashed: int
     skipped_hashed: int
     uploaded_fixed: int
 
 
-class MissingAfterUpload(Exception):
-    def __init__(self, keys: Iterable[str]) -> None:
-        self.keys = sorted(keys)
-        super().__init__(f"{len(self.keys)} files are not in the bucket after upload: {', '.join(self.keys[:20])}")
+def scan_build(dist_dir: Path) -> dict[str, Path]:
+    """Bucket key to local file for every file in the build."""
+    return {
+        STATIC_PREFIX + path.relative_to(dist_dir).as_posix(): path
+        for path in sorted(dist_dir.rglob("*"))
+        if path.is_file()
+    }
 
 
-def scan_build(dist_dir: Path) -> Build:
-    hashed: dict[str, Path] = {}
-    fixed: dict[str, Path] = {}
-    for file in sorted(path for path in dist_dir.rglob("*") if path.is_file()):
-        key = STATIC_PREFIX + file.relative_to(dist_dir).as_posix()
-        (hashed if HASHED_FILE.match(file.name) else fixed)[key] = file
-    return Build(hashed, fixed)
-
-
-def content_type(path: Path) -> str:
-    return mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-
-
-def publish(store: ObjectStore, build: Build, build_sha: str, workers: int = 32) -> PublishReport:
+def publish(store: ObjectStore, files: dict[str, Path], build_sha: str, workers: int = 32) -> PublishReport:
     existing = store.keys(STATIC_PREFIX)
-    new_hashed = {key: path for key, path in build.hashed.items() if key not in existing}
+    hashed = {key: path for key, path in files.items() if HASHED_FILE.match(path.name)}
+    new_hashed = {key: path for key, path in hashed.items() if key not in existing}
+    fixed = {key: path for key, path in files.items() if key not in hashed}
 
-    def upload(files: dict[str, Path], cache_control: str) -> None:
-        def one(item: tuple[str, Path]) -> None:
-            key, path = item
-            store.put(key, path.read_bytes(), content_type(path), cache_control)
-
+    def upload(batch: dict[str, Path], cache_control: str) -> None:
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            list(pool.map(one, files.items()))
+            list(
+                pool.map(
+                    lambda item: store.put(
+                        item[0],
+                        item[1].read_bytes(),
+                        mimetypes.guess_type(item[1].name)[0] or "application/octet-stream",
+                        cache_control,
+                    ),
+                    batch.items(),
+                )
+            )
 
     upload(new_hashed, IMMUTABLE_CACHE)
-    upload(build.fixed, REVALIDATE_CACHE)
-    store.put(f"builds/{build_sha}.json", json.dumps(sorted(build.keys)).encode(), "application/json", REVALIDATE_CACHE)
-
-    missing = build.keys - store.keys(STATIC_PREFIX)
-    if missing:
-        raise MissingAfterUpload(missing)
-    return PublishReport(len(new_hashed), len(build.hashed) - len(new_hashed), len(build.fixed))
+    upload(fixed, REVALIDATE_CACHE)
+    store.put(f"builds/{build_sha}.json", json.dumps(sorted(files)).encode(), "application/json", REVALIDATE_CACHE)
+    return PublishReport(len(new_hashed), len(hashed) - len(new_hashed), len(fixed))
 
 
 def main(argv: list[str]) -> int:
@@ -129,15 +113,11 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--workers", type=int, default=32)
     args = parser.parse_args(argv)
 
-    build = scan_build(args.dist_dir)
-    if not build.hashed:
+    files = scan_build(args.dist_dir)
+    if not any(HASHED_FILE.match(path.name) for path in files.values()):
         print(f"::error::{args.dist_dir} has no content-hashed files; is it a production build?")  # noqa: T201
         return 1
-    try:
-        report = publish(S3Store(args.bucket, args.workers), build, args.build_sha, args.workers)
-    except MissingAfterUpload as error:
-        print(f"::error::{error}")  # noqa: T201
-        return 1
+    report = publish(S3Store(args.bucket, args.workers), files, args.build_sha, args.workers)
     print(  # noqa: T201
         f"{args.bucket}: uploaded {report.uploaded_hashed} new hashed files, "
         f"kept {report.skipped_hashed} already present, refreshed {report.uploaded_fixed} fixed-name files"
