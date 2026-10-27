@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useCallback } from 'react'
 
-import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonTab } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -16,6 +16,7 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTabs } from '~/layout/scenes/components/SceneTabs'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, DataWarehouseSavedQuery } from '~/types'
@@ -142,7 +143,7 @@ export function ModelsScene(): JSX.Element {
                     </div>
                 }
             />
-            <LemonTabs activeKey={activeTab} tabs={tabs} sceneInset />
+            <SceneTabs activeKey={activeTab} tabs={tabs} sceneInset />
         </SceneContent>
     )
 }

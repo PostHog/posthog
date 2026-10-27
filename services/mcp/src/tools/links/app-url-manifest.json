@@ -1929,6 +1929,11 @@
         "params": ["repoOwner", "repoName"],
         "scope": "project"
     },
+    "warehouse": {
+        "template": "/warehouse",
+        "params": [],
+        "scope": "project"
+    },
     "warehouseDestination": {
         "template": "/data-management/warehouse-destinations",
         "params": [],

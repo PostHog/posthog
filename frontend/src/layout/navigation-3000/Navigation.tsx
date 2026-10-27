@@ -38,6 +38,12 @@ const TodaySidePanel = lazyWithRetry(() =>
     import('~/layout/today/TodaySidePanel').then((m) => ({ default: m.TodaySidePanel }))
 )
 const TodayTopBar = lazyWithRetry(() => import('~/layout/today/TodayTopBar').then((m) => ({ default: m.TodayTopBar })))
+const TodayWarehouseHeader = lazyWithRetry(() =>
+    import('~/layout/today/TodayWarehouseHeader').then((m) => ({ default: m.TodayWarehouseHeader }))
+)
+const TodayWarehouseSidebar = lazyWithRetry(() =>
+    import('~/layout/today/TodayWarehouseSidebar').then((m) => ({ default: m.TodayWarehouseSidebar }))
+)
 
 export function Navigation({
     children,
@@ -67,6 +73,8 @@ export function Navigation({
         phoneLayout: todayPhoneLayout,
         phoneHeaderHidden: todayPhoneHeaderHidden,
         onAiPage: todayOnAiPage,
+        warehouseHeaderShown: todayWarehouseHeaderShown,
+        sidebarInContent: todaySidebarInContent,
     } = useValues(todayShellLogic)
     const todayDrawerOpen = todayRail && mobileLayout && todaySidebarVisible
     const todayPhone = todayRail && todayPhoneLayout
@@ -236,11 +244,14 @@ export function Navigation({
                         className={cn(
                             '@container/main-content-container main-content-container flex overflow-hidden border-primary relative [--left-nav-width:initial] [--project-navbar-width:initial]',
                             todayRail
-                                ? todayFramed && [
-                                      'TodayAppLayout__content',
+                                ? [
+                                      'grid grid-cols-[auto_minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)]',
+                                      todayFramed && 'TodayAppLayout__content',
                                       // A docked sidebar owns the corner and the seam, so the content draws them only without one.
-                                      (mobileLayout || !todaySidebarVisible) && 'TodayAppLayout__content--corner',
-                                      sidePanelWidth > 0 && 'TodayAppLayout__content--side-panel',
+                                      todayFramed &&
+                                          (mobileLayout || !todaySidebarVisible || todaySidebarInContent) &&
+                                          'TodayAppLayout__content--corner',
+                                      todayFramed && sidePanelWidth > 0 && 'TodayAppLayout__content--side-panel',
                                   ]
                                 : [
                                       'lg:rounded border-t lg:border lg:mr-1 lg:mb-1 lg:mt-1',
@@ -260,99 +271,116 @@ export function Navigation({
                             // The frame edge uses quill's border token so it matches the sidebar seam, and that token exists only inside a quill scope.
                             <div data-quill aria-hidden className="TodayAppLayout__frame" />
                         )}
-                        <main
-                            ref={mainRef}
-                            role="main"
-                            tabIndex={0}
-                            id="main-content"
+                        {todayWarehouseHeaderShown && (
+                            <Suspense fallback={null}>
+                                <TodayWarehouseHeader className="col-span-2 row-start-1" />
+                            </Suspense>
+                        )}
+                        {todayRail && todaySidebarInContent && todaySidebarVisible && (
+                            <Suspense fallback={null}>
+                                <TodayWarehouseSidebar className="col-start-1 row-start-2" />
+                            </Suspense>
+                        )}
+                        <div
                             className={cn(
-                                // The container rounds the corners. In Chrome, a rounded scroller that holds many canvases stops painting.
-                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 focus-visible:outline-none flex flex-col',
-                                {
-                                    'p-0': noPaddingScene,
-                                    'lg:max-w-[calc(100%-var(--side-panel-width))]': sidePanelOverlapsMain,
-                                }
+                                'flex min-h-0 min-w-0 flex-1 overflow-hidden',
+                                todayRail && 'col-start-2 row-start-2'
                             )}
                         >
-                            <SceneLayout sceneConfig={sceneConfig}>
-                                {/* While a takeover covers the scene its controls must leave the tab
+                            <main
+                                ref={mainRef}
+                                role="main"
+                                tabIndex={0}
+                                id="main-content"
+                                className={cn(
+                                    // The container rounds the corners. In Chrome, a rounded scroller that holds many canvases stops painting.
+                                    '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 focus-visible:outline-none flex flex-col',
+                                    {
+                                        'p-0': noPaddingScene,
+                                        'lg:max-w-[calc(100%-var(--side-panel-width))]': sidePanelOverlapsMain,
+                                    }
+                                )}
+                            >
+                                <SceneLayout sceneConfig={sceneConfig}>
+                                    {/* While a takeover covers the scene its controls must leave the tab
                                     order and the accessibility tree, or keyboard and screen-reader
                                     users can operate them invisibly. The side panel stays outside the
                                     wrapper: it renders beside the takeover and must stay usable. */}
-                                {/* The attribute rides a spread with the empty-string form: React 18's
+                                    {/* The attribute rides a spread with the empty-string form: React 18's
                                     types lack `inert`, and its runtime serializes `inert={false}` to a
                                     string, which is still inert (presence-based attribute). */}
-                                <div
-                                    className="contents [--side-panel-width:initial]"
-                                    {...(sceneTakeoverActive ? { inert: '' } : {})}
-                                >
-                                    {!sceneMenuBarEnabled && !sceneConfig?.hideProjectNotice && (
-                                        <div
-                                            className={cn({
-                                                'px-4 empty:hidden': sceneConfig?.layout === 'app-raw-no-header',
-                                                // Settings scene's nav is viewport-fixed on desktop, so the
-                                                // banner needs to clear it (nav width + column gap) to align
-                                                // with the settings content column.
-                                                'md:ml-[calc(var(--settings-nav-width)+2rem)]':
-                                                    activeSceneId === Scene.Settings,
-                                            })}
-                                        >
-                                            <ProjectNotice
-                                                className={cn('my-0 mb-4', {
-                                                    'mt-4': noPaddingScene,
+                                    <div
+                                        className="contents [--side-panel-width:initial]"
+                                        {...(sceneTakeoverActive ? { inert: '' } : {})}
+                                    >
+                                        {!sceneMenuBarEnabled && !sceneConfig?.hideProjectNotice && (
+                                            <div
+                                                className={cn({
+                                                    'px-4 empty:hidden': sceneConfig?.layout === 'app-raw-no-header',
+                                                    // Settings scene's nav is viewport-fixed on desktop, so the
+                                                    // banner needs to clear it (nav width + column gap) to align
+                                                    // with the settings content column.
+                                                    'md:ml-[calc(var(--settings-nav-width)+2rem)]':
+                                                        activeSceneId === Scene.Settings,
                                                 })}
-                                            />
-                                        </div>
-                                    )}
-                                    {children}
-                                </div>
-                                {!todayFramed && <SidePanel />}
-                            </SceneLayout>
-                        </main>
+                                            >
+                                                <ProjectNotice
+                                                    className={cn('my-0 mb-4', {
+                                                        'mt-4': noPaddingScene,
+                                                    })}
+                                                />
+                                            </div>
+                                        )}
+                                        {children}
+                                    </div>
+                                    {!todayFramed && <SidePanel />}
+                                </SceneLayout>
+                            </main>
 
-                        {/* Scene takeover host: fullscreen-in-scene surfaces (the email editor)
+                            {/* Scene takeover host: fullscreen-in-scene surfaces (the email editor)
                             portal here to fill the main well at full height, while the navigation
                             stays visible and the side panel stays usable beside it (z-50 keeps this
                             under the side panel). Mirrors main's max-width shrink so it never sits
                             underneath the open side panel. */}
-                        <div
-                            ref={takeoverCallbackRef}
-                            tabIndex={-1}
-                            className={cn(
-                                'absolute inset-0 z-50 bg-[var(--scene-layout-background)] flex flex-col outline-none',
-                                {
-                                    hidden: !sceneTakeoverActive,
-                                    'lg:max-w-[calc(100%-var(--side-panel-width))]': sidePanelOverlapsMain,
-                                }
-                            )}
-                        />
+                            <div
+                                ref={takeoverCallbackRef}
+                                tabIndex={-1}
+                                className={cn(
+                                    'absolute inset-0 z-50 bg-[var(--scene-layout-background)] flex flex-col outline-none',
+                                    {
+                                        hidden: !sceneTakeoverActive,
+                                        'lg:max-w-[calc(100%-var(--side-panel-width))]': sidePanelOverlapsMain,
+                                    }
+                                )}
+                            />
 
-                        {scenePanelIsPresent && (
-                            <>
-                                <div
-                                    className={cn(
-                                        'scene-layout__content-panel starting:w-0 bg-surface-secondary flex flex-col overflow-hidden h-full min-w-0',
-                                        'absolute right-0 top-0 @[1200px]/main-content-container:relative @[1200px]/main-content-container:right-auto @[1200px]/main-content-container:top-auto',
-                                        {
-                                            hidden: !scenePanelOpenManual,
-                                            'z-1': isLayoutPanelVisible,
-                                        }
-                                    )}
-                                >
-                                    <div className="h-[50px] flex items-center justify-end gap-2 -mx-2 px-4 py-2 border-b border-primary shrink-0">
-                                        <SceneTitlePanelButton />
-                                    </div>
-                                    <ScrollableShadows
-                                        direction="vertical"
-                                        className="grow flex-1"
-                                        innerClassName="px-2 py-2 bg-primary"
-                                        styledScrollbars
+                            {scenePanelIsPresent && (
+                                <>
+                                    <div
+                                        className={cn(
+                                            'scene-layout__content-panel starting:w-0 bg-surface-secondary flex flex-col overflow-hidden h-full min-w-0',
+                                            'absolute right-0 top-0 @[1200px]/main-content-container:relative @[1200px]/main-content-container:right-auto @[1200px]/main-content-container:top-auto',
+                                            {
+                                                hidden: !scenePanelOpenManual,
+                                                'z-1': isLayoutPanelVisible,
+                                            }
+                                        )}
                                     >
-                                        <div ref={inlinePanelCallbackRef} />
-                                    </ScrollableShadows>
-                                </div>
-                            </>
-                        )}
+                                        <div className="h-[50px] flex items-center justify-end gap-2 -mx-2 px-4 py-2 border-b border-primary shrink-0">
+                                            <SceneTitlePanelButton />
+                                        </div>
+                                        <ScrollableShadows
+                                            direction="vertical"
+                                            className="grow flex-1"
+                                            innerClassName="px-2 py-2 bg-primary"
+                                            styledScrollbars
+                                        >
+                                            <div ref={inlinePanelCallbackRef} />
+                                        </ScrollableShadows>
+                                    </div>
+                                </>
+                            )}
+                        </div>
                         {todayFramed && !todayOnAiPage && (
                             <Suspense fallback={null}>
                                 <TodayContextPanelFloating />

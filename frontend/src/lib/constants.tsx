@@ -546,6 +546,7 @@ export const FEATURE_FLAGS = {
     TEXT_CARD_WORD_ART: 'text-card-word-art', // owner: @jonmcwest, gates the word art insert button in dashboard text cards
     TODAY_PULSE_RANKING: 'today-pulse-ranking',
     TODAY_RAIL_NAV: 'today-rail-nav', // owner: @k11kirky, replaces the left navigation with a rail (Home, Spaces, Library, Tools) and makes the Today page the homepage
+    TODAY_RAIL_WAREHOUSE: 'today-rail-warehouse', // owner: @EDsCODE #team-warehouse, adds the Warehouse rail tile, header menu, home page and sidebar tabs on top of today-rail-nav
     TODAY_REPORT_JEV: 'today-report-jev', // owner: @puemos, asks the decision model to label the problem, cause and fix in a Today report, to mark the numbers a source states, and to pick the code excerpt a finding describes
     TOOLBAR_PAID_HEATMAPS: 'toolbar-paid-heatmaps', // owner: #team-web-analytics
     TRACING: 'tracing', // owner: #team-apm (@jonmcwest, @frankh)
@@ -629,9 +630,12 @@ export const FEATURE_FLAGS = {
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
-// The Today rail swaps out the whole navigation, so stories that render the app opt in to it explicitly.
+// The Today rail swaps out the whole navigation and the warehouse flag adds to it, so stories opt in to both explicitly.
 export const STORYBOOK_FEATURE_FLAGS = Object.values(FEATURE_FLAGS).filter(
-    (flag) => flag !== FEATURE_FLAGS.TODAY_RAIL_NAV && flag !== FEATURE_FLAGS.INTERNAL_FEEDBACK_WIDGET
+    (flag) =>
+        flag !== FEATURE_FLAGS.TODAY_RAIL_NAV &&
+        flag !== FEATURE_FLAGS.TODAY_RAIL_WAREHOUSE &&
+        flag !== FEATURE_FLAGS.INTERNAL_FEEDBACK_WIDGET
 )
 
 export const INSIGHT_VISUAL_ORDER = {

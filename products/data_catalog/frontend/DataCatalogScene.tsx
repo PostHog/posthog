@@ -8,11 +8,12 @@ import { Button } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
-import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { LemonTab } from 'lib/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTabs } from '~/layout/scenes/components/SceneTabs'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { useSceneAgentPanel } from '~/scenes/max/useSceneAgentPanel'
@@ -109,7 +110,7 @@ export function DataCatalogScene(): JSX.Element {
                         )
                     }
                 />
-                <LemonTabs
+                <SceneTabs
                     activeKey={activeTab}
                     onChange={setActiveTab}
                     data-attr="data-catalog-tabs"

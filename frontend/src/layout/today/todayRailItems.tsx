@@ -1,4 +1,4 @@
-import { IconApps, IconChat, IconGear, IconHome, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
+import { IconApps, IconChat, IconDatabase, IconGear, IconHome, IconSidebarClose, IconSidebarOpen } from '@posthog/icons'
 
 import { IconAnalyticsBars } from 'lib/lemon-ui/icons'
 import { isMac } from 'lib/utils/dom'
@@ -25,10 +25,11 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
     },
     analytics: { label: 'Analytics', title: 'Analytics', icon: <IconAnalyticsBars />, action: TodayNewAnalyticsButton },
     products: { label: 'Products', title: 'Products', icon: <IconApps /> },
+    warehouse: { label: 'Warehouse', title: 'Warehouse', icon: <IconDatabase /> },
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear /> },
 }
 
-export const TODAY_RAIL_PANES: TodayRailPane[] = ['home', 'spaces', 'analytics', 'products']
+export const TODAY_RAIL_PANES: TodayRailPane[] = ['home', 'spaces', 'analytics', 'products', 'warehouse']
 export const TODAY_RAIL_FOOTER_PANES: TodayRailPane[] = ['settings']
 
 export function todaySidebarShortcutLabel(): string {
@@ -38,3 +39,7 @@ export function todaySidebarShortcutLabel(): string {
 // The icon names describe the panel, not the click: IconSidebarOpen's arrow points in, so it reads as hide.
 export const IconHideSidebar = IconSidebarOpen
 export const IconShowSidebar = IconSidebarClose
+
+export function withoutWarehouse(panes: TodayRailPane[], warehouseEnabled: boolean): TodayRailPane[] {
+    return warehouseEnabled ? panes : panes.filter((pane) => pane !== 'warehouse')
+}

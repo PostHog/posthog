@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { TodayAccountMenu } from './TodayAccountMenu'
 import { TodayMoreMenu } from './TodayMoreMenu'
-import { TODAY_PANES, TODAY_RAIL_FOOTER_PANES, TODAY_RAIL_PANES } from './todayRailItems'
+import { TODAY_PANES, TODAY_RAIL_FOOTER_PANES, TODAY_RAIL_PANES, withoutWarehouse } from './todayRailItems'
 import { TodayRailTile } from './TodayRailTile'
 import { TODAY_RAIL_WIDTH, TodayRailPane, railPaneHref, todayShellLogic } from './todayShellLogic'
 
@@ -10,7 +10,7 @@ import { TODAY_RAIL_WIDTH, TodayRailPane, railPaneHref, todayShellLogic } from '
 const RAIL_DATA_ATTRS: Partial<Record<TodayRailPane, string>> = { settings: 'today-settings' }
 
 export function TodayRail(): JSX.Element {
-    const { activePane, effectivePhaiView } = useValues(todayShellLogic)
+    const { activePane, effectivePhaiView, todayWarehouseEnabled } = useValues(todayShellLogic)
     const { clickRailPane } = useActions(todayShellLogic)
 
     const renderTile = (pane: TodayRailPane): JSX.Element => (
@@ -32,7 +32,7 @@ export function TodayRail(): JSX.Element {
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: TODAY_RAIL_WIDTH }}
         >
-            {TODAY_RAIL_PANES.map(renderTile)}
+            {withoutWarehouse(TODAY_RAIL_PANES, todayWarehouseEnabled).map(renderTile)}
             <div className="mt-auto flex w-full flex-col items-center gap-3">
                 <TodayMoreMenu />
                 {TODAY_RAIL_FOOTER_PANES.map(renderTile)}
