@@ -135,6 +135,27 @@ def flag_edits_since(*, team_id: int, feature_flag_id: int, since: datetime, lim
     )
 
 
+def variant_keys_in_edits(*, team_id: int, flag_key: str) -> list[str]:
+    rows = (
+        ActivityLog.objects.filter(
+            team_id=team_id,
+            scope="FeatureFlag",
+            detail__contains={"name": flag_key, "changes": [{"field": _FILTERS}]},
+        )
+        .order_by("created_at")
+        .annotate(
+            variant_keys=Func(
+                F("detail"),
+                Value(f'$.changes[*] ? (@.field == "{_FILTERS}").*.multivariate.variants[*].key'),
+                function="jsonb_path_query_array",
+                output_field=JSONField(),
+            )
+        )
+        .values_list("variant_keys", flat=True)
+    )
+    return list(dict.fromkeys(key for keys in rows for key in keys if isinstance(key, str) and key))
+
+
 def _author(*, job_type: str | None, is_system: bool | None, user_id: int | None) -> FlagEditAuthor:
     # Check the trigger before the user, because an agent and a scheduled change save the flag as a user.
     if job_type == AGENT_TRIGGER_JOB_TYPE:

@@ -158,26 +158,15 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             ("boolean_flag", {"groups": [{"rollout_percentage": 100}]}, None, ["true", "false"]),
-            ("multivariate_flag", MULTIVARIATE_FILTERS, None, ["control", "test", "false"]),
+            ("multivariate_flag", MULTIVARIATE_FILTERS, None, ["control", "test", "true", "false"]),
             ("search_is_case_insensitive", MULTIVARIATE_FILTERS, "TES", ["test"]),
-            (
-                "variant_weights_leave_a_gap",
-                {
-                    "groups": [{"rollout_percentage": 100}],
-                    "multivariate": {
-                        "variants": [
-                            {"key": "control", "rollout_percentage": 50},
-                            {"key": "test", "rollout_percentage": 30},
-                        ]
-                    },
-                },
-                None,
-                ["control", "test", "true", "false"],
-            ),
+            ("deleted_flag", MULTIVARIATE_FILTERS, None, ["control", "test", "true", "false"], True),
         ]
     )
-    def test_feature_flag_property_values_come_from_the_flag(self, _name, filters, search_value, expected_names):
-        FeatureFlag.objects.create(team=self.team, key="beta", created_by=self.user, filters=filters)
+    def test_feature_flag_property_values_come_from_the_flag(
+        self, _name, filters, search_value, expected_names, deleted=False
+    ):
+        FeatureFlag.objects.create(team=self.team, key="beta", created_by=self.user, filters=filters, deleted=deleted)
         _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"$feature/beta": "retired"})
         flush_persons_and_events()
 
@@ -188,23 +177,28 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         assert [r.name for r in results] == expected_names
 
-    def test_feature_flag_property_values_keep_variants_removed_from_the_flag(self):
-        flag = FeatureFlag.objects.create(
+    def test_feature_flag_property_values_keep_variants_from_earlier_flags_with_the_key(self):
+        earlier = FeatureFlag.objects.create(
             team=self.team, key="beta", created_by=self.user, filters=MULTIVARIATE_FILTERS
         )
-        flag.filters = {
+        earlier.filters = {
             "groups": [{"rollout_percentage": 100}],
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "rollout_percentage": 50},
-                    {"key": "redesign", "rollout_percentage": 50},
-                ]
-            },
+            "multivariate": {"variants": [{"key": "redesign", "rollout_percentage": 100}]},
         }
-        flag.save()
+        earlier.save()
+        earlier.delete()
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="beta",
+            created_by=self.user,
+            filters={
+                "groups": [{"rollout_percentage": 100}],
+                "multivariate": {"variants": [{"key": "fresh", "rollout_percentage": 100}]},
+            },
+        )
 
         results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="$feature/beta"))
-        assert [r.name for r in results] == ["control", "redesign", "test", "false"]
+        assert {r.name for r in results} == {"fresh", "control", "test", "redesign", "true", "false"}
 
     def test_feature_flag_property_without_a_flag_in_the_project_uses_events_scan(self):
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other"))
