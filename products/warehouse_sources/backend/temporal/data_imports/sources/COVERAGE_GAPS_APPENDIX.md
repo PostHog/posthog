@@ -9103,10 +9103,10 @@ Today (7): `contacts`, `document_folders`, `documents`, `forms`, `members`, `tem
 
 Diffed against: <https://developers.pandadoc.com/llms.txt>
 
-- [ ] `/public/v2/documents/{document_id}/audit-trail` — full state/transition history per document (sent, viewed, signed, edited) with timestamps - the core e-signature funnel dataset (high)
-- [ ] `/public/v2/product-catalog/items/search` — lookup table resolving the catalog item / SKU ids referenced by quotes and pricing tables (high)
-- [ ] `/public/v1/documents/{id} (detail expansion)` — recipients, tokens, and pricing table line items only appear in document details, not in the list response we sync (high)
-- [ ] `/public/v1/documents/{id}/fields` — per-document field values, the structured data captured on each document (high)
+- [x] `/public/v2/documents/{document_id}/audit-trail` — full state/transition history per document (sent, viewed, signed, edited) with timestamps - the core e-signature funnel dataset (high)
+- [x] `/public/v2/product-catalog/items/search` — lookup table resolving the catalog item / SKU ids referenced by quotes and pricing tables (high)
+- [x] `/public/v1/documents/{id} (detail expansion)` — recipients, tokens, and pricing table line items only appear in document details, not in the list response we sync (high)
+- [x] `/public/v1/documents/{id}/fields` — per-document field values, the structured data captured on each document (high)
 - [ ] `/public/v1/documents/{id}/linked-objects` — CRM linkage (Salesforce/HubSpot object ids) - the join key back to deal data (medium)
 - [ ] `/public/v1/content-library-items` — content library blocks reused across documents and templates (medium)
 - [ ] `/public/v1/workspaces` — lookup resolving the workspace each document, template, and member belongs to (medium)
