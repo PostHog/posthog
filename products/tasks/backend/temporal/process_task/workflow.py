@@ -79,6 +79,7 @@ from .activities.get_task_processing_context import (
 from .activities.materialize_context_layer import MaterializeContextLayerInput, materialize_context_layer_in_sandbox
 from .activities.post_slack_update import PostSlackUpdateInput, post_slack_update
 from .activities.provision_sandbox import (
+    REPOSITORY_CLONE_RETRY_DELAYS_SECONDS,
     CheckoutBranchInSandboxInput,
     CloneRepositoryInSandboxInput,
     CloneRepositoryInSandboxOutput,
@@ -2098,7 +2099,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             shallow_clone=prepared.shallow_clone,
                         ),
                         start_to_close_timeout=timedelta(minutes=5),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
+                        retry_policy=RetryPolicy(maximum_attempts=len(REPOSITORY_CLONE_RETRY_DELAYS_SECONDS) + 1),
                     )
                 except Exception as error:
                     if _is_dead_sandbox_failure(error):
