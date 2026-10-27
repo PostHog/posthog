@@ -70,7 +70,20 @@ const RATE_LIMIT: SentryMigrationItemApi = {
     already_in_posthog: false,
 }
 
-/** A manual rule, an automatic rule that is already on, and a rate limit. */
+const RATE_LIMIT_TOO_LARGE: SentryMigrationItemApi = {
+    id: 'rate_limit:big',
+    category: 'rate_limit',
+    sentry_setting: 'Rate limit on client key "Backend"',
+    sentry_value: '3,000,000 events per 1 second',
+    fit: 'unsupported',
+    note: 'This becomes 2,700,000,000 exceptions per 15 minutes, which is more than a PostHog rate limit can hold.',
+    suppression_rule_filters: null,
+    rate_limit: null,
+    built_in_filter: null,
+    already_in_posthog: false,
+}
+
+/** A manual rule, an automatic rule that is already on, a rate limit, and a rate limit PostHog can't hold. */
 export const Variants: Story = {
     render: () => (
         <TooltipProvider>
@@ -82,7 +95,13 @@ export const Variants: Story = {
                     disabledReason="This automatic suppression rule is already on"
                     onToggle={() => {}}
                 />
-                <SentryMigrationItemCard item={RATE_LIMIT} selected={false} disabledReason={null} onToggle={() => {}} />
+                <SentryMigrationItemCard item={RATE_LIMIT} selected disabledReason={null} onToggle={() => {}} />
+                <SentryMigrationItemCard
+                    item={RATE_LIMIT_TOO_LARGE}
+                    selected={false}
+                    disabledReason="PostHog can't import this setting"
+                    onToggle={() => {}}
+                />
             </CardGroup>
         </TooltipProvider>
     ),
