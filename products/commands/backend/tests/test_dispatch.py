@@ -1,3 +1,4 @@
+import os
 import hmac
 import json
 import hashlib
@@ -57,6 +58,7 @@ from products.review_hog.backend.facade.reviews import (
     PRReviewRequestOutcome,
     PRReviewRequestStatus,
 )
+from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import DesktopAccessDecision
 
 INSTALLATION_ID = "31337"
@@ -76,6 +78,8 @@ RUN_SLACK_COMMAND = "products.commands.backend.tasks.tasks.run_slack_command.del
 DELIVER_FOLLOW_UP = "products.commands.backend.tasks.tasks.deliver_follow_up.delay"
 SLACK_INSTALLATION_GITHUB = "products.commands.backend.logic.subjects.InstallationGitHub.for_installation"
 SLACK_POST = "products.commands.backend.channels.slack.mentions.post_message"
+KNOWLEDGE_WRITER_LAUNCH_FLAG = "products.knowledge_writer.backend.feature_flags.posthoganalytics.feature_enabled"
+START_TASK_WORKFLOW = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
 
 # Each test gets its own commenter, so the per-commenter rate limit in Redis never carries over.
 _github_ids = count(10_000)
@@ -144,6 +148,13 @@ class TestDispatchCommentCommand(BaseTest):
 
     def _command_request(self, verb: str, argument: str = "") -> CommandRequest:
         return GitHubCommentChannel(self._request(verb=verb, argument=argument)).request
+
+    def _knowledge_writer_env(self) -> dict[str, str]:
+        return {
+            "KNOWLEDGE_WRITER_TEAM_ID": str(self.team.id),
+            "KNOWLEDGE_WRITER_USER_ID": str(self.user.id),
+            "KNOWLEDGE_WRITER_DOCS_REPOSITORY": "PostHog/posthog.com",
+        }
 
     def _link_github_login(self) -> None:
         UserSocialAuth.objects.create(user=self.user, provider="github", uid=str(self.github_id))
@@ -321,20 +332,48 @@ class TestDispatchCommentCommand(BaseTest):
 
     @parameterized.expand(
         [
-            ("fork", _pull_request(is_fork=True), "fork_refused"),
-            ("closed", _pull_request(state="closed"), "pull_request_closed"),
+            ("fork", "stamp", _pull_request(is_fork=True), "fork_refused"),
+            ("closed", "stamp", _pull_request(state="closed"), "pull_request_closed"),
+            ("docs_on_an_unmerged_close", "docs", _pull_request(state="closed"), "pull_request_closed"),
+            ("docs_before_merge", "docs", _pull_request(state="open"), "pull_request_closed"),
         ]
     )
     def test_refuses_pull_requests_a_command_must_not_touch(
-        self, _name: str, pull_request: PullRequestFacts, expected: str
+        self, _name: str, verb: str, pull_request: PullRequestFacts, expected: str
     ) -> None:
         self._link_github_login()
 
-        with patch(REQUEST_STAMPHOG_REVIEW) as request_review:
-            outcome = dispatch_comment_command(self._request(), github=FakeGitHub(pull_request=pull_request))
+        with (
+            patch.dict(os.environ, self._knowledge_writer_env()),
+            patch(REQUEST_STAMPHOG_REVIEW) as request_review,
+            patch(START_TASK_WORKFLOW) as start_workflow,
+        ):
+            outcome = dispatch_comment_command(self._request(verb=verb), github=FakeGitHub(pull_request=pull_request))
 
         assert outcome == expected
         request_review.assert_not_called()
+        start_workflow.assert_not_called()
+
+    def test_docs_on_a_merged_pull_request_starts_the_knowledge_writer_without_its_judge(self) -> None:
+        self._link_github_login()
+        github = FakeGitHub(pull_request=_pull_request(state="merged"))
+
+        with (
+            patch.dict(os.environ, self._knowledge_writer_env()),
+            patch(KNOWLEDGE_WRITER_LAUNCH_FLAG, return_value=True),
+            patch(START_TASK_WORKFLOW),
+        ):
+            outcome = dispatch_comment_command(
+                self._request(verb="docs", argument="Mention the new flag"), github=github
+            )
+
+        assert outcome == "accepted"
+        assert github.replies[-1].endswith(
+            "Queued. The knowledge writer will open a docs pull request for this change."
+        )
+        task = tasks_facade.get_task_by_origin_key(self.team.id, "knowledge_writer:command_tag:acme.widgets#7")
+        assert task is not None
+        assert "@octo asked: Mention the new flag" in task.description
 
     def test_invalid_arguments_reply_with_the_usage_and_run_nothing(self) -> None:
         self._link_github_login()

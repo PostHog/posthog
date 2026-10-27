@@ -58,6 +58,7 @@ PRODUCTS_APPS = [
     "products.tasks.backend.apps.TasksConfig",
     "products.canvas.backend.apps.CanvasConfig",
     "products.stamphog.backend.apps.StamphogConfig",
+    "products.knowledge_writer.backend.apps.KnowledgeWriterConfig",
     "products.today.backend.apps.TodayConfig",
     "products.links.backend.apps.LinksConfig",
     "products.field_notes.backend.apps.FieldNotesConfig",
