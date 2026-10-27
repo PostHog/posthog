@@ -21,6 +21,7 @@ class TestAirwallexSource:
             ("settlements_track_settled_at", "Settlements", "settled_at"),
             ("beneficiaries_track_created_at", "Beneficiaries", "created_at"),
             ("transactions_track_created_at", "FinancialTransactions", "created_at"),
+            ("disputes_track_updated_at", "PaymentDisputes", "updated_at"),
         ]
     )
     def test_incremental_cursor_matches_the_field_the_filter_bounds(

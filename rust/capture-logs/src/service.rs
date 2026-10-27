@@ -21,6 +21,7 @@ use std::fs::File;
 use std::io::Write;
 
 use crate::kafka::KafkaSink;
+use metrics::counter;
 
 use tracing::{debug, error, instrument};
 
@@ -412,6 +413,18 @@ pub fn export_success_response(headers: &HeaderMap) -> Response {
     }
 }
 
+// Forwarded unchecked, because only the logs consumer knows the team the token resolves to.
+const INTERNAL_LOGS_HTTP_HEADER: &str = "x-posthog-internal";
+const MAX_INTERNAL_LOGS_SIGNATURE_LEN: usize = 256;
+
+fn internal_logs_signature(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(INTERNAL_LOGS_HTTP_HEADER)?
+        .to_str()
+        .ok()
+        .filter(|signature| signature.len() <= MAX_INTERNAL_LOGS_SIGNATURE_LEN)
+}
+
 #[instrument(skip_all, fields(
     token = tracing::field::Empty,
     content_type = %headers.get("content-type")
@@ -514,6 +527,7 @@ pub async fn export_logs_http(
             body.len() as u64,
             timestamps_overridden,
             backfill_params.backfill_days,
+            internal_logs_signature(&headers),
         )
         .await
     {
@@ -807,6 +821,8 @@ pub async fn export_metrics_http(
             Json(json!({"error": "Internal server error"})),
         ));
     } else {
+        counter!("capture_metrics_records_produced", "source" => "otlp")
+            .increment(row_count as u64);
         debug!(
             "Successfully sent {} metric data points to Kafka",
             row_count
@@ -906,6 +922,33 @@ mod tests {
             let window = resolve_backfill_window(Some(days), ceiling);
 
             assert!(window.is_err(), "{case}");
+        }
+    }
+
+    #[test]
+    fn internal_logs_signature_forwards_only_a_bounded_header() {
+        let at_cap = "a".repeat(MAX_INTERNAL_LOGS_SIGNATURE_LEN);
+        let over_cap = "a".repeat(MAX_INTERNAL_LOGS_SIGNATURE_LEN + 1);
+        for (case, value, expected) in [
+            (
+                "a signature",
+                Some("v1.hog_flow.abc"),
+                Some("v1.hog_flow.abc"),
+            ),
+            (
+                "a signature at the cap",
+                Some(at_cap.as_str()),
+                Some(at_cap.as_str()),
+            ),
+            ("a signature over the cap", Some(over_cap.as_str()), None),
+            ("no header", None, None),
+        ] {
+            let mut headers = HeaderMap::new();
+            if let Some(value) = value {
+                headers.insert(INTERNAL_LOGS_HTTP_HEADER, value.parse().unwrap());
+            }
+
+            assert_eq!(internal_logs_signature(&headers), expected, "{case}");
         }
     }
 

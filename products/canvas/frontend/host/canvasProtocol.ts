@@ -89,6 +89,8 @@ export const CANVAS_DATA_METHODS = [
     'stateSet',
     'stateList',
     'actionInvoke',
+    'toolRead',
+    'toolCall',
     'agentRequest',
     'connectorCall',
 ] as const

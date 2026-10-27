@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -29,6 +30,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class JellyfishSource(ResumableSource[JellyfishSourceConfig, JellyfishResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -41,7 +44,7 @@ class JellyfishSource(ResumableSource[JellyfishSourceConfig, JellyfishResumeConf
             name=ExternalDataSourceType.JELLYFISH,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Jellyfish",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Jellyfish API token to pull your engineering-intelligence data (R&D allocations, delivery deliverables, engineering metrics, engineers, and teams) into the PostHog Data warehouse.
 
 Generate a token in Jellyfish under **Settings → Data Connections → API Export** (requires the API Export feature on your plan and an Admin user role). Note that Jellyfish tokens are created with an expiry — reconnect with a fresh token when yours expires.""",

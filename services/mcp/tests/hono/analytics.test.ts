@@ -27,8 +27,10 @@ import {
 } from '@/hono/analytics'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
+import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
+import { MCP_NO_DATA_INSTALL_NOTICE_FLAG } from '@/lib/no-data-guard'
 import { makeSkillFile, SkillCatalog } from '@/skills/skill-catalog'
 import type { SkillInvocation } from '@/tools/exec-learn'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolDefinition } from '@/tools/toolDefinitions'
@@ -92,6 +94,36 @@ describe('Hono MCP analytics contexts', () => {
         mockCaptureToolsList.mockClear()
         mockCapture.mockClear()
     })
+
+    it.each([false, true])(
+        'records recruitment diagnostics without exposing them on suppressed calls: %s',
+        async (suppressed) => {
+            const state = makeState({
+                suppressAnalytics: suppressed,
+                interviewRecruitmentDiagnostics: {
+                    reason: 'url_unsupported',
+                    urlSupported: false,
+                    formSupported: true,
+                    campaignId: 'synthetic-study',
+                },
+            })
+            await trackToolCall('user-get', 12, false, state)
+            const properties = mockCaptureToolCall.mock.calls[0]![0].properties
+            if (suppressed) {
+                expect(properties).not.toHaveProperty('interview_recruitment_reason')
+                expect(properties).not.toHaveProperty('interview_recruitment_form_supported')
+            } else {
+                expect(properties).toMatchObject({
+                    interview_recruitment_reason: 'url_unsupported',
+                    interview_recruitment_url_supported: false,
+                    interview_recruitment_form_supported: true,
+                    interview_recruitment_campaign_id: 'synthetic-study',
+                })
+                expect(properties).not.toHaveProperty('interview_recruitment_completed_calls')
+            }
+            expect(mockCapture).not.toHaveBeenCalled()
+        }
+    )
 
     it('does not dual-emit the retired legacy mcp_tool_call / mcp_initialize names', async () => {
         // Guards against reintroducing the legacy dual-emit, which double-counted every call.
@@ -171,6 +203,14 @@ describe('Hono MCP analytics contexts', () => {
         }
     })
 
+    it.each([true, false, undefined])('records the evaluated intent prompt flag: %s', async (flagValue) => {
+        const state = makeState({ toolFeatureFlags: { [MCP_INTENT_PROMPT_FLAG]: flagValue } })
+
+        await trackToolCall('user-get', 12, false, state)
+
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties[`$feature/${MCP_INTENT_PROMPT_FLAG}`]).toBe(flagValue)
+    })
+
     it('emits request properties on $mcp fields and session properties on mcp_session fields', async () => {
         await trackInitEvent(makeState())
 
@@ -233,6 +273,74 @@ describe('Hono MCP analytics contexts', () => {
         await trackToolCall('user-get', 12, false, makeState(), undefined, analyticsMeta)
 
         expect(mockCaptureToolCall.mock.calls[0]![0].properties.$mcp_llm_model_missing_reason).toBe(expected)
+    })
+
+    // The no-data experiment compares variants on projects without events, so these properties
+    // must reach every event for those projects and stay off events for projects with data.
+    it.each([
+        {
+            name: 'an untouched call on a project without events',
+            projectHasData: false,
+            variant: 'block',
+            noDataAction: undefined,
+            expected: {
+                mcp_project_has_data: false,
+                mcp_no_data_action: 'none',
+                '$feature/mcp-no-data-install-notice': 'block',
+            },
+        },
+        {
+            name: 'a blocked call on a project without events',
+            projectHasData: false,
+            variant: 'block',
+            noDataAction: 'blocked' as const,
+            expected: {
+                mcp_project_has_data: false,
+                mcp_no_data_action: 'blocked',
+                '$feature/mcp-no-data-install-notice': 'block',
+            },
+        },
+        {
+            name: 'a warned call on a project without events',
+            projectHasData: false,
+            variant: 'warn',
+            noDataAction: 'warned' as const,
+            expected: {
+                mcp_project_has_data: false,
+                mcp_no_data_action: 'warned',
+                '$feature/mcp-no-data-install-notice': 'warn',
+            },
+        },
+        {
+            name: 'a call on a project with events',
+            projectHasData: true,
+            variant: 'block',
+            noDataAction: undefined,
+            expected: {
+                mcp_project_has_data: true,
+                mcp_no_data_action: undefined,
+                '$feature/mcp-no-data-install-notice': undefined,
+            },
+        },
+    ])('stamps the project data state for $name', async ({ projectHasData, variant, noDataAction, expected }) => {
+        const state = makeState({
+            projectHasData,
+            noDataAction,
+            toolFeatureFlags: { [MCP_NO_DATA_INSTALL_NOTICE_FLAG]: variant },
+            reqCtx: {
+                ...makeState().reqCtx,
+                safelyGetAnalyticsContext: vi.fn(async () => ({ projectId: '1', projectHasData })),
+            } as any,
+        })
+
+        await trackToolCall('query-trends', 0, false, state)
+        await trackInitEvent(state)
+
+        const toolCallProperties = mockCaptureToolCall.mock.calls[0]![0].properties
+        for (const [key, value] of Object.entries(expected)) {
+            expect(toolCallProperties[key]).toBe(value)
+        }
+        expect(mockCaptureInitialize.mock.calls[0]![0].properties.mcp_project_has_data).toBe(projectHasData)
     })
 
     it('categorizes a proxied third-party tool and names its server', async () => {
@@ -501,6 +609,18 @@ describe('Hono MCP analytics contexts', () => {
             // Its result is a live presigned S3 POST (policy, signature, credential) — output
             // fields, not secret-shaped keys, so key-based redaction can't catch them.
             ['the presigned upload tool', 'media-image-upload-start', { name: 'logo.png', purpose: 'email' }, false],
+            [
+                'execute-sql wrapped in a connection call',
+                'posthog-connection-call',
+                { connection_id: '1', tool: 'execute-sql', arguments: { query: 'SELECT count() FROM events' } },
+                false,
+            ],
+            [
+                'a connection forward',
+                'posthog-connection-forward',
+                { id: '1', method: 'GET', path: 'api/projects/1/persons/' },
+                false,
+            ],
         ])('gates capture for %s', async (_case, toolName, input, captured) => {
             await trackToolSpan(toolName, makeState(), { durationMs: 100, isError: false, input, output: 'rows' })
 

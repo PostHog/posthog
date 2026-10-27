@@ -51,10 +51,12 @@ import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
 import { ReportChartsContext } from './reportChartsContext'
 import { ReportChecksSection } from './ReportChecksSection'
+import { ReportClaimPill } from './ReportClaimPill'
 import { useReportDetailActions } from './ReportDetailActions'
 import { ReportExpectedImpact } from './ReportExpectedImpact'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportImpactMetrics } from './ReportImpactMetrics'
+import { ReportPlanBlock } from './ReportPlanBlock'
 import { ReportPrimaryMetric } from './ReportPrimaryMetric'
 import { ReportSourceSuggestion } from './ReportSourceSuggestion'
 import { ReportStatusSection } from './ReportStatusSection'
@@ -174,6 +176,7 @@ export function ReportDetailSkeleton(): JSX.Element {
 
 interface InboxDetailFrameProps {
     report: SignalReport
+    hasPullRequest: boolean
     /** Content closing the evidence rail, after Activity (e.g. the PR conversation). */
     asideFooter?: ReactNode
     /** Extra primary action(s) rendered after the shared report actions. */
@@ -194,9 +197,9 @@ interface InboxDetailFrameProps {
 
 /**
  * Shared chrome for the Report and Pull request detail bodies. A back link and the actions sit on
- * one row over a bordered container: the evidence rail on the left (Evidence first, then the PR
- * checks, reviewers, runs, and activity), and the report summary on the right under its own
- * "Report summary" header. The status section collects the report and pull request state. The
+ * one row over a bordered container: the evidence rail on the left (Evidence first, then reviewers,
+ * runs, activity, and the PR checks and conversation), and the report summary on the right under its
+ * own "Report summary" header. The status section collects the report and pull request state. The
  * summary's title stands alone; the priority, the size of the change, and the created/updated times
  * head the "Files changed" tab, where a reviewer weighs the change. The rail can be hidden (a
  * persisted preference) so the report column, and above all the diff, takes the full width.
@@ -204,6 +207,7 @@ interface InboxDetailFrameProps {
  */
 export function InboxDetailFrame({
     report,
+    hasPullRequest,
     asideFooter,
     primaryAction,
     showFilesTab,
@@ -237,6 +241,8 @@ export function InboxDetailFrame({
         reportChecks,
         reportChecksError,
         prioritySaving,
+        reportClaimant,
+        isClaimedByMe,
         report: currentReport,
     } = useValues(inboxReportDetailLogic(logicProps))
     const { setDetailTab, expandEvidence, collapseEvidence, updatePriority } = useActions(
@@ -266,6 +272,7 @@ export function InboxDetailFrame({
 
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
+    const plainReportTitles = useFeatureFlag('SIGNALS_PLAIN_REPORT_TITLES', 'test')
     // Absolute URL to this report – seeded into the Discuss prompt so the agent can open and read
     // the report directly.
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
@@ -320,12 +327,20 @@ export function InboxDetailFrame({
     )
 
     const titleHeading = (
-        <h1 className="min-w-0 m-0 break-words text-2xl font-bold leading-tight tracking-tight">
-            {conventionalTitle && (
+        <h1 className="min-w-0 m-0 break-words text-xl font-bold leading-tight tracking-tight">
+            {hasPullRequest && !plainReportTitles && conventionalTitle && (
                 <ConventionalCommitScopeTag type={conventionalTitle.type} scope={conventionalTitle.scope} />
             )}
             {displayTitle}
         </h1>
+    )
+
+    const claimPill = (
+        <ReportClaimPill
+            claimant={reportClaimant}
+            isClaimedByMe={isClaimedByMe}
+            claimedAt={(currentReport ?? report).assignee?.claimed_at ?? null}
+        />
     )
 
     // The report body: title, summary, charts, and the rating. On a PR-bearing report it is the
@@ -346,10 +361,14 @@ export function InboxDetailFrame({
         expectedImpactEnabled && !summaryPending && (reportChecks === null || reportChecksError || hasMeasurements) ? (
             <ReportExpectedImpact report={report} reportUrl={reportUrl} />
         ) : null
+    const planBlock = report.plan ? <ReportPlanBlock reportId={report.id} plan={report.plan} /> : null
 
     const summaryColumn = (
         <div className="flex flex-1 flex-col gap-6">
-            {titleHeading}
+            <div className="flex flex-col gap-2">
+                {titleHeading}
+                {claimPill}
+            </div>
 
             <ReportChartsContext.Provider value={chartsById}>
                 <div>
@@ -361,6 +380,7 @@ export function InboxDetailFrame({
                             pullRequestNote={pullRequestNote}
                             impactMetrics={impactMetrics}
                             expectedImpact={expectedImpact}
+                            planBlock={planBlock}
                         />
                     ) : (
                         <div className="flex flex-col gap-6">
@@ -370,6 +390,7 @@ export function InboxDetailFrame({
                             {pullRequestNote}
                             {impactMetrics}
                             {expectedImpact}
+                            {planBlock}
                         </div>
                     )}
                     {trailingCharts.length > 0 && (
@@ -400,6 +421,7 @@ export function InboxDetailFrame({
                 )}
                 {titleHeading}
             </div>
+            {claimPill}
             <div className="flex flex-wrap items-center gap-2 text-xs text-tertiary">
                 {diffStat && (
                     <>
@@ -483,7 +505,7 @@ export function InboxDetailFrame({
                                 )}
                             </DetailSection>
                         )}
-                        {/* Pull request checks (when present), then reviewers, runs, and activity. */}
+                        {/* The pull request picker (when present), then reviewers, runs, and activity. */}
                         {children}
                         <SuggestedReviewersSection report={report} />
                         <ReportTasksSection report={report} />
@@ -672,6 +694,7 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
     return (
         <InboxDetailFrame
             report={report}
+            hasPullRequest={hasPr}
             showFilesTab={hasPr || canDiff}
             diffSection={
                 canDiff && commit ? (
@@ -714,9 +737,16 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
                     </div>
                 ) : undefined
             }
-            // The PR conversation closes the evidence rail, under Activity; CI checks sit higher in
-            // the same rail. Both drop themselves when there's nothing to show.
-            asideFooter={hasPr ? <PrCommentsSection report={report} /> : undefined}
+            // CI checks and the PR conversation close the evidence rail, under Activity, so they do not
+            // push the reviewers down. Both drop themselves when there's nothing to show.
+            asideFooter={
+                hasPr ? (
+                    <>
+                        <PrChecksSection report={report} />
+                        <PrCommentsSection report={report} />
+                    </>
+                ) : undefined
+            }
         >
             {reportPullRequests(report).length > 1 && (
                 <LemonSelect
@@ -729,7 +759,6 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
                     data-attr="inbox-report-select-pull-request"
                 />
             )}
-            {hasPr && <PrChecksSection report={report} />}
         </InboxDetailFrame>
     )
 }

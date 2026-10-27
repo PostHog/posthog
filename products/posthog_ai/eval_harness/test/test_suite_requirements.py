@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import pytest
+from unittest.mock import Mock
 
-from products.posthog_ai.eval_harness.engines.registry import resolve_engine
+from products.posthog_ai.eval_harness.harness import lifecycle
+from products.posthog_ai.eval_harness.harness.cli import parse_args
+from products.posthog_ai.eval_harness.harness.context import EvalContext
+from products.posthog_ai.eval_harness.harness.discovery import EvalSuite
 from products.posthog_ai.eval_harness.harness.env_preflight import validate_eval_env
 from products.posthog_ai.eval_harness.harness.providers import PreflightError
 from products.posthog_ai.eval_harness.harness.requirements import INFRA_BY_KIND, Infra, SuiteKind, expand, infra_union
@@ -21,8 +25,8 @@ ALL_ENV_VARS = (
         pytest.param({Infra.DATABASE}, {Infra.DATABASE}, id="database_implies_nothing"),
         pytest.param(
             {Infra.MCP_SERVER},
-            {Infra.MCP_SERVER, Infra.LIVE_SERVER, Infra.DATABASE},
-            id="mcp_server_pulls_live_server_and_database",
+            {Infra.MCP_SERVER, Infra.LIVE_SERVER, Infra.DATABASE, Infra.DEMO_DATA, Infra.PERSONHOG},
+            id="mcp_server_pulls_live_server_and_demo_data",
         ),
         pytest.param(
             {Infra.DEMO_DATA},
@@ -64,42 +68,42 @@ def test_every_kind_declares_a_closed_infra_set() -> None:
         pytest.param(
             {SuiteKind.ONE_SHOT},
             "claude",
-            {"BRAINTRUST_API_KEY": "x", "LLM_GATEWAY_ANTHROPIC_API_KEY": "x"},
+            {"LLM_GATEWAY_ANTHROPIC_API_KEY": "x"},
             (),
             id="one_shot_run_needs_no_sandbox_credentials",
         ),
         pytest.param(
             {SuiteKind.ONE_SHOT},
             "claude",
-            {"BRAINTRUST_API_KEY": "x"},
+            {},
             ("LLM_GATEWAY_ANTHROPIC_API_KEY",),
             id="one_shot_run_still_needs_the_generation_key",
         ),
         pytest.param(
             {SuiteKind.SANDBOXED},
             "claude",
-            {"BRAINTRUST_API_KEY": "x", "LLM_GATEWAY_ANTHROPIC_API_KEY": "x"},
+            {"LLM_GATEWAY_ANTHROPIC_API_KEY": "x"},
             ("SANDBOX_JWT_PRIVATE_KEY",),
             id="sandboxed_run_needs_the_jwt_key",
         ),
         pytest.param(
             {SuiteKind.SANDBOXED, SuiteKind.ONE_SHOT},
             "claude",
-            {"BRAINTRUST_API_KEY": "x"},
+            {},
             ("SANDBOX_JWT_PRIVATE_KEY", "LLM_GATEWAY_ANTHROPIC_API_KEY"),
             id="mixed_run_reports_each_missing_variable_once",
         ),
         pytest.param(
             {SuiteKind.ONE_SHOT},
             "codex",
-            {"BRAINTRUST_API_KEY": "x", "LLM_GATEWAY_ANTHROPIC_API_KEY": "x"},
+            {"LLM_GATEWAY_ANTHROPIC_API_KEY": "x"},
             (),
             id="codex_requirement_only_applies_to_sandboxed_runs",
         ),
         pytest.param(
             {SuiteKind.SANDBOXED},
             "codex",
-            {"BRAINTRUST_API_KEY": "x", "LLM_GATEWAY_ANTHROPIC_API_KEY": "x", "SANDBOX_JWT_PRIVATE_KEY": "x"},
+            {"LLM_GATEWAY_ANTHROPIC_API_KEY": "x", "SANDBOX_JWT_PRIVATE_KEY": "x"},
             ("LLM_GATEWAY_OPENAI_API_KEY",),
             id="sandboxed_codex_run_needs_the_openai_key",
         ),
@@ -130,14 +134,36 @@ def test_validate_eval_env_by_kind(
         assert name not in message
 
 
-def test_validate_eval_env_reports_missing_engine_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for name in ALL_ENV_VARS:
-        monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("LLM_GATEWAY_ANTHROPIC_API_KEY", "x")
+@pytest.mark.parametrize("has_key", [False, True])
+def test_harness_runs_without_braintrust_credentials(monkeypatch: pytest.MonkeyPatch, has_key: bool) -> None:
+    monkeypatch.delenv("BRAINTRUST_API_KEY", raising=False)
+    monkeypatch.delenv("EXPORT_EVAL_RESULTS", raising=False)
+    monkeypatch.setenv("LLM_GATEWAY_ANTHROPIC_API_KEY", "test-only-key")
+    if has_key:
+        monkeypatch.setenv("BRAINTRUST_API_KEY", "test-only-key")
+    completed: list[bool] = []
 
-    with pytest.raises(PreflightError) as exc_info:
-        validate_eval_env("claude", kinds={SuiteKind.ONE_SHOT}, engine_env=resolve_engine().required_env())
+    async def run_suite(ctx: EvalContext) -> None:
+        completed.append(True)
 
-    # The Braintrust engine's requirement is reported with the same line the core
-    # env model used to emit, so a missing key reads identically to before.
-    assert "  - BRAINTRUST_API_KEY: records experiments and scores to Braintrust" in str(exc_info.value)
+    suites = [
+        EvalSuite(
+            domain="test",
+            module_name="eval_test",
+            fn_name=f"eval_test_{index}",
+            fn=run_suite,
+            kind=SuiteKind.ONE_SHOT,
+        )
+        for index in range(2)
+    ]
+    monkeypatch.setattr(lifecycle, "discover_suites", lambda _: suites)
+    build = Mock()
+    monkeypatch.setattr(lifecycle, "ensure_personhog_binaries", build)
+    harness = lifecycle.SandboxedEvalHarness(parse_args([]))
+
+    def bootstrap(required: frozenset[Infra], reporter: lifecycle.ProgressReporter) -> None:
+        harness._demo_data = Mock()
+
+    monkeypatch.setattr(harness, "_bootstrap", bootstrap)
+    assert harness.run() == 0
+    assert len(completed) == len(suites)

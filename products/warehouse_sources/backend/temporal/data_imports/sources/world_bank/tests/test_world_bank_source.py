@@ -11,16 +11,14 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.worldbank import (
     WorldBankSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.settings import PRIMARY_KEYS
 from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.source import WorldBankSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.world_bank import (
-    MAX_INDICATOR_CODES,
-    world_bank_source,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.world_bank.world_bank import MAX_INDICATOR_CODES
 
 
 def _make_inputs(schema_name: str = "countries") -> SourceInputs:
@@ -53,19 +51,14 @@ class TestWorldBankSource:
     def test_non_retryable_error_matches_an_out_of_bounds_code_list(self) -> None:
         # Retrying an oversized code list just burns the same capacity again, so the sync has to
         # fail immediately. The raised text and the matched pattern must stay in step.
-        with pytest.raises(ValueError) as excinfo:
-            list(
-                world_bank_source(
-                    endpoint="indicator_data",
-                    indicator_codes=[f"CODE.{index}" for index in range(MAX_INDICATOR_CODES + 1)],
-                    api_version="v2",
-                    team_id=123,
-                    job_id="job-id",
-                    resumable_source_manager=MagicMock(spec=ResumableSourceManager),
-                )
-            )
+        oversized = WorldBankSourceConfig(
+            indicator_codes="\n".join(f"CODE.{index}" for index in range(MAX_INDICATOR_CODES + 1))
+        )
 
-        assert error_message_matches(str(excinfo.value), self.source.get_non_retryable_errors().keys())
+        result = SourceDriver(self.source, oversized).run("indicator_data", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert error_message_matches(str(result.raised), self.source.get_non_retryable_errors().keys())
 
     def test_a_mid_sync_failure_never_resumes_past_an_unflushed_page(self) -> None:
         # The resume checkpoint advances after every yielded page, but pages sit in the batcher's

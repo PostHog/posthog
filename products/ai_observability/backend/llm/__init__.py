@@ -5,7 +5,13 @@ from products.ai_observability.backend.llm.errors import LLMError, ProviderMisma
 from products.ai_observability.backend.llm.providers.anthropic import AnthropicConfig
 from products.ai_observability.backend.llm.providers.gemini import GeminiConfig
 from products.ai_observability.backend.llm.providers.openai import OpenAIConfig
-from products.ai_observability.backend.llm.types import CompletionRequest, CompletionResponse, StreamChunk, Usage
+from products.ai_observability.backend.llm.types import (
+    CompletionRequest,
+    CompletionResponse,
+    OutputSchema,
+    StreamChunk,
+    Usage,
+)
 
 SUPPORTED_MODELS_WITH_THINKING = (
     AnthropicConfig.SUPPORTED_MODELS_WITH_THINKING + OpenAIConfig.SUPPORTED_MODELS_WITH_THINKING
@@ -19,6 +25,7 @@ class ModelInfo(TypedDict):
     description: str
     is_recommended: bool
     supports_decisions: NotRequired[bool]
+    supports_chat: NotRequired[bool]
 
 
 # Single registry of providers. Add new providers here and everything else
@@ -71,6 +78,7 @@ DEFAULT_MODEL_BY_PROVIDER: dict[str, str] = {
 __all__ = [
     "Client",
     "CompletionRequest",
+    "OutputSchema",
     "CompletionResponse",
     "StreamChunk",
     "Usage",

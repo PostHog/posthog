@@ -1,13 +1,14 @@
 import io
 import gzip
 import hashlib
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
 from http import HTTPStatus
 from typing import Any, Optional, Union, cast
 
 import pytest
+import time_machine
 from unittest import mock
 
 import requests
@@ -22,7 +23,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.exc
     EXCEL_ERROR,
     ExcelFileError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    UnexpectedRequest,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sharepoint import (
     SharePointSourceConfig,
@@ -50,7 +58,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint
     SharePointClient,
     SharePointResumeConfig,
     SharePointSiteURLError,
-    _get_rows,
     parse_site_urls,
     validate_credentials,
 )
@@ -105,33 +112,62 @@ def _session(routes: dict[str, Route], post_responses: Optional[list[mock.MagicM
     return session
 
 
-def _manager(resume_state: Optional[SharePointResumeConfig] = None) -> Any:
-    manager = mock.MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _rows(
-    endpoint: str, session: Any, manager: Optional[Any] = None, site_urls: Optional[str] = None
-) -> list[dict[str, Any]]:
-    with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-        pages = list(
-            _get_rows(
-                tenant_id=TENANT_ID,
-                client_id=CLIENT_ID,
-                client_secret=CLIENT_SECRET,
-                site_urls=site_urls,
-                endpoint=endpoint,
-                logger=mock.MagicMock(),
-                resumable_source_manager=manager if manager is not None else _manager(),
-            )
-        )
-    return [row for page in pages for row in page]
-
-
 def _g(path: str) -> str:
     return f"{GRAPH_BASE_URL}{path}"
+
+
+TOKEN_RESPONSE = ScriptedResponse(json={"access_token": "token-1", "expires_in": 3599})
+
+
+def _answer(route: Route) -> ScriptedResponse:
+    if isinstance(route, int):
+        return ScriptedResponse(status=route)
+    if isinstance(route, bytes):
+        return ScriptedResponse(body=route)
+    return ScriptedResponse(json=route)
+
+
+def _graph(
+    routes: Mapping[str, Route | list[Route]], token: ScriptedResponse = TOKEN_RESPONSE
+) -> Callable[[RecordedRequest], ScriptedResponse]:
+    """Answer the token request, and each GET from `routes` by URL, or by path when the URL has no route.
+
+    A list is a queue of answers for that URL. Any other route answers every request for it.
+    """
+    queues = {url: list(route) for url, route in routes.items() if isinstance(route, list)}
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.method == "POST":
+            return token
+        for key in (request.url, f"{request.origin}{request.path}"):
+            if key in queues:
+                if not queues[key]:
+                    raise UnexpectedRequest(f"the script has no answer left for {request.url}")
+                return _answer(queues[key].pop(0))
+            if key in routes:
+                return _answer(cast(Route, routes[key]))
+        raise UnexpectedRequest(f"the script has no route for {request.url}")
+
+    return respond
+
+
+def _gets(requests_log: list[RecordedRequest]) -> list[RecordedRequest]:
+    return [request for request in requests_log if request.method == "GET"]
+
+
+def _token_requests(requests_log: list[RecordedRequest]) -> list[RecordedRequest]:
+    return [request for request in requests_log if request.method == "POST"]
+
+
+def _run(
+    endpoint: str,
+    routes: Mapping[str, Route | list[Route]],
+    site_urls: Optional[str] = None,
+    resume_state: Optional[SharePointResumeConfig] = None,
+    **inputs: Any,
+) -> DriveResult:
+    driver = SourceDriver(SharePointSource(), make_config(enabled=None, site_urls=site_urls))
+    return driver.run(endpoint, _graph(routes), resume_state=resume_state, **inputs)
 
 
 ALL_SITES_ROUTES: dict[str, Route] = {
@@ -200,15 +236,20 @@ class TestSharePointRows:
             }
         }
 
-        assert _rows(endpoint, _session(routes), site_urls=site_url) == []
+        result = _run(endpoint, routes, site_urls=site_url)
+
+        assert result.raised is None
+        assert result.rows == []
 
     def test_next_link_outside_graph_is_refused(self) -> None:
         routes: dict[str, Route] = {
             _g("/sites/getAllSites"): {"value": [{"id": SITE_A}], "@odata.nextLink": "https://evil.example.com/next"}
         }
 
-        with pytest.raises(ValueError, match="non-Graph URL"):
-            _rows("sites", _session(routes))
+        result = _run("sites", routes)
+
+        assert isinstance(result.raised, ValueError)
+        assert "non-Graph URL" in str(result.raised)
 
     def test_list_items_skip_hidden_lists_and_carry_parent_ids(self) -> None:
         routes: dict[str, Route] = {
@@ -225,11 +266,11 @@ class TestSharePointRows:
             },
             _g(f"/sites/{SITE_A}/lists/deleted-list/items"): 404,
         }
-        session = _session(routes)
 
-        rows = _rows("list_items", session, site_urls="https://contoso.sharepoint.com/sites/a")
+        result = _run("list_items", routes, site_urls="https://contoso.sharepoint.com/sites/a")
 
-        assert rows == [
+        assert result.raised is None
+        assert result.rows == [
             {
                 "id": "1",
                 "createdDateTime": datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
@@ -238,9 +279,9 @@ class TestSharePointRows:
                 "list_id": "list-1",
             }
         ]
-        item_calls = [c for c in session.get.call_args_list if c.args[0].endswith("/list-1/items")]
-        assert item_calls[0].kwargs["params"] == {"expand": "fields"}
-        assert all("hidden-list" not in c.args[0] for c in session.get.call_args_list)
+        item_requests = [request for request in result.requests if request.path.endswith("/list-1/items")]
+        assert item_requests[0].param("expand") == "fields"
+        assert all("hidden-list" not in url for url in result.urls)
 
     def test_drive_items_drop_deleted_and_repeated_items(self) -> None:
         routes: dict[str, Route] = {
@@ -258,8 +299,10 @@ class TestSharePointRows:
             _g("/drives/b!drive-a/root/delta?token=2"): {"value": [{"id": "f1", "file": {}}, {"id": "f2", "file": {}}]},
         }
 
-        rows = _rows("drive_items", _session(routes))
+        result = _run("drive_items", routes)
 
+        assert result.raised is None
+        rows = result.rows
         assert [(row["drive_id"], row["id"]) for row in rows] == [
             ("b!drive-a", "root"),
             ("b!drive-a", "f1"),
@@ -269,13 +312,13 @@ class TestSharePointRows:
         assert all("@microsoft.graph.downloadUrl" not in row for row in rows)
 
     def test_expired_token_is_reminted_once(self) -> None:
-        session = _session({}, post_responses=[_token_response(), _token_response()])
-        session.get.side_effect = [_response(401), _response(200, {"value": [{"id": SITE_A}]})]
+        routes: dict[str, Route | list[Route]] = {_g("/sites/getAllSites"): [401, {"value": [{"id": SITE_A}]}]}
 
-        rows = _rows("sites", session)
+        result = _run("sites", routes)
 
-        assert [row["id"] for row in rows] == [SITE_A]
-        assert session.post.call_count == 2
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [SITE_A]
+        assert len(_token_requests(result.requests)) == 2
 
 
 class TestSharePointResume:
@@ -285,11 +328,190 @@ class TestSharePointResume:
             _g(f"/sites/{SITE_A}/lists"): {"value": [{"id": "list-a"}]},
             _g(f"/sites/{SITE_B}/lists"): {"value": [{"id": "list-b"}]},
         }
-        manager = _manager(SharePointResumeConfig(site_id="deleted-site", next_url=_g("/stale")))
 
-        rows = _rows("lists", _session(routes), manager=manager)
+        result = _run(
+            "lists", routes, resume_state=SharePointResumeConfig(site_id="deleted-site", next_url=_g("/stale"))
+        )
 
-        assert [(row["site_id"], row["id"]) for row in rows] == [(SITE_A, "list-a"), (SITE_B, "list-b")]
+        assert result.raised is None
+        assert [(row["site_id"], row["id"]) for row in result.rows] == [(SITE_A, "list-a"), (SITE_B, "list-b")]
+
+
+SITE_A_URL = "https://contoso.sharepoint.com/sites/a"
+SITE_A_ROUTE: dict[str, Route] = {_g("/sites/contoso.sharepoint.com:/sites/a:"): {"id": SITE_A}}
+
+
+def _activity_path(start: str) -> str:
+    return _g(
+        f"/sites/{SITE_A}/getActivitiesByInterval(startDateTime='{start}',endDateTime='2026-10-27',interval='day')"
+    )
+
+
+class TestSharePointSiteTables:
+    @parameterized.expand(
+        [
+            ("drives", "drives"),
+            ("content_types", "contentTypes"),
+        ]
+    )
+    def test_reads_each_site_collection(self, endpoint: str, collection: str) -> None:
+        routes: dict[str, Route] = {
+            **SITE_A_ROUTE,
+            _g(f"/sites/{SITE_A}/{collection}"): {
+                "value": [{"id": "0x0101", "name": "Document"}],
+                "@odata.nextLink": _g(f"/sites/{SITE_A}/{collection}?$skiptoken=2"),
+            },
+            _g(f"/sites/{SITE_A}/{collection}?$skiptoken=2"): {"value": [{"id": "0x0120", "name": "Folder"}]},
+        }
+
+        result = _run(endpoint, routes, site_urls=SITE_A_URL)
+
+        assert result.raised is None
+        assert [(row["site_id"], row["id"]) for row in result.rows] == [(SITE_A, "0x0101"), (SITE_A, "0x0120")]
+
+    @parameterized.expand(
+        [
+            ("full_refresh_reads_the_whole_window", {}, "2026-07-30"),
+            (
+                "incremental_starts_at_the_watermark_day",
+                {"incremental_field": "startDateTime", "db_incremental_field_last_value": "2026-10-20T00:00:00Z"},
+                "2026-10-20",
+            ),
+            (
+                "incremental_watermark_as_datetime",
+                {
+                    "incremental_field": "startDateTime",
+                    "db_incremental_field_last_value": datetime(2026, 10, 25, 6, tzinfo=UTC),
+                },
+                "2026-10-25",
+            ),
+            (
+                "incremental_watermark_older_than_the_window_is_clamped",
+                {"incremental_field": "startDateTime", "db_incremental_field_last_value": "2026-01-01T00:00:00Z"},
+                "2026-07-30",
+            ),
+        ]
+    )
+    def test_activity_stats_request_a_daily_window_graph_accepts(
+        self, _name: str, inputs: dict[str, Any], expected_start: str
+    ) -> None:
+        routes: dict[str, Route] = {
+            **SITE_A_ROUTE,
+            _activity_path(expected_start): {
+                "value": [
+                    {
+                        "startDateTime": "2026-10-25T00:00:00Z",
+                        "endDateTime": "2026-10-26T00:00:00Z",
+                        "access": {"actionCount": 5, "actorCount": 3},
+                    }
+                ]
+            },
+        }
+
+        with time_machine.travel(datetime(2026, 10, 26, 23, 30, tzinfo=UTC), tick=False):
+            result = _run("site_activity_stats", routes, site_urls=SITE_A_URL, **inputs)
+
+        assert result.raised is None
+        assert result.rows == [
+            {
+                "site_id": SITE_A,
+                "startDateTime": datetime(2026, 10, 25, tzinfo=UTC),
+                "endDateTime": "2026-10-26T00:00:00Z",
+                "access": {"actionCount": 5, "actorCount": 3},
+            }
+        ]
+        assert result.response is not None and result.response.sort_mode is None
+
+
+DRIVE_VERSION_ROUTES: dict[str, Route] = {
+    **SITE_A_ROUTE,
+    _g(f"/sites/{SITE_A}/drives"): {"value": [{"id": "b!drive-a"}]},
+    _g("/drives/b!drive-a/root/delta"): {
+        "value": [
+            {"id": "root", "root": {}, "folder": {}},
+            {"id": "f1", "file": {}},
+            {"id": "gone", "deleted": {}},
+        ],
+        "@odata.nextLink": _g("/drives/b!drive-a/root/delta?token=2"),
+    },
+    _g("/drives/b!drive-a/root/delta?token=2"): {
+        "value": [{"id": "f1", "file": {}}, {"id": "f2", "file": {}}, {"id": "f3", "file": {}}],
+        "@odata.nextLink": _g("/drives/b!drive-a/root/delta?token=3"),
+    },
+    _g("/drives/b!drive-a/root/delta?token=3"): {"value": [{"id": "folder-2", "folder": {}}]},
+    _g("/drives/b!drive-a/items/f1/versions"): {
+        "value": [{"id": "2.0", "size": 20, "@microsoft.graph.downloadUrl": "https://temporary.example.com/f1"}],
+        "@odata.nextLink": _g("/drives/b!drive-a/items/f1/versions?$skiptoken=2"),
+    },
+    _g("/drives/b!drive-a/items/f1/versions?$skiptoken=2"): {"value": [{"id": "1.0", "size": 10}]},
+    # A file deleted after the delta page was read.
+    _g("/drives/b!drive-a/items/f2/versions"): 404,
+    _g("/drives/b!drive-a/items/f3/versions"): {"value": [{"id": "1.0", "size": 30}]},
+}
+
+
+class TestSharePointVersions:
+    def test_drive_item_versions_read_each_file_once(self) -> None:
+        result = _run("drive_item_versions", DRIVE_VERSION_ROUTES, site_urls=SITE_A_URL)
+
+        assert result.raised is None
+        assert [(row["drive_id"], row["item_id"], row["id"]) for row in result.rows] == [
+            ("b!drive-a", "f1", "2.0"),
+            ("b!drive-a", "f1", "1.0"),
+            ("b!drive-a", "f3", "1.0"),
+        ]
+        assert all(row["site_id"] == SITE_A for row in result.rows)
+        assert all("@microsoft.graph.downloadUrl" not in row for row in result.rows)
+        assert [url for url in result.urls if "/versions" in url] == [
+            _g("/drives/b!drive-a/items/f1/versions"),
+            _g("/drives/b!drive-a/items/f1/versions?$skiptoken=2"),
+            _g("/drives/b!drive-a/items/f2/versions"),
+            _g("/drives/b!drive-a/items/f3/versions"),
+        ]
+
+    def test_failure_mid_page_resumes_at_the_page_in_progress(self) -> None:
+        failing = {**DRIVE_VERSION_ROUTES, _g("/drives/b!drive-a/items/f3/versions"): 403}
+
+        failed = _run("drive_item_versions", failing, site_urls=SITE_A_URL)
+
+        page_2 = _g("/drives/b!drive-a/root/delta?token=2")
+        assert isinstance(failed.raised, requests.HTTPError)
+        assert failed.final_state == SharePointResumeConfig(site_id=SITE_A, parent_id="b!drive-a", next_url=page_2)
+
+        resumed = _run(
+            "drive_item_versions", DRIVE_VERSION_ROUTES, site_urls=SITE_A_URL, resume_state=failed.final_state
+        )
+
+        assert resumed.raised is None
+        assert _g("/drives/b!drive-a/root/delta") not in resumed.urls
+        assert [(row["item_id"], row["id"]) for row in resumed.rows] == [("f1", "2.0"), ("f1", "1.0"), ("f3", "1.0")]
+
+    def test_list_item_versions_skip_hidden_lists_and_expand_fields(self) -> None:
+        routes: dict[str, Route] = {
+            **SITE_A_ROUTE,
+            _g(f"/sites/{SITE_A}/lists"): {
+                "value": [{"id": "list-1", "list": {"hidden": False}}, {"id": "hidden-list", "list": {"hidden": True}}]
+            },
+            _g(f"/sites/{SITE_A}/lists/list-1/items"): {"value": [{"id": "1"}, {"id": "2"}]},
+            _g(f"/sites/{SITE_A}/lists/list-1/items/1/versions"): {
+                "value": [
+                    {"id": "2.0", "lastModifiedDateTime": "2026-02-01T00:00:00Z", "fields": {"Title": "Widget v2"}},
+                    {"id": "1.0", "lastModifiedDateTime": "2026-01-01T00:00:00Z", "fields": {"Title": "Widget"}},
+                ]
+            },
+            _g(f"/sites/{SITE_A}/lists/list-1/items/2/versions"): {"value": []},
+        }
+
+        result = _run("list_item_versions", routes, site_urls=SITE_A_URL)
+
+        assert result.raised is None
+        assert [(row["list_id"], row["item_id"], row["id"], row["fields"]["Title"]) for row in result.rows] == [
+            ("list-1", "1", "2.0", "Widget v2"),
+            ("list-1", "1", "1.0", "Widget"),
+        ]
+        version_requests = [request for request in result.requests if request.path.endswith("/versions")]
+        assert [request.param("expand") for request in version_requests] == ["fields", "fields"]
+        assert all("hidden-list" not in url for url in result.urls)
 
 
 class TestValidateCredentials:
@@ -310,11 +532,12 @@ class TestValidateCredentials:
         site_urls: Optional[str],
         expected_error: Optional[str],
     ) -> None:
-        token = _token_response() if token_status == 200 else _response(token_status)
-        session = _session({}, post_responses=[token])
-        session.get.side_effect = [_response(graph_status or 200, {"value": []})]
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.method == "POST":
+                return ScriptedResponse(status=token_status, json=TOKEN_RESPONSE.json if token_status == 200 else None)
+            return ScriptedResponse(status=graph_status or 200, json={"value": []})
 
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(script):
             ok, error = validate_credentials(TENANT_ID, CLIENT_ID, CLIENT_SECRET, site_urls)
 
         assert ok is (expected_error is None)
@@ -324,14 +547,12 @@ class TestValidateCredentials:
             assert error is not None and expected_error in error
 
     def test_invalid_site_url_fails_before_any_request(self) -> None:
-        session = _session({})
-
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([]) as network:
             ok, error = validate_credentials(TENANT_ID, CLIENT_ID, CLIENT_SECRET, "contoso.sharepoint.com/sites/a")
 
         assert not ok
         assert error is not None and error.startswith(INVALID_SITE_URL_ERROR)
-        session.post.assert_not_called()
+        assert network.requests_log == []
 
 
 def test_canonical_descriptions_document_every_primary_key() -> None:
@@ -368,8 +589,10 @@ def file_routes(items: list[dict[str, object]]) -> dict[str, Route]:
     }
 
 
-def _discover(session: mock.MagicMock, pattern: str | None = None, site_urls: str = SITE_URL) -> list[SharePointFile]:
-    with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+def _discover(
+    routes: Mapping[str, Route | list[Route]], pattern: str | None = None, site_urls: str = SITE_URL
+) -> list[SharePointFile]:
+    with scripted_network(_graph(routes)):
         logger = mock.MagicMock()
         client = SharePointClient(TENANT_ID, CLIENT_ID, CLIENT_SECRET, logger)
         return discover_files(client, site_urls, pattern, logger)
@@ -400,7 +623,7 @@ class TestSharePointFileDiscovery:
             ]
         }
 
-        files = _discover(_session(routes))
+        files = _discover(routes)
 
         assert [file.path for file in files] == [f"Shared Documents/{expected}"]
 
@@ -438,7 +661,7 @@ class TestSharePointFileDiscovery:
             ]
         }
 
-        files = _discover(_session(routes), pattern)
+        files = _discover(routes, pattern)
 
         assert [file.path for file in files] == [f"Shared Documents/{name}" for name in expected]
 
@@ -452,7 +675,7 @@ class TestSharePointFileDiscovery:
             }
         )
 
-        files = _discover(_session(routes), site_urls=f"{SITE_URL}\nhttps://contoso.sharepoint.com/sites/b")
+        files = _discover(routes, site_urls=f"{SITE_URL}\nhttps://contoso.sharepoint.com/sites/b")
 
         assert [file.path for file in files] == [
             "Site A/Shared Documents/orders.csv",
@@ -464,9 +687,8 @@ class TestSharePointFileDiscovery:
             {"id": "unmatched", "name": "skip.csv", "file": {}},
             *[{"id": str(index), "name": f"match-{index}.csv", "file": {}} for index in range(MAX_FILES + 1)],
         ]
-        session = _session(file_routes(items))
         logger = mock.MagicMock()
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(_graph(file_routes(items))):
             client = SharePointClient(TENANT_ID, CLIENT_ID, CLIENT_SECRET, logger)
             files = discover_files(client, SITE_URL, "match-", logger)
 
@@ -545,17 +767,15 @@ class TestSharePointFileNames:
 class TestSharePointFileSync:
     def test_worksheet_rows_include_file_metadata(self) -> None:
         content = excel_bytes()
-        session = _session(
-            {
-                _g("/drives/drive-a/items/item-a"): {
-                    "name": "renamed.xlsx",
-                    "size": len(content),
-                    "lastModifiedDateTime": "2026-01-02T03:04:05Z",
-                },
-                _g("/drives/drive-a/items/item-a/content"): content,
-            }
-        )
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        routes: dict[str, Route] = {
+            _g("/drives/drive-a/items/item-a"): {
+                "name": "renamed.xlsx",
+                "size": len(content),
+                "lastModifiedDateTime": "2026-01-02T03:04:05Z",
+            },
+            _g("/drives/drive-a/items/item-a/content"): content,
+        }
+        with scripted_network(_graph(routes)):
             logger = mock.MagicMock()
             file = replace(_file("old.xlsx"), worksheet="Sales - North")
             response = sharepoint_file_source(
@@ -574,14 +794,12 @@ class TestSharePointFileSync:
 
     @parameterized.expand([("reported", 51), ("grew", 1)])
     def test_rejects_oversized_workbook_at_sync(self, _name: str, reported_size: int) -> None:
-        session = _session(
-            {
-                _g("/drives/drive-a/items/item-a"): {"name": "report.xlsx", "size": reported_size},
-                _g("/drives/drive-a/items/item-a/content"): excel_bytes(),
-            }
-        )
+        routes: dict[str, Route] = {
+            _g("/drives/drive-a/items/item-a"): {"name": "report.xlsx", "size": reported_size},
+            _g("/drives/drive-a/items/item-a/content"): excel_bytes(),
+        }
         with (
-            mock.patch(f"{MODULE}.make_tracked_session", return_value=session),
+            scripted_network(_graph(routes)),
             mock.patch(f"{FILES_MODULE}.MAX_EXCEL_FILE_BYTES", 50),
         ):
             logger = mock.MagicMock()
@@ -647,8 +865,7 @@ class TestSharePointFileSync:
         ]
     )
     def test_reports_missing_files(self, _name: str, resource_id: str | None, expected_requests: int) -> None:
-        session = _session({_g("/drives/drive-a/items/item-a"): 404})
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(_graph({_g("/drives/drive-a/items/item-a"): 404})) as network:
             logger = mock.MagicMock()
             with pytest.raises(ValueError, match=f"^{FILE_NOT_FOUND_ERROR}"):
                 response = sharepoint_file_source(
@@ -656,15 +873,16 @@ class TestSharePointFileSync:
                 )
                 list(cast(Iterable[object], response.items()))
 
-        assert session.get.call_count == expected_requests
+        assert len(_gets(network.requests_log)) == expected_requests
 
     @parameterized.expand([("csv", "orders.csv", None), ("excel", "report.xlsx", "Sales - North")])
     def test_reports_files_deleted_before_download(self, _name: str, file_name: str, worksheet: str | None) -> None:
-        session = _session(
-            {_g("/drives/drive-a/items/item-a"): {"name": file_name}, _g("/drives/drive-a/items/item-a/content"): 404}
-        )
+        routes: dict[str, Route] = {
+            _g("/drives/drive-a/items/item-a"): {"name": file_name},
+            _g("/drives/drive-a/items/item-a/content"): 404,
+        }
         resource_id = "drive-a:item-a" + (f":{worksheet}" if worksheet else "")
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(_graph(routes)) as network:
             logger = mock.MagicMock()
             with pytest.raises(ValueError, match=f"^{FILE_NOT_FOUND_ERROR}"):
                 response = sharepoint_file_source(
@@ -672,7 +890,7 @@ class TestSharePointFileSync:
                 )
                 list(cast(Iterable[object], response.items()))
 
-        assert session.get.call_count == 2
+        assert len(_gets(network.requests_log)) == 2
 
     @parameterized.expand([("refresh_success", 200), ("refresh_rejected", 401)])
     def test_content_request_refreshes_once(self, _name: str, final_status: int) -> None:
@@ -709,14 +927,12 @@ class TestSharePointFileSync:
         download.close.assert_called_once()
 
     def test_refuses_non_graph_initial_download_url(self) -> None:
-        session = _session({})
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([]) as network:
             client = SharePointClient(TENANT_ID, CLIENT_ID, CLIENT_SECRET, mock.MagicMock())
             with pytest.raises(ValueError, match="non-Graph URL"):
                 client.open_stream("https://example.com/content")
 
-        session.get.assert_not_called()
-        session.post.assert_not_called()
+        assert network.requests_log == []
 
     @parameterized.expand([("success", 200), ("denied", 403)])
     def test_redirect_drops_authorization_and_keeps_download_urls_out_of_logs(self, _name: str, status: int) -> None:
@@ -784,7 +1000,7 @@ class TestSharePointSchemas:
     def test_discovers_one_table_per_visible_worksheet(self) -> None:
         routes = file_routes([{"id": "item-a", "name": "report.xlsx", "file": {}}])
         routes[_g("/drives/drive-a/items/item-a/content")] = excel_bytes()
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=_session(routes)):
+        with scripted_network(_graph(routes)):
             schemas = SharePointSource().get_schemas(make_config(), team_id=1)
 
         assert [
@@ -817,9 +1033,8 @@ class TestSharePointSchemas:
         routes[_g("/drives/drive-a/items/item-a/content")] = (
             404 if case == "missing" else b"not a zip" if case == "corrupt" else excel_bytes()
         )
-        session = _session(routes)
         with (
-            mock.patch(f"{MODULE}.make_tracked_session", return_value=session),
+            scripted_network(_graph(routes)) as network,
             mock.patch(f"{FILES_MODULE}.MAX_EXCEL_FILE_BYTES", 50),
             capture_logs() as logs,
         ):
@@ -830,7 +1045,7 @@ class TestSharePointSchemas:
             log.get("log_level") == "warning" and log.get("path") == "Shared Documents/report.xlsx" for log in logs
         )
         if case == "reported_size":
-            assert not any(call.args[0].endswith("/content") for call in session.get.call_args_list)
+            assert not any(request.path.endswith("/content") for request in network.requests_log)
 
     def test_caps_excel_downloads_in_discovery_order(self) -> None:
         routes = file_routes(
@@ -841,9 +1056,8 @@ class TestSharePointSchemas:
             ]
         )
         routes[_g("/drives/drive-a/items/first/content")] = excel_bytes()
-        session = _session(routes)
         with (
-            mock.patch(f"{MODULE}.make_tracked_session", return_value=session),
+            scripted_network(_graph(routes)) as network,
             mock.patch(f"{FILES_MODULE}.MAX_EXCEL_FILES", 1),
             capture_logs() as logs,
         ):
@@ -855,7 +1069,7 @@ class TestSharePointSchemas:
             "shared_documents_orders",
         ]
         assert any(log.get("log_level") == "warning" and log.get("skipped_files") == 1 for log in logs)
-        assert not any("second/content" in call.args[0] for call in session.get.call_args_list)
+        assert not any("second/content" in request.path for request in network.requests_log)
 
     @parameterized.expand(
         [
@@ -866,15 +1080,13 @@ class TestSharePointSchemas:
         ]
     )
     def test_static_catalog_needs_no_requests(self, _name: str, enabled: bool | None, names: list[str] | None) -> None:
-        session = _session({})
         source = SharePointSource()
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([]) as network:
             expected = source.get_schemas(make_config(enabled=None, site_urls=None), team_id=1, names=names)
             schemas = source.get_schemas(make_config(enabled=enabled, site_urls=None), team_id=1, names=names)
 
         assert schemas == expected
-        session.get.assert_not_called()
-        session.post.assert_not_called()
+        assert network.requests_log == []
 
     @parameterized.expand(
         [
@@ -883,10 +1095,10 @@ class TestSharePointSchemas:
         ]
     )
     def test_discovers_file_schemas_with_resource_ids(self, _name: str, names: list[str] | None) -> None:
-        session = _session(file_routes([{"id": "item-a", "name": "orders.csv", "file": {}}]))
+        routes = file_routes([{"id": "item-a", "name": "orders.csv", "file": {}}])
         source = SharePointSource()
         static = source.get_schemas(make_config(enabled=False), team_id=1, names=names)
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(_graph(routes)):
             schemas = source.get_schemas(make_config(), team_id=1, names=names)
 
         assert schemas[:-1] == static
@@ -909,21 +1121,19 @@ class TestSharePointCredentialValidation:
     def test_rejects_invalid_file_settings_without_http(
         self, _name: str, site_urls: str | None, pattern: str | None, expected: str
     ) -> None:
-        session = _session({})
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([]) as network:
             valid, error = SharePointSource().validate_credentials(make_config(site_urls=site_urls, pattern=pattern), 1)
 
         assert valid is False
         assert error is not None and error.startswith(expected)
-        session.get.assert_not_called()
-        session.post.assert_not_called()
+        assert network.requests_log == []
 
     def test_validates_the_site_without_discovering_files(self) -> None:
-        session = _session({_g("/sites/contoso.sharepoint.com:/sites/a:"): {"id": SITE_A}})
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        routes: dict[str, Route] = {_g("/sites/contoso.sharepoint.com:/sites/a:"): {"id": SITE_A}}
+        with scripted_network(_graph(routes)) as network:
             assert SharePointSource().validate_credentials(make_config(pattern=r"\.csv$"), 1) == (True, None)
 
-        assert session.get.call_count == 1
+        assert len(_gets(network.requests_log)) == 1
 
 
 class TestSharePointPipeline:
@@ -931,32 +1141,32 @@ class TestSharePointPipeline:
     def test_routes_static_tables_and_stored_file_ids(
         self, _name: str, schema_name: str, resource_id: str | None
     ) -> None:
-        session = _session(
-            {
-                _g("/sites/contoso.sharepoint.com:/sites/a:"): {"id": SITE_A},
-                _g("/drives/drive-a/items/item-a"): {"name": "new-name.csv"},
-                _g("/drives/drive-a/items/item-a/content"): b"id\n1\n",
-            }
-        )
-        manager = _manager()
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-            response = SharePointSource().source_for_pipeline(
-                make_config(), manager, make_inputs(schema_name, resource_id)
-            )
+        routes: dict[str, Route] = {
+            _g("/sites/contoso.sharepoint.com:/sites/a:"): {"id": SITE_A},
+            _g("/drives/drive-a/items/item-a"): {"name": "new-name.csv"},
+            _g("/drives/drive-a/items/item-a/content"): b"id\n1\n",
+        }
+        source = SharePointSource()
+        inputs = make_inputs(schema_name, resource_id)
+        with scripted_network(_graph(routes)):
+            manager = source.get_resumable_source_manager(inputs)
+            response = source.source_for_pipeline(make_config(), manager, inputs)
             rows = [row for chunk in cast(Iterable[list[dict[str, object]]], response.items()) for row in chunk]
+            saved_state = manager.load_state()
 
         if resource_id is None:
             assert rows == [{"id": SITE_A}]
         else:
             assert rows == [{"id": "1", "_file_name": "new-name.csv", "_file_modified_at": None}]
             assert response.supports_resume is False
-            manager.save_state.assert_not_called()
+            assert saved_state is None
 
     def test_missing_metadata_fails_before_http(self) -> None:
-        session = _session({})
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        source = SharePointSource()
+        inputs = make_inputs("orders", None)
+        with scripted_network([]) as network:
+            manager = source.get_resumable_source_manager(inputs)
             with pytest.raises(ValueError, match=f"^{FILE_NOT_FOUND_ERROR}"):
-                SharePointSource().source_for_pipeline(make_config(), _manager(), make_inputs("orders", None))
+                source.source_for_pipeline(make_config(), manager, inputs)
 
-        session.get.assert_not_called()
-        session.post.assert_not_called()
+        assert network.requests_log == []

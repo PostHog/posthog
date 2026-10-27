@@ -1,8 +1,8 @@
+from functools import cached_property
+
 from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode, GroupNode
 
 from posthog.hogql import ast
-
-from posthog.models.filters.mixins.utils import cached_property
 
 
 class DataWarehouseInsightQueryMixin:

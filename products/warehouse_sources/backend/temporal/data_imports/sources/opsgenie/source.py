@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,14 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpsgenieSource(ResumableSource[OpsgenieSourceConfig, OpsgenieResumeConfig]):
+    codebase_detection = detect(
+        env=("^OPSGENIE_",),
+        npm=("opsgenie-sdk",),
+        pypi=("opsgenie-sdk",),
+        go=("github.com/opsgenie/opsgenie-go-sdk-v2", "github.com/opsgenie/opsgenie-lamp"),
+        maven=("com.opsgenie.integration:sdk",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -77,7 +86,7 @@ Note that Atlassian has announced Opsgenie's end of support: its APIs are schedu
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

@@ -64,8 +64,9 @@ from products.batch_exports.backend.facade import testing as batch_exports_testi
 from products.batch_exports.backend.facade.enums import BatchExportDestinationType, BatchExportRunStatus
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
-from products.data_modeling.backend.facade.api import mark_node_suspended, sync_saved_query_to_dag
+from products.data_modeling.backend.facade.api import mark_node_suspended, set_declared_target, sync_saved_query_to_dag
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 def _create_failed_batch_export_run(team_id: int) -> tuple[uuid.UUID, uuid.UUID]:
@@ -433,17 +434,6 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "Set your password" in mocked_email_messages[0].html_body
         assert "Wizard" in mocked_email_messages[0].html_body
 
-    def test_send_provisioning_welcome_with_repository(self, MockEmailMessage: MagicMock) -> None:
-        mocked_email_messages = mock_email_messages(MockEmailMessage)
-        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
-        token = password_reset_token_generator.make_token(self.user)
-
-        send_provisioning_welcome(user.id, token, "posthog.com", repository="octocat/hello-world")
-
-        assert len(mocked_email_messages) == 1
-        assert "octocat/hello-world" in mocked_email_messages[0].html_body
-        assert "pull request" in mocked_email_messages[0].html_body
-
     def test_send_provisioning_welcome_without_partner(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
@@ -768,6 +758,37 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         )
         assert "failing" in MockEmailMessage.call_args.kwargs["subject"]
 
+    @parameterized.expand([(True,), (False,)])
+    def test_send_external_data_failure_digest_shows_the_failed_destination(
+        self, MockEmailMessage: MagicMock, names_destination: bool
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        destination_url = "https://app.posthog.com/project/1/data-management/warehouse-destinations?destination=abc"
+
+        with time_machine.travel("2024-05-15 10:00:00", tick=False):
+            send_external_data_failure_digest(
+                self.team.pk,
+                [
+                    {
+                        "schema_name": "Invoice",
+                        "source_type": "Stripe",
+                        "source_id": "abc",
+                        "source_prefix": "",
+                        "source_url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs",
+                        "error": "Analytics PG: connection reset",
+                        "destination_name": "Analytics PG" if names_destination else None,
+                        "destination_url": destination_url if names_destination else None,
+                        "paused": False,
+                        "url": "https://app.posthog.com/project/1/data-management/sources/managed-abc/syncs?schema=Invoice",
+                    }
+                ],
+            )
+
+        html_body = mocked_email_messages[0].html_body
+        assert ("Delivery to Analytics PG failed" in html_body) is names_destination
+        assert (destination_url in html_body) is names_destination
+        assert "Analytics PG: connection reset" in html_body
+
     def test_send_external_data_failure_digest_day_rolls_over_at_boundary_hour(
         self, MockEmailMessage: MagicMock
     ) -> None:
@@ -1078,7 +1099,11 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         ]
         assert "analytics postgres" in message.subject
         assert "The host name does not exist." in message.html_body
-        assert f"/project/{self.team.id}/data-management/warehouse-destinations" in message.html_body
+        assert (
+            f"/project/{self.team.id}/data-management/warehouse-destinations?destination={destination_id}"
+            in message.html_body
+        )
+        assert "Open destination" in message.html_body
 
     def test_send_warehouse_destination_paused_normalizes_subject_names(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
@@ -1433,6 +1458,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
 
     def test_send_hog_functions_digest_email(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self._create_user("inactive@example.com", is_active=False)
 
         digest_data = {
             "team_id": self.team.id,
@@ -1467,6 +1493,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         send_hog_functions_digest_email(digest_data)
 
         assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].to[0]["raw_email"] == self.user.email
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
@@ -2672,15 +2699,85 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 last_run_at=timezone.now() - dt.timedelta(hours=1),
             )
 
+        # Pausing keeps `is_materialized` and the table but clears the cadence, so it can't retry.
+        paused = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="paused_orders_rollup",
+            query={"query": "SELECT 1"},
+            sync_frequency_interval=None,
+            is_materialized=True,
+            table=DataWarehouseTable.objects.create(team=self.team, name="paused_orders_rollup", format="Delta"),
+        )
+        # Tiered views keep their cadence on the node only, with the column empty.
+        tiered = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="tiered_daily_active_users",
+            query={"query": "SELECT 1"},
+            sync_frequency_interval=None,
+            is_materialized=True,
+        )
+        tiered_node = sync_saved_query_to_dag(tiered)
+        assert tiered_node is not None
+        set_declared_target(tiered_node, dt.timedelta(hours=1))
+        for sq in (paused, tiered):
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=sq,
+                status=DataModelingJob.Status.FAILED,
+                error="Code: 241. DB::Exception: Memory limit (for query) exceeded",
+                last_run_at=timezone.now() - dt.timedelta(hours=1),
+            )
+
+        # A success breaks the streak, so only the three failures after it count.
+        ongoing = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="nightly_revenue_rollup",
+            query={"query": "SELECT 1"},
+            sync_frequency_interval=dt.timedelta(days=1),
+            is_materialized=True,
+        )
+        streak_started_at = timezone.now() - dt.timedelta(days=3)
+        for status, run_at in [
+            ("FAILED", timezone.now() - dt.timedelta(days=9)),
+            ("COMPLETED", timezone.now() - dt.timedelta(days=6)),
+            ("FAILED", streak_started_at),
+            ("FAILED", timezone.now() - dt.timedelta(days=2)),
+            ("FAILED", timezone.now() - dt.timedelta(hours=1)),
+        ]:
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=ongoing,
+                status=getattr(DataModelingJob.Status, status),
+                error="Code: 60. DB::Exception: Unknown table expression identifier",
+                last_run_at=run_at,
+            )
+
         send_matview_failure_digest()
 
         assert len(mocked_email_messages) == 1
-        html = mocked_email_messages[0].html_body
-        for name, _ in failed_cases + unscheduled_cases:
-            assert name in html
-        assert html.count("Will retry") == len(failed_cases)
-        assert html.count("Not scheduled") == len(unscheduled_cases)
-        assert "action required" not in html
+        message = mocked_email_messages[0]
+        assert message.subject == (
+            f"PostHog: 3 materialized views need action, 4 started failing, 1 is still failing in {self.team.name}"
+        )
+        sections = {s["key"]: [v["name"] for v in s["views"]] for s in message.properties["sections"]}
+        assert list(sections) == ["action", "new", "ongoing"]
+        assert sorted(sections["action"]) == sorted([*(name for name, _ in unscheduled_cases), paused.name])
+        assert sorted(sections["new"]) == sorted([*(name for name, _ in failed_cases), tiered.name])
+        assert sections["ongoing"] == ["nightly_revenue_rollup"]
+        ongoing_row = next(v for v in message.properties["views"] if v["name"] == "nightly_revenue_rollup")
+        assert ongoing_row["failed_runs"] == 3
+        assert ongoing_row["failing_since"] == streak_started_at.strftime("%b %d, %H:%M UTC")
+        # A view with a DAG node opens its node detail; one without falls back to the SQL editor.
+        urls = {v["name"]: v["url"] for v in message.properties["views"]}
+        assert urls[tiered.name].endswith(f"/project/{self.team.id}/models/{tiered_node.id}")
+        assert urls[paused.name].endswith(f"/project/{self.team.id}/sql?open_view={paused.id}")
+
+        html = message.html_body
+        assert html.count("Not scheduled.") == len(unscheduled_cases)
+        assert html.count("Paused.") == 1
+        assert html.count("First failed") == len(failed_cases) + 1
+        assert "3 failed runs" in html
+        assert "select Resume" not in html
 
     @parameterized.expand(
         [
@@ -2726,13 +2823,27 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
                 "Code: 241. DB::Exception: Memory limit (for query) exceeded",
                 None,
                 "Code: 241. DB::Exception: Memory limit (for query) exceeded",
+                False,
             ),
-            ("long_job_error_is_truncated", "B" * 500, None, "B" * 252 + "..."),
-            ("falls_back_to_the_saved_query_error", "", "Query exceeded timeout limit", "Query exceeded timeout limit"),
+            ("long_job_error_is_truncated", "B" * 500, None, "B" * 252 + "...", False),
+            (
+                "falls_back_to_the_saved_query_error",
+                "",
+                "Query exceeded timeout limit",
+                "Query exceeded timeout limit",
+                False,
+            ),
+            ("suspension_says_so_and_how_to_resume", "boom", None, "boom", True),
         ]
     )
     def test_send_matview_failure_immediate_email_includes_the_error(
-        self, MockEmailMessage: MagicMock, _name: str, job_error: str, latest_error: str | None, expected_error: str
+        self,
+        MockEmailMessage: MagicMock,
+        _name: str,
+        job_error: str,
+        latest_error: str | None,
+        expected_error: str,
+        suspended: bool,
     ) -> None:
 
         mocked_email_messages = mock_email_messages(MockEmailMessage)
@@ -2757,11 +2868,16 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             last_run_at=timezone.now(),
         )
 
-        send_matview_failure_immediate_email(self.team.id, str(sq.id), str(job.id))
+        send_matview_failure_immediate_email(self.team.id, str(sq.id), str(job.id), suspended=suspended)
 
         assert len(mocked_email_messages) == 1
-        assert mocked_email_messages[0].properties["error"] == expected_error
-        assert expected_error[:80] in mocked_email_messages[0].html_body
+        message = mocked_email_messages[0]
+        assert message.properties["error"] == expected_error
+        assert expected_error[:80] in message.html_body
+        # A distinct key, or the suspension email dedupes against a failure email for the same job.
+        assert message.campaign_key.startswith("matview_suspended_" if suspended else "matview_failure_immediate_")
+        assert ("was suspended" in message.subject) == suspended
+        assert ("select Resume" in message.html_body) == suspended
 
     def test_send_matview_failure_digest_splits_by_view_access(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
@@ -2922,16 +3038,15 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         views = mocked_email_messages[0].properties["views"]
         assert [(v["name"], v["suspended"]) for v in views] == expected_rows
-        assert mocked_email_messages[0].properties["has_suspended"] is expected_has_suspended
 
         html = mocked_email_messages[0].html_body
-        assert "Will retry" in html
+        assert "Started failing" in html
         if expected_has_suspended:
-            assert "action required" in html
+            assert "select Resume" in html
             assert "Memory limit (for query) exceeded" in html
             assert "has been suspended after" not in html
         else:
-            assert "action required" not in html
+            assert "select Resume" not in html
             assert "suspended_view" not in html
 
     def test_send_matview_failure_digest_caps_the_rows_and_counts_the_rest(self, MockEmailMessage: MagicMock) -> None:

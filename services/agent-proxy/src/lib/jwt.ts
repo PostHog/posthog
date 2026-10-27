@@ -156,10 +156,15 @@ export async function validateSandboxEventIngestToken(
 ): Promise<SandboxEventIngestTokenPayload> {
     const payload = await verifyWithKeys(token, publicKeys, SANDBOX_EVENT_INGEST_AUDIENCE)
     const claims = payload as Record<string, unknown>
+    const streamGeneration = claims['stream_generation']
+    if (streamGeneration !== undefined && (typeof streamGeneration !== 'string' || !streamGeneration)) {
+        throw new Error('Token has invalid claim: stream_generation must be a nonempty string')
+    }
     return {
         ...assertStreamClaims(claims),
         presenceGated: assertPresenceGatedClaim(claims),
         thinTail: assertThinTailClaim(claims),
         originProduct: assertOriginProductClaim(claims),
+        ...(streamGeneration === undefined ? {} : { streamGeneration }),
     }
 }

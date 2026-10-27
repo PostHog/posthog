@@ -8,9 +8,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
+import { QuillTaskComposerSkeleton } from 'products/posthog_ai/frontend/api/composer'
+
 import { newSessionSceneLogic } from './newSessionSceneLogic'
+import { NewSessionSuggestions } from './NewSessionSuggestions'
+import { newSessionSuggestionsLogic } from './newSessionSuggestionsLogic'
 import { SpaceTaskComposer } from './SpaceTaskComposer'
-import { SpaceTaskComposerSkeleton } from './SpaceTaskComposerSkeleton'
 
 export const scene: SceneExport = {
     component: NewSessionScene,
@@ -21,6 +24,8 @@ export function NewSessionScene(): JSX.Element {
     const enabled = useFeatureFlag('TODAY_RAIL_NAV')
     const { space, spacesLoading, spacesUnavailable, composerRepositoryConfig } = useValues(newSessionSceneLogic)
     const { sessionStarted, loadSpaces } = useActions(newSessionSceneLogic)
+    const { suggestions, prefillRequest } = useValues(newSessionSuggestionsLogic)
+    const { selectSuggestion } = useActions(newSessionSuggestionsLogic)
 
     if (!enabled) {
         return <NotFound object="page" />
@@ -56,7 +61,7 @@ export function NewSessionScene(): JSX.Element {
                         <>
                             <h1 className="sr-only">Start a new session</h1>
                             {resolving ? (
-                                <SpaceTaskComposerSkeleton />
+                                <QuillTaskComposerSkeleton />
                             ) : (
                                 space && (
                                     // Each space gets its own composer, so it starts on that space's repository.
@@ -66,6 +71,7 @@ export function NewSessionScene(): JSX.Element {
                                             panelId={`new-session-${space.id}`}
                                             repositoryConfig={composerRepositoryConfig}
                                             onTaskCreated={sessionStarted}
+                                            prefillRequest={prefillRequest}
                                         />
                                     </div>
                                 )
@@ -73,7 +79,13 @@ export function NewSessionScene(): JSX.Element {
                         </>
                     )}
                 </div>
-                <div aria-hidden className="shrink-[34] basis-[66%]" />
+                <div className="mx-auto w-full max-w-150 shrink-[34] basis-[66%]">
+                    {space && suggestions.length > 0 && (
+                        <div className="pt-6 pb-4">
+                            <NewSessionSuggestions suggestions={suggestions} onSelect={selectSuggestion} />
+                        </div>
+                    )}
+                </div>
             </div>
         </SceneContent>
     )

@@ -17,6 +17,7 @@ import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
 } from '../../types'
+import { TRANSACTIONAL_EMAIL_EVENT, hasSensitiveEmailStep } from '../hogflows/hogflow-sensitivity'
 
 const counterHogInvocationResultRowsProduced = new Counter({
     name: 'cdp_hog_invocation_result_rows_produced',
@@ -203,7 +204,13 @@ const extractTriggerFields = (
 // current hog function config + integration store, so this is also a no-op
 // for rerun correctness — we'll always pick up the latest secrets, not a
 // snapshot from when the original invocation ran.
-const stripInputs = <T>(value: T): T => {
+const INPUT_KEYS: ReadonlySet<string> = new Set(['inputs'])
+// A sensitive email's message data carries reset links and login codes, so its snapshot keeps no
+// variables either, and a rerun can't rebuild the send.
+const SENSITIVE_KEYS: ReadonlySet<string> = new Set(['inputs', 'variables'])
+export const SENSITIVE_VARIABLES_OMITTED = 'sensitive_variables_omitted'
+
+const stripKeys = <T>(value: T, keys: ReadonlySet<string>): T => {
     if (value === null || typeof value !== 'object') {
         return value
     }
@@ -211,15 +218,15 @@ const stripInputs = <T>(value: T): T => {
         // We don't expect inputs to live inside arrays today; this branch is a
         // defensive cheap pass-through so a future schema change doesn't have
         // to come back here.
-        return value.map((item) => stripInputs(item)) as unknown as T
+        return value.map((item) => stripKeys(item, keys)) as unknown as T
     }
     const obj = value as Record<string, unknown>
     const out: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(obj)) {
-        if (k === 'inputs') {
+        if (keys.has(k)) {
             continue
         }
-        out[k] = stripInputs(v)
+        out[k] = stripKeys(v, keys)
     }
     return out as T
 }
@@ -229,16 +236,34 @@ const stripInputs = <T>(value: T): T => {
 // rehydrates `groups`/`person` (loadHogFunctions) and the executor rebuilds
 // `inputs` when an invocation arrives without them — so the rerun reconstructs
 // everything from the event against the latest config. `inputs` must be
-// dropped anyway for security (resolved secrets — see `stripInputs`).
+// dropped anyway for security (resolved secrets — see `stripKeys`).
+// Recovery paths pass a workflow stub with only an id. A run that started before its template became
+// sensitive carries no stamp, so a transactional email run without the actions is treated as sensitive.
+const sendsSensitiveEmail = (invocation: CyclotronJobInvocationHogFlow): boolean => {
+    if (invocation.state?.sensitive === true) {
+        return true
+    }
+    if (!Array.isArray(invocation.hogFlow?.actions)) {
+        return invocation.state?.event?.event === TRANSACTIONAL_EMAIL_EVENT
+    }
+    return hasSensitiveEmailStep(invocation.hogFlow)
+}
+
 const serializeInvocationGlobals = (invocation: CyclotronJobInvocation): string => {
     if (isHogFunctionInvocation(invocation)) {
         const { groups: _groups, person: _person, ...globals } = invocation.state.globals
-        return JSON.stringify(stripInputs(globals))
+        return JSON.stringify(stripKeys(globals, INPUT_KEYS))
     }
     if (isHogFlowInvocation(invocation)) {
         // Hog flow state can carry a per-action `currentAction.hogFunctionState.globals.inputs`
-        // — `stripInputs` walks the tree and removes those too.
-        return JSON.stringify(stripInputs(invocation.state ?? {}))
+        // — `stripKeys` walks the tree and removes those too.
+        if (sendsSensitiveEmail(invocation)) {
+            return JSON.stringify({
+                ...stripKeys(invocation.state ?? {}, SENSITIVE_KEYS),
+                [SENSITIVE_VARIABLES_OMITTED]: true,
+            })
+        }
+        return JSON.stringify(stripKeys(invocation.state ?? {}, INPUT_KEYS))
     }
     return '{}'
 }

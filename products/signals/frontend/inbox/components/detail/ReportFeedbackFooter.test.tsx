@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -18,6 +18,10 @@ jest.mock('../../inboxAnalytics', () => ({
     ...jest.requireActual('../../inboxAnalytics'),
     captureInboxReportFeedback: jest.fn(),
     captureInboxReportFeedbackNote: jest.fn(),
+}))
+
+jest.mock('./ReportInterviewInvite', () => ({
+    ReportInterviewInvite: () => <span>Interview invite</span>,
 }))
 
 const CELEBRATION_SELECTOR = '[data-attr="inbox-report-feedback-celebration"]'
@@ -47,10 +51,11 @@ function setReducedMotion(matches: boolean): void {
 describe('ReportFeedbackFooter', () => {
     const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime })
 
-    beforeEach(() => {
+    beforeEach(async () => {
         jest.useFakeTimers()
         useMocks({
             get: {
+                '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
                 '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
                 '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
                 '/api/projects/:team_id/signals/reports/available_reviewers/': [],
@@ -65,6 +70,9 @@ describe('ReportFeedbackFooter', () => {
         jest.mocked(captureInboxReportFeedback).mockClear()
         jest.mocked(captureInboxReportFeedbackNote).mockClear()
         render(<ReportFeedbackFooter report={makeReport({ id: 'report-celebration' })} />)
+        await waitFor(() =>
+            expect(screen.getByLabelText('This report was useful')).toHaveAttribute('aria-disabled', 'false')
+        )
     })
 
     afterEach(() => {
@@ -78,8 +86,8 @@ describe('ReportFeedbackFooter', () => {
 
         await user.click(thumbsUp)
 
-        expect(document.querySelector(CELEBRATION_SELECTOR)).toBeInTheDocument()
-        expect(captureInboxReportFeedback).toHaveBeenCalledTimes(1)
+        await waitFor(() => expect(document.querySelector(CELEBRATION_SELECTOR)).toBeInTheDocument())
+        await waitFor(() => expect(captureInboxReportFeedback).toHaveBeenCalledTimes(1))
         expect(captureInboxReportFeedback).toHaveBeenCalledWith(expect.objectContaining({ sentiment: 'positive' }))
 
         act(() => {
@@ -87,8 +95,9 @@ describe('ReportFeedbackFooter', () => {
         })
         expect(document.querySelector(CELEBRATION_SELECTOR)).not.toBeInTheDocument()
 
-        // A re-click is a no-op for feedback, so it earns no second pop either.
+        // Clearing the rating does not start the animation.
         await user.click(thumbsUp)
+        await waitFor(() => expect(thumbsUp).toHaveAttribute('aria-pressed', 'false'))
         expect(document.querySelector(CELEBRATION_SELECTOR)).not.toBeInTheDocument()
         expect(captureInboxReportFeedback).toHaveBeenCalledTimes(1)
     })
@@ -96,19 +105,59 @@ describe('ReportFeedbackFooter', () => {
     it('asks a question matched to the rating, sends the note with Enter, and shows what went through', async () => {
         setCelebrationFlag(false)
         expect(screen.queryByLabelText('Add a note about this report')).not.toBeInTheDocument()
+        expect(screen.queryByText('Interview invite')).not.toBeInTheDocument()
 
         await user.click(screen.getByLabelText('This report was useful'))
-        expect(screen.getByText('What made it useful?')).toBeVisible()
+        expect(await screen.findByText('What made it useful?')).toBeVisible()
+        expect(screen.queryByText('Interview invite')).not.toBeInTheDocument()
 
         await user.click(screen.getByLabelText('This report was not useful'))
-        expect(screen.getByText('What was off?')).toBeVisible()
-        await user.type(screen.getByLabelText('Add a note about this report'), 'The repro steps were wrong{Enter}')
+        expect(await screen.findByText('What was off?')).toBeVisible()
+        let finishRequest!: () => void
+        const responseReady = new Promise<void>((resolve) => {
+            finishRequest = resolve
+        })
+        useMocks({
+            post: {
+                '/api/projects/:team_id/signals/reports/:id/feedback/': async () => {
+                    await responseReady
+                    return [200, { forwarded: false }]
+                },
+            },
+        })
+        const note = screen.getByLabelText('Add a note about this report')
+        await user.type(note, 'The repro steps were wrong{Enter}')
+        await waitFor(() => expect(note).toBeDisabled())
+        await user.type(note, 'More text')
+        expect(note).toHaveValue('The repro steps were wrong')
+        finishRequest()
 
-        expect(captureInboxReportFeedbackNote).toHaveBeenCalledWith(
-            expect.objectContaining({ sentiment: 'negative', note: 'The repro steps were wrong' })
+        await waitFor(() =>
+            expect(captureInboxReportFeedbackNote).toHaveBeenCalledWith(
+                expect.objectContaining({ sentiment: 'negative', note: 'The repro steps were wrong' })
+            )
         )
-        expect(screen.getByText('Note added: The repro steps were wrong')).toBeVisible()
+        expect(await screen.findByText('Note added: The repro steps were wrong')).toBeVisible()
         expect(screen.queryByLabelText('Add a note about this report')).not.toBeInTheDocument()
+        expect(screen.getByText('Interview invite')).toBeVisible()
+    })
+
+    it('shows the invite after a note on a previously rated report', async () => {
+        cleanup()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: 'positive', note: '' },
+            },
+        })
+        render(<ReportFeedbackFooter report={makeReport({ id: 'report-with-saved-rating' })} />)
+
+        expect(await screen.findByText('What made it useful?')).toBeVisible()
+        expect(screen.queryByText('Interview invite')).not.toBeInTheDocument()
+
+        await user.type(screen.getByLabelText('Add a note about this report'), 'Clear steps{Enter}')
+
+        expect(await screen.findByText('Note added: Clear steps')).toBeVisible()
+        expect(screen.getByText('Interview invite')).toBeVisible()
     })
 
     it('does not pop on thumbs-down', async () => {
@@ -117,7 +166,9 @@ describe('ReportFeedbackFooter', () => {
         await user.click(screen.getByLabelText('This report was not useful'))
 
         expect(document.querySelector(CELEBRATION_SELECTOR)).not.toBeInTheDocument()
-        expect(captureInboxReportFeedback).toHaveBeenCalledWith(expect.objectContaining({ sentiment: 'negative' }))
+        await waitFor(() =>
+            expect(captureInboxReportFeedback).toHaveBeenCalledWith(expect.objectContaining({ sentiment: 'negative' }))
+        )
     })
 
     it.each([
@@ -130,7 +181,9 @@ describe('ReportFeedbackFooter', () => {
         await user.click(screen.getByLabelText('This report was useful'))
 
         expect(document.querySelector(CELEBRATION_SELECTOR)).not.toBeInTheDocument()
-        expect(screen.getByText('Thanks for the feedback!')).toBeVisible()
+        await waitFor(() =>
+            expect(screen.getByLabelText('This report was useful')).toHaveAttribute('aria-pressed', 'true')
+        )
         expect(captureInboxReportFeedback).toHaveBeenCalledTimes(1)
     })
 })

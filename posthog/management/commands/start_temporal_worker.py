@@ -20,7 +20,7 @@ with workflow.unsafe.imports_passed_through():
     from django.core.management.base import BaseCommand, CommandError
 
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS, POSTHOG_CODE_SLACK_ACTIVITIES, POSTHOG_CODE_SLACK_WORKFLOWS
+from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS
 from posthog.temporal.ai_observability import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
     EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
@@ -41,6 +41,10 @@ from posthog.temporal.backfill_group_type_created_at import (
 from posthog.temporal.backfill_materialized_property import (
     ACTIVITIES as BACKFILL_MATERIALIZED_PROPERTY_ACTIVITIES,
     BackfillMaterializedPropertiesBatchWorkflow,
+)
+from posthog.temporal.billing_active_sync import (
+    ACTIVITIES as BILLING_ACTIVE_SYNC_ACTIVITIES,
+    WORKFLOWS as BILLING_ACTIVE_SYNC_WORKFLOWS,
 )
 from posthog.temporal.cleanup_property_definitions import (
     ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
@@ -107,6 +111,7 @@ from posthog.temporal.salesforce_enrichment import (
     ACTIVITIES as SALESFORCE_ENRICHMENT_ACTIVITIES,
     WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS,
 )
+from posthog.temporal.session_replay.copy_recording import COPY_RECORDING_ACTIVITIES, COPY_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.count_playlist_items import (
     COUNT_PLAYLIST_ITEMS_ACTIVITIES,
     COUNT_PLAYLIST_ITEMS_WORKFLOWS,
@@ -139,6 +144,7 @@ from posthog.temporal.tests.utils.workflow import (
 )
 from posthog.temporal.usage_report import (
     ACTIVITIES as USAGE_REPORTS_ACTIVITIES,
+    AGGREGATION_ACTIVITIES as USAGE_REPORTS_AGGREGATION_ACTIVITIES,
     WORKFLOWS as USAGE_REPORTS_WORKFLOWS,
 )
 from posthog.temporal.warehouse_sources_queue_partition_management import (
@@ -151,6 +157,7 @@ from posthog.temporal.weekly_digest import (
 )
 
 from products.alerts.backend.facade.temporal import (
+    PLATFORM_AI_QUEUE_ACTIVITIES as INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES,
     PLATFORM_EVALUATION_ACTIVITIES as INSIGHT_PLATFORM_EVALUATION_ACTIVITIES,
     PLATFORM_EVALUATION_WORKFLOWS as INSIGHT_PLATFORM_EVALUATION_WORKFLOWS,
 )
@@ -172,6 +179,8 @@ from products.batch_exports.backend.facade.temporal import (
 )
 from products.billing_alerts.backend.temporal import (
     ACTIVITIES as BILLING_ALERTS_ACTIVITIES,
+    PLATFORM_EVALUATION_ACTIVITIES as BILLING_PLATFORM_EVALUATION_ACTIVITIES,
+    PLATFORM_EVALUATION_WORKFLOWS as BILLING_PLATFORM_EVALUATION_WORKFLOWS,
     WORKFLOWS as BILLING_ALERTS_WORKFLOWS,
 )
 from products.business_knowledge.backend.temporal import (
@@ -222,13 +231,10 @@ from products.experiments.backend.temporal import (
     EXPERIMENT_CANARY_WORKFLOWS,
     EXPERIMENT_ENROLLMENT_CENSUS_ACTIVITIES,
     EXPERIMENT_ENROLLMENT_CENSUS_WORKFLOWS,
+    EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES,
     EXPERIMENT_SCHEDULED_RECALCULATION_WORKFLOWS,
     WORKFLOWS as EXPERIMENTS_RECALCULATION_WORKFLOWS,
-)
-from products.exports.backend.temporal.subscriptions import (
-    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
-    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
 from products.growth.backend.temporal import (
     ACTIVITIES as GROWTH_ACTIVITIES,
@@ -236,6 +242,8 @@ from products.growth.backend.temporal import (
 )
 from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
+    PLATFORM_SIGNAL_ACTIVITIES as LOGS_PLATFORM_SIGNAL_ACTIVITIES,
+    PLATFORM_SIGNAL_WORKFLOWS as LOGS_PLATFORM_SIGNAL_WORKFLOWS,
     SOURCE_EVALUATION_ACTIVITIES as LOGS_SOURCE_EVALUATION_ACTIVITIES,
     SOURCE_EVALUATION_WORKFLOWS as LOGS_SOURCE_EVALUATION_WORKFLOWS,
     VOLUME_TICK_ACTIVITIES as LOGS_VOLUME_TICK_ACTIVITIES,
@@ -249,6 +257,10 @@ from products.logs.backend.temporal.retention_entitlements import (
 from products.managed_warehouse.backend.facade.temporal import (
     ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
     WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
+)
+from products.metrics.backend.facade.temporal import (
+    ACTIVITIES as METRICS_ACTIVITIES,
+    WORKFLOWS as METRICS_WORKFLOWS,
 )
 from products.notebooks.backend.facade.temporal import (
     ACTIVITIES as NOTEBOOKS_ACTIVITIES,
@@ -271,7 +283,7 @@ from products.replay_vision.backend.temporal import (
     WORKFLOWS as REPLAY_VISION_WORKFLOWS,
 )
 from products.replay_vision.backend.temporal.logs import build_vision_log_mirror
-from products.review_hog.backend.temporal import (
+from products.review_hog.backend.facade.temporal import (
     ACTIVITIES as REVIEW_HOG_ACTIVITIES,
     WORKFLOWS as REVIEW_HOG_WORKFLOWS,
 )
@@ -289,9 +301,17 @@ from products.signals.backend.temporal import (
     SELF_DRIVING_WORKFLOWS,
     WORKFLOWS as SIGNALS_PRODUCT_WORKFLOWS,
 )
+from products.slack_app.backend.facade.temporal import (
+    ACTIVITIES as SLACK_APP_ACTIVITIES,
+    WORKFLOWS as SLACK_APP_WORKFLOWS,
+)
 from products.stamphog.backend.facade.temporal import (
     ACTIVITIES as STAMPHOG_ACTIVITIES,
     WORKFLOWS as STAMPHOG_WORKFLOWS,
+)
+from products.subscriptions.backend.facade.temporal import (
+    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
+    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
 from products.tasks.backend.facade.temporal import (
     ACTIVITIES as TASKS_ACTIVITIES,
@@ -309,6 +329,8 @@ from products.warehouse_sources.backend.facade.temporal import (
     PERSON_PROPERTY_BACKFILL_WORKFLOWS,
     PERSON_PROPERTY_SYNC_ACTIVITIES,
     PERSON_PROPERTY_SYNC_WORKFLOWS,
+    WAREHOUSE_ALERT_EVALUATION_ACTIVITIES,
+    WAREHOUSE_ALERT_EVALUATION_WORKFLOWS,
     WORKFLOWS as DATA_SYNC_WORKFLOWS,
     load_all_sources,
 )
@@ -397,7 +419,8 @@ _task_queue_specs = [
         + LOGS_RETENTION_ENTITLEMENTS_WORKFLOWS
         + CONTEXT_LAYER_WORKFLOWS
         + SECURITY_WORKFLOWS
-        + TODAY_WORKFLOWS,
+        + TODAY_WORKFLOWS
+        + METRICS_WORKFLOWS,
         PROXY_SERVICE_ACTIVITIES
         + DELETE_PERSONS_ACTIVITIES
         + DELETE_TEAMS_ACTIVITIES
@@ -424,7 +447,8 @@ _task_queue_specs = [
         + GROWTH_ACTIVITIES
         + LOGS_RETENTION_ENTITLEMENTS_ACTIVITIES
         + SECURITY_ACTIVITIES
-        + TODAY_ACTIVITIES,
+        + TODAY_ACTIVITIES
+        + METRICS_ACTIVITIES,
     ),
     # Dedicated landing zone for signup enrichment. Defaults to the general-purpose queue name (so it
     # merges into that fleet until a dedicated worker exists); setting SIGNUP_ENRICHMENT_TASK_QUEUE on a
@@ -445,6 +469,13 @@ _task_queue_specs = [
         settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
         EXPERIMENTS_RECALCULATION_WORKFLOWS,
         EXPERIMENTS_RECALCULATION_ACTIVITIES,
+    ),
+    # The calc activity gets its own queue so that a worker with a fixed slot count caps how many
+    # recalculation ClickHouse queries run at the same time.
+    (
+        settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE,
+        [],
+        EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,
     ),
     (
         settings.HEALTH_CHECK_TASK_QUEUE,
@@ -467,13 +498,10 @@ _task_queue_specs = [
     ),
     (
         settings.TASKS_TASK_QUEUE,
-        # PostHog Desktop Slack workflows are also registered on MAX_AI_TASK_QUEUE.
-        # First step of merging them onto this queue — once master traffic has
-        # cut over and any in-flight runs have drained, drop them from
-        # AI_WORKFLOWS / AI_ACTIVITIES and flip the start_workflow callers in
-        # products/slack_app to settings.TASKS_TASK_QUEUE.
-        TASKS_WORKFLOWS + POSTHOG_CODE_SLACK_WORKFLOWS,
-        TASKS_ACTIVITIES + POSTHOG_CODE_SLACK_ACTIVITIES,
+        # PostHog Desktop Slack workflows share this queue with ProcessTaskWorkflow,
+        # which they hand off to once a repo is picked.
+        TASKS_WORKFLOWS + SLACK_APP_WORKFLOWS,
+        TASKS_ACTIVITIES + SLACK_APP_ACTIVITIES,
     ),
     (
         settings.WIZARD_TASK_QUEUE,
@@ -483,7 +511,7 @@ _task_queue_specs = [
     (
         settings.MAX_AI_TASK_QUEUE,
         AI_WORKFLOWS,
-        AI_ACTIVITIES + ALERT_AI_QUEUE_ACTIVITIES,
+        AI_ACTIVITIES + ALERT_AI_QUEUE_ACTIVITIES + INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES,
     ),
     (
         settings.TEST_TASK_QUEUE,
@@ -492,12 +520,18 @@ _task_queue_specs = [
     ),
     (
         settings.BILLING_TASK_QUEUE,
-        QUOTA_LIMITING_WORKFLOWS + SALESFORCE_ENRICHMENT_WORKFLOWS + USAGE_REPORTS_WORKFLOWS + BILLING_ALERTS_WORKFLOWS,
+        QUOTA_LIMITING_WORKFLOWS
+        + SALESFORCE_ENRICHMENT_WORKFLOWS
+        + USAGE_REPORTS_WORKFLOWS
+        + BILLING_ALERTS_WORKFLOWS
+        + BILLING_ACTIVE_SYNC_WORKFLOWS,
         QUOTA_LIMITING_ACTIVITIES
         + SALESFORCE_ENRICHMENT_ACTIVITIES
         + USAGE_REPORTS_ACTIVITIES
-        + BILLING_ALERTS_ACTIVITIES,
+        + BILLING_ALERTS_ACTIVITIES
+        + BILLING_ACTIVE_SYNC_ACTIVITIES,
     ),
+    (settings.USAGE_REPORT_AGGREGATION_TASK_QUEUE, [], USAGE_REPORTS_AGGREGATION_ACTIVITIES),
     (
         settings.VIDEO_EXPORT_TASK_QUEUE,
         SIGNALS_PRODUCT_WORKFLOWS
@@ -516,6 +550,7 @@ _task_queue_specs = [
     (
         settings.SESSION_REPLAY_TASK_QUEUE,
         COUNT_PLAYLIST_ITEMS_WORKFLOWS
+        + COPY_RECORDING_WORKFLOWS
         + DELETE_RECORDINGS_WORKFLOWS
         + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
         + RASTERIZE_RECORDING_WORKFLOWS
@@ -523,6 +558,7 @@ _task_queue_specs = [
         + SURFACING_SCORE_EXPORT_SWEEP_WORKFLOWS
         + SURFACING_SCORING_SWEEP_WORKFLOWS,
         COUNT_PLAYLIST_ITEMS_ACTIVITIES
+        + COPY_RECORDING_ACTIVITIES
         + DELETE_RECORDINGS_ACTIVITIES
         + ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES
         + RASTERIZE_RECORDING_ACTIVITIES
@@ -616,15 +652,21 @@ _task_queue_specs = [
     ),
     (
         settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
-        ALERTS_PLATFORM_EVALUATION_WORKFLOWS + LOGS_SOURCE_EVALUATION_WORKFLOWS + INSIGHT_PLATFORM_EVALUATION_WORKFLOWS,
+        ALERTS_PLATFORM_EVALUATION_WORKFLOWS
+        + LOGS_SOURCE_EVALUATION_WORKFLOWS
+        + INSIGHT_PLATFORM_EVALUATION_WORKFLOWS
+        + BILLING_PLATFORM_EVALUATION_WORKFLOWS
+        + WAREHOUSE_ALERT_EVALUATION_WORKFLOWS,
         ALERTS_PLATFORM_EVALUATION_ACTIVITIES
         + LOGS_SOURCE_EVALUATION_ACTIVITIES
-        + INSIGHT_PLATFORM_EVALUATION_ACTIVITIES,
+        + INSIGHT_PLATFORM_EVALUATION_ACTIVITIES
+        + BILLING_PLATFORM_EVALUATION_ACTIVITIES
+        + WAREHOUSE_ALERT_EVALUATION_ACTIVITIES,
     ),
     (
         settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
-        ALERTS_PLATFORM_DELIVERY_WORKFLOWS,
-        ALERTS_PLATFORM_DELIVERY_ACTIVITIES,
+        ALERTS_PLATFORM_DELIVERY_WORKFLOWS + LOGS_PLATFORM_SIGNAL_WORKFLOWS,
+        ALERTS_PLATFORM_DELIVERY_ACTIVITIES + LOGS_PLATFORM_SIGNAL_ACTIVITIES,
     ),
 ]
 
@@ -648,7 +690,7 @@ def workflows_include_data_import_syncs(workflows: collections.abc.Iterable[type
     return any(wf in DATA_SYNC_WORKFLOWS for wf in workflows)
 
 
-if settings.DEBUG:
+if settings.DEBUG or settings.TEMPORAL_USE_SINGLE_TASK_QUEUE:
     TASK_QUEUE_METRIC_PREFIXES = {}
 else:
     TASK_QUEUE_METRIC_PREFIXES = {

@@ -1,15 +1,19 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { Suspense, useEffect, useRef } from 'react'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { uuid } from 'lib/utils/dom'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { ThreadAutoScroller } from 'scenes/max/components/ThreadAutoScroller'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from 'scenes/max/maxThreadLogic'
-import { Thread } from 'scenes/max/Thread'
+import { SceneContentFallback } from 'scenes/SceneContentFallback'
 
 import { aiFirstHomepageLogic } from './aiFirstHomepageLogic'
 import { HOMEPAGE_TAB_ID } from './constants'
+
+const Thread = lazyWithRetry(() => import('scenes/max/Thread').then((m) => ({ default: m.Thread })))
 
 export function HomepageThread(): JSX.Element {
     const { query } = useValues(aiFirstHomepageLogic)
@@ -52,9 +56,17 @@ export function HomepageThread(): JSX.Element {
         <BindLogic logic={maxLogic} props={{ panelId: HOMEPAGE_TAB_ID }}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
                 <ScrollableShadows direction="vertical" styledScrollbars className="grow min-h-0" scrollRef={scrollRef}>
-                    <ThreadAutoScroller>
-                        <Thread className="p-3" />
-                    </ThreadAutoScroller>
+                    <Suspense
+                        fallback={
+                            <SceneContentFallback>
+                                <LemonSkeleton className="h-24 w-full" />
+                            </SceneContentFallback>
+                        }
+                    >
+                        <ThreadAutoScroller>
+                            <Thread />
+                        </ThreadAutoScroller>
+                    </Suspense>
                 </ScrollableShadows>
             </BindLogic>
         </BindLogic>

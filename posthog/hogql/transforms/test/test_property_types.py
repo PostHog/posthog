@@ -41,6 +41,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.property_access_types import RestrictedProperty
+from posthog.hogql.property_metadata import PropertyMetadata
 from posthog.hogql.property_planner import (
     PropertyComparisonPlan,
     PropertyLiteralConversion,
@@ -85,7 +86,11 @@ def _normalize_snapshot_sql(sql: str) -> str:
 
 
 class _NewEventsSchemaArraySubcolumnsHelpers:
-    def _context(self, use_new_events_schema: bool | None = None) -> HogQLContext:
+    def _context(
+        self,
+        use_new_events_schema: bool | None = None,
+        event_properties: dict[str, dict[str, str | None]] | None = None,
+    ) -> HogQLContext:
         team = Team(id=1, project_id=1)
         context = HogQLContext(
             team_id=team.id,
@@ -95,7 +100,9 @@ class _NewEventsSchemaArraySubcolumnsHelpers:
         )
         context.database = Database()
         context.restricted_properties = set()
-        context.property_swapper = PropertySwapper("UTC", {}, {}, {}, context, True)
+        if event_properties is not None:
+            context.property_metadata = PropertyMetadata(event_properties=event_properties)
+        context.property_swapper = PropertySwapper("UTC", event_properties or {}, {}, {}, context, True)
         return context
 
     def _print_select(
@@ -219,7 +226,10 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
                 False,
                 {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
                 PropertyGroupsMode.OPTIMIZED,
-                (f"JSONExtractRaw({JSON_DROP_KEYS_CLICKHOUSE_NAME}(", f"JSONHas({JSON_DROP_KEYS_CLICKHOUSE_NAME}("),
+                (
+                    "JSONExtractRaw(events.properties, ",
+                    f"JSONHas(if(empty(events.properties), '', {JSON_DROP_KEYS_CLICKHOUSE_NAME}(",
+                ),
                 ("properties_group_feature_flags", "mapFilter("),
             ),
             (
@@ -285,8 +295,8 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
                 True,
                 {RestrictedProperty(name="$feature_flags", property_type=PropertyDefinition.Type.EVENT)},
                 None,
-                ("JSONExtractKeysAndValuesRaw(",),
-                ("concat('$feature/', key)", "'\"$active_feature_flags\":'"),
+                ("JSONExtractKeysAndValuesRaw(", f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}("),
+                ("concat('$feature/', key)", "'\"$active_feature_flags\":'", f"'', {JSON_DROP_KEYS_CLICKHOUSE_NAME}("),
             ),
             (
                 "dynamic_restricted",
@@ -294,8 +304,12 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
                 True,
                 {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
                 None,
-                ("mapFilter((key, value) -> not(has(", "'\"$active_feature_flags\":'"),
-                ("JSONMergePatch(",),
+                (
+                    "mapFilter((key, value) -> not(has(",
+                    "'\"$active_feature_flags\":'",
+                    f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}(",
+                ),
+                ("JSONMergePatch(", f"'', {JSON_DROP_KEYS_CLICKHOUSE_NAME}("),
             ),
             (
                 "stored_document_restricted",
@@ -303,8 +317,8 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
                 True,
                 {RestrictedProperty(name="$feature/secret", property_type=PropertyDefinition.Type.EVENT)},
                 None,
-                ("JSONMergePatch(", "mapFilter((key, value) -> not(has("),
-                ("'\"$active_feature_flags\":'",),
+                ("JSONMergePatch(", "mapFilter((key, value) -> not(has(", f"{JSON_DROP_KEYS_CLICKHOUSE_NAME}("),
+                ("'\"$active_feature_flags\":'", f"'', {JSON_DROP_KEYS_CLICKHOUSE_NAME}("),
             ),
             (
                 "whole_document_adds_temporary_keys",
@@ -544,6 +558,39 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             (None,) * width,
             (None,) * width,
         ]
+
+    @parameterized.expand(
+        [
+            ("text_equals", "properties.step = 'template'", [1, 0, 0, 0, 0, 0]),
+            ("text_not_equals", "properties.step != 'template'", [0, 1, 1, 1, 1, 1]),
+            ("text_in", "properties.step IN ('template', 'domain')", [1, 1, 0, 0, None, 0]),
+            ("text_and_number_in", "properties.step IN ('template', '5')", [1, 0, 1, 1, None, 0]),
+            ("number_equals", "properties.step = '5'", [0, 0, 1, 1, 0, 0]),
+            ("non_finite_text", "properties.step = 'nan'", [0, 0, 0, 0, 0, 1]),
+        ]
+    )
+    def test_numeric_property_compared_to_text_matches_text(
+        self, _name: str, predicate: str, expected: list[int | None]
+    ) -> None:
+        context = self._context(event_properties={"step": {"type": "Numeric"}})
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(parse_select(f"SELECT {predicate} FROM events"), context, "clickhouse")
+        rows = sync_execute(
+            "WITH events_json AS (SELECT 1 AS team_id, CAST(arrayJoin(%(documents)s), 'JSON') AS properties) "
+            + printed,
+            {
+                **context.values,
+                "documents": [
+                    '{"step":"template"}',
+                    '{"step":"domain"}',
+                    '{"step":5}',
+                    '{"step":"5"}',
+                    "{}",
+                    '{"step":"nan"}',
+                ],
+            },
+        )
+        assert [row[0] for row in rows] == expected
 
     @parameterized.expand(
         [

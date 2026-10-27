@@ -17,8 +17,10 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.customer_analytics.backend.facade.testing import create_account
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
@@ -95,6 +97,12 @@ class TestEvaluateScoutPrecheck(ClickhouseTestMixin, BaseTest):
         properties = capture.call_args.kwargs["properties"]
         assert capture.call_args.kwargs["event"] == "scout_precheck_evaluated"
         assert (properties["outcome"], properties["row_count"]) == (outcome, row_count)
+        stored = SignalScoutConfig.all_teams.get(team=self.team, skill_name=SKILL)
+        assert (stored.last_precheck_at, stored.last_precheck_outcome, stored.last_precheck_row_count) == (
+            NOW,
+            outcome,
+            row_count,
+        )
 
     @parameterized.expand(
         [
@@ -234,6 +242,8 @@ class TestSkillDefaultPrecheck(ClickhouseTestMixin, BaseTest):
             ("web_vitals_quiet", "signals-scout-web-vitals", "$web_vitals", 24 * 8, "skip"),
             ("web_analytics_active", "signals-scout-web-analytics", "$pageview", 24 * 6, "run"),
             ("web_analytics_quiet", "signals-scout-web-analytics", "$pageview", 24 * 8, "skip"),
+            ("error_tracking_active", "signals-scout-error-tracking", "$exception", 24 * 6, "run"),
+            ("error_tracking_quiet", "signals-scout-error-tracking", "$exception", 24 * 8, "skip"),
         ]
     )
     def test_product_presence_defaults_skip_only_on_absence(self, _name, skill, event, hours_ago, outcome) -> None:
@@ -243,6 +253,66 @@ class TestSkillDefaultPrecheck(ClickhouseTestMixin, BaseTest):
         SignalScoutConfig.all_teams.create(team=self.team, skill_name=skill)
         _create_event(team=self.team, event=event, distinct_id="d1", timestamp=NOW - timedelta(hours=hours_ago))
         flush_persons_and_events()
+
+        with (
+            patch(ROLLOUT_PERCENT, return_value=100),
+            patch("products.signals.backend.scout_harness.precheck.posthoganalytics.capture"),
+        ):
+            result = evaluate_scout_precheck(self.team.pk, skill)
+
+        assert result is not None
+        assert (result.outcome, result.query_source) == (outcome, "skill_default")
+
+    def test_apm_default_skips_only_without_spans_in_the_last_day(self) -> None:
+        skill = "signals-scout-apm"
+        LLMSkill.objects.create(
+            team=self.team, name=skill, description="", body="", metadata={"seeded_by": HARNESS_SEEDED_BY}
+        )
+        SignalScoutConfig.all_teams.create(team=self.team, skill_name=skill)
+
+        def evaluate():
+            with (
+                patch(ROLLOUT_PERCENT, return_value=100),
+                patch("products.signals.backend.scout_harness.precheck.posthoganalytics.capture"),
+            ):
+                return evaluate_scout_precheck(self.team.pk, skill)
+
+        outcomes = []
+        for hours_ago in (25, 23):
+            timestamp = (NOW - timedelta(hours=hours_ago)).strftime("%Y-%m-%d %H:%M:%S.%f")
+            sync_execute(
+                "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
+                "timestamp, end_time, observed_timestamp, status_code, service_name) VALUES "
+                f"(generateUUIDv4(), {self.team.pk}, 't{hours_ago}', 's{hours_ago}', '', 'GET /api', 2, "
+                f"'{timestamp}', '{timestamp}', '{timestamp}', 0, 'web')"
+            )
+            result = evaluate()
+            assert result is not None
+            outcomes.append((result.outcome, result.query_source))
+
+        assert outcomes == [("skip", "skill_default"), ("run", "skill_default")]
+
+    @parameterized.expand(
+        [
+            # Recordings stopped 20 days ago: a capture cliff the scout must still see.
+            ("capture_cliff", 24 * 20, "run"),
+            ("stale", 24 * 31, "skip"),
+            ("future_dated", -24 * 3, "skip"),
+        ]
+    )
+    def test_session_replay_default_skips_only_without_recent_recordings(self, _name, hours_ago, outcome) -> None:
+        skill = "signals-scout-session-replay"
+        LLMSkill.objects.create(
+            team=self.team, name=skill, description="", body="", metadata={"seeded_by": HARNESS_SEEDED_BY}
+        )
+        SignalScoutConfig.all_teams.create(team=self.team, skill_name=skill)
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s1",
+            first_timestamp=NOW - timedelta(hours=hours_ago),
+            last_timestamp=NOW - timedelta(hours=hours_ago) + timedelta(minutes=5),
+            ensure_analytics_event_in_session=False,
+        )
 
         with (
             patch(ROLLOUT_PERCENT, return_value=100),
@@ -289,6 +359,16 @@ class TestSystemTableSkillDefaults(ClickhouseTestMixin, NonAtomicBaseTest):
         report = SignalReport.objects.create(team=self.team, status=status, title="r")
         SignalReport.objects.filter(pk=report.pk).update(updated_at=NOW - timedelta(days=days_since_update))
 
+    def _seed_scanner(self, *, enabled: bool) -> None:
+        apps.get_model("replay_vision", "ReplayScanner").objects.create(
+            team=self.team,
+            name="s",
+            scanner_type="monitor",
+            scanner_config={"prompt": "p"},
+            model="gemini-3.8-flash",
+            enabled=enabled,
+        )
+
     @parameterized.expand(
         [
             ("customer_analytics_no_accounts", "signals-scout-customer-analytics", None, "skip"),
@@ -307,6 +387,11 @@ class TestSystemTableSkillDefaults(ClickhouseTestMixin, NonAtomicBaseTest):
             ("inbox_validation_old_resolution", "signals-scout-inbox-validation", "resolved_15d", "skip"),
             ("inbox_validation_recent_unresolved", "signals-scout-inbox-validation", "ready_1d", "skip"),
             ("inbox_validation_recent_resolution", "signals-scout-inbox-validation", "resolved_13d", "run"),
+            ("replay_vision_absent", "signals-scout-replay-vision", None, "skip"),
+            ("replay_vision_disabled_scanner", "signals-scout-replay-vision", "disabled_scanner", "skip"),
+            ("replay_vision_old_observation", "signals-scout-replay-vision", "observation_31d", "skip"),
+            ("replay_vision_enabled_scanner", "signals-scout-replay-vision", "enabled_scanner", "run"),
+            ("replay_vision_observations_only", "signals-scout-replay-vision", "observation_29d", "run"),
         ]
     )
     def test_system_table_defaults_skip_only_on_absence(self, _name, skill, seed, outcome) -> None:
@@ -339,6 +424,16 @@ class TestSystemTableSkillDefaults(ClickhouseTestMixin, NonAtomicBaseTest):
             self._seed_report(SignalReport.Status.READY, days_since_update=1)
         elif seed == "resolved_13d":
             self._seed_report(SignalReport.Status.RESOLVED, days_since_update=13)
+        elif seed in ("enabled_scanner", "disabled_scanner"):
+            self._seed_scanner(enabled=seed == "enabled_scanner")
+        elif seed in ("observation_29d", "observation_31d"):
+            _create_event(
+                team=self.team,
+                event="$recording_observed",
+                distinct_id="d1",
+                timestamp=NOW - timedelta(days=29 if seed == "observation_29d" else 31),
+            )
+            flush_persons_and_events()
 
         with (
             patch(ROLLOUT_PERCENT, return_value=100),

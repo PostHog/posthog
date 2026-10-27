@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ MIXMAX_SHOULD_SYNC_DEFAULT = {name: config.should_sync_default for name, config 
 
 @SourceRegistry.register
 class MixMaxSource(ResumableSource[MixMaxSourceConfig, MixmaxResumeConfig]):
+    codebase_detection = detect(env=("^(MIX_MAX|MIXMAX)_",))
+
     api_docs_url = "https://developer.mixmax.com/"
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -49,7 +52,7 @@ class MixMaxSource(ResumableSource[MixMaxSourceConfig, MixmaxResumeConfig]):
             name=ExternalDataSourceType.MIXMAX,
             category=DataWarehouseSourceCategory.SALES,
             label="Mixmax",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             # Kept hidden while the source lands without live-API credential verification; flip off
             # (delete this) once it has synced end-to-end against a real Mixmax workspace.
             caption="""Enter your Mixmax API token to sync your Mixmax data into the PostHog Data warehouse.

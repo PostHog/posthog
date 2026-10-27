@@ -7,16 +7,25 @@ import { issueActionsColumn, severityColumn } from './healthTableColumns'
 
 const SOURCE_MAPS_DOCS_URL = 'https://posthog.com/docs/error-tracking/upload-source-maps'
 
+const SOURCE_MAPS_PLATFORM_LABELS: Record<string, { platform: string; symbols: string }> = {
+    javascript: { platform: 'JavaScript', symbols: 'source maps' },
+    java: { platform: 'Android', symbols: 'mapping files' },
+    native: { platform: 'iOS and native', symbols: 'debug symbols' },
+}
+
 function missingSourceMapsDescription(issue: HealthIssue): string {
-    const { unresolved_pct, unresolved_frames, total_frames, lookback_hours } = issue.payload
+    const { unresolved_pct, unresolved_frames, total_frames, lookback_hours, platform } = issue.payload
     const percent = Math.round((Number(unresolved_pct) || 0) * 100)
     const frames =
         unresolved_frames != null && total_frames != null
             ? ` (${Number(unresolved_frames).toLocaleString()} of ${Number(total_frames).toLocaleString()})`
             : ''
-    return `${percent}% of JavaScript stack frames${frames} were unresolved in the last ${
+    // Payloads written before per-platform scoring have no platform, and they counted JavaScript frames only.
+    const labels =
+        SOURCE_MAPS_PLATFORM_LABELS[String(platform ?? 'javascript')] ?? SOURCE_MAPS_PLATFORM_LABELS.javascript
+    return `${percent}% of ${labels.platform} stack frames that need ${labels.symbols}${frames} were missing them in the last ${
         Number(lookback_hours) || 24
-    } hours. Unresolved frames also degrade issue grouping. Upload source maps so stack traces show your original source code and errors group correctly.`
+    } hours. Unresolved frames also degrade issue grouping. Upload ${labels.symbols} so stack traces show your original source code and errors group correctly.`
 }
 
 export function ErrorTrackingHealthTable({

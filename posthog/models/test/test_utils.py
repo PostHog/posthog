@@ -2,15 +2,15 @@ import math
 from random import Random
 from uuid import UUID
 
-from posthog.test.base import BaseTest
-
 from django.core.exceptions import ValidationError
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.models.utils import (
     AMBIGUOUS_CHARS,
     BASE57,
+    ai_credential_value,
     convert_legacy_metric,
     convert_legacy_metrics,
     generate_random_oauth_access_token,
@@ -19,6 +19,7 @@ from posthog.models.utils import (
     generate_random_token_personal,
     generate_random_token_project,
     generate_random_token_secret,
+    hash_key_value,
     int_to_base,
     mask_key_value,
     uuid7,
@@ -26,7 +27,7 @@ from posthog.models.utils import (
 )
 
 
-class TestUUIDv7(BaseTest):
+class TestUUIDv7(SimpleTestCase):
     def test_has_version_of_7(self):
         self.assertEqual(uuid7().version, 7)
 
@@ -43,7 +44,7 @@ class TestUUIDv7(BaseTest):
         self.assertEqual(uuid, UUID("019030b3-ef68-7a3b-8006-671a1c80317f"))
 
 
-class TestValidateRateLimit(BaseTest):
+class TestValidateRateLimit(SimpleTestCase):
     def test_rate_limit(self):
         with self.assertRaises(ValidationError):
             validate_rate_limit("1/week")
@@ -62,6 +63,11 @@ def test_mask_key_value():
     assert mask_key_value("phx_shortenedAB") == "********"  # String shorter than 16 chars
     assert mask_key_value("phx_00000000ABCD") == "phx_...ABCD"  # Exactly 8 chars
     assert mask_key_value("") == "********"  # Empty string
+
+
+def test_ai_credential_value_matches_gateway_vector():
+    # Twin of TestCredentialNodeParityVector in PostHog/ai-gateway; both derivations must agree byte for byte.
+    assert ai_credential_value(hash_key_value("phs_parity_vector")) == "1cf0cfd88962385d39a50f24133fd919"
 
 
 BASE57_SET = set(BASE57)

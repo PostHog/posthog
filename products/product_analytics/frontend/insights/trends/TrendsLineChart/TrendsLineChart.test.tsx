@@ -16,7 +16,7 @@ import {
     buildTrendsQuery,
     chart,
     createInsightTooltipAccessor,
-    getHogChart,
+    getChart,
     getQuerySource,
     legend,
     personsModal,
@@ -252,7 +252,10 @@ describe('TrendsLineChart', () => {
         it('shows zero-count series alongside active ones', async () => {
             renderInsight({
                 query: buildTrendsQuery({
-                    series: [{ kind: NodeKind.EventsNode, event: 'ZeroCounts', name: 'ZeroCounts' }],
+                    series: [
+                        { kind: NodeKind.EventsNode, event: 'EmptySeries', name: 'EmptySeries' },
+                        { kind: NodeKind.EventsNode, event: 'ActiveSeries', name: 'ActiveSeries' },
+                    ],
                 }),
             })
 
@@ -371,7 +374,7 @@ describe('TrendsLineChart', () => {
             await screen.findByLabelText(/chart with/i)
             // Reference lines come exclusively from goalLines in this test (none configured),
             // so the count must be 0 — anything here would be a leaked alert overlay.
-            expect(getHogChart().referenceLines()).toHaveLength(0)
+            expect(getChart().referenceLines()).toHaveLength(0)
         })
     })
 
@@ -410,8 +413,8 @@ describe('TrendsLineChart', () => {
             // chart's aria-label appears (like referenceLines/valueLabels below), so read
             // them through waitFor rather than synchronously.
             await waitFor(() => {
-                expect(getHogChart().xAxisLabel()).toBe('Signup date')
-                expect(getHogChart().yAxisLabel()).toBe('Unique users')
+                expect(getChart().xAxisLabel()).toBe('Signup date')
+                expect(getChart().yAxisLabel()).toBe('Unique users')
             })
         })
     })
@@ -429,9 +432,9 @@ describe('TrendsLineChart', () => {
             })
 
             await waitFor(() => {
-                expect(getHogChart().hasRightAxis).toBe(true)
+                expect(getChart().hasRightAxis).toBe(true)
             })
-            expect(getHogChart().yRightTicks().length).toBeGreaterThan(0)
+            expect(getChart().yRightTicks().length).toBeGreaterThan(0)
         })
     })
 
@@ -446,7 +449,7 @@ describe('TrendsLineChart', () => {
             await screen.findByLabelText(/chart with/i)
             await waitFor(
                 () => {
-                    const lines = getHogChart().referenceLines()
+                    const lines = getChart().referenceLines()
                     expect(lines.map((l) => l.label)).toEqual(['Target'])
                     for (const line of lines) {
                         expect(line.orientation).toBe('horizontal')
@@ -466,11 +469,11 @@ describe('TrendsLineChart', () => {
             })
 
             await waitFor(() => {
-                const labels = getHogChart().valueLabels()
+                const labels = getChart().valueLabels()
                 expect(labels.length).toBeGreaterThan(0)
             })
             // Pageview series is [45, 82, 134, 210, 95]; all non-zero => 5 labels.
-            const labels = getHogChart()
+            const labels = getChart()
                 .valueLabels()
                 .map((l) => l.text)
             expect(labels).toContain('45')
@@ -493,9 +496,9 @@ describe('TrendsLineChart', () => {
             })
 
             await waitFor(() => {
-                expect(getHogChart().valueLabels().length).toBeGreaterThan(0)
+                expect(getChart().valueLabels().length).toBeGreaterThan(0)
             })
-            const labels = getHogChart().valueLabels()
+            const labels = getChart().valueLabels()
             for (const l of labels) {
                 expect(l.text).toMatch(/%/)
             }
@@ -506,7 +509,10 @@ describe('TrendsLineChart', () => {
         it('renders without crashing when series contain zero values', async () => {
             renderInsight({
                 query: buildTrendsQuery({
-                    series: [{ kind: NodeKind.EventsNode, event: 'ZeroCounts', name: 'ZeroCounts' }],
+                    series: [
+                        { kind: NodeKind.EventsNode, event: 'EmptySeries', name: 'EmptySeries' },
+                        { kind: NodeKind.EventsNode, event: 'ActiveSeries', name: 'ActiveSeries' },
+                    ],
                     trendsFilter: { yAxisScaleType: 'log10' },
                 }),
             })
@@ -596,7 +602,10 @@ describe('TrendsLineChart', () => {
             // later series (here, ActiveSeries) had real counts.
             renderInsight({
                 query: buildTrendsQuery({
-                    series: [{ kind: NodeKind.EventsNode, event: 'ZeroCounts', name: 'ZeroCounts' }],
+                    series: [
+                        { kind: NodeKind.EventsNode, event: 'EmptySeries', name: 'EmptySeries' },
+                        { kind: NodeKind.EventsNode, event: 'ActiveSeries', name: 'ActiveSeries' },
+                    ],
                 }),
             })
 
@@ -891,7 +900,7 @@ describe('TrendsLineChart', () => {
                 })
 
                 await waitFor(() => {
-                    expect(getHogChart().valueLabels()).toHaveLength(6)
+                    expect(getChart().valueLabels()).toHaveLength(6)
                 })
                 const leftByText = new Map(
                     Array.from(document.querySelectorAll<HTMLElement>('[data-attr="hog-chart-value-label"]')).map(

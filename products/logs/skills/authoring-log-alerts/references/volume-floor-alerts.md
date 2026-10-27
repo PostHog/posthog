@@ -37,7 +37,7 @@ The reasoning:
 - `evaluation_periods: 3`, `datapoints_to_alarm: 3` (3-of-3) — require 3 consecutive quiet windows. A single
   blip won't fire.
 - `window_minutes: 15` minimum — 5-minute floor alerts on noisy services are unreliable.
-- `cooldown_minutes: 60` — once you know the service is quiet, no point re-paging every check.
+- `cooldown_minutes: 60` — a floor alert can flap near the threshold, and this keeps it to one notification per hour.
 
 ## Simulate is essential here
 

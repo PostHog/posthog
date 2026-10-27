@@ -4,7 +4,7 @@ from decimal import Decimal
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from django.test import override_settings
@@ -19,7 +19,15 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.api.wizard.http import WIZARD_EMAIL_UNVERIFIED_DETAIL
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
-from posthog.llm.wizard_gateway_token import _TIER_FLOORS, WizardGatewayMintError
+from posthog.llm.wizard_gateway_token import (
+    _TIER_FLOORS,
+    WIZARD_DEFAULT_EFFORTS,
+    WIZARD_DEFAULT_MODELS,
+    WIZARD_GATEWAY_ALLOWLIST_FLAG,
+    WIZARD_GATEWAY_LIMIT_OVERRIDE_FLAG,
+    WIZARD_SYSTEM_PROMPT_FLAG,
+    WizardGatewayMintError,
+)
 from posthog.models import Organization, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import SetupWizardGatewayTokenRateThrottle, refund_wizard_mint, reserve_wizard_mint
@@ -36,18 +44,6 @@ _ACTIVE_MINTS_PER_WEEK: int = _active_mints
 @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="wizard-client-id")
 class SetupWizardCloudRunTests(APIBaseTest):
     CLOUD_RUN_URL = "/api/wizard/cloud_run"
-
-    @patch("posthog.api.wizard.http.wizard_identity_blocked", return_value=True)
-    def test_a_blocked_identity_cannot_start_a_cloud_run(self, mock_blocked):
-        # The sandbox mints its own gateway token.
-        response = self.client.post(
-            self.CLOUD_RUN_URL,
-            {"project_id": self.team.project_id, "repository": "PostHog/posthog"},
-        )
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
-        assert response.json()["detail"] == WIZARD_BLOCKED_DETAIL
-        assert mock_blocked.call_args.kwargs["surface"] == "cloud_run"
 
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID="")
     def test_returns_404_when_feature_not_configured(self):
@@ -231,27 +227,41 @@ class SetupWizardGatewayTokenThrottleTests(APIBaseTest):
     WIZARD_GATEWAY_MINT_KEY="phs_wizard_mint",
     WIZARD_GATEWAY_URL="https://ai-gateway.us.posthog.com",
     WIZARD_GATEWAY_CLIENT_IDS=["wizard-client-id"],
-    WIZARD_GATEWAY_PROGRAM_IDS=["integration"],
 )
 class SetupWizardGatewayTokenTests(APIBaseTest):
     GATEWAY_TOKEN_URL = "/api/wizard/gateway_token"
 
     MINTED = {"token": "phe_test_token", "expires_at": "2026-08-22T00:00:00Z", "cap_usd": "50"}
+    PROMPT_TEXT = "You are the wizard. [posthog:abort] é"
 
     def setUp(self):
         super().setUp()
-        # Keeps the SDK off the network; a test sets a payload to opt in.
+        # Keeps the SDK off the network. A test changes what a flag returns by
+        # setting its entry here; an Exception value is raised instead.
+        self.flag_payloads: dict[str, object] = {
+            WIZARD_GATEWAY_LIMIT_OVERRIDE_FLAG: None,
+            WIZARD_SYSTEM_PROMPT_FLAG: {"version": 4, "text": self.PROMPT_TEXT},
+            WIZARD_GATEWAY_ALLOWLIST_FLAG: {
+                "models": ["openai/gpt-5.6-luna", "claude-sonnet-5"],
+                "efforts": ["none", "low"],
+                "programs": ["integration", "ai-observability", "events-audit"],
+            },
+        }
+
+        def read_payload(key, *args, **kwargs):
+            value = self.flag_payloads[key]
+            if isinstance(value, Exception):
+                raise value
+            return value
+
         payload_patch = patch(
-            "posthog.llm.wizard_gateway_token.posthoganalytics.get_feature_flag_payload", return_value=None
+            "posthog.llm.wizard_gateway_token.posthoganalytics.get_feature_flag_payload", side_effect=read_payload
         )
-        self.mock_limit_payload = payload_patch.start()
+        self.mock_flag_payload = payload_patch.start()
         self.addCleanup(payload_patch.stop)
-        # Patched at the endpoint's seam: the feature_enabled patches below land on
-        # the shared module object, so an SDK-level patch would read the rollout
-        # flag's value as a ban.
-        blocklist_patch = patch("posthog.api.wizard.http.wizard_identity_blocked", return_value=False)
-        self.mock_blocklist = blocklist_patch.start()
-        self.addCleanup(blocklist_patch.stop)
+
+    def _flag_reads(self, key: str) -> list:
+        return [call for call in self.mock_flag_payload.call_args_list if call.args[0] == key]
 
     def _ordinary_account(self):
         """APIBaseTest's fresh org is the `new` posture, whose weekly ceiling is
@@ -291,9 +301,8 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_mints_for_scoped_oauth_token(self, mock_authentication, mock_flag, mock_mint, mock_authorized):
+    def test_mints_for_scoped_oauth_token(self, mock_authentication, mock_mint, mock_authorized):
         self._mock_oauth(mock_authentication)
 
         response = self.client.post(
@@ -314,13 +323,13 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
             "program": "integration",
             # The fixture organization is minutes old, unpaid, and has ingested nothing.
             "posture": "new",
+            "policy": ANY,
         }
 
     @parameterized.expand([("allowed", False, status.HTTP_201_CREATED), ("refused", True, status.HTTP_403_FORBIDDEN)])
     @patch("posthog.api.wizard.http.security_access_refused")
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
     def test_gateway_token_asks_the_access_rules(
         self,
@@ -328,7 +337,6 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         refused: bool,
         expected_status: int,
         mock_authentication,
-        mock_flag,
         mock_mint,
         mock_authorized,
         check: MagicMock,
@@ -344,6 +352,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         check.assert_called_once()
         subject, surface = check.call_args.args
         assert surface == SecuritySurface.AI_GATEWAY
+        assert (subject.email, subject.user_uuid) == (self.user.email, str(self.user.uuid))
         assert subject.organization_ids == (str(self.team.organization_id),)
         assert check.call_args.kwargs == {"call_site": "wizard_gateway_token"}
         assert mock_mint.called is not refused
@@ -353,11 +362,8 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @override_settings(DEBUG=False, WIZARD_GATEWAY_TIERS={"new": {"mints_per_week": 2}})
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_a_new_accounts_third_mint_in_a_day_is_throttled(
-        self, mock_authentication, mock_flag, mock_mint, mock_authorized
-    ):
+    def test_a_new_accounts_third_mint_in_a_day_is_throttled(self, mock_authentication, mock_mint, mock_authorized):
         self._mock_oauth(mock_authentication)
 
         for _ in range(2):
@@ -376,15 +382,11 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @override_settings(
         DEBUG=False,
         WIZARD_GATEWAY_TIERS={"new": {"mints_per_week": 2}},
-        WIZARD_GATEWAY_PROGRAM_IDS=["integration", "ai-observability", "events-audit"],
     )
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_the_mint_bucket_is_shared_across_programs(
-        self, mock_authentication, mock_flag, mock_mint, mock_authorized
-    ):
+    def test_the_mint_bucket_is_shared_across_programs(self, mock_authentication, mock_mint, mock_authorized):
         """The ceiling is per account, not per program: a second program does not
         get a fresh quota, or the per-account bound would scale with the program count."""
         self._mock_oauth(mock_authentication)
@@ -405,13 +407,10 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @override_settings(DEBUG=False, WIZARD_GATEWAY_TIERS={"new": {"mints_per_week": 2}})
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_the_override_flag_outranks_the_tier_ceiling(
-        self, mock_authentication, mock_flag, mock_mint, mock_authorized
-    ):
+    def test_the_override_flag_outranks_the_tier_ceiling(self, mock_authentication, mock_mint, mock_authorized):
         self._mock_oauth(mock_authentication)
-        self.mock_limit_payload.return_value = {"mints_per_week": 3}
+        self.flag_payloads[WIZARD_GATEWAY_LIMIT_OVERRIDE_FLAG] = {"mints_per_week": 3}
 
         for _ in range(3):
             ok = self.client.post(
@@ -421,51 +420,11 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
         assert mock_mint.call_count == 3
 
-    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=False)
-    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_flag_off_is_403_with_a_reason(self, mock_authentication, mock_flag, mock_authorized):
-        self._mock_oauth(mock_authentication)
-        response = self.client.post(
-            self.GATEWAY_TOKEN_URL,
-            {"program": "integration", "reads_refusal_reason": True},
-            headers={"authorization": "Bearer pha_test"},
-        )
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
-        assert response.json()["code"] == "not_rolled_out"
-
-        legacy = self.client.post(
-            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
-        )
-        assert legacy.status_code == status.HTTP_404_NOT_FOUND, legacy.content
-
-    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
-    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled")
-    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_a_rollout_flag_outage_mints(self, mock_authentication, mock_flag, mock_mint, mock_authorized):
-        # An outage is not a False, and must not end every wizard run.
-        self._mock_oauth(mock_authentication)
-
-        for outage in ({"return_value": None}, {"side_effect": RuntimeError("flags down")}):
-            mock_flag.reset_mock(return_value=True, side_effect=True)
-            mock_flag.configure_mock(**outage)
-            response = self.client.post(
-                self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
-            )
-            assert response.status_code == status.HTTP_201_CREATED, (outage, response.content)
-
-        assert mock_mint.call_count == 2
-
     @override_settings(DEBUG=False)
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_every_refusal_names_its_outcome_as_the_code(
-        self, mock_authentication, mock_flag, mock_mint, mock_authorized
-    ):
+    def test_every_refusal_names_its_outcome_as_the_code(self, mock_authentication, mock_mint, mock_authorized):
         self._mock_oauth(mock_authentication, scoped_teams=[self.team.id, self.team.id + 1])
         ambiguous = self.client.post(
             self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
@@ -488,30 +447,13 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         )
         assert (invalid.status_code, invalid.json()["code"]) == (status.HTTP_401_UNAUTHORIZED, "invalid_token")
 
-    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
-    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
-    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_blocked_identity_is_403_and_never_mints(self, mock_authentication, mock_flag, mock_mint, mock_authorized):
-        self._mock_oauth(mock_authentication)
-        self.mock_blocklist.return_value = True
-
-        response = self.client.post(
-            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
-        )
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
-        assert response.json()["detail"] == WIZARD_BLOCKED_DETAIL
-        mock_mint.assert_not_called()
-
     @patch("posthog.api.email_verification.is_email_verification_disabled", return_value=False)
     @patch("posthog.api.email_verification.is_email_available", return_value=True)
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
     def test_unverified_email_is_403_and_never_mints(
-        self, mock_authentication, mock_flag, mock_mint, mock_authorized, _mock_email_available, _mock_disabled
+        self, mock_authentication, mock_mint, mock_authorized, _mock_email_available, _mock_disabled
     ):
         self._mock_oauth(mock_authentication)
         self.user.is_email_verified = False
@@ -525,50 +467,12 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert response.json()["detail"] == WIZARD_EMAIL_UNVERIFIED_DETAIL
         mock_mint.assert_not_called()
 
+    @patch("posthog.api.wizard.http.security_access_refused", return_value=True)
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=False)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_a_ban_outranks_the_rollout_gate(self, mock_authentication, mock_flag, mock_mint, mock_authorized):
-        # A banned account reads "blocked", not "switched off", whatever the flag says.
+    def test_a_ban_is_counted(self, mock_authentication, mock_mint, mock_authorized, _rules):
         self._mock_oauth(mock_authentication)
-        self.mock_blocklist.return_value = True
-
-        response = self.client.post(
-            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
-        )
-
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
-
-    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
-    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
-    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_the_ban_is_asked_about_the_authenticated_identity(
-        self, mock_authentication, mock_flag, mock_mint, mock_authorized
-    ):
-        self._mock_oauth(mock_authentication)
-
-        self.client.post(
-            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
-        )
-
-        assert self.mock_blocklist.call_args.kwargs == {
-            "distinct_id": str(self.user.distinct_id),
-            "email": self.user.email,
-            "user_uuid": str(self.user.uuid),
-            "organization_ids": [str(self.team.organization_id)],
-            "team_ids": [self.team.id],
-            "surface": "gateway_token",
-        }
-
-    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
-    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
-    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_a_ban_is_counted(self, mock_authentication, mock_flag, mock_mint, mock_authorized):
-        self._mock_oauth(mock_authentication)
-        self.mock_blocklist.return_value = True
         before = _gateway_token_outcome("blocked")
 
         self.client.post(
@@ -592,12 +496,12 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=False)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_revoked_project_access_is_403(self, mock_authentication, mock_flag, mock_authorized):
+    def test_revoked_project_access_is_403(self, mock_authentication, mock_authorized):
         self._mock_oauth(mock_authentication)
         response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
         assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["code"] == "unauthorized"
 
     def test_unauthenticated_request_is_rejected(self):
         # No authenticator mock: the real one must refuse a request with no
@@ -622,9 +526,8 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         side_effect=WizardGatewayMintError("refused"),
     )
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_mint_failure_is_503(self, mock_authentication, mock_flag, mock_mint, mock_authorized):
+    def test_mint_failure_is_503(self, mock_authentication, mock_mint, mock_authorized):
         self._mock_oauth(mock_authentication)
         response = self.client.post(
             self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
@@ -635,13 +538,10 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @patch.object(SetupWizardGatewayTokenRateThrottle, "get_cache_key", return_value="refund-test-key")
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_limit_override_raises_the_daily_ceiling(
-        self, mock_authentication, mock_flag, mock_authorized, mock_mint, mock_key
-    ):
+    def test_limit_override_raises_the_daily_ceiling(self, mock_authentication, mock_authorized, mock_mint, mock_key):
         self._mock_oauth(mock_authentication)
-        self.mock_limit_payload.return_value = {"mints_per_week": 7}
+        self.flag_payloads[WIZARD_GATEWAY_LIMIT_OVERRIDE_FLAG] = {"mints_per_week": 7}
 
         for _ in range(7):
             ok = self.client.post(
@@ -657,11 +557,10 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_limit_override_cap_reaches_the_mint(self, mock_authentication, mock_flag, mock_authorized, mock_mint):
+    def test_limit_override_cap_reaches_the_mint(self, mock_authentication, mock_authorized, mock_mint):
         self._mock_oauth(mock_authentication)
-        self.mock_limit_payload.return_value = json.dumps({"cap_usd": "30"})
+        self.flag_payloads[WIZARD_GATEWAY_LIMIT_OVERRIDE_FLAG] = json.dumps({"cap_usd": "30"})
 
         response = self.client.post(
             self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
@@ -669,7 +568,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.content
         assert mock_mint.call_args.kwargs["cap_usd"] == Decimal("30.000000")
-        self.mock_limit_payload.assert_called_once_with(
+        self.mock_flag_payload.assert_any_call(
             "wizard-gateway-limit-override",
             str(self.user.distinct_id),
             person_properties={
@@ -683,11 +582,10 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_a_flag_outage_keeps_the_default_limits(self, mock_authentication, mock_flag, mock_authorized, mock_mint):
+    def test_a_flag_outage_keeps_the_default_limits(self, mock_authentication, mock_authorized, mock_mint):
         self._mock_oauth(mock_authentication)
-        self.mock_limit_payload.side_effect = RuntimeError("flags unavailable")
+        self.flag_payloads[WIZARD_GATEWAY_LIMIT_OVERRIDE_FLAG] = RuntimeError("flags unavailable")
 
         response = self.client.post(
             self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
@@ -709,11 +607,8 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
     @patch.object(SetupWizardGatewayTokenRateThrottle, "get_cache_key", return_value="refund-test-key")
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_a_failure_that_issued_no_token_returns_the_slot(
-        self, mock_authentication, mock_flag, mock_authorized, mock_key
-    ):
+    def test_a_failure_that_issued_no_token_returns_the_slot(self, mock_authentication, mock_authorized, mock_key):
         # Nothing below the helper's unit tests covers deleting or inverting this.
         self._mock_oauth(mock_authentication)
         with patch(
@@ -730,9 +625,8 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @override_settings(DEBUG=False)
     @patch.object(SetupWizardGatewayTokenRateThrottle, "get_cache_key", return_value="refund-test-key")
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_induced_failures_cannot_buy_extra_tokens(self, mock_authentication, mock_flag, mock_authorized, mock_key):
+    def test_induced_failures_cannot_buy_extra_tokens(self, mock_authentication, mock_authorized, mock_key):
         """The counter must equal the tokens actually issued, however many failures ran.
 
         The refund exists so an outage does not burn a user's quota, which invites
@@ -773,10 +667,9 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
     @patch.object(SetupWizardGatewayTokenRateThrottle, "get_cache_key", return_value="refund-test-key")
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
     def test_a_failure_that_may_have_issued_a_token_keeps_the_slot(
-        self, mock_authentication, mock_flag, mock_authorized, mock_key
+        self, mock_authentication, mock_authorized, mock_key
     ):
         # The paired negative: the gateway may hold this token.
         self._mock_oauth(mock_authentication)
@@ -793,9 +686,8 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token")
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_unlisted_program_is_refused(self, mock_authentication, mock_flag, mock_authorized, mock_mint):
+    def test_unlisted_program_is_refused(self, mock_authentication, mock_authorized, mock_mint):
         self._mock_oauth(mock_authentication)
         response = self.client.post(
             self.GATEWAY_TOKEN_URL,
@@ -809,10 +701,9 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token")
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
     def test_a_non_boolean_capability_keeps_the_compatible_status(
-        self, mock_authentication, mock_flag, mock_authorized, mock_mint
+        self, mock_authentication, mock_authorized, mock_mint
     ):
         self._mock_oauth(mock_authentication)
         claimed: object
@@ -829,9 +720,8 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token")
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_missing_program_is_refused(self, mock_authentication, mock_flag, mock_authorized, mock_mint):
+    def test_missing_program_is_refused(self, mock_authentication, mock_authorized, mock_mint):
         self._mock_oauth(mock_authentication)
         response = self.client.post(
             self.GATEWAY_TOKEN_URL, {"reads_refusal_reason": True}, headers={"authorization": "Bearer pha_test"}
@@ -842,13 +732,9 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token")
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_a_non_string_program_is_refused_not_a_500(
-        self, mock_authentication, mock_flag, mock_authorized, mock_mint
-    ):
-        # An unhashable value raises on the set membership, inside a throttle that
-        # runs before authentication.
+    def test_a_non_string_program_is_refused_not_a_500(self, mock_authentication, mock_authorized, mock_mint):
+        # An unhashable value must be refused, not raise on the membership test.
         self._mock_oauth(mock_authentication)
         response = self.client.post(
             self.GATEWAY_TOKEN_URL,
@@ -862,9 +748,8 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @override_settings(DEBUG=False)
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
-    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_a_throttled_mint_is_counted(self, mock_authentication, mock_flag, mock_mint, mock_authorized):
+    def test_a_throttled_mint_is_counted(self, mock_authentication, mock_mint, mock_authorized):
         self._ordinary_account()
         self._mock_oauth(mock_authentication)
         before = _gateway_token_outcome("throttled")
@@ -879,6 +764,159 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
 
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         assert _gateway_token_outcome("throttled") == before + 1
+
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.llm.wizard_gateway_token.requests.post")
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_the_flags_set_the_token_pins_and_the_prompt_stays_off_the_client(
+        self, mock_authentication, mock_post, mock_authorized
+    ):
+        self._mock_oauth(mock_authentication)
+        mock_post.return_value.status_code = 201
+        mock_post.return_value.json.return_value = self.MINTED
+
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL,
+            {"program": "integration"},
+            headers={"authorization": "Bearer pha_test"},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        body = mock_post.call_args.kwargs["json"]
+        assert body["allowed_models"] == ["gpt-5.6-luna", "claude-sonnet-5"]
+        assert body["allowed_efforts"] == ["none", "low"]
+        assert body["system_prompt"] == self.PROMPT_TEXT
+        # The client gets no prompt metadata at all: no text, no version.
+        assert not any("prompt" in key for key in response.json())
+        assert self.PROMPT_TEXT not in response.content.decode()
+        # One read per flag per request, however many places use the policy.
+        assert len(self._flag_reads(WIZARD_SYSTEM_PROMPT_FLAG)) == 1
+        assert len(self._flag_reads(WIZARD_GATEWAY_ALLOWLIST_FLAG)) == 1
+
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_a_program_the_allowlist_flag_drops_is_refused(self, mock_authentication, mock_authorized, mock_mint):
+        self._mock_oauth(mock_authentication)
+        self.flag_payloads[WIZARD_GATEWAY_ALLOWLIST_FLAG] = {
+            "models": ["claude-sonnet-5"],
+            "efforts": ["none"],
+            "programs": ["integration"],
+        }
+
+        for program, expected in (("integration", 201), ("ai-observability", 403)):
+            response = self.client.post(
+                self.GATEWAY_TOKEN_URL,
+                {"program": program, "reads_refusal_reason": True},
+                headers={"authorization": "Bearer pha_test"},
+            )
+            assert response.status_code == expected, (program, response.content)
+        assert response.json()["code"] == "program_unknown"
+        assert mock_mint.call_count == 1
+
+    @parameterized.expand(
+        [
+            ("unreadable", RuntimeError("flags down")),
+            ("no_payload", None),
+            ("out_of_contract", {"version": 1, "text": "no marker"}),
+        ]
+    )
+    @patch.object(SetupWizardGatewayTokenRateThrottle, "get_cache_key", return_value="refund-test-key")
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.llm.wizard_gateway_token.requests.post")
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_a_prompt_flag_that_is_not_usable_mints_an_unpinned_token(
+        self, _name, payload, mock_authentication, mock_post, mock_authorized, mock_key
+    ):
+        self._mock_oauth(mock_authentication)
+        mock_post.return_value.status_code = 201
+        mock_post.return_value.json.return_value = self.MINTED
+        self.flag_payloads[WIZARD_SYSTEM_PROMPT_FLAG] = payload
+
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL,
+            {"program": "integration"},
+            headers={"authorization": "Bearer pha_test"},
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        body = mock_post.call_args.kwargs["json"]
+        assert "system_prompt" not in body
+        assert not any("prompt" in key for key in response.json())
+        # The allowlist is untouched.
+        assert body["allowed_models"] == ["gpt-5.6-luna", "claude-sonnet-5"]
+
+    @parameterized.expand(
+        [
+            ("unreadable", RuntimeError("flags down")),
+            ("off", None),
+            ("out_of_contract", {"models": [], "efforts": ["none"], "programs": ["integration"]}),
+        ]
+    )
+    @patch.object(SetupWizardGatewayTokenRateThrottle, "get_cache_key", return_value="refund-test-key")
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.llm.wizard_gateway_token.requests.post")
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_an_allowlist_flag_that_is_not_usable_mints_with_the_defaults(
+        self, _name, payload, mock_authentication, mock_post, mock_authorized, mock_key
+    ):
+        self._mock_oauth(mock_authentication)
+        mock_post.return_value.status_code = 201
+        mock_post.return_value.json.return_value = self.MINTED
+        self.flag_payloads[WIZARD_GATEWAY_ALLOWLIST_FLAG] = payload
+
+        # One default program, so the refused program is known to be outside the defaults.
+        with patch("posthog.llm.wizard_gateway_token.WIZARD_DEFAULT_PROGRAMS", ("integration",)):
+            response = self.client.post(
+                self.GATEWAY_TOKEN_URL,
+                {"program": "integration"},
+                headers={"authorization": "Bearer pha_test"},
+            )
+            refused = self.client.post(
+                self.GATEWAY_TOKEN_URL,
+                {"program": "events-audit", "reads_refusal_reason": True},
+                headers={"authorization": "Bearer pha_test"},
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+        body = mock_post.call_args.kwargs["json"]
+        assert body["allowed_models"] == list(WIZARD_DEFAULT_MODELS)
+        assert body["allowed_efforts"] == list(WIZARD_DEFAULT_EFFORTS)
+        # The program check runs against the default programs, not the flag's.
+        assert refused.status_code == status.HTTP_403_FORBIDDEN
+        assert refused.json()["code"] == "program_unknown"
+        assert mock_post.call_count == 1
+
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    def test_the_policy_is_not_read_before_the_caller_is_authenticated(self, mock_mint):
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL,
+            {"program": "integration"},
+            headers={"authorization": "Bearer pha_unknown"},
+        )
+
+        assert response.status_code == status.HTTP_401_UNAUTHORIZED
+        assert self._flag_reads(WIZARD_SYSTEM_PROMPT_FLAG) == []
+        assert self._flag_reads(WIZARD_GATEWAY_ALLOWLIST_FLAG) == []
+        mock_mint.assert_not_called()
+
+    @patch("posthog.api.wizard.http.security_access_refused", return_value=True)
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_a_refusal_after_authentication_never_reads_the_policy(
+        self, mock_authentication, mock_mint, mock_authorized, _rules
+    ):
+        self._mock_oauth(mock_authentication)
+
+        blocked = self.client.post(
+            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+        )
+
+        assert blocked.status_code == status.HTTP_403_FORBIDDEN, blocked.content
+        assert self._flag_reads(WIZARD_SYSTEM_PROMPT_FLAG) == []
+        assert self._flag_reads(WIZARD_GATEWAY_ALLOWLIST_FLAG) == []
+        mock_mint.assert_not_called()
 
     def test_an_unresolvable_bearer_is_counted(self):
         before = _gateway_token_outcome("invalid_token")
@@ -901,7 +939,7 @@ class TestReserveWizardMint:
 
     @pytest.fixture(autouse=True)
     def _settings(self):
-        with override_settings(WIZARD_GATEWAY_PROGRAM_IDS=["integration"], DEBUG=False):
+        with override_settings(DEBUG=False):
             yield
 
     def _request(self):

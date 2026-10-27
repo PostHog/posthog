@@ -148,7 +148,10 @@ export function ThreadView({
         runConnectionState,
         logBootstrapLoading,
         pendingPermissionRequest,
+        olderHistoryState,
+        historyTurnBase,
     } = useValues(runStreamLogic)
+    const { loadOlderHistory } = useActions(runStreamLogic)
     const turnCancelled = currentRunStatus === 'cancelled'
     // A replayed error from an earlier run in the chain is not this run's ending while a newer run is
     // still going, so it keeps the softer title.
@@ -188,11 +191,11 @@ export function ThreadView({
     const previousTrailers = useRef<Map<string, TurnTrailer> | null>(null)
     const trailers = useMemo(() => {
         const next = renderTurnTrailer
-            ? reuseTurnTrailers(previousTrailers.current, computeTurnTrailers(threadItems))
+            ? reuseTurnTrailers(previousTrailers.current, computeTurnTrailers(threadItems, historyTurnBase))
             : null
         previousTrailers.current = next
         return next
-    }, [threadItems, renderTurnTrailer])
+    }, [threadItems, renderTurnTrailer, historyTurnBase])
     const revealGroups = useMemo(() => mapRowsToRevealGroup(displayItems), [displayItems])
     const previousRows = useRef<ThreadViewRow[]>([])
     const rows = useMemo(() => {
@@ -326,6 +329,7 @@ export function ThreadView({
             // The history replay folds in over several commits (debug rows land before the human turns);
             // the opening scroll must wait for the full log or it opens at the bottom of a partial thread.
             itemsLoading={logBootstrapLoading}
+            onNearTop={olderHistoryState === 'idle' ? loadOlderHistory : undefined}
             header={header}
             footer={footer}
             stickToBottom

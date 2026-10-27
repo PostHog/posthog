@@ -46,6 +46,20 @@ export const MarketingAnalyticsConversionGoalsCreateCreateBody = /* @__PURE__ */
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
+/**
+ * @summary Start a conversion recommendation analysis
+ */
+export const marketingAnalyticsConversionRecommendationsStartCreateBodyRefreshDefault = false
+
+export const MarketingAnalyticsConversionRecommendationsStartCreateBody = /* @__PURE__ */ zod.object({
+    refresh: zod
+        .boolean()
+        .default(marketingAnalyticsConversionRecommendationsStartCreateBodyRefreshDefault)
+        .describe(
+            'False starts the first 30-day analysis once. True requests a new 14-day analysis; use only after an explicit user request.'
+        ),
+})
+
 export const MarketingAnalyticsConversionRecordingsListBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')

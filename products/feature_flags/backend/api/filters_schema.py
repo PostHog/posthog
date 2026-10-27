@@ -21,7 +21,7 @@ from typing import Any, ClassVar, Protocol, cast
 import structlog
 from rest_framework import serializers
 
-from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
+from posthog.models.property.property import SEMVER_OPERATORS, STRING_PREFIX_SUFFIX_OPERATORS
 
 logger = structlog.get_logger(__name__)
 
@@ -42,15 +42,6 @@ FEATURE_FLAG_SUPPORTED_OPERATORS: frozenset[str | None] = frozenset(
         "gte",
         "lt",
         "lte",
-        "semver_gt",
-        "semver_gte",
-        "semver_lt",
-        "semver_lte",
-        "semver_eq",
-        "semver_neq",
-        "semver_tilde",
-        "semver_caret",
-        "semver_wildcard",
         "is_set",
         "is_not_set",
         "is_date_exact",
@@ -61,6 +52,7 @@ FEATURE_FLAG_SUPPORTED_OPERATORS: frozenset[str | None] = frozenset(
         "flag_evaluates_to",
     }
     | set(STRING_PREFIX_SUFFIX_OPERATORS)
+    | set(SEMVER_OPERATORS)
 )
 
 FEATURE_FLAG_OPERATOR_ALIASES: dict[str, str] = {
@@ -319,6 +311,17 @@ class FlagPropertySerializer(DropsUnknownKeysMixin, serializers.Serializer):
         allow_null=True,
         allow_blank=True,
         help_text="Display name of the referenced cohort. Injected on read and echoed back by clients.",
+    )
+    # Declared so that DropsUnknownKeysMixin treats an echoed value as known. A read-only field
+    # never reaches validated_data. A structurally valid write therefore drops the value, even
+    # while unknown keys are preserved.
+    cohort_deleted = serializers.BooleanField(
+        read_only=True,
+        help_text="True when the referenced cohort is deleted or does not exist. Injected on read and ignored on write.",
+    )
+    cohort_missing = serializers.BooleanField(
+        read_only=True,
+        help_text="True when no cohort with the referenced id exists in the project. Injected on read and ignored on write.",
     )
     group_key_names = serializers.JSONField(
         required=False,

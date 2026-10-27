@@ -5,7 +5,7 @@ import { Stage, playHoverAtFraction } from '@posthog/quill-charts/story-helpers'
 
 import { useChartTheme } from 'lib/charts/hooks'
 
-import type { BreakdownFilter } from '~/queries/schema/schema-general'
+import { type BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
 import { CompareLabelType } from '~/types'
 
 import type { TrendsSeriesMeta } from '../trends/shared/trendsSeriesMeta'
@@ -19,7 +19,7 @@ const BOOLEAN_BREAKDOWN_FILTER: BreakdownFilter = { breakdown: 'is_subscribed', 
 interface FixtureSeries {
     label: string
     data: number[]
-    /** Event name — omit for formula rows, which have no `action`. */
+    /** Event name — omit for formula rows, which have no series node. */
     event?: string
     /** Formula label carried as `series_name` for rows without an event. */
     seriesName?: string
@@ -41,7 +41,11 @@ function buildSeries(fixtures: FixtureSeries[]): {
         label: f.label,
         data: f.data,
         meta: {
-            action: f.event ? { id: f.event, name: f.event, type: 'events', order: f.seriesOrder } : undefined,
+            series: {
+                order: f.seriesOrder,
+                node: f.event ? { kind: NodeKind.EventsNode, event: f.event, name: f.event } : null,
+                math: f.event ? {} : null,
+            },
             series_name: f.seriesName,
             breakdown_value: f.breakdown_value,
             compare_label: f.compareLabel,

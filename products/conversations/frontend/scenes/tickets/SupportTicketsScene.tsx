@@ -3,7 +3,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { useEffect, useMemo, useRef } from 'react'
 
-import { LemonButton, LemonCheckbox, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -195,6 +195,8 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
 }
 
 export function SupportTicketsScene(): JSX.Element {
+    const { aiEnabled } = useValues(supportTicketsSceneLogic)
+
     return (
         <SceneContent className="pb-4">
             <SceneTitleSection
@@ -205,6 +207,16 @@ export function SupportTicketsScene(): JSX.Element {
                 }}
                 actions={<ComposeTicketButton />}
             />
+            {/* pinned: survey 01a17c76-69b3-0000-bb24-4adfd734f406 targets #ai-support-feedback-button */}
+            {aiEnabled && (
+                <LemonBanner
+                    type="info"
+                    dismissKey="ai-support-feedback-banner"
+                    action={{ children: 'Send feedback', id: 'ai-support-feedback-button' }}
+                >
+                    <p>Tell us how the AI agent is working, or report any issues.</p>
+                </LemonBanner>
+            )}
             <ScenesTabs />
             <TicketListFilters />
             <SupportTicketsTable />

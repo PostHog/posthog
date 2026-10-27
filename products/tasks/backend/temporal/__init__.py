@@ -1,3 +1,4 @@
+from .bake_dev_stack_image.activation import ActivateDevStackImageWorkflow, activate_dev_stack_image
 from .bake_dev_stack_image.activities import bake_and_publish_dev_stack_image
 from .bake_dev_stack_image.workflow import BakeDevStackImageWorkflow
 from .build_image.activities import build_and_publish_image, mark_image_build_failed, scan_image_spec
@@ -12,7 +13,6 @@ from .create_snapshot.activities import (
 )
 from .create_snapshot.workflow import CreateSnapshotForRepositoryWorkflow
 from .gateway_usage import TaskRunGatewayUsageWorkflow, reconcile_gateway_usage
-from .loops import RunLoopWorkflow, run_loop_trigger_activity
 from .process_task.activities import (
     await_agent_server_ready,
     checkout_branch_in_sandbox,
@@ -20,6 +20,7 @@ from .process_task.activities import (
     clone_repository_in_sandbox,
     collect_agent_shadow_result,
     complete_run_stream,
+    complete_signal_spend,
     create_resume_snapshot,
     create_sandbox_for_repository,
     emit_progress_activity,
@@ -38,7 +39,6 @@ from .process_task.activities import (
     post_slack_update,
     prepare_sandbox_for_repository,
     read_sandbox_logs,
-    record_peer_message_outcome,
     refresh_sandbox_credentials,
     relay_agent_design_signals,
     relay_sandbox_events,
@@ -73,9 +73,9 @@ WORKFLOWS = [
     SlackAgentDesignRelayWorkflow,
     CreateSnapshotForRepositoryWorkflow,
     PostHogCodeAgentRelayWorkflow,
-    RunLoopWorkflow,
     BuildSandboxImageWorkflow,
     BakeDevStackImageWorkflow,
+    ActivateDevStackImageWorkflow,
 ]
 
 ACTIVITIES = [
@@ -104,7 +104,6 @@ ACTIVITIES = [
     send_permission_denial_guidance,
     send_permission_response_to_sandbox,
     send_followup_to_sandbox,
-    record_peer_message_outcome,
     start_agent_server,
     launch_agent_server,
     await_agent_server_ready,
@@ -120,6 +119,7 @@ ACTIVITIES = [
     start_dev_stack_preview,
     wait_dev_stack_preview,
     update_task_run_status,
+    complete_signal_spend,
     get_pr_context,
     get_pr_babysit_snapshot,
     mark_pr_ready,
@@ -128,7 +128,6 @@ ACTIVITIES = [
     start_slack_agent_design_stream,
     append_slack_agent_design_steps,
     stop_slack_agent_design_stream,
-    run_loop_trigger_activity,
     # create_snapshot activities
     get_snapshot_context,
     snapshot_create_sandbox,
@@ -142,4 +141,5 @@ ACTIVITIES = [
     mark_image_build_failed,
     # bake_dev_stack_image activities
     bake_and_publish_dev_stack_image,
+    activate_dev_stack_image,
 ]

@@ -22,7 +22,11 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS
+from products.signals.backend.ranking.features import (
+    EMBEDDING_DIMENSIONS,
+    MIN_PROJECT_HISTORY_REPORTS,
+    PROJECT_VECTOR_KINDS,
+)
 from products.signals.dags.inbox_ranking.dataset.queries import ACTION_TYPES
 from products.signals.dags.inbox_ranking.training.heads import UI_ACTION_COLUMNS
 
@@ -30,14 +34,10 @@ from products.signals.dags.inbox_ranking.training.heads import UI_ACTION_COLUMNS
 PROJECT_VECTORS_SCHEMA_VERSION = 1
 
 HISTORY_LIMIT = 50
-# Below this many reports, a mean is mostly one report's text and says little about the team.
-MIN_HISTORY_REPORTS = 5
-
-TYPICAL = "typical"
-OPEN = "open"
-ACTION = "action"
-DISMISS = "dismiss"
-VECTOR_KINDS = (TYPICAL, OPEN, ACTION, DISMISS)
+# The backend owns the kinds and the threshold, because the scoring sweep builds the same inputs.
+MIN_HISTORY_REPORTS = MIN_PROJECT_HISTORY_REPORTS
+VECTOR_KINDS = PROJECT_VECTOR_KINDS
+TYPICAL, OPEN, ACTION, DISMISS = VECTOR_KINDS
 
 OPEN_COLUMN = "first_opened_at"
 DISMISS_COLUMN = "first_ui_dismissed_at"
@@ -94,6 +94,15 @@ def project_vectors(labels: pa.Table, embeddings: pa.Table, as_of: datetime.date
             latest = [index for _, index in sorted(engaged, reverse=True)[:HISTORY_LIMIT]]
             rows.append(_vector_row(team_id, kind, matrix, latest, as_of))
     return pa.Table.from_pylist(rows, schema=PROJECT_VECTORS_SCHEMA)
+
+
+def teams_with_history(table: pa.Table) -> dict[str, int]:
+    """How many teams of a `project_vectors` table have enough history for a real vector, per kind."""
+    counts = table.select(["kind", "n_reports"]).to_pylist()
+    return {
+        kind: sum(1 for row in counts if row["kind"] == kind and row["n_reports"] >= MIN_HISTORY_REPORTS)
+        for kind in VECTOR_KINDS
+    }
 
 
 def _usable_embeddings(embeddings: pa.Table, as_of: datetime.datetime) -> pa.Table:

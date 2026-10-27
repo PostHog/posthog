@@ -23,18 +23,21 @@ from urllib3.connection import HTTPConnection, HTTPSConnection
 from posthog.dataclasses import frozen
 from posthog.security import url_validation
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
+    observe_tracked_sessions,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 # A run stops at one of these limits, because the source would not stop by itself.
 _CLOCK_LIMIT_SECONDS = 4 * 3600.0
 _REQUEST_LIMIT = 40
+# A scripted run ends when its script runs out, so the limit only stops a script that never does.
+SCRIPTED_REQUEST_LIMIT = 2000
 
 _SOURCES_PACKAGE = "products.warehouse_sources.backend.temporal.data_imports.sources"
 _UNSET = object()
 _PUBLIC_ADDRESS = "93.184.216.34"
 _REAL_SLEEP = time.sleep
-_REAL_MAKE_TRACKED_SESSION = make_tracked_session
 _REAL_MONOTONIC = time.monotonic
 _REAL_TIME = time.time
 _REAL_ASYNC_SLEEP = asyncio.sleep
@@ -105,8 +108,9 @@ def _parse_request(origin: str, sent: bytes, read_timeout: Any) -> RecordedReque
 class FakeNetwork:
     """Answers every HTTP request through its responder, and records what the source did."""
 
-    def __init__(self, responder: Responder) -> None:
+    def __init__(self, responder: Responder, request_limit: int = _REQUEST_LIMIT) -> None:
         self.responder = responder
+        self._request_limit = request_limit
         self.requests_log: list[RecordedRequest] = []
         # The keyword arguments of each `make_tracked_session` call, in order.
         self.session_options: list[dict[str, Any]] = []
@@ -143,7 +147,7 @@ class FakeNetwork:
         self.requests += 1
         self._run_without_progress += 1
         self.longest_run_without_progress = max(self.longest_run_without_progress, self._run_without_progress)
-        if self.requests > _REQUEST_LIMIT:
+        if self.requests > self._request_limit:
             raise RunStopped("request limit")
 
         request = _parse_request(origin, sent, read_timeout)
@@ -235,31 +239,6 @@ class _MemoryRedis:
         self._data.pop(key, None)
 
 
-_session_factory_alias_cache: tuple[int, list[tuple[Any, str]]] = (-1, [])
-
-
-def _session_factory_aliases() -> list[tuple[Any, str]]:
-    """Each binding of `make_tracked_session` in a loaded source module.
-
-    A source imports the function by name, so one patch of its home module does not reach the copies.
-    A test can import a source after an earlier run, so the scan repeats when more modules are loaded.
-    """
-    global _session_factory_alias_cache
-    loaded = len(sys.modules)
-    if _session_factory_alias_cache[0] == loaded:
-        return _session_factory_alias_cache[1]
-    aliases: list[tuple[Any, str]] = []
-    for module_name, module in list(sys.modules.items()):
-        # This module keeps the real function, which the recording wrapper calls.
-        if not module_name.startswith(_SOURCES_PACKAGE) or module_name == __name__:
-            continue
-        aliases.extend(
-            (module, name) for name, value in list(vars(module).items()) if value is _REAL_MAKE_TRACKED_SESSION
-        )
-    _session_factory_alias_cache = (loaded, aliases)
-    return aliases
-
-
 @functools.cache
 def _sleep_aliases() -> list[tuple[Any, str]]:
     """Each `from time import sleep` binding in a loaded source module. A patch of `time.sleep` does not reach them."""
@@ -313,9 +292,9 @@ def _waits_on_the_fake_clock(sleep: Callable[[float], None]) -> Iterator[None]:
 
 
 @contextlib.contextmanager
-def fake_environment(responder: Responder) -> Iterator[FakeNetwork]:
+def fake_environment(responder: Responder, request_limit: int = _REQUEST_LIMIT) -> Iterator[FakeNetwork]:
     """Route HTTP to a `FakeNetwork`, block every other connection, and make each wait advance a fake clock."""
-    network = FakeNetwork(responder)
+    network = FakeNetwork(responder, request_limit)
     redis = _MemoryRedis()
 
     def connect(connection: Any) -> None:
@@ -351,10 +330,6 @@ def fake_environment(responder: Responder) -> Iterator[FakeNetwork]:
     def memory_redis(_manager: Any) -> Iterator[_MemoryRedis]:
         yield redis
 
-    def recording_session(**kwargs: Any) -> Any:
-        network.session_options.append(kwargs)
-        return _REAL_MAKE_TRACKED_SESSION(**kwargs)
-
     patches: list[Any] = [
         mock.patch.object(HTTPConnection, "connect", connect),
         mock.patch.object(HTTPSConnection, "connect", connect),
@@ -371,7 +346,7 @@ def fake_environment(responder: Responder) -> Iterator[FakeNetwork]:
         mock.patch.object(asyncio, "sleep", async_sleep),
         mock.patch.object(ResumableSourceManager, "_get_redis", memory_redis),
         *(mock.patch.object(module, name, sleep) for module, name in _sleep_aliases()),
-        *(mock.patch.object(module, name, recording_session) for module, name in _session_factory_aliases()),
+        observe_tracked_sessions(network.session_options.append),
         _waits_on_the_fake_clock(sleep),
     ]
     with contextlib.ExitStack() as stack:

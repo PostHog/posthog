@@ -3,6 +3,7 @@ from datetime import timedelta
 
 from posthog.test.base import BaseTest
 from unittest import mock
+from unittest.mock import MagicMock
 
 from django.core.cache import cache
 from django.db import connection
@@ -16,6 +17,7 @@ from posthog.tasks.calculate_cohort import finalize_cohort_backfill_runs
 
 from products.cohorts.backend.backfill.finalize import _STAMP_BY_KIND, FLAGS_CACHE_TASK, finalize_backfill_runs
 from products.cohorts.backend.backfill.readiness import ensure_filters_shape_hash
+from products.cohorts.backend.facade.ready_signals import realtime_cohort_ready
 from products.cohorts.backend.models.backfill import (
     CohortBackfillChunk,
     CohortBackfillChunkStatus,
@@ -170,11 +172,19 @@ class TestBackfillFinalizer(BaseTest):
         self, _name: str, outcomes: list[str], expected_status: str, stamped_indices: list[int]
     ) -> None:
         run, cohorts = self._make_run(outcomes)
+        ready_receiver = MagicMock()
+        realtime_cohort_ready.connect(ready_receiver, dispatch_uid="test_outcome_matrix")
+        self.addCleanup(realtime_cohort_ready.disconnect, dispatch_uid="test_outcome_matrix")
 
         finalize_backfill_runs()
 
         run.refresh_from_db()
         self.assertEqual(run.status, expected_status)
+        # Workflow runs parked on a cohort wake on this signal, so it fires for exactly the stamped cohorts.
+        self.assertEqual(
+            sorted(call.kwargs["cohort_id"] for call in ready_receiver.call_args_list),
+            sorted(cohorts[index].pk for index in stamped_indices),
+        )
         for index, cohort in enumerate(cohorts):
             cohort.refresh_from_db()
             participation = CohortBackfillRunCohort.objects.for_team(self.team.id).get(run=run, cohort=cohort)

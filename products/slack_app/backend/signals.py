@@ -69,11 +69,12 @@ def _start_inbox_onboarding_workflow(integration_id: int) -> None:
     import structlog
     from temporalio.common import WorkflowIDReusePolicy
 
-    from posthog.temporal.ai.slack_app.posthog_slack_inbox_onboarding import (  # noqa: PLC0415
+    from posthog.temporal.common.client import sync_connect  # noqa: PLC0415
+
+    from products.slack_app.backend.temporal.posthog_slack_inbox_onboarding import (  # noqa: PLC0415
         PostHogSlackInboxOnboardingWorkflow,
     )
-    from posthog.temporal.ai.slack_app.types import PostHogSlackInboxOnboardingInputs  # noqa: PLC0415
-    from posthog.temporal.common.client import sync_connect  # noqa: PLC0415
+    from products.slack_app.backend.temporal.types import PostHogSlackInboxOnboardingInputs  # noqa: PLC0415
 
     log = structlog.get_logger(__name__)
     try:

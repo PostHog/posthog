@@ -1,3 +1,5 @@
+import { ReactNode } from 'react'
+
 import { LemonTag } from '@posthog/lemon-ui'
 
 import type { TraceNodeApi } from '../../../generated/api.schemas'
@@ -6,14 +8,16 @@ import { NodeStatChips } from './NodeStatChips'
 
 export interface NodeDetailHeaderProps {
     node: TraceNodeApi
+    actions?: ReactNode
 }
 
-export function NodeDetailHeader({ node }: NodeDetailHeaderProps): JSX.Element {
+export function NodeDetailHeader({ node, actions }: NodeDetailHeaderProps): JSX.Element {
     return (
         <header className="flex flex-col gap-1.5">
             <div className="flex items-center gap-2 min-w-0">
                 <NodeKindGlyph kind={node.kind} size="medium" />
                 <h3 className="m-0 truncate text-base font-semibold">{node.name}</h3>
+                {actions ? <div className="ml-auto flex shrink-0 items-center gap-1">{actions}</div> : null}
             </div>
             <div className="flex flex-wrap items-center gap-1">
                 <NodeStatChips stats={node.stats} />

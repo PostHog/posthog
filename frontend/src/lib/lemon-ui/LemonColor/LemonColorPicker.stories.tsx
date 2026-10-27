@@ -39,6 +39,27 @@ export const ShowCustomColor: Story = {
     },
 }
 
+export const TokensWithCustomColor: Story = {
+    render: () => {
+        const [colorToken, setColorToken] = useState<DataColorToken>('preset-1')
+        const [customColor, setCustomColor] = useState<string>()
+        return (
+            <LemonColorPicker
+                colorTokens={colorTokens}
+                selectedColorToken={customColor ? null : colorToken}
+                onSelectColorToken={(token) => {
+                    setColorToken(token)
+                    setCustomColor(undefined)
+                }}
+                customColorValue={customColor}
+                onSelectCustomColor={setCustomColor}
+                showCustomColor
+                customButton={<LemonButton>{customColor ?? colorToken}</LemonButton>}
+            />
+        )
+    },
+}
+
 export const HideDropdown: Story = {
     render: () => {
         // eslint-disable-next-line react-hooks/rules-of-hooks

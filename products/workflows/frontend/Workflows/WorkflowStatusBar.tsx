@@ -14,12 +14,15 @@ type WorkflowStatusBarProps = WorkflowLogicProps & {
     editorLayout: HogFlowEditorLayout
     showEditorLayoutToggle: boolean
     onEditorLayoutChange: (layout: HogFlowEditorLayout) => void
+    /** Editor commands that sit in the bar, such as the tile canvas panels. They bring their own History. */
+    commands?: JSX.Element
 }
 
 export function WorkflowStatusBar({
     editorLayout,
     showEditorLayoutToggle,
     onEditorLayoutChange,
+    commands,
     ...props
 }: WorkflowStatusBarProps): JSX.Element | null {
     const logic = workflowLogic(props)
@@ -45,7 +48,7 @@ export function WorkflowStatusBar({
     const isEditingDraftOfLive = isActive && (hasStagedDraft || hasUnsavedChanges)
 
     return (
-        <div className="flex items-center justify-between gap-2 px-2 py-1.5 border-b bg-surface-secondary rounded-t-md flex-wrap">
+        <div className="@container/workflow-status flex items-center justify-between gap-2 px-2 py-1.5 border-b bg-surface-secondary rounded-t-md flex-wrap">
             <div className="flex items-center gap-3 min-w-0">
                 {showEditorLayoutToggle && (
                     <LemonSegmentedButton
@@ -83,6 +86,7 @@ export function WorkflowStatusBar({
                             : 'Changes you make save as a draft.'}
                     </span>
                 )}
+                {commands}
             </div>
             {/* Interactive controls sit right-anchored with variable-width text leftmost, so the
                 toggle and History never shift as the narration or the timestamp changes. */}
@@ -113,15 +117,17 @@ export function WorkflowStatusBar({
                             <IconInfo className="text-tertiary size-4" />
                         </Tooltip>
                     </span>
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        icon={<IconClock />}
-                        to={urls.workflow(historyWorkflowId, 'history')}
-                        tooltip="See and restore previous versions"
-                    >
-                        History
-                    </LemonButton>
+                    {!commands && (
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            icon={<IconClock />}
+                            to={urls.workflow(historyWorkflowId, 'history')}
+                            tooltip="See and restore previous versions"
+                        >
+                            History
+                        </LemonButton>
+                    )}
                 </div>
             )}
         </div>

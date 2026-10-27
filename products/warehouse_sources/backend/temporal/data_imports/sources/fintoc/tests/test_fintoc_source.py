@@ -64,15 +64,22 @@ def test_bad_configuration_fails_before_http(
     http_mock.assert_not_called()
 
 
-def test_movements_scope_probe_checks_child_access(http_mock: MagicMock) -> None:
+@pytest.mark.parametrize(
+    "schema,child_path",
+    [
+        ("movements", "/v1/accounts/account_example/movements?"),
+        ("business_account_movements", "/v2/accounts/account_example/movements?"),
+    ],
+)
+def test_movements_scope_probe_checks_child_access(http_mock: MagicMock, schema: str, child_path: str) -> None:
     http_mock.side_effect = [(200, [{"id": "account_example"}], {}), (403, {}, {})]
     valid, message = FintocSource().validate_credentials(
         FintocSourceConfig(api_key="sk_test_example", link_tokens="token_example"),
         1,
-        "movements",
+        schema,
     )
     assert not valid and message and "permissions" in message
-    assert "/v1/accounts/account_example/movements?" in http_mock.call_args.args[0].url
+    assert child_path in http_mock.call_args.args[0].url
 
 
 def test_unknown_pipeline_table_fails_clearly(inputs: MagicMock, manager: MagicMock) -> None:

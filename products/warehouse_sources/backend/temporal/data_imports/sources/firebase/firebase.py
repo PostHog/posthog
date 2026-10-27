@@ -25,6 +25,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.settings import (
+    AUTH_TENANT_USERS_PRIMARY_KEY,
+    AUTH_TENANT_USERS_TABLE,
     AUTH_USERS_PAGE_SIZE,
     AUTH_USERS_PRIMARY_KEY,
     AUTH_USERS_TABLE,
@@ -46,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.s
     FIRESTORE_SUBCOLLECTION_SAMPLE_DOCUMENTS,
     FIRESTORE_UPDATE_TIME_COLUMN,
     GOOGLE_TOKEN_URI,
+    IDENTITY_TOOLKIT_ADMIN_API_ROOT,
     IDENTITY_TOOLKIT_API_ROOT,
     JWT_ASSERTION_LIFETIME_SECONDS,
     JWT_GRANT_TYPE,
@@ -63,6 +66,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.firebase.s
     REDACTED_AUTH_USER_FIELDS,
     REQUEST_TIMEOUT_SECONDS,
     RESPONSE_TOO_LARGE_ERROR,
+    TENANTS_PAGE_SIZE,
     TOKEN_EXPIRY_SKEW_SECONDS,
     firestore_collection_group_table_name,
     firestore_table_name,
@@ -97,6 +101,9 @@ class FirebaseResumeConfig:
     # single opaque token and leaves this unset, which is also what a cursor saved before this field
     # existed decodes to.
     incremental_value: Optional[str] = None
+    # A tenant users read pages one tenant at a time. This holds the tenant to continue in, and
+    # `cursor` holds that tenant's page token, or "" to start at its first page.
+    tenant_id: Optional[str] = None
 
 
 @frozen
@@ -803,6 +810,108 @@ def iter_auth_users(
     resumable_source_manager.clear_state()
 
 
+def _tenant_id(tenant: Any) -> Optional[str]:
+    # A tenant's `name` is its resource path, `projects/{project}/tenants/{tenant_id}`.
+    name = tenant.get("name") if isinstance(tenant, dict) else None
+    if not isinstance(name, str) or "/tenants/" not in name:
+        return None
+    return name.rsplit("/", 1)[-1] or None
+
+
+def _list_tenants_page(
+    session: requests.Session,
+    tokens: AccessTokenProvider,
+    credentials: FirebaseCredentials,
+    page_size: int,
+    page_token: Optional[str],
+) -> tuple[list[str], Optional[str]]:
+    url = f"{IDENTITY_TOOLKIT_ADMIN_API_ROOT}/projects/{credentials.project_id}/tenants"
+    params: dict[str, Any] = {"pageSize": page_size}
+    if page_token:
+        params["pageToken"] = page_token
+    payload = _request(session, tokens, "GET", url, params=params) or {}
+    tenant_ids = [tenant_id for tenant in payload.get("tenants") or [] if (tenant_id := _tenant_id(tenant))]
+    return tenant_ids, payload.get("nextPageToken") or None
+
+
+def list_tenant_ids(
+    session: requests.Session, tokens: AccessTokenProvider, credentials: FirebaseCredentials
+) -> list[str]:
+    tenant_ids: set[str] = set()
+    page_token: Optional[str] = None
+    for _ in range(MAX_PAGES):
+        page, page_token = _list_tenants_page(session, tokens, credentials, TENANTS_PAGE_SIZE, page_token)
+        tenant_ids.update(page)
+        if not page_token or not page:
+            break
+    # Sorted so that a resumed read knows which tenants it already finished.
+    return sorted(tenant_ids)
+
+
+def has_tenants(session: requests.Session, tokens: AccessTokenProvider, credentials: FirebaseCredentials) -> bool:
+    tenant_ids, _ = _list_tenants_page(session, tokens, credentials, 1, None)
+    return bool(tenant_ids)
+
+
+def _resume_tenant_cursor(
+    resumable_source_manager: ResumableSourceManager[FirebaseResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Optional[FirebaseResumeConfig]:
+    if not resumable_source_manager.can_resume():
+        return None
+    resume = resumable_source_manager.load_state()
+    if resume is None or resume.tenant_id is None:
+        return None
+    logger.debug(f"Resuming Firebase Auth tenant users from tenant={resume.tenant_id} cursor={resume.cursor}")
+    return resume
+
+
+def iter_tenant_auth_users(
+    session: requests.Session,
+    tokens: AccessTokenProvider,
+    credentials: FirebaseCredentials,
+    resumable_source_manager: ResumableSourceManager[FirebaseResumeConfig],
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    resume = _resume_tenant_cursor(resumable_source_manager, logger)
+    tenant_ids = list_tenant_ids(session, tokens, credentials)
+    if resume is not None:
+        # A tenant deleted since the checkpoint is gone from the list, so compare rather than look it up.
+        tenant_ids = [tenant_id for tenant_id in tenant_ids if tenant_id >= str(resume.tenant_id)]
+
+    for index, tenant_id in enumerate(tenant_ids):
+        url = (
+            f"{IDENTITY_TOOLKIT_API_ROOT}/projects/{credentials.project_id}"
+            f"/tenants/{quote(tenant_id, safe='')}/accounts:batchGet"
+        )
+        page_token = resume.cursor if resume is not None and resume.tenant_id == tenant_id else None
+
+        for _ in range(MAX_PAGES):
+            params: dict[str, Any] = {"maxResults": AUTH_USERS_PAGE_SIZE}
+            if page_token:
+                params["nextPageToken"] = page_token
+            payload = _request(session, tokens, "GET", url, params=params) or {}
+
+            users = [user for user in payload.get("users") or [] if isinstance(user, dict)]
+            page_token = payload.get("nextPageToken")
+            has_next_page = bool(page_token and users)
+            if has_next_page:
+                resumable_source_manager.save_state(FirebaseResumeConfig(cursor=str(page_token), tenant_id=tenant_id))
+            elif index + 1 < len(tenant_ids):
+                resumable_source_manager.save_state(FirebaseResumeConfig(cursor="", tenant_id=tenant_ids[index + 1]))
+
+            if users:
+                yield [{**flatten_auth_user(user), "tenantId": tenant_id} for user in users]
+            else:
+                # A tenant with no users yields nothing, so many of them in a row would hide a shutdown.
+                resumable_source_manager.safe_point()
+
+            if not has_next_page:
+                break
+
+    resumable_source_manager.clear_state()
+
+
 def iter_realtime_database(
     session: requests.Session,
     tokens: AccessTokenProvider,
@@ -905,6 +1014,12 @@ def get_rows(
         # over a session that never captures at all.
         auth_session = _api_session(credentials, capture=False)
         yield from iter_auth_users(auth_session, tokens, credentials, resumable_source_manager, logger)
+        return
+
+    if table_name == AUTH_TENANT_USERS_TABLE:
+        # Same password material as above, and a tenant listing also carries the tenant's hash signer key.
+        auth_session = _api_session(credentials, capture=False)
+        yield from iter_tenant_auth_users(auth_session, tokens, credentials, resumable_source_manager, logger)
         return
 
     api_session = _api_session(credentials)
@@ -1121,7 +1236,7 @@ def _dedupe_by_storage_name(table_names: list[str]) -> list[str]:
 
 
 def get_tables(credentials: FirebaseCredentials, force_refresh: bool = False) -> list[str]:
-    """List every table this source can sync: Auth users, Firestore collections, configured paths."""
+    """List every table this source can sync: Auth users, tenant users, Firestore collections, configured paths."""
     firestore_tables: list[str] = []
 
     tokens = AccessTokenProvider(_auth_session(credentials), credentials)
@@ -1144,8 +1259,23 @@ def get_tables(credentials: FirebaseCredentials, force_refresh: bool = False) ->
             raise
         LOGGER.warning(f"Skipping Firestore collections for Firebase project {credentials.project_id}: {status}")
 
+    # Most projects never use Identity Platform tenants, so the table is listed only when one exists.
+    auth_tables = [AUTH_USERS_TABLE]
+    try:
+        if has_tenants(_api_session(credentials, capture=False), tokens, credentials):
+            auth_tables.append(AUTH_TENANT_USERS_TABLE)
+    except requests.HTTPError as e:
+        # A project without Identity Platform, or a service account that can't list tenants, gets
+        # one of these statuses. Neither should hide the tables the source can still read. Anything
+        # else (429, 5xx) is transient and must propagate, or the schema sync would treat the table
+        # as removed and disable an enabled sync.
+        status = e.response.status_code if e.response is not None else None
+        if status not in (400, 403, 404):
+            raise
+        LOGGER.warning(f"Skipping Firebase Auth tenants for Firebase project {credentials.project_id}: {status}")
+
     rtdb_tables = [realtime_database_table_name(path) for path in credentials.realtime_database_paths]
-    return _dedupe_by_storage_name([AUTH_USERS_TABLE, *firestore_tables, *rtdb_tables])
+    return _dedupe_by_storage_name([*auth_tables, *firestore_tables, *rtdb_tables])
 
 
 def validate_credentials(credentials: FirebaseCredentials) -> tuple[bool, Optional[str]]:
@@ -1229,6 +1359,8 @@ def firebase_source(
 
     if table_name == AUTH_USERS_TABLE:
         primary_keys = AUTH_USERS_PRIMARY_KEY
+    elif table_name == AUTH_TENANT_USERS_TABLE:
+        primary_keys = AUTH_TENANT_USERS_PRIMARY_KEY
     elif collection_group_id is not None:
         # A collection group can hold documents with the same id under different parents, so the
         # full document path is the only unique key.
