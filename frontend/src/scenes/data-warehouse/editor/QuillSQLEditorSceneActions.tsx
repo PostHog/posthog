@@ -313,6 +313,7 @@ export function QuillSQLEditorSceneActions({
                                 render={<Button variant="primary" data-attr="sql-editor-save-options-button" />}
                             >
                                 Save as
+                                <IconChevronDown />
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="w-80" data-attr="sql-editor-save-as-dialog">
                                 {saveAsTargetMenuItems}
