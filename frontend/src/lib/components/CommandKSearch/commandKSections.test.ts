@@ -52,6 +52,7 @@ const input = (mode: CommandKMode, overrides: Partial<SectionsInput>): SectionsI
     viewAll: null,
     stale: false,
     personsFirst: false,
+    settingsInResults: false,
     ...overrides,
 })
 
@@ -259,6 +260,40 @@ describe('buildSections', () => {
 
         expect(sections.map((section) => section.key)).toEqual(['best-matches'])
         expect(sections[0].rows).toMatchObject([{ kind: 'item', section: 'persons', item: { id: 'person-1' } }])
+    })
+
+    test.each([
+        ['off', false, 'Personal API keys', ['best-matches', 'settings'], 'Ada board'],
+        ['on', true, 'Personal API keys', ['best-matches'], 'Personal API keys'],
+        ['on, but a product has its name', true, 'API keys', ['best-matches', 'settings'], 'API keys'],
+    ])('ranks an exact-match setting with the results: flag %s', (_, settingsInResults, settingName, keys, first) => {
+        const setting: SearchItem = {
+            id: 'settings-api-keys',
+            name: `User: ${settingName} (api keys)`,
+            displayName: settingName,
+            category: 'settings',
+        }
+        const products: SearchItem[] =
+            settingName === 'API keys' ? [{ id: 'product-api-keys', name: 'API keys', category: 'products' }] : []
+        const remote = emptyRemoteSlots()
+        remote.results = {
+            cache: {
+                'api keys': [{ ...dashboard('a', '1'), name: 'Ada board', rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0] }],
+            },
+        }
+        const sections = buildSections(
+            input('search', {
+                local: { ...emptyLocal(), settings: [setting], products },
+                remote,
+                remoteQueries: { results: 'api keys' },
+                localQuery: 'api keys',
+                settingsInResults,
+            })
+        )
+
+        expect(sections.map((section) => section.key)).toEqual(keys)
+        const firstItem = sections[0].rows[0]
+        expect(firstItem.kind === 'item' ? String(firstItem.item.displayName || firstItem.item.name) : null).toBe(first)
     })
 
     it('says which words were dropped when a filter is active', () => {
