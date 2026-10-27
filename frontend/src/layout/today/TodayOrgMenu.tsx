@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconGear, IconPlusSmall, IconReceipt } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
+import { Logomark } from 'lib/brand'
 import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
 import { PendingInviteDot } from 'lib/components/Account/ProjectMenu'
 import { IconPersonAdd } from 'lib/lemon-ui/icons'
@@ -46,12 +47,16 @@ export function TodayOrgMenu(): JSX.Element {
                     className="relative size-10 rounded-md [--quill-button-indicator-ring:var(--chrome)] data-[popup-open]:bg-[var(--fill-selected)]"
                     data-attr="today-rail-org-menu"
                 >
-                    <TodayLogo
-                        name={currentOrganization?.name ?? ''}
-                        mediaId={currentOrganization?.logo_media_id}
-                        colorSeed={currentOrganization?.id ?? null}
-                        size="tile"
-                    />
+                    <span className="contents dark:hidden">
+                        <TodayLogo
+                            name={currentOrganization?.name ?? ''}
+                            mediaId={currentOrganization?.logo_media_id}
+                            colorSeed={currentOrganization?.id ?? null}
+                            size="tile"
+                        />
+                    </span>
+                    {/* An uploaded logo has one version, and dark parts disappear on the dark chrome. */}
+                    <Logomark variant="mono" color="white" className="hidden h-auto w-7 dark:block" />
                 </Button>
             }
             triggerTooltip={name}
