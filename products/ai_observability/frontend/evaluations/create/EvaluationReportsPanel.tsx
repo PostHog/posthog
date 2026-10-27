@@ -115,8 +115,12 @@ export function EvaluationReportsPanel(): JSX.Element | null {
                                         <LemonButton
                                             key={option.value}
                                             size="xsmall"
-                                            type="secondary"
-                                            active={configDraft.scheduleWeekdays.includes(option.value)}
+                                            type={
+                                                configDraft.scheduleWeekdays.includes(option.value)
+                                                    ? 'primary'
+                                                    : 'secondary'
+                                            }
+                                            aria-pressed={configDraft.scheduleWeekdays.includes(option.value)}
                                             onClick={() => toggleDraftScheduleWeekday(option.value)}
                                         >
                                             {option.label}

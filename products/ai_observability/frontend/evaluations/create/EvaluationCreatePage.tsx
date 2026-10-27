@@ -14,8 +14,7 @@ import { EvaluationCodeEditor } from '../components/EvaluationCodeEditor'
 import { EvaluationPromptEditor } from '../components/EvaluationPromptEditor'
 import { booleanOutputConfigError, numericOutputConfigError } from '../constants'
 import { evaluationSupportsReports } from '../evaluationCapabilities'
-import { evaluationReportLogic } from '../evaluationReportLogic'
-import { evaluationSampleLogic } from '../evaluationSampleLogic'
+import { buildDeliveryTargets, evaluationReportLogic } from '../evaluationReportLogic'
 import { evaluationVolumeLogic } from '../evaluationVolumeLogic'
 import { hasUnsetConditionRollout, llmEvaluationLogic } from '../llmEvaluationLogic'
 import { defaultEvaluationTemplates } from '../templates'
@@ -24,16 +23,16 @@ import { EvaluationCreateButton } from './EvaluationCreateButton'
 import { EvaluationNameFields } from './EvaluationNameFields'
 import { EvaluationOutputFields } from './EvaluationOutputFields'
 import { EvaluationResultPreview } from './EvaluationResultPreview'
-import { EvaluationSamplePanel } from './EvaluationSamplePanel'
 import { EvaluationSentence } from './EvaluationSentence'
 
-/** The new evaluation form: its name, one sentence for the whole setup, the instructions, and a real example beside them. */
+/** The new evaluation form: its name, one sentence for the whole setup, and the instructions. */
 export function EvaluationCreatePage({ templateKey }: { templateKey?: string }): JSX.Element | null {
     const {
         evaluation,
         evaluationBackTarget,
         modelSelectionRequired,
         numericBoundsRequired,
+        usesDecisionModel,
         selectedModel,
         judgeModelGroups,
     } = useValues(llmEvaluationLogic)
@@ -88,6 +87,12 @@ export function EvaluationCreatePage({ templateKey }: { templateKey?: string }):
             condition_sets: evaluation.conditions.length,
             has_filters: evaluation.conditions.some((condition) => (condition.properties ?? []).length > 0),
             start_running: evaluation.enabled,
+            uses_decision_model: usesDecisionModel,
+            reports_enabled: reportLogic.isMounted() ? reportLogic.values.configDraft.enabled : null,
+            report_frequency: reportLogic.isMounted() ? reportLogic.values.configDraft.frequency : null,
+            report_destinations: reportLogic.isMounted()
+                ? buildDeliveryTargets(reportLogic.values.configDraft).length
+                : null,
             estimated_weekly_runs: volume?.runs ?? null,
         })
         saveEvaluation()
@@ -99,57 +104,54 @@ export function EvaluationCreatePage({ templateKey }: { templateKey?: string }):
 
     return (
         <BindLogic logic={evaluationVolumeLogic} props={logicProps}>
-            <BindLogic logic={evaluationSampleLogic} props={logicProps}>
-                <div className="@container/evaluation min-w-0 flex flex-col gap-4 pb-8">
-                    <SceneBreadcrumbBackButton />
-                    <SceneStickyBar
-                        ref={headerRef}
-                        hasSceneTitleSection={false}
-                        className="flex flex-wrap items-center justify-between gap-2"
-                    >
-                        <div className="flex flex-wrap items-center gap-2">
-                            <h1 className="mb-0 text-2xl font-semibold">New evaluation</h1>
-                            {template && <LemonTag type="muted">{`From the ${template.name} template`}</LemonTag>}
-                        </div>
-                        {/* Narrow screens stack the summary under the form, so the actions also sit up here. */}
-                        <div className="flex gap-2 @min-[64rem]/evaluation:hidden">
-                            <LemonButton type="secondary" onClick={handleCancel}>
-                                Cancel
-                            </LemonButton>
-                            <EvaluationCreateButton
-                                onCreate={handleCreate}
-                                disabledReason={checklist.find((item) => !item.done)?.todo}
-                                data-attr="llma-evaluation-create-submit-top"
-                            />
-                        </div>
-                    </SceneStickyBar>
-                    {/* Fixed column widths keep the summary next to the form instead of drifting to the window's edge. */}
-                    <div className="grid gap-4 grid-cols-1 @min-[64rem]/evaluation:grid-cols-[minmax(0,56rem)_18rem] items-start">
-                        <div className="bg-bg-light border rounded p-4 @min-[40rem]/evaluation:p-6 min-w-0 flex flex-col gap-6">
-                            <EvaluationNameFields />
-                            <EvaluationSentence />
-                            <div className="flex flex-col gap-4 min-w-0">
-                                {evaluation.evaluation_type === 'llm_judge' && <EvaluationPromptEditor />}
-                                {evaluation.evaluation_type === 'hog' && <EvaluationCodeEditor />}
-                                <EvaluationOutputFields />
-                            </div>
-                        </div>
-                        {/* Pinned just under the sticky header, so scrolling never hides the checklist behind it. */}
-                        <div
-                            className="flex flex-col gap-4 @min-[64rem]/evaluation:sticky"
-                            // eslint-disable-next-line react/forbid-dom-props
-                            style={{ top: headerBottom + 16 }}
-                        >
-                            <EvaluationResultPreview
-                                checklist={checklist}
-                                onCreate={handleCreate}
-                                onCancel={handleCancel}
-                            />
-                            <EvaluationSamplePanel />
+            <div className="@container/evaluation min-w-0 flex flex-col gap-4 pb-8">
+                <SceneBreadcrumbBackButton />
+                <SceneStickyBar
+                    ref={headerRef}
+                    hasSceneTitleSection={false}
+                    className="flex flex-wrap items-center justify-between gap-2"
+                >
+                    <div className="flex flex-wrap items-center gap-2">
+                        <h1 className="mb-0 text-2xl font-semibold">New evaluation</h1>
+                        {template && <LemonTag type="muted">{`From the ${template.name} template`}</LemonTag>}
+                    </div>
+                    {/* Narrow screens stack the summary under the form, so the actions also sit up here. */}
+                    <div className="flex gap-2 @min-[64rem]/evaluation:hidden">
+                        <LemonButton type="secondary" onClick={handleCancel}>
+                            Cancel
+                        </LemonButton>
+                        <EvaluationCreateButton
+                            onCreate={handleCreate}
+                            disabledReason={checklist.find((item) => !item.done)?.todo}
+                            data-attr="llma-evaluation-create-submit-top"
+                        />
+                    </div>
+                </SceneStickyBar>
+                {/* Fixed column widths keep the summary next to the form instead of drifting to the window's edge. */}
+                <div className="grid gap-4 grid-cols-1 @min-[64rem]/evaluation:grid-cols-[minmax(0,56rem)_18rem] items-start">
+                    <div className="bg-bg-light border rounded p-4 @min-[40rem]/evaluation:p-6 min-w-0 flex flex-col gap-6">
+                        <EvaluationNameFields />
+                        <EvaluationSentence />
+                        <div className="flex flex-col gap-4 min-w-0">
+                            {evaluation.evaluation_type === 'llm_judge' && <EvaluationPromptEditor />}
+                            {evaluation.evaluation_type === 'hog' && <EvaluationCodeEditor />}
+                            <EvaluationOutputFields />
                         </div>
                     </div>
+                    {/* Pinned just under the sticky header, so scrolling never hides the checklist behind it. */}
+                    <div
+                        className="flex flex-col gap-4 @min-[64rem]/evaluation:sticky"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ top: headerBottom + 16 }}
+                    >
+                        <EvaluationResultPreview
+                            checklist={checklist}
+                            onCreate={handleCreate}
+                            onCancel={handleCancel}
+                        />
+                    </div>
                 </div>
-            </BindLogic>
+            </div>
         </BindLogic>
     )
 }

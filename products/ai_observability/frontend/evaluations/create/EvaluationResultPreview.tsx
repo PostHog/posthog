@@ -63,7 +63,7 @@ export function EvaluationResultPreview({
                 <HogJudge className="w-14 shrink-0" />
                 <div className="flex flex-col min-w-0">
                     <h3 className="mb-0 text-base font-semibold">What you'll get</h3>
-                    <span className="text-xs text-secondary">Results show here after the first run.</span>
+                    <span className="text-xs text-secondary">What the evaluation's page shows once it runs.</span>
                 </div>
             </div>
             <div className="border rounded p-3 flex flex-col gap-3" data-attr="llma-evaluation-create-preview">

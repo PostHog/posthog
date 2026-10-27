@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
@@ -47,7 +48,13 @@ export function EvaluationSentence(): JSX.Element | null {
             active={open === key}
             status={warning ? 'danger' : 'default'}
             sideIcon={<IconChevronDown className={cn('transition-transform', open === key && 'rotate-180')} />}
-            onClick={() => setOpen(open === key ? null : key)}
+            onClick={() => {
+                if (open !== key) {
+                    // pinned: analytics event name and properties, because the creation funnel reads them
+                    posthog.capture('llma evaluation create part opened', { part: key })
+                }
+                setOpen(open === key ? null : key)
+            }}
             aria-expanded={open === key}
             className="inline-flex align-middle"
             data-attr={`llma-evaluation-create-part-${key}`}

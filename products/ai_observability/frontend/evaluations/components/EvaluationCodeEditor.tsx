@@ -196,6 +196,17 @@ const HOG_EVAL_GLOBALS_BY_TARGET = {
     session: HOG_EVAL_COMMON_GLOBALS_BY_TARGET.session,
 }
 
+/** One line of a sample's text, with the full text on hover. */
+function SamplePreview({ text }: { text: string }): JSX.Element {
+    return text ? (
+        <Tooltip title={<span className="whitespace-pre-wrap">{text}</span>}>
+            <div className="truncate text-sm max-w-80">{text}</div>
+        </Tooltip>
+    ) : (
+        <span className="text-sm text-muted">Empty</span>
+    )
+}
+
 export function HogTestResultsPanel(): JSX.Element | null {
     const { hogTestResults, hogTestResultsLoading, hogTestMessage, evaluation } = useValues(llmEvaluationLogic)
     const { clearHogTestResults } = useActions(llmEvaluationLogic)
@@ -319,14 +330,27 @@ export function HogTestResultsPanel(): JSX.Element | null {
                         },
                     },
                     {
-                        title: 'Reasoning',
-                        key: 'reasoning',
-                        render: (_, row) => (
-                            <div className="truncate text-sm">
-                                {row.reasoning || row.error || <span className="text-muted italic">none</span>}
-                            </div>
-                        ),
+                        title: 'Input',
+                        key: 'input',
+                        render: (_, row) => <SamplePreview text={row.input_preview} />,
                     },
+                    {
+                        title: 'Output',
+                        key: 'output',
+                        render: (_, row) => <SamplePreview text={row.output_preview} />,
+                    },
+                    // Most code returns no reasoning, so the column shows only when a row has something in it.
+                    ...(hogTestResults?.some((row) => row.reasoning || row.error)
+                        ? [
+                              {
+                                  title: 'Reasoning',
+                                  key: 'reasoning',
+                                  render: (_: unknown, row: TestHogResultItemApi) => (
+                                      <SamplePreview text={row.reasoning || row.error || ''} />
+                                  ),
+                              },
+                          ]
+                        : []),
                     {
                         title: '',
                         key: 'link',

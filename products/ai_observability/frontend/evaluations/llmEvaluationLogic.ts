@@ -783,6 +783,13 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                             },
                         ]
                     }
+                    // pinned: analytics event name and properties, because usage reviews read them
+                    posthog.capture('llma evaluation code tested', {
+                        is_new: props.evaluationId === 'new',
+                        target: evaluation.target,
+                        samples: results.filter((result) => result.sample_id !== 'error').length,
+                        errors: results.filter((result) => result.error).length,
+                    })
 
                     breakpoint?.()
                     const currentEvaluation = values.evaluation

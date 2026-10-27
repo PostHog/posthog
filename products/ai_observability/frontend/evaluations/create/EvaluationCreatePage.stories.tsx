@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
@@ -12,26 +13,7 @@ function counts(...values: number[]): { results: { aggregated_value: number }[] 
     return { results: values.map((value) => ({ aggregated_value: value })) }
 }
 
-/** An invented generation, as the events query returns it, for the example next to the instructions. */
-const SAMPLE_GENERATION = {
-    uuid: '01900000-0000-7000-8000-000000000001',
-    event: '$ai_generation',
-    timestamp: '2026-10-19T10:00:00Z',
-    properties: {
-        $ai_trace_id: 'trace-example-1',
-        $ai_model: 'gpt-4.1-mini',
-        $ai_input: [{ role: 'user', content: 'How do I export my dashboard as a PDF?' }],
-        $ai_output_choices: [{ role: 'assistant', content: 'Open the dashboard menu and choose Export, then PDF.' }],
-    },
-}
-
 function scene(matchingGenerations: number): ReturnType<typeof mswDecorator> {
-    const queryResponse = ({ params }: { params: Record<string, string> }): [number, unknown] => [
-        200,
-        params.kind === 'EventsQuery'
-            ? { results: matchingGenerations ? [[SAMPLE_GENERATION]] : [], columns: ['*'] }
-            : counts(matchingGenerations, Math.round(matchingGenerations / 3)),
-    ]
     return mswDecorator({
         get: {
             '/api/projects/:team_id/evaluations/': toPaginatedResponse([]),
@@ -42,8 +24,8 @@ function scene(matchingGenerations: number): ReturnType<typeof mswDecorator> {
         },
         // The query client puts the query kind in the path.
         post: {
-            '/api/environments/:team_id/query/:kind/': queryResponse,
-            '/api/environments/:team_id/query/': queryResponse,
+            '/api/environments/:team_id/query/:kind/': counts(matchingGenerations, Math.round(matchingGenerations / 3)),
+            '/api/environments/:team_id/query/': counts(matchingGenerations, Math.round(matchingGenerations / 3)),
         },
     })
 }
@@ -58,10 +40,7 @@ const meta: Meta = {
         pageUrl: urls.aiObservabilityEvaluation('new'),
         featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_EVALUATIONS_OVERVIEW],
         testOptions: {
-            waitForSelector: [
-                '[data-attr="llma-evaluation-create-volume"]',
-                '[data-attr="llma-evaluation-create-sample"] dl',
-            ],
+            waitForSelector: '[data-attr="llma-evaluation-create-volume"]',
         },
     },
 }
@@ -81,4 +60,34 @@ export const NothingMatches: Story = {
         testOptions: { waitForSelector: '[data-attr="llma-evaluation-create-volume-none"]' },
     },
     decorators: [scene(0)],
+}
+
+/** Opens one part of the sentence, the way someone clicks it, and waits for its panel. */
+async function openPart(canvasElement: HTMLElement, part: string, panelText: string): Promise<void> {
+    const button = await waitFor(() => {
+        const element = canvasElement.querySelector<HTMLElement>(`[data-attr="llma-evaluation-create-part-${part}"]`)
+        if (!element) {
+            throw new Error(`Waiting for the ${part} part`)
+        }
+        return element
+    })
+    button.click()
+    await within(canvasElement).findByText(panelText)
+}
+
+export const ReportsOpen: Story = {
+    parameters: { pageUrl: `${urls.aiObservabilityEvaluation('new')}?template=helpfulness` },
+    decorators: [scene(1240)],
+    play: async ({ canvasElement }) => {
+        await openPart(canvasElement, 'reports', 'Send a report')
+    },
+}
+
+export const SentimentEvaluation: Story = {
+    decorators: [scene(1240)],
+    play: async ({ canvasElement }) => {
+        await openPart(canvasElement, 'method', 'Sentiment')
+        within(canvasElement).getByText('Sentiment').click()
+        await within(canvasElement).findByText('a sentiment classifier')
+    },
 }
