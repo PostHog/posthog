@@ -1370,6 +1370,36 @@ class TestQueryRunner(BaseTest):
             mock_cache_manager.lookup.assert_called_once()
             mock_cache_manager.store_result.assert_called_once()
 
+    @mock.patch("posthog.hogql_queries.query_runner.QueryCache")
+    def test_a_modifier_removed_from_the_schema_keeps_the_cache_hit(self, mock_query_cache_cls):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        mock_cache_manager = mock.MagicMock()
+        mock_cache_manager.cache_key = "test_cache_key"
+        mock_entry = mock.MagicMock()
+        mock_entry.as_full_response.return_value = {
+            **TheTestCachedBasicQueryResponse(
+                results=[],
+                cache_key="test_cache_key",
+                is_cached=True,
+                last_refresh=datetime(2023, 2, 4, 13, 30, tzinfo=UTC),
+                next_allowed_client_refresh=datetime(2023, 2, 4, 13, 35, tzinfo=UTC),
+                timezone="UTC",
+            ).model_dump(),
+            "modifiers": {"useMaterializedViews": True, "aRemovedModifier": None},
+        }
+        mock_cache_manager.lookup.return_value.entry = mock_entry
+        mock_cache_manager.lookup.return_value.failure = None
+        mock_cache_manager.open_failure.return_value = None
+        mock_query_cache_cls.return_value = mock_cache_manager
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with time_machine.travel(datetime(2023, 2, 4, 13, 37, 42), tick=False):
+            response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+
+        assert isinstance(response, TheTestCachedBasicQueryResponse)
+        assert response.is_cached
+        assert response.modifiers == HogQLQueryModifiers(useMaterializedViews=True)
+
     @parameterized.expand(
         [
             ("success", None, None, 1, 0),

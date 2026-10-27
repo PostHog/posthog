@@ -2273,6 +2273,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if raw_results is not None:
                 cached_response_candidate["results"] = []
             cached_response_candidate["is_cached"] = True
+            # Every response stores its modifiers, so removing one from the schema would otherwise miss every entry.
+            if isinstance(cached_modifiers := cached_response_candidate.get("modifiers"), dict):
+                cached_response_candidate["modifiers"] = {
+                    key: value for key, value in cached_modifiers.items() if key in HogQLQueryModifiers.model_fields
+                }
             # When rolling out schema changes, cached responses may not match the new schema.
             # Trigger recomputation in this case.
             try:
