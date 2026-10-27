@@ -26,6 +26,7 @@ import {
     decodeDefinitionId,
     definitionLogic,
 } from 'scenes/data-management/definition/definitionLogic'
+import { PropertyUsagePrototype } from 'scenes/data-management/definition/prototype-property-usage/PropertyUsagePrototype'
 import { EventDefinitionExperiments } from 'scenes/data-management/events/EventDefinitionExperiments'
 import { EventDefinitionInsights } from 'scenes/data-management/events/EventDefinitionInsights'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
@@ -439,6 +440,14 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
             </div>
 
             <SceneDivider />
+
+            {/* PROTOTYPE — property usage variants, see prototype-property-usage/ */}
+            {isProperty && definition.id !== 'new' && (
+                <>
+                    <PropertyUsagePrototype />
+                    <SceneDivider />
+                </>
+            )}
 
             {isEvent && definition.id !== 'new' && (
                 <>
