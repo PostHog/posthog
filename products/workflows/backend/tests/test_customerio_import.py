@@ -529,20 +529,39 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert response.status_code == 400
         assert not HogFlow.objects.filter(team=self.team).exists()
 
-    def test_unreadable_delay_fails_only_that_automation(self) -> None:
+    @parameterized.expand(
+        [
+            ("delay that is not a number", {"3": {"delay": "soon"}}, None, "failed"),
+            (
+                "message condition naming a plain event",
+                {"4": {"multi_conditions": [_encode([{"type": "message", "event": "delivered"}])]}},
+                None,
+                "created",
+            ),
+            ("branch index that is not a number", {}, "x", "failed"),
+            ("branch index as a string", {}, "1", "created"),
+        ]
+    )
+    def test_an_odd_value_affects_only_that_automation(
+        self, _name: str, action_changes: dict[str, dict[str, Any]], branch_index: str | None, status: str
+    ) -> None:
         source = _onboarding_campaign()
-        broken = [{**action, "delay": "soon"} if action["id"] == "3" else action for action in source.actions]
+        changed = [{**action, **action_changes.get(action["id"], {})} for action in source.actions]
+        edges = [
+            {**edge, "index": branch_index} if branch_index is not None and edge.get("index") == 1 else edge
+            for edge in source.campaign["edges"]
+        ]
         body = {
             "source": "customerio",
             "campaigns": [
-                {"campaign": source.campaign, "actions": broken},
+                {"campaign": {**source.campaign, "edges": edges}, "actions": changed},
                 {"campaign": {**source.campaign, "id": "43"}, "actions": source.actions},
             ],
         }
         response = self._post(body)
 
         assert response.status_code == 200, response.json()
-        assert [result["status"] for result in response.json()["results"]] == ["failed", "created"]
+        assert [result["status"] for result in response.json()["results"]] == [status, "created"]
 
     def test_dry_run_saves_nothing(self) -> None:
         result = self._import(dry_run=True)
