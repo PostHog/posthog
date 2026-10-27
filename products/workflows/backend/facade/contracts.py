@@ -1079,6 +1079,7 @@ class PreviousImport:
     record_id: UUID | None
     hog_flow_id: UUID | None
     hog_flow_is_draft: bool
+    hog_flow_created_by_id: int | None = None
 
 
 @frozen
@@ -1090,3 +1091,4 @@ class WorkflowImportRecord:
     hog_flow_id: UUID | None
     notes: tuple[dict[str, Any], ...]
     updated_at: datetime
+    hog_flow_created_by_id: int | None = None
