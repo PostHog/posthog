@@ -79,6 +79,27 @@ class TestProviderKeySerializer(SimpleTestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn(missing_field, serializer.errors)
 
+    @parameterized.expand(
+        [
+            ("openai_compatible", "https://api.typesafe.ai/v1", False),
+            ("openai_compatible", "https://API.TYPESAFE.AI.:443/v1", False),
+            ("system_one", "https://api.typesafe.ai/v1", True),
+        ]
+    )
+    def test_typesafe_endpoint_is_only_accepted_for_system_one(self, provider: str, base_url: str, valid: bool) -> None:
+        serializer = LLMProviderKeySerializer(
+            data={
+                "provider": provider,
+                "name": "Example connection",
+                "api_key": "example-token",
+                "base_url": base_url,
+                **({"system_one_model": "example-judge-v1"} if provider == "system_one" else {}),
+            }
+        )
+        self.assertEqual(serializer.is_valid(), valid, serializer.errors)
+        if not valid:
+            self.assertIn("base_url", serializer.errors)
+
     def test_non_system_one_model_error_uses_model_field(self) -> None:
         serializer = LLMProviderKeySerializer(
             data={
