@@ -17,6 +17,7 @@ class Migration(migrations.Migration):
                 (
                     "observation",
                     models.OneToOneField(
+                        db_constraint=False,
                         on_delete=django.db.models.deletion.CASCADE,
                         primary_key=True,
                         related_name="+",
