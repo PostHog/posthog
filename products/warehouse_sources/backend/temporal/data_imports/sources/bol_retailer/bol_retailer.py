@@ -281,8 +281,7 @@ def bol_retailer_source(
                 window_start=first_day.isoformat(),
                 row_map=flatten_order_items,
             ),
-            # Days are requested in order, and the next run re-reads the watermark's whole day.
-            sort_mode="asc",
+            # No sort_mode: the days come in order, but the rows inside a day have no documented order.
             **response_kwargs,
         )
 

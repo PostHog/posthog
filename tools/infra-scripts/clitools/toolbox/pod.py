@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Pod management functions."""
 
+import os
 import sys
 import json
 import time
@@ -246,7 +247,7 @@ def claim_pod(
         sys.exit(1)
 
 
-def connect_to_pod(pod_name: str, *, namespace: str, context: str | None = None) -> int:
+def connect_to_pod(pod_name: str, *, namespace: str, context: str | None = None, kubectl_debug: bool = False) -> int:
     """Connect to the specified pod using kubectl exec, returning the exec exit code.
 
     The caller is responsible for surfacing a non-zero return as a non-zero
@@ -254,7 +255,14 @@ def connect_to_pod(pod_name: str, *, namespace: str, context: str | None = None)
     as success and trigger downstream cleanup of a session that never opened.
     """
     _safe_print(f"🚀 Connecting to pod {pod_name}...")
-    result = subprocess.run(kubectl_cmd("exec", "-it", "-n", namespace, pod_name, "--", "bash", context=context))
+    env = os.environ.copy()
+    # The streaming library enables debug logs for any nonempty DEBUG value, including Flox's Django setting.
+    env.pop("DEBUG", None)
+    if kubectl_debug:
+        env["DEBUG"] = "1"
+    result = subprocess.run(
+        kubectl_cmd("exec", "-it", "-n", namespace, pod_name, "--", "bash", context=context), env=env
+    )
     return result.returncode
 
 

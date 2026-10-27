@@ -3,6 +3,7 @@ import { ComponentType, Suspense, memo, useState } from 'react'
 
 import { Spinner } from '@posthog/quill'
 
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -12,9 +13,23 @@ import { SidePanelTab } from '~/types'
 import { TodayAiPanel } from './TodayAiPanel'
 import { todayContextPanelLogic } from './todayContextPanelLogic'
 
-// The quill rebuilds of the side panel tabs. Every other tab keeps its own panel.
+// The quill rebuilds of the side panel tabs. Every other tab keeps its own panel. Support is lazy because the ticket
+// editor pulls in tiptap extensions and lowlight.
 const QUILL_TAB_PANELS: Partial<Record<SidePanelTab, ComponentType>> = {
     [SidePanelTab.Max]: TodayAiPanel,
+    [SidePanelTab.Support]: lazyWithRetry(() =>
+        import('./TodaySupportPanel').then((m) => ({ default: m.TodaySupportPanel }))
+    ),
+    [SidePanelTab.Activity]: lazyWithRetry(() =>
+        import('~/layout/navigation-3000/sidepanel/panels/activity/quill/QuillActivityPanel').then((m) => ({
+            default: m.QuillActivityPanel,
+        }))
+    ),
+    [SidePanelTab.AccessControl]: lazyWithRetry(() =>
+        import('~/layout/navigation-3000/sidepanel/panels/access_control/quill/QuillAccessControlPanel').then((m) => ({
+            default: m.QuillAccessControlPanel,
+        }))
+    ),
 }
 
 type SwitchDirection = 'forward' | 'backward'

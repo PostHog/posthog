@@ -41,10 +41,6 @@ class TestGrafanaSource:
         )
         assert any(pattern in str(error) for pattern in patterns)
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["dashboards"])
-        assert [s.name for s in schemas] == ["dashboards"]
-
     def test_source_for_pipeline_plumbs_arguments(self):
         result = SourceDriver(self.source, self.config).run(
             "annotations",

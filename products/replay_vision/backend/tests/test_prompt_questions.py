@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from posthog.models.team import Team
 
+from products.replay_vision.backend.built_in_scans import BUILT_IN_SCANS, BuiltInScanKey
 from products.replay_vision.backend.inline_scan import create_inline_scanner
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -26,7 +27,6 @@ from products.replay_vision.backend.models.replay_scanner import (
 from products.replay_vision.backend.prompt_questions import (
     MAX_MODEL_CALLS_PER_TEAM_PER_HOUR,
     MAX_QUESTION_CHARS,
-    TEMPLATE_QUESTIONS,
     _budget_key,
     backfill_prompt_questions,
     condense_prompt,
@@ -34,7 +34,7 @@ from products.replay_vision.backend.prompt_questions import (
 )
 from products.replay_vision.backend.tests.helpers import snapshot_for
 
-TEMPLATE_PROMPT, (TEMPLATE_QUESTION, _) = next(iter(TEMPLATE_QUESTIONS.items()))
+SUMMARY = BUILT_IN_SCANS[BuiltInScanKey.SUMMARIZE_RECORDING]
 PROMPT = "Did the user struggle to complete checkout?\n\nAnswer yes if they retried the payment form."
 LONG_FIRST_LINE = "Look at " + "the checkout flow and " * 20
 
@@ -119,7 +119,6 @@ class TestPromptQuestions(APIBaseTest):
                 "",
             ),
             ("empty_prompt", "Did anything happen?", "   ", True, "", ""),
-            ("template_needs_no_call", "Did anything happen?", TEMPLATE_PROMPT, False, TEMPLATE_QUESTION, "bad"),
         ]
     )
     def test_condense_prompt(
@@ -265,10 +264,7 @@ class TestPromptQuestions(APIBaseTest):
     def test_backfill_fills_only_stale_questions_without_touching_the_scanner_version(self) -> None:
         stale = self._scanner(name="stale")
         copy = self._scanner(name="copy")
-        template = self._scanner(name="template", scanner_config={"prompt": TEMPLATE_PROMPT})
-        ReplayScanner.objects.filter(pk__in=[stale.pk, copy.pk, template.pk]).update(
-            prompt_question="", prompt_question_source=""
-        )
+        ReplayScanner.objects.filter(pk__in=[stale.pk, copy.pk]).update(prompt_question="", prompt_question_source="")
         fresh = self._scanner(name="fresh")
         ReplayScanner.objects.filter(pk=fresh.pk).update(
             prompt_question="Kept as is?", prompt_question_source=prompt_fingerprint(PROMPT), prompt_valence="good"
@@ -280,18 +276,17 @@ class TestPromptQuestions(APIBaseTest):
         version = ReplayScanner.objects.get(pk=stale.pk).scanner_version
 
         dry = backfill_prompt_questions(team_id=self.team.id, dry_run=True)
-        assert (dry.checked, dry.written) == (5, 4)
+        assert (dry.checked, dry.written) == (4, 3)
         assert ReplayScanner.objects.get(pk=stale.pk).prompt_question == ""
         self.client_mock.return_value.models.generate_content.reset_mock()
 
         result = backfill_prompt_questions(team_id=self.team.id)
 
-        assert result.written == 4
-        # The copy shares the stale scanner's call and the template needs none; the unjudged scanner sends its kept question.
+        assert result.written == 3
+        # The copy shares the stale scanner's call; the unjudged scanner sends its kept question.
         calls = self.client_mock.return_value.models.generate_content.call_args_list
         assert ["Judged before valence?" in call.kwargs["contents"] for call in calls] == [False, True]
         assert ReplayScanner.objects.get(pk=copy.pk).prompt_question == "Did the user struggle at checkout?"
-        assert ReplayScanner.objects.get(pk=template.pk).prompt_question == TEMPLATE_QUESTION
         stale.refresh_from_db()
         assert stale.prompt_question == "Did the user struggle at checkout?"
         assert stale.prompt_question_source == prompt_fingerprint(PROMPT)
@@ -332,13 +327,13 @@ class TestPromptQuestions(APIBaseTest):
         assert (unjudged.prompt_question, unjudged.prompt_valence) == ("Judged before valence?", "")
         assert (retried.prompt_question, retried.prompt_valence) == ("Judged before valence?", "bad")
 
-    def test_inline_scanners_only_ever_get_a_template_question(self) -> None:
+    def test_inline_scanners_only_ever_get_a_built_in_question(self) -> None:
         self.client_mock.return_value.models.generate_content.reset_mock()
         summarize = create_inline_scanner(
             team=self.team,
             key="summarize-button",
-            scanner_type=ScannerType.MONITOR,
-            scanner_config={"prompt": TEMPLATE_PROMPT},
+            scanner_type=SUMMARY.scanner_type,
+            scanner_config=SUMMARY.scanner_config(),
             model=ScannerModel.GEMINI_3_8_FLASH,
         )
         custom = create_inline_scanner(
@@ -348,12 +343,12 @@ class TestPromptQuestions(APIBaseTest):
             scanner_config={"prompt": "Did the user open the pricing page?"},
             model=ScannerModel.GEMINI_3_8_FLASH,
         )
-        assert (summarize.prompt_question, custom.prompt_question) == (TEMPLATE_QUESTION, "")
+        assert (summarize.prompt_question, custom.prompt_question) == (SUMMARY.question, "")
         ReplayScanner.all_origins.filter(pk=summarize.pk).update(prompt_question="", prompt_question_source="")
 
         result = backfill_prompt_questions(team_id=self.team.id, include_inline=True)
 
         assert result.written == 1
-        assert ReplayScanner.all_origins.get(pk=summarize.pk).prompt_question == TEMPLATE_QUESTION
+        assert ReplayScanner.all_origins.get(pk=summarize.pk).prompt_question == SUMMARY.question
         assert ReplayScanner.all_origins.get(pk=custom.pk).prompt_question == ""
         self.client_mock.return_value.models.generate_content.assert_not_called()

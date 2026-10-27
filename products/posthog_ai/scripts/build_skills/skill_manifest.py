@@ -6,6 +6,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, model_validator
 
+from . import frontmatter
+
 MANIFEST_VERSION = "1.0.0"
 
 
@@ -22,7 +24,7 @@ class SkillFile(BaseModel):
 
 
 class SkillResource(BaseModel):
-    name: str
+    name: str = Field(pattern=frontmatter.SKILL_NAME_PATTERN)
     description: str
     files: list[SkillFile]
     source: str

@@ -22,6 +22,9 @@ use tracing_subscriber::EnvFilter;
 
 use personhog_common::client::RouterClient;
 use personhog_common::query_tag;
+use personhog_coordination::changelog::{
+    keep_changelog_live, load_changelog_config, LiveChangelog, CHANGELOG_BOOT_POLL_INTERVAL,
+};
 use personhog_coordination::store::PersonhogStore;
 use personhog_identity::config::Config;
 use personhog_identity::leader::LifecycleLeader;
@@ -35,6 +38,7 @@ use personhog_identity::service::merge::MergeEntrance;
 use personhog_identity::service::PersonHogIdentityService;
 use personhog_identity::storage::postgres::PostgresIdentityStorage;
 use personhog_identity::warnings;
+use tokio_util::sync::CancellationToken;
 
 common_alloc::used!();
 
@@ -144,19 +148,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The delete saga groups its fence calls by the leaders' partition
     // count, which lives in etcd; a service that cannot read it would
     // batch wrong, so refuse to start instead.
-    let num_partitions = {
-        let etcd_store = EtcdStore::connect(StoreConfig {
-            endpoints: config.etcd_endpoint_list(),
-            prefix: config.etcd_prefix.clone(),
-        })
-        .await
-        .expect("Failed to connect to etcd");
-        PersonhogStore::new(etcd_store)
-            .get_total_partitions()
-            .await
-            .expect("Failed to read total_partitions from etcd")
+    let etcd_store = EtcdStore::connect_with_member_failover(StoreConfig {
+        endpoints: config.etcd_endpoint_list(),
+        prefix: config.etcd_prefix.clone(),
+    })
+    .await
+    .expect("Failed to connect to etcd");
+    let store = Arc::new(PersonhogStore::new(etcd_store));
+    // No signal handler is installed until the lifecycle monitor starts,
+    // so SIGTERM ends the process during this wait.
+    let Some(loaded) = load_changelog_config(
+        &store,
+        CHANGELOG_BOOT_POLL_INTERVAL,
+        &CancellationToken::new(),
+    )
+    .await
+    .expect("Failed to load the changelog config from etcd") else {
+        return Ok(());
     };
-    tracing::info!(num_partitions, "loaded partition count from etcd");
+    tracing::info!(
+        num_partitions = loaded.partitions,
+        epoch = loaded.epoch,
+        "loaded changelog config"
+    );
+    let changelog = LiveChangelog::new(loaded);
 
     // Build lifecycle manager and register components
     let mut manager = Manager::builder("personhog-identity").build();
@@ -184,6 +199,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .is_advisory(true),
         )
     });
+    let changelog_handle = manager.register("changelog_config", ComponentOptions::new());
 
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
@@ -218,6 +234,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap()
         .install_recorder()
         .expect("Failed to install metrics recorder");
+    {
+        let store = Arc::clone(&store);
+        let changelog = changelog.clone();
+        tokio::spawn(async move {
+            let _guard = changelog_handle.process_scope();
+            let cancel = CancellationToken::new();
+            tokio::select! {
+                _ = changelog_handle.shutdown_signal() => cancel.cancel(),
+                _ = keep_changelog_live(store, changelog, cancel.clone()) => {}
+            }
+        });
+    }
+
     // Metrics/health HTTP server (observability handle — stays alive during standard drain)
     let metrics_port = config.metrics_port;
     tokio::spawn(async move {
@@ -348,7 +377,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             lifecycle_leader.clone(),
             config.tables(),
             config.lifecycle_leader_call_concurrency,
-            num_partitions,
+            changelog.clone(),
             outbox_writes,
         );
         let sweeper_engine = engine.clone();
@@ -413,7 +442,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         lifecycle_leader,
         config.tables(),
         config.lifecycle_leader_call_concurrency,
-        num_partitions,
+        changelog.clone(),
         outbox_writes,
     );
     let service = PersonHogIdentityService::new(
@@ -467,7 +496,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // callers not to send pathological frames, same as the replica.
         if let Err(e) = server
             .layer(GrpcMetricsLayer::default().with_processing_time_header())
-            .layer(GrpcLoadShedLayer::new(max_concurrent_requests))
+            // Identity pods share one fleet-wide load, so a shed pod means the
+            // fleet is saturated. RESOURCE_EXHAUSTED stops the router from
+            // retrying the shed on another saturated pod.
+            .layer(
+                GrpcLoadShedLayer::new(max_concurrent_requests)
+                    .with_code(tonic::Code::ResourceExhausted),
+            )
             .add_service(
                 PersonHogIdentityServer::new(service)
                     .accept_compressed(CompressionEncoding::Gzip)

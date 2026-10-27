@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.perigon import (
     PerigonSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.perigon.settings import PERIGON_ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.perigon.source import PerigonSource
 
 
@@ -28,6 +29,9 @@ class TestPerigonSource:
             # 403 while probing a specific schema means that dataset is out of plan.
             ((False, 403), "stories", False),
             ((False, None), None, False),
+            ((True, 200), "source_groups", True),
+            ((False, 403), "wikipedia", False),
+            ((True, 200), "story_stats", True),
         ],
     )
     def test_validate_credentials_status_mapping(
@@ -40,7 +44,13 @@ class TestPerigonSource:
             valid, error = self.source.validate_credentials(config, self.team_id, schema_name=schema_name)
 
         assert valid is expected_valid
-        assert network.requests_log[0].path == ("/v1/stories/all" if schema_name == "stories" else "/v1/articles/all")
+        endpoint = PERIGON_ENDPOINTS[schema_name or "articles"]
+        assert network.requests_log[0].path == endpoint.path
+        # The source group list rejects a request without its required sort params.
+        assert network.requests_log[0].param("sortBy") == endpoint.full_refresh_sort_by
+        assert network.requests_log[0].param("sortOrder") == endpoint.extra_params.get("sortOrder")
+        assert network.requests_log[0].param("splitBy") == endpoint.extra_params.get("splitBy")
+        assert network.requests_log[0].param("size") == ("1" if endpoint.paginated else None)
         assert network.requests_log[0].headers["authorization"] == "Bearer key"
         if not expected_valid:
             assert error is not None

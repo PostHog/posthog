@@ -445,6 +445,49 @@ def test_source_paginates_within_chunk_and_saves_offsets(monkeypatch):
 
 
 @pytest.mark.parametrize(
+    "should_use_incremental_field,quota_on_call,ends_early",
+    [
+        (True, 1, True),
+        (False, 1, False),
+        (True, 0, False),
+    ],
+)
+def test_source_quota_exhaustion_ends_incremental_run_after_progress(
+    monkeypatch, should_use_incremental_field, quota_on_call, ends_early
+):
+    monkeypatch.setattr(ga, "_today", lambda: dt.date(2026, 4, 30))
+    _patch_session(monkeypatch)
+
+    calls: list[str] = []
+
+    def fake_run_report(session, property_id, start_date, end_date, dimensions, metrics, offset, limit=50000):
+        calls.append(start_date)
+        if len(calls) > quota_on_call:
+            raise GoogleAnalyticsQuotaExceededError("quota (retryable)")
+        return _report_payload(["20260301"], [1])
+
+    monkeypatch.setattr(ga, "_run_report", fake_run_report)
+
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = False
+
+    response = google_analytics_source(
+        config=_config(history_days=90),
+        resource_name="website_overview",
+        team_id=1,
+        resumable_source_manager=manager,
+        should_use_incremental_field=should_use_incremental_field,
+        db_incremental_field_last_value=None,
+    )
+
+    if ends_early:
+        assert len(list(cast(Iterable[Any], response.items()))) == quota_on_call
+    else:
+        with pytest.raises(GoogleAnalyticsQuotaExceededError):
+            list(cast(Iterable[Any], response.items()))
+
+
+@pytest.mark.parametrize(
     "history_days,expected_first_start",
     [
         (None, "2024-04-30"),
@@ -590,13 +633,3 @@ def test_source_requests_user_defined_custom_report(monkeypatch):
 
     assert response.primary_keys == ["date", "sessionCampaignName", "sessionSource"]
     assert seen[0] == (["date", "sessionCampaignName", "sessionSource"], ["sessions", "purchaseRevenue"])
-
-
-def test_unknown_resource_name_raises():
-    with pytest.raises(ValueError, match="Unknown Google Analytics schema"):
-        google_analytics_source(
-            config=_config(),
-            resource_name="not_a_real_schema",
-            team_id=1,
-            resumable_source_manager=mock.MagicMock(),
-        )

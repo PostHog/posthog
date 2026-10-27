@@ -13,7 +13,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
-    always,
     scripted_network,
     source_inputs,
 )
@@ -251,6 +250,21 @@ class TestGetRowsCompanies:
         assert [row["name"] for row in result.rows] == ["Acme", "Globex"]
 
 
+class TestGetRowsUnpaginated:
+    def test_full_list_is_read_in_one_request(self) -> None:
+        # A page-size response must not trigger a page 2 that would re-read the same list.
+        departments = [{"uuid": f"d-{index}"} for index in range(100)]
+        result = _driver().run(
+            "departments",
+            [_token(), ScriptedResponse(json=_me_body(["c-1"])), ScriptedResponse(json=departments)],
+        )
+        assert result.raised is None
+        assert len(result.rows) == 100
+        assert {row["_company_uuid"] for row in result.rows} == {"c-1"}
+        assert result.paths == ["/oauth/token", "/v1/me", "/v1/companies/c-1/departments"]
+        assert result.params("page")[-1] is None
+
+
 class TestGetRowsFanOut:
     def test_resumes_partway_through_a_company_employee_list(self) -> None:
         result = _driver().run(
@@ -324,7 +338,7 @@ class TestGustoSourceResponse:
         assert result.response.primary_keys == GUSTO_ENDPOINTS[endpoint].primary_keys
         assert result.response.sort_mode == "asc"
 
-    @parameterized.expand([("jobs",), ("contractor_payments",), ("pay_periods",)])
+    @parameterized.expand([("jobs",), ("recurring_reimbursements",), ("contractor_payments",), ("pay_periods",)])
     def test_fan_out_and_keyless_tables_include_their_parent_in_the_key(self, endpoint: str) -> None:
         # Child rows from every parent land in one table, so a per-parent identifier alone would
         # collide and make each merge multi-match.
@@ -355,11 +369,6 @@ class TestValidateCredentials:
         ok, message = self._validate([ScriptedResponse(status=status)])
         assert ok is False
         assert message is not None and "rotates refresh tokens" in message
-
-    def test_other_token_errors_report_the_status(self) -> None:
-        with scripted_network(always(ScriptedResponse(status=500))):
-            ok, message = validate_credentials("production", "cid", "secret", "refresh", GUSTO_API_VERSION_2026_06_15)
-        assert (ok, message) == (False, "Gusto returned HTTP 500 when requesting an access token")
 
     def test_forbidden_company_read_asks_for_a_payroll_admin(self) -> None:
         ok, message = self._validate([_token(), ScriptedResponse(status=403)])

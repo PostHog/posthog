@@ -277,7 +277,8 @@ def escape_duckdb_identifier(v: str) -> str:
 
 
 def escape_trino_identifier(v: str) -> str:
-    for character, label in (("%", "%"), ("?", "?"), ("\0", "NUL")):
+    # "?" is allowed because convert_pyformat_placeholders does not read inside quoted identifiers.
+    for character, label in (("%", "%"), ("\0", "NUL")):
         if character in v:
             raise QueryError(f'The Trino identifier "{v}" is not permitted as it contains the "{label}" character')
     return '"' + v.replace('"', '""') + '"'

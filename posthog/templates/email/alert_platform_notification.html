@@ -7,5 +7,15 @@
         {% endfor %}
     </ul>
 {% endif %}
+{% if context %}
+    <p>
+        {% for line in context %}{{ line }}{% if not forloop.last %}<br />{% endif %}{% endfor %}
+    </p>
+{% endif %}
+{% if links %}
+    <p>
+        {% for link in links %}<a href="{{ link.url }}">{{ link.label }}</a>{% if not forloop.last %} | {% endif %}{% endfor %}
+    </p>
+{% endif %}
 <p>You're getting this email because you're subscribed to this alert in PostHog.</p>
 {% endblock %}

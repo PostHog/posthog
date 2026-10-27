@@ -8,7 +8,13 @@ from products.signals.backend.temporal.signal_queries import (
     FetchSignalTypeExamplesOutput,
     RunSignalSemanticSearchOutput,
 )
-from products.signals.backend.temporal.types import EmitSignalInputs, NewReportMatch, NoMatchMetadata
+from products.signals.backend.temporal.types import (
+    EmitSignalInputs,
+    ExistingReportMatch,
+    MatchedMetadata,
+    NewReportMatch,
+    NoMatchMetadata,
+)
 
 
 @pytest.mark.asyncio
@@ -31,6 +37,18 @@ async def test_quarantined_signals_do_not_block_healthy_batch_members(
     ]
     if duplicate:
         batch.append(batch[0])
+    batch.append(
+        EmitSignalInputs(
+            team_id=1,
+            source_product="github",
+            source_type="issue",
+            source_id="source-sync",
+            description="2",
+            sync_with_source=True,
+            source_match_signal_id="previous-signal",
+            source_match_report_id="existing-report",
+        )
+    )
     query_requests: list[str] = []
     emitted: list[grouping.AssignAndEmitSignalInput] = []
 
@@ -52,6 +70,19 @@ async def test_quarantined_signals_do_not_block_healthy_batch_members(
             return grouping.FetchReportContextsOutput(contexts={})
         if activity == grouping.match_signal_to_report_activity:
             assert isinstance(input, grouping.MatchSignalToReportInput)
+            if input.source_id == "source-sync":
+                assert input.queries == []
+                assert input.source_match_signal_id == "previous-signal"
+                assert input.source_match_report_id == "existing-report"
+                return ExistingReportMatch(
+                    report_id="existing-report",
+                    match_metadata=MatchedMetadata(
+                        parent_signal_id="previous-signal",
+                        match_query="source identity",
+                        reason="source update",
+                    ),
+                    source_synced=True,
+                )
             assert input.queries == [input.description]
             return NewReportMatch(
                 title="Example report", summary="Example summary", match_metadata=NoMatchMetadata(reason="new")
@@ -77,8 +108,10 @@ async def test_quarantined_signals_do_not_block_healthy_batch_members(
     ):
         dropped, _ = await grouping._process_signal_batch(batch, FetchSignalTypeExamplesOutput(examples=[]))
 
-    assert dropped == sum(quarantined[int(signal.source_id)] for signal in batch)
+    assert dropped == sum(quarantined[int(signal.source_id)] for signal in batch if signal.source_id != "source-sync")
     assert [signal.source_id for signal in emitted] == [
-        signal.source_id for signal in batch if not quarantined[int(signal.source_id)]
+        signal.source_id
+        for signal in batch
+        if signal.source_id == "source-sync" or not quarantined[int(signal.source_id)]
     ]
     assert len(query_requests) == 2

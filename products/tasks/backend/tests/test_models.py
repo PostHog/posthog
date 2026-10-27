@@ -2,7 +2,7 @@ import json
 import uuid
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from unittest.mock import AsyncMock, patch
 
@@ -161,24 +161,23 @@ class TestTask(TestCase):
 
     @parameterized.expand(
         [
-            ("unresolved", {}, True, True),
-            ("null", {"use_dedicated_stream": None}, True, True),
-            ("pinned_true", {"use_dedicated_stream": True}, True, False),
-            ("pinned_false", {"use_dedicated_stream": False}, False, False),
+            ("unresolved_with_dedicated_url", {}, True, True),
+            ("unresolved_without_dedicated_url", {}, False, False),
+            ("null_with_dedicated_url", {"use_dedicated_stream": None}, True, True),
+            ("pinned_true_without_dedicated_url", {"use_dedicated_stream": True}, False, True),
+            ("pinned_false_with_dedicated_url", {"use_dedicated_stream": False}, True, False),
         ]
     )
-    def test_create_and_run_resolves_stream_routing_before_saving(
-        self, _name: str, extra_state: dict[str, bool | None], expected_routing: bool, evaluate: bool
+    def test_create_and_run_pins_stream_routing(
+        self,
+        _name: str,
+        extra_state: dict[str, bool | None],
+        dedicated_url_set: bool,
+        expected_routing: bool,
     ) -> None:
         user = User.objects.create(email="stream-routing@example.com", distinct_id="synthetic-stream-routing-user")
 
-        def evaluate_flag(*, organization_id: str, distinct_id: str) -> bool:
-            self.assertEqual(organization_id, str(self.organization.id))
-            self.assertEqual(distinct_id, user.distinct_id)
-            self.assertFalse(Task.objects.filter(team=self.team, title="Stream routing task").exists())
-            return True
-
-        with patch("products.tasks.backend.models.evaluate_dedicated_stream_flag", side_effect=evaluate_flag) as flag:
+        with self.settings(TASKS_REDIS_URL=settings.REDIS_URL if dedicated_url_set else None):
             task = Task.create_and_run(
                 team=self.team,
                 title="Stream routing task",
@@ -189,7 +188,6 @@ class TestTask(TestCase):
                 extra_run_state=extra_state,
             )
 
-        self.assertEqual(flag.call_count, int(evaluate))
         self.assertIs(TaskRun.objects.get(task=task).state["use_dedicated_stream"], expected_routing)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -1122,6 +1120,61 @@ class TestTaskRun(TestCase):
         self.assertEqual(call_args.args[1]["status"], TaskRun.Status.QUEUED)
         self.assertEqual(call_args.args[1]["branch"], "main")
 
+    @parameterized.expand(
+        [
+            ("no_runs", [], "cloud", False),
+            (
+                "terminal_cloud_runs",
+                [
+                    (TaskRun.Status.COMPLETED, TaskRun.Environment.CLOUD, {}),
+                    (TaskRun.Status.FAILED, TaskRun.Environment.CLOUD, {}),
+                    (TaskRun.Status.CANCELLED, TaskRun.Environment.CLOUD, {}),
+                ],
+                "cloud",
+                False,
+            ),
+            ("queued_cloud_run", [(TaskRun.Status.QUEUED, TaskRun.Environment.CLOUD, {})], "cloud", True),
+            ("in_progress_cloud_run", [(TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD, {})], "cloud", True),
+            (
+                "idle_warm_run",
+                [(TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD, {"await_user_message": True})],
+                "cloud",
+                False,
+            ),
+            (
+                "cancelling_run",
+                [(TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD, {"cancel_requested_at": "2026-01-01"})],
+                "cloud",
+                False,
+            ),
+            ("scheduled_cloud_run", [(TaskRun.Status.NOT_STARTED, TaskRun.Environment.CLOUD, {})], "cloud", False),
+            ("queued_local_run", [(TaskRun.Status.QUEUED, TaskRun.Environment.LOCAL, {})], "cloud", False),
+            ("new_local_run", [(TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD, {})], "local", False),
+            ("new_scheduled_run", [(TaskRun.Status.IN_PROGRESS, TaskRun.Environment.CLOUD, {})], "scheduled", False),
+        ]
+    )
+    def test_create_run_logs_a_run_started_beside_a_live_cloud_run(
+        self, _name: str, existing_runs: list[tuple[str, str, dict]], new_run: str, flagged: bool
+    ) -> None:
+        existing = [
+            TaskRun.objects.create(task=self.task, team=self.team, status=status, environment=environment, state=state)
+            for status, environment, state in existing_runs
+        ]
+        create_kwargs: dict[str, dict[str, Any]] = {
+            "cloud": {},
+            "local": {"environment": TaskRun.Environment.LOCAL},
+            "scheduled": {"scheduled_at": django_timezone.now() + timedelta(days=1)},
+        }
+
+        with patch("products.tasks.backend.models.log_run_started_beside_live_run") as log_started:
+            run = self.task.create_run(**create_kwargs[new_run])
+
+        self.assertEqual(TaskRun.objects.filter(task=self.task).count(), len(existing_runs) + 1)
+        if flagged:
+            log_started.assert_called_once_with(run, [existing[0].id])
+        else:
+            log_started.assert_not_called()
+
     def test_create_run_does_not_inject_permission_mode_by_default(self):
         run = self.task.create_run(mode="interactive")
 
@@ -1286,6 +1339,7 @@ class TestTaskRun(TestCase):
                 "pending_user_message": "Review the attachment",
                 "pending_user_artifact_ids": ["artifact-1"],
                 "failure_error_type": "poll_timeout",
+                "cancel_requested_at": requested_at.isoformat(),
                 "startup_requested_at": requested_at.isoformat(),
             },
         )
@@ -1298,6 +1352,7 @@ class TestTaskRun(TestCase):
         self.assertEqual(run.analytics_properties()["startup_requested_at"], run.queued_at.isoformat())
 
         self.assertNotIn("failure_error_type", run.state)
+        self.assertNotIn("cancel_requested_at", run.state)
         self.assertNotIn("sandbox_id", run.state)
         self.assertNotIn("sandbox_url", run.state)
         self.assertNotIn("sandbox_jwt_kid", run.state)

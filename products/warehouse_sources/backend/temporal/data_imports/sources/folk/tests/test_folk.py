@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.folk.folk import (
@@ -97,6 +98,125 @@ class TestPagination:
         assert result.requests == []
 
 
+_GROUPS = _page([{"id": "grp_1", "name": "Sales"}, {"id": "grp_2", "name": "Hiring"}])
+
+
+class TestGroupFanout:
+    def test_group_members_walk_every_group_and_carry_the_group_id(self) -> None:
+        second = "https://api.folk.app/v1/groups/grp_1/members?limit=100&cursor=m2"
+        result = _driver().run(
+            "group_members",
+            [
+                _GROUPS,
+                _page([{"id": "usr_1", "role": "owner"}], next_url=second),
+                _page([{"id": "usr_2", "role": "reader"}]),
+                _page([{"id": "usr_1", "role": "admin"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/groups",
+            "/v1/groups/grp_1/members",
+            "/v1/groups/grp_1/members",
+            "/v1/groups/grp_2/members",
+        ]
+        assert result.rows == [
+            {"id": "usr_1", "role": "owner", "groupId": "grp_1"},
+            {"id": "usr_2", "role": "reader", "groupId": "grp_1"},
+            {"id": "usr_1", "role": "admin", "groupId": "grp_2"},
+        ]
+        assert result.saved_states == [
+            FolkResumeConfig(remaining_group_ids=["grp_1", "grp_2"]),
+            FolkResumeConfig(next_url=second, remaining_group_ids=["grp_1", "grp_2"], remaining_child_keys=[""]),
+            FolkResumeConfig(remaining_group_ids=["grp_2"]),
+            FolkResumeConfig(remaining_group_ids=["grp_2"]),
+            FolkResumeConfig(remaining_group_ids=[]),
+        ]
+
+    def test_custom_objects_list_each_object_type_and_skip_one_deleted_since_discovery(self) -> None:
+        person_fields = [
+            {"name": "Deals", "type": "objectField"},
+            {"name": "Job Applications", "type": "objectField"},
+            {"name": "Stage", "type": "singleSelect"},
+        ]
+        result = _driver().run(
+            "custom_objects",
+            route(
+                {
+                    "/v1/groups": [_GROUPS],
+                    "/custom-fields/person": [_page(person_fields), _page([])],
+                    "/grp_1/Deals": [_page([{"id": "obj_1", "createdAt": "2025-01-01T00:00:00Z"}])],
+                    "/grp_1/Job%20Applications": [ScriptedResponse(status=404)],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/groups",
+            "/v1/groups/grp_1/custom-fields/person",
+            "/v1/groups/grp_1/Deals",
+            "/v1/groups/grp_1/Job%20Applications",
+            "/v1/groups/grp_2/custom-fields/person",
+        ]
+        assert result.rows == [
+            {"id": "obj_1", "createdAt": "2025-01-01T00:00:00Z", "groupId": "grp_1", "objectType": "Deals"}
+        ]
+
+    def test_custom_fields_cover_people_companies_and_each_object_type(self) -> None:
+        result = _driver().run(
+            "group_custom_fields",
+            [
+                _page([{"id": "grp_1", "name": "Sales"}]),
+                _page([{"name": "Deals", "type": "objectField"}]),
+                _page([{"name": "Deals", "type": "objectField"}]),
+                _page([{"name": "Industry", "type": "textField"}]),
+                _page([{"name": "Amount", "type": "numericField"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/groups",
+            "/v1/groups/grp_1/custom-fields/person",
+            "/v1/groups/grp_1/custom-fields/person",
+            "/v1/groups/grp_1/custom-fields/company",
+            "/v1/groups/grp_1/custom-fields/Deals",
+        ]
+        assert [(row["entityType"], row["name"]) for row in result.rows] == [
+            ("person", "Deals"),
+            ("company", "Industry"),
+            ("Deals", "Amount"),
+        ]
+
+    @parameterized.expand(
+        [
+            # The resumed type still exists: continue its walk at the saved page.
+            ("continues_saved_page", ["Deals"], "Deals", "o3"),
+            # The resumed type was deleted: skip it, and do not re-read types finished before it.
+            ("skips_deleted_type", ["Gone", "Projects"], "Projects", None),
+        ]
+    )
+    def test_resumes_inside_a_group_without_relisting_groups(
+        self, _name: str, child_keys: list[str], expected_type: str, expected_cursor: str | None
+    ) -> None:
+        resume_url = f"https://api.folk.app/v1/groups/grp_2/{child_keys[0]}?limit=100&cursor=o3"
+        object_types = [{"name": "Deals", "type": "objectField"}, {"name": "Projects", "type": "objectField"}]
+        result = _driver().run(
+            "custom_objects",
+            [_page(object_types), _page([{"id": "obj_9"}])],
+            resume_state=FolkResumeConfig(
+                next_url=resume_url, remaining_group_ids=["grp_2"], remaining_child_keys=child_keys
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/groups/grp_2/custom-fields/person", f"/v1/groups/grp_2/{expected_type}"]
+        assert result.params("cursor")[1] == expected_cursor
+        assert result.rows == [{"id": "obj_9", "groupId": "grp_2", "objectType": expected_type}]
+
+
 class TestUnknownEndpoint:
     def test_unknown_endpoint_raises_a_retryable_unknown_resource_error(self) -> None:
         # A web pod can offer a table this worker's catalog doesn't know yet; the named error is
@@ -108,6 +228,15 @@ class TestUnknownEndpoint:
 
 
 class TestProbeCredentials:
+    @parameterized.expand(
+        [("top_level", "people", "/v1/people"), ("group_scoped_probes_groups", "group_members", "/v1/groups")]
+    )
+    def test_schema_probe_path(self, _name: str, endpoint: str, expected_path: str) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            probe_credentials("folk_test", endpoint)
+
+        assert [request.path for request in network.requests_log] == [expected_path]
+
     @parameterized.expand([("ok", 200), ("unauthorized", 401), ("forbidden", 403)])
     def test_returns_status_code(self, _name: str, status_code: int) -> None:
         with scripted_network([ScriptedResponse(status=status_code)]) as network:

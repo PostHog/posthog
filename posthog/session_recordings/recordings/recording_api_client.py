@@ -1,3 +1,4 @@
+import base64
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -94,6 +95,28 @@ class RecordingApiClient:
                 exc_info=False,
             )
             raise
+
+    async def encrypt_blocks(
+        self, session_id: str, team_id: int, blocks: list[bytes], retention_days: int
+    ) -> list[bytes]:
+        """Encrypt compressed blocks with the session's key, minting it on first call.
+
+        Raises RecordingDeletedError if the session's key was shredded.
+        """
+        url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}/encrypt"
+        body = {
+            "blocks": [base64.b64encode(block).decode("ascii") for block in blocks],
+            "retention_days": retention_days,
+        }
+        async with self.session.post(url, json=body, headers=recording_api_auth_headers(team_id, "write")) as response:
+            if response.status == 410:
+                data = await response.json()
+                raise RecordingDeletedError(
+                    "Recording has been deleted", deleted_at=data.get("deleted_at"), deleted_by=data.get("deleted_by")
+                )
+            response.raise_for_status()
+            data = await response.json()
+        return [base64.b64decode(block) for block in data["blocks"]]
 
     async def delete_recordings(self, session_ids: list[str], team_id: int, deleted_by: str) -> list[str]:
         """

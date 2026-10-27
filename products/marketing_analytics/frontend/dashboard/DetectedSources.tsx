@@ -14,11 +14,20 @@ import {
     nativeSourceDisplayLabel,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
+import { DashboardSetupPrompt } from '../setup/DashboardSetupPrompt'
 import { detectedSourcesLogic } from './detectedSourcesLogic'
 import { SourceCatalog } from './SourceCatalog'
 import { SourceSetupPanel } from './SourceSetupPanel'
 
-export function DetectedSources({ compact = false }: { compact?: boolean }): JSX.Element | null {
+export function DetectedSources({
+    compact = false,
+    showRescan = true,
+    dismissible = false,
+}: {
+    compact?: boolean
+    showRescan?: boolean
+    dismissible?: boolean
+}): JSX.Element | null {
     const {
         visibleSuggestions,
         dismissedSuggestions,
@@ -84,38 +93,46 @@ export function DetectedSources({ compact = false }: { compact?: boolean }): JSX
             <MarketingAnalyticsSourceStatusBanner
                 hiddenSourceIds={pendingConnections.map((connection) => connection.id)}
             />
-            <SourceSetupPanel
-                compact={compact || hasSyncedMarketingSources}
-                state={
-                    pendingConnections.length
-                        ? 'waiting'
-                        : !setupPlan
-                          ? setupPlanFailed
-                              ? 'error'
-                              : 'scanning'
-                          : sources.length
-                            ? 'suggestions'
-                            : dismissedSuggestions.some((suggestion) => suggestion.kind === 'connect_source')
-                              ? 'dismissed'
-                              : 'empty'
-                }
-                suggestions={sources}
-                connections={pendingConnections}
-                onRetry={rescanSources}
-                rescanLoading={setupPlanLoading}
-                rescanDisabledReason={sourceScanDisabledReason}
-                onDismiss={dismissSource}
-                onRestore={restoreAllDismissed}
-                footer={
-                    <LemonButton
-                        type={sources.length || connections.length ? 'secondary' : 'primary'}
-                        onClick={openIntegrations}
-                        data-attr="marketing-dashboard-connect-source"
-                    >
-                        Browse integrations
-                    </LemonButton>
-                }
-            />
+            <DashboardSetupPrompt
+                kind="sources"
+                dismissible={dismissible && !pendingConnections.length && !!setupPlan && !setupPlanFailed}
+            >
+                {(dismissButton) => (
+                    <SourceSetupPanel
+                        headerAction={dismissButton}
+                        compact={compact || hasSyncedMarketingSources}
+                        state={
+                            pendingConnections.length
+                                ? 'waiting'
+                                : !setupPlan
+                                  ? setupPlanFailed
+                                      ? 'error'
+                                      : 'scanning'
+                                  : sources.length
+                                    ? 'suggestions'
+                                    : dismissedSuggestions.some((suggestion) => suggestion.kind === 'connect_source')
+                                      ? 'dismissed'
+                                      : 'empty'
+                        }
+                        suggestions={sources}
+                        connections={pendingConnections}
+                        onRetry={showRescan ? rescanSources : undefined}
+                        rescanLoading={setupPlanLoading}
+                        rescanDisabledReason={sourceScanDisabledReason}
+                        onDismiss={dismissSource}
+                        onRestore={restoreAllDismissed}
+                        footer={
+                            <LemonButton
+                                type={sources.length || connections.length ? 'secondary' : 'primary'}
+                                onClick={openIntegrations}
+                                data-attr="marketing-dashboard-connect-source"
+                            >
+                                Browse integrations
+                            </LemonButton>
+                        }
+                    />
+                )}
+            </DashboardSetupPrompt>
         </>
     )
 }

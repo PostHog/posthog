@@ -51,8 +51,6 @@ fn init_tracer(
 }
 
 async fn async_main(mut config: Config, rayon_dispatcher: RayonDispatcher) {
-    config.validate_and_fix_timeouts();
-
     // Instantiate tracing outputs following Django's DEBUG-based approach:
     //   - stdout with a level configured by the RUST_LOG envvar
     //   - OpenTelemetry if enabled, for levels INFO and higher
@@ -132,6 +130,10 @@ async fn async_main(mut config: Config, rayon_dispatcher: RayonDispatcher) {
         .with(log_layer)
         .with(otel_layer)
         .init();
+
+    // This call must follow tracing init. Before init, tracing has no subscriber and drops the
+    // warnings.
+    config.validate_and_fix_timeouts();
 
     // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
     // NOTE: Must be after tracing is initialized so logs are visible

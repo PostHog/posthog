@@ -145,5 +145,5 @@ class AxiomSource(ResumableSource[AxiomSourceConfig, AxiomResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )

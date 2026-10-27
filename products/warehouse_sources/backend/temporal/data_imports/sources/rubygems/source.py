@@ -47,7 +47,7 @@ class RubygemsSource(SimpleSource[RubygemsSourceConfig]):
             name=ExternalDataSourceType.RUBYGEMS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="RubyGems.org",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Pull gem metadata and version/download history from [RubyGems.org](https://rubygems.org) into the PostHog Data warehouse.
 
 RubyGems.org's read APIs are public, so no credentials are required. There is no list endpoint, so enter the gem names you want to track, one per line (or comma-separated). For example:
@@ -66,6 +66,7 @@ Each sync fetches the current metadata and full version history for every config
                 [
                     SourceFieldInputConfig(
                         name="gems",
+                        sync_setting=True,
                         label="Gems",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

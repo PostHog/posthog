@@ -150,6 +150,7 @@ class Feature(StrEnum):
     # A 30 day aggregate that runs on every AI observability dashboard mount and trace view, so its
     # load is worth attributing separately from the tab queries it sits alongside.
     INSTRUMENTATION_CHECKLIST = "instrumentation_checklist"
+    AI_GATEWAY_DEV_USAGE = "ai_gateway_dev_usage"
 
 
 class FallbackTags(TypedDict):
@@ -218,6 +219,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.WEB_EXTERNAL_CLICKS_TABLE_QUERY
             | NodeKind.WEB_BOTS_TABLE_QUERY
             | NodeKind.WEB_AGENT_ANALYTICS_QUERY
+            | NodeKind.WEB_PAGE_DIRECTORY_QUERY
             | NodeKind.WEB_PAGE_URL_SEARCH_QUERY
             | NodeKind.WEB_VITALS_QUERY
             | NodeKind.WEB_VITALS_PATH_BREAKDOWN_QUERY
@@ -233,13 +235,14 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.ERROR_TRACKING_FINGERPRINT_PROJECTION_QUERY
             | NodeKind.ERROR_TRACKING_BREAKDOWNS_QUERY
             | NodeKind.ERROR_TRACKING_RELEASES_QUERY
+            | NodeKind.ERROR_TRACKING_ISSUE_EVENTS_QUERY
         ):
             return {"product": Product.ERROR_TRACKING}
         case NodeKind.LOGS_QUERY | NodeKind.LOG_ATTRIBUTES_QUERY | NodeKind.LOG_VALUES_QUERY:
             return {"product": Product.LOGS}
         case NodeKind.METRICS_QUERY | NodeKind.METRICS_HISTOGRAM_QUERY:
             return {"product": Product.METRICS}
-        case NodeKind.ACCOUNTS_TABLE_QUERY:
+        case NodeKind.ACCOUNTS_TABLE_QUERY | NodeKind.ACCOUNT_USERS_QUERY:
             return {"product": Product.CUSTOMER_ANALYTICS}
         case NodeKind.RECORDINGS_QUERY | NodeKind.SESSION_BATCH_EVENTS_QUERY:
             return {"product": Product.REPLAY}
@@ -329,8 +332,6 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.INSIGHT_ACTORS_QUERY
             | NodeKind.INSIGHT_ACTORS_QUERY_OPTIONS
             | NodeKind.FUNNELS_ACTORS_QUERY
-            | NodeKind.FUNNEL_CORRELATION_QUERY
-            | NodeKind.FUNNEL_CORRELATION_ACTORS_QUERY
             | NodeKind.PATHS_V2_ACTORS_QUERY
             # data-source nodes, not full queries
             | NodeKind.EVENTS_NODE

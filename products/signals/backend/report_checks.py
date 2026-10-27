@@ -264,6 +264,35 @@ class MetricThresholdConfig(BaseModel):
         return self
 
 
+DEFAULT_MONITORING_INTERVAL_MINUTES = 24 * 60
+
+
+def monitoring_window_end(start: datetime, soak_minutes: int | None) -> datetime:
+    return start + timedelta(minutes=soak_minutes or 0)
+
+
+def monitoring_interval_minutes(run_interval_minutes: int | None) -> int:
+    return max(MIN_CHECK_INTERVAL_MINUTES, run_interval_minutes or DEFAULT_MONITORING_INTERVAL_MINUTES)
+
+
+def monitoring_comparison(config: MetricThresholdConfig, elapsed: timedelta) -> CheckComparison:
+    if config.monitoring is None or elapsed.total_seconds() <= 0:
+        raise ValueError("A Monitoring measurement needs its definition and a positive elapsed period.")
+    if config.monitoring.threshold_scaling == "fixed":
+        return config.comparison.model_copy(deep=True)
+    factor = elapsed.total_seconds() / (config.monitoring.reference_period_minutes * 60)
+    if config.comparison.operator == "between":
+        assert config.comparison.bounds is not None
+        return CheckComparison(
+            operator="between",
+            bounds=CheckThresholdBounds(
+                lower=config.comparison.bounds.lower * factor, upper=config.comparison.bounds.upper * factor
+            ),
+        )
+    assert config.comparison.value is not None
+    return CheckComparison(operator=config.comparison.operator, value=config.comparison.value * factor)
+
+
 class AgentCheckConfig(BaseModel):
     """A check a scout run answers: re-probe the report's claim and record one verdict.
 
@@ -354,6 +383,18 @@ class CheckConfigValidationError(ValueError):
     """A check config that does not match its kind's schema."""
 
 
+def authored_monitoring_interval_minutes(soak_minutes: int, run_interval_minutes: int | None) -> int | None:
+    if run_interval_minutes is not None:
+        if not MIN_CHECK_INTERVAL_MINUTES <= run_interval_minutes < soak_minutes:
+            raise CheckConfigValidationError(
+                "A Monitoring interval must be at least six hours and shorter than the observation window."
+            )
+        return run_interval_minutes
+    if soak_minutes <= MIN_CHECK_INTERVAL_MINUTES:
+        return None
+    return min(24 * 60, max(MIN_CHECK_INTERVAL_MINUTES, soak_minutes // 4))
+
+
 def parse_check_config(kind: str, config: object) -> BaseModel:
     """Parse a raw config payload into its kind's model.
 
@@ -375,9 +416,13 @@ def validate_metric_check_for_write(config: MetricThresholdConfig) -> None:
     if config.monitoring is not None:
         if config.baseline_value is not None and config.monitoring.baseline_period_minutes is None:
             raise CheckConfigValidationError("A Monitoring baseline needs its measured baseline_period_minutes.")
+        source = config.query["source"]
+        series = source["series"]
+        if any(item.get("math") in {"weekly_active", "monthly_active"} for item in series):
+            raise CheckConfigValidationError(
+                "Monitoring targets cannot use rolling weekly or monthly active users. Use a distinct user count instead."
+            )
         if config.monitoring.threshold_scaling == "linear":
-            source = config.query["source"]
-            series = source["series"]
             if (
                 len(series) != 1
                 or any((source.get("trendsFilter") or {}).get(key) for key in ("formula", "formulas", "formulaNodes"))
@@ -453,6 +498,17 @@ class CheckSpec(BaseModel):
             "for a new check; omission preserves an existing check’s wait."
         ),
     )
+    run_interval_minutes: int | None = Field(
+        default=None,
+        strict=True,
+        ge=MIN_CHECK_INTERVAL_MINUTES,
+        le=MAX_CHECK_INTERVAL_MINUTES,
+        description=(
+            "Minutes between interim Monitoring measurements. Must be shorter than soak_hours * 60. "
+            "Omission preserves an existing check's interval. New Monitoring metric checks default to a quarter "
+            "of the window, bounded to six hours through one day. Windows of six hours or less have no interim samples."
+        ),
+    )
 
     @field_validator("title")
     @classmethod
@@ -464,5 +520,8 @@ class CheckSpec(BaseModel):
 
     @model_validator(mode="after")
     def config_must_match_its_kind(self) -> CheckSpec:
-        parse_check_config(self.kind, self.config)
+        config = parse_check_config(self.kind, self.config)
+        if self.run_interval_minutes is not None:
+            if not isinstance(config, MetricThresholdConfig) or config.monitoring is None:
+                raise ValueError("Research can author an interval only for a Monitoring metric check.")
         return self

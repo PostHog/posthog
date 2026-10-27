@@ -80,6 +80,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     and_join,
     render_psycopg_row_filter_conditions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import libpq_tls_kwargs, tls_options
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
     RedshiftSourceConfig,
@@ -1087,13 +1088,15 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
                     host, port=port, connect_timeout=_REDSHIFT_CONNECT_OPTS["connect_timeout"], team_id=team_id
                 ),
             }
-            with psycopg.connect(**connect_kwargs) as conn:
-                conn.adapters.register_loader("date", SafeDateLoader)
-                conn.adapters.register_loader("timestamp", SafeTimestampLoader)
-                conn.adapters.register_loader("timestamptz", SafeTimestamptzLoader)
-                if statement_timeout_ms is not None:
-                    _set_session_statement_timeout(conn, statement_timeout_ms)
-                yield conn
+            with libpq_tls_kwargs(tls_options(config)) as tls_kwargs:
+                connection = psycopg.connect(**{**connect_kwargs, **tls_kwargs})
+                with connection as conn:
+                    conn.adapters.register_loader("date", SafeDateLoader)
+                    conn.adapters.register_loader("timestamp", SafeTimestampLoader)
+                    conn.adapters.register_loader("timestamptz", SafeTimestamptzLoader)
+                    if statement_timeout_ms is not None:
+                        _set_session_statement_timeout(conn, statement_timeout_ms)
+                    yield conn
 
     # ------------------------------------------------------------------
     # Listing — batch queries run once during `get_schemas`
@@ -2176,4 +2179,7 @@ class RedshiftImplementation(SQLSourceImplementation[RedshiftSourceConfig, psyco
             rows_to_sync=rows_to_sync,
             has_duplicate_primary_keys=duplicate_primary_keys,
             verified_primary_keys=verified_primary_keys,
+            # One statement with `ORDER BY <incremental field>`. Each fallback runs the same
+            # statement, and only before the first row.
+            sort_mode="asc" if should_use_incremental_field and incremental_field is not None else None,
         )

@@ -4,6 +4,7 @@ import { createRef } from 'react'
 
 import { IconImage } from '@posthog/icons'
 import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { PropertyStatusControl } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -15,6 +16,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -23,6 +25,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { getPrimaryPropertyForEvent, hasTaxonomyPrimaryProperty } from 'lib/utils/events'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { definitionEditLogic } from 'scenes/data-management/definition/definitionEditLogic'
@@ -65,6 +68,7 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { objectStorageAvailable } = useValues(preflightLogic)
     const { reportMediaPreviewUploaded } = useActions(eventUsageLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const allowVerification = !isCoreFilter(editDefinition.name) && 'verified' in editDefinition
 
@@ -113,32 +117,63 @@ export function DefinitionEdit(rawProps: DefinitionLogicProps): JSX.Element {
                               }
                     }
                     actions={
-                        <>
-                            <LemonButton
-                                data-attr="save-definition"
-                                type="primary"
-                                size="small"
-                                onClick={() => {
-                                    saveDefinition({})
-                                }}
-                                disabledReason={definitionLoading ? 'Loading...' : undefined}
-                            >
-                                Save
-                            </LemonButton>
-                            <LemonButton
-                                data-attr="cancel-definition"
-                                type="secondary"
-                                size="small"
-                                to={
-                                    !isProperty
-                                        ? urls.eventDefinition(editDefinition.id)
-                                        : urls.propertyDefinition(editDefinition.id)
-                                }
-                                disabledReason={definitionLoading ? 'Loading...' : undefined}
-                            >
-                                Cancel
-                            </LemonButton>
-                        </>
+                        todayRailNav ? (
+                            <>
+                                <Button
+                                    data-attr="save-definition"
+                                    variant="primary"
+                                    onClick={() => {
+                                        saveDefinition({})
+                                    }}
+                                    disabledReason={definitionLoading ? 'Loading...' : undefined}
+                                >
+                                    Save
+                                </Button>
+                                <Button
+                                    data-attr="cancel-definition"
+                                    variant="outline"
+                                    render={
+                                        <LinkPrimitive
+                                            to={
+                                                !isProperty
+                                                    ? urls.eventDefinition(editDefinition.id)
+                                                    : urls.propertyDefinition(editDefinition.id)
+                                            }
+                                        />
+                                    }
+                                    disabledReason={definitionLoading ? 'Loading...' : undefined}
+                                >
+                                    Cancel
+                                </Button>
+                            </>
+                        ) : (
+                            <>
+                                <LemonButton
+                                    data-attr="save-definition"
+                                    type="primary"
+                                    size="small"
+                                    onClick={() => {
+                                        saveDefinition({})
+                                    }}
+                                    disabledReason={definitionLoading ? 'Loading...' : undefined}
+                                >
+                                    Save
+                                </LemonButton>
+                                <LemonButton
+                                    data-attr="cancel-definition"
+                                    type="secondary"
+                                    size="small"
+                                    to={
+                                        !isProperty
+                                            ? urls.eventDefinition(editDefinition.id)
+                                            : urls.propertyDefinition(editDefinition.id)
+                                    }
+                                    disabledReason={definitionLoading ? 'Loading...' : undefined}
+                                >
+                                    Cancel
+                                </LemonButton>
+                            </>
+                        )
                     }
                 />
 

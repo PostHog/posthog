@@ -29,6 +29,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 
 from ..logic import (
+    alert_email,
     delivery_destinations,
     delivery_path,
     destination_bucket_report,
@@ -37,7 +38,14 @@ from ..logic import (
     destinations,
     insight_alert_destinations,
 )
-from .contracts import AlertInternalEvent, DeliveryPathChoice, DestinationBucket, DestinationEligibility
+from .contracts import (
+    AlertEmailRecipientResolver,
+    AlertInternalEvent,
+    DeliveryPathChoice,
+    DestinationBucket,
+    DestinationEligibility,
+    DestinationHoldBack,
+)
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
 
@@ -151,6 +159,14 @@ def list_alert_destination_groups(
     )
 
 
+def owned_alert_destination_ids(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str], hog_function_ids: Collection[UUID]
+) -> frozenset[UUID]:
+    return destinations.owned_alert_destination_ids(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids, hog_function_ids=hog_function_ids
+    )
+
+
 def list_owned_alert_destinations(
     *,
     team_id: int,
@@ -244,12 +260,38 @@ def list_delivery_destination_groups(
     )
 
 
+def register_email_recipient_resolver(*, event_ids: Collection[str], resolver: AlertEmailRecipientResolver) -> None:
+    """Platform delivery of these events also emails the addresses `resolver` returns for the alert.
+
+    Register the events a source maps firing and resolved onto, and not its incident events, or an
+    incident would send a second email. Call it from the source's `ready()`. Raises when another
+    resolver already owns one of the events.
+    """
+    alert_email.register_recipient_resolver(event_ids=event_ids, resolver=resolver)
+
+
 def classify_alert_destinations(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> tuple[DestinationEligibility, ...]:
     """Every destination function of one alert, with what native delivery cannot carry for each."""
     return destination_eligibility.classify_alert_destinations(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    )
+
+
+def customized_alert_destination_ids(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> frozenset[UUID]:
+    """The destination functions of one alert that send something other than the stock message.
+
+    A refused address is not an edit: such a function still sends the stock message.
+    """
+    return frozenset(
+        eligibility.hog_function_id
+        for eligibility in destination_eligibility.classify_alert_destinations(
+            team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+        )
+        if set(eligibility.hold_backs) - {DestinationHoldBack.REFUSED_ADDRESS}
     )
 
 

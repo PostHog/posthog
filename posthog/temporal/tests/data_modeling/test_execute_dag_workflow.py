@@ -1010,6 +1010,7 @@ class TestTrinoDependencyOutcomes:
             return None
 
         info = MagicMock()
+        info.workflow_id = "execute-dag-0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b:3600-2026-10-21T10:00:00Z"
         with (
             patch.object(
                 temporal_workflow, "execute_activity", new=AsyncMock(side_effect=execute_activity)
@@ -1129,7 +1130,7 @@ class TestTrinoShadowRun:
         )
         assert shadow.kwargs["id"] == expected_shadow_id
         assert shadow.kwargs["parent_close_policy"] == ParentClosePolicy.ABANDON
-        assert shadow.kwargs["execution_timeout"] == dt.timedelta(hours=12)
+        assert shadow.kwargs["execution_timeout"] == dt.timedelta(hours=23)
         assert outcome.result.successful_nodes == 2
 
     @pytest.mark.parametrize(

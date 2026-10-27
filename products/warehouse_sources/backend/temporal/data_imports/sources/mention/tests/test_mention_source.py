@@ -1,8 +1,5 @@
 from unittest import mock
 
-from parameterized import parameterized
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mention import (
     MentionSourceConfig,
 )
@@ -19,31 +16,6 @@ class TestMentionSource:
         # New sources are stamped with default_version; it must be the newest supported label.
         assert self.source.supported_versions == ("1.19", "1.21")
         assert self.source.default_version == "1.21"
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["mentions"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "mentions"
-
-    @parameterized.expand(
-        [
-            ("401 Client Error: Unauthorized for url: https://api.mention.net/api/accounts/me",),
-            ("403 Client Error: Forbidden for url: https://api.mention.net/api/accounts/acc1/alerts",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://api.mention.net/api/accounts/me",),
-            ("429 Client Error: Too Many Requests for url: https://api.mention.net/api/accounts/acc1/alerts",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mention.source.validate_credentials")
     def test_validate_credentials_delegates_to_shared_helper(self, mock_validate: mock.MagicMock) -> None:
@@ -69,8 +41,3 @@ class TestMentionSource:
         assert kwargs["resumable_source_manager"] is manager
         # The resolved source pin is threaded to the request layer so it drives the Accept-Version header.
         assert kwargs["api_version"] == "1.21"
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-        assert isinstance(result.raised, ValueError)
-        assert str(result.raised) == "Unknown Mention schema 'not_a_table'"

@@ -10,15 +10,14 @@ import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { SearchAndAiLoading } from 'products/web_analytics/frontend/searchAndAi/SearchAndAiLoading'
-import { SearchAndAiQuery } from 'products/web_analytics/frontend/searchAndAi/SearchAndAiQuery'
-
-import { TileId, WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from './common'
 import {
     PagePerformanceMetric,
     buildGoogleSearchConsoleQuery,
-    createPagePerformanceInsightProps,
-    pagePerformanceLogic,
-} from './pagePerformanceLogic'
+} from 'products/web_analytics/frontend/searchAndAi/searchAndAiQueries'
+import { SearchAndAiQuery } from 'products/web_analytics/frontend/searchAndAi/SearchAndAiQuery'
+
+import { TileId, WEB_ANALYTICS_DEFAULT_QUERY_TAGS } from './common'
+import { createPagePerformanceInsightProps, pagePerformanceLogic } from './pagePerformanceLogic'
 
 const GSC_DOCS_URL = 'https://posthog.com/docs/cdp/sources/google-search-console'
 const GSC_TABLE_NAME = 'search_analytics_by_query_page'

@@ -1,3 +1,4 @@
+import functools
 from datetime import date
 from typing import Optional, cast
 
@@ -11,6 +12,8 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.schema_flags import is_schema_flag_enabled
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     FieldType,
     ResumableSource,
@@ -60,6 +63,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.sh
     validate_credentials as validate_shopify_credentials,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+WAREHOUSE_SHOPIFY_PARALLEL_READ_FLAG = "warehouse-shopify-parallel-read"
+
+
+def _is_parallel_read_enabled(team_id: int, schema_id: str) -> bool:
+    schema = ExternalDataSchema.objects.filter(team_id=team_id, id=schema_id).select_related("source").first()
+    return schema is not None and is_schema_flag_enabled(schema, WAREHOUSE_SHOPIFY_PARALLEL_READ_FLAG)
 
 
 @SourceRegistry.register
@@ -456,4 +466,5 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
             row_filters=inputs.row_filters,
+            use_parallel_read=functools.partial(_is_parallel_read_enabled, inputs.team_id, inputs.schema_id),
         )

@@ -1,1 +1,1 @@
-0006_messagetemplate_transactional_hog_flow_id
+0008_messagetemplate_sensitive

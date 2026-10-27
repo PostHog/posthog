@@ -21,7 +21,9 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.js_snippet_config import TeamJsSnippetConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel, execute_with_timeout
+from posthog.ph_client import feature_enabled_or_false
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
+from posthog.utils import get_instance_region
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import PluginConfig
@@ -65,6 +67,34 @@ def indent_js(js_content: str, indent: int = 4) -> str:
     joined = "\n".join([f"{' ' * indent}{line}" for line in js_content.split("\n")])
 
     return joined
+
+
+# Converting a trigger group's flag object starts recordings that the group never made before.
+# This PostHog flag targets the project group by id and region.
+# PostHog turns it on for a team only after it notifies that team.
+TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT = "replay-trigger-group-object-flags"
+
+
+def _converts_trigger_group_object_flags(team_id: int) -> bool:
+    # Local evaluation keeps a config build from waiting on a remote call. A flag that cannot be evaluated reads as off.
+    # Each region numbers its teams separately. EU evaluates a mirror of the US flag.
+    # Every condition must filter on region, or it also matches the project with the same id in the other region.
+    region = get_instance_region() or "DEV"
+    return feature_enabled_or_false(
+        TRIGGER_GROUP_OBJECT_FLAGS_ROLLOUT,
+        f"team-{team_id}",
+        groups={"project": f"{region}:{team_id}"},
+        group_properties={"project": {"id": str(team_id), "region": region}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
+
+
+def _flag_for_sdk(flag: dict[str, Any]) -> str | dict[str, Any] | None:
+    # posthog-js reads a flag gate as a bare key, or as {"flag": key, "variant": variant} to gate on one variant.
+    key = flag.get("key")
+    variant = flag.get("variant")
+    return {"flag": key, "variant": variant} if variant is not None else key
 
 
 class UnreadableTriggerGroupsError(Exception):
@@ -165,15 +195,8 @@ class RemoteConfig(UUIDTModel):
         if sample_rate == "1":
             sample_rate = None
 
-        linked_flag = None
-        linked_flag_config = team.session_recording_linked_flag or None
-        if isinstance(linked_flag_config, dict):
-            linked_flag_key = linked_flag_config.get("key", None)
-            linked_flag_variant = linked_flag_config.get("variant", None)
-            if linked_flag_variant is not None:
-                linked_flag = {"flag": linked_flag_key, "variant": linked_flag_variant}
-            else:
-                linked_flag = linked_flag_key
+        linked_flag_config = team.session_recording_linked_flag
+        linked_flag = _flag_for_sdk(linked_flag_config) if isinstance(linked_flag_config, dict) else None
 
         v1_fields = {
             "sampleRate": sample_rate,
@@ -203,16 +226,22 @@ class RemoteConfig(UUIDTModel):
                     continue
                 events = conditions.get("events")
                 if isinstance(events, list):
-                    group = {
-                        **group,
-                        "conditions": {
-                            **conditions,
-                            "events": [{"name": e} if isinstance(e, str) else e for e in events],
-                        },
-                    }
+                    conditions = {**conditions, "events": [{"name": e} if isinstance(e, str) else e for e in events]}
                 elif events is not None:
                     continue
-                normalized_groups.append(group)
+                flag = conditions.get("flag")
+                # A flag object without a non-empty string key stays as stored. Its flag condition then never matches.
+                # Converting a missing or empty key would send an empty flag.
+                # The SDK reads an empty flag as no flag condition.
+                # A group with no other condition then records every session.
+                if (
+                    isinstance(flag, dict)
+                    and isinstance(key := flag.get("key"), str)
+                    and key
+                    and _converts_trigger_group_object_flags(team.id)
+                ):
+                    conditions = {**conditions, "flag": _flag_for_sdk(flag)}
+                normalized_groups.append({**group, "conditions": conditions})
 
             if not isinstance(groups, list) or len(normalized_groups) < len(groups):
                 capture_exception(
@@ -248,7 +277,7 @@ class RemoteConfig(UUIDTModel):
         from posthog.plugins.site import get_decide_site_apps
 
         from products.error_tracking.backend.facade import build_error_tracking_config
-        from products.feature_flags.backend.models.feature_flag import FeatureFlag
+        from products.feature_flags.backend.facade.flags import has_active_flags
         from products.messaging.backend.facade.api import build_push_config
         from products.surveys.backend.api.survey import get_surveys_opt_in, get_surveys_response
         from products.web_analytics.backend.remote_config import build_heatmaps_config
@@ -262,7 +291,7 @@ class RemoteConfig(UUIDTModel):
         # NOTE: Let's try and keep this tidy! Follow the styling of the values already here...
         config = {
             "supportedCompression": ["gzip", "gzip-js"],
-            "hasFeatureFlags": FeatureFlag.objects.filter(team=team, active=True).exists(),
+            "hasFeatureFlags": has_active_flags(team),
             "captureDeadClicks": bool(team.capture_dead_clicks),
             "capturePerformance": (
                 {

@@ -80,7 +80,7 @@ FULL_RUN_PATTERNS = (
     # see that edge. turbo-discover.js documents this as a live invariant.
     ".test_quarantine.json",
     # CI / Docker infrastructure
-    ".github/workflows/ci-backend.yml",
+    ".depot/workflows/ci-backend.yml",
     # A new path in the events_json list has to run on the PR that adds it.
     ".github/new-events-schema-targets.txt",
     ".github/clickhouse-versions.json",
@@ -89,6 +89,8 @@ FULL_RUN_PATTERNS = (
     "bin/wait-for-docker",
     "bin/ci-wait-for-docker",
     # Non-Python files that affect generated Python code or test behavior
+    # A data file the host guards read at runtime, so a change to it is a behavior change
+    "posthog/security/crosslang/",
     "frontend/src/queries/schema.json",
     "frontend/src/products.json",
     "frontend/public/email/",

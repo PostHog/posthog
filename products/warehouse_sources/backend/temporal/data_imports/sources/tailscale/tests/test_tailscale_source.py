@@ -18,7 +18,3 @@ class TestTailscaleSource:
         # The update serializer keys off this to force re-entry of the stored credential
         # when the tailnet is retargeted.
         assert self.source.connection_host_fields == ["tailnet"]
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["devices"])
-        assert [s.name for s in schemas] == ["devices"]

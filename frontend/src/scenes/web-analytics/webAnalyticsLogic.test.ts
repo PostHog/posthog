@@ -844,93 +844,12 @@ describe('webAnalyticsLogic URL restoration', () => {
         }
     })
 
-    const enableBackNavReset = (): void => {
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET], {
-            [FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET]: true,
-        })
-    }
-
-    it('clears a drilled-in filter when navigating back to a URL without filters (flag on)', async () => {
-        enableBackNavReset()
-
+    it('leaves a drilled-in filter in place on back-navigation', async () => {
         router.actions.push('/web', { filters: [FILTER_A] })
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
 
         router.actions.push('/web')
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([])
-    })
-
-    it('keeps the outer filter when stepping back between two drill levels (flag on)', async () => {
-        enableBackNavReset()
-
-        router.actions.push('/web', { filters: [FILTER_A, FILTER_B] })
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A, FILTER_B])
-
-        router.actions.push('/web', { filters: [FILTER_A] })
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
-    })
-
-    it.each<[string, string, () => unknown]>([
-        ['domain', 'example.com', () => logic.values.domainFilter],
-        ['device_type', 'Desktop', () => logic.values.deviceTypeFilter],
-        ['country', 'US', () => logic.values.countryFilter],
-        ['referrer', 'google.com', () => logic.values.referrerFilter],
-    ])(
-        'clears a drilled-in %s filter when navigating back to a URL without it (flag on)',
-        async (param, value, read) => {
-            // These drill-downs fold into the query like `filters` do, so a back-navigation that
-            // omits the param must clear the value — otherwise the shown data no longer matches the URL.
-            featureFlagLogic.actions.setFeatureFlags(
-                [FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET, FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE],
-                {
-                    [FEATURE_FLAGS.WEB_ANALYTICS_BACK_NAVIGATION_RESET]: true,
-                    [FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE]: true,
-                }
-            )
-
-            router.actions.push('/web/page-performance', { [param]: value })
-            await expectLogic(logic).toFinishAllListeners()
-            expect(read()).toBe(value)
-
-            router.actions.push('/web/page-performance')
-            await expectLogic(logic).toFinishAllListeners()
-            expect(read()).toBeNull()
-        }
-    )
-
-    it('leaves a drilled-in filter in place on back-navigation when the flag is off', async () => {
-        router.actions.push('/web', { filters: [FILTER_A] })
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
-
-        router.actions.push('/web')
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
-    })
-
-    it('keeps filters when moving to the Live tab, which never serializes them (flag on)', async () => {
-        enableBackNavReset()
-
-        router.actions.push('/web', { filters: [FILTER_A] })
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
-
-        router.actions.push('/web/live')
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
-    })
-
-    it('keeps filters when a cold /web/bots load redirects to /web with the bots flag off (reset flag on)', async () => {
-        enableBackNavReset()
-        logic.actions.setWebAnalyticsFilters([FILTER_A])
-        await expectLogic(logic).toFinishAllListeners()
-        logic.cache.hasRestoredWebUrl = false
-
-        router.actions.push('/web/bots')
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.rawWebAnalyticsFilters).toEqual([FILTER_A])
     })

@@ -49,7 +49,7 @@ class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):
 
         self.clear_activity_logs()
 
-        self.update_external_data_schema(str(schema.id), {"should_sync": False, "sync_type": "incremental"})
+        self.update_external_data_schema(str(schema.id), {"should_sync": False})
 
         activity_logs = self.get_activity_logs_for_item("ExternalDataSchema", str(schema.id))
         self.assertEqual(len(activity_logs), 1)

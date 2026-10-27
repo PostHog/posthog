@@ -3,6 +3,7 @@ import type { ToolBase, ZodObjectAny } from '@/tools/types'
 
 import { GENERATED_TOOLS as access_control } from './access_control'
 import { GENERATED_TOOLS as actions } from './actions'
+import { GENERATED_TOOLS as aeo } from './aeo'
 import { GENERATED_TOOLS as ai_observability } from './ai_observability'
 import { GENERATED_TOOLS as alerts } from './alerts'
 import { GENERATED_TOOLS as annotations } from './annotations'
@@ -66,11 +67,13 @@ import { GENERATED_TOOLS as visual_review } from './visual_review'
 import { GENERATED_TOOLS as warehouse_sources } from './warehouse_sources'
 import { GENERATED_TOOLS as warehouse_suggestions } from './warehouse_suggestions'
 import { GENERATED_TOOLS as web_analytics } from './web_analytics'
+import { GENERATED_TOOLS as wizard } from './wizard'
 import { GENERATED_TOOLS as workflows } from './workflows'
 
 export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     ...access_control,
     ...actions,
+    ...aeo,
     ...ai_observability,
     ...alerts,
     ...annotations,
@@ -134,5 +137,6 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...warehouse_sources,
     ...warehouse_suggestions,
     ...web_analytics,
+    ...wizard,
     ...workflows,
 }

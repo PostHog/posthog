@@ -90,10 +90,10 @@ pub(super) const DETAIL_AI_EVENT_TOO_BIG: &str = "ai_event_too_big";
 // ---------------------------------------------------------------------------
 
 /// Maximum allowed length for an event name; longer names are rejected.
-pub(super) const CAPTURE_V1_MAX_EVENT_NAME_LENGTH: usize = 200;
+pub(crate) const CAPTURE_V1_MAX_EVENT_NAME_LENGTH: usize = 200;
 
 /// Maximum allowed length for a distinct_id value; longer IDs are rejected.
-pub(super) const CAPTURE_V1_DISTINCT_ID_MAX_SIZE: usize = 200;
+pub(crate) const CAPTURE_V1_DISTINCT_ID_MAX_SIZE: usize = 200;
 
 // ---------------------------------------------------------------------------
 // Illegal distinct_id values

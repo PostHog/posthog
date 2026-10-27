@@ -95,6 +95,99 @@ describe('insightsTableDataLogic', () => {
             })
         })
 
+        it.each([
+            ['a breakdown of total counts', {}, true, true],
+            ['no breakdown', { breakdownFilter: undefined }, false, false],
+            [
+                'a cohort breakdown',
+                { breakdownFilter: { breakdown: [1, 'all'], breakdown_type: 'cohort' } },
+                false,
+                false,
+            ],
+            [
+                'the "Other" bucket hidden',
+                {
+                    breakdownFilter: {
+                        breakdown: '$browser',
+                        breakdown_type: 'event',
+                        breakdown_hide_other_aggregation: true,
+                    },
+                },
+                false,
+                false,
+            ],
+            [
+                'unique users',
+                { series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.UniqueUsers }] },
+                false,
+                false,
+            ],
+            [
+                'an average of a property',
+                {
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$pageview',
+                            math: PropertyMathType.Average,
+                            math_property: '$screen_width',
+                        },
+                    ],
+                },
+                false,
+                false,
+            ],
+            [
+                'a sum of session duration',
+                {
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$pageview',
+                            math: PropertyMathType.Sum,
+                            math_property: '$session_duration',
+                        },
+                    ],
+                },
+                false,
+                false,
+            ],
+            [
+                'a sum of a session property',
+                {
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$pageview',
+                            math: PropertyMathType.Sum,
+                            math_property: '$pageview_count',
+                            math_property_type: 'session_properties',
+                        },
+                    ],
+                },
+                false,
+                false,
+            ],
+            ['a formula', { trendsFilter: { formulaNodes: [{ formula: 'A * 2' }] } }, false, false],
+        ] as [string, Partial<TrendsQuery>, boolean, boolean][])(
+            'percent of total columns with %s',
+            async (_name, overrides, expectedTotal, expectedDay) => {
+                const query: TrendsQuery = {
+                    kind: NodeKind.TrendsQuery,
+                    series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                    breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                    ...overrides,
+                }
+
+                insightVizDataLogic(props).actions.updateQuerySource(query)
+
+                await expectLogic(logic).toMatchValues({
+                    showPercentOfTotal: expectedTotal,
+                    showPercentOfDayTotal: expectedDay,
+                })
+            }
+        )
+
         describe('aggregation', () => {
             it('by default averages for insights with unique math entity', async () => {
                 const query: TrendsQuery = {
@@ -148,19 +241,14 @@ describe('insightsTableDataLogic', () => {
     describe('compareResultKey', () => {
         const makeResult = (overrides: Partial<IndexedTrendResult>): IndexedTrendResult =>
             ({
-                action: { order: 0 },
+                order: 0,
                 label: '$pageview',
                 breakdown_value: '',
                 ...overrides,
             }) as IndexedTrendResult
 
         it.each([
-            [
-                'distinguishes by action order',
-                makeResult({ action: { order: 0 } as any }),
-                makeResult({ action: { order: 1 } as any }),
-                false,
-            ],
+            ['distinguishes by series order', makeResult({ order: 0 }), makeResult({ order: 1 }), false],
             [
                 'distinguishes by breakdown value',
                 makeResult({ breakdown_value: 'Chrome' }),
@@ -175,8 +263,8 @@ describe('insightsTableDataLogic', () => {
             ],
             [
                 'matches when all fields are the same',
-                makeResult({ action: { order: 0 } as any, label: '$pageview', breakdown_value: 'Chrome' }),
-                makeResult({ action: { order: 0 } as any, label: '$pageview', breakdown_value: 'Chrome' }),
+                makeResult({ order: 0, label: '$pageview', breakdown_value: 'Chrome' }),
+                makeResult({ order: 0, label: '$pageview', breakdown_value: 'Chrome' }),
                 true,
             ],
             [
@@ -194,15 +282,13 @@ describe('insightsTableDataLogic', () => {
         })
 
         it('produces valid JSON array string', () => {
-            const result = compareResultKey(
-                makeResult({ action: { order: 2 } as any, label: 'test', breakdown_value: 'val' })
-            )
+            const result = compareResultKey(makeResult({ order: 2, label: 'test', breakdown_value: 'val' }))
             expect(JSON.parse(result)).toEqual([2, 'test', 'val'])
         })
 
         it('handles nullish fields gracefully', () => {
             const result = compareResultKey(
-                makeResult({ action: undefined, label: undefined, breakdown_value: undefined } as any)
+                makeResult({ order: undefined, label: undefined, breakdown_value: undefined } as any)
             )
             expect(JSON.parse(result)).toEqual([0, '', ''])
         })
@@ -224,6 +310,7 @@ describe('insightsTableDataLogic', () => {
                 math_group_type_index: null,
                 properties: {},
             } as any,
+            order: 0,
             label: '$pageview',
             count: 100,
             data: [10, 20, 30],
@@ -312,12 +399,14 @@ describe('insightsTableDataLogic', () => {
                         compare_label: CompareLabelType.Current,
                         compare: true,
                         action: { order: 1, id: '$autocapture', name: '$autocapture' } as any,
+                        order: 1,
                         label: '$autocapture',
                     }),
                     makeCompareResult({
                         compare_label: CompareLabelType.Previous,
                         compare: true,
                         action: { order: 1, id: '$autocapture', name: '$autocapture' } as any,
+                        order: 1,
                         label: '$autocapture',
                         count: 60,
                         data: [6, 12, 18],
@@ -360,6 +449,70 @@ describe('insightsTableDataLogic', () => {
             expect(previousItem).not.toBeUndefined()
             expect(previousItem!.compare_label).toBe('previous')
             expect(previousItem!.count).toBe(80)
+        })
+
+        it('getPercentOfDayTotal handles results without daily data', async () => {
+            const insight: Partial<InsightModel> = {
+                result: [makeCompareResult({ data: null as any })],
+            }
+
+            await expectLogic(logic, () => {
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toFinishAllListeners()
+
+            expect(logic.values.getPercentOfDayTotal(logic.values.indexedResults[0], 0)).toBeNull()
+        })
+
+        it('percent of total divides by the total of the same series and period', async () => {
+            const row = (
+                order: number,
+                compare_label: CompareLabelType,
+                breakdown_value: string,
+                data: number[]
+            ): Partial<IndexedTrendResult> =>
+                makeCompareResult({
+                    action: { order, id: '$pageview', name: '$pageview' } as any,
+                    order,
+                    compare: true,
+                    compare_label,
+                    breakdown_value,
+                    data,
+                    count: data.reduce((a, b) => a + b, 0),
+                })
+            const insight: Partial<InsightModel> = {
+                result: [
+                    row(0, CompareLabelType.Current, 'Chrome', [10, 20]),
+                    row(0, CompareLabelType.Current, 'Firefox', [10, 0]),
+                    row(0, CompareLabelType.Previous, 'Chrome', [5, 0]),
+                    row(0, CompareLabelType.Previous, 'Firefox', [5, 10]),
+                    row(1, CompareLabelType.Current, 'Chrome', [50, 0]),
+                ],
+            }
+
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    { kind: NodeKind.EventsNode, event: '$pageview' },
+                    { kind: NodeKind.EventsNode, event: '$pageview' },
+                ],
+                breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                compareFilter: { compare: true },
+            }
+
+            await expectLogic(logic, () => {
+                insightVizDataLogic.findMounted(props)?.actions.updateQuerySource(query)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toFinishAllListeners()
+
+            const { indexedResults, getPercentOfTotal, getPercentOfDayTotal } = logic.values
+            expect(indexedResults.map(getPercentOfTotal)).toEqual([0.75, 0.25, 0.25, 0.75, 1])
+            expect(indexedResults.map((r) => [getPercentOfDayTotal(r, 0), getPercentOfDayTotal(r, 1)])).toEqual([
+                [0.5, 1],
+                [0.5, 0],
+                [0.5, 0],
+                [0.5, 1],
+                [1, null],
+            ])
         })
     })
 })

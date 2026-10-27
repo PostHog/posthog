@@ -59,6 +59,10 @@ class RatioPrecomputeResults:
     def ready(self) -> bool:
         return self.numerator.ready and self.denominator.ready
 
+    @property
+    def capacity_rejected(self) -> bool:
+        return self.numerator.capacity_rejected or self.denominator.capacity_rejected
+
 
 @frozen
 class MetricEventsPrecompute:

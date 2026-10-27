@@ -22,6 +22,7 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.exceptions import is_transient_failure_error_type
 from products.tasks.backend.facade.api import upload_task_run_artifacts
 from products.tasks.backend.facade.contracts import AgentTaskRunDTO, SessionFile
 from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun, stamp_pending_user_message_id
@@ -140,6 +141,10 @@ class CustomPromptSandboxContext:
     """Let runs that start from the same prompt prefix read each other's prompt cache. Codex-only. The
     agent server asks the AI gateway to drop Codex's per-session cache key on every request of the run,
     sub-agents included."""
+    disable_repo_hooks: bool = False
+    """Stop hooks from the cloned repo's ``.claude/settings*.json`` from running. A repo's Stop hook
+    can block the turn that must return the caller's JSON. The agent still reads the repo's CLAUDE.md.
+    Claude-only."""
     initial_permission_mode: str | None = None
     """Agent approval mode. ``None`` lets ``_build_task`` pick the default (``"auto"`` for Codex). A
     headless run that calls MCP tools must set ``"full-access"`` (Codex) / ``"bypassPermissions"``
@@ -161,6 +166,7 @@ class CustomPromptSandboxContext:
     """Surface the run is answering on (e.g. ``"slack"``). The agent server branches its system
     prompt on this, so evals that grade surface-specific behavior must set it to exercise the
     prompt the surface really ships. ``None`` leaves the run originless, like a plain task."""
+    system_prompt: dict[str, str] | None = None
     mcp_exclude_tools: tuple[str, ...] = ()
     """Tool names to omit from the PostHog MCP catalog for this run (``x-posthog-exclude-tools``).
     Used when a scope grant is broader than the tools this caller should advertise, e.g. hiding
@@ -268,6 +274,16 @@ class AgentTurnFailed(RuntimeError):
         return self.category in UPSTREAM_RETRYABLE_ERROR_CATEGORIES
 
 
+class SandboxRunFailed(RuntimeError):
+    def __init__(self, message: str, *, error_type: str | None) -> None:
+        super().__init__(message)
+        self.error_type = error_type
+
+    @property
+    def transient(self) -> bool:
+        return is_transient_failure_error_type(self.error_type)
+
+
 SESSION_FILE_ARTIFACT_TYPE = "context"
 
 
@@ -322,6 +338,7 @@ async def _create_task_and_trigger(
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     mcp_credential_owner_id: int | None = None,
     mcp_gateway_server_ids: list[str] | None = None,
+    mcp_tool_allowlist: list[str] | None = None,
     origin_key: str | None = None,
     before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None = None,
     output_schema: dict[str, Any] | None = None,
@@ -336,6 +353,8 @@ async def _create_task_and_trigger(
         context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full"
     )
     extra_run_state: dict[str, Any] = {}
+    if context.system_prompt is not None:
+        extra_run_state["systemPrompt"] = context.system_prompt
     if context.mcp_exclude_tools:
         extra_run_state["mcp_exclude_tools"] = list(context.mcp_exclude_tools)
     if output_schema:
@@ -344,6 +363,8 @@ async def _create_task_and_trigger(
         extra_run_state["codex_max_subagents"] = context.codex_max_subagents
     if context.codex_shared_prompt_cache:
         extra_run_state["codex_shared_prompt_cache"] = True
+    if context.disable_repo_hooks:
+        extra_run_state["disable_repo_hooks"] = True
     if analytics_query_context is not None:
         queries = [query for query in analytics_query_context if query is not None]
         if queries:
@@ -381,6 +402,7 @@ async def _create_task_and_trigger(
         mcp_builtin_agent_key=mcp_builtin_agent_key,
         mcp_credential_owner_id=mcp_credential_owner_id,
         mcp_gateway_server_ids=mcp_gateway_server_ids,
+        mcp_tool_allowlist=mcp_tool_allowlist,
         interaction_origin=context.interaction_origin,
         extra_run_state=extra_run_state,
         origin_key=origin_key,
@@ -658,6 +680,7 @@ async def poll_for_turn(
                 task_run,
                 refreshed_status=refreshed.status,
                 error_message=refreshed.error_message,
+                failure_error_type=(refreshed.state or {}).get("failure_error_type"),
                 printed_lines=printed_lines,
                 original_skip_lines=original_skip_lines,
                 verbose=verbose,
@@ -683,6 +706,7 @@ async def poll_for_turn(
             task_run,
             refreshed_status=refreshed.status,
             error_message=refreshed.error_message,
+            failure_error_type=(refreshed.state or {}).get("failure_error_type"),
             printed_lines=printed_lines,
             original_skip_lines=original_skip_lines,
             verbose=verbose,
@@ -865,6 +889,7 @@ async def _drain_final_log(
     *,
     refreshed_status: str,
     error_message: str | None = None,
+    failure_error_type: str | None = None,
     printed_lines: int,
     original_skip_lines: int,
     verbose: bool,
@@ -907,9 +932,10 @@ async def _drain_final_log(
             )
     reason = "end_turn with empty response" if final_state.empty_end_turn else "no agent message"
     cause = f" (cause: {error_message})" if error_message else ""
-    raise RuntimeError(
-        f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
-    )
+    message = f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
+    if refreshed_status == TaskRun.Status.FAILED:
+        raise SandboxRunFailed(message, error_type=failure_error_type)
+    raise RuntimeError(message)
 
 
 def _extract_agent_error(log_content: str | None, skip_lines: int = 0) -> AgentError | None:

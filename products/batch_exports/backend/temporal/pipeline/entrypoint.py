@@ -13,7 +13,7 @@ from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.facade.enums import BatchExportRunStatus
 from products.batch_exports.backend.models.batch_export import BatchExportRun
-from products.batch_exports.backend.service import BackfillDetails, BatchExportField, BatchExportModel
+from products.batch_exports.backend.service import BackfillDetails, BatchExportField, BatchExportModelInput
 from products.batch_exports.backend.temporal.batch_exports import FinishBatchExportRunInputs, finish_batch_export_run
 from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
@@ -44,7 +44,7 @@ class _BatchExportInputsProtocol(typing.Protocol):
     include_events: list[str] | None = None
     run_id: str | None = None
     backfill_details: BackfillDetails | None = None
-    batch_export_model: BatchExportModel | None = None
+    batch_export_model: BatchExportModelInput | None = None
     is_backfill: bool = False
     batch_export_id: str | None = None
     destination_default_fields: list[BatchExportField] | None = None
@@ -115,7 +115,7 @@ def _get_config_for_interval(
             # TODO - we should reduce this to 1 hour once we are more confident about hitting 1 hour SLAs.
             main_start_to_close=max(dt.timedelta(hours=6), override_start_to_close),
             # TODO - we should reduce this once we are more confident about hitting 1 hour SLAs.
-            stage_start_to_close=dt.timedelta(hours=2),
+            stage_start_to_close=dt.timedelta(hours=3),
             failure_check_window=24,  # A day's worth of runs
         )
 

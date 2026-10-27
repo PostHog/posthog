@@ -123,6 +123,10 @@ mod tests {
             Some("load_shed")
         );
         assert_eq!(unapplied_refusal_reason(&marked(Code::Ok)), None);
+        assert_eq!(
+            unapplied_refusal_reason(&marked(Code::ResourceExhausted)),
+            None
+        );
         assert_eq!(unapplied_refusal_reason(&marked(Code::Internal)), None);
         assert_eq!(
             unapplied_refusal_reason(&grpc_error_response(

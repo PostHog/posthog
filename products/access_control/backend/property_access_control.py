@@ -20,7 +20,7 @@ from posthog.models.team import Team
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
-from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.facade.contracts import PropertyAccessLevel, UserNotOrganizationMemberError
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import RoleMembership
 
@@ -169,7 +169,7 @@ def get_property_access_level(
         )
 
         if membership is None:
-            raise ValueError("user does not have organization membership")
+            raise UserNotOrganizationMemberError("user does not have organization membership")
 
         user_role_ids = _get_user_role_ids(membership, property.team.organization)
 
@@ -360,7 +360,7 @@ def get_restricted_properties_with_group_type_index_for_team(
         membership = membership_qs.first()
 
         if membership is None:
-            raise ValueError("user does not have organization membership")
+            raise UserNotOrganizationMemberError("user does not have organization membership")
 
         user_role_ids = _get_user_role_ids(membership, organization)
 

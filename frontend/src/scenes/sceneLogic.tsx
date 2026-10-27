@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react'
 import api from 'lib/api'
 import type { SupportTicketExceptionEvent } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { listenForGoldRingsKeys } from 'lib/holidayGoldRings'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -53,7 +54,7 @@ import { urls } from 'scenes/urls'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel } from '~/types'
+import { AccessControlLevel, UserType } from '~/types'
 
 import { handleLoginRedirect } from './authentication/login/loginLogic'
 import { parseCouponCampaign } from './coupons/utils'
@@ -182,6 +183,20 @@ const pathPrefixesOnboardingNotRequiredFor = [
 function isRefusedProjectPath(pathname: string): boolean {
     const refusedProject = getAppContext()?.project_access_denied
     return !!refusedProject && getProjectIdentifierInPath(pathname) === refusedProject
+}
+
+function isFirstProjectWithoutData(user: UserType): boolean {
+    const { currentTeam, hasOnboardedAnyProduct } = teamLogic.values
+    return (
+        !user.is_impersonated &&
+        user.organization?.teams.length === 1 &&
+        !!currentTeam &&
+        !currentTeam.is_demo &&
+        !hasOnboardedAnyProduct &&
+        !currentTeam.ingested_event &&
+        // The access denied page must show, else the link silently opens the onboarding of the user's own project.
+        !isRefusedProjectPath(router.values.location.pathname)
+    )
 }
 
 export function isOnboardingNotRequiredForPath(pathname: string): boolean {
@@ -442,6 +457,11 @@ export const sceneLogic = kea<sceneLogicType>([
         cache.lastTrackedScene = null as { sceneId?: string; sceneKey?: string } | null
         cache.homepageSave = Promise.resolve()
         cache.homepageRequest = 0
+        cache.disposables.add(() =>
+            listenForGoldRingsKeys(
+                () => featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS] === true
+            )
+        )
     }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something
@@ -995,19 +1015,13 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
                     } else if (
                         // Or redirect to onboarding in case we detect people have to do onboarding for their first project
-                        user.organization?.teams.length === 1 &&
-                        teamLogic.values.currentTeam &&
-                        !teamLogic.values.currentTeam.is_demo &&
-                        !teamLogic.values.hasOnboardedAnyProduct &&
-                        !teamLogic.values.currentTeam?.ingested_event &&
+                        isFirstProjectWithoutData(user) &&
                         // Suppress the redirect when the user has explicitly exited onboarding
                         // (skipped for later, or delegated to a teammate with a pending invite).
                         // If the delegation invite is cancelled or expires, the backend clears
                         // onboarding_delegated_to_invite and the redirect re-fires.
                         !isOnboardingRedirectSuppressed(user) &&
-                        !isOnboardingNotRequiredForPath(location.pathname) &&
-                        // The access denied page must show, else the link silently opens the onboarding of the user's own project.
-                        !isRefusedProjectPath(router.values.location.pathname)
+                        !isOnboardingNotRequiredForPath(location.pathname)
                     ) {
                         const nextUrl =
                             getRelativeNextPath(params.searchParams.next, location) ??
@@ -1021,6 +1035,22 @@ export const sceneLogic = kea<sceneLogicType>([
                         }
 
                         router.actions.replace(urls.onboarding(), nextUrl ? { next: nextUrl } : undefined)
+                        return
+                    } else if (
+                        isFirstProjectWithoutData(user) &&
+                        user.onboarding_skipped_reason === 'connector' &&
+                        user.onboarding_skipped_organization_id === user.organization?.id &&
+                        // Only the homepage redirects, so a deep link the connecting assistant hands out still opens.
+                        removeProjectIdIfPresent(router.values.location.pathname) === urls.projectHomepage()
+                    ) {
+                        router.actions.replace(
+                            withForwardedHashAndSearchParams(
+                                urls.onboardingWelcome(),
+                                params.searchParams,
+                                params.hashParams,
+                                forwardedRedirectQueryParams
+                            )
+                        )
                         return
                     }
                 }

@@ -1,4 +1,5 @@
 import uuid
+import random
 import typing
 import asyncio
 import datetime as dt
@@ -11,6 +12,7 @@ import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
+from pyarrow.lib import concat_batches
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
@@ -39,6 +41,7 @@ from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.clickhouse import (
     ClickHouseError,
+    ClickHouseTooManySimultaneousQueriesError,
     get_client as get_clickhouse_client,
 )
 from posthog.temporal.common.db_errors import is_transient_db_error
@@ -200,6 +203,10 @@ DELTA_TABLE_RETENTION_HOURS = 24
 DELTA_KERNEL_ERROR_MARKER = "DELTA_KERNEL_ERROR"
 DELTA_KERNEL_ERROR_RETRY_DELAY = dt.timedelta(minutes=2)
 
+# A saturated cluster refuses every model a spike reaches at once. The default backoff sends them
+# all back within seconds, so wait longer, and jitter the wait so they do not return together.
+TOO_MANY_SIMULTANEOUS_QUERIES_RETRY_DELAY_SECONDS = (60, 120)
+
 # Above this many files, the per-run compaction is worth its full-table rewrite. Below it, skipping
 # keeps an incremental run's cost proportional to the rows it changed rather than the table's size.
 INCREMENTAL_COMPACT_FILE_THRESHOLD = 200
@@ -282,8 +289,9 @@ class _CDPRowSink:
             if self.enabled:
                 await self._producer.clear()
         except Exception as e:
-            capture_exception(e)
             await self._logger.awarning(f"Could not prepare CDP row staging; skipping it for this run: {e}")
+            if not is_transient_db_error(e):
+                capture_exception(e)
             self.enabled = False
 
     async def stage(self, batch: pa.RecordBatch) -> None:
@@ -386,15 +394,6 @@ def get_aws_storage_options() -> dict[str, str]:
         **delta_proxy_storage_options(),
         "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
     }
-
-
-def _combine_batches(batches: list[pa.RecordBatch]) -> pa.RecordBatch:
-    if len(batches) == 1:
-        return batches[0]
-
-    table = pa.Table.from_batches(batches)
-    table = table.combine_chunks()
-    return table.to_batches(max_chunksize=table.num_rows)[0]
 
 
 def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, str]]) -> pa.RecordBatch:
@@ -799,14 +798,14 @@ async def hogql_table(
                     await logger.adebug(
                         f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB"
                     )
-                    yield (_combine_batches(batches), ch_typings_pairs)
+                    yield (concat_batches(batches), ch_typings_pairs)
                     yielded_results = True
                     batches_size = 0
                     batches = []
 
         if len(batches) > 0:
             await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
-            yield (_combine_batches(batches), ch_typings_pairs)
+            yield (concat_batches(batches), ch_typings_pairs)
             yielded_results = True
 
         if not yielded_results:
@@ -1361,6 +1360,11 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         if DELTA_KERNEL_ERROR_MARKER in str(error):
             raise ApplicationError(
                 str(error), type=type(error).__name__, next_retry_delay=DELTA_KERNEL_ERROR_RETRY_DELAY
+            ) from error
+        if isinstance(error, ClickHouseTooManySimultaneousQueriesError):
+            delay = random.uniform(*TOO_MANY_SIMULTANEOUS_QUERIES_RETRY_DELAY_SECONDS)
+            raise ApplicationError(
+                str(error), type=type(error).__name__, next_retry_delay=dt.timedelta(seconds=delay)
             ) from error
         raise
     except (Exception, asyncio.CancelledError):

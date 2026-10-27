@@ -1,4 +1,5 @@
 import { BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL } from 'scenes/insights/utils'
+import { getResultOrder } from 'scenes/insights/utils/resultSeries'
 
 import { TrendResult } from '~/types'
 
@@ -12,8 +13,6 @@ export interface ConversionValueByBreakdown {
 /** Series order in `conversionValueSeries`. */
 const TOTAL_ORDER = 0
 const AVERAGE_ORDER = 1
-
-const seriesOrder = (result: TrendResult): number => result.order ?? result.action?.order ?? 0
 
 /** Trends reports an untagged visit as its own sentinel, while the stats table reports SQL NULL,
  * which `webStatsRows` reads as an empty string. Both have to land on the same key or the two
@@ -34,7 +33,7 @@ export function conversionValueRows(results: TrendResult[] | undefined): Map<str
         const rows = (results ?? []).filter(
             // The fold row is an aggregate over values the stats table lists individually, so
             // merging it would attribute the whole tail to one row.
-            (result) => seriesOrder(result) === order && result.breakdown_value !== BREAKDOWN_OTHER_STRING_LABEL
+            (result) => getResultOrder(result) === order && result.breakdown_value !== BREAKDOWN_OTHER_STRING_LABEL
         )
         const current = rows.filter((result) => result.compare_label !== 'previous')
         const previous = new Map(

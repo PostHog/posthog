@@ -12,7 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sonatypenexus import (
     SonatypeNexusSourceConfig,
@@ -30,7 +29,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_n
     _fetch_page,
     _read_bounded,
     normalize_host,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.source import SonatypeNexusSource
 
@@ -167,17 +165,6 @@ class TestReadBounded:
                 _read_bounded(resp, max_bytes=1_000_000, max_seconds=600)
 
 
-class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code", [401, 403, 500])
-    def test_non_200_fails_validation(self, status_code):
-        with scripted_network(always(_page({}, status_code))):
-            assert validate_credentials("https://nexus.example.com", "user", "bad") is False
-
-    def test_network_error_fails_validation(self):
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            assert validate_credentials("https://nexus.example.com", "user", "pass") is False
-
-
 class TestGetRowsTopLevel:
     def test_repositories_single_fetch_yields_and_stops(self):
         result = _run("repositories", [_page(_REPOSITORIES)])
@@ -305,6 +292,83 @@ class TestGetRowsRepositoryFanout:
         )
 
         assert isinstance(result.raised, SonatypeNexusPaginationError)
+
+
+class TestGetRowsUsers:
+    @pytest.mark.parametrize(
+        "all_users, expected_external",
+        [
+            ([{"userId": "admin", "source": "default"}, {"userId": "jdoe", "source": "LDAP"}], [("LDAP", "jdoe")]),
+            # A user id is unique only within its source, so a SAML user named like a local user is kept.
+            ([{"userId": "admin", "source": "default"}, {"userId": "admin", "source": "SAML"}], [("SAML", "admin")]),
+            ([{"userId": "admin", "source": "default"}], []),
+            ([], []),
+        ],
+    )
+    def test_local_users_in_full_then_only_external_users_from_cross_source_search(self, all_users, expected_external):
+        local_users = [{"userId": "admin", "source": "default"}, {"userId": "ci-bot", "source": "default"}]
+
+        result = _run("users", [_page(local_users), _page(all_users)])
+
+        assert result.raised is None
+        assert result.params("source") == ["default", None]
+        assert [(row["source"], row["userId"]) for row in result.rows] == [
+            ("default", "admin"),
+            ("default", "ci-bot"),
+            *expected_external,
+        ]
+
+
+_QUOTA = {"type": "spaceUsedQuota", "limit": 1024}
+
+
+class TestGetRowsBlobStores:
+    @pytest.mark.parametrize(
+        "blob_store, script, expected_quota",
+        [
+            (
+                {"name": "default", "softQuota": _QUOTA},
+                [
+                    _page(
+                        {"isViolation": True, "message": "Blob store default is over quota", "blobStoreName": "default"}
+                    )
+                ],
+                (True, "Blob store default is over quota"),
+            ),
+            # Without a soft quota, or for an unavailable blob store, no quota status is requested.
+            ({"name": "default", "softQuota": None}, [], (None, None)),
+            ({"name": "default"}, [], (None, None)),
+            ({"name": "default", "softQuota": _QUOTA, "unavailable": True}, [], (None, None)),
+        ],
+    )
+    def test_quota_status_merged_into_blob_store_row(self, blob_store, script, expected_quota):
+        result = _run("blob_stores", [_page([blob_store]), *script])
+
+        assert result.raised is None
+        assert len(result.requests) == 1 + len(script)
+        assert [(row["name"], row["quotaViolation"], row["quotaMessage"]) for row in result.rows] == [
+            ("default", *expected_quota)
+        ]
+
+    def test_blob_store_deleted_before_quota_status_is_skipped_and_name_is_encoded(self):
+        result = _run(
+            "blob_stores",
+            [
+                _page([{"name": "s3 store/a", "softQuota": _QUOTA}, {"name": "default", "softQuota": _QUOTA}]),
+                _page({}, status_code=404),
+                _page({"isViolation": False, "message": "ok", "blobStoreName": "default"}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.urls[1] == "https://n.example.com/service/rest/v1/blobstores/s3%20store%2Fa/quota-status"
+        assert [row["name"] for row in result.rows] == ["default"]
+
+    def test_quota_status_forbidden_fails_the_sync(self):
+        result = _run("blob_stores", [_page([{"name": "default", "softQuota": _QUOTA}]), _page({}, status_code=403)])
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert result.rows == []
 
 
 class TestSonatypeNexusSource:

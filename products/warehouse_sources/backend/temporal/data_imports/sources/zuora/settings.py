@@ -1,3 +1,5 @@
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # Region/environment-specific REST hosts — credentials only work against
@@ -38,7 +40,33 @@ ZUORA_ENDPOINTS: dict[str, str] = {
     "orders": "orders",
 }
 
-ENDPOINTS = tuple(ZUORA_ENDPOINTS.keys())
+
+@frozen
+class ZuoraCommerceEndpoint:
+    path: str
+    data_selector: str
+    # Only paginated lists return a nextPageToken; the others return every row in one response.
+    paginated: bool = False
+    # Set for a one-response list that takes a page size but returns no next-page token.
+    page_size_param: str | None = None
+
+
+# Stream name -> Commerce API list endpoint. These lists expose no updated-date filter, so they
+# sync as full refresh. The spec documents an alternate array key for each response, so the
+# selectors match either key.
+ZUORA_COMMERCE_ENDPOINTS: dict[str, ZuoraCommerceEndpoint] = {
+    "billable_metrics": ZuoraCommerceEndpoint(
+        path="commerce/billable-metrics",
+        data_selector="(data[*]) | (response.data[*])",
+        page_size_param="pagination.page_size",
+    ),
+    "features": ZuoraCommerceEndpoint(path="commerce/features", data_selector="(features[*]) | (items[*])"),
+    "entitlement_grants": ZuoraCommerceEndpoint(
+        path="commerce/entitlements/grants", data_selector="(grants[*]) | (items[*])", paginated=True
+    ),
+}
+
+ENDPOINTS = (*ZUORA_ENDPOINTS, *ZUORA_COMMERCE_ENDPOINTS)
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: list(_UPDATED_DATE_INCREMENTAL_FIELDS) for name in ZUORA_ENDPOINTS

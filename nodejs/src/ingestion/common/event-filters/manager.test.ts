@@ -6,7 +6,7 @@ describe('EventFilterManager', () => {
     }
 
     async function buildManager(): Promise<{ manager: EventFilterManager; stop: () => Promise<void> }> {
-        const scope = new EventFilterManagerComponent(mockPostgres as any)
+        const scope = new EventFilterManagerComponent(mockPostgres as any, { pipeline: 'errortracking' })
         const started = await scope.start()
         return { manager: started.value, stop: started.stop }
     }
@@ -141,6 +141,57 @@ describe('EventFilterManager', () => {
         expect(manager.getFilter(1)).toBeNull()
 
         await stop()
+    })
+
+    function mockQueryRows(rowsByQueryName: Record<string, unknown[]>): void {
+        mockPostgres.query.mockImplementation((_use, _sql, _params, queryName: string) =>
+            Promise.resolve({ rows: rowsByQueryName[queryName] ?? [] })
+        )
+    }
+
+    it.each([
+        { name: 'filters', failingQuery: 'fetchAllEventFilters' },
+        { name: 'pipeline overrides', failingQuery: 'fetchEventFilterDropAllEventsTeams' },
+    ])('fails to start when the first load of $name fails', async ({ failingQuery }) => {
+        mockPostgres.query.mockImplementation((_use, _sql, _params, queryName: string) =>
+            queryName === failingQuery ? Promise.reject(new Error('connection refused')) : Promise.resolve({ rows: [] })
+        )
+
+        await expect(buildManager()).rejects.toThrow('connection refused')
+    })
+
+    it('keeps the loaded filters and overrides when a background reload fails', async () => {
+        mockQueryRows({
+            fetchAllEventFilters: [
+                {
+                    id: 'f1',
+                    team_id: 1,
+                    mode: 'live',
+                    filter_tree: { type: 'condition', field: 'event_name', operator: 'exact', value: 'a' },
+                },
+            ],
+            fetchEventFilterDropAllEventsTeams: [{ team_id: 2 }],
+        })
+        const { manager, stop } = await buildManager()
+        mockPostgres.query.mockRejectedValue(new Error('connection refused'))
+        const unhandledRejection = jest.fn()
+        process.on('unhandledRejection', unhandledRejection)
+        jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 61_000)
+
+        try {
+            manager.getFilter(1)
+            manager.dropsAllEvents(2)
+            await new Promise((resolve) => setImmediate(resolve))
+
+            expect(mockPostgres.query).toHaveBeenCalledTimes(4)
+            expect(unhandledRejection).not.toHaveBeenCalled()
+            expect(manager.getFilter(1)!.id).toBe('f1')
+            expect(manager.dropsAllEvents(2)).toBe(true)
+        } finally {
+            process.off('unhandledRejection', unhandledRejection)
+            jest.restoreAllMocks()
+            await stop()
+        }
     })
 
     it('handles multiple teams', async () => {

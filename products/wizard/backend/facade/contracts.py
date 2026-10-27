@@ -104,6 +104,8 @@ class LocalFolderWorkspace:
 @frozen
 class GitRepositoryWorkspace:
     repository: str
+    # None means the repository's default branch.
+    branch: str | None = None
     type: Literal["git_repository"] = "git_repository"
 
 
@@ -136,6 +138,19 @@ class CreateWizardRunInput:
     workspace: WizardWorkspace
     program_id: str
     wizard_version: str | None = None
+    idempotency_key: str | None = None
+
+
+@frozen
+class StartWizardInstallInput:
+    """
+    Starts the PostHog setup program in the cloud on a GitHub repository of the project.
+    """
+
+    team_id: int
+    created_by_id: int
+    repository: str
+    branch: str | None = None
     idempotency_key: str | None = None
 
 
@@ -214,6 +229,13 @@ class WizardRunDTO:
     deadline_at: datetime | None
     created_by: WizardRunCreatorDTO | None = None
     tasks: tuple[WizardRunTaskDTO, ...] = ()
+
+
+@frozen
+class WizardInstallStatusDTO:
+    run: WizardRunDTO
+    pull_request_url: str | None
+    next_step: str
 
 
 @frozen

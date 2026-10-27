@@ -10,5 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 class MeteostatSourceConfig(config.Config):
     api_key: str
     station_ids: str
+    locations: str | None = None
     units: Literal["metric", "imperial", "scientific"] = config.value(default="metric")
     start_date: str | None = None

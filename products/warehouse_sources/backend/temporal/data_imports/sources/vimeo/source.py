@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.vimeo.cano
 from products.warehouse_sources.backend.temporal.data_imports.sources.vimeo.settings import (
     AUTH_ERROR,
     ENDPOINTS,
+    FANOUT_ENDPOINTS,
     PERMISSION_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.vimeo.vimeo import (
@@ -74,7 +75,7 @@ class VimeoSource(ResumableSource[VimeoSourceConfig, VimeoResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, {}, names)
+        return build_endpoint_schemas([*ENDPOINTS, *FANOUT_ENDPOINTS], {}, names)
 
     def validate_credentials(
         self,
@@ -110,11 +111,11 @@ class VimeoSource(ResumableSource[VimeoSourceConfig, VimeoResumeConfig]):
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Vimeo",
             iconPath="/static/services/vimeo.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Open your app at [Vimeo Developers](https://developer.vimeo.com/apps). "
                 "Under **Generate an access token**, select **Authenticated (you)**. "
-                "Enable `public` and `private` scopes to read your videos, folders, and showcases."
+                "Enable `public` and `private` scopes to read your videos, folders, showcases, comments, and likes."
             ),
             fields=cast(
                 list[FieldType],

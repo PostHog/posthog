@@ -1,0 +1,34 @@
+diff --git a/build/cjs/utils/domFns.js b/build/cjs/utils/domFns.js
+index 8431a7f2529162109a92f82fa908341b5af54c53..3f701a7e2d277ad717a6a2b4163c55ed1fb5cecd 100644
+--- a/build/cjs/utils/domFns.js
++++ b/build/cjs/utils/domFns.js
+@@ -172,16 +172,10 @@ function getTouchIdentifier(e /*: MouseTouchEvent*/) /*: ?number*/{
+ // Note we're passing `document` b/c we could be iframed
++function preventUserSelect(event) {
++  event.preventDefault();
++}
+ function addUserSelectStyles(doc /*: ?Document*/) {
+   if (!doc) return;
+-  let styleEl = doc.getElementById('react-draggable-style-el');
+-  if (!styleEl) {
+-    styleEl = doc.createElement('style');
+-    styleEl.type = 'text/css';
+-    styleEl.id = 'react-draggable-style-el';
+-    styleEl.innerHTML = '.react-draggable-transparent-selection *::-moz-selection {all: inherit;}\n';
+-    styleEl.innerHTML += '.react-draggable-transparent-selection *::selection {all: inherit;}\n';
+-    doc.getElementsByTagName('head')[0].appendChild(styleEl);
+-  }
+-  if (doc.body) addClassName(doc.body, 'react-draggable-transparent-selection');
++  doc.addEventListener('selectstart', preventUserSelect);
+ }
+ function scheduleRemoveUserSelectStyles(doc /*: ?Document*/) {
+   // Prevent a possible "forced reflow"
+@@ -196,7 +190,7 @@ function scheduleRemoveUserSelectStyles(doc /*: ?Document*/) {
+ function removeUserSelectStyles(doc /*: ?Document*/) {
+   if (!doc) return;
+   try {
+-    if (doc.body) removeClassName(doc.body, 'react-draggable-transparent-selection');
++    doc.removeEventListener('selectstart', preventUserSelect);
+     // $FlowIgnore: IE
+     if (doc.selection) {
+       // $FlowIgnore: IE
