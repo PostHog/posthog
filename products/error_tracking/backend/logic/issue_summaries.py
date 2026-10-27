@@ -259,7 +259,7 @@ def regeneration_due(summary: ErrorTrackingIssueSummary | None, now: datetime) -
 
 
 def first_summary_due(summary: ErrorTrackingIssueSummary | None, _now: datetime) -> bool:
-    # A write sees only the first event, so any stored summary is at least as current as the one it would write.
+    # Generation on issue creation sees only the first event, so any stored summary already covers it.
     return summary is None
 
 
@@ -496,9 +496,9 @@ def _generate_claimed(
     if not generation.due(stored, timezone.now()):
         return IssueSummaryResult(outcome=IssueSummaryOutcome.FRESH, summary=stored)
 
+    budget_key, budget = generation.budget_key, generation.budget
     # The input queries run before `consume`, so an unchanged issue spends no token. This read keeps a team
     # with no tokens left from running them for every issue it opens. `consume` still makes the decision.
-    budget_key, budget = generation.budget_key, generation.budget
     if _budget_exhausted(budget_key, budget):
         return IssueSummaryResult(outcome=IssueSummaryOutcome.RATE_LIMITED, summary=stored)
 

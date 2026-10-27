@@ -355,26 +355,47 @@ class TestIssueSummaryGeneration(BaseTest):
         assert shown is not None
         assert (shown.generated_at, shown.checked_at) == (result.summary.generated_at, result.summary.checked_at)
 
-    def _write(self) -> IssueSummaryOutcome:
+    def _generate_on_creation(
+        self, budget_key: str | None = None, budget: Budget = issue_summaries.ISSUE_SUMMARY_BUDGET
+    ) -> IssueSummaryOutcome:
         return generate_issue_summary_from_event(
             self.team.id,
             self.issue.id,
             {},
-            budget_key=self._budget_key,
-            budget=issue_summaries.ISSUE_SUMMARY_BUDGET,
+            budget_key=budget_key or self._budget_key,
+            budget=budget,
         ).outcome
 
-    def test_write_generates_once_and_keeps_a_stored_summary(self) -> None:
+    def test_generation_on_creation_runs_once_and_keeps_a_stored_summary(self) -> None:
         with time_machine.travel(NOW, tick=False):
-            assert self._write() == IssueSummaryOutcome.GENERATED
+            assert self._generate_on_creation() == IssueSummaryOutcome.GENERATED
         self._release_lock()
         self.inputs = IssueSummaryInputs(prompt="Exception: TypeError", input_hash="hash-2")
 
         with time_machine.travel(NOW + timedelta(hours=25), tick=False):
-            assert self._write() == IssueSummaryOutcome.FRESH
+            assert self._generate_on_creation() == IssueSummaryOutcome.FRESH
         assert self.llm_calls == 1
         stored = issue_summaries.get_issue_summary(self.team.id, self.issue.id)
         assert stored is not None and stored.input_hash == "hash-1"
+
+    def test_generation_on_creation_reports_outcome_and_stage_timings(self) -> None:
+        capture = MagicMock()
+        self.enterContext(patch.object(issue_summaries, "ph_background_capture", return_value=capture))
+
+        assert self._generate_on_creation() == IssueSummaryOutcome.GENERATED
+
+        assert capture.call_args.kwargs["event"] == issue_summaries.ISSUE_SUMMARY_TASK_EVENT
+        properties = capture.call_args.kwargs["properties"]
+        assert properties["outcome"] == IssueSummaryOutcome.GENERATED.value
+        assert {"total_ms", "inputs_ms", "model_ms"} <= properties.keys()
+
+    def test_generation_on_creation_spends_the_budget_its_caller_passes(self) -> None:
+        creation_key = f"{self._budget_key}:on-creation"
+        tiny = Budget(burst=1, per_hour=1)
+        consume(creation_key, tiny)
+
+        assert self._generate_on_creation(budget_key=creation_key, budget=tiny) == IssueSummaryOutcome.RATE_LIMITED
+        assert self.llm_calls == 0
 
     def test_merge_keeps_target_summary_and_deletes_source_summary(self) -> None:
         source = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
@@ -702,9 +723,17 @@ class TestIssueSummaryInputs(ClickhouseTestMixin, BaseTest):
         assert from_event.input_hash == from_clickhouse.input_hash
         assert "Impact in range: 1 occurrences, 1 users, 1 sessions" in from_event.prompt
 
+        without_session = {key: value for key, value in properties.items() if key != "$session_id"}
+        from_sessionless_event = build_issue_summary_inputs_from_event(self.team, issue.id, without_session)
+        assert isinstance(from_sessionless_event, IssueSummaryInputs)
+        assert "Impact in range: 1 occurrences, 1 users, 0 sessions" in from_sessionless_event.prompt
+
     def test_issue_without_exception_events_has_no_inputs(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
 
         assert (
             build_issue_summary_inputs(self.team, issue.id, IssueSummaryTimings()) == IssueSummaryOutcome.NO_EXCEPTION
+        )
+        assert build_issue_summary_inputs_from_event(self.team, issue.id, {"$lib": "web"}) == (
+            IssueSummaryOutcome.NO_EXCEPTION
         )
