@@ -1324,7 +1324,12 @@ class DashboardBasicSerializer(
         read_only_fields = fields
         extra_kwargs = {
             "name": {"help_text": "Name of the dashboard."},
-            "description": {"help_text": "Description of the dashboard."},
+            "description": {
+                "help_text": (
+                    "Short note for people who open the dashboard. Say what it shows in one or two sentences, "
+                    "about 30 words. Leave it empty when the name already says it. Do not write how it was built or changed."
+                )
+            },
             "pinned": {"help_text": "Whether the dashboard is pinned to the top of the list."},
         }
 

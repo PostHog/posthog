@@ -1983,6 +1983,9 @@ class Database(BaseModel):
             DataWarehouseTable,
             ExternalDataSource,
         )
+        from products.warehouse_sources.backend.facade.source_inputs import (  # noqa: PLC0415 - avoids the model import cycle
+            SourceInputsStore,
+        )
         from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode  # noqa: PLC0415
 
         with timings.measure("team", emit_span=True):
@@ -2190,7 +2193,7 @@ class Database(BaseModel):
                 warehouse_tables: list[DataWarehouseTable] = []
                 # The virtual builder reads job_inputs (deferred above); hydrate it here so the
                 # build phase stays query-free.
-                _ = virtual_source.job_inputs
+                SourceInputsStore.load(virtual_source)
                 with timings.measure("select_virtual_schemas", emit_span=True):
                     # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
                     from products.data_warehouse.backend.facade.direct_query import (  # noqa: PLC0415
