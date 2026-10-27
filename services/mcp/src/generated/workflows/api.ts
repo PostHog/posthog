@@ -45,6 +45,10 @@ export const HogFlowsListQueryParams = () => zod.object({
         .describe(
             'Case-insensitive search. Matches workflow name, description and tag names first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.'
         ),
+    source_record: zod
+        .string()
+        .optional()
+        .describe("Filter to workflows started from this record, as '<kind>:<id>', e.g. `early_access:<id>`."),
     status: zod
         .enum(['active', 'archived', 'draft'])
         .optional()
@@ -85,6 +89,9 @@ export const hogFlowsCreateBodyTagsItemMax = 255
 
 export const hogFlowsCreateBodyTagsMax = 10
 
+export const hogFlowsCreateBodySourceRecordMax = 255
+
+export const hogFlowsCreateBodySourceRecordRegExp = new RegExp('^[a-z_]+:[A-Za-z0-9_-]+$')
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMin = 60
 export const hogFlowsCreateBodyTriggerMaskingOneTtlMax = 94608000
 
@@ -133,6 +140,14 @@ export const HogFlowsCreateBody = () => zod
             .optional()
             .describe(
                 'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails'
+            ),
+        source_record: zod
+            .string()
+            .max(hogFlowsCreateBodySourceRecordMax)
+            .regex(hogFlowsCreateBodySourceRecordRegExp)
+            .nullish()
+            .describe(
+                "The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`."
             ),
         trigger_masking: zod
             .union([

@@ -10,7 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { DateRange, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { DateRange, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { MaxContextInput, createMaxContextHelpers } from '~/scenes/max/maxTypes'
 import { ActivityScope, Breadcrumb, ChartDisplayType, HogQLMathType } from '~/types'
 
@@ -59,6 +59,7 @@ import { EvaluationBackTarget, getEvaluationBackTarget } from './evaluationNavig
 import { evaluationReportLogic, persistReportDraft } from './evaluationReportLogic'
 import { getHogEvalExample } from './hogEvalExamples'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
+import { markEvaluationsOverviewStale } from './overview/evaluationsOverviewLogic'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import type {
     EvaluationConditionSet,
@@ -358,6 +359,7 @@ export interface llmEvaluationLogicValues {
     selectedPickerProviderKeyId: string | null
     sidePanelContext: SidePanelSceneContext | null
     trendInsightUrl: string | null
+    trendsQuery: TrendsQuery | null
     usesDecisionModel: boolean
 }
 
@@ -565,7 +567,8 @@ export interface llmEvaluationLogicMeta {
             evaluation: EvaluationConfig | null,
             originalEvaluation: EvaluationConfig | null
         ) => boolean
-        trendInsightUrl: (originalEvaluation: EvaluationConfig | null) => string | null
+        trendsQuery: (originalEvaluation: EvaluationConfig | null) => TrendsQuery | null
+        trendInsightUrl: (trendsQuery: TrendsQuery | null) => string | null
         isNewEvaluation: (evaluationId: string) => boolean
         evaluationBackTarget: (isNewEvaluation: boolean, searchParams: Record<string, any>) => EvaluationBackTarget
         modelSelectionRequired: (
@@ -1426,6 +1429,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 // The list and the self-driving table read from llmEvaluationsLogic, which only
                 // fetches on mount. Refresh it here so they show the eval we just saved.
                 llmEvaluationsLogic.findMounted()?.actions.loadEvaluations()
+                markEvaluationsOverviewStale()
                 if (isNew) {
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpLlmEvaluation)
                     // Saving navigates away, so the offer to cover past data travels with the user.
@@ -1542,75 +1546,80 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 originalEvaluation: EvaluationConfig | null
             ): boolean => evaluationSupportsReports(isNewEvaluation ? evaluation : originalEvaluation),
         ],
-        trendInsightUrl: [
+        // The evaluation's headline result as a trends query: the pass rate, or the mean score without a passing rule.
+        trendsQuery: [
             (s) => [s.originalEvaluation],
-            (evaluation: EvaluationConfig | null): string | null =>
+            (evaluation: EvaluationConfig | null): TrendsQuery | null =>
                 evaluation &&
                 (evaluationSupportsRunOutcomes(evaluation) || evaluation.output_type === 'numeric') &&
                 evaluation.id
-                    ? urls.insightNew({
-                          query: {
-                              kind: NodeKind.InsightVizNode,
-                              source: {
-                                  kind: NodeKind.TrendsQuery,
-                                  series: [
+                    ? ({
+                          kind: NodeKind.TrendsQuery,
+                          series: [
+                              {
+                                  kind: NodeKind.EventsNode,
+                                  event: '$ai_evaluation',
+                                  custom_name: `${evaluation.name} - ${evaluation.output_type === 'numeric' && !evaluation.output_config.passing_rule ? 'Mean score' : 'Pass rate'}`,
+                                  math: HogQLMathType.HogQL,
+                                  math_hogql:
+                                      evaluation.output_type === 'categorical'
+                                          ? evaluationPassRateHogQL(
+                                                categoricalEvaluationPassedHogQL(evaluation),
+                                                EVALUATION_CATEGORICAL_GRADED_HOGQL
+                                            )
+                                          : evaluation.output_type === 'numeric'
+                                            ? evaluation.output_config.passing_rule
+                                                ? evaluationPassRateHogQL(
+                                                      numericEvaluationPassedHogQL(evaluation),
+                                                      EVALUATION_NUMERIC_GRADED_HOGQL
+                                                  )
+                                                : EVALUATION_NUMERIC_MEAN_HOGQL
+                                            : evaluationPassRateHogQL(evaluationPassedHogQL(evaluation)),
+                                  properties: [
                                       {
-                                          kind: NodeKind.EventsNode,
-                                          event: '$ai_evaluation',
-                                          custom_name: `${evaluation.name} - ${evaluation.output_type === 'numeric' && !evaluation.output_config.passing_rule ? 'Mean score' : 'Pass rate'}`,
-                                          math: HogQLMathType.HogQL,
-                                          math_hogql:
-                                              evaluation.output_type === 'categorical'
-                                                  ? evaluationPassRateHogQL(
-                                                        categoricalEvaluationPassedHogQL(evaluation),
-                                                        EVALUATION_CATEGORICAL_GRADED_HOGQL
-                                                    )
-                                                  : evaluation.output_type === 'numeric'
-                                                    ? evaluation.output_config.passing_rule
-                                                        ? evaluationPassRateHogQL(
-                                                              numericEvaluationPassedHogQL(evaluation),
-                                                              EVALUATION_NUMERIC_GRADED_HOGQL
-                                                          )
-                                                        : EVALUATION_NUMERIC_MEAN_HOGQL
-                                                    : evaluationPassRateHogQL(evaluationPassedHogQL(evaluation)),
-                                          properties: [
-                                              {
-                                                  key: '$ai_evaluation_id',
-                                                  value: evaluation.id,
-                                                  operator: 'exact',
-                                                  type: 'event',
-                                              },
-                                          ],
+                                          key: '$ai_evaluation_id',
+                                          value: evaluation.id,
+                                          operator: 'exact',
+                                          type: 'event',
                                       },
-                                      ...(evaluation.output_type === 'boolean' && evaluation.output_config.allows_na
-                                          ? [
-                                                {
-                                                    kind: NodeKind.EventsNode as const,
-                                                    event: '$ai_evaluation',
-                                                    custom_name: `${evaluation.name} — N/A rate`,
-                                                    math: HogQLMathType.HogQL as const,
-                                                    math_hogql: `if(count() > 0, countIf(properties.$ai_evaluation_result IS NULL) / count() * 100, 0)`,
-                                                    properties: [
-                                                        {
-                                                            key: '$ai_evaluation_id',
-                                                            value: evaluation.id,
-                                                            operator: 'exact' as const,
-                                                            type: 'event' as const,
-                                                        },
-                                                    ],
-                                                },
-                                            ]
-                                          : []),
                                   ],
-                                  trendsFilter: {
-                                      display: ChartDisplayType.ActionsLineGraph,
-                                  },
-                                  dateRange: {
-                                      date_from: '-7d',
-                                  },
-                                  interval: 'day',
                               },
-                          } as InsightVizNode,
+                              ...(evaluation.output_type === 'boolean' && evaluation.output_config.allows_na
+                                  ? [
+                                        {
+                                            kind: NodeKind.EventsNode as const,
+                                            event: '$ai_evaluation',
+                                            custom_name: `${evaluation.name} — N/A rate`,
+                                            math: HogQLMathType.HogQL as const,
+                                            math_hogql: `if(count() > 0, countIf(properties.$ai_evaluation_result IS NULL) / count() * 100, 0)`,
+                                            properties: [
+                                                {
+                                                    key: '$ai_evaluation_id',
+                                                    value: evaluation.id,
+                                                    operator: 'exact' as const,
+                                                    type: 'event' as const,
+                                                },
+                                            ],
+                                        },
+                                    ]
+                                  : []),
+                          ],
+                          trendsFilter: {
+                              display: ChartDisplayType.ActionsLineGraph,
+                          },
+                          dateRange: {
+                              date_from: '-7d',
+                          },
+                          interval: 'day',
+                      } as TrendsQuery)
+                    : null,
+        ],
+        trendInsightUrl: [
+            (s) => [s.trendsQuery],
+            (trendsQuery: TrendsQuery | null): string | null =>
+                trendsQuery
+                    ? urls.insightNew({
+                          query: { kind: NodeKind.InsightVizNode, source: trendsQuery } as InsightVizNode,
                       })
                     : null,
         ],

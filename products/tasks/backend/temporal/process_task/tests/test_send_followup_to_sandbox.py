@@ -28,6 +28,7 @@ from products.tasks.backend.temporal.process_task.activities.send_followup_to_sa
 from products.tasks.backend.temporal.process_task.utils import (
     McpServerConfig,
     PrAuthorshipMode,
+    UserMcpServerConfigs,
     _sandbox_identity_cache_key,
     get_sandbox_github_identity_user,
     get_sandbox_mcp_session_user,
@@ -95,7 +96,7 @@ def _refresh(task_run, actor_id: int | None = 42, scopes="read_only", auth_token
 def _arm_success(mock_oauth, mock_ph_configs, mock_user_configs, mock_send_refresh):
     mock_oauth.return_value = "fresh-token"
     mock_ph_configs.return_value = [_make_mcp_config(token="fresh-token")]
-    mock_user_configs.return_value = []
+    mock_user_configs.return_value = UserMcpServerConfigs(configs=[])
     mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
 
 
@@ -159,7 +160,7 @@ class TestRefreshSandboxMcp:
         this, the run's client-imported servers vanish at the first token refresh."""
         mock_oauth.return_value = "fresh-token"
         mock_ph_configs.return_value = [_make_mcp_config(token="fresh-token")]
-        mock_user_configs.return_value = []
+        mock_user_configs.return_value = UserMcpServerConfigs(configs=[])
         mock_send_refresh.return_value = CommandResult(success=True, status_code=200)
 
         task_run = _make_task_run_mock()
@@ -272,7 +273,7 @@ class TestRefreshSandboxMcp:
         # caller fails the follow-up closed) and the previous binding is left as is.
         mock_oauth.return_value = "fresh-token"
         mock_ph_configs.return_value = [_make_mcp_config()]
-        mock_user_configs.return_value = []
+        mock_user_configs.return_value = UserMcpServerConfigs(configs=[])
         mock_send_refresh.return_value = CommandResult(success=False, status_code=502, error="down")
         mark_sandbox_mcp_session("run-1", 99)
 
@@ -291,7 +292,7 @@ class TestRefreshSandboxMcp:
         # rebind, the gate reports unsafe so the caller fails closed.
         mock_oauth.return_value = "fresh-token"
         mock_ph_configs.return_value = [_make_mcp_config()]
-        mock_user_configs.return_value = []
+        mock_user_configs.return_value = UserMcpServerConfigs(configs=[])
         mock_send_refresh.return_value = CommandResult(success=False, status_code=502, error="down")
 
         actor = MagicMock(id=42)
@@ -393,7 +394,7 @@ class TestSessionIdentityGate:
         # Reject the turn rather than run it against the prior actor's session.
         mock_oauth.return_value = "fresh-token"
         mock_ph_configs.return_value = []
-        mock_user_configs.return_value = []
+        mock_user_configs.return_value = UserMcpServerConfigs(configs=[])
         mark_sandbox_mcp_session("run-1", 99)
 
         actor = MagicMock(id=42)
@@ -411,7 +412,7 @@ class TestSessionIdentityGate:
         # because MCP is unavailable. The binding is recorded for later transitions.
         mock_oauth.return_value = "fresh-token"
         mock_ph_configs.return_value = []
-        mock_user_configs.return_value = []
+        mock_user_configs.return_value = UserMcpServerConfigs(configs=[])
 
         actor = MagicMock(id=42)
         failure = _refresh_sandbox_mcp(_make_task_run_mock(), "read_only", None, actor_user=actor, state=None)

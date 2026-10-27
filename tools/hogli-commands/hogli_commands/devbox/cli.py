@@ -346,6 +346,34 @@ def _render_sync_status(workspace_name: str) -> str:
     return click.style(f"● {status}", fg="green")
 
 
+def _pause_sync(name: str) -> bool:
+    """Pause the devbox's running sync session while the box is stopped, and return whether it did.
+
+    mutagen redials a lost box forever. Paused, it leaves the box and Coder
+    alone until `devbox:start` resumes it. A failed pause only warns: stopping
+    the box matters more, and the SSH shim already stops the sync from
+    starting it again.
+    """
+    selector = mutagen.workspace_label_selector(name)
+    if all(session.get("paused") for session in mutagen.sync_list(label_selector=selector)):
+        return False
+    try:
+        mutagen.sync_pause(selector)
+    except SystemExit:
+        click.echo(click.style(f"Could not pause the sync to '{name}'. Stopping the box anyway.", fg="yellow"))
+        return False
+    click.echo(f"Paused the sync to '{name}'. `hogli devbox:start` resumes it.")
+    return True
+
+
+def _resume_sync(name: str) -> None:
+    """Resume the devbox's sync session if `devbox:stop` paused it."""
+    selector = mutagen.workspace_label_selector(name)
+    if any(session.get("paused") for session in mutagen.sync_list(label_selector=selector)):
+        mutagen.sync_resume(selector)
+        click.echo(f"Resumed the sync to '{name}'.")
+
+
 def _start_existing_workspace(
     name: str, workspace: dict[str, Any], *, start_app: bool | None = None, verbose: bool
 ) -> None:
@@ -376,6 +404,7 @@ def _start_existing_workspace(
             start_workspace(name, verbose=verbose)
         _wait_until_ready(name)
         click.echo("Started.")
+        _resume_sync(name)
         _print_connection_info(name)
         return
 
@@ -383,6 +412,7 @@ def _start_existing_workspace(
     click.echo("Attempting to start...")
     start_workspace(name, verbose=verbose)
     _wait_until_ready(name)
+    _resume_sync(name)
     _print_connection_info(name)
 
 
@@ -1597,14 +1627,25 @@ def devbox_stop(workspace: str | None, verbose: bool) -> None:
     name, workspaces = resolve_workspace_name(workspace)
     ws = _get_workspace_or_fail(name, workspaces)
 
+    # Also for a box that Coder stopped on its schedule, whose sync still redials it.
+    paused = _pause_sync(name)
+
     status = get_workspace_status(ws)
     if status == "stopped":
         click.echo(f"Devbox '{name}' is already stopped.")
         return
 
     click.echo(f"Stopping '{name}'...")
-    stop_workspace(name, verbose=verbose)
-    click.echo("Stopped. Disk preserved. Run 'hogli devbox:start' to resume.")
+    try:
+        stop_workspace(name, verbose=verbose)
+    except (Exception, SystemExit):
+        if paused:
+            mutagen.sync_resume(mutagen.workspace_label_selector(name))
+            click.echo(f"The box still runs, so the sync to '{name}' is resumed.")
+        raise
+    start_command = f"hogli devbox:start {workspace}" if workspace else "hogli devbox:start"
+    click.echo("Stopped. Billing for the box stops now.")
+    click.echo(f"The disk and your files stay until you destroy the box. Run '{start_command}' to resume it.")
 
 
 @click.command(name="devbox:restart", help="Restart your devbox")

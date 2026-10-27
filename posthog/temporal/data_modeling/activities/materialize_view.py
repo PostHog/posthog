@@ -288,8 +288,9 @@ class _CDPRowSink:
             if self.enabled:
                 await self._producer.clear()
         except Exception as e:
-            capture_exception(e)
             await self._logger.awarning(f"Could not prepare CDP row staging; skipping it for this run: {e}")
+            if not is_transient_db_error(e):
+                capture_exception(e)
             self.enabled = False
 
     async def stage(self, batch: pa.RecordBatch) -> None:

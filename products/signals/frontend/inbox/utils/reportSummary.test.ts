@@ -1,4 +1,4 @@
-import { parseReportSummary } from './reportSummary'
+import { isGeneratedPlanSection, parseReportSummary } from './reportSummary'
 
 describe('parseReportSummary', () => {
     const PROMPT_SHAPED =
@@ -83,6 +83,15 @@ describe('parseReportSummary', () => {
         expect(parsed.lead).toEqual('Lead [Daily][d].\n\n[d]: chart:daily')
         expect(parsed.sections[0].body).toEqual('[Daily][d]\n\n[d]: chart:daily')
         expect(summary.slice(parsed.sections[0].bodyOffset)).toMatch(/^\[Daily\]\[d\]/)
+    })
+
+    it.each([
+        ["This is layer 2 of 3 of the plan 'feat(x): the plan'.", true],
+        ['Ship the schema first, then the API.', false],
+    ])('marks only the plan note the pipeline writes as generated: %s', (body, expected) => {
+        const [section] = parseReportSummary(`Scope.\n\n## Plan\n\n${body}`).sections
+
+        expect(isGeneratedPlanSection(section)).toBe(expected)
     })
 
     it('treats an empty or missing summary as an empty lead', () => {
