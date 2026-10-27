@@ -200,7 +200,7 @@ export function RetentionLineChart({
                 series,
                 tooltip: {
                     ...INSIGHT_TOOLTIP_CONFIG,
-                    resolveClickToNearestSeries: resultMenuEnabled && !inSharedMode,
+                    contextMenuPointClick: resultMenuEnabled && !inSharedMode,
                 },
                 isIntervalView,
                 period,

@@ -265,7 +265,7 @@ export function TrendsBarChart({
                 yAxisLabel: trendsFilter?.yAxisLabel,
                 goalLines,
                 valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
-                tooltip: { ...INSIGHT_TOOLTIP_CONFIG, resolveClickToNearestSeries: context?.dashboardResultMenu },
+                tooltip: { ...INSIGHT_TOOLTIP_CONFIG, contextMenuPointClick: context?.dashboardResultMenu },
             }),
             // Interactive legend (toggle callbacks, context menu) is a component concern, kept out
             // of the pure transform so the builder stays free of React state.
@@ -312,7 +312,7 @@ export function TrendsBarChart({
         }
         return {
             showGrid: true,
-            tooltip: { ...AGGREGATED_TOOLTIP_CONFIG, resolveClickToNearestSeries: context?.dashboardResultMenu },
+            tooltip: { ...AGGREGATED_TOOLTIP_CONFIG, contextMenuPointClick: context?.dashboardResultMenu },
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             axisOrientation: 'horizontal',
             barLayout: 'stacked',

@@ -42,7 +42,7 @@ export interface ChartShellProps {
     /** Number of x labels. Tests read it to hover a label by index. */
     labelCount?: number
     handlers: Required<Pick<React.DOMAttributes<HTMLDivElement>, 'onMouseMove' | 'onMouseLeave' | 'onClick'>> &
-        Pick<React.DOMAttributes<HTMLDivElement>, 'onMouseDown' | 'onPointerDown'>
+        Pick<React.DOMAttributes<HTMLDivElement>, 'onMouseDown' | 'onPointerDown' | 'onContextMenu'>
     /** Render the overlay layer — bases gate this on layout readiness (dimensions + scales). */
     showOverlay: boolean
     children?: React.ReactNode
@@ -84,6 +84,7 @@ export function ChartShell({
             onMouseMove={handlers.onMouseMove}
             onMouseLeave={handlers.onMouseLeave}
             onClick={handlers.onClick}
+            onContextMenu={handlers.onContextMenu}
             onPointerDown={handlers.onPointerDown}
         >
             <canvas ref={canvasRef} role="img" aria-label={ariaLabel} className={STATIC_CANVAS_CLASS} />

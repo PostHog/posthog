@@ -132,7 +132,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
                 yAxisScaleType,
                 isGrouped,
                 valueLabels: showValuesOnSeries ? { formatter: stickinessPercentFormatter } : false,
-                tooltip: { ...tooltipConfig, resolveClickToNearestSeries: context?.dashboardResultMenu },
+                tooltip: { ...tooltipConfig, contextMenuPointClick: context?.dashboardResultMenu },
             }),
             // Interactive legend is a component concern, kept out of the pure transform.
             legend: legendConfig,

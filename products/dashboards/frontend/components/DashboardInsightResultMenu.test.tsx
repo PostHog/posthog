@@ -59,7 +59,7 @@ describe('dashboard result menu', () => {
                 <button onClick={() => openPersonsModal(request)}>Lifecycle point</button>
             </DashboardInsightResultMenu>
         )
-        fireEvent.click(screen.getByText('Lifecycle point'))
+        fireEvent.contextMenu(screen.getByText('Lifecycle point'))
         await waitFor(() => expect(screen.getByText('Open in SQL editor').closest('a')).not.toBeNull())
         expect(screen.queryByText('View recordings')).not.toBeInTheDocument()
         expect(queryRunner.performQuery).toHaveBeenCalledWith(
@@ -97,7 +97,7 @@ describe('dashboard result menu', () => {
                 <div>Snapshot chart</div>
             </DashboardInsightResultMenu>
         )
-        fireEvent.click(screen.getByText('Snapshot chart'))
+        fireEvent.contextMenu(screen.getByText('Snapshot chart'))
         for (const label of ['View underlying rows', 'Open in SQL editor']) {
             const link = screen.getByText(label).closest('a')!
             expect(JSON.parse(new URL(link.href).searchParams.get('open_query')!)).toEqual({
@@ -141,7 +141,7 @@ describe('dashboard result menu', () => {
                     <button onClick={() => openPersonsModal(request)}>Chart point</button>
                 </DashboardInsightResultMenu>
             )
-            fireEvent.click(screen.getByText('Chart point'))
+            expect(fireEvent.contextMenu(screen.getByText('Chart point'))).toBe(false)
             expect(openedModal).not.toHaveBeenCalled()
             expect(screen.getByText('Selected country')).toBeInTheDocument()
             expect(screen.queryByText('Explore in new insight')).not.toBeInTheDocument()
@@ -153,7 +153,9 @@ describe('dashboard result menu', () => {
             ])
             fireEvent.click(screen.getByText('Chart point'))
             expect(screen.queryByRole('menu')).not.toBeInTheDocument()
-            fireEvent.click(screen.getByText('Chart point'))
+            expect(openedModal).toHaveBeenCalledWith(request)
+            openedModal.mockClear()
+            fireEvent.contextMenu(screen.getByText('Chart point'))
             const rows = screen.getByText('View people')
             const href = rows.closest('a')!.getAttribute('href')!
             expect(decodeURIComponent(href)).toContain('"kind":"ActorsQuery"')
@@ -200,7 +202,7 @@ describe('dashboard result menu', () => {
                 <button onClick={() => openPersonsModal(request)}>Funnel point</button>
             </DashboardInsightResultMenu>
         )
-        fireEvent.click(screen.getByText('Funnel point'))
+        fireEvent.contextMenu(screen.getByText('Funnel point'))
         await waitFor(() => expect(screen.getByText('Open in SQL editor').closest('a')).not.toBeNull())
         expect(queryRunner.performQuery).toHaveBeenCalledWith(
             expect.objectContaining({ source: request.query }),
@@ -236,9 +238,9 @@ describe('dashboard result menu', () => {
                 <button onClick={() => openPersonsModal(point('2026-01-02'))}>Second point</button>
             </DashboardInsightResultMenu>
         )
-        fireEvent.click(screen.getByText('First point'))
+        fireEvent.contextMenu(screen.getByText('First point'))
         await waitFor(() => expect(queryRunner.performQuery).toHaveBeenCalledTimes(1))
-        fireEvent.click(screen.getByText('Second point'))
+        fireEvent.contextMenu(screen.getByText('Second point'))
         await waitFor(() => expect(queryRunner.performQuery).toHaveBeenCalledTimes(2))
         const firstCall = jest.mocked(queryRunner.performQuery).mock.calls[0]
         const secondCall = jest.mocked(queryRunner.performQuery).mock.calls[1]
@@ -248,8 +250,7 @@ describe('dashboard result menu', () => {
         expect(secondCall[1]?.signal?.aborted).toBe(false)
         await act(async () => resolveFirst({ hogql: 'SELECT 1', results: [] } as unknown as ActorsQueryResponse))
         expect(screen.getByText('Open in SQL editor').closest('a')).toBeNull()
-        fireEvent.click(screen.getByText('Second point'))
-        fireEvent.click(screen.getByText('Second point'))
+        fireEvent.contextMenu(screen.getByText('Second point'))
         await waitFor(() => expect(screen.getByText('Open in SQL editor').closest('a')).not.toBeNull())
         const link = screen.getByText('Open in SQL editor').closest('a')!
         expect(new URL(link.href).searchParams.get('open_query')).toBe('SELECT 2')
@@ -281,7 +282,7 @@ describe('dashboard result menu', () => {
                 </button>
             </DashboardInsightResultMenu>
         )
-        fireEvent.click(screen.getByText('Chart point'))
+        fireEvent.contextMenu(screen.getByText('Chart point'))
         await waitFor(() => expect(queryRunner.performQuery).toHaveBeenCalledTimes(1))
         const call = jest.mocked(queryRunner.performQuery).mock.calls[0]
         if (finish === 'complete') {
@@ -316,7 +317,7 @@ describe('dashboard result menu', () => {
                 <button onClick={() => openPersonsModal(request)}>Chart point</button>
             </DashboardInsightResultMenu>
         )
-        fireEvent.click(screen.getByText('Chart point'))
+        fireEvent.contextMenu(screen.getByText('Chart point'))
         expect(screen.queryByText('View recordings')).not.toBeInTheDocument()
         fireEvent.scroll(window)
         expect(screen.queryByRole('menu')).not.toBeInTheDocument()

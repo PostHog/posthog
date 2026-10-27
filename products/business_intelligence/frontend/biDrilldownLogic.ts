@@ -1,7 +1,5 @@
 import { MakeLogicType, actions, kea, key, path, props, reducers, selectors, listeners } from 'kea'
 
-import { objectsEqual } from 'lib/utils/objects'
-
 import { VisualizationNode, NodeKind, DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 
 import { BIDrillSelection, getBIDrillQueries, getBIDrillSelection, getBIEffectiveQuery } from './biDrilldown'
@@ -13,13 +11,11 @@ export interface BIDrilldownProps {
     query: VisualizationNode
     filtersOverride?: DashboardFilter | null
     variablesOverride?: Record<string, HogQLVariable> | null
-    dashboardMenu?: boolean
 }
 
 export interface BIDrillInteraction {
     x: number
     y: number
-    clickCount: number
     timestamp?: number
 }
 
@@ -82,7 +78,7 @@ export const biDrilldownLogic = kea<biDrilldownLogicType>([
         close: true,
         viewRows: true,
     }),
-    reducers(({ props }) => ({
+    reducers({
         interaction: [
             null as BIDrillInteraction | null,
             { setInteraction: (_, { interaction }) => interaction, close: () => null },
@@ -90,13 +86,12 @@ export const biDrilldownLogic = kea<biDrilldownLogicType>([
         record: [
             null as Record<string, unknown> | null,
             {
-                inspect: (previous, { record }) =>
-                    props.dashboardMenu ? (objectsEqual(previous, record) ? null : record) : record,
+                inspect: (_, { record }) => record,
                 close: () => null,
             },
         ],
         showRows: [false, { inspect: () => false, viewRows: () => true, close: () => false }],
-    })),
+    }),
     selectors({
         hierarchyDrills: [
             (s) => [s.selection, s.query],
@@ -126,10 +121,6 @@ export const biDrilldownLogic = kea<biDrilldownLogicType>([
     }),
     listeners(({ values, actions }) => ({
         inspect: () => {
-            if (!values.record) {
-                actions.close()
-                return
-            }
             if (values.query.kind === NodeKind.BIVisualizationNode && values.selection) {
                 captureBIWorksheetAction('drilldown_opened', values.query.config, {
                     previous_period: values.selection.previous,

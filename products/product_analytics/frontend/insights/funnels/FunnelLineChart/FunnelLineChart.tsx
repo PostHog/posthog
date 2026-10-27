@@ -148,7 +148,7 @@ export function FunnelLineChart({
                 showTrendLines: funnelsFilter?.showTrendLines ?? false,
                 valueLabels: showValuesOnSeries ? { formatter: (value) => `${value}%` } : false,
                 showCrosshair: true,
-                tooltip: { ...INSIGHT_TOOLTIP_CONFIG, resolveClickToNearestSeries: context?.dashboardResultMenu },
+                tooltip: { ...INSIGHT_TOOLTIP_CONFIG, contextMenuPointClick: context?.dashboardResultMenu },
             }),
             curve: chartStyleCurve(funnelsFilter?.chartStyle),
             legend: legendConfig,

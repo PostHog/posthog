@@ -140,7 +140,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
                 valueLabels: showValuesOnSeries || showPercentagesOnSeries ? { formatter: valueLabelFormatter } : false,
-                tooltip: { ...LIFECYCLE_TOOLTIP_CONFIG, resolveClickToNearestSeries: context?.dashboardResultMenu },
+                tooltip: { ...LIFECYCLE_TOOLTIP_CONFIG, contextMenuPointClick: context?.dashboardResultMenu },
                 legend: legendConfig,
             }),
         [

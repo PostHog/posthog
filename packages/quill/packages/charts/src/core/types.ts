@@ -387,6 +387,10 @@ export interface TooltipConfig {
      *  step. Opt-in per chart; default false keeps the pin-first flow for ambiguous multi-series
      *  charts (e.g. overlapping trend lines) where a wrong guess is costly. */
     resolveClickToNearestSeries?: boolean
+    /** Fire `onPointClick` on a right click too, for the series nearest the cursor. A right click
+     *  never pins or unpins the tooltip, and the browser menu still opens unless the consumer calls
+     *  `preventDefault()` on the `contextmenu` event. Opt-in for hosts that show their own menu. */
+    contextMenuPointClick?: boolean
     /** Where the tooltip anchors. `follow-data` (default) tracks the highest data point at the
      *  hovered x; `top` fixes the tooltip to the top of the chart so it doesn't jump vertically
      *  as the cursor moves between data points; `cursor` tracks the mouse, so the tooltip sits
