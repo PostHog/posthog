@@ -4,14 +4,12 @@ import { IconDocument, IconFolder, IconFolderOpen, IconGithub, IconPencil, IconT
 import { LemonButton, LemonDialog, LemonTag } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { pluralize } from 'lib/utils/strings'
 
 import { LIBRARY_SCOPE_ALL, LIBRARY_SCOPE_UNFILED, businessKnowledgeLogic } from './businessKnowledgeLogic'
 import { LibrarySummaryPanel } from './LibrarySummaryPanel'
 
 export function LibrarySummary(): JSX.Element | null {
-    const githubEnabled = useFeatureFlag('BUSINESS_KNOWLEDGE_GITHUB_REPOS')
     const { libraryScope, selectedLibrary, libraries, librariesLoading, savingLibrary } =
         useValues(businessKnowledgeLogic)
     const { openLibraryDialog, deleteSelectedLibrary } = useActions(businessKnowledgeLogic)
@@ -44,10 +42,10 @@ export function LibrarySummary(): JSX.Element | null {
         return null
     }
 
-    const counts = [pluralize(selectedLibrary.source_count, 'source')]
-    if (githubEnabled) {
-        counts.push(pluralize(selectedLibrary.repos.length, 'repository', 'repositories'))
-    }
+    const counts = [
+        pluralize(selectedLibrary.source_count, 'source'),
+        pluralize(selectedLibrary.repos.length, 'repository', 'repositories'),
+    ]
 
     return (
         <LibrarySummaryPanel
@@ -65,17 +63,15 @@ export function LibrarySummary(): JSX.Element | null {
                     >
                         Rename
                     </LemonButton>
-                    {githubEnabled && (
-                        <LemonButton
-                            size="small"
-                            type="secondary"
-                            icon={<IconGithub />}
-                            onClick={() => openLibraryDialog('repos')}
-                            data-attr="business-knowledge-library-repos"
-                        >
-                            Repositories
-                        </LemonButton>
-                    )}
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={<IconGithub />}
+                        onClick={() => openLibraryDialog('repos')}
+                        data-attr="business-knowledge-library-repos"
+                    >
+                        Repositories
+                    </LemonButton>
                     <LemonButton
                         size="small"
                         type="secondary"
@@ -105,7 +101,7 @@ export function LibrarySummary(): JSX.Element | null {
                 <span translate="no">{counts.join(' · ')}</span>
                 {selectedLibrary.is_default && <span>. Sources learned from support tickets join this library.</span>}
             </p>
-            {githubEnabled && selectedLibrary.repos.length > 0 && (
+            {selectedLibrary.repos.length > 0 && (
                 <div className="flex flex-wrap gap-1">
                     {selectedLibrary.repos.map((repo) => (
                         <LemonTag key={repo} icon={<IconGithub />}>

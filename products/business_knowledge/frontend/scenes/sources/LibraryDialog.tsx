@@ -2,14 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { LemonModal } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 import { businessKnowledgeLogic } from './businessKnowledgeLogic'
 import { LibraryNameForm } from './LibraryNameForm'
 import { LibraryRepoForm } from './LibraryRepoForm'
 
 export function LibraryDialog(): JSX.Element | null {
-    const githubEnabled = useFeatureFlag('BUSINESS_KNOWLEDGE_GITHUB_REPOS')
     const { libraryDialog, libraryScope, libraries, savingLibrary } = useValues(businessKnowledgeLogic)
     const { closeLibraryDialog, createLibrary, renameLibrary, saveLibraryRepos } = useActions(businessKnowledgeLogic)
     const active = libraries.find((library) => library.id === libraryScope)
@@ -44,7 +41,7 @@ export function LibraryDialog(): JSX.Element | null {
             width={480}
             footer={null}
         >
-            {libraryDialog === 'repos' && githubEnabled && active ? (
+            {libraryDialog === 'repos' && active ? (
                 <LibraryRepoForm
                     initialRepos={active.repos}
                     saving={savingLibrary}
