@@ -21,8 +21,7 @@ if (empty(inputs.ticket_id)) {
 
 let response := postHogGetTicket({
   'ticket_id': inputs.ticket_id,
-  'include_first_customer_message_text': inputs.include_first_customer_message_text,
-  'first_customer_message_max_bytes': inputs.first_customer_message_max_bytes
+  'include_first_customer_message_text': inputs.include_first_customer_message_text
 })
 
 if (response.status != 200) {
@@ -49,16 +48,7 @@ return response.body
             required: false,
             default: false,
             description:
-                "Add a short preview of the customer's first message to the response, enough to remind the customer which ticket your reply is about. Off by default, since it runs an extra query. To give AI steps more to read, set a length below.",
-        },
-        {
-            key: 'first_customer_message_max_bytes',
-            type: 'number',
-            label: 'First customer message length (bytes)',
-            secret: false,
-            required: false,
-            description:
-                "How much of the first message to include, from 200 to 3,000 bytes: about one byte per English character, three per Japanese or Chinese character, and four or more per emoji. Leave empty to use the toggle above, which gives the short preview. Any length includes the message even with the toggle off. A long subject or last message leaves less room, because the ticket and the workflow's other variables share a 5KB limit.",
+                "Add a short preview of the customer's first message to the response. Off by default, since it runs an extra query. Turn it on to remind the customer which ticket a message is about.",
         },
     ],
 }

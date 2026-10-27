@@ -668,7 +668,6 @@ class TestExternalTicketAPI(BaseTest):
             # replaces the last three, leaving 63 characters plus "...". A character-based cap
             # would emit 600 bytes against the workflow variable budget.
             ("multibyte", "あ" * 300, None, "あ" * 63 + "..."),
-            # Only the internal route offers a longer excerpt, so this route keeps the preview.
             ("length_ignored_on_this_route", "x" * 900, 3000, "x" * 197 + "..."),
         ]
     )
@@ -1039,5 +1038,4 @@ class TestTruncateBytes(SimpleTestCase):
         self.assertEqual(truncate("short enough", 200), "short enough")
 
     def test_json_budget_counts_escaped_quotes(self):
-        # JSON encoding doubles a quote, so 98 quotes and the ellipsis fill 199 of the 200 bytes.
         self.assertEqual(_truncate_json_bytes('"' * 300, 200), '"' * 98 + "...")

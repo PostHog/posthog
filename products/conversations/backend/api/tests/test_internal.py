@@ -73,13 +73,7 @@ class TestInternalTicketAPI(BaseTest):
     def test_get_returns_first_customer_message_text_when_opted_in(self):
         # The field is shared with the external route but gated behind a query param, so confirm
         # the JWT route reads that param and returns the preview through the same handler.
-        Comment.objects.create(
-            team=self.team,
-            scope="conversations_ticket",
-            item_id=str(self.ticket.id),
-            content="How do I export my data?",
-            item_context={"author_type": "customer"},
-        )
+        self._create_customer_message("How do I export my data?")
         response = self.client.get(self.url, {"include_first_customer_message_text": "true"}, **self._headers())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["first_customer_message_text"], "How do I export my data?")
@@ -104,12 +98,13 @@ class TestInternalTicketAPI(BaseTest):
         [
             ("longer_budget", "x" * 9000, 2200, "x" * 2197 + "..."),
             ("clamped_up_to_the_preview", "x" * 900, 50, "x" * 197 + "..."),
-            # The scan window cut the body, so the excerpt says so even though what is left fits.
             ("window_cut_is_marked", "It broke " + _IMAGE_ATTACHMENT * 70, 2200, "It broke..."),
-            # Email preheader padding goes, but a non-joiner between letters is part of the word.
             (
                 "invisible_padding_stripped",
-                "Refund\u034f\u034f please\u00ad now\u200b\u2060\ufeff ok" + "\u200c\u00a0" * 50 + " می\u200cخواهم",
+                "Refund\u034f\u034f please\u00ad now\u200b\u2060\ufeff ok"
+                + "\u200c\u00a0" * 50
+                + "\u200b\u200c" * 20
+                + " می\u200cخواهم",
                 2200,
                 "Refund please now ok می\u200cخواهم",
             ),
@@ -124,7 +119,6 @@ class TestInternalTicketAPI(BaseTest):
         self.assertEqual(response.json()["first_customer_message_text"], expected)
 
     def test_get_fits_a_longer_first_message_into_the_response_budget(self):
-        # Multibyte subject and last message take most of the budget, so the excerpt gets the rest.
         self._create_customer_message("あ" * 3000)
         Ticket.objects.filter(id=self.ticket.id).update(email_subject="件名" * 100, last_message_text="あ" * 500)
 

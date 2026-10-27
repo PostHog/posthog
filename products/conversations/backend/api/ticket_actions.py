@@ -181,14 +181,9 @@ def workflow_trigger_from_request(request: Request) -> Trigger | None:
 # message can still cost roughly twice the figure below.
 FIRST_MESSAGE_PREVIEW_BYTES = 200
 
-# Counted after JSON encoding, as the worker counts it, because a quote-heavy message this long
-# would otherwise cost twice its budget.
 FIRST_MESSAGE_MAX_BYTES = 3000
 
-# A longer excerpt gets only what the rest of this response leaves under this size, so a ticket
-# with long multibyte fields still fits the worker's 5KB budget. That leaves 1.5KB for the key
-# prefix that spreading adds to each field and for the workflow's other variables, which this
-# server cannot see.
+# A longer excerpt fills only what the rest of the response leaves, to stay inside the worker's 5KB.
 TICKET_RESPONSE_MAX_BYTES = 3584
 
 # How far down the thread to look for a message with something quotable in it. Bounded so a
@@ -207,8 +202,7 @@ _LINK_MARKDOWN = re.compile(r"\[([^\[\]]*)\]\([^)]*\)")
 # How much of a message body those regexes are allowed to scan. They are linear on ordinary
 # prose, but a crafted run of `![](` still rescans the remaining window for a closing bracket
 # and parenthesis at every one, and an inbound email may carry 50,000 characters of them. This
-# ceiling is an order of magnitude wider than the preview it feeds. A longer excerpt scans twice
-# its budget instead, so stripped attachments can take half and the rest still fills the budget.
+# ceiling is an order of magnitude wider than the preview it feeds.
 FIRST_MESSAGE_SCAN_CHARS = 2000
 
 # Taking that window can cut an attachment in half, and a fragment like `![shot.png](/uploaded`
@@ -226,10 +220,9 @@ _PARTIAL_MARKDOWN_TAIL = re.compile(r"!?\[[^\[\]]*(?:\](?:\([^)]*)?)?$")
 # matches the same character set the outbound Slack formatter unescapes (posthog/comment/formatting.py).
 _MARKDOWN_ESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])")
 
-# Marketing and receipt emails pad their text with invisible characters, and each one costs two or
-# three bytes of a longer excerpt's budget. The zero-width joiner stays because emoji sequences
-# need it, and a non-joiner stays between letters because Persian and Indic scripts need it there.
-_INVISIBLE_PADDING = re.compile(r"[\u00ad\u034f\u200b\u2060\ufeff]|\u200c(?=[\s\u200c])|(?<=[\s\u200c])\u200c")
+# Email padding characters. A non-joiner between letters stays, because Persian and Indic words need it.
+_INVISIBLE_PADDING = re.compile(r"[\u00ad\u034f\u200b\u2060\ufeff]")
+_PADDING_NON_JOINER = re.compile(r"(?:^|(?<=[\s\u200c]))\u200c|\u200c(?=[\s\u200c]|$)")
 
 
 def _quotable_text(content: str, *, scan_chars: int, unescape_markdown: bool, strip_padding: bool = False) -> str:
@@ -237,9 +230,7 @@ def _quotable_text(content: str, *, scan_chars: int, unescape_markdown: bool, st
     # Only a window that actually cut the body can hold a severed construct. Applying this to a
     # whole short message would eat a trailing bracket the customer meant to type.
     if len(content) > scan_chars:
-        # A severed attachment is far shorter than the preview's window, so a longer window needs
-        # this strip on that much of its end only. That keeps this strip at the preview's cost on a
-        # crafted body, and lets a fragment of a rare link with a longer URL through.
+        # Only the end can hold a severed attachment, and stripping the whole window is quadratic.
         head, tail = window[:-FIRST_MESSAGE_SCAN_CHARS], window[-FIRST_MESSAGE_SCAN_CHARS:]
         window = head + _PARTIAL_MARKDOWN_TAIL.sub("", tail)
     text = _LINK_MARKDOWN.sub(r"\1", _IMAGE_MARKDOWN.sub("", window))
@@ -249,7 +240,7 @@ def _quotable_text(content: str, *, scan_chars: int, unescape_markdown: bool, st
     if unescape_markdown:
         text = _MARKDOWN_ESCAPE.sub(r"\1", text)
     if strip_padding:
-        text = _INVISIBLE_PADDING.sub("", text)
+        text = _PADDING_NON_JOINER.sub("", _INVISIBLE_PADDING.sub("", text))
     return " ".join(text.split())
 
 
@@ -270,8 +261,6 @@ def _truncate_bytes(text: str, max_bytes: int) -> str:
 def _json_bytes(char: str) -> int:
     if char in '"\\':
         return 2
-    # JSON escapes the other control characters, as \uXXXX at worst. Counting the worst case can
-    # only cut the text a little early, never let it overrun the budget.
     if char < " ":
         return 6
     return len(char.encode("utf-8"))
@@ -287,7 +276,6 @@ def _truncate_json_bytes(text: str, max_bytes: int, *, window_cut: bool = False)
     if not window_cut and sum(costs) <= max_bytes:
         return text
     kept = sum(1 for total in accumulate(costs) if total <= max_bytes - len("..."))
-    # A cut can end on the joiner of an emoji sequence, the same as in _truncate_bytes.
     return text[:kept].rstrip("\u200d") + "..."
 
 
@@ -318,11 +306,8 @@ def _first_customer_message_text(
         .exclude(content="")
         # Fetch only the scan window plus one character, so a 50,000-character email never
         # crosses the wire in full. The preview keeps the same value it would from the whole
-        # body: the strip and truncation below never look past the window anyway. The extra
-        # character is what lets `_quotable_text` still tell a cut body from a whole one: a body
-        # at or under the scan window comes back untouched, and only a longer one comes back
-        # strictly longer than the window. Fetch exactly the window and that test can no longer
-        # fire.
+        # body: the strip and truncation below never look past the window anyway.
+        # The extra character is how `_quotable_text` tells a cut body from a whole one.
         .annotate(content_preview=Substr("content", 1, scan_chars + 1))
         # Zendesk-imported messages carry second-resolution timestamps, so created_at alone can
         # tie. Tie-breaking on id keeps the preview stable from one call to the next.
@@ -344,8 +329,6 @@ def _first_customer_message_text(
 def _first_message_max_bytes(requested: int, payload: Mapping[str, object]) -> int:
     with_empty_excerpt = {**payload, "first_customer_message_text": ""}
     rest = len(json.dumps(with_empty_excerpt, cls=JSONEncoder, ensure_ascii=False, separators=(",", ":")).encode())
-    # A workflow saves any number for this input, so clamp it rather than fail every run. Never go
-    # below the preview, which a caller that opts in has always received.
     return max(FIRST_MESSAGE_PREVIEW_BYTES, min(requested, FIRST_MESSAGE_MAX_BYTES, TICKET_RESPONSE_MAX_BYTES - rest))
 
 
@@ -366,34 +349,28 @@ class TicketActionGetQuerySerializer(serializers.Serializer):
             "Return up to this many bytes of the customer's first message instead of the "
             f"{FIRST_MESSAGE_PREVIEW_BYTES}-byte preview, counted after JSON encoding. Values are clamped "
             f"to {FIRST_MESSAGE_PREVIEW_BYTES}-{FIRST_MESSAGE_MAX_BYTES}, and the excerpt is shorter when "
-            f"the rest of the ticket leaves less room under {TICKET_RESPONSE_MAX_BYTES} bytes. Only used "
+            f"the rest of the ticket leaves less room under {TICKET_RESPONSE_MAX_BYTES} bytes, but never below "
+            f"the {FIRST_MESSAGE_PREVIEW_BYTES}-byte preview. Only used "
             "with include_first_customer_message_text=true."
         ),
     )
 
 
 def handle_ticket_get(
-    request: Request, team: Team, ticket_id: str | uuid.UUID, *, allow_first_message_max_bytes: bool = False
+    team: Team,
+    ticket_id: str | uuid.UUID,
+    *,
+    include_first_customer_message_text: bool = False,
+    first_customer_message_max_bytes: int | None = None,
 ) -> Response:
     """Fetch a ticket's data for an already-authenticated team.
 
     first_customer_message_text is opt-in: it runs an extra query, so a caller that does not ask
     for it (the default) pays nothing and gets the response shape it always got. CSAT workflows
     request the short preview, and triage workflows ask for a longer excerpt.
-
-    Only the internal route sets allow_first_message_max_bytes. The worker calls only that route,
-    and the external route also accepts team-wide tokens, so it keeps the short preview.
     """
     if error := validate_ticket_id(ticket_id):
         return error
-
-    include_first_message = wants_first_customer_message_text(request)
-    requested_max_bytes: int | None = None
-    if include_first_message and allow_first_message_max_bytes:
-        query = TicketActionGetQuerySerializer(data=request.query_params)
-        if not query.is_valid():
-            return Response({"error": query.errors}, status=status.HTTP_400_BAD_REQUEST)
-        requested_max_bytes = query.validated_data.get("first_customer_message_max_bytes")
 
     try:
         ticket = Ticket.objects.select_related(
@@ -448,11 +425,13 @@ def handle_ticket_get(
         "tags": tags,
     }
 
-    if include_first_message:
+    if include_first_customer_message_text:
         payload["first_customer_message_text"] = _first_customer_message_text(
             team.id,
             str(ticket.id),
-            max_bytes=None if requested_max_bytes is None else _first_message_max_bytes(requested_max_bytes, payload),
+            max_bytes=None
+            if first_customer_message_max_bytes is None
+            else _first_message_max_bytes(first_customer_message_max_bytes, payload),
             unescape_markdown=ticket.channel_source == Channel.WIDGET,
         )
 

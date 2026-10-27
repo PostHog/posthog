@@ -51,27 +51,6 @@ async function callInternalTicketApi(
     })
 }
 
-/**
- * Opt-in preview of the customer's first message. Only requested when the workflow enabled it, so
- * the default fetch keeps the same URL, response size, and query cost it had. A length on its own
- * also enables it, because a workflow that sets one wants the message.
- */
-function firstCustomerMessageQuery(opts: Record<string, any> | undefined): string {
-    const params = new URLSearchParams()
-    const maxBytes = opts?.first_customer_message_max_bytes
-    const hasLength = Number.isFinite(maxBytes) && maxBytes > 0
-    if (opts?.include_first_customer_message_text === true || hasLength) {
-        params.set('include_first_customer_message_text', 'true')
-        if (hasLength) {
-            // Django clamps the range but parses whole numbers only, and the input saves any number.
-            // Bounding it first also keeps a huge value out of exponent notation such as "1e+21".
-            params.set('first_customer_message_max_bytes', String(Math.trunc(Math.min(maxBytes, 100_000))))
-        }
-    }
-    const search = params.toString()
-    return search ? `?${search}` : ''
-}
-
 registerAsyncFunction('postHogGetTicket', {
     execute: async (args, context, result) => {
         const [opts] = args as [Record<string, any> | undefined]
@@ -81,10 +60,12 @@ registerAsyncFunction('postHogGetTicket', {
             throw new Error("[HogFunction] - postHogGetTicket call missing 'ticket_id' property")
         }
 
-        await callInternalTicketApi(context, result, ticketId, {
-            method: 'GET',
-            query: firstCustomerMessageQuery(opts),
-        })
+        // Opt-in preview of the customer's first message. Only appended when the workflow enabled
+        // it, so the default fetch keeps the same URL, response size, and query cost it had.
+        const query =
+            opts?.include_first_customer_message_text === true ? '?include_first_customer_message_text=true' : ''
+
+        await callInternalTicketApi(context, result, ticketId, { method: 'GET', query })
     },
 
     mock: (args, logs) => {
@@ -116,7 +97,7 @@ registerAsyncFunction('postHogGetTicket', {
                 last_message_text: null,
                 // The real ticket API omits this field unless the caller opts in, so only include
                 // it here when the workflow asked for it, keeping a mocked preview true to runtime.
-                ...(firstCustomerMessageQuery(args[0]) ? { first_customer_message_text: null } : {}),
+                ...(args[0]?.include_first_customer_message_text === true ? { first_customer_message_text: null } : {}),
                 unread_team_count: 0,
                 unread_customer_count: 0,
                 sla: null,
