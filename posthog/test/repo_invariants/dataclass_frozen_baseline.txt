@@ -823,7 +823,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/opinion_stage/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/opsgenie/opsgenie.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/opsgenie/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/optimizely/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/opuswatch/opuswatch.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/orb/orb.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/orb/settings.py
@@ -833,8 +832,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/ortto/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/oura/oura.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/oura/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/outbrain/outbrain.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/outbrain/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pabbly_subscriptions_billing/pabbly_subscriptions_billing.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pabbly_subscriptions_billing/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/packagist/packagist.py
