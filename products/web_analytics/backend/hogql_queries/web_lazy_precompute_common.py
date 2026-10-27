@@ -601,7 +601,9 @@ def handle_stale_served(*, runner: Any, family: str) -> None:
     enqueue_stale_revalidation(team=runner.team, query=runner.query, family=family, debounce_extra=debounce_extra)
 
 
-_TRAFFIC_CLASSIFICATION_NAMES = ("$virt_", "isLikelyBot", "getBot", "getTraffic", "__preview_")
+# "InCohort" also matches NotInCohort. A cohort's criteria are expanded after this check and can
+# classify traffic, so any cohort filter counts, such as a cohort in the test-account filters.
+_TRAFFIC_CLASSIFICATION_NAMES = ("$virt_", "isLikelyBot", "getBot", "getTraffic", "__preview_", "InCohort")
 
 
 def _classifies_traffic(insert_query: Any, placeholders: Optional[dict[str, Any]]) -> bool:
