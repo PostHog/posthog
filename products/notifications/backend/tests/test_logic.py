@@ -19,7 +19,7 @@ from products.notifications.backend.facade.enums import (
     SourceType,
     TargetType,
 )
-from products.notifications.backend.logic import create_notification, publish_resource_edited
+from products.notifications.backend.logic import create_notification, publish_resource_edited, publish_resources_edited
 from products.notifications.backend.models import NotificationEvent
 from products.notifications.backend.resolvers import RecipientsResolver
 
@@ -485,6 +485,26 @@ class TestPublishResourceEdited(BaseTest):
         assert self.user.id in payload["resolved_user_ids"]
         # Editor-state sync only — it must never become an inbox notification.
         assert NotificationEvent.objects.count() == 0
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic.get_producer")
+    @patch.object(RecipientsResolver, "resolve", return_value=[1, 2])
+    def test_many_edits_resolve_recipients_once(self, mock_resolve, mock_get_producer, mock_ff):
+        with self.captureOnCommitCallbacks(execute=True):
+            publish_resources_edited(
+                team=self.team,
+                resource_type="HogFlow",
+                edits=[("flow-1", "2026-06-16T00:00:00+00:00"), ("flow-2", "2026-06-16T00:01:00+00:00")],
+                ac_resource_type="annotation",
+            )
+
+        mock_resolve.assert_called_once()
+        mock_ff.assert_called_once()
+        payloads = [call.kwargs["data"] for call in mock_get_producer.return_value.produce.call_args_list]
+        assert [(p["resource_id"], p["resolved_user_ids"]) for p in payloads] == [
+            ("flow-1", [1, 2]),
+            ("flow-2", [1, 2]),
+        ]
 
     @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.notifications.backend.logic.get_producer")

@@ -1,9 +1,10 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { useInView } from 'react-intersection-observer'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonSkeleton, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import { isWatchFeedBlock } from '../watchFeedEmptyState'
 import { FEED_DATE_OPTIONS, feedWindowOption, feedWindowPhrase, watchFeedLogic } from '../watchFeedLogic'
@@ -59,8 +60,17 @@ function FeedEnd({ itemCount }: { itemCount: number }): JSX.Element | null {
 }
 
 export function WatchFeedTab(): JSX.Element {
-    const { feedItems, feedItemsLoading, feedLoad, feedFailed, dateFrom, scopedToMine, hasOwnScanners, emptyReason } =
-        useValues(watchFeedLogic)
+    const {
+        feedItems,
+        feedItemsLoading,
+        feedReloading,
+        feedLoad,
+        feedFailed,
+        dateFrom,
+        scopedToMine,
+        hasOwnScanners,
+        emptyReason,
+    } = useValues(watchFeedLogic)
     const { setDateFrom, setOnlyMyScanners, loadFeed } = useActions(watchFeedLogic)
 
     const items = feedItems ?? []
@@ -117,7 +127,18 @@ export function WatchFeedTab(): JSX.Element {
             {(feedItems === null && !feedFailed) || (feedItemsLoading && items.length === 0) ? (
                 <FeedSkeleton />
             ) : (
-                <div className="mx-auto flex w-full max-w-xl flex-col gap-4">
+                <div className="relative mx-auto flex w-full max-w-xl flex-col gap-4">
+                    {/* The last result stays while a filter change loads, dimmed so it doesn't read as the new one. */}
+                    {feedReloading && (
+                        <div
+                            className="pointer-events-none absolute inset-0 z-10 flex justify-center pt-32"
+                            data-attr="vision-watch-feed-reloading"
+                            role="status"
+                            aria-label="Loading the feed"
+                        >
+                            <Spinner className="sticky top-1/3 text-6xl" />
+                        </div>
+                    )}
                     {/* kea-loaders keeps the last value on failure, so a later filter or date change can fail
                         with cards still on screen. Show the error above them rather than replacing them. */}
                     {feedFailed && (
@@ -135,15 +156,20 @@ export function WatchFeedTab(): JSX.Element {
                     {items.length > 0 && isWatchFeedBlock(emptyReason) && (
                         <WatchFeedBlockedBanner reason={emptyReason} />
                     )}
-                    {/* Three newest clips and nothing else is the answer, not a half-loaded feed, so say so
-                        rather than leaving the reader to infer it from three identical reason lines. */}
-                    {onlyFiller && (
-                        <p className="text-sm text-secondary m-0">
-                            No sessions stood out {feedWindowPhrase(dateFrom)}. These are the newest ones.
-                        </p>
-                    )}
                     {items.length > 0 ? (
-                        <>
+                        <div
+                            className={clsx('flex flex-col gap-4 transition-opacity', feedReloading && 'opacity-40')}
+                            aria-busy={feedReloading}
+                            // `inert` keeps the stale cards out of keyboard reach; React 18 types lack the attribute.
+                            {...(feedReloading ? { inert: '' } : {})}
+                        >
+                            {/* Three newest clips and nothing else is the answer, not a half-loaded feed, so say so
+                            rather than leaving the reader to infer it from three identical reason lines. */}
+                            {onlyFiller && (
+                                <p className="text-sm text-secondary m-0">
+                                    No sessions stood out {feedWindowPhrase(dateFrom)}. These are the newest ones.
+                                </p>
+                            )}
                             {items.map((item, index) => (
                                 <WatchFeedRow
                                     key={`${feedLoad?.feedLoadId}-${item.observation.id}`}
@@ -152,7 +178,7 @@ export function WatchFeedTab(): JSX.Element {
                                 />
                             ))}
                             <FeedEnd itemCount={items.length} />
-                        </>
+                        </div>
                     ) : feedFailed ? null : emptyReason ? (
                         <WatchFeedEmptyState reason={emptyReason} />
                     ) : (

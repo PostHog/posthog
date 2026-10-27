@@ -11,7 +11,7 @@ from posthog.schema import (
     AssistantFunnelsQuery,
 )
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import AnswerToolCallNot, NoToolCall, RequiredToolCall
@@ -586,7 +586,7 @@ async def eval_funnel(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-funnels",
         offline_suite=offline_suite(
             "product_analytics/eval_funnel::eval_funnel",

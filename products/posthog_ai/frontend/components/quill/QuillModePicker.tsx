@@ -15,6 +15,8 @@ import {
     MenuLabel,
 } from '@posthog/quill-primitives'
 
+import { cn } from 'lib/utils/css-classes'
+
 import { TodaySheetMenu } from '~/layout/today/TodaySheetMenu'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
@@ -23,6 +25,8 @@ import {
     CodexTaskRunCreateSchemaInitialPermissionModeEnumApi,
     InitialPermissionModeEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
+
+import { COMPOSER_MENU_CLASS } from './composerMenuClass'
 
 const UNSUPERVISED_MODES: PermissionMode[] = [
     InitialPermissionModeEnumApi.BypassPermissions,
@@ -92,7 +96,12 @@ export function QuillModePicker({ selectedMode, onModeChange, modes }: QuillMode
                     </Button>
                 }
             />
-            <DropdownMenuContent align="start" side="top" sideOffset={6} className="min-w-[200px]">
+            <DropdownMenuContent
+                align="start"
+                side="top"
+                sideOffset={6}
+                className={cn('min-w-[200px]', COMPOSER_MENU_CLASS)}
+            >
                 <MenuLabel>Mode</MenuLabel>
                 <DropdownMenuRadioGroup
                     value={selectedMode}
