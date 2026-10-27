@@ -253,7 +253,7 @@ The editor updates the untouched Hog example when its category key changes, is r
 Custom code is preserved.
 The LLM judge returns `categories` and `reasoning`.
 Single selection requires exactly one key; multiple selection accepts `[]` as an applicable result.
-Categorical events always set `$ai_evaluation_applicable`, because native JSON property reads treat empty arrays as absent.
+Categorical events always set `$ai_evaluation_applicable`.
 `null` means N/A only when `allows_na` is enabled.
 Unknown or duplicate keys are invalid results.
 Invalid model responses and Hog results with unknown keys, duplicate keys, or the wrong number of selections skip the run without disabling the evaluation.
