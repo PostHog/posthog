@@ -503,49 +503,32 @@ def test_metric_set_server_error_stays_retryable_with_vendor_outage_copy(status:
 @pytest.mark.parametrize(
     "rejected_start,raises",
     [
-        (dt.date(2023, 1, 1), False),
-        (dt.date(2024, 3, 1), True),
+        (dt.date(2022, 4, 1), False),
+        (dt.date(2023, 10, 23), True),
     ],
 )
 def test_metric_set_skips_a_rejected_window_only_beyond_the_proven_history(
     rejected_start: dt.date, raises: bool
 ) -> None:
-    rejection = requests.HTTPError(
-        "400 Client Error: for url: https://playdeveloperreporting.googleapis.com",
-        response=_response(400, text="INVALID_ARGUMENT"),
-    )
-
-    def request(method: str, path: str, params: Any = None, body: Any = None) -> dict[str, Any]:
-        if path.endswith(":query"):
-            start = body["timelineSpec"]["startTime"] if body else {}
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/token":
+            return TOKEN
+        if request.path.endswith(":query"):
+            start = request.json()["timelineSpec"]["startTime"]
             day = dt.date(start["year"], start["month"], start["day"])
             if day == rejected_start:
-                raise rejection
-            return {"rows": [_metric_row(day, 12, "0.01")]}
-        return _freshness(dt.date(2024, 3, 31))
+                return ScriptedResponse(status=400, body=b'{"error": {"status": "INVALID_ARGUMENT"}}')
+            return ScriptedResponse(json={"rows": [_metric_row(day, 12, "0.01")]})
+        return ScriptedResponse(json=_freshness(dt.date(2024, 3, 30)))
 
-    def run() -> list[list[dict[str, Any]]]:
-        return list(
-            _iter_metric_set_rows(
-                client=_client(mock.MagicMock()),
-                endpoint=METRIC_SETS["crash_rate"],
-                package_names=["com.example.app"],
-                history_start=rejected_start,
-                manager=_manager(),
-                resume=None,
-            )
-        )
+    with mock.patch(f"{MODULE}._today", return_value=TODAY):
+        result = _driver().run("crash_rate", answer)
 
-    with (
-        mock.patch(f"{MODULE}._today", return_value=TODAY),
-        mock.patch.object(GooglePlayConsoleClient, "request", side_effect=request),
-    ):
-        if raises:
-            with pytest.raises(requests.HTTPError):
-                run()
-        else:
-            dates = [row["date"] for batch in run() for row in batch]
-            assert dates[0] == rejected_start + dt.timedelta(days=30)
+    if raises:
+        assert isinstance(result.raised, requests.HTTPError)
+    else:
+        assert result.raised is None
+        assert result.rows[0]["date"] == rejected_start + dt.timedelta(days=30)
 
 
 def test_metric_set_query_follows_pagination_until_the_token_runs_out() -> None:
