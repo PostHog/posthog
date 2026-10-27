@@ -384,6 +384,52 @@ describe('workflowLogic schedule reducers', () => {
             expect(logic.values.schedules.map((s) => s.id)).toEqual(['schedule-1'])
         })
 
+        it('edits the schedule the author picks, not the first one', async () => {
+            const second = makeSchedule({ id: 'schedule-2', rrule: 'FREQ=DAILY;INTERVAL=3' })
+            logic.actions.setSchedules([makeSchedule(), second])
+
+            await expectLogic(logic, () => {
+                logic.actions.selectSchedule(second)
+            }).toMatchValues({
+                selectedScheduleId: 'schedule-2',
+                scheduleState: expect.objectContaining({ frequency: 'daily', interval: 3 }),
+            })
+
+            expect(logic.values.currentSchedule?.id).toBe('schedule-2')
+        })
+
+        it('keeps editing the picked schedule when the list reloads', async () => {
+            const second = makeSchedule({ id: 'schedule-2', rrule: 'FREQ=DAILY;INTERVAL=3' })
+            logic.actions.setSchedules([makeSchedule(), second])
+            logic.actions.selectSchedule(second)
+
+            await expectLogic(logic, () => {
+                logic.actions.setSchedules([makeSchedule(), second])
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentSchedule?.id).toBe('schedule-2')
+            expect(logic.values.scheduleState).toEqual(expect.objectContaining({ frequency: 'daily', interval: 3 }))
+        })
+
+        it('adds a schedule and moves the editor onto it', async () => {
+            useMocks({
+                post: {
+                    '/api/projects/:project_id/hog_flows/:id/schedules/': () => [
+                        201,
+                        { id: 'schedule-new', rrule: WEEKLY_MONDAY_RRULE, starts_at: STARTS_AT, timezone: 'UTC' },
+                    ],
+                },
+            })
+            logic.actions.setSchedules([makeSchedule()])
+
+            await expectLogic(logic, () => {
+                logic.actions.addSchedule()
+            }).toFinishAllListeners()
+
+            expect(logic.values.schedules.map((s) => s.id)).toEqual(['schedule-1', 'schedule-new'])
+            expect(logic.values.currentSchedule?.id).toBe('schedule-new')
+        })
+
         it('keeps the schedule listed when the delete fails', async () => {
             useMocks({
                 delete: { '/api/projects/:project_id/hog_flows/:id/schedules/:schedule_id/': () => [500, {}] },

@@ -32,6 +32,7 @@ import { resourceEditedLogic } from 'products/notifications/frontend/resourceEdi
 import {
     hogFlowsCreate,
     hogFlowsResumeEmailSending,
+    hogFlowsSchedulesCreate,
     hogFlowsSchedulesDestroy,
 } from 'products/workflows/frontend/generated/api'
 import type { EmailDraftRequestApi } from 'products/workflows/frontend/generated/api.schemas'
@@ -331,6 +332,7 @@ export interface workflowLogicValues {
     scheduleState: ScheduleState
     scheduleTimezone: string
     schedules: HogFlowSchedule[]
+    selectedScheduleId: string | null
     showDraftActions: boolean
     showWorkflowErrors: boolean
     statusToggleDisabledReason: string | undefined
@@ -356,6 +358,9 @@ export interface workflowLogicActions {
     resourceEdited: (event: ResourceEditedEvent) => {
         event: ResourceEditedEvent
     } // resourceEditedLogic
+    addSchedule: () => {
+        value: true
+    }
     archiveWorkflow: (workflow: HogFlow) => {
         workflow: HogFlow
     } // workflowsLogic
@@ -2565,6 +2570,9 @@ export interface workflowLogicActions {
         originalWorkflow: HogFlow
         payload?: HogFlow
     }
+    selectSchedule: (schedule: HogFlowSchedule) => {
+        schedule: HogFlowSchedule
+    }
     setAutoSaveEnabled: (enabled: boolean) => {
         enabled: boolean
     }
@@ -3303,6 +3311,8 @@ export const workflowLogic = kea<workflowLogicType>([
             variables,
             filters,
         }),
+        addSchedule: true,
+        selectSchedule: (schedule: HogFlowSchedule) => ({ schedule }),
         deleteSchedule: (scheduleId: string) => ({ scheduleId }),
         deleteScheduleFailure: (scheduleId: string) => ({ scheduleId }),
         discardChanges: true,
@@ -3653,6 +3663,14 @@ export const workflowLogic = kea<workflowLogicType>([
                 setSchedules: (_, { schedules }) => schedules,
             },
         ],
+        selectedScheduleId: [
+            null as string | null,
+            {
+                selectSchedule: (_, { schedule }) => schedule.id,
+                setSchedules: (selectedId, { schedules }) =>
+                    schedules.some((schedule) => schedule.id === selectedId) ? selectedId : (schedules[0]?.id ?? null),
+            },
+        ],
         scheduleState: [
             { ...DEFAULT_STATE } as ScheduleState,
             {
@@ -3665,6 +3683,8 @@ export const workflowLogic = kea<workflowLogicType>([
                     }
                     return { ...DEFAULT_STATE }
                 },
+                selectSchedule: (_, { schedule }) =>
+                    isOneTimeSchedule(schedule.rrule) ? { ...DEFAULT_STATE } : parseRRuleToState(schedule.rrule),
             },
         ],
         scheduleStartsAt: [
@@ -3673,6 +3693,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 setScheduleStartsAt: (_, { startsAt }) => startsAt,
                 restoreScheduleEdits: (_, { edits }) => edits.scheduleStartsAt,
                 setSchedules: (_, { schedules }) => schedules[0]?.starts_at ?? null,
+                selectSchedule: (_, { schedule }) => schedule.starts_at,
             },
         ],
         scheduleTimezone: [
@@ -3681,6 +3702,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 setScheduleTimezone: (_, { timezone }) => timezone,
                 restoreScheduleEdits: (_, { edits }) => edits.scheduleTimezone,
                 setSchedules: (_, { schedules }) => schedules[0]?.timezone ?? dayjs.tz.guess(),
+                selectSchedule: (_, { schedule }) => schedule.timezone ?? dayjs.tz.guess(),
             },
         ],
         isScheduleRepeating: [
@@ -3692,6 +3714,7 @@ export const workflowLogic = kea<workflowLogicType>([
                     const schedule = schedules[0]
                     return !!schedule && !isOneTimeSchedule(schedule.rrule)
                 },
+                selectSchedule: (_, { schedule }) => !isOneTimeSchedule(schedule.rrule),
             },
         ],
         // Tracks which configuration methods the user touched during the current editing
@@ -3833,8 +3856,9 @@ export const workflowLogic = kea<workflowLogicType>([
                 originalWorkflow?.user_access_level ?? null,
         ],
         currentSchedule: [
-            (s) => [s.schedules],
-            (schedules: HogFlowSchedule[]): HogFlowSchedule | null => schedules[0] ?? null,
+            (s) => [s.schedules, s.selectedScheduleId],
+            (schedules: HogFlowSchedule[], selectedScheduleId: string | null): HogFlowSchedule | null =>
+                schedules.find((schedule) => schedule.id === selectedScheduleId) ?? schedules[0] ?? null,
         ],
         pendingSchedule: [
             (s) => [s.currentSchedule, s.scheduleState, s.scheduleStartsAt, s.scheduleTimezone, s.isScheduleRepeating],
@@ -4623,6 +4647,35 @@ export const workflowLogic = kea<workflowLogicType>([
                 actions.autoSaveWorkflow()
             }
             actions.replayDeferredResourceEdited()
+        },
+        addSchedule: async () => {
+            const workflowId = props.id
+            if (!workflowId || workflowId === 'new') {
+                return
+            }
+            // A fan-out varies one field of a cadence, so a new schedule copies the selected one.
+            const startsAt = values.currentSchedule?.starts_at ?? dayjs().add(1, 'hour').startOf('hour').toISOString()
+            try {
+                const created = await hogFlowsSchedulesCreate(String(values.currentProjectId), workflowId, {
+                    rrule: values.currentSchedule?.rrule ?? stateToRRule(DEFAULT_STATE, startsAt),
+                    starts_at: startsAt,
+                    timezone: values.currentSchedule?.timezone ?? dayjs.tz.guess(),
+                } as never)
+                const schedule = created as unknown as HogFlowSchedule
+                actions.setSchedules([...values.schedules, schedule])
+                actions.selectSchedule(schedule)
+            } catch (e) {
+                console.error('Failed to add schedule', e)
+                lemonToast.error('Could not add a schedule')
+            }
+        },
+        setSchedules: ({ schedules }) => {
+            // The editor reducers rebaseline from the first schedule, so a selection on any other
+            // one has to reapply itself or the picker edits a schedule it does not show.
+            const selected = schedules.find((schedule) => schedule.id === values.selectedScheduleId)
+            if (selected && selected.id !== schedules[0]?.id) {
+                actions.selectSchedule(selected)
+            }
         },
         deleteSchedule: async ({ scheduleId }) => {
             const workflowId = props.id

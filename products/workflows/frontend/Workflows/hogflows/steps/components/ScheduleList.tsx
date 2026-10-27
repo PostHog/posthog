@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconTrash } from '@posthog/icons'
+import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -34,16 +34,22 @@ function ScheduleStateTag({ status }: { status?: string }): JSX.Element | null {
     return null
 }
 
-function ScheduleRow({ schedule, editedHere }: { schedule: HogFlowSchedule; editedHere: boolean }): JSX.Element {
-    const { deleteSchedule } = useActions(workflowLogic)
+function ScheduleRow({ schedule, editing }: { schedule: HogFlowSchedule; editing: boolean }): JSX.Element {
+    const { deleteSchedule, selectSchedule } = useActions(workflowLogic)
 
     return (
-        <div className="flex items-center gap-2 py-1.5 px-2 border-b last:border-b-0">
+        <div
+            className={`flex items-center gap-2 py-1.5 px-2 border-b last:border-b-0 cursor-pointer ${
+                editing ? 'bg-accent-highlight-secondary' : 'hover:bg-surface-secondary'
+            }`}
+            onClick={() => selectSchedule(schedule)}
+            data-attr="workflow-schedule-row"
+        >
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                     <span className="truncate">{scheduleSummary(schedule)}</span>
                     <ScheduleStateTag status={schedule.status} />
-                    {editedHere && (
+                    {editing && (
                         <LemonTag type="highlight" size="small">
                             Editing below
                         </LemonTag>
@@ -64,7 +70,8 @@ function ScheduleRow({ schedule, editedHere }: { schedule: HogFlowSchedule; edit
                 status="danger"
                 tooltip="Remove this schedule"
                 data-attr="remove-workflow-schedule"
-                onClick={() =>
+                onClick={(event) => {
+                    event.stopPropagation()
                     LemonDialog.open({
                         title: 'Remove this schedule?',
                         description: `${scheduleSummary(schedule)}. The workflow stops running on it. Any other schedules keep going.`,
@@ -75,36 +82,51 @@ function ScheduleRow({ schedule, editedHere }: { schedule: HogFlowSchedule; edit
                         },
                         secondaryButton: { children: 'Cancel' },
                     })
-                }
+                }}
             />
         </div>
     )
 }
 
 // Every surface used to read schedules[0], so a workflow that holds more than one showed a single
-// schedule and silently ran the rest. Listing them is what lets an author find and remove one.
+// schedule and silently ran the rest. Listing them is what lets an author pick, add or remove one.
 export function ScheduleList(): JSX.Element | null {
-    const { schedules, currentSchedule } = useValues(workflowLogic)
+    const { schedules, currentSchedule, logicProps } = useValues(workflowLogic)
+    const { addSchedule } = useActions(workflowLogic)
 
-    if (schedules.length < 2) {
+    if (schedules.length === 0) {
         return null
+    }
+
+    const addButton = (
+        <LemonButton
+            icon={<IconPlus />}
+            size="small"
+            type="secondary"
+            data-attr="add-workflow-schedule"
+            disabledReason={logicProps.id === 'new' ? 'Save the workflow first' : undefined}
+            onClick={() => addSchedule()}
+        >
+            Add schedule
+        </LemonButton>
+    )
+
+    if (schedules.length === 1) {
+        return <div className="flex">{addButton}</div>
     }
 
     return (
         <div className="flex flex-col gap-1">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2">
                 <span className="font-semibold text-sm">This workflow has {schedules.length} schedules</span>
+                {addButton}
             </div>
             <p className="text-xs text-muted mb-0">
-                They all run. Remove any you did not mean to add. Only the one marked below is edited here.
+                They all run. Pick one to edit it below, or remove any you did not mean to add.
             </p>
             <div className="border rounded bg-surface-primary">
                 {schedules.map((schedule) => (
-                    <ScheduleRow
-                        key={schedule.id}
-                        schedule={schedule}
-                        editedHere={schedule.id === currentSchedule?.id}
-                    />
+                    <ScheduleRow key={schedule.id} schedule={schedule} editing={schedule.id === currentSchedule?.id} />
                 ))}
             </div>
         </div>
