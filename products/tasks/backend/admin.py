@@ -13,7 +13,7 @@ from posthog.models.user import User
 from posthog.storage import object_storage
 
 from .logic.services.ai_run_defaults import validate_ai_run_preferences_payload
-from .models import DesktopBetaTermsAcceptance, SandboxSnapshot, Task, TaskRun, TeamTasksConfig, UserTasksConfig
+from .models import SandboxSnapshot, Task, TaskRun, TeamTasksConfig, UserTasksConfig
 from .presentation.views.infrastructure_admin import infrastructure_admin
 from .visibility import task_run_visibility_q, task_visibility_q
 
@@ -118,19 +118,6 @@ class TaskRunAdmin(admin.ModelAdmin):
             return "—"
         url = reverse("admin:tasks_taskrun_download_logs", args=[obj.pk])
         return format_html('<a class="button" href="{}">Download logs</a>', url)
-
-
-@admin.register(DesktopBetaTermsAcceptance)
-class DesktopBetaTermsAcceptanceAdmin(admin.ModelAdmin):
-    # Read-only on purpose: staff only delete a row to revoke an acceptance on a customer's request.
-    list_display = ("organization", "accepted_by_user_id", "accepted_at")
-    search_fields = ("organization__id", "organization__name")
-    readonly_fields = ("organization", "accepted_by_user_id", "accepted_at")
-    list_select_related = ("organization",)
-    show_full_result_count = False
-
-    def has_add_permission(self, request: HttpRequest) -> bool:
-        return False
 
 
 @admin.register(SandboxSnapshot)
