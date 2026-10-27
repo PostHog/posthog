@@ -3,8 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
-
-import { insightVizDataLogic } from '../insightVizDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 export function ScalePicker(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
