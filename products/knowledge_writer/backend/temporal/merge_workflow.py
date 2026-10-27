@@ -20,7 +20,7 @@ from ..adapters import REGISTRY
 from ..facade.contracts import AdapterVerdict
 from ..facade.enums import DocsRequestSource
 from ..logic import intake
-from ..logic.publish import docs_github
+from ..logic.pull_requests import docs_github
 
 MERGE_CHECK_FAILED_REASON = "merge_check_failed"
 MERGE_CHECK_ATTEMPTS = 3
