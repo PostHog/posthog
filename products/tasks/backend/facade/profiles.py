@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from decimal import Decimal
 from enum import StrEnum
+from typing import TYPE_CHECKING, Any
 
 from posthog.dataclasses import frozen
+
+if TYPE_CHECKING:
+    from posthog.temporal.oauth import PosthogMcpScopes
 
 
 class Read(StrEnum):
@@ -45,39 +50,87 @@ class WarmQuota(StrEnum):
     AI_CREDITS = "ai_credits"
 
 
+class GithubAccess(StrEnum):
+    NONE = "none"
+    READ = "read"
+    WRITE = "write"
+
+
 @frozen
 class WarmPolicy:
     quota: WarmQuota
     per_user_cap: int
     per_org_cap: int
-    feature_flag: str | None = None
+    feature_flag: str | None
 
 
 @frozen
 class TaskProfile:
     key: str
     origin_product: str
+    public: bool
+    public_options: frozenset[str]
+    source_kind: str | None
+
+    listed: bool
+    read_without_channel: Read
+    api_visible: bool
+    drive: DrivePolicy
+    access_gate: AccessGate
+    max_live_per_user: int | None
+    warm: WarmPolicy | None
+
+    runtimes: tuple[str, ...]
+    sandbox_templates: tuple[str, ...]
+    inherit_user_defaults: bool
+    personal_mcp: bool
+    mcp_agent: str | None
+    mcp_scopes: PosthogMcpScopes
+    mcp_store_servers: bool
+    oauth_app: OAuthApp
+    github_resolution: GithubResolution
+    user_authorable_prs: bool
+    default_pr_authorship: PrAuthorship
+    finish_tool: bool
+    done_on_turn_close: bool
+
+    idle_minutes: int
+    inactivity_minutes: int
+    tool_call_minutes: int | None
+    max_wake_minutes: int | None
+
     billing_product: str
-    listed: bool = True
-    public: bool = False
-    source_kind: str | None = None
-    read_without_channel: Read = Read.CREATOR
-    api_visible: bool = True
-    drive: DrivePolicy = DrivePolicy.OWNER
-    access_gate: AccessGate = AccessGate.DESKTOP_CODE
-    warm: WarmPolicy | None = None
-    inherit_user_defaults: bool = True
-    personal_mcp: bool = True
-    mcp_agent: str | None = None
-    mcp_scopes: str | None = None
-    mcp_store_servers: bool = True
-    oauth_app: OAuthApp = OAuthApp.ARRAY
-    github_resolution: GithubResolution = GithubResolution.ALWAYS
-    user_authorable_prs: bool = False
-    default_pr_authorship: PrAuthorship = PrAuthorship.BOT
-    idle_minutes: int = 30
-    max_wake_minutes: int | None = 180
-    bills_compute: bool = False
+    bills_compute: bool
+    max_cost_usd: Decimal | None
+    task_budget_usd: Decimal | None
+    finish_in_flight: bool
+
+
+@frozen
+class Repository:
+    name: str
+    initial_branch: str | None = None
+
+
+@frozen
+class RunOptions:
+    runtime: str | None = None
+    adapter: str | None = None
+    model: str | None = None
+    reasoning_effort: str | None = None
+    repositories: tuple[Repository, ...] = ()
+    folder: str | None = None
+    sandbox_template: str | None = None
+    output_schema: dict[str, Any] | None = None
+    idle_minutes: int | None = None
+    github_access: GithubAccess | None = None
+    mcp_scopes: PosthogMcpScopes | None = None
+    mcp_server_ids: tuple[str, ...] = ()
+    context_window: str | None = None
+    fast_mode: bool | None = None
+    permission_mode: str | None = None
+    pr_authorship_mode: PrAuthorship | None = None
+    auto_publish: bool | None = None
 
 
 @frozen

@@ -1,3 +1,5 @@
+from dataclasses import replace
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -20,9 +22,7 @@ class TestTaskProfileRegistry(SimpleTestCase):
         ]
     )
     def test_rejects_a_profile_that_disagrees_with_its_origin(self, _name: str, overrides: dict) -> None:
-        conflicting = TaskProfile(
-            key="test.conflicting", origin_product="task_analysis", billing_product="background_agents", **overrides
-        )
+        conflicting = replace(TASK_ANALYSIS, key="test.conflicting", **overrides)
 
         with self.assertRaises(TaskProfileError):
             register_task_profile(conflicting)
