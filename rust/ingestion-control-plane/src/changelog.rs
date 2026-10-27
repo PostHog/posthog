@@ -10,11 +10,12 @@ use personhog_coordination::types::{
 use rdkafka::consumer::Consumer;
 use serde::Serialize;
 
+use crate::backup::{self, BackupStore, BackupVersion};
 use crate::config::Config;
 use crate::kafka::client::{base_client_config, metadata_consumer};
 use crate::kafka::lag::{scan_group_lag, ConsumerTarget};
 
-fn store(client: &Client, prefix: &str) -> PersonhogStore {
+pub(crate) fn store(client: &Client, prefix: &str) -> PersonhogStore {
     PersonhogStore::new(EtcdStore::from_client(
         client.clone(),
         StoreConfig {
@@ -70,6 +71,56 @@ pub async fn seed(
         writer_group: writer_group.to_string(),
         ..ChangelogConfig::new(topic, partitions)
     })
+}
+
+/// Versions of the backed-up config for `prefix`, newest first.
+pub async fn backups(
+    backups: &dyn BackupStore,
+    prefix: &str,
+) -> anyhow::Result<Vec<BackupVersion>> {
+    backups.versions(&backup::object_key(prefix)).await
+}
+
+/// Writes a backed-up config back into an empty etcd: the current backup, or
+/// the named version.
+pub async fn restore(
+    config: &Config,
+    client: &Client,
+    prefix: &str,
+    backups: &dyn BackupStore,
+    version_id: Option<&str>,
+) -> anyhow::Result<ChangelogConfig> {
+    let key = backup::object_key(prefix);
+    let value = backups
+        .get(&key, version_id)
+        .await?
+        .with_context(|| match version_id {
+            Some(version) => format!("no backup version {version} of {key}"),
+            None => format!("no backup at {key}"),
+        })?;
+    let restored: ChangelogConfig =
+        serde_json::from_slice(&value).context("the backup is not a changelog config")?;
+    let live_partitions = topic_partition_count(&config.personhog_kafka(), &restored.topic).await?;
+    apply_restore(&store(client, prefix), &value, restored, live_partitions).await
+}
+
+async fn apply_restore(
+    store: &PersonhogStore,
+    value: &[u8],
+    restored: ChangelogConfig,
+    live_partitions: u32,
+) -> anyhow::Result<ChangelogConfig> {
+    if live_partitions != restored.partitions {
+        bail!(
+            "topic {} has {live_partitions} partitions but the backup records {}; the backup may be from another environment",
+            restored.topic,
+            restored.partitions
+        );
+    }
+    if !store.restore_changelog_config_raw(value).await? {
+        bail!("config/changelog already exists; restore only rebuilds an empty etcd");
+    }
+    Ok(restored)
 }
 
 #[derive(Serialize)]
@@ -403,5 +454,75 @@ async fn group_lag(config: &Config, group: &str, topic: &str) -> GroupLag {
             max_partition_lag: 0,
             error: Some(format!("{e:#}")),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backup::tests::test_etcd;
+
+    async fn empty_store(name: &str) -> PersonhogStore {
+        let (etcd, prefix) = test_etcd(name).await;
+        store(&etcd.client().await.unwrap(), &prefix)
+    }
+
+    fn backed_up(partitions: u32) -> (Vec<u8>, ChangelogConfig) {
+        // A field this build does not know must survive the round trip.
+        let value = format!(
+            r#"{{"topic":"personhog_updates_64","partitions":{partitions},"epoch":4,"writer_group":"personhog-writer","draining":[],"future_field":"kept"}}"#
+        )
+        .into_bytes();
+        let parsed = serde_json::from_slice(&value).unwrap();
+        (value, parsed)
+    }
+
+    #[tokio::test]
+    async fn restore_writes_the_backed_up_bytes_into_an_empty_etcd() {
+        let store = empty_store("restore-empty").await;
+        let (value, parsed) = backed_up(64);
+
+        let restored = apply_restore(&store, &value, parsed, 64).await.unwrap();
+
+        assert_eq!(restored.epoch, 4);
+        let (stored, _) = store
+            .get_changelog_config_raw_with_revision()
+            .await
+            .unwrap();
+        assert_eq!(stored.unwrap(), value);
+    }
+
+    #[tokio::test]
+    async fn restore_refuses_a_seeded_etcd() {
+        let store = empty_store("restore-seeded").await;
+        assert!(store
+            .seed_changelog_config("personhog_updates_64", 64, "personhog-writer")
+            .await
+            .unwrap());
+        let (value, parsed) = backed_up(64);
+
+        let refused = apply_restore(&store, &value, parsed, 64).await;
+
+        assert!(refused.unwrap_err().to_string().contains("already exists"));
+        let current = store.get_changelog_config().await.unwrap().unwrap();
+        assert_eq!(current.epoch, 1, "the seeded config is untouched");
+    }
+
+    #[tokio::test]
+    async fn restore_refuses_a_backup_whose_partitions_do_not_match_the_topic() {
+        let store = empty_store("restore-mismatch").await;
+        let (value, parsed) = backed_up(128);
+
+        let refused = apply_restore(&store, &value, parsed, 64).await;
+
+        assert!(refused
+            .unwrap_err()
+            .to_string()
+            .contains("another environment"));
+        let (stored, _) = store
+            .get_changelog_config_raw_with_revision()
+            .await
+            .unwrap();
+        assert!(stored.is_none(), "nothing is written");
     }
 }

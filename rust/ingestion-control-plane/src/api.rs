@@ -471,6 +471,54 @@ async fn personhog_seed_changelog(
     Ok(Json(seeded))
 }
 
+/// The configured backup store, or 503 when `CHANGELOG_BACKUP_BUCKET` is unset.
+fn backup_store(state: &AppState) -> Result<Arc<dyn crate::backup::BackupStore>, ApiError> {
+    state.backups.clone().ok_or_else(|| {
+        ApiError::unavailable("changelog backups are disabled (CHANGELOG_BACKUP_BUCKET not set)")
+    })
+}
+
+async fn personhog_changelog_backups(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<crate::backup::BackupVersion>>, ApiError> {
+    let backups = backup_store(&state)?;
+    let versions = changelog::backups(backups.as_ref(), &state.config.personhog_etcd_prefix)
+        .await
+        .map_err(|e| ApiError::upstream(format!("listing backups failed: {e:#}")))?;
+    Ok(Json(versions))
+}
+
+#[derive(Deserialize)]
+struct RestoreChangelogRequest {
+    /// A version from the backup list; the current backup when absent.
+    version_id: Option<String>,
+}
+
+async fn personhog_restore_changelog(
+    State(state): State<AppState>,
+    Json(request): Json<RestoreChangelogRequest>,
+) -> Result<Json<ChangelogConfig>, ApiError> {
+    let prefix = state.config.personhog_etcd_prefix.clone();
+    validated_etcd_key(&state, &prefix)?;
+    let backups = backup_store(&state)?;
+    let client = etcd_client(&state).await?;
+    let version_id = request
+        .version_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let restored = changelog::restore(
+        &state.config,
+        &client,
+        &prefix,
+        backups.as_ref(),
+        version_id,
+    )
+    .await
+    .map_err(|e| ApiError::bad_request(format!("restore failed: {e:#}")))?;
+    Ok(Json(restored))
+}
+
 #[derive(Deserialize)]
 struct StartMigrationRequest {
     topic: String,
@@ -603,6 +651,14 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/api/personhog/changelog/seed",
             post(personhog_seed_changelog),
+        )
+        .route(
+            "/api/personhog/changelog/backups",
+            get(personhog_changelog_backups),
+        )
+        .route(
+            "/api/personhog/changelog/restore",
+            post(personhog_restore_changelog),
         )
         .route("/api/personhog/migrations", post(personhog_start_migration))
         .route(
