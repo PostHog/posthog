@@ -1024,8 +1024,7 @@ async def _handle_import_error(
         await logger.awarning(error_msg)
         await logger.adebug("REST client exhausted its retries - re-raising for Temporal retry")
         if error.retry_after:
-            # The server said when a retry can succeed. Temporal waits that long before the next
-            # attempt, so a rate limit window longer than the client's wait limit holds no worker.
+            # Defer the next Temporal attempt past the server's window instead of holding a worker in it.
             raise NonReportableApplicationError(
                 error_msg,
                 type=RESTClientRetryableError.__name__,
