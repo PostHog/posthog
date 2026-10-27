@@ -233,6 +233,7 @@ The mapping is keyed by the stored column name, not the HogQL field name, so an 
 For AI columns, `AI_PROPERTY_TO_COLUMN` in `posthog/hogql/database/schema/ai_events.py` is shared with the query rewriter.
 One rule for `$ai_input` masks both `events.properties.$ai_input` and `ai_events.input`, including nested reads such as `input[1].content`.
 The same rule applies when a filter or an aggregate reads the column.
+A mirror of a dotted property masks when the property or any parent segment is restricted, so restricting `metadata` masks `mat_metadata_backend`, the mirror of `metadata.backend`.
 Nested keys in an allowed AI payload are not separate event properties: a restriction on the event property `content` does not restrict `input.content`.
 The dimensional tables also hold session-level columns (`entry_pathname`, `end_pathname`, `referring_domain`, `utm_*`). These are not masked, because HogQL does not enforce session property restrictions on any table.
 That resolver rewrites a restricted mirror column to the same `Constant(value=None, type=StringType(nullable=True))` the source property lowers to, before the AST reaches the printer — so the mirror column and its source property are one AST node by the time comparisons and nullability are decided, not two independently masked spellings that could drift apart.
