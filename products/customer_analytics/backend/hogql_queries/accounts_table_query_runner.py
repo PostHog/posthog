@@ -78,12 +78,12 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
-        # Account rows are filtered by the caller's object-level access for every query.
-        user = self.user
-        payload["account_search_principal"] = {
-            "user_id": user.id if isinstance(user, User) else None,
-            "is_staff": user.is_staff if isinstance(user, User) else False,
-        }
+        if self._has_member_search():
+            user = self.user
+            payload["account_member_search_principal"] = {
+                "user_id": user.id if isinstance(user, User) else None,
+                "is_staff": user.is_staff if isinstance(user, User) else False,
+            }
         return payload
 
     def validate_query_runner_access(self, user: User) -> bool:
