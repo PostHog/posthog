@@ -22,11 +22,7 @@ from posthog.models.user_integration import UserIntegration
 from posthog.slack.formatting import channel_id_from_target
 
 from products.mcp_store.backend.facade.api import get_active_installations
-from products.slack_app.backend.feature_flags import (
-    is_slack_app_assistant_enabled,
-    is_slack_app_forking_enabled,
-    is_slack_app_unprompted_answers_enabled,
-)
+from products.slack_app.backend.feature_flags import is_slack_app_assistant_enabled, is_slack_app_forking_enabled
 from products.slack_app.backend.inbox_channel import (
     _get_team_channel,
     channel_name_from_target,
@@ -472,7 +468,7 @@ class UnpromptedAnswersTip(TipFeature):
     )
 
     def is_eligible(self, ctx: TipContext) -> bool:
-        return not ctx.in_direct_message and is_slack_app_unprompted_answers_enabled(ctx.integration)
+        return not ctx.in_direct_message
 
     def was_used(self, ctx: TipContext) -> bool:
         return ctx.settings.untagged_question_mode is not None

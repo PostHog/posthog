@@ -19,7 +19,7 @@ from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.authentication_checks import covers_authentication
 
 from products.conversations.backend.api.external import ExternalTicketProjectSecretAPIKeyAuthentication
-from products.conversations.backend.api.ticket_actions import _truncate_bytes
+from products.conversations.backend.api.ticket_actions import _truncate_bytes, _truncate_json_bytes
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Priority, Status
 
@@ -546,9 +546,12 @@ class TestExternalTicketAPI(BaseTest):
         Comment.objects.filter(pk=comment.pk).update(created_at=timezone.now() - timedelta(minutes=minutes_ago))
         return comment
 
-    def _get_first_customer_message_text(self):
+    def _get_first_customer_message_text(self, max_bytes: int | None = None):
         """GET the ticket with the opt-in flag and return the first_customer_message_text value."""
-        response = self.client.get(self.url, {"include_first_customer_message_text": "true"}, **self._auth_headers())
+        params: dict[str, str | int] = {"include_first_customer_message_text": "true"}
+        if max_bytes is not None:
+            params["first_customer_message_max_bytes"] = max_bytes
+        response = self.client.get(self.url, params, **self._auth_headers())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         return response.json()["first_customer_message_text"]
 
@@ -660,17 +663,18 @@ class TestExternalTicketAPI(BaseTest):
         [
             # A cut message ends with an ellipsis in place of its last three characters, so the
             # 200-byte result is 197 "x" plus "...".
-            ("ascii", "x" * 900, "x" * 197 + "..."),
+            ("ascii", "x" * 900, None, "x" * 197 + "..."),
             # 3 bytes per character, so the cap lands at 66 characters (198 bytes); the ellipsis
             # replaces the last three, leaving 63 characters plus "...". A character-based cap
             # would emit 600 bytes against the workflow variable budget.
-            ("multibyte", "あ" * 300, "あ" * 63 + "..."),
+            ("multibyte", "あ" * 300, None, "あ" * 63 + "..."),
+            ("length_ignored_on_this_route", "x" * 900, 3000, "x" * 197 + "..."),
         ]
     )
-    def test_get_ticket_truncates_first_message_to_200_bytes(self, _name, content, expected):
+    def test_get_ticket_truncates_first_message_to_its_byte_budget(self, _name, content, max_bytes, expected):
         self._create_message(content, minutes_ago=10, item_context={"author_type": "customer"})
 
-        self.assertEqual(self._get_first_customer_message_text(), expected)
+        self.assertEqual(self._get_first_customer_message_text(max_bytes), expected)
 
     def test_get_ticket_first_message_that_fits_has_no_ellipsis(self):
         # The ellipsis only marks a cut, so a message inside the budget is returned unchanged.
@@ -1019,14 +1023,19 @@ class TestExternalTicketAPI(BaseTest):
 
 
 class TestTruncateBytes(SimpleTestCase):
-    def test_drops_a_joiner_the_cut_left_dangling(self):
+    @parameterized.expand([("utf8_bytes", _truncate_bytes), ("json_bytes", _truncate_json_bytes)])
+    def test_drops_a_joiner_the_cut_left_dangling(self, _name, truncate):
         # The cut lands inside the emoji following a joiner, so errors="ignore" drops the
         # partial character and would otherwise end the preview on the joiner itself.
-        truncated = _truncate_bytes("xxx" + "👨‍👩‍👧" * 20, 200)
+        truncated = truncate("xxx" + "👨‍👩‍👧" * 20, 200)
 
         self.assertFalse(truncated.endswith("‍"))
         self.assertTrue(truncated.endswith("..."))
         self.assertLessEqual(len(truncated.encode("utf-8")), 200)
 
-    def test_returns_text_within_budget_unchanged(self):
-        self.assertEqual(_truncate_bytes("short enough", 200), "short enough")
+    @parameterized.expand([("utf8_bytes", _truncate_bytes), ("json_bytes", _truncate_json_bytes)])
+    def test_returns_text_within_budget_unchanged(self, _name, truncate):
+        self.assertEqual(truncate("short enough", 200), "short enough")
+
+    def test_json_budget_counts_escaped_quotes(self):
+        self.assertEqual(_truncate_json_bytes('"' * 300, 200), '"' * 98 + "...")

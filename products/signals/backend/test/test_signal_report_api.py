@@ -808,12 +808,20 @@ class TestSignalReportListAPI(APIBaseTest):
     def test_plan_shows_on_the_detail_of_a_step_and_not_in_the_list(self):
         plan = self._create_report(title="feat(x): the plan")
         step = self._create_report(title="feat(x): a step")
-        SignalReportArtefact.add_log(
-            team_id=self.team.id,
-            report_id=str(step.id),
-            content=ReportLink(kind=ReportLinkKind.PART_OF, report_id=str(plan.id)),
-            attribution=ArtefactAttribution.system(),
+        held_back_step = self._create_report(title="feat(x): a held back step", status=SignalReport.Status.SUPPRESSED)
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=held_back_step,
+            type=SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT,
+            content=json.dumps({"choice": False, "explanation": "Asks to disable a safety control."}),
         )
+        for step_report in (step, held_back_step):
+            SignalReportArtefact.add_log(
+                team_id=self.team.id,
+                report_id=str(step_report.id),
+                content=ReportLink(kind=ReportLinkKind.PART_OF, report_id=str(plan.id)),
+                attribution=ArtefactAttribution.system(),
+            )
 
         detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{step.id}/").json()
         assert detail["plan"] == {
@@ -828,7 +836,17 @@ class TestSignalReportListAPI(APIBaseTest):
                     "depends_on": [],
                     "implementation_pr_url": None,
                     "implementation_pr_state": None,
-                }
+                    "suppression_source": None,
+                },
+                {
+                    "id": str(held_back_step.id),
+                    "title": "feat(x): a held back step",
+                    "status": "suppressed",
+                    "depends_on": [],
+                    "implementation_pr_url": None,
+                    "implementation_pr_state": None,
+                    "suppression_source": "safety_judge",
+                },
             ],
         }
         row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(step.id))

@@ -39,7 +39,6 @@ class TestOfferFeatureTip:
         with (
             patch.object(offer, "post_slack_ephemeral") as self.post,
             patch.object(offer, "SlackIntegration"),
-            patch.object(catalog, "is_slack_app_unprompted_answers_enabled", return_value=False),
             # The decision model is not reachable here, so every pick falls back to the ranked order.
             patch.object(picker, "build_system_one_client", side_effect=RuntimeError("no gateway")),
         ):
