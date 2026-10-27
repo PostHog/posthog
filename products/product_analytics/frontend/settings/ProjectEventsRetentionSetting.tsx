@@ -10,14 +10,14 @@ import { eventsRetentionSettingsLogic } from './eventsRetentionSettingsLogic'
 import { EventsRetentionWindowForm } from './EventsRetentionWindowForm'
 
 export function ProjectEventsRetentionSetting(): JSX.Element | null {
-    const { retentionEnforced, projectRetention, projectRetentionLoading } = useValues(eventsRetentionSettingsLogic)
+    const { projectRetention, projectRetentionLoading } = useValues(eventsRetentionSettingsLogic)
     const { updateProjectRetention } = useActions(eventsRetentionSettingsLogic)
     const restrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    if (!retentionEnforced || !projectRetention) {
+    if (!projectRetention) {
         return null
     }
 

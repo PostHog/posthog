@@ -74,7 +74,6 @@ class TestEventsRetentionAPI(APIBaseTest):
             "plan_retention_months": 12,
             "min_retention_months": 1,
             "max_retention_months": 12,
-            "organization_retention_available": True,
         }
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
@@ -84,7 +83,6 @@ class TestEventsRetentionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["retention_months"] is None
         assert response.json()["retained_from"] is None
-        assert response.json()["organization_retention_available"] is False
 
     def test_project_admin_sets_and_clears_the_project_window(self) -> None:
         self._set_membership("project_admin")
@@ -133,7 +131,6 @@ class TestEventsRetentionAPI(APIBaseTest):
             "plan_retention_months": 24,
             "min_retention_months": 1,
             "max_retention_months": 24,
-            "organization_retention_available": True,
         }
         assert self.client.get(self.url()).json()["retention_months"] == 12
         assert ActivityLog.objects.filter(
@@ -167,15 +164,20 @@ class TestEventsRetentionAPI(APIBaseTest):
         )
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
-    def test_rejects_windows_until_retention_is_enforced(self) -> None:
+    def test_accepts_windows_before_retention_is_enforced(self) -> None:
         self._set_membership("organization_admin")
 
         for url in (self.url(), self.organization_url()):
             response = self.client.post(url, {"retention_months": 12}, format="json")
 
-            assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert not OrganizationEventsRetentionConfig.objects.filter(organization=self.organization).exists()
-        assert not TeamEventsRetentionConfig.objects.filter(team=self.team).exists()
+            assert response.status_code == status.HTTP_200_OK
+        assert (
+            OrganizationEventsRetentionConfig.objects.get(
+                organization=self.organization
+            ).default_events_retention_months
+            == 12
+        )
+        assert TeamEventsRetentionConfig.objects.get(team=self.team).events_retention_months == 12
 
     @parameterized.expand([("patch",), ("put",), ("delete",)])
     def test_rejects_other_writes(self, method: str) -> None:

@@ -10,7 +10,7 @@ from posthog.models.events_retention_config import (
 )
 from posthog.models.organization import Organization
 from posthog.models.team import Team
-from posthog.models.team.event_retention import organization_events_retention_months, should_enforce_events_retention
+from posthog.models.team.event_retention import organization_events_retention_months
 from posthog.models.user import User
 
 from products.product_analytics.backend.facade.contracts import OrganizationEventsRetention
@@ -25,9 +25,6 @@ def organization_events_retention(organization: Organization) -> OrganizationEve
         plan_months=plan_months,
         min_months=(config.min_events_retention_months if config else None) or 1,
         max_months=min(plan_months, staff_max) if staff_max else plan_months,
-        available=any(
-            should_enforce_events_retention(team_id) for team_id in organization.teams.values_list("id", flat=True)
-        ),
     )
 
 

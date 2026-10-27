@@ -14,7 +14,7 @@ export function OrganizationEventsRetentionSetting(): JSX.Element | null {
     const { updateOrganizationRetention } = useActions(eventsRetentionSettingsLogic)
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
 
-    if (!projectRetention || !organizationRetention?.organization_retention_available) {
+    if (!projectRetention || !organizationRetention) {
         return null
     }
 

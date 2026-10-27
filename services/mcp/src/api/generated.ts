@@ -46261,8 +46261,6 @@ export namespace Schemas {
       readonly min_retention_months: number;
       /** The longest window an admin can set, in months. Never longer than the plan's window. */
       readonly max_retention_months: number;
-      /** Whether the organization's window can be set yet. False until events retention applies to one of the organization's projects. */
-      readonly organization_retention_available: boolean;
       /**
          * How many months of events stay queryable, counted back from today. Null while no retention window applies to the project.
          * @nullable
@@ -75152,8 +75150,6 @@ export namespace Schemas {
       readonly min_retention_months: number;
       /** The longest window an admin can set, in months. Never longer than the plan's window. */
       readonly max_retention_months: number;
-      /** Whether the organization's window can be set yet. False until events retention applies to one of the organization's projects. */
-      readonly organization_retention_available: boolean;
     }
 
     export interface OrganizationFeatureFlagRow {

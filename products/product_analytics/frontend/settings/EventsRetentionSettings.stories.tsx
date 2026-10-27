@@ -28,7 +28,6 @@ const retentionMocks = (
         plan_retention_months: 36,
         min_retention_months: 1,
         max_retention_months: 36,
-        organization_retention_available: true,
     }
     const project: EventsRetentionApi = {
         ...organization,

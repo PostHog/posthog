@@ -192,6 +192,3 @@ class OrganizationEventsRetention:
     plan_months: int
     min_months: int
     max_months: int
-    # The monthly cleanup deletes by the organization's window whatever the rollout flag says, so the
-    # window can be set only once retention applies to one of the organization's projects.
-    available: bool
