@@ -335,13 +335,13 @@ export interface insightsTableDataLogicMeta {
             dayShareFits: boolean,
             series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<DataWarehouseNode>)[] | null | undefined,
             uniqueCountSeriesOrders: number[],
-            currentUniqueDayTotals: Map<string, number[]> | null
+            currentUniqueDayTotals: Map<string, Map<string, number>> | null
         ) => boolean
         getPercentOfDayTotal: (
             indexedResults: IndexedTrendResult[],
             showPercentOfDayTotal: boolean,
             uniqueCountSeriesOrders: number[],
-            currentUniqueDayTotals: Map<string, number[]> | null
+            currentUniqueDayTotals: Map<string, Map<string, number>> | null
         ) => (item: IndexedTrendResult, index: number) => number | null
     }
 }
