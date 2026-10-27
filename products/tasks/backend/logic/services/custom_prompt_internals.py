@@ -161,6 +161,7 @@ class CustomPromptSandboxContext:
     """Surface the run is answering on (e.g. ``"slack"``). The agent server branches its system
     prompt on this, so evals that grade surface-specific behavior must set it to exercise the
     prompt the surface really ships. ``None`` leaves the run originless, like a plain task."""
+    system_prompt: dict[str, str] | None = None
     mcp_exclude_tools: tuple[str, ...] = ()
     """Tool names to omit from the PostHog MCP catalog for this run (``x-posthog-exclude-tools``).
     Used when a scope grant is broader than the tools this caller should advertise, e.g. hiding
@@ -337,6 +338,8 @@ async def _create_task_and_trigger(
         context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full"
     )
     extra_run_state: dict[str, Any] = {}
+    if context.system_prompt is not None:
+        extra_run_state["systemPrompt"] = context.system_prompt
     if context.mcp_exclude_tools:
         extra_run_state["mcp_exclude_tools"] = list(context.mcp_exclude_tools)
     if output_schema:

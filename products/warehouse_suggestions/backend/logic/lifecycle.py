@@ -1,5 +1,5 @@
 from collections import Counter, defaultdict, deque
-from collections.abc import Collection, Iterable, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from datetime import datetime, time, timedelta
 from functools import partial
 from typing import TYPE_CHECKING
@@ -23,7 +23,7 @@ from .candidates.base import CandidateContext
 from .candidates.registry import CANDIDATES
 from .reads import Subject
 from .rules import LifecycleRules, kind_position
-from .suggestions import transition_to, upsert_suggestions
+from .suggestions import ALLOWED_TRANSITIONS, Transitions, transition_to, upsert_suggestions
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -54,7 +54,7 @@ def apply_run(
 ) -> LifecycleResult:
     """Apply one run's drafts, show new suggestions when `surface` is set, and recheck accepted assets."""
     fingerprints = {draft.fingerprint for draft in drafts}
-    reopened = _reopen(context, drafts)
+    reopened = _reopen(context, drafts, now)
     created = _upsert(context.team_id, drafts)
     auto_resolved = _auto_resolve(context, fingerprints)
     expired = _expire(context, fingerprints, now)
@@ -94,9 +94,11 @@ def _upsert(team_id: int, drafts: Sequence[SuggestionDraft]) -> list[WarehouseSu
 
 
 REVIVABLE_STATUSES = (WarehouseSuggestionStatus.EXPIRED, WarehouseSuggestionStatus.AUTO_RESOLVED)
+FLIP_KINDS = frozenset({WarehouseSuggestionKind.MATERIALIZE, WarehouseSuggestionKind.UNMATERIALIZE})
+REOPEN_ACCEPTED: Transitions = {WarehouseSuggestionStatus.ACCEPTED: frozenset({WarehouseSuggestionStatus.PROPOSED})}
 
 
-def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft]) -> Reopened:
+def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft], now: datetime) -> Reopened:
     """Move closed suggestions that match a draft back to proposed and unshown, dismissed ones only if they earn it."""
     drafts_by_fingerprint = {draft.fingerprint: draft for draft in drafts}
     suggestions = WarehouseSuggestion.objects.for_team(context.team_id)
@@ -111,6 +113,8 @@ def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft]) -> Reo
             revived.extend(_moved(row, context.team_id, WarehouseSuggestionStatus.PROPOSED))
         elif _earns_reproposal(row, drafts_by_fingerprint[row.fingerprint], context.rules.lifecycle):
             reproposed.extend(_moved(row, context.team_id, WarehouseSuggestionStatus.PROPOSED))
+    for row in _accepted_then_flipped_back(context, drafts_by_fingerprint, now):
+        reproposed.extend(_moved(row, context.team_id, WarehouseSuggestionStatus.PROPOSED, REOPEN_ACCEPTED))
     reproposed_ids = [row.id for row in reproposed]
     revived_ids = [row.id for row in revived]
     suggestions.filter(id__in=reproposed_ids).update(reproposed_count=F("reproposed_count") + 1)
@@ -118,6 +122,21 @@ def _reopen(context: CandidateContext, drafts: Sequence[SuggestionDraft]) -> Reo
     return Reopened(
         reproposed=tuple(suggestions.filter(id__in=reproposed_ids)),
         revived=tuple(suggestions.filter(id__in=revived_ids)),
+    )
+
+
+def _accepted_then_flipped_back(
+    context: CandidateContext, drafts_by_fingerprint: Mapping[str, SuggestionDraft], now: datetime
+) -> list[WarehouseSuggestion]:
+    """Accepted materialize and unmaterialize suggestions drafted again, so their view flipped back, past the cooldown."""
+    cooled_down_before = now - timedelta(days=context.rules.lifecycle.flip_cooldown_days)
+    return list(
+        WarehouseSuggestion.objects.for_team(context.team_id).filter(
+            fingerprint__in=drafts_by_fingerprint,
+            status=WarehouseSuggestionStatus.ACCEPTED,
+            kind__in=FLIP_KINDS,
+            reviewed_at__lte=cooled_down_before,
+        )
     )
 
 
@@ -221,14 +240,39 @@ def _reconcile_assets(context: CandidateContext) -> int:
     suggestions = WarehouseSuggestion.objects.for_team(context.team_id)
     changed = 0
     for row in suggestions.filter(status=WarehouseSuggestionStatus.ACCEPTED).only(
-        "id", "kind", "subject_kind", "subject_id", "reviewed_at", "asset_outcome"
+        "id",
+        "kind",
+        "subject_kind",
+        "subject_id",
+        "reviewed_at",
+        "score_inputs",
+        "asset_outcome",
+        "realized_seconds_saved_per_month",
+        "realized_bytes_saved_per_month",
     ):
-        outcome = CANDIDATES[WarehouseSuggestionKind(row.kind)].asset_outcome(
-            context, _subject(row), accepted_at=row.reviewed_at
-        )
-        if outcome != row.asset_outcome:
-            changed += suggestions.filter(id=row.id).update(asset_outcome=outcome)
+        updates = _asset_updates(context, row)
+        if any(getattr(row, field) != value for field, value in updates.items()):
+            changed += suggestions.filter(id=row.id).update(**updates)
     return changed
+
+
+def _asset_updates(context: CandidateContext, row: WarehouseSuggestion) -> dict[str, object]:
+    candidate = CANDIDATES[WarehouseSuggestionKind(row.kind)]
+    subject = _subject(row)
+    savings = (
+        candidate.realized_savings(context, subject, row.score_inputs)
+        if _window_starts_after(context, row.reviewed_at)
+        else None
+    )
+    return {
+        "asset_outcome": candidate.asset_outcome(context, subject, accepted_at=row.reviewed_at),
+        "realized_seconds_saved_per_month": savings.seconds if savings else None,
+        "realized_bytes_saved_per_month": savings.read_bytes if savings else None,
+    }
+
+
+def _window_starts_after(context: CandidateContext, accepted_at: datetime | None) -> bool:
+    return accepted_at is not None and accepted_at < context.reads.window.starts_at
 
 
 def _move_all(
@@ -237,10 +281,15 @@ def _move_all(
     return [moved for row in rows for moved in _moved(row, team_id, status)]
 
 
-def _moved(row: WarehouseSuggestion, team_id: int, status: WarehouseSuggestionStatus) -> list[WarehouseSuggestion]:
+def _moved(
+    row: WarehouseSuggestion,
+    team_id: int,
+    status: WarehouseSuggestionStatus,
+    transitions: Transitions = ALLOWED_TRANSITIONS,
+) -> list[WarehouseSuggestion]:
     """The suggestion moved to `status` as the system, or nothing when a person already decided it."""
     try:
-        return [transition_to(row.id, team_id, status, user_id=None)]
+        return [transition_to(row.id, team_id, status, user_id=None, transitions=transitions)]
     except SuggestionAlreadyDecidedError:
         return []
 

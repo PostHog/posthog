@@ -388,6 +388,7 @@ const taskRunStateFields = {
     z.enum(["none", "message", "canvas_file"]),
   ),
   slack_chart_delivery: optionalField(z.boolean()),
+  slack_chart_links: optionalField(z.boolean()),
   slack_notified_pr_url: optionalField(z.string()),
   slack_thread_url: optionalField(z.string()),
   snapshot_kind: optionalField(z.string()),

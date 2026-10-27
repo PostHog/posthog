@@ -233,6 +233,13 @@ function metricEventNote({ evidence }: ExperimentHealthFindingApi): string {
     return `Not received: ${events.join(', ')}.`
 }
 
+function metricCompileNote({ evidence }: ExperimentHealthFindingApi): string {
+    const errors = Object.entries(evidence)
+        .filter(([key]) => /^metric_\d+_error$/.test(key))
+        .map(([, value]) => value)
+    return `Doesn't compile: ${errors.join(', ')}.`
+}
+
 function exposureCriteriaNote({ subcode, evidence }: ExperimentHealthFindingApi): string {
     return subcode === 'filter_on_another_flag'
         ? `The query requires ${evidence.flag_key}, a filter requires ${evidence.filter_flag_keys}.`
@@ -309,8 +316,12 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
     }
 
     return [
-        exposureCheck('zero_exposures', ['experiment', 'exposures'], null),
-        exposureCheck('srm', ['exposures'], 'The finding needs p < 0.001.'),
+        exposureCheck('zero_exposures', ['experiment', 'flag', 'exposures'], null),
+        exposureCheck(
+            'srm',
+            ['exposures', 'flag'],
+            'The finding needs p < 0.001. After a split change it tests the users first exposed after the day of the change. It reads the flag history only for a reader who can view the flag.'
+        ),
         exposureCheck('bias_risk_multiple_excluded', ['exposures'], null),
         exposureCheck(
             'multiple_variants_share',
@@ -332,7 +343,9 @@ export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugChec
         serverOnlyCheck(input, 'new_flag_no_traffic', null),
         noMetricCheck(input),
         serverOnlyCheck(input, 'metric_event_not_ingested', metricEventNote, ['metrics', 'project']),
+        serverOnlyCheck(input, 'metric_cannot_compile', metricCompileNote, ['metrics', 'experiment']),
         serverOnlyCheck(input, 'exposure_criteria_cannot_match', exposureCriteriaNote, ['experiment', 'project']),
+        serverOnlyCheck(input, 'early_significance', null, ['experiment', 'metrics']),
         ...exposureChecks(input),
     ]
 }

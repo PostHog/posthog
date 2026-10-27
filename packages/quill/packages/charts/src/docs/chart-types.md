@@ -102,6 +102,7 @@ Supports `config.legend` for grouped series and `onBoxClick`.
 `axisOrientation: 'horizontal'` lists the labels down the y-axis and draws values along x; `yScaleType: 'log'` then applies to that x value axis, and `yTickFormatter` formats its ticks.
 Whiskers are drawn at `min` and `max`. Set `whiskerMin` and `whiskerMax` on a datum to clip them (for example to 1.5 × IQR) while `min` and `max` stay the true extremes; the y-axis then spans the whiskers, and the default tooltip lists both.
 The tooltip receives a `BoxPlotTooltipContext`; `BoxPlotTooltip` is the default.
+`config.tooltip.valueFormatter` formats each statistic in the default tooltip, so it can match `yTickFormatter`.
 Boxes have a light tint of the series color, a thick median line, and whiskers in the axis color. Set `config.boxCornerRadius: 0` for square corners.
 
 ## Heatmap
@@ -113,6 +114,9 @@ A single-cell tooltip resolves from the cursor, `onCellClick` reports `{ xIndex,
 `config.cellLabel` prints a number in each cell, for a grid read as values rather than only as density (a retention table).
 It runs for every cell, empty ones included; return null to leave one blank.
 Each label takes light or dark text from the cell fill behind it, and is dropped when the cell is too small for the text, so a dense grid falls back to a plain density map.
+`config.cellStyle` overrides single cells: `color` ramps that cell from a second accent (a summary row), `outlined` draws a dashed outline and no fill (a period still in progress), `filled` fills a 0 cell at the lightest step (a real zero, not missing data).
+`config.highlightedColumns` draws a band behind the named columns, for a column the consumer selected or is hovering.
+The consumer owns the column header, so it owns the click and hover that set those indices.
 
 ## SankeyChart
 

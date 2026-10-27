@@ -489,6 +489,7 @@ def dashboard_template_from_creation_payload(template: dict[str, Any]) -> Dashbo
         tiles=template["tiles"],
         tags=template.get("tags"),
         variables=template.get("variables"),
+        customization=template.get("customization"),
     )
 
 
@@ -499,10 +500,20 @@ def create_from_template(
     *,
     user_access_control: UserAccessControl | None = None,
 ) -> None:
+    from products.dashboards.backend.customization import (  # noqa: PLC0415 — breaks posthog.models import cycle
+        normalize_dashboard_customization,
+        stored_customization,
+        stored_group_key,
+    )
+
     if not dashboard.name or dashboard.name == "":
         dashboard.name = template.template_name
     dashboard.filters = template.dashboard_filters
     dashboard.description = template.dashboard_description or ""
+    dashboard.customization = {
+        **stored_customization(template.customization),
+        **normalize_dashboard_customization(dashboard.customization),
+    }
 
     for template_tag in template.tags or []:
         tag, _ = Tag.objects.get_or_create(
@@ -519,6 +530,7 @@ def create_from_template(
             query = template_tile.get("query", None)
             _create_tile_for_insight(
                 dashboard,
+                group_key=stored_group_key(template_tile.get("group_key")),
                 name=template_tile.get("name"),
                 query=query,
                 description=template_tile.get("description"),
@@ -530,6 +542,7 @@ def create_from_template(
         elif tile_type == "TEXT":
             _create_tile_for_text(
                 dashboard,
+                group_key=stored_group_key(template_tile.get("group_key")),
                 color=template_tile.get("color"),
                 layouts=template_tile.get("layouts"),
                 body=template_tile.get("body"),
@@ -540,6 +553,7 @@ def create_from_template(
             button = {**template_tile, **(template_tile.get("button_tile") or {})}
             _create_tile_for_button(
                 dashboard,
+                group_key=stored_group_key(template_tile.get("group_key")),
                 color=template_tile.get("color"),
                 layouts=template_tile.get("layouts"),
                 url=button.get("url", ""),
@@ -551,6 +565,7 @@ def create_from_template(
         elif tile_type == "WIDGET":
             _create_tile_for_widget(
                 dashboard,
+                group_key=stored_group_key(template_tile.get("group_key")),
                 widget_type=template_tile.get("widget_type", ""),
                 config=template_tile.get("config", {}),
                 color=template_tile.get("color"),
@@ -570,6 +585,8 @@ def _create_tile_for_text(
     color: Optional[str],
     agent_context: str | None = None,
     transparent_background: Optional[bool] = None,
+    *,
+    group_key: str | None = None,
 ) -> None:
     if agent_context is not None and len(agent_context) > MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH:
         raise ValueError(f"Agent context cannot exceed {MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH} characters")
@@ -583,6 +600,7 @@ def _create_tile_for_text(
         text=text,
         dashboard=dashboard,
         team_id=dashboard.team_id,
+        group_key=group_key,
         layouts=layouts,
         color=color,
         transparent_background=transparent_background,
@@ -598,6 +616,8 @@ def _create_tile_for_button(
     placement: str = "left",
     style: str = "primary",
     transparent_background: Optional[bool] = None,
+    *,
+    group_key: str | None = None,
 ) -> None:
     button_tile = ButtonTile.objects.create(
         team=dashboard.team,
@@ -610,6 +630,7 @@ def _create_tile_for_button(
         button_tile=button_tile,
         dashboard=dashboard,
         team_id=dashboard.team_id,
+        group_key=group_key,
         layouts=layouts,
         color=color,
         transparent_background=transparent_background,
@@ -626,6 +647,7 @@ def _create_tile_for_widget(
     user=None,
     *,
     user_access_control: UserAccessControl | None = None,
+    group_key: str | None = None,
 ) -> None:
     from products.dashboards.backend.widget_create import (
         prepare_widget_tile_create,  # noqa: PLC0415 — breaks posthog.models import cycle
@@ -650,6 +672,7 @@ def _create_tile_for_widget(
         widget=widget,
         dashboard=dashboard,
         team_id=dashboard.team_id,
+        group_key=group_key,
         layouts=layouts or {},
         color=color,
         transparent_background=transparent_background,
@@ -665,6 +688,8 @@ def _create_tile_for_insight(
     query: Optional[dict] = None,
     tags: Optional[list[str]] = None,
     user=None,
+    *,
+    group_key: str | None = None,
 ) -> None:
     insight = Insight.objects.create(
         team=dashboard.team,
@@ -687,6 +712,7 @@ def _create_tile_for_insight(
         insight=insight,
         dashboard=dashboard,
         team_id=dashboard.team_id,
+        group_key=group_key,
         layouts=layouts,
         color=color,
     )

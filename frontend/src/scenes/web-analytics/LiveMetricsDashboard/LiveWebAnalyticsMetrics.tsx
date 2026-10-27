@@ -27,7 +27,7 @@ import { IconWithCount } from 'lib/lemon-ui/icons/icons'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/country'
-import { LiveEventsFeed, LiveEventsFeedColumn } from 'scenes/activity/live/LiveEventsFeed'
+import { getWebAnalyticsLiveFeedColumns, LiveEventsFeed } from 'scenes/activity/live/LiveEventsFeed'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { PathCleaningToggle } from '../PathCleaningToggle'
@@ -49,8 +49,6 @@ import { liveWebAnalyticsMetricsLogic } from './liveWebAnalyticsMetricsLogic'
 import { BrowserBreakdownItem, CountryBreakdownItem, DeviceBreakdownItem } from './LiveWebAnalyticsMetricsTypes'
 import { LiveWorldMap } from './LiveWorldMap'
 
-const LIVE_FEED_COLUMNS_WITH_RECORDINGS: LiveEventsFeedColumn[] = ['event', 'person', 'url', 'recording', 'timestamp']
-const LIVE_FEED_COLUMNS_WITHOUT_RECORDINGS: LiveEventsFeedColumn[] = ['event', 'person', 'url', 'timestamp']
 const STATS_POLL_INTERVAL_MS = 1000
 
 const renderBrowserIcon = (d: BrowserBreakdownItem): JSX.Element => {
@@ -312,9 +310,7 @@ export const LiveWebAnalyticsMetrics = (): JSX.Element => {
 
     const { featureFlags } = useValues(featureFlagLogic)
     const { currentTeam } = useValues(teamLogic)
-    const liveFeedColumns = currentTeam?.session_recording_opt_in
-        ? LIVE_FEED_COLUMNS_WITH_RECORDINGS
-        : LIVE_FEED_COLUMNS_WITHOUT_RECORDINGS
+    const liveFeedColumns = getWebAnalyticsLiveFeedColumns(!!currentTeam?.session_recording_opt_in)
     const { isVisible } = usePageVisibility()
     useEffect(() => {
         if (isVisible) {

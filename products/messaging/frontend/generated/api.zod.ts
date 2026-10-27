@@ -14,15 +14,35 @@ export const messagingCategoriesCreateBodyKeyMax = 64
 export const messagingCategoriesCreateBodyNameMax = 128
 
 export const MessagingCategoriesCreateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().max(messagingCategoriesCreateBodyKeyMax),
-    name: zod.string().max(messagingCategoriesCreateBodyNameMax),
-    description: zod.string().optional(),
-    public_description: zod.string().optional(),
+    key: zod
+        .string()
+        .max(messagingCategoriesCreateBodyKeyMax)
+        .describe(
+            "Stable identifier for the category, unique within the project, for example `newsletter`. Opt-out lists and preference imports refer to categories by key. You can't change the key after creation."
+        ),
+    name: zod
+        .string()
+        .max(messagingCategoriesCreateBodyNameMax)
+        .describe('Display name of the category, shown in the PostHog app.'),
+    description: zod
+        .string()
+        .optional()
+        .describe("Internal notes about which messages belong to this category. Recipients don't see it."),
+    public_description: zod
+        .string()
+        .optional()
+        .describe('Description that recipients see next to the category on the preferences page.'),
     category_type: zod
         .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
         .optional()
-        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
-    deleted: zod.boolean().optional(),
+        .describe(
+            "`marketing` (the default): recipients can opt out of it, and sends skip recipients who did. `transactional`: for messages a recipient must get, such as receipts or password resets. Sends ignore opt-outs, and the category doesn't appear on the preferences page. Set `message_category_type` on a workflow message step to the type of its category.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional"
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe("Set to true to archive the category. Archived categories don't appear in lists."),
 })
 
 export const messagingCategoriesUpdateBodyKeyMax = 64
@@ -30,15 +50,35 @@ export const messagingCategoriesUpdateBodyKeyMax = 64
 export const messagingCategoriesUpdateBodyNameMax = 128
 
 export const MessagingCategoriesUpdateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().max(messagingCategoriesUpdateBodyKeyMax),
-    name: zod.string().max(messagingCategoriesUpdateBodyNameMax),
-    description: zod.string().optional(),
-    public_description: zod.string().optional(),
+    key: zod
+        .string()
+        .max(messagingCategoriesUpdateBodyKeyMax)
+        .describe(
+            "Stable identifier for the category, unique within the project, for example `newsletter`. Opt-out lists and preference imports refer to categories by key. You can't change the key after creation."
+        ),
+    name: zod
+        .string()
+        .max(messagingCategoriesUpdateBodyNameMax)
+        .describe('Display name of the category, shown in the PostHog app.'),
+    description: zod
+        .string()
+        .optional()
+        .describe("Internal notes about which messages belong to this category. Recipients don't see it."),
+    public_description: zod
+        .string()
+        .optional()
+        .describe('Description that recipients see next to the category on the preferences page.'),
     category_type: zod
         .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
         .optional()
-        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
-    deleted: zod.boolean().optional(),
+        .describe(
+            "`marketing` (the default): recipients can opt out of it, and sends skip recipients who did. `transactional`: for messages a recipient must get, such as receipts or password resets. Sends ignore opt-outs, and the category doesn't appear on the preferences page. Set `message_category_type` on a workflow message step to the type of its category.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional"
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe("Set to true to archive the category. Archived categories don't appear in lists."),
 })
 
 export const messagingCategoriesPartialUpdateBodyKeyMax = 64
@@ -46,15 +86,37 @@ export const messagingCategoriesPartialUpdateBodyKeyMax = 64
 export const messagingCategoriesPartialUpdateBodyNameMax = 128
 
 export const MessagingCategoriesPartialUpdateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().max(messagingCategoriesPartialUpdateBodyKeyMax).optional(),
-    name: zod.string().max(messagingCategoriesPartialUpdateBodyNameMax).optional(),
-    description: zod.string().optional(),
-    public_description: zod.string().optional(),
+    key: zod
+        .string()
+        .max(messagingCategoriesPartialUpdateBodyKeyMax)
+        .optional()
+        .describe(
+            "Stable identifier for the category, unique within the project, for example `newsletter`. Opt-out lists and preference imports refer to categories by key. You can't change the key after creation."
+        ),
+    name: zod
+        .string()
+        .max(messagingCategoriesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Display name of the category, shown in the PostHog app.'),
+    description: zod
+        .string()
+        .optional()
+        .describe("Internal notes about which messages belong to this category. Recipients don't see it."),
+    public_description: zod
+        .string()
+        .optional()
+        .describe('Description that recipients see next to the category on the preferences page.'),
     category_type: zod
         .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
         .optional()
-        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
-    deleted: zod.boolean().optional(),
+        .describe(
+            "`marketing` (the default): recipients can opt out of it, and sends skip recipients who did. `transactional`: for messages a recipient must get, such as receipts or password resets. Sends ignore opt-outs, and the category doesn't appear on the preferences page. Set `message_category_type` on a workflow message step to the type of its category.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional"
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe("Set to true to archive the category. Archived categories don't appear in lists."),
 })
 
 /**
@@ -67,35 +129,75 @@ export const messagingCategoriesImportFromCustomerioCreateBodyKeyMax = 64
 export const messagingCategoriesImportFromCustomerioCreateBodyNameMax = 128
 
 export const MessagingCategoriesImportFromCustomerioCreateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().max(messagingCategoriesImportFromCustomerioCreateBodyKeyMax),
-    name: zod.string().max(messagingCategoriesImportFromCustomerioCreateBodyNameMax),
-    description: zod.string().optional(),
-    public_description: zod.string().optional(),
+    key: zod
+        .string()
+        .max(messagingCategoriesImportFromCustomerioCreateBodyKeyMax)
+        .describe(
+            "Stable identifier for the category, unique within the project, for example `newsletter`. Opt-out lists and preference imports refer to categories by key. You can't change the key after creation."
+        ),
+    name: zod
+        .string()
+        .max(messagingCategoriesImportFromCustomerioCreateBodyNameMax)
+        .describe('Display name of the category, shown in the PostHog app.'),
+    description: zod
+        .string()
+        .optional()
+        .describe("Internal notes about which messages belong to this category. Recipients don't see it."),
+    public_description: zod
+        .string()
+        .optional()
+        .describe('Description that recipients see next to the category on the preferences page.'),
     category_type: zod
         .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
         .optional()
-        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
-    deleted: zod.boolean().optional(),
+        .describe(
+            "`marketing` (the default): recipients can opt out of it, and sends skip recipients who did. `transactional`: for messages a recipient must get, such as receipts or password resets. Sends ignore opt-outs, and the category doesn't appear on the preferences page. Set `message_category_type` on a workflow message step to the type of its category.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional"
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe("Set to true to archive the category. Archived categories don't appear in lists."),
 })
 
 /**
  * Import customer preferences from CSV file
- * Expected CSV columns: id, email, cio_subscription_preferences
+ * Expected CSV columns: id, email, unsubscribed, cio_subscription_preferences
  */
 export const messagingCategoriesImportPreferencesCsvCreateBodyKeyMax = 64
 
 export const messagingCategoriesImportPreferencesCsvCreateBodyNameMax = 128
 
 export const MessagingCategoriesImportPreferencesCsvCreateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().max(messagingCategoriesImportPreferencesCsvCreateBodyKeyMax),
-    name: zod.string().max(messagingCategoriesImportPreferencesCsvCreateBodyNameMax),
-    description: zod.string().optional(),
-    public_description: zod.string().optional(),
+    key: zod
+        .string()
+        .max(messagingCategoriesImportPreferencesCsvCreateBodyKeyMax)
+        .describe(
+            "Stable identifier for the category, unique within the project, for example `newsletter`. Opt-out lists and preference imports refer to categories by key. You can't change the key after creation."
+        ),
+    name: zod
+        .string()
+        .max(messagingCategoriesImportPreferencesCsvCreateBodyNameMax)
+        .describe('Display name of the category, shown in the PostHog app.'),
+    description: zod
+        .string()
+        .optional()
+        .describe("Internal notes about which messages belong to this category. Recipients don't see it."),
+    public_description: zod
+        .string()
+        .optional()
+        .describe('Description that recipients see next to the category on the preferences page.'),
     category_type: zod
         .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
         .optional()
-        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
-    deleted: zod.boolean().optional(),
+        .describe(
+            "`marketing` (the default): recipients can opt out of it, and sends skip recipients who did. `transactional`: for messages a recipient must get, such as receipts or password resets. Sends ignore opt-outs, and the category doesn't appear on the preferences page. Set `message_category_type` on a workflow message step to the type of its category.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional"
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe("Set to true to archive the category. Archived categories don't appear in lists."),
 })
 
 /**
@@ -112,15 +214,35 @@ export const messagingCategoriesSaveTrackConfigCreateBodyKeyMax = 64
 export const messagingCategoriesSaveTrackConfigCreateBodyNameMax = 128
 
 export const MessagingCategoriesSaveTrackConfigCreateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().max(messagingCategoriesSaveTrackConfigCreateBodyKeyMax),
-    name: zod.string().max(messagingCategoriesSaveTrackConfigCreateBodyNameMax),
-    description: zod.string().optional(),
-    public_description: zod.string().optional(),
+    key: zod
+        .string()
+        .max(messagingCategoriesSaveTrackConfigCreateBodyKeyMax)
+        .describe(
+            "Stable identifier for the category, unique within the project, for example `newsletter`. Opt-out lists and preference imports refer to categories by key. You can't change the key after creation."
+        ),
+    name: zod
+        .string()
+        .max(messagingCategoriesSaveTrackConfigCreateBodyNameMax)
+        .describe('Display name of the category, shown in the PostHog app.'),
+    description: zod
+        .string()
+        .optional()
+        .describe("Internal notes about which messages belong to this category. Recipients don't see it."),
+    public_description: zod
+        .string()
+        .optional()
+        .describe('Description that recipients see next to the category on the preferences page.'),
     category_type: zod
         .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
         .optional()
-        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
-    deleted: zod.boolean().optional(),
+        .describe(
+            "`marketing` (the default): recipients can opt out of it, and sends skip recipients who did. `transactional`: for messages a recipient must get, such as receipts or password resets. Sends ignore opt-outs, and the category doesn't appear on the preferences page. Set `message_category_type` on a workflow message step to the type of its category.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional"
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe("Set to true to archive the category. Archived categories don't appear in lists."),
 })
 
 /**
@@ -135,15 +257,35 @@ export const messagingCategoriesSaveWebhookConfigCreateBodyKeyMax = 64
 export const messagingCategoriesSaveWebhookConfigCreateBodyNameMax = 128
 
 export const MessagingCategoriesSaveWebhookConfigCreateBody = /* @__PURE__ */ zod.object({
-    key: zod.string().max(messagingCategoriesSaveWebhookConfigCreateBodyKeyMax),
-    name: zod.string().max(messagingCategoriesSaveWebhookConfigCreateBodyNameMax),
-    description: zod.string().optional(),
-    public_description: zod.string().optional(),
+    key: zod
+        .string()
+        .max(messagingCategoriesSaveWebhookConfigCreateBodyKeyMax)
+        .describe(
+            "Stable identifier for the category, unique within the project, for example `newsletter`. Opt-out lists and preference imports refer to categories by key. You can't change the key after creation."
+        ),
+    name: zod
+        .string()
+        .max(messagingCategoriesSaveWebhookConfigCreateBodyNameMax)
+        .describe('Display name of the category, shown in the PostHog app.'),
+    description: zod
+        .string()
+        .optional()
+        .describe("Internal notes about which messages belong to this category. Recipients don't see it."),
+    public_description: zod
+        .string()
+        .optional()
+        .describe('Description that recipients see next to the category on the preferences page.'),
     category_type: zod
         .enum(['marketing', 'transactional'])
+        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional')
         .optional()
-        .describe('\* `marketing` - Marketing\n\* `transactional` - Transactional'),
-    deleted: zod.boolean().optional(),
+        .describe(
+            "`marketing` (the default): recipients can opt out of it, and sends skip recipients who did. `transactional`: for messages a recipient must get, such as receipts or password resets. Sends ignore opt-outs, and the category doesn't appear on the preferences page. Set `message_category_type` on a workflow message step to the type of its category.\n\n\* `marketing` - Marketing\n\* `transactional` - Transactional"
+        ),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe("Set to true to archive the category. Archived categories don't appear in lists."),
 })
 
 /**
@@ -1083,7 +1225,7 @@ export const MessagingTemplatesDesignPartialUpdateBody = /* @__PURE__ */ zod.obj
 })
 
 /**
- * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. Calling it again on a transactional template changes nothing.
+ * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing.
  * @summary Make a template transactional
  */
 export const MessagingTemplatesMakeTransactionalCreateBody = /* @__PURE__ */ zod.object({

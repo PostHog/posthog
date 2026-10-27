@@ -657,7 +657,12 @@ export const BIEmptyWorksheet: Story = {
         testOptions: { waitForSelector: '[data-attr="bi-editor-data-source"]' },
     },
     play: async ({ canvasElement }) => {
-        await expect(within(canvasElement).findByText('Select a table to list its fields.')).resolves.toBeVisible()
+        const canvas = within(canvasElement)
+        await expect(canvas.findByText('Select a table to list its fields.')).resolves.toBeVisible()
+        await userEvent.click(canvas.getByRole('button', { name: 'Hide fields panel' }))
+        expect(canvas.queryByText('Select a table to list its fields.')).not.toBeInTheDocument()
+        await userEvent.click(canvas.getByRole('button', { name: /^Fields$/ }))
+        await expect(canvas.findByText('Select a table to list its fields.')).resolves.toBeVisible()
     },
 }
 
@@ -726,6 +731,18 @@ export const BICalculatedMeasureEditor: Story = {
             waitForSelector: '[data-attr="bi-calculated-measure-modal"] .monaco-editor',
             viewport: { width: 1050, height: 900 },
         },
+        msw: {
+            mocks: {
+                ...BIModeWorksheet.parameters?.msw.mocks,
+                post: {
+                    ...BIModeWorksheet.parameters?.msw.mocks.post,
+                    '/api/projects/:team_id/query/HogQLAutocomplete/': {
+                        suggestions: [{ kind: 'Variable', label: 'event', insertText: 'event', detail: 'String' }],
+                        incomplete_list: false,
+                    },
+                },
+            },
+        },
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
@@ -736,6 +753,24 @@ export const BICalculatedMeasureEditor: Story = {
         await userEvent.click(await modal.findByLabelText('Calculated field role'))
         await userEvent.click(await modal.findByText('Measure · aggregate each group'))
         await userEvent.type(await modal.findByLabelText('Name'), 'ARPU')
+        const expression = await modal.findByRole('textbox', { name: 'Calculated field expression' })
+        expression.focus()
+        // Monaco resolves keybindings from keyCode, and userEvent.keyboard sends keyCode 0
+        const pressInEditor = (init: KeyboardEventInit & { keyCode: number }): void => {
+            expression.dispatchEvent(new KeyboardEvent('keydown', { ...init, bubbles: true, cancelable: true }))
+        }
+        pressInEditor({ key: ' ', code: 'Space', keyCode: 32, ctrlKey: true })
+        await waitFor(
+            () => {
+                const suggestions = canvasElement.ownerDocument.querySelector('.suggest-widget.visible')
+                expect(suggestions).not.toBeNull()
+                expect(within(suggestions as HTMLElement).getByText('event', { exact: true })).toBeVisible()
+            },
+            { timeout: 5000 }
+        )
+        // A keyCode 0 Escape skips Monaco and reaches the modal, which then closes
+        pressInEditor({ key: 'Escape', code: 'Escape', keyCode: 27 })
+        await waitFor(() => expect(canvasElement.ownerDocument.querySelector('.suggest-widget.visible')).toBeNull())
     },
 }
 

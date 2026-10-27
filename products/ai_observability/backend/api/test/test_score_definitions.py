@@ -104,7 +104,12 @@ class TestScoreDefinitionsApi(APIBaseTest):
 
         response = self.client.patch(
             f"{self._endpoint()}{definition.id}/",
-            {"name": "Updated quality", "description": "Updated description", "archived": True},
+            {
+                "name": "Updated quality",
+                "short_name": "  Quality  ",
+                "description": "Updated description",
+                "archived": True,
+            },
             format="json",
         )
 
@@ -112,6 +117,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
         definition.refresh_from_db()
         current_version = self._current_version(definition)
         self.assertEqual(definition.name, "Updated quality")
+        self.assertEqual(definition.short_name, "Quality")
         self.assertEqual(definition.created_by, original_author)
         self.assertEqual(response.data["updated_by"]["id"], self.user.id)
         self.assertEqual(definition.description, "Updated description")
@@ -244,6 +250,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
             f"{self._endpoint()}{definition.id}/new_version/",
             {
                 "name": "Updated scorer",
+                "short_name": "Quality",
                 "description": "Updated description",
                 "base_version": 1,
                 "config": {
@@ -266,6 +273,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
         self.assertEqual(current_version.version, 2)
         self.assertEqual(response.data["updated_by"]["id"], self.user.id)
         self.assertEqual((definition.name, definition.description), ("Updated scorer", "Updated description"))
+        self.assertEqual(definition.short_name, "Quality")
         self.assertEqual(definition.versions.count(), 2)
         self.assertEqual(definition.versions.get(version=1).config, original_config)
         self.assertEqual(
@@ -588,7 +596,8 @@ class TestScoreDefinitionsApi(APIBaseTest):
         self.assertIn(str(active.id), ids)
         self.assertNotIn(str(archived.id), ids)
 
-    def test_list_supports_search_kind_archived_and_ordering(self):
+    @parameterized.expand(["resolved", "resolution"])
+    def test_list_supports_search_kind_archived_and_ordering(self, search: str) -> None:
         active = self._create_definition(name="Quality", kind="categorical")
         archived = self._create_definition(
             name="Resolved",
@@ -596,10 +605,12 @@ class TestScoreDefinitionsApi(APIBaseTest):
             archived=True,
         )
 
+        archived.short_name = "Resolution"
+        archived.save(update_fields=["short_name"])
         response = self.client.get(
             self._endpoint(),
             {
-                "search": "resolved",
+                "search": search,
                 "kind": "boolean",
                 "archived": "true",
                 "order_by": "name",

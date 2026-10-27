@@ -1,6 +1,11 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "direction": {
+            "description": "Run this view with all upstream dependencies or all downstream dependents. Omit this field to run only this view. You cannot use it with full_refresh.\n\n* `upstream` - Upstream\n* `downstream` - Downstream",
+            "enum": ["upstream", "downstream"],
+            "type": "string"
+        },
         "full_refresh": {
             "default": false,
             "description": "Rebuild the whole table instead of updating it incrementally. Has no effect on a view that is not incremental. This is how you reprocess history after changing what the query means without changing its text, or after upstream data was corrected.",

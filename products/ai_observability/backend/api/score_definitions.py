@@ -42,6 +42,9 @@ from products.ai_observability.backend.score_definition_configs import ScoreDefi
 
 
 class ScoreDefinitionSerializer(ResourceTagsReadSerializer, serializers.ModelSerializer):
+    short_name = serializers.CharField(
+        read_only=True, allow_blank=True, help_text="Optional compact label for table headers and other compact views."
+    )
     updated_by = UserBasicSerializer(
         read_only=True, allow_null=True, help_text="User who last updated the scorer or created a version."
     )
@@ -71,6 +74,7 @@ class ScoreDefinitionSerializer(ResourceTagsReadSerializer, serializers.ModelSer
         fields = [
             "id",
             "name",
+            "short_name",
             "description",
             "tags",
             "kind",
@@ -147,6 +151,9 @@ def _score_definition_version_page(
 
 class ScoreDefinitionCreateSerializer(ResourceTagsWriteSerializer):
     name = serializers.CharField(max_length=255, help_text="Human-readable scorer name.")
+    short_name = serializers.CharField(
+        max_length=40, required=False, allow_blank=True, help_text="Optional compact label. Blank uses the full name."
+    )
     description = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -178,6 +185,9 @@ class ScoreDefinitionCreateSerializer(ResourceTagsWriteSerializer):
 
 class ScoreDefinitionMetadataSerializer(ResourceTagsWriteSerializer):
     name = serializers.CharField(max_length=255, required=False, help_text="Updated scorer name.")
+    short_name = serializers.CharField(
+        max_length=40, required=False, allow_blank=True, help_text="Updated compact label. Blank uses the full name."
+    )
     description = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -197,6 +207,9 @@ class ScoreDefinitionMetadataSerializer(ResourceTagsWriteSerializer):
 
 
 class ScoreDefinitionNewVersionSerializer(serializers.Serializer):
+    short_name = serializers.CharField(
+        max_length=40, required=False, allow_blank=True, help_text="Updated compact label, saved with this version."
+    )
     name = serializers.CharField(
         max_length=255, required=False, help_text="Updated scorer name, saved with this version."
     )
@@ -228,7 +241,7 @@ class ScoreDefinitionFilter(django_filters.FilterSet):
     created_by = django_filters.NumberFilter(field_name="created_by_id", help_text="Filter by the creator's user ID.")
     search = django_filters.CharFilter(
         method="filter_search",
-        help_text="Search scorers by name or description.",
+        help_text="Search scorers by name, short name, or description.",
     )
     kind = django_filters.ChoiceFilter(
         field_name="kind",
@@ -256,7 +269,9 @@ class ScoreDefinitionFilter(django_filters.FilterSet):
 
     def filter_search(self, queryset: QuerySet, _name: str, value: str) -> QuerySet:
         if value:
-            return queryset.filter(Q(name__icontains=value) | Q(description__icontains=value))
+            return queryset.filter(
+                Q(name__icontains=value) | Q(short_name__icontains=value) | Q(description__icontains=value)
+            )
         return queryset
 
 
@@ -387,7 +402,12 @@ class ScoreDefinitionViewSet(
         # create_new_version holds the row lock until commit. Reload so the metadata comparison sees writes made after get_object().
         definition.refresh_from_db()
         self._update_definition_metadata(
-            definition, {field: validated_data[field] for field in ("name", "description") if field in validated_data}
+            definition,
+            {
+                field: validated_data[field]
+                for field in ("name", "short_name", "description")
+                if field in validated_data
+            },
         )
         return definition
 
@@ -397,7 +417,7 @@ class ScoreDefinitionViewSet(
             OpenApiParameter(
                 "search",
                 OpenApiTypes.STR,
-                description="Search scorers by name or description.",
+                description="Search scorers by name, short name, or description.",
                 examples=[OpenApiExample("Search scorer", value="quality")],
             ),
             OpenApiParameter(

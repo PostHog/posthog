@@ -114,8 +114,6 @@ export function buildAdPerformanceTrendsQuery(
         series,
         interval,
         dateRange: query.dateRange,
-        properties: query.properties,
-        filterTestAccounts: query.filterTestAccounts,
         trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
         tags: query.tags,
     }

@@ -1,0 +1,26 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this signal reviewer exclusion.",
+            "type": "string"
+        },
+        "instruction": {
+            "description": "New text for the instruction.",
+            "maxLength": 2000,
+            "type": "string"
+        },
+        "path_prefix": {
+            "description": "Path inside the repository, such as `src/billing`. Needs a repository.",
+            "maxLength": 500,
+            "type": "string"
+        },
+        "repository": {
+            "description": "Repository in `owner/name` form. Leave empty to cover every repository.",
+            "maxLength": 200,
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

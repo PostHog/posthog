@@ -47,7 +47,6 @@ const BILLING_ALERT_OPTIONS: { value: FakeBillingAlert; label: string }[] = [
     { value: 'usage_limit_reached', label: 'Usage limit reached' },
     { value: 'usage_limit_approaching', label: 'Usage limit approaching' },
     { value: 'trial', label: 'Trial ending' },
-    { value: 'suspended', label: 'Organization suspended' },
 ]
 
 function Section({

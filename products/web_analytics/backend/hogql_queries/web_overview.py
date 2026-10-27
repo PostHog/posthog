@@ -325,6 +325,8 @@ CROSS JOIN {sessions_agg} AS sessions_agg
             dateFrom=self.query_date_range.date_from_str,
             dateTo=self.query_date_range.date_to_str,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
+            preComputeStale=self.lazy_precompute_stale(),
+            preComputedAt=self.lazy_precompute_computed_at_iso(),
         )
 
     @cached_property
@@ -435,6 +437,8 @@ WHERE and(
             dateTo=self.query_date_range.date_to_str,
             preComputeStrategy=visitors_response.preComputeStrategy,
             preComputeIneligibleReason=visitors_response.preComputeIneligibleReason,
+            preComputeStale=visitors_response.preComputeStale,
+            preComputedAt=visitors_response.preComputedAt,
         )
 
     def _calculate(self) -> WebOverviewQueryResponse:
