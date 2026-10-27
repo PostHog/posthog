@@ -16,7 +16,7 @@ from parameterized import parameterized
 
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.frontend_views import app_context
-from posthog.models import UserHomeSettings
+from posthog.models import Team, UserHomeSettings
 from posthog.stable_chunks import StableChunks
 from posthog.templatetags.posthog_filters import TolerantJSONEncoder
 from posthog.utils import (
@@ -382,6 +382,15 @@ class TestGetContextForTemplate(APIBaseTest):
         page_with_fetched.pop("deferred")
         assert page_with_fetched == json.loads(json.dumps(inline["posthog_app_context"], cls=TolerantJSONEncoder))
         assert fetched["feature_flags"] == inline["posthog_bootstrap"]["featureFlags"]
+
+    def test_app_context_loads_the_project_in_its_path_not_the_saved_one(self):
+        page_team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+        assert self.user.team == self.team
+
+        response = self.client.get(f"/project/{page_team.pk}/_app_context")
+
+        assert response.status_code == 200
+        assert response.json()["app_context"]["current_team"]["id"] == page_team.pk
 
     def test_app_context_refuses_an_anonymous_request(self):
         request = RequestFactory().get("/_app_context")

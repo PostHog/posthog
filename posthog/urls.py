@@ -135,7 +135,7 @@ urlpatterns = [
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
-    opt_slash_path("_app_context", app_context),
+    opt_slash_path(r"(?:project/\d+/)?_app_context", app_context),
     # ee
     *ee_urlpatterns,
     path("scim/v2/<str:scim_slug>/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users"),

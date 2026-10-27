@@ -3,8 +3,9 @@
 <meta charset="utf-8">
 {% if posthog_app_context.deferred %}
     {# Starts before anything else in the page, so the request runs while the JS downloads. #}
+    {# The page's project path makes the fetch load the page's project, even when another tab has switched the saved one. #}
     <script nonce="{{ request.csp_nonce }}">
-        window.POSTHOG_APP_CONTEXT_REQUEST = fetch('/_app_context', { credentials: 'same-origin' }).then(function (response) {
+        window.POSTHOG_APP_CONTEXT_REQUEST = fetch((window.location.pathname.match(/^\/project\/\d+/) || [''])[0] + '/_app_context', { credentials: 'same-origin' }).then(function (response) {
             if (!response.ok) {
                 throw new Error('app context request failed: ' + response.status)
             }
