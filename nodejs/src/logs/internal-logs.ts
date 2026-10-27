@@ -12,6 +12,12 @@ const SIGNATURE_VERSION = 'v1'
 
 // No dot, because a dot divides the parts of the header value.
 const SOURCE_PATTERN = /^[a-z0-9_]{1,64}$/
+// Epoch seconds. A strict shape keeps milliseconds, signs and padding out of the freshness check.
+const SIGNED_AT_PATTERN = /^[1-9][0-9]{9}$/
+
+// Measured against capture's `created_at`, not this consumer's clock, so consumer lag and DLQ replays
+// do not expire a signature. Covers producer and capture clock skew and a short producer retry.
+const SIGNATURE_WINDOW_SECONDS = 5 * 60
 
 export type InternalSourcePolicy = {
     /** Counts toward the team's logs usage, quota and rate limits. */
@@ -30,7 +36,7 @@ export const INTERNAL_SOURCE_POLICIES: Readonly<Record<string, InternalSourcePol
     // hog_function: { billed: false, teamRules: false },
 }
 
-type RejectReason = 'not_configured' | 'team_not_allowed' | 'invalid_signature' | 'unknown_source'
+type RejectReason = 'not_configured' | 'team_not_allowed' | 'invalid_signature' | 'stale_signature' | 'unknown_source'
 
 const logsInternalLogsCounter = new Counter({
     name: 'logs_ingestion_internal_logs_total',
@@ -46,13 +52,18 @@ function parseKeys(commaSeparatedKeys: string): string[] {
 }
 
 // No payload hash, because capture-logs re-encodes the request and the producer never sees the Kafka bytes.
-// No expiry, because a batch that waits in Kafka through consumer lag or a DLQ replay must stay internal.
-function computeSignature(key: string, source: string, teamId: number): string {
-    const mac = createHmac('sha256', key).update(`${SIGNATURE_VERSION}|${source}|${teamId}`).digest('hex')
-    return `${SIGNATURE_VERSION}.${source}.${mac}`
+function computeSignature(key: string, source: string, teamId: number, signedAt: string): string {
+    const mac = createHmac('sha256', key).update(`${SIGNATURE_VERSION}|${source}|${teamId}|${signedAt}`).digest('hex')
+    return `${SIGNATURE_VERSION}.${source}.${signedAt}.${mac}`
 }
 
-export function signInternalLogs(commaSeparatedKeys: string, source: string, teamId: number): string {
+/** Sign once per HTTP attempt, because a retried signature can fall outside the window and be billed. */
+export function signInternalLogs(
+    commaSeparatedKeys: string,
+    source: string,
+    teamId: number,
+    signedAt: Date = new Date()
+): string {
     const [newestKey] = parseKeys(commaSeparatedKeys)
     if (!newestKey) {
         throw new Error('Cannot sign posthog-internal batch: no signing key configured')
@@ -60,7 +71,7 @@ export function signInternalLogs(commaSeparatedKeys: string, source: string, tea
     if (!SOURCE_PATTERN.test(source)) {
         throw new Error(`Cannot sign posthog-internal batch: invalid source ${JSON.stringify(source)}`)
     }
-    return computeSignature(newestKey, source, teamId)
+    return computeSignature(newestKey, source, teamId, String(Math.floor(signedAt.getTime() / 1000)))
 }
 
 // Only a verified batch may set the `internal_source` column, so an incoming copy of the header is removed.
@@ -82,12 +93,13 @@ export class InternalLogsVerifier {
         this.isTeamAllowed = buildIntegerMatcher(enabledTeams, true)
     }
 
-    verify(signature: string | undefined, teamId: number): InternalLogs | undefined {
+    /** `createdAt` is the `created_at` Kafka header, which capture-logs sets when it receives the request. */
+    verify(signature: string | undefined, teamId: number, createdAt: string | undefined): InternalLogs | undefined {
         if (signature === undefined) {
             return undefined
         }
-        const source = signature.split('.')[1] ?? ''
-        const reason = this.rejectReason(signature, source, teamId)
+        const [, source = '', signedAt = ''] = signature.split('.')
+        const reason = this.rejectReason(signature, source, signedAt, teamId, createdAt)
         // Own keys only, because a source like `constructor` resolves to an inherited policy with no `billed`.
         const policy = reason || !Object.hasOwn(this.policies, source) ? undefined : this.policies[source]
         if (!policy) {
@@ -98,22 +110,33 @@ export class InternalLogsVerifier {
         return { source, ...policy }
     }
 
-    private rejectReason(signature: string, source: string, teamId: number): RejectReason | null {
+    private rejectReason(
+        signature: string,
+        source: string,
+        signedAt: string,
+        teamId: number,
+        createdAt: string | undefined
+    ): RejectReason | null {
         if (this.keys.length === 0) {
             return 'not_configured'
         }
         if (!this.isTeamAllowed(teamId)) {
             return 'team_not_allowed'
         }
-        if (!SOURCE_PATTERN.test(source)) {
+        if (!SOURCE_PATTERN.test(source) || !SIGNED_AT_PATTERN.test(signedAt)) {
             return 'invalid_signature'
         }
         const received = Buffer.from(signature)
         // Every key is tried, so a rotation can add a key before producers switch to it.
         const matches = this.keys.some((key) => {
-            const expected = Buffer.from(computeSignature(key, source, teamId))
+            const expected = Buffer.from(computeSignature(key, source, teamId, signedAt))
             return expected.length === received.length && timingSafeEqual(expected, received)
         })
-        return matches ? null : 'invalid_signature'
+        if (!matches) {
+            return 'invalid_signature'
+        }
+        // A missing or unparseable `created_at` gives NaN, which fails this comparison and bills the batch.
+        const skewSeconds = Math.abs(Date.parse(createdAt ?? '') / 1000 - Number(signedAt))
+        return skewSeconds <= SIGNATURE_WINDOW_SECONDS ? null : 'stale_signature'
     }
 }

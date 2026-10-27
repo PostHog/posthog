@@ -1563,7 +1563,11 @@ export class LogsIngestionConsumer {
                         recordCount,
                         minTimestampMicros: parseMinTimestampHeader(headers.min_timestamp),
                         backfillRequested: headers.backfill_days !== undefined,
-                        internalLogs: this.internalLogsVerifier.verify(headers[INTERNAL_LOGS_HEADER], team.id),
+                        internalLogs: this.internalLogsVerifier.verify(
+                            headers[INTERNAL_LOGS_HEADER],
+                            team.id,
+                            headers.created_at
+                        ),
                     })
                 } catch (e) {
                     // A message we cannot parse is message-scoped and will fail the same way on
