@@ -14,11 +14,13 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
+import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils/strings'
+import { getRecordingFilterForFlagVariant } from 'scenes/feature-flags/featureFlagLogic'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
@@ -89,7 +91,7 @@ const LIST_UNAVAILABLE_COPY: Record<ExperimentRecordingsListUnavailableReason, {
     },
     group_aggregated: {
         dataAttr: 'experiment-recordings-unavailable-group-aggregated',
-        copy: "Recordings aren't available for this experiment. It counts groups rather than individual people, so recordings can't be matched to a variant.",
+        copy: "This experiment counts groups rather than individual people, so its exposures can't be matched to a variant here. Recordings still carry the variant each person saw, so you can watch them by variant in session replay.",
     },
     no_variants: {
         dataAttr: 'experiment-recordings-unavailable-no-variants',
@@ -271,9 +273,43 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
     // are meaningless without one. Placed after every hook, as the draft case always was.
     if (listUnavailableReason !== null) {
         const { dataAttr, copy } = LIST_UNAVAILABLE_COPY[listUnavailableReason]
+        // The variant lands on the person's own `$feature/<key>` event property whatever the flag
+        // aggregates by, so session replay can filter by variant even though a group exposure has
+        // no person for this tab to match a recording to. The window is the experiment's own, so
+        // the lists hold the sessions the experiment ran over.
+        const flagKey = experiment.feature_flag?.key
+        const variantReplayLinks =
+            listUnavailableReason === 'group_aggregated' && flagKey
+                ? variantKeys.map((variantKey) => ({
+                      variantKey,
+                      filters: {
+                          ...getRecordingFilterForFlagVariant(flagKey, variantKey),
+                          date_from: experiment.start_date,
+                          date_to: experiment.end_date,
+                      },
+                  }))
+                : []
         return (
             <div data-attr={dataAttr}>
-                <LemonBanner type="info">{copy}</LemonBanner>
+                <LemonBanner type="info">
+                    <div className="flex flex-col gap-2 items-start">
+                        <span>{copy}</span>
+                        {variantReplayLinks.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                                {variantReplayLinks.map(({ variantKey, filters }) => (
+                                    <ViewRecordingsPlaylistButton
+                                        key={variantKey}
+                                        filters={filters}
+                                        label={variantKey}
+                                        size="small"
+                                        type="secondary"
+                                        data-attr="experiment-recordings-group-aggregated-variant-replay"
+                                    />
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                </LemonBanner>
             </div>
         )
     }
