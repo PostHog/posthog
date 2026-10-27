@@ -311,6 +311,9 @@ class TestBetLoop(APIBaseTest):
         self.world.metric_values = [0.31, 0.32, 0.33]
         self.tick(bet)
         assert bet.status == "reached"
+        cleanup.refresh_from_db(using=WRITER_DB)
+        assert cleanup.stage == "dropped"
+        assert totals(self.team.id, bet).available_cents == 0
 
     def test_losing_ideas_ship_control_and_the_bet_keeps_going(self) -> None:
         bet = self.running()

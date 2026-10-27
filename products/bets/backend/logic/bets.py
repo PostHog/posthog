@@ -13,7 +13,7 @@ from ..db import WRITER_DB
 from ..facade.enums import BetStatus, LedgerKind, WorkStage
 from ..models import Bet, BetsSettings, LedgerEntry, WorkItem
 from .ledger import append, totals
-from .loop import add_owner_idea, end_experiment
+from .loop import add_owner_idea, end_experiment, finish
 from .metrics import validate_goal
 from .workspace import get_settings, project_id
 
@@ -129,6 +129,8 @@ def change_status(team: Team, user: User, bet_id: UUID, status: str) -> Bet:
                 append(settings, bet, LedgerKind.DEALLOCATE, available, f"close:{bet.id}", user.id)
         bet.status = status
         bet.save(using=WRITER_DB, update_fields=["status", "closed_at", "updated_at"])
+        if status == BetStatus.CLOSED:
+            transaction.on_commit(partial(finish, bet), using=WRITER_DB)
         return bet
 
 

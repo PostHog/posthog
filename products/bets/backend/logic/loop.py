@@ -582,6 +582,8 @@ def step(team: Team, user: User, bet: Bet) -> str:
     guard_runs(bet)
     if bet.status not in (BetStatus.SETTING_UP, BetStatus.RUNNING):
         set_scout(bet, False)
+        if bet.status in ENDED:
+            return_unused(bet)
         return ""
     open_items = list(items(bet).filter(stage__in=OPEN).order_by("created_at"))
     tasks.refresh_pull_requests_for_tasks(bet.team_id, user.id, [work.task_id for work in open_items if work.task_id])
@@ -632,10 +634,45 @@ def step(team: Team, user: User, bet: Bet) -> str:
     return dispatched or (current.note if current else "") or note
 
 
+ENDED = (BetStatus.REACHED, BetStatus.SPENT, BetStatus.CLOSED)
+END_NOTES = {
+    BetStatus.REACHED: "The bet reached its goal.",
+    BetStatus.SPENT: "The bet used its budget.",
+    BetStatus.CLOSED: "The bet was closed.",
+}
+
+
+def return_unused(bet: Bet) -> None:
+    available = totals(bet.team_id, bet).available_cents
+    if available > 0:
+        entries = LedgerEntry.objects.for_team(bet.team_id, canonical=True).using(WRITER_DB).filter(bet=bet).count()
+        append(get_settings(bet.team_id), bet, LedgerKind.DEALLOCATE, available, f"return:{bet.id}:{entries}")
+
+
+def finish(bet: Bet) -> None:
+    note = END_NOTES.get(BetStatus(bet.status), "")
+    for work in items(bet).filter(stage__in=OPEN):
+        if work.kind == WorkKind.CLEANUP:
+            move(work, WorkStage.DROPPED, f"{note} The flag cleanup continues in Tasks.")
+            continue
+        stop_idle_run(work, bet)
+        if work.kind == WorkKind.IDEA:
+            move(work, WorkStage.DROPPED, note, result={**work.result, "outcome": IdeaOutcome.DROPPED})
+            end_experiment(bet, work)
+        else:
+            move(
+                work,
+                WorkStage.DROPPED,
+                f"{note} Close the pull request if you do not need it." if work.pr_url else note,
+            )
+    return_unused(bet)
+
+
 def stop(bet: Bet, status: BetStatus) -> str:
     bet.status = status
     bet.save(using=WRITER_DB, update_fields=["status", "updated_at"])
     set_scout(bet, False)
+    finish(bet)
     return ""
 
 
