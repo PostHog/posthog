@@ -1870,7 +1870,7 @@ class TestQueryUsageReportSQL:
             ]
         )
 
-        def execute(query: str, *_args, **_kwargs):
+        def execute(query: str, *_args: object, **_kwargs: object) -> list[tuple[int, str, int]]:
             return next(main_results, []) if "multiIf(" in query else []
 
         mock_sync_execute.side_effect = execute
@@ -1884,7 +1884,7 @@ class TestQueryUsageReportSQL:
         for metric in ["rust_events", "go_events", "ruby_events", "unity_events"]:
             assert result[metric] == []
 
-        all_data = {}
+        all_data: dict[str, dict[int, int]] = {}
         for spec in QUERY_INDEX.values():
             keys = spec.multi_keys_mapping.values() if spec.output == "multi" else [spec.name]
             all_data.update({key: {} for key in keys})
