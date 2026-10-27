@@ -281,6 +281,31 @@ describe('SesWebhookHandler', () => {
                 'https://webhooks.us.posthog.com/public/m/redirect?ph_id=abc.def',
             ],
             ['an unparseable link is passed through', 'not a url', 'not a url'],
+            [
+                'the workflow run tag is dropped',
+                'https://example.com/x?a=1&ph_workflow_run=run-1#top',
+                'https://example.com/x?a=1#top',
+            ],
+            [
+                'a leading workflow run tag is dropped',
+                'https://example.com/x?ph_workflow_run=run-1&a=1',
+                'https://example.com/x?a=1',
+            ],
+            [
+                'a lone workflow run tag is dropped',
+                'https://example.com/x?ph_workflow_run=run-1',
+                'https://example.com/x',
+            ],
+            [
+                'adjacent workflow run tags are all dropped',
+                'https://example.com/x?ph_workflow_run=old-1&ph_workflow_run=old-2&a=1',
+                'https://example.com/x?a=1',
+            ],
+            [
+                'a run tag inside the fragment is kept',
+                'https://example.com/#/page?ph_workflow_run=x&view=full',
+                'https://example.com/#/page?ph_workflow_run=x&view=full',
+            ],
         ])('%s', (_name, link, expected) => {
             expect(resolveClickDestination(link)).toBe(expected)
         })

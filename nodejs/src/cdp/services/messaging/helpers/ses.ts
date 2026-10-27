@@ -7,6 +7,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { fetch } from '~/common/utils/request'
 
+import { removeWorkflowRunTag } from './link-tags'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME, trackingCodeFormatCounter } from './tracking-code'
 
 /**
@@ -229,15 +230,7 @@ const sensitiveLinkOrigin = (link: string): string => {
 // Path of our own click-tracking redirect, which used to wrap every anchor before SES saw it.
 const TRACKING_REDIRECT_PATH = '/public/m/redirect'
 
-/**
- * The destination the recipient actually asked for.
- *
- * SES reports the link as it appeared in the HTML, before SES rewrote it. Messages sent while we
- * still wrapped anchors in our own redirect therefore report that wrapper, whose `ph_id` differs on
- * every send, so the raw value is both unaggregatable and a carrier for a signed tracking code that
- * should not be stored on an event. Unwrap it back to `target`. Anything else is passed through.
- */
-export const resolveClickDestination = (link: string): string => {
+const unwrapTrackingRedirect = (link: string): string => {
     try {
         const url = new URL(link)
         if (!url.pathname.endsWith(TRACKING_REDIRECT_PATH)) {
@@ -248,6 +241,16 @@ export const resolveClickDestination = (link: string): string => {
         return link
     }
 }
+
+/**
+ * The destination the recipient actually asked for.
+ *
+ * SES reports the link as it appeared in the HTML, before SES rewrote it. Messages sent while we
+ * still wrapped anchors in our own redirect therefore report that wrapper, whose `ph_id` differs on
+ * every send, so the raw value is both unaggregatable and a carrier for a signed tracking code that
+ * should not be stored on an event. Unwrap it back to `target`. Anything else is passed through.
+ */
+export const resolveClickDestination = (link: string): string => removeWorkflowRunTag(unwrapTrackingRedirect(link))
 
 // Bounds how much of a URL rides in the app_metrics2 sort key. Long enough to stay recognizable in
 // the UI, short enough that a pathological query-less URL can't bloat the index.
