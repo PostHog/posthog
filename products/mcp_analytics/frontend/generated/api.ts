@@ -304,7 +304,7 @@ export const getMcpAnalyticsSessionsActivityOverviewUrl = (
 }
 
 /**
- * Aggregate counters, top tools, agent clients, and the most recent tool calls for the last 30 days, computed in one request. Powers the dashboard's activity view; always computed fresh so polling callers watch data arrive.
+ * Aggregate counters, top tools, agent clients, and the most recent tool calls for the last 30 days, computed in one request. Powers the dashboard's activity view and uses cached query results, refreshing them in the background when stale.
  */
 export const mcpAnalyticsSessionsActivityOverview = async (
     projectId: string,
