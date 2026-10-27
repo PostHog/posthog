@@ -13,16 +13,14 @@ import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic
 
 export function SavedFilterEditedBar({
     filters,
-    setFilters,
     onSaveAsCopy,
 }: {
     filters: RecordingUniversalFilters
-    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     onSaveAsCopy: () => void
 }): JSX.Element | null {
     const { appliedSavedFilter, appliedSavedFilterFilters } = useValues(sessionRecordingSavedFiltersLogic)
     const { loadSavedFilters, setAppliedSavedFilter } = useActions(sessionRecordingSavedFiltersLogic)
-    const { resetFilters } = useActions(sessionRecordingsPlaylistLogic)
+    const { applySavedFilter } = useActions(sessionRecordingsPlaylistLogic)
     const [updating, setUpdating] = useState(false)
     if (!appliedSavedFilter) {
         return null
@@ -69,9 +67,7 @@ export function SavedFilterEditedBar({
                 size="xsmall"
                 onClick={() => {
                     if (appliedSavedFilterFilters) {
-                        // setFilters merges.
-                        resetFilters()
-                        setFilters(appliedSavedFilterFilters)
+                        applySavedFilter(appliedSavedFilterFilters)
                     }
                 }}
                 data-attr="list-saved-filter-revert"

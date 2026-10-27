@@ -11,8 +11,9 @@ import {
     offeredReplayLayout,
     replayLayoutFrom,
 } from 'scenes/session-recordings/playlist/replayLayout'
+import { urls } from 'scenes/urls'
 
-import { AutoplayDirection, SessionRecordingSidebarStacking } from '~/types'
+import { AutoplayDirection, ReplayTabs, SessionRecordingSidebarStacking } from '~/types'
 
 export type WatchPanelSection = 'overview' | 'linked-issues'
 export type WatchDebugDock = 'bottom' | 'right'
@@ -405,48 +406,57 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         },
     })),
 
-    urlToAction(({ actions, values }) => ({
-        ['**/shared/*']: (_, searchParams) => {
-            // when sharing a recording, you can specify whether the inspector should be open.
-            // we should obey that regardless of the preference stored here.
-            // the sharing URLs historically added showInspector with no value.
-            // so we need to check for the presence of the key.
-            // if the key is present but "null", that is equivalent to true
-            const inspectorSideBarOpen = 'showInspector' in searchParams && (searchParams.showInspector ?? true)
-            if (inspectorSideBarOpen && inspectorSideBarOpen !== values.sidebarOpen) {
-                actions.setURLOverrideSidebarOpen(inspectorSideBarOpen)
-            }
-        },
-        ['**/exporter']: (_, searchParams) => {
-            const playerSpeed = Number(searchParams.playerSpeed ?? 1)
-            if (values.speed !== playerSpeed) {
-                actions.setSpeed(playerSpeed)
-            }
-            const showMetadataFooter =
-                'showMetadataFooter' in searchParams && (searchParams.showMetadataFooter ?? false)
-            if (values.showMetadataFooter !== showMetadataFooter) {
-                actions.setShowMetadataFooter(showMetadataFooter)
-                // If we display metadata footer (for analysis purposes), we also want to skip inactivity to speed up rendering
-                actions.setSkipInactivitySetting(showMetadataFooter)
-            }
-        },
-        // Putting `*` last to match it only if more specific routes don't match, as the matching seems to be exclusive
-        '*': (_, searchParams, hashParams, { method }) => {
+    urlToAction(({ actions, values }) => {
+        const syncClassicSidebar = (searchParams: Record<string, any>, hashParams: Record<string, any>): boolean => {
             const inspectorSideBarOpen = searchParams.inspectorSideBar === true || hashParams.inspectorSideBar === true
             if (inspectorSideBarOpen && inspectorSideBarOpen !== values.sidebarOpen) {
                 actions.setSidebarOpen(inspectorSideBarOpen)
             }
-            // The classic sidebar writes this param itself, with a replace.
-            const legacyLink = inspectorSideBarOpen && method !== 'REPLACE'
-            if (legacyLink && !values.receivedFeatureFlags) {
-                actions.setLegacyDebugLinkPending(true)
-            }
-            const legacyDebugLink = legacyLink && isNewReplayLayout(values.replayLayout)
-            if ((searchParams.debug === true || legacyDebugLink) && !values.debugMode) {
-                actions.setDebugMode(true)
-            }
-        },
-    })),
+            return inspectorSideBarOpen
+        }
+        return {
+            ['**/shared/*']: (_, searchParams) => {
+                // when sharing a recording, you can specify whether the inspector should be open.
+                // we should obey that regardless of the preference stored here.
+                // the sharing URLs historically added showInspector with no value.
+                // so we need to check for the presence of the key.
+                // if the key is present but "null", that is equivalent to true
+                const inspectorSideBarOpen = 'showInspector' in searchParams && (searchParams.showInspector ?? true)
+                if (inspectorSideBarOpen && inspectorSideBarOpen !== values.sidebarOpen) {
+                    actions.setURLOverrideSidebarOpen(inspectorSideBarOpen)
+                }
+            },
+            ['**/exporter']: (_, searchParams) => {
+                const playerSpeed = Number(searchParams.playerSpeed ?? 1)
+                if (values.speed !== playerSpeed) {
+                    actions.setSpeed(playerSpeed)
+                }
+                const showMetadataFooter =
+                    'showMetadataFooter' in searchParams && (searchParams.showMetadataFooter ?? false)
+                if (values.showMetadataFooter !== showMetadataFooter) {
+                    actions.setShowMetadataFooter(showMetadataFooter)
+                    // If we display metadata footer (for analysis purposes), we also want to skip inactivity to speed up rendering
+                    actions.setSkipInactivitySetting(showMetadataFooter)
+                }
+            },
+            [urls.replay(ReplayTabs.Home)]: (_, searchParams, hashParams, { initial }) => {
+                const inspectorSideBarOpen = syncClassicSidebar(searchParams, hashParams)
+                // The page copies the param into every URL it writes.
+                const legacyLink = inspectorSideBarOpen && !!initial
+                if (legacyLink && !values.receivedFeatureFlags) {
+                    actions.setLegacyDebugLinkPending(true)
+                }
+                const legacyDebugLink = legacyLink && isNewReplayLayout(values.replayLayout)
+                if ((searchParams.debug === true || legacyDebugLink) && !values.debugMode) {
+                    actions.setDebugMode(true)
+                }
+            },
+            // Putting `*` last to match it only if more specific routes don't match, as the matching seems to be exclusive
+            '*': (_, searchParams, hashParams) => {
+                syncClassicSidebar(searchParams, hashParams)
+            },
+        }
+    }),
 
     actionToUrl(() => ({
         setSidebarOpen: ({ open }) => {

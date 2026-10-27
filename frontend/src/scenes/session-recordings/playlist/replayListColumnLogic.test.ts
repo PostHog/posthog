@@ -24,6 +24,7 @@ describe('replayListColumnLogic', () => {
         { chosen: 'picks', picksMode: null, moments: false, expected: 'recordings' },
         { chosen: 'moments', picksMode: 'picks', moments: true, expected: 'moments' },
         { chosen: 'moments', picksMode: 'picks', moments: false, expected: 'recordings' },
+        { chosen: 'moments', picksMode: null, moments: null, expected: 'recordings' },
         { chosen: 'recordings', picksMode: 'picks', moments: true, expected: 'recordings' },
     ] as const)(
         'chosen $chosen with picks $picksMode and moments $moments shows $expected',
@@ -32,6 +33,21 @@ describe('replayListColumnLogic', () => {
                 logic.actions.setSegment(chosen)
             }
             expect(logic.values.effectiveSegmentFor(picksMode, moments)).toBe(expected)
+        }
+    )
+
+    it.each([
+        { chosen: 'moments', picksMode: null, moments: null, kept: 'moments' },
+        { chosen: 'moments', picksMode: null, moments: true, kept: 'moments' },
+        { chosen: 'moments', picksMode: null, moments: false, kept: null },
+        { chosen: 'picks', picksMode: 'picks', moments: null, kept: 'picks' },
+        { chosen: 'picks', picksMode: null, moments: null, kept: null },
+    ] as const)(
+        'chosen $chosen settles to $kept with picks $picksMode and moments $moments',
+        ({ chosen, picksMode, moments, kept }) => {
+            logic.actions.setSegment(chosen)
+            logic.actions.settleSegment(picksMode, moments)
+            expect(logic.values.segment).toBe(kept)
         }
     )
 

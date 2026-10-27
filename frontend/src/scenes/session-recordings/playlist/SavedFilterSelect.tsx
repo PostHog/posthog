@@ -7,7 +7,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
 
-import { RecordingUniversalFilters, SessionRecordingPlaylistType } from '~/types'
+import { SessionRecordingPlaylistType } from '~/types'
 
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { stripSessionIds } from './playlistUtils'
@@ -17,17 +17,15 @@ const savedFilterName = (filter: SessionRecordingPlaylistType): string =>
     filter.name || filter.derived_name || 'Unnamed'
 
 export function SavedFilterSelect({
-    setFilters,
     edited,
     onSaveCurrent,
 }: {
-    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     edited: boolean
     onSaveCurrent: () => void
 }): JSX.Element {
     const { savedFilters, appliedSavedFilter } = useValues(sessionRecordingSavedFiltersLogic)
     const { setAppliedSavedFilter, loadSavedFiltersIfNeeded } = useActions(sessionRecordingSavedFiltersLogic)
-    const { resetFilters } = useActions(sessionRecordingsPlaylistLogic)
+    const { resetFilters, applySavedFilter } = useActions(sessionRecordingsPlaylistLogic)
     const { setIsFiltersExpanded, setActiveFilterTab } = useActions(playlistFiltersLogic)
 
     useEffect(() => {
@@ -39,9 +37,7 @@ export function SavedFilterSelect({
         if (!universal) {
             return
         }
-        // setFilters merges.
-        resetFilters()
-        setFilters(stripSessionIds(universal))
+        applySavedFilter(stripSessionIds(universal))
         setAppliedSavedFilter(filter)
     }
 

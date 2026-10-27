@@ -721,6 +721,9 @@ export interface sessionRecordingsPlaylistLogicActions {
         propertyKey: string
         propertyValue: string | undefined
     }
+    applySavedFilter: (filters: Partial<RecordingUniversalFilters>) => {
+        filters: Partial<RecordingUniversalFilters>
+    }
     handleBulkAddToPlaylist: (short_id: string) => {
         short_id: string
     }
@@ -1057,6 +1060,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
         resetFilters: true,
+        applySavedFilter: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
         applyPropertyFilter: (propertyKey: string, propertyValue: string | undefined) => ({
             propertyKey,
             propertyValue,
@@ -1396,6 +1400,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     }
                 },
                 resetFilters: () => getResetFilters(props),
+                applySavedFilter: (_, { filters }) =>
+                    applyFilterUpdate(getResetFilters(props), filters, props.pinnedFilters),
             },
         ],
         /**
@@ -1421,6 +1427,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return added.length ? [...state, ...added] : state
                 },
                 resetFilters: () => [],
+                applySavedFilter: () => [],
             },
         ],
         showFilters: [
@@ -1501,6 +1508,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 loadSessionRecordingsFailure: () => true,
                 loadSessionRecordingsSuccess: () => false,
                 setFilters: () => false,
+                applySavedFilter: () => false,
                 setAdvancedFilters: () => false,
                 loadNext: () => false,
                 loadPrev: () => false,
@@ -1522,6 +1530,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 // recordings the user can't see.
                 setFilters: () => [],
                 resetFilters: () => [],
+                applySavedFilter: () => [],
             },
         ],
         isDeleteSelectedRecordingsDialogOpen: [
@@ -1648,6 +1657,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             resetFilters: () => {
                 actions.loadSessionRecordings()
                 props.onFiltersChange?.(values.filters)
+            },
+
+            applySavedFilter: () => {
+                actions.loadSessionRecordings()
+                props.onFiltersChange?.(values.filters)
+                actions.loadEventsHaveSessionId()
             },
 
             applyPropertyFilter: ({ propertyKey, propertyValue }) => {
@@ -2481,6 +2496,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             setSelectedRecordingId: () => buildURL(false),
             setFilters: () => buildURL(true),
             resetFilters: () => buildURL(true),
+            applySavedFilter: () => buildURL(true),
         }
     }),
 

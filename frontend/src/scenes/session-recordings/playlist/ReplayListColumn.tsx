@@ -1,4 +1,4 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
@@ -15,7 +15,7 @@ import { RecordingMoments } from 'products/replay_vision/frontend/components/Rec
 import { observationsDockLogic } from 'products/replay_vision/frontend/logics/observationsDockLogic'
 import { momentCount } from 'products/replay_vision/frontend/utils/recordingTimeline'
 
-import { ReplayListSegment, replayListColumnLogic } from './replayListColumnLogic'
+import { ReplayListPicksMode, ReplayListSegment, replayListColumnLogic } from './replayListColumnLogic'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 import { usePlayerMounted } from './usePlayerMounted'
 
@@ -24,19 +24,17 @@ export interface ReplayListColumnProps {
     recordingsList: ReactNode
     /** The What to watch list, when the picks experiment offers one. */
     picksList?: ReactNode
-    picksMode: 'picks' | 'recordings' | null
+    picksMode: ReplayListPicksMode
     unwatchedPicksCount?: number
     onPicksSelected?: (selected: boolean) => void
 }
 
 export function ReplayListColumn(props: ReplayListColumnProps): JSX.Element {
     const { activeSessionRecording } = useValues(sessionRecordingsPlaylistLogic)
-    // Keeps the chosen segment alive while the branches below mount and unmount around it.
-    useMountedLogic(replayListColumnLogic({ logicKey: props.logicKey }))
     return activeSessionRecording ? (
         <ReplayListColumnForRecording {...props} recording={activeSessionRecording} />
     ) : (
-        <ReplayListColumnView {...props} recording={null} momentsAvailable={false} />
+        <ReplayListColumnView {...props} recording={null} momentsAvailable={null} />
     )
 }
 
@@ -45,14 +43,11 @@ function ReplayListColumnForRecording({
     recording,
     ...props
 }: ReplayListColumnProps & { recording: SessionRecordingType }): JSX.Element {
-    const { observations, summarizePending } = useValues(observationsDockLogic({ sessionId: recording.id }))
-    return (
-        <ReplayListColumnView
-            {...props}
-            recording={recording}
-            momentsAvailable={observations.length > 0 || summarizePending}
-        />
+    const { observations, summarizePending, hasLoadedObservations } = useValues(
+        observationsDockLogic({ sessionId: recording.id })
     )
+    const momentsAvailable = observations.length > 0 || summarizePending ? true : hasLoadedObservations ? false : null
+    return <ReplayListColumnView {...props} recording={recording} momentsAvailable={momentsAvailable} />
 }
 
 function ReplayListColumnView({
@@ -64,20 +59,18 @@ function ReplayListColumnView({
     onPicksSelected,
     recording,
     momentsAvailable,
-}: ReplayListColumnProps & { recording: SessionRecordingType | null; momentsAvailable: boolean }): JSX.Element {
+}: ReplayListColumnProps & { recording: SessionRecordingType | null; momentsAvailable: boolean | null }): JSX.Element {
     const logic = replayListColumnLogic({ logicKey })
-    const { effectiveSegmentFor, segment: chosenSegment } = useValues(logic)
-    const { setSegment, dropSegmentChoice } = useActions(logic)
+    const { effectiveSegmentFor } = useValues(logic)
+    const { setSegment, settleSegment } = useActions(logic)
 
     const playerLogicProps: SessionRecordingPlayerLogicProps | null = recording
         ? { playerKey: logicKey, sessionRecordingId: recording.id, watchLayout: true }
         : null
     const segment = effectiveSegmentFor(picksMode, momentsAvailable)
     useEffect(() => {
-        if (chosenSegment && chosenSegment !== segment) {
-            dropSegmentChoice()
-        }
-    }, [chosenSegment, segment, dropSegmentChoice])
+        settleSegment(picksMode, momentsAvailable)
+    }, [picksMode, momentsAvailable, settleSegment])
 
     const options = [
         ...(picksList

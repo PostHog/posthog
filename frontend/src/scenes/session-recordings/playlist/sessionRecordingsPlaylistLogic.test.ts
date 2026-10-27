@@ -1418,6 +1418,23 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
+    describe('applying a saved filter', () => {
+        beforeEach(() => {
+            logic = sessionRecordingsPlaylistLogic({ logicKey: 'saved_filter', updateSearchParams: true })
+            logic.mount()
+        })
+
+        it('replaces the filters with the defaults plus the saved keys in one load', async () => {
+            logic.actions.setFilters({ filter_test_accounts: true, date_from: '-30d' })
+            await expectLogic(logic, () => {
+                logic.actions.applySavedFilter({ date_from: '-7d' })
+            })
+                .toDispatchActions(['applySavedFilter', 'loadSessionRecordings'])
+                .toNotHaveDispatchedActions(['resetFilters', 'setFilters'])
+                .toMatchValues({ filters: { ...getDefaultFilters(), date_from: '-7d' } })
+        })
+    })
+
     describe('rehydrating persisted filters', () => {
         const props = { logicKey: 'persist_regression', personUUID: 'persist_regression', updateSearchParams: false }
 

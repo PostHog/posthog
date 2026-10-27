@@ -49,6 +49,7 @@ export interface observationsDockLogicValues {
     filteredScanners: ReplayScannerApi[]
     focusedObservationId: string | null
     followMoments: boolean
+    hasLoadedObservations: boolean
     hasObservationsInFlight: boolean
     hoveredMarkMs: number | null
     observations: ReplayObservationApi[]
@@ -232,6 +233,13 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 loadObservations: () => true,
                 loadObservationsSuccess: () => false,
                 loadObservationsFailure: () => false,
+            },
+        ],
+        hasLoadedObservations: [
+            false,
+            {
+                loadObservationsSuccess: () => true,
+                loadObservationsFailure: () => true,
             },
         ],
         observing: [

@@ -14,7 +14,7 @@ import { RecordingUniversalFilters } from '~/types'
 
 import { FilterChips } from './FilterChips'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
-import { stripSessionIds } from './playlistUtils'
+import { comparableRecordingFilters } from './playlistUtils'
 import { SavedFilterEditedBar } from './SavedFilterEditedBar'
 import { SavedFilterSelect } from './SavedFilterSelect'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
@@ -52,7 +52,7 @@ export function ReplayFilterBar({
     })
     const [saveModalOpen, setSaveModalOpen] = useState(false)
 
-    const edited = !!appliedSavedFilter && !equal(appliedSavedFilterFilters, stripSessionIds(filters))
+    const edited = !!appliedSavedFilter && !equal(appliedSavedFilterFilters, comparableRecordingFilters(filters))
 
     return (
         <div className="flex flex-col gap-1">
@@ -70,11 +70,7 @@ export function ReplayFilterBar({
                     >
                         {totalFiltersCount ? <LemonBadge.Number count={totalFiltersCount} size="small" /> : null}
                     </LemonButton>
-                    <SavedFilterSelect
-                        setFilters={setFilters}
-                        edited={edited}
-                        onSaveCurrent={() => setSaveModalOpen(true)}
-                    />
+                    <SavedFilterSelect edited={edited} onSaveCurrent={() => setSaveModalOpen(true)} />
                     <FilterChips filters={filters} setFilters={setFilters} />
                 </div>
                 <LemonButton
@@ -89,13 +85,7 @@ export function ReplayFilterBar({
                     data-attr="refresh-recordings-list"
                 />
             </div>
-            {edited && (
-                <SavedFilterEditedBar
-                    filters={filters}
-                    setFilters={setFilters}
-                    onSaveAsCopy={() => setSaveModalOpen(true)}
-                />
-            )}
+            {edited && <SavedFilterEditedBar filters={filters} onSaveAsCopy={() => setSaveModalOpen(true)} />}
             <SaveFiltersModal isOpen={saveModalOpen} setIsOpen={setSaveModalOpen} filters={filters} />
         </div>
     )

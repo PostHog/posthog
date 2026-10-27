@@ -1,4 +1,4 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
 
 import * as directorPng from '@posthog/brand/hoggies/png/director'
@@ -26,6 +26,7 @@ import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { isNewReplayLayout } from './replayLayout'
 import { ReplayListColumn } from './ReplayListColumn'
+import { replayListColumnLogic } from './replayListColumnLogic'
 import { ReplayListColumnWithPicks } from './ReplayListColumnWithPicks'
 import { SessionRecordingPlaylistLogicProps, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
@@ -60,6 +61,9 @@ export function SessionRecordingsPlaylist({
             reportFeatureFlagExposure(featureFlags, FEATURE_FLAGS.REPLAY_WATCH_LAYOUT)
         }
     }, [watchLayout, receivedFeatureFlags, featureFlags, layoutOverridden])
+
+    // The column unmounts while the list is collapsed.
+    useMountedLogic(replayListColumnLogic({ logicKey: props.logicKey ?? 'playlist' }))
 
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { isWindowLessThan } = useWindowSize({ widthOffset: sidePanelWidth })
