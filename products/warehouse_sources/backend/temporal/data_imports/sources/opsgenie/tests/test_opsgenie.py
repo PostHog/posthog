@@ -107,7 +107,9 @@ class TestPagination:
 
         with mock.patch(f"{OPSGENIE_MODULE}.MAX_SEARCH_RESULTS", PAGE_SIZE):
             result = _driver().run(
-                "alerts", [_page(items, has_next=True)], resume_state=OpsgenieResumeConfig(0, window_ms)
+                "alerts",
+                [_page(items, has_next=True)],
+                resume_state=OpsgenieResumeConfig(offset=0, window_start_ms=window_ms),
             )
 
         # Every row shares the current window's createdAt, so re-slicing would loop on the same
@@ -115,6 +117,76 @@ class TestPagination:
         assert result.raised is None
         assert len(result.rows) == PAGE_SIZE
         assert len(result.requests) == 1
+
+
+class TestFanout:
+    def test_incident_timeline_walks_each_incidents_cursor(self) -> None:
+        result = _driver().run(
+            "incident_timeline_entries",
+            [
+                _page([{"id": "inc-1"}]),
+                ScriptedResponse(json={"data": {"entries": [{"id": "e1"}], "nextOffset": "e1"}}),
+                ScriptedResponse(json={"data": {"entries": [{"id": "e2"}]}}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/incidents",
+            "/v2/incident-timelines/inc-1/entries",
+            "/v2/incident-timelines/inc-1/entries",
+        ]
+        assert result.requests[0].param("sort") == "createdAt"
+        assert result.params("offset") == ["0", None, "e1"]
+        assert result.params("limit") == [str(PAGE_SIZE), "20", "20"]
+        assert [(row["incident_id"], row["id"]) for row in result.rows] == [("inc-1", "e1"), ("inc-1", "e2")]
+
+    @pytest.mark.parametrize(
+        "endpoint,parent_path,child_body,expected",
+        [
+            (
+                "team_members",
+                "/v2/teams",
+                {
+                    "data": {
+                        "id": "p1",
+                        "members": [{"user": {"id": "u1", "username": "a@example.com"}, "role": "admin"}],
+                    }
+                },
+                {"team_id": "p1", "user_id": "u1", "username": "a@example.com", "role": "admin"},
+            ),
+            (
+                "schedule_on_calls",
+                "/v2/schedules",
+                {"data": {"_parent": {"id": "p1"}, "onCallRecipients": ["a@example.com"]}},
+                {"schedule_id": "p1", "onCallRecipients": ["a@example.com"]},
+            ),
+        ],
+    )
+    def test_single_object_child_becomes_keyed_rows(
+        self, endpoint: str, parent_path: str, child_body: dict[str, Any], expected: dict[str, Any]
+    ) -> None:
+        result = _driver().run(endpoint, [_page([{"id": "p1"}]), ScriptedResponse(json=child_body)])
+
+        assert result.raised is None
+        assert result.paths[0] == parent_path
+        assert result.requests[0].param("limit") is None
+        assert len(result.rows) == 1
+        assert expected.items() <= result.rows[0].items()
+
+    def test_resume_skips_completed_parents(self) -> None:
+        resume = OpsgenieResumeConfig(
+            fanout_state={"completed": ["/v2/schedules/s1/rotations"], "current": None, "child_state": None}
+        )
+        result = _driver().run(
+            "schedule_rotations",
+            [_page([{"id": "s1"}, {"id": "s2"}]), _page([{"id": "r2"}])],
+            resume_state=resume,
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v2/schedules", "/v2/schedules/s2/rotations"]
+        assert [(row["schedule_id"], row["id"]) for row in result.rows] == [("s2", "r2")]
 
 
 class TestValidateCredentials:
@@ -146,5 +218,5 @@ class TestOpsgenieSourceResponse:
         assert result.raised is None
         assert response is not None
         assert response.name == endpoint
-        assert response.primary_keys == [OPSGENIE_ENDPOINTS[endpoint].primary_key]
+        assert response.primary_keys == OPSGENIE_ENDPOINTS[endpoint].primary_keys
         assert callable(response.items)
