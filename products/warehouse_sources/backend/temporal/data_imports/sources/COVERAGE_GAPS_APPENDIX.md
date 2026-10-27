@@ -10826,10 +10826,10 @@ Today (5): `project_keywords`, `project_positions`, `project_regions`, `project_
 
 Diffed against: <https://raw.githubusercontent.com/SerpstatGlobal/serpstat-mcp-server-java/main/doc/openapi_spec/Serpstat-Domain-Analysis-API.json>
 
-- [ ] `getDomainKeywords (POST /v4/, JSON-RPC SerpstatDomainProcedure.getDomainKeywords)` — analyze organic keywords, ranking URLs, search volumes, and traffic beyond the manually tracked project keywords (high)
-- [ ] `getDomainsInfo (POST /v4/, JSON-RPC SerpstatDomainProcedure.getDomainsInfo)` — compare headline domain visibility, estimated traffic, and organic keyword counts (high)
-- [ ] `getNewBacklinks (POST /v4/, JSON-RPC SerpstatBacklinksProcedure.getNewBacklinks)` — analyze active backlinks, source pages, and link acquisition (high)
-- [ ] `getDomainsHistory (POST /v4/, JSON-RPC SerpstatDomainProcedure.getDomainsHistory)` — track historical visibility, keyword counts, and traffic changes (medium)
+- [x] `getDomainKeywords (POST /v4/, JSON-RPC SerpstatDomainProcedure.getDomainKeywords)` — analyze organic keywords, ranking URLs, search volumes, and traffic beyond the manually tracked project keywords (high)
+- [x] `getDomainsInfo (POST /v4/, JSON-RPC SerpstatDomainProcedure.getDomainsInfo)` — compare headline domain visibility, estimated traffic, and organic keyword counts (high)
+- [x] `getNewBacklinks (POST /v4/, JSON-RPC SerpstatBacklinksProcedure.getNewBacklinks)` — analyze active backlinks, source pages, and link acquisition (high)
+- [x] `getDomainsHistory (POST /v4/, JSON-RPC SerpstatDomainProcedure.getDomainsHistory)` — track historical visibility, keyword counts, and traffic changes (medium)
 - [ ] `getRefDomains (POST /v4/, JSON-RPC SerpstatBacklinksProcedure.getRefDomains)` — compare referring domains and the strength of the domain link profile (medium)
 - [ ] `getLostBacklinks (POST /v4/, JSON-RPC SerpstatBacklinksProcedure.getLostBacklinks)` — identify lost links and measure changes in link retention (medium)
 - [ ] `getCompetitors (POST /v4/, JSON-RPC SerpstatDomainProcedure.getCompetitors)` — compare competing domains and shared organic keywords (medium)
