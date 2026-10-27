@@ -967,11 +967,16 @@ export const ReplayFiltersTab = ({
                                         size="small"
                                         icon={<IconSparkles className="text-ai" />}
                                         data-attr="replay-save-filters-as-scanner"
-                                        tooltip="Create a Replay vision scanner that keeps watching sessions matching these filters. The date range does not carry over, so the scanner watches sessions from now on."
+                                        // LemonButton appends a disabled reason under the tooltip, where it reads as more help text
+                                        tooltip={
+                                            scannerHandoff.narrowsSessions
+                                                ? 'Create a Replay vision scanner that keeps watching sessions matching these filters. The date range does not carry over, so the scanner watches sessions from now on.'
+                                                : undefined
+                                        }
                                         disabledReason={
                                             scannerHandoff.narrowsSessions
                                                 ? undefined
-                                                : 'Add an event or property filter. A date range and pinned sessions do not carry over to a scanner.'
+                                                : 'Add an event, property, or duration filter first. A date range and pinned sessions do not carry over to a scanner, so they cannot narrow the sessions it watches.'
                                         }
                                         onClick={() => {
                                             void addProductIntentForCrossSell({
