@@ -244,7 +244,7 @@ class TestAssignSemantics(BaseTest):
         due = [self._assign(self._observation(), _vector(1.0)).theme.name_due for _ in range(5)]
         assert due == [False, False, False, False, True]
 
-    def test_naming_writes_the_label_once_per_doubling(self) -> None:
+    def test_naming_writes_the_label_once_per_doubling_and_retries_a_failed_call(self) -> None:
         for _ in range(5):
             assignment = self._assign(
                 self._observation(output={"scanner_type": "summarizer", "summary": "The card form rejected a card."}),
@@ -253,15 +253,17 @@ class TestAssignSemantics(BaseTest):
         theme_id = assignment.theme.theme_id
         response = MagicMock(text='{"query": "Valid Card Rejected At Checkout."}')
         client = MagicMock(aclose=AsyncMock())
-        client.models.generate_content = AsyncMock(return_value=response)
+        client.models.generate_content = AsyncMock(side_effect=[RuntimeError("model unavailable"), response])
         with (
             patch(f"{_THEMES}.replay_gemini_client", AsyncMock(return_value=client)),
             patch(f"{_THEMES}.is_ai_data_processing_approved", return_value=True),
         ):
+            with self.assertRaises(RuntimeError):
+                async_to_sync(name_theme)(self.team.id, theme_id, timezone.now())
             first = async_to_sync(name_theme)(self.team.id, theme_id, timezone.now())
             again = async_to_sync(name_theme)(self.team.id, theme_id, timezone.now())
 
         assert (first, again) == ("valid card rejected at checkout", None)
-        assert client.models.generate_content.await_count == 1
+        assert client.models.generate_content.await_count == 2
         theme = ReplayScannerSearchTheme.objects.for_team(self.team.id).get(id=theme_id)
         assert (theme.name, theme.rename_at_member_count) == ("valid card rejected at checkout", 10)

@@ -4165,7 +4165,7 @@ class TestSearchSuggestionsAction(_VisionAPITestCase):
 
         self.assertEqual(resp.status_code, 204)
         if approved:
-            mock_warm.assert_called_once_with(ANY, ["email never arrives"])
+            mock_warm.assert_called_once_with(ANY, ["discount code refused", "email never arrives"])
         else:
             mock_warm.assert_not_called()
 
