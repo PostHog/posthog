@@ -1,6 +1,6 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
-import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+import { mockFetch, mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
 import supertest from 'supertest'
@@ -10,6 +10,7 @@ import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { insertHogFunction } from '~/cdp/_tests/fixtures'
 import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
 import { CdpApi } from '~/cdp/cdp-api'
+import { TeamWorkflowsConfigService } from '~/cdp/services/managers/team-workflows-config.service'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '~/cdp/types'
 import { setupExpressApp } from '~/common/api/router'
 import { defaultConfig } from '~/common/config/config'
@@ -17,6 +18,7 @@ import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-to
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import * as envUtils from '~/common/utils/env-utils'
+import { parseJSON } from '~/common/utils/json-parse'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
@@ -44,6 +46,7 @@ describe('EmailTrackingService', () => {
         team = (await createTestTeamFixture(hub.postgres)).team
 
         mockFetch.mockClear()
+        mockInternalFetch.mockClear()
         mockProducerObserver.resetKafkaProducer()
     })
 
@@ -363,6 +366,34 @@ describe('EmailTrackingService', () => {
                     await expectLinkClickedMetrics(expectedMetrics)
                 }
             )
+
+            it('should capture the click on the recipient with the run id of the send', async () => {
+                jest.spyOn(TeamWorkflowsConfigService.prototype, 'shouldCaptureEngagementEvents').mockResolvedValueOnce(
+                    true
+                )
+                const link = new URL(
+                    signer.redirectUrl(
+                        { functionId: hogFunction.id, id: invocationId, teamId: team.id, distinctId: 'recipient' },
+                        'https://example.com/'
+                    )
+                )
+
+                const res = await supertest(app).get(`${link.pathname}${link.search}`)
+                expect(res.status).toBe(302)
+
+                await waitForExpect(() => {
+                    const captured = mockInternalFetch.mock.calls.map(([, options]) =>
+                        parseJSON(options!.body as string)
+                    )
+                    expect(captured).toEqual([
+                        expect.objectContaining({
+                            event: '$workflows_email_link_clicked',
+                            distinct_id: 'recipient',
+                            properties: expect.objectContaining({ $workflow_run_id: invocationId }),
+                        }),
+                    ])
+                })
+            })
 
             it('should return 404 for an unsigned link after the unsigned link sunset', async () => {
                 setClock(UNSIGNED_REDIRECT_SUNSET)

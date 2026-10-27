@@ -1838,6 +1838,7 @@ describe('EmailService', () => {
                     properties: {
                         $workflow_id: invocation.functionId,
                         $workflow_action_id: invocation.state.actionId,
+                        $workflow_run_id: invocation.id,
                         $email_to: 'test@example.com',
                         $email_tracking_enabled: true,
                     },
