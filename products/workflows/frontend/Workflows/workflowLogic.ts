@@ -250,6 +250,9 @@ function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
 interface SaveContext {
     initiatedByAutoSave: boolean
     pendingSchedule: { rrule: string; starts_at: string; timezone?: string } | null | false
+    // The schedule the pending change belongs to. The author can pick another row while the save
+    // is in flight, and the write must still land on the schedule they edited.
+    scheduleId: string | undefined
     // Existing workflows to move to broadcasts once this save creates a broadcast.
     moveToBroadcastIds: string[]
     // How many of them moved. The save sets it before it finishes.
@@ -332,6 +335,7 @@ export interface workflowLogicValues {
     scheduleState: ScheduleState
     scheduleTimezone: string
     schedules: HogFlowSchedule[]
+    addingSchedule: boolean
     selectedScheduleId: string | null
     showDraftActions: boolean
     showWorkflowErrors: boolean
@@ -360,6 +364,9 @@ export interface workflowLogicActions {
     } // resourceEditedLogic
     addSchedule: () => {
         value: true
+    }
+    setAddingSchedule: (adding: boolean) => {
+        adding: boolean
     }
     archiveWorkflow: (workflow: HogFlow) => {
         workflow: HogFlow
@@ -3312,6 +3319,7 @@ export const workflowLogic = kea<workflowLogicType>([
             filters,
         }),
         addSchedule: true,
+        setAddingSchedule: (adding: boolean) => ({ adding }),
         selectSchedule: (schedule: HogFlowSchedule) => ({ schedule }),
         deleteSchedule: (scheduleId: string) => ({ scheduleId }),
         deleteScheduleFailure: (scheduleId: string) => ({ scheduleId }),
@@ -3406,6 +3414,7 @@ export const workflowLogic = kea<workflowLogicType>([
                         initiatedByAutoSave,
                         // A status change keeps schedule edits unsaved, like the other edits in the form.
                         pendingSchedule: keepsFormEdits ? false : values.pendingSchedule,
+                        scheduleId: values.currentSchedule?.id,
                         moveToBroadcastIds: (cache.nextSaveMovesWorkflowIds ?? []) as string[],
                         keepsFormEdits,
                     }
@@ -3661,6 +3670,12 @@ export const workflowLogic = kea<workflowLogicType>([
             [] as HogFlowSchedule[],
             {
                 setSchedules: (_, { schedules }) => schedules,
+            },
+        ],
+        addingSchedule: [
+            false as boolean,
+            {
+                setAddingSchedule: (_, { adding }) => adding,
             },
         ],
         selectedScheduleId: [
@@ -4513,7 +4528,7 @@ export const workflowLogic = kea<workflowLogicType>([
                 // Read the schedule this save carried. An auto-save that landed first has already
                 // reset the reducers, so the live value no longer describes what the user staged.
                 const pendingSchedule = saveContext ? saveContext.pendingSchedule : values.pendingSchedule
-                const existingScheduleId = values.currentSchedule?.id
+                const existingScheduleId = saveContext ? saveContext.scheduleId : values.currentSchedule?.id
                 const hasScheduleChanges = pendingSchedule !== false && !!workflowId
 
                 if (hasScheduleChanges) {
@@ -4650,13 +4665,14 @@ export const workflowLogic = kea<workflowLogicType>([
         },
         addSchedule: async () => {
             const workflowId = props.id
-            if (!workflowId || workflowId === 'new') {
+            if (!workflowId || workflowId === 'new' || values.addingSchedule) {
                 return
             }
+            actions.setAddingSchedule(true)
             // A fan-out varies one field of a cadence, so a new schedule copies the selected one.
             const startsAt = values.currentSchedule?.starts_at ?? dayjs().add(1, 'hour').startOf('hour').toISOString()
             try {
-                const created = await hogFlowsSchedulesCreate(String(values.currentProjectId), workflowId, {
+                const created = await hogFlowsSchedulesCreate(String(ApiConfig.getCurrentTeamId()), workflowId, {
                     rrule: values.currentSchedule?.rrule ?? stateToRRule(DEFAULT_STATE, startsAt),
                     starts_at: startsAt,
                     timezone: values.currentSchedule?.timezone ?? dayjs.tz.guess(),
@@ -4667,6 +4683,8 @@ export const workflowLogic = kea<workflowLogicType>([
             } catch (e) {
                 console.error('Failed to add schedule', e)
                 lemonToast.error('Could not add a schedule')
+            } finally {
+                actions.setAddingSchedule(false)
             }
         },
         setSchedules: ({ schedules }) => {
@@ -4695,9 +4713,9 @@ export const workflowLogic = kea<workflowLogicType>([
                       }
                     : null
             try {
-                await hogFlowsSchedulesDestroy(String(values.currentProjectId), workflowId, scheduleId)
+                await hogFlowsSchedulesDestroy(String(ApiConfig.getCurrentTeamId()), workflowId, scheduleId)
                 actions.setSchedules(values.schedules.filter((schedule) => schedule.id !== scheduleId))
-                if (stagedEdits) {
+                if (stagedEdits && values.currentSchedule?.id === editedScheduleId) {
                     actions.restoreScheduleEdits(stagedEdits)
                 }
                 lemonToast.success('Schedule removed')

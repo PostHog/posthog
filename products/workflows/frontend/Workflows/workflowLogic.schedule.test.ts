@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { DEFAULT_STATE, ONE_TIME_RRULE } from './hogflows/steps/components/rrule-helpers'
+import { DEFAULT_STATE, ONE_TIME_RRULE, parseRRuleToState } from './hogflows/steps/components/rrule-helpers'
 import { HogFlowSchedule } from './hogflows/types'
 import { workflowLogic } from './workflowLogic'
 
@@ -440,6 +440,48 @@ describe('workflowLogic schedule reducers', () => {
 
             expect(logic.values.scheduleState).toEqual(expect.objectContaining({ frequency: 'daily', interval: 4 }))
             expect(logic.values.pendingSchedule).not.toBe(false)
+        })
+
+        it('stages no edits against the schedule picked while the removal was in flight', async () => {
+            const second = makeSchedule({ id: 'schedule-2' })
+            logic.actions.setSchedules([makeSchedule(), second, makeSchedule({ id: 'schedule-3' })])
+            logic.actions.setScheduleState({ ...DEFAULT_STATE, frequency: 'daily', interval: 4 })
+
+            await expectLogic(logic, () => {
+                logic.actions.deleteSchedule('schedule-3')
+                logic.actions.selectSchedule(second)
+            }).toFinishAllListeners()
+
+            expect(logic.values.currentSchedule?.id).toBe('schedule-2')
+            expect(logic.values.scheduleState).toEqual(parseRRuleToState(WEEKLY_MONDAY_RRULE))
+        })
+
+        it('ignores a second add while the first is still in flight', async () => {
+            let creates = 0
+            useMocks({
+                post: {
+                    '/api/projects/:project_id/hog_flows/:id/schedules/': () => {
+                        creates += 1
+                        return [
+                            201,
+                            {
+                                id: `schedule-new-${creates}`,
+                                rrule: WEEKLY_MONDAY_RRULE,
+                                starts_at: STARTS_AT,
+                                timezone: 'UTC',
+                            },
+                        ]
+                    },
+                },
+            })
+            logic.actions.setSchedules([makeSchedule()])
+
+            await expectLogic(logic, () => {
+                logic.actions.addSchedule()
+                logic.actions.addSchedule()
+            }).toFinishAllListeners()
+
+            expect(creates).toBe(1)
         })
 
         it('keeps the schedule listed when the delete fails', async () => {

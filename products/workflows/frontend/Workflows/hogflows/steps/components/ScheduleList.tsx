@@ -29,13 +29,36 @@ function ScheduleStateTag({ status }: { status?: string }): JSX.Element | null {
 
 function ScheduleRow({ schedule, editing }: { schedule: HogFlowSchedule; editing: boolean }): JSX.Element {
     const { deleteSchedule, selectSchedule } = useActions(workflowLogic)
+    const { pendingSchedule } = useValues(workflowLogic)
+
+    // Picking another row rebaselines the picker from the saved schedule, so an unsaved change to
+    // the current one would go without the author noticing.
+    const pickThisRow = (): void => {
+        if (editing) {
+            return
+        }
+        if (pendingSchedule !== false) {
+            LemonDialog.open({
+                title: 'Discard your unsaved schedule change?',
+                description: 'You changed the schedule you are editing and have not saved it yet.',
+                primaryButton: {
+                    children: 'Discard and switch',
+                    status: 'danger',
+                    onClick: () => selectSchedule(schedule),
+                },
+                secondaryButton: { children: 'Keep editing' },
+            })
+            return
+        }
+        selectSchedule(schedule)
+    }
 
     return (
         <div
             className={`flex items-center gap-2 py-1.5 px-2 border-b last:border-b-0 cursor-pointer ${
                 editing ? 'bg-accent-highlight-secondary' : 'hover:bg-surface-secondary'
             }`}
-            onClick={() => selectSchedule(schedule)}
+            onClick={pickThisRow}
             data-attr="workflow-schedule-row"
         >
             <div className="flex-1 min-w-0">
@@ -86,7 +109,7 @@ function ScheduleRow({ schedule, editing }: { schedule: HogFlowSchedule; editing
 // Every surface used to read schedules[0], so a workflow that holds more than one showed a single
 // schedule and silently ran the rest. Listing them is what lets an author pick, add or remove one.
 export function ScheduleList(): JSX.Element | null {
-    const { schedules, currentSchedule, logicProps } = useValues(workflowLogic)
+    const { schedules, currentSchedule, logicProps, addingSchedule } = useValues(workflowLogic)
     const { addSchedule } = useActions(workflowLogic)
 
     if (schedules.length === 0) {
@@ -99,7 +122,10 @@ export function ScheduleList(): JSX.Element | null {
             size="small"
             type="secondary"
             data-attr="add-workflow-schedule"
-            disabledReason={logicProps.id === 'new' ? 'Save the workflow first' : undefined}
+            loading={addingSchedule}
+            disabledReason={
+                logicProps.id === 'new' ? 'Save the workflow first' : addingSchedule ? 'Adding a schedule' : undefined
+            }
             onClick={() => addSchedule()}
         >
             Add schedule
