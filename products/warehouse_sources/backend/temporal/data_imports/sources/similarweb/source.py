@@ -168,6 +168,7 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
                     ),
                     SourceFieldInputConfig(
                         name="domains",
+                        sync_setting=True,
                         label="Domains",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -180,6 +181,7 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
                     ),
                     SourceFieldInputConfig(
                         name="country",
+                        sync_setting=True,
                         label="Country",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -191,6 +193,7 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
                     ),
                     SourceFieldSelectConfig(
                         name="granularity",
+                        sync_setting=True,
                         label="Granularity",
                         required=True,
                         defaultValue="monthly",
@@ -202,6 +205,7 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start month",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
