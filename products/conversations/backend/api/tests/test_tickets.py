@@ -118,6 +118,8 @@ class TestTicketBriefSerializer(SimpleTestCase):
             ),
             ("item_without_url", {"affected_items": [{"kind": "insight", "label": "Conversion"}]}, "affected_items"),
             ("replay_url_not_a_url", {"replay_url": "not-a-url"}, "replay_url"),
+            ("purpose_over_cap", {"purpose": "x" * 301}, "purpose"),
+            ("error_message_over_cap", {"error_message": "x" * 601}, "error_message"),
         ]
     )
     def test_rejects_brief_the_panel_cannot_render(self, _name, overrides, expected_error_field):
@@ -145,6 +147,13 @@ class TestTicketBriefSerializer(SimpleTestCase):
         assert not serializer.is_valid()
         assert sorted(serializer.errors["ticket_brief"]) == expected_missing
 
+    def test_accepts_a_brief_with_no_purpose(self):
+        # The common shape: the customer said what they want, not why. Requiring purpose
+        # would make the agent invent one, and the engineer would answer that instead.
+        serializer = TicketBriefSerializer(data=self._brief())
+        assert serializer.is_valid(), serializer.errors
+        assert "purpose" not in serializer.validated_data
+
     def test_patch_clears_the_brief_with_an_explicit_null(self):
         # Rejecting an incomplete brief would otherwise leave no way to remove a wrong one.
         serializer = TicketUpdateRequestSerializer(data={"ticket_brief": None}, partial=True)
@@ -163,6 +172,8 @@ class TestTicketBriefSerializer(SimpleTestCase):
                 ],
                 replay_url="https://us.posthog.com/project/1/replay/00000000-0000-4000-8000-000000000000",
                 screenshot_urls=["https://example.com/uploaded_media/panel.png"],
+                purpose="Launch the new checkout before the Black Friday freeze.",
+                error_message='{"detail":"flag evaluation failed"}',
                 facts=["Web SDK 1.240.0"],
                 tried=["Reset the rollout to 100%"],
             )

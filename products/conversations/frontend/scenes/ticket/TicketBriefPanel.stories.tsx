@@ -14,12 +14,15 @@ type Story = StoryObj<typeof TicketBriefPanel>
 
 const fullBrief: TicketBriefApi = {
     ask: 'Explain why the `checkout-redesign` flag returns false for every user, though it is rolled out to 100%.',
+    purpose: 'Launch the new checkout to all customers before the Black Friday freeze.',
     area: 'Feature flags',
     questions: [
         'Why does the flag return false at 100% rollout?',
         'Does the release condition order matter?',
         'Is there a cache we can clear?',
     ],
+    tried: ['Reset the rollout to 100%', 'Cleared local storage'],
+    error_message: '{"detail":"flag evaluation failed","code":"condition_error"}',
     affected_items: [
         {
             kind: 'feature_flag',
@@ -32,12 +35,12 @@ const fullBrief: TicketBriefApi = {
             label: 'Checkout conversion',
         },
     ],
-    replay_url: 'https://us.posthog.com/project/1/replay/00000000-0000-4000-8000-000000000000',
     screenshot_urls: ['https://example.com/uploaded_media/flag-panel.png'],
-    facts: ['Web SDK `1.240.0`', 'EU Cloud', 'Error: `Kind not configured`'],
-    tried: ['Reset the rollout to 100%', 'Cleared local storage'],
+    replay_url: 'https://us.posthog.com/project/1/replay/00000000-0000-4000-8000-000000000000',
+    facts: ['Web SDK `1.240.0`', 'EU Cloud'],
 }
 
+// The common shape: the customer said what they want, not why, and reported no error.
 const minimalBrief: TicketBriefApi = {
     ask: 'Raise the event ingestion limit for the month, because an import is being dropped.',
     area: 'Billing',

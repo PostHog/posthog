@@ -213,6 +213,12 @@ export interface TicketBriefApi {
      */
     ask: string
     /**
+     * What the customer is trying to achieve behind the ask, in their own terms. Omitted when they did not say, because a guessed purpose sends the reply to the wrong problem.
+     * @maxLength 300
+     * @nullable
+     */
+    purpose?: string | null
+    /**
      * Product area the ticket is about, such as 'Feature flags' or 'Session replay'.
      * @maxLength 80
      */
@@ -223,14 +229,20 @@ export interface TicketBriefApi {
      * @items.maxLength 200
      */
     questions: string[]
-    /** The PostHog items the ticket is about, with a link to each one. */
-    affected_items?: TicketBriefAffectedItemApi[]
     /**
-     * Replay of the session the ticket came from. Null when the ticket has no session.
-     * @maxLength 2000
+     * The steps the customer says they already took to fix or diagnose the problem.
+     * @maxItems 5
+     * @items.maxLength 160
+     */
+    tried?: string[]
+    /**
+     * The error the customer reported, copied exactly. Omitted when the ticket reports no error.
+     * @maxLength 600
      * @nullable
      */
-    replay_url?: string | null
+    error_message?: string | null
+    /** The PostHog items the ticket is about, with a link to each one. */
+    affected_items?: TicketBriefAffectedItemApi[]
     /**
      * Images the customer attached, in the order they sent them.
      * @maxItems 5
@@ -238,17 +250,17 @@ export interface TicketBriefApi {
      */
     screenshot_urls?: string[]
     /**
+     * Replay of the session the ticket came from. Null when the ticket has no session.
+     * @maxLength 2000
+     * @nullable
+     */
+    replay_url?: string | null
+    /**
      * Details the engineer needs to act on, such as region, plan, versions, and ids. One per line.
      * @maxItems 5
      * @items.maxLength 160
      */
     facts?: string[]
-    /**
-     * What the customer says they already did to fix or diagnose the problem.
-     * @maxItems 5
-     * @items.maxLength 160
-     */
-    tried?: string[]
 }
 
 export type TicketPersonApiProperties = { [key: string]: unknown }
