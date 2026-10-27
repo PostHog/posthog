@@ -101,6 +101,7 @@ class RunAgenticReportInput:
     # correcting or clearing it) so the run does not bury that newer row. Defaults to None so an
     # older workflow history that predates this field replays cleanly (guard off).
     repo_selection_as_of: datetime | None = None
+    signal_id: str | None = None
 
 
 @frozen
@@ -1214,6 +1215,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 previous_checks=previous_checks,
                 implementation_context=implementation_context,
                 signal_report_id=input.report_id,
+                spend_signal_id=input.signal_id,
                 has_business_knowledge=has_bk,
                 resolved_report_title=resolved_report_title,
                 resolved_report_summary=resolved_report_summary,
