@@ -5,6 +5,7 @@ import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSelect } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -19,11 +20,14 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
 import { METRIC_BULK_MAX, compareText, humanizeDefinitionKind, metricCount, reportCatalogTableSorted } from '../common'
+import { AgentUsageCell } from '../components/AgentUsageCell'
 import { CatalogExplainer } from '../components/CatalogExplainer'
 import { LifecycleStrip } from '../components/LifecycleStrip'
 import { MetricOwnerSelect } from '../components/MetricOwnerSelect'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
 import { BulkMetricAction, MetricStatusFilter, metricsLogic } from '../metricsLogic'
+import { isCleanupCandidate } from '../metricUsage'
+import { needsReview } from '../reviewQueue'
 
 const STATUS_FILTER_OPTIONS: { value: MetricStatusFilter; label: string }[] = [
     { value: 'all', label: 'All' },
@@ -335,9 +339,24 @@ export function MetricsTab(): JSX.Element {
         },
     }
 
+    const now = dayjs()
+    const usageColumn: LemonTableColumns<DataCatalogMetricApi>[number] = {
+        title: 'Used by AI',
+        key: 'ai_runs_30d',
+        tooltip: 'Runs by PostHog AI and other agents in the last 30 days',
+        render: (_, metric) => (
+            <AgentUsageCell
+                metric={metric}
+                warned={needsReview(metric)}
+                cleanupCandidate={isCleanupCandidate(metric, now)}
+            />
+        ),
+        sorter: (a, b) => a.ai_runs_30d - b.ai_runs_30d,
+    }
+
     const columns = [...baseColumns, menuColumn]
-    const reviewColumns = [...baseColumns, reviewActionsColumn]
-    const approvedColumns = [...baseColumns.filter((column) => column.key !== 'status'), menuColumn]
+    const reviewColumns = [...baseColumns, usageColumn, reviewActionsColumn]
+    const approvedColumns = [...baseColumns.filter((column) => column.key !== 'status'), usageColumn, menuColumn]
 
     const bulkSelection = (
         tableMetrics: DataCatalogMetricApi[],
