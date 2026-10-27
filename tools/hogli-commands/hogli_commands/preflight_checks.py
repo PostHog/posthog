@@ -286,7 +286,6 @@ def _semgrep_findings(contents: dict[str, bytes], command: list[str], *, deadlin
                 *command,
                 "--config",
                 str(REPO_ROOT / SEMGREP_RULES),
-                "--severity=INFO",
                 "--severity=WARNING",
                 "--severity=ERROR",
                 "--metrics=off",

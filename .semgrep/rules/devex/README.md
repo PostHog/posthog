@@ -1,6 +1,6 @@
 # Devex semgrep rules
 
-Devex / hygiene rules for the PostHog codebase. Run by the `semgrep-devex` job in `ci-security.yaml`, which has the three passes below and one extra step for INFO rules.
+Devex / hygiene rules for the PostHog codebase. Run by the `semgrep-devex` job in `ci-security.yaml` in three passes:
 
 1. **Warnings (informational)** — `semgrep --severity=WARNING` runs all `severity: WARNING` rules. Findings appear in the CI run output but the step does not fail. Use this mode when a rule has a non-zero backlog of existing violations — the list shows up in CI without blocking master while the codebase is cleaned up.
 2. **Errors (blocking)** — `semgrep --severity=ERROR --error` runs all `severity: ERROR` rules and fails CI on any finding. Use this mode for hard regression guards: patterns that should never appear, or migration-style rules whose backlog has been cleaned up.
@@ -12,11 +12,7 @@ Pick the severity that matches the rule's intent:
 
 - **ERROR** when zero violations are expected — either because the pattern is genuinely new (regression guard) or because a previously-WARNING rule has been cleaned up.
 - **WARNING** when there's a known non-zero backlog that will be migrated over time.
-- **INFO** when the backlog is not a backlog: the rule guards a property every existing file has, so listing them proves nothing and buries the pass-1 output. No pass above matches INFO. CI runs these rules in a PR-only step of its own, and `hogli ci:preflight` reports them as an advisory.
-
-`no-new-files-in-ee` is the one INFO rule. Semgrep cannot tell an added file from an edited one, so the CI step asks git (`git diff --diff-filter=AR`) and passes the added paths to semgrep as targets. Naming the files also bypasses semgrep's default ignore list, which is what makes a new file under `ee/test/` visible.
-
-A WARNING rule typically gets flipped to ERROR once its backlog hits zero. The rule stays in `.semgrep/rules/devex/`; only the severity changes. To flip a rule:
+  A WARNING rule typically gets flipped to ERROR once its backlog hits zero. The rule stays in `.semgrep/rules/devex/`; only the severity changes. To flip a rule:
 
 1. Verify locally that `semgrep --config .semgrep/rules/devex/<rule>.yaml bin/ common/ ee/ frontend/ packages/ posthog/ products/ services/ tools/` returns zero findings.
 2. Edit the rule file: change `severity: WARNING` to `severity: ERROR`.
