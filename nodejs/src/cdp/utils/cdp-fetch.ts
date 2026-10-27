@@ -13,7 +13,7 @@ export const MAX_FETCH_TIMEOUT_MS = 10000
 export const MAX_FETCH_RESPONSE_BYTES = 5 * 1024 * 1024
 
 // An error body is only logged, so an oversized one must not hide the status that decides the retry.
-export async function readFetchResponseText(response: FetchResponse | undefined): Promise<string> {
+export async function readFetchResponseText(response: FetchResponse | null | undefined): Promise<string> {
     if (!response) {
         return 'unknown'
     }
