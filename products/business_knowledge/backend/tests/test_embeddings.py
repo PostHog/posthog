@@ -1,10 +1,13 @@
 import datetime
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.utils import timezone
 
+from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
@@ -480,3 +483,33 @@ class TestRestampAndReemit(BaseTest):
             after = KnowledgeDocument.objects.get(id=doc.id).embeddings_emitted_at
         # Stamp unchanged (no re-stamp), so the doc is retried on a later pass.
         assert after == before
+
+    def test_refresh_pass_skips_a_failing_doc_that_fills_the_page(self) -> None:
+        failing = self._safe_emitted_doc()
+        healthy = self._safe_emitted_doc()
+        older_stamp = timezone.now() - EMBEDDING_TTL_REFRESH_WINDOW - datetime.timedelta(days=6)
+        with team_scope(self.team.id, canonical=True):
+            KnowledgeDocument.objects.filter(id=failing.id).update(embeddings_emitted_at=older_stamp)
+            failing_before = KnowledgeDocument.objects.get(id=failing.id).embeddings_emitted_at
+            healthy_before = KnowledgeDocument.objects.get(id=healthy.id).embeddings_emitted_at
+
+        def _emit(**kwargs: object) -> None:
+            if kwargs["metadata"] == {"document_id": str(failing.id)}:
+                raise RuntimeError("kafka down")
+
+        def _same_thread(fn: Callable[..., Any], **_kwargs: object) -> Callable[..., Awaitable[Any]]:
+            return sync_to_async(fn, thread_sensitive=True)
+
+        with (
+            patch.object(logic, "COORDINATOR_PASS_CONTENT_BYTES", 1),
+            patch.object(coordinator, "database_sync_to_async", _same_thread),
+            patch.object(coordinator, "emit_embedding_request", side_effect=_emit),
+        ):
+            result = async_to_sync(coordinator.refresh_aging_embeddings_activity)()
+
+        assert result["documents_refreshed"] == 1
+        with team_scope(self.team.id, canonical=True):
+            assert KnowledgeDocument.objects.get(id=failing.id).embeddings_emitted_at == failing_before
+            healthy_after = KnowledgeDocument.objects.get(id=healthy.id).embeddings_emitted_at
+        assert healthy_after is not None and healthy_before is not None
+        assert healthy_after > healthy_before

@@ -166,8 +166,8 @@ class TestSafetyFilteringAndClassification(BaseTest):
         assert doc.classification_attempts == 1
         assert logic.search_knowledge(self.team.id, "alpha") == []
         _fresh_source, fresh = self._ready_unknown_source("B", "beta content here")
-        pending = logic.list_documents_pending_classification(limit=1)
-        assert pending[0].document_id == fresh.id
+        first_page = logic.list_documents_pending_classification(limit=1)
+        assert first_page[0].document_id == fresh.id
         excluded = logic.list_documents_pending_classification(limit=1, exclude_ids=[fresh.id])
         assert excluded[0].document_id == doc.id
 

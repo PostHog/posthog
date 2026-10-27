@@ -3587,6 +3587,7 @@ def list_documents_for_embedding_refresh(
     now: datetime.datetime | None = None,
     window: datetime.timedelta = EMBEDDING_TTL_REFRESH_WINDOW,
     limit: int = REEMIT_EMBEDDING_SCAN_CAP,
+    exclude_ids: list[UUID] | None = None,
 ) -> list[DocumentToEmbed]:
     """
     Return already-emitted SAFE docs (oldest-emitted first) whose vectors are
@@ -3604,6 +3605,8 @@ def list_documents_for_embedding_refresh(
     now = now or timezone.now()
     cutoff = now - window
     pending = _embeddable_documents_qs().filter(embeddings_emitted_at__isnull=False, embeddings_emitted_at__lt=cutoff)
+    if exclude_ids:
+        pending = pending.exclude(id__in=exclude_ids)
     sized = list(
         pending.annotate(content_bytes=_content_num_bytes())
         .order_by("embeddings_emitted_at")

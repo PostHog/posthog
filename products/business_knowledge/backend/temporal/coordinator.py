@@ -54,6 +54,7 @@ from ..constants import (
     BK_EMBEDDING_RENDERING,
     MAX_URLS_PER_SOURCE,
     PENDING_EMBEDDING_SCAN_CAP,
+    REEMIT_EMBEDDING_SCAN_CAP,
 )
 from ..models import KnowledgeSource, SafetyVerdict
 
@@ -286,23 +287,38 @@ async def refresh_aging_embeddings_activity() -> dict[str, Any]:
     timestamp=now() (the TTL is on the embedding row timestamp, so the stable
     created_at would not reset it) and re-stamps ``embeddings_emitted_at`` so the
     doc drops out of the refresh window for another cycle. Per-doc failures are
-    logged and skipped without re-stamping, so they retry on a later pass.
+    logged and skipped without re-stamping, so they retry on a later pass. This
+    pass loads the next page past those failures so one document cannot block
+    the ones behind it. A page that re-stamps at least one doc ends the pass.
     """
-    docs = await database_sync_to_async(logic.list_documents_for_embedding_refresh, thread_sensitive=False)()
+    exclude: list[UUID] = []
     documents_refreshed = 0
     chunks_reemitted = 0
-    for doc in docs:
-        try:
-            written = await database_sync_to_async(_reemit_one_document, thread_sensitive=False)(doc)
-        except Exception:
-            logger.exception(
-                "business_knowledge.embedding.refresh_failed",
-                team_id=doc.team_id,
-                document_id=str(doc.document_id),
-            )
-            continue
-        documents_refreshed += 1
-        chunks_reemitted += written
+
+    def _load() -> list[logic.DocumentToEmbed]:
+        return logic.list_documents_for_embedding_refresh(exclude_ids=exclude or None)
+
+    for _ in range(REEMIT_EMBEDDING_SCAN_CAP):
+        docs = await database_sync_to_async(_load, thread_sensitive=False)()
+        if not docs:
+            break
+        page_refreshed = 0
+        for doc in docs:
+            try:
+                written = await database_sync_to_async(_reemit_one_document, thread_sensitive=False)(doc)
+            except Exception:
+                logger.exception(
+                    "business_knowledge.embedding.refresh_failed",
+                    team_id=doc.team_id,
+                    document_id=str(doc.document_id),
+                )
+                exclude.append(doc.document_id)
+                continue
+            page_refreshed += 1
+            documents_refreshed += 1
+            chunks_reemitted += written
+        if page_refreshed:
+            break
     return {"documents_refreshed": documents_refreshed, "chunks_reemitted": chunks_reemitted}
 
 
