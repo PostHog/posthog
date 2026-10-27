@@ -6361,6 +6361,7 @@
         "summary": "Walk the person through a trends chart, one highlighted moment at a time.",
         "title": "Show chart walkthrough",
         "required_scopes": ["insight:read", "query:read"],
+        "api_operations": ["GET /api/projects/{project_id}/insights/{id}/", "POST /api/projects/{project_id}/query/"],
         "feature_flag": "investigate-insight",
         "annotations": {
             "destructiveHint": false,

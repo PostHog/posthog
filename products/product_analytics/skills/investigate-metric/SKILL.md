@@ -89,9 +89,10 @@ If the user's question spans multiple kinds, run the playbooks in sequence.
 Run the primary tool. Record baseline, current, delta (absolute and %), and the start
 of the anomaly window.
 
-When the user asked you to explain a chart and named no change, find what stands out
-first with [what-stands-out.md](./references/what-stands-out.md). Each moment it finds
-becomes its own anomaly to run through the rest of the steps, most striking first.
+When the user asked you to explain a trends chart over time and named no change, find what
+stands out first with [what-stands-out.md](./references/what-stands-out.md). Each moment it
+finds becomes its own anomaly to run through the rest of the steps, most striking first.
+For funnels, retention, paths and other kinds, use that kind's playbook to choose what to look into.
 
 ### 2.2 Variance check
 
@@ -131,8 +132,8 @@ Show the findings as a walkthrough when the session can display one, and as a wr
 
 ### The walkthrough
 
-Use it for a `TrendsQuery` when the `posthog:render-ui` tool is available and its `tool_name`
-list includes `explain-chart`. It draws the chart with each moment highlighted and lets the
+Use it for a `TrendsQuery` over time, not a box plot, when the `posthog:render-ui` tool is
+available and its `tool_name` list includes `explain-chart`. It draws the chart with each moment highlighted and lets the
 user step through them. Map the investigation onto it:
 
 - **Anomaly** → one chapter per moment, with `start` and `end` copied exactly from the

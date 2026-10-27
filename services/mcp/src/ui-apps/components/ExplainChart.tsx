@@ -16,7 +16,7 @@ import { capture } from '../analytics/posthog'
 import { loadRenderUiData } from '../apps/render-ui-data'
 import { AppLoadingState } from './AppLoadingState'
 import { TrendsVisualizer } from './TrendsVisualizer'
-import type { TrendsQuery, TrendsResult } from './types'
+import type { TrendsQuery, TrendsResult, TrendsResultItem } from './types'
 import { getSeriesLabel } from './utils'
 
 // The render-ui dispatch imports the data type from this module.
@@ -29,6 +29,10 @@ export interface ExplainChartProps {
     openLink: (url: string) => void
     /** The host app, which runs each piece of evidence's query so the walkthrough can draw it. */
     app?: App | null
+}
+
+function seriesNames(item: TrendsResultItem, index: number): string[] {
+    return [getSeriesLabel(item, index), ...[item.breakdown_value ?? []].flat().map(String)]
 }
 
 type EvidenceChart =
@@ -107,7 +111,7 @@ function useEvidenceCharts(app: App | null): StoryEvidenceCharts | undefined {
                             query={chart.query}
                             results={chart.results}
                             highlightedSeries={chart.results.flatMap((item, index) =>
-                                isSeriesNamedIn(getSeriesLabel(item, index), text) ? [index] : []
+                                isSeriesNamedIn(seriesNames(item, index), text) ? [index] : []
                             )}
                             showControls={false}
                             showTitle={false}
@@ -155,8 +159,12 @@ export function ExplainChart({ data, openLink, app = null }: ExplainChartProps):
 
     // A number in a sentence reads better in full, so the chart's axis format is only used when it adds a unit.
     const formatValue = useMemo(() => {
-        const format = query.trendsFilter?.aggregationAxisFormat
-        return format && format !== 'numeric'
+        const {
+            aggregationAxisFormat: format,
+            aggregationAxisPrefix,
+            aggregationAxisPostfix,
+        } = query.trendsFilter ?? {}
+        return (format && format !== 'numeric') || aggregationAxisPrefix || aggregationAxisPostfix
             ? buildYTickFormatter(trendsFilterToYFormatterConfig(query.trendsFilter, false))
             : undefined
     }, [query])

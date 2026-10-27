@@ -52,12 +52,20 @@ function bucketEndMs(key: string, interval: string): number | null {
     if (start === null) {
         return null
     }
+    const date = new Date(start)
     if (interval === 'month') {
-        const date = new Date(start)
         return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1)
+    }
+    if (interval === 'quarter') {
+        return Date.UTC(date.getUTCFullYear(), Math.floor(date.getUTCMonth() / 3) * 3 + 3, 1)
+    }
+    if (interval === 'year') {
+        return Date.UTC(date.getUTCFullYear() + 1, 0, 1)
     }
     return start + (UNIT_MS[interval] ?? UNIT_MS.day!)
 }
+
+const CALENDAR_INTERVALS = new Set(['week', 'month', 'quarter', 'year'])
 
 function startIndex(keys: string[], date: string, interval: string): number | null {
     const exact = keys.findIndex((key) => sameMoment(key, date))
@@ -67,10 +75,10 @@ function startIndex(keys: string[], date: string, interval: string): number | nu
     if (date < keys[0]!) {
         return 0
     }
-    if (interval !== 'week' && interval !== 'month') {
+    if (!CALENDAR_INTERVALS.has(interval)) {
         return null
     }
-    // On a weekly or monthly chart, a date falls in the bucket that starts before it.
+    // On a weekly or longer chart, a date falls in the bucket that starts before it.
     const containing = lastIndexWhere(keys, (key) => key < date)
     const end = bucketEndMs(keys[containing]!, interval)
     const dateMs = naiveMs(date)
@@ -116,12 +124,14 @@ function zoneOffsetMs(timezone: string, utcMs: number): number {
     }
 }
 
-/** Whether the chart's last period has not ended yet in the chart's timezone, so its value will still grow. */
+/** Whether the chart's last period has not ended yet in the chart's timezone, so its value can still change. */
 export function lastBucketInProgress(days: string[], interval: string, timezone = 'UTC', now = Date.now()): boolean {
     const last = days[days.length - 1]
     const end = last === undefined ? null : bucketEndMs(pointKey(last), interval)
     if (end === null) {
         return false
     }
-    return end - zoneOffsetMs(timezone, end) > now
+    // The offset belongs to the instant the bucket ends, which a second lookup finds across a daylight-saving change.
+    const guess = end - zoneOffsetMs(timezone, end)
+    return end - zoneOffsetMs(timezone, guess) > now
 }
