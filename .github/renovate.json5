@@ -86,6 +86,12 @@
       matchUpdateTypes: ['major', 'minor', 'patch'],
       minimumReleaseAge: '7 days',
     },
+    // A Go pseudo-version moves to a new commit as a digest update
+    {
+      matchDatasources: ['go'],
+      matchUpdateTypes: ['digest'],
+      minimumReleaseAge: '7 days',
+    },
     // Keep in sync with minimumReleaseAgeExclude in pnpm-workspace.yaml
     {
       matchDatasources: ['npm'],
@@ -130,10 +136,11 @@
       matchUpdateTypes: ['minor', 'patch'],
       groupName: '{{manager}} non-major',
     },
-    // Directories with their own lock file
+    // Directories with their own lock file. Digest updates join the group because a pseudo-version
+    // pin (such as x/vt in tools/phrocs) can depend on the same libraries as its tagged neighbors
     {
       matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
-      matchUpdateTypes: ['minor', 'patch'],
+      matchUpdateTypes: ['minor', 'patch', 'digest'],
       matchFileNames: [
         '**/go.mod',
         'cli/**',
@@ -174,16 +181,6 @@
       matchDepTypes: ['requires-python', 'packageManager'],
       groupName: null,
       automerge: false,
-    },
-    // x/vt pins a pseudo-version that tracks ultraviolet, which bubbletea also pulls in,
-    // so a bubbletea bump without an x/vt bump breaks a terminal emulator built on them (phrocs).
-    // The cooldown also covers the x/vt digest, so both sides of a group come from the same week
-    {
-      matchDatasources: ['go'],
-      matchPackageNames: ['charm.land/**', 'github.com/charmbracelet/**'],
-      matchUpdateTypes: ['minor', 'patch', 'digest'],
-      groupName: 'charmbracelet in {{packageFileDir}}',
-      minimumReleaseAge: '7 days',
     },
     {
       matchDepNames: ['chrome-headless-shell'],
