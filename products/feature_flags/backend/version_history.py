@@ -166,7 +166,8 @@ def reconstruct_flag_at_version(
 
     # Historical activity log entries may store filters in legacy shapes
     # (None, {}, or missing "groups"). Normalize so the response shape is
-    # predictable for API consumers. Other config formats are closed documents and stay as stored.
+    # predictable for API consumers. Other config formats stay as stored: the v2 schema allows
+    # no extra keys, so adding "groups" would make the document invalid.
     raw_filters = fields.get("filters")
     if not raw_filters:
         fields["filters"] = {"groups": []}
