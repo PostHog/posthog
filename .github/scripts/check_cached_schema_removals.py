@@ -54,6 +54,8 @@ Apply the matching label to the PR, then re-run the failed `Frontend typecheckin
 | Accept the misses | `cache-impact-accepted` | The field is removed now. | Each cached entry that holds the field is a miss until the query runs again or the entry expires (up to 7 days). A caller that calculates on a miss waits for ClickHouse. ClickHouse load and the exception rate go up, and the cache hit rate drops. Use this only when the field did not change query results. |
 | Bump the cache version | `cache-impact-bumped` | Change `"version"` in `get_cache_payload` in `posthog/hogql_queries/query_runner.py`. | Every cached query result for every team is a miss, not only the entries that hold the field. Use this only when the field changed query results and old entries must not be served. |
 
+Not sure which option fits your change? Ask in [this Slack channel](https://posthog.slack.com/archives/C076E99B152). The team is happy to help.
+
 {status}
 """
 
