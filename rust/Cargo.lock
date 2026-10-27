@@ -552,12 +552,14 @@ name = "assignment-coordination"
 version = "0.1.0"
 dependencies = [
  "etcd-client",
+ "h2 0.4.13",
  "metrics",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
+ "tonic 0.14.6",
  "tracing",
 ]
 
