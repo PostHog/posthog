@@ -35,6 +35,32 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "timestamp": "Unix timestamp of when the rates for that day were published.",
         },
     },
+    "time_series": {
+        "description": "Daily historical exchange rates per currency, one row per (base, currency, date). Fetched from the /time-series.json endpoint one month at a time. Requires an Enterprise or Unlimited plan.",
+        "docs_url": "https://docs.openexchangerates.org/reference/time-series-json",
+        "columns": {
+            "base": "Base currency the rates are quoted against.",
+            "currency": "Three-letter ISO 4217 code of the quoted currency.",
+            "rate": "Exchange rate for that day: units of `currency` per one unit of `base`.",
+            "date": "Value date of the rate (YYYY-MM-DD).",
+        },
+    },
+    "ohlc": {
+        "description": "Daily open, high, low, close and average exchange rates per currency, one row per (base, currency, date). Fetched from the /ohlc.json endpoint with a one-day period. Requires a VIP Platinum plan.",
+        "docs_url": "https://docs.openexchangerates.org/reference/ohlc-json",
+        "columns": {
+            "base": "Base currency the rates are quoted against.",
+            "currency": "Three-letter ISO 4217 code of the quoted currency.",
+            "date": "Day the period covers (YYYY-MM-DD, UTC).",
+            "start_time": "ISO 8601 UTC timestamp of the start of the period, which the open rate is recorded at.",
+            "end_time": "ISO 8601 UTC timestamp of the end of the period (inclusive), which the close rate is recorded at.",
+            "open": "Midpoint rate recorded at the start of the period.",
+            "high": "Highest midpoint rate recorded during the period.",
+            "low": "Lowest midpoint rate recorded during the period.",
+            "close": "Midpoint rate recorded at the end of the period.",
+            "average": "Time-weighted average midpoint rate for the whole period.",
+        },
+    },
     "usage": {
         "description": "Your Open Exchange Rates account plan and current-period request usage, as a single row.",
         "docs_url": "https://docs.openexchangerates.org/reference/usage-json",

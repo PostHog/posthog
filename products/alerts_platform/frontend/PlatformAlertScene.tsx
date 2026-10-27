@@ -1,10 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -27,6 +30,7 @@ export function PlatformAlertScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { configuration, configurationLoading, configurationError } = useValues(platformAlertLogic)
     const { loadConfiguration } = useActions(platformAlertLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS]) {
         return <NotFound object="page" />
@@ -66,14 +70,24 @@ export function PlatformAlertScene(): JSX.Element {
                 resourceType={{ type: 'inbox' }}
                 actions={
                     sourceUrl ? (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            to={sourceUrl}
-                            data-attr="platform-alert-open-source"
-                        >
-                            Open in {sourceLabel}
-                        </LemonButton>
+                        todayRailNav ? (
+                            <Button
+                                variant="outline"
+                                render={<LinkPrimitive to={sourceUrl} />}
+                                data-attr="platform-alert-open-source"
+                            >
+                                Open in {sourceLabel}
+                            </Button>
+                        ) : (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                to={sourceUrl}
+                                data-attr="platform-alert-open-source"
+                            >
+                                Open in {sourceLabel}
+                            </LemonButton>
+                        )
                     ) : undefined
                 }
             />

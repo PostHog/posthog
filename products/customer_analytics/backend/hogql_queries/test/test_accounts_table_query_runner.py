@@ -1095,6 +1095,9 @@ class TestAccountsTableQueryRunner(BaseTest):
         CustomPropertyValue.objects.unscoped().create(
             team=self.team, account=beta, definition=custom_property_definition, value_num=5
         )
+        CustomPropertyValue.objects.unscoped().create(
+            team=self.team, account=beta, definition=custom_property_definition, value_num=50, is_deleted=True
+        )
 
         paginated = self._run(
             AccountsTableQuery(

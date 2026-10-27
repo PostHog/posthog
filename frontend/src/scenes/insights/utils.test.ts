@@ -19,6 +19,7 @@ import {
     InsightQueryNode,
     InsightVizNode,
     NodeKind,
+    TrendsQuery,
 } from '~/queries/schema/schema-general'
 import { isEventsNode } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
@@ -618,31 +619,33 @@ describe('formatBreakdownType()', () => {
 })
 
 describe('getTrendDatasetKey()', () => {
-    it('handles a simple insight', () => {
-        const dataset: Partial<IndexedTrendResult> = {
-            label: '$pageview',
-            action: {
-                id: '$pageview',
-                type: 'events',
-                order: 0,
-            },
-        }
+    const seriesQuery: TrendsQuery = {
+        kind: NodeKind.TrendsQuery,
+        series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+    }
+    const formulaQuery: TrendsQuery = {
+        ...seriesQuery,
+        series: [
+            { kind: NodeKind.EventsNode, event: '$pageview' },
+            { kind: NodeKind.EventsNode, event: '$autocapture' },
+        ],
+        trendsFilter: { formulaNodes: [{ formula: 'A+B' }, { formula: 'A-B' }] },
+    }
 
-        expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":0}')
+    it('handles a simple insight', () => {
+        const dataset: Partial<IndexedTrendResult> = { label: '$pageview', order: 0 }
+
+        expect(getTrendDatasetKey(dataset as IndexedTrendResult, seriesQuery)).toEqual('{"series":0}')
     })
 
     it('handles insights with breakdowns', () => {
         const dataset: Partial<IndexedTrendResult> = {
             label: 'Opera::US',
-            action: {
-                id: '$pageview',
-                type: 'events',
-                order: 0,
-            },
+            order: 0,
             breakdown_value: ['Opera', 'US'],
         }
 
-        expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual(
+        expect(getTrendDatasetKey(dataset as IndexedTrendResult, seriesQuery)).toEqual(
             '{"series":0,"breakdown_value":["Opera","US"]}'
         )
     })
@@ -650,27 +653,26 @@ describe('getTrendDatasetKey()', () => {
     it('ignores compare periods, so that current and previous share a key', () => {
         const current: Partial<IndexedTrendResult> = {
             label: '$pageview',
-            action: {
-                id: '$pageview',
-                type: 'events',
-                order: 0,
-            },
+            order: 0,
             compare: true,
             compare_label: CompareLabelType.Current,
         }
         const previous: Partial<IndexedTrendResult> = { ...current, compare_label: CompareLabelType.Previous }
 
-        expect(getTrendDatasetKey(current as IndexedTrendResult)).toEqual('{"series":0}')
-        expect(getTrendDatasetKey(previous as IndexedTrendResult)).toEqual('{"series":0}')
+        expect(getTrendDatasetKey(current as IndexedTrendResult, seriesQuery)).toEqual('{"series":0}')
+        expect(getTrendDatasetKey(previous as IndexedTrendResult, seriesQuery)).toEqual('{"series":0}')
     })
 
-    it('handles insights with formulas', () => {
+    it('keys a formula by its position, not the series its order would index', () => {
+        // a formula row's order indexes the formulas, so the second formula carries order 1
         const dataset: Partial<IndexedTrendResult> = {
-            label: 'Formula (A+B)',
-            action: undefined,
+            label: 'Formula (A-B)',
+            order: 1,
+            seriesIndex: 1,
+            colorIndex: 1,
         }
 
-        expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":"formula"}')
+        expect(getTrendDatasetKey(dataset as IndexedTrendResult, formulaQuery)).toEqual('{"series":"formula2"}')
     })
 
     it('keys compare periods of a formula by their shared position, not the raw series index', () => {
@@ -679,28 +681,22 @@ describe('getTrendDatasetKey()', () => {
         // the colorIndex with their current-period counterpart
         const previous: Partial<IndexedTrendResult> = {
             label: 'Formula (A+B)',
-            action: undefined,
+            order: 0,
             seriesIndex: 2,
             colorIndex: 0,
             compare: true,
             compare_label: CompareLabelType.Previous,
         }
 
-        expect(getTrendDatasetKey(previous as IndexedTrendResult)).toEqual('{"series":"formula"}')
+        expect(getTrendDatasetKey(previous as IndexedTrendResult, formulaQuery)).toEqual('{"series":"formula"}')
     })
 
     it('handles insights with non-array breakdown values', () => {
-        const dataset: Partial<IndexedTrendResult> = {
-            label: 'Opera',
-            action: {
-                id: '$pageview',
-                type: 'events',
-                order: 0,
-            },
-            breakdown_value: 'Opera',
-        }
+        const dataset: Partial<IndexedTrendResult> = { label: 'Opera', order: 0, breakdown_value: 'Opera' }
 
-        expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":0,"breakdown_value":["Opera"]}')
+        expect(getTrendDatasetKey(dataset as IndexedTrendResult, seriesQuery)).toEqual(
+            '{"series":0,"breakdown_value":["Opera"]}'
+        )
     })
 })
 

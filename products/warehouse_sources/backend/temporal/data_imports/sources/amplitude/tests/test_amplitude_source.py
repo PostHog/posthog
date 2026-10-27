@@ -1,5 +1,8 @@
 import time_machine
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.amplitude import (
+    AMPLITUDE_INVALID_ARCHIVE_ERROR,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.settings import EVENTS_ENDPOINT
 from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.source import AmplitudeSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -18,11 +21,6 @@ class TestAmplitudeSource:
         self.team_id = 123
         self.config = AmplitudeSourceConfig(api_key="key", secret_key="secret", region="us")
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=[EVENTS_ENDPOINT])
-        assert len(schemas) == 1
-        assert schemas[0].name == EVENTS_ENDPOINT
-
     @time_machine.travel("2026-06-04 12:00:00", tick=False)
     def test_source_for_pipeline_drops_last_value_on_full_refresh(self) -> None:
         result = SourceDriver(self.source, self.config).run(
@@ -35,3 +33,16 @@ class TestAmplitudeSource:
         # When the user isn't running incrementally, no watermark should leak through.
         assert result.requests[0].param("start") == "20260505T10"
         assert result.raised is None
+
+    def test_invalid_archive_error_is_classified_retryable(self) -> None:
+        error_message = f"{AMPLITUDE_INVALID_ARCHIVE_ERROR}: url=https://amplitude.com/api/2/export?start=20260101T00&end=20260101T23"
+        assert any(pattern in error_message for pattern in self.source.get_retryable_errors())
+
+    def test_exhausted_read_timeout_is_classified_retryable(self) -> None:
+        error_message = (
+            "HTTPSConnectionPool(host='amplitude.com', port=443): Max retries exceeded with url: "
+            "/api/2/export?start=20260101T00&end=20260101T23 (Caused by ReadTimeoutError("
+            "\"HTTPSConnectionPool(host='amplitude.com', port=443): Read timed out. (read timeout=299.99)\"))"
+        )
+        assert any(pattern in error_message for pattern in self.source.get_retryable_errors())
+        assert not any(pattern in error_message for pattern in self.source.get_non_retryable_errors())

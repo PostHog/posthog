@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
 import { Counter } from 'prom-client'
 
-import { TRANSPORT_MAX_RETRIES } from '~/common/personhog/grpc-retry'
+import { TRANSPORT_MAX_BACKOFF_MS, TRANSPORT_MAX_RETRIES } from '~/common/personhog/grpc-retry'
 import {
     DistinctIdKey,
     SEMANTIC_REFUSAL_METADATA_KEY,
@@ -290,7 +290,8 @@ export class PersonhogPersonsStore implements PersonsStore {
         // rather than chosen so the two cannot drift apart; a holder writing
         // a deeper lane can still exhaust it, and that flush fails to
         // redelivery instead of acking over unwritten ops.
-        this.flushWaitBudgetMs = (TRANSPORT_MAX_RETRIES + 1) * this.options.requestTimeoutMs + FLUSH_WAIT_ROUND_MS
+        this.flushWaitBudgetMs =
+            (TRANSPORT_MAX_RETRIES + 1) * this.options.requestTimeoutMs + TRANSPORT_MAX_BACKOFF_MS + FLUSH_WAIT_ROUND_MS
     }
 
     forBatch(batchId: number): PersonsStoreForBatch {
@@ -305,11 +306,11 @@ export class PersonhogPersonsStore implements PersonsStore {
         this.teamGeneration.set(teamId, this.generationOf(teamId) + 1)
     }
 
-    /** Callers get copies, so stamping a result cannot edit the shared cache. */
+    /** Shallow: callers may replace fields, but never edit properties in place. */
     private snapshot(person: InternalPerson): InternalPerson
     private snapshot(person: InternalPerson | null): InternalPerson | null
     private snapshot(person: InternalPerson | null): InternalPerson | null {
-        return person === null ? null : { ...person, properties: { ...person.properties } }
+        return person === null ? null : { ...person }
     }
 
     /**
@@ -724,7 +725,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         // outdates the view; the install declines and the next touch
         // re-resolves, while the lane keeps the ops.
         if (generation === this.generationOf(person.team_id)) {
-            this.projections.set(personKey, this.snapshot(projected))
+            this.projections.set(personKey, projected)
             this.setDistinctIdToPersonId(`${person.team_id}:${distinctId}`, personKey)
             this.trackBatchEntry(batchId, `${person.team_id}:${distinctId}`)
         }

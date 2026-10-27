@@ -101,15 +101,6 @@ impl PartitionedCache {
             .put(key, person);
     }
 
-    /// Remove a key from a partition cache under construction. An applied
-    /// death record erases its predecessors from the build this way.
-    pub fn warm_remove(&self, partition: u32, key: &PersonCacheKey) {
-        self.warming
-            .get(&partition)
-            .expect("warm_remove before begin_warm_partition")
-            .remove(key);
-    }
-
     /// Whether the partition is published (serving reads). The prune
     /// only settles published partitions' marks.
     pub fn is_published(&self, partition: u32) -> bool {

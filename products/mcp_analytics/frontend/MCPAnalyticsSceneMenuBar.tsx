@@ -1,10 +1,10 @@
 import { useValues } from 'kea'
 
+import { sceneFileLogic } from 'lib/components/Scenes/sceneFileLogic'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { SceneMenuBar, SceneMenuBarMenu } from '~/layout/scenes/components/SceneMenuBar'
 
 const RESOURCE_TYPE = 'mcp-analytics'
@@ -18,8 +18,7 @@ export function MCPAnalyticsSceneMenuBar(): JSX.Element | null {
 }
 
 function MCPAnalyticsSceneMenuBarInner(): JSX.Element {
-    const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
-    const hasFileItems = !!projectTreeRefEntry
+    const { hasFileItems } = useValues(sceneFileLogic)
 
     return (
         <SceneMenuBar>

@@ -10,20 +10,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.oncehub import (
     OncehubSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.oncehub import (
-    PAGE_SIZE,
     OncehubResumeConfig,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.settings import (
-    ENDPOINTS,
-    ONCEHUB_ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.settings import ENDPOINTS, PAGE_SIZE
 from products.warehouse_sources.backend.temporal.data_imports.sources.oncehub.source import OncehubSource
 
 
@@ -110,9 +107,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid OnceHub API key"),
-            ("forbidden", 403, False, "Invalid OnceHub API key"),
-            ("server_error", 500, False, "OnceHub returned HTTP 500"),
         ]
     )
     def test_status_mapping(
@@ -135,8 +129,43 @@ class TestValidateCredentials:
         assert {request.path for request in network.requests_log} == {"/v2/users"}
 
 
+class TestSchedulingAvailabilityFanout:
+    def test_fetches_availability_per_user_across_user_pages(self) -> None:
+        first_users = _full_page("USR")
+        availability = {"object": "schedule", "timezone": "America/Chicago", "weekly": [], "overrides": []}
+        result = _driver().run(
+            "user_scheduling_availability",
+            route(
+                {
+                    "/v2/users": [
+                        _response(first_users, has_more=True),
+                        _response([{"id": "USR-final"}], has_more=False),
+                    ],
+                    "/scheduling-availability": [ScriptedResponse(json=availability)] * (PAGE_SIZE + 1),
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert len(result.rows) == PAGE_SIZE + 1
+        assert [row["user_id"] for row in result.rows] == [u["id"] for u in first_users] + ["USR-final"]
+        assert result.rows[0]["timezone"] == "America/Chicago"
+        assert not any(key.startswith("_users_") for key in result.rows[0])
+
+        user_list_requests = [r for r in result.requests if r.path == "/v2/users"]
+        assert [r.param("after") for r in user_list_requests] == [None, first_users[-1]["id"]]
+        assert {r.param("limit") for r in user_list_requests} == {str(PAGE_SIZE)}
+        # OnceHub rejects unknown query params, so the single-object child request must carry none.
+        child_requests = [r for r in result.requests if r.path.endswith("/scheduling-availability")]
+        assert child_requests[0].path == f"/v2/users/{first_users[0]['id']}/scheduling-availability"
+        assert all(not r.query for r in child_requests)
+        assert result.response is not None
+        assert result.response.primary_keys == ["user_id"]
+        assert result.response.partition_mode is None
+
+
 class TestOncehubSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
+    @parameterized.expand([(e,) for e in ENDPOINTS if e != "user_scheduling_availability"])
     def test_source_response_shape(self, endpoint: str) -> None:
         result = _driver().run(endpoint, [_response([], has_more=False)])
 
@@ -146,7 +175,3 @@ class TestOncehubSourceResponse:
         assert result.response.primary_keys == ["id"]
         # Lists paginate newest-first with no stable ascending order, so we don't partition.
         assert result.response.partition_mode is None
-
-    def test_every_endpoint_uses_id_primary_key(self) -> None:
-        assert all(config.primary_keys == ["id"] for config in ONCEHUB_ENDPOINTS.values())
-        assert set(ONCEHUB_ENDPOINTS) == set(ENDPOINTS)

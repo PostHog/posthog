@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.first_promoter import (
@@ -19,7 +20,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.first_prom
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.settings import DEFAULT_PAGE_SIZE
+from products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.settings import (
+    DEFAULT_PAGE_SIZE,
+    PROGRAM_REPORT_COLUMNS,
+    TRAFFIC_SOURCES_REPORT_COLUMNS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.first_promoter.source import FirstPromoterSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.firstpromoter import (
     FirstPromoterSourceConfig,
@@ -234,3 +239,108 @@ class TestFirstPromoterTransport:
         assert response.partition_keys == expected_partition_keys
         # Partitioning on a field that never changes once set; never on a mutating one.
         assert response.partition_mode == ("datetime" if expected_partition_keys else None)
+
+    @parameterized.expand(
+        [
+            (
+                "reports_overview",
+                PROGRAM_REPORT_COLUMNS,
+                [
+                    {"period": "2026-01", "id": "2026-01", "data": {"clicks_count": 10, "3m_epc": 1.5}},
+                    {"period": "2026-02", "id": "2026-02", "data": {"clicks_count": 4, "3m_epc": 0.5}},
+                ],
+                [
+                    {"period": "2026-01", "clicks_count": 10, "3m_epc": 1.5},
+                    {"period": "2026-02", "clicks_count": 4, "3m_epc": 0.5},
+                ],
+            ),
+            (
+                # Grouped reports nest the per-period buckets under each campaign; the whole-window
+                # totals in `data` must not become a row of their own.
+                "reports_campaigns",
+                PROGRAM_REPORT_COLUMNS,
+                [
+                    {
+                        "campaign": {"id": 7, "name": "Partners", "color": "#fff"},
+                        "id": 7,
+                        "data": {"clicks_count": 14},
+                        "sub_data": [
+                            {"period": "2026-01", "id": "2026-01", "data": {"clicks_count": 10}},
+                            {"period": "2026-02", "id": "2026-02", "data": {"clicks_count": 4}},
+                        ],
+                    },
+                    {"campaign": {"id": 8, "name": "Empty"}, "id": 8, "data": {}, "sub_data": []},
+                ],
+                [
+                    {"campaign_id": 7, "campaign_name": "Partners", "period": "2026-01", "clicks_count": 10},
+                    {"campaign_id": 7, "campaign_name": "Partners", "period": "2026-02", "clicks_count": 4},
+                ],
+            ),
+            (
+                "reports_traffic_sources",
+                TRAFFIC_SOURCES_REPORT_COLUMNS,
+                [
+                    {
+                        "source": "youtube.com",
+                        "id": "youtube.com",
+                        "data": {"clicks_count": 3},
+                        "sub_data": [{"period": "2026-01", "id": "2026-01", "data": {"clicks_count": 3}}],
+                    }
+                ],
+                [{"source": "youtube.com", "period": "2026-01", "clicks_count": 3}],
+            ),
+        ]
+    )
+    def test_report_is_one_windowed_request_flattened_to_one_row_per_period(
+        self,
+        endpoint: str,
+        expected_columns: tuple[str, ...],
+        payload: list[dict[str, Any]],
+        expected_rows: list[dict[str, Any]],
+    ) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=payload)])
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+        assert len(result.requests) == 1
+        query = result.queries[0]
+        assert query["columns[]"] == expected_columns
+        assert query["group_by"] == ("month",)
+        assert query["start_date"] == ("2014-01-01T00:00:00Z",)
+        assert "end_date" in query
+        assert "page" not in query
+
+    def test_referral_links_fan_out_over_promoters(self) -> None:
+        result = _driver().run(
+            "promoter_referral_links",
+            route(
+                {
+                    "/promoters": [
+                        ScriptedResponse(
+                            json={"data": [{"id": 1, "password_setup_url": "https://fp/setup"}, {"id": 2}]}
+                        )
+                    ],
+                    "/promoters/1/referral_links": [
+                        ScriptedResponse(
+                            json=[
+                                {"id": None, "url": "https://example.com/?fpr=a", "is_default": True},
+                                {"id": "5", "url": "https://example.com/?fpr=a&fp_sid=x", "sub_id": "x"},
+                            ]
+                        )
+                    ],
+                    # A promoter deleted after the listing must not fail the whole fan-out.
+                    "/promoters/2/referral_links": [ScriptedResponse(status=404, json={"code": "not_found"})],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": None, "url": "https://example.com/?fpr=a", "is_default": True, "promoter_id": 1},
+            {"id": "5", "url": "https://example.com/?fpr=a&fp_sid=x", "sub_id": "x", "promoter_id": 1},
+        ]
+        assert result.queries[0] == {
+            "page": ("1",),
+            "per_page": (str(DEFAULT_PAGE_SIZE),),
+            "sorting[joined_at]": ("asc",),
+        }

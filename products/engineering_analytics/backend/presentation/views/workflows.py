@@ -506,7 +506,8 @@ class WorkflowActionsMixin(EngineeringAnalyticsViewSetBase):
         },
         description=(
             "Repo-level headline aggregates over a window (default -30d): run count, conclusive-run success rate, re-run "
-            "cycles, merged-PR count (bots included), median PR open-to-merge (bots and drafts excluded; "
+            "cycles, merged-PR count (bots included), reverting-PR count and revert share (merges whose title names "
+            "a revert, over all merges), median PR open-to-merge (bots and drafts excluded; "
             "coarse: draft and ready time fused), median time-to-green, billable minutes + estimated cost "
             "(with the merge-queue slice of billable minutes broken out), and merge-queue landing stats "
             "(queue-landed merges, first-gate-to-merge median and p90, gate attempts, failed-gate share): "

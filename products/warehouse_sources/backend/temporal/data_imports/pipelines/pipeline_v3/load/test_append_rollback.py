@@ -21,12 +21,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     make_local_table_ref,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.append_rollback import (
+    UnfinishedAppendRuns,
     clear_append_run_marker,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor import (
     process_message,
     process_messages,
 )
+from products.warehouse_sources_queue.backend.core.jobs_db import UnfinishedEarlierBatches
 
 _PROCESSOR = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.processor"
 
@@ -135,7 +137,7 @@ class _Loader:
 
 
 @pytest.fixture(autouse=True)
-def _boundaries(settings: Any) -> Iterator[None]:
+def _boundaries(settings: Any, queue_database: str) -> Iterator[None]:
     settings.DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED = True
     with ExitStack() as stack:
         for target in (
@@ -148,7 +150,23 @@ def _boundaries(settings: Any) -> Iterator[None]:
         ):
             stack.enter_context(patch(f"{_PROCESSOR}.{target}"))
         stack.enter_context(patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False))
+        # The completion check reads the queue DB, whose tables only exist in suites that create
+        # them, so leaving it live makes this one order-dependent on whichever shard it lands in.
+        # Every run here hands over all of its batches, which is what count=0 stands for.
+        stack.enter_context(
+            patch(
+                f"{_PROCESSOR}.BatchQueue.get_unfinished_earlier_batches_sync",
+                return_value=UnfinishedEarlierBatches(count=0, first_batch_index=None, states=()),
+            )
+        )
         stack.enter_context(patch(f"{_PROCESSOR}.finish_row_tracking", new_callable=AsyncMock))
+        # The completion check reads the queue DB, which these tests do not have.
+        stack.enter_context(
+            patch(
+                f"{_PROCESSOR}.BatchQueue.get_unfinished_earlier_batches_sync",
+                return_value=UnfinishedEarlierBatches(count=0, first_batch_index=None, states=()),
+            )
+        )
         stack.enter_context(
             patch(
                 f"{_PROCESSOR}.run_post_load_operations",
@@ -182,6 +200,18 @@ def _failed_mid_run(loader: _Loader) -> None:
     job = loader.new_job()
     loader.load(loader.messages(job, _WINDOW[:2], final=False))
     loader.fail(job, "connection to the source was lost")
+
+
+def _old_marker_behind_a_completed_job(loader: _Loader) -> None:
+    failed_job = loader.new_job()
+    loader.load(loader.messages(failed_job, [[3, 4]], final=False))
+    old_marker = loader.config()[APPEND_RUN_MARKER_KEY]
+    loader.fail(failed_job, "failed")
+    loader.load(loader.messages(loader.new_job(), [[5, 6]], final=True))
+    # A loader from before the marker completes a run and leaves the old marker in place.
+    config = loader.config()
+    config[APPEND_RUN_MARKER_KEY] = old_marker
+    ExternalDataSchema.objects.filter(id=loader.schema.id).update(sync_type_config=config)
 
 
 def _failed_twice(loader: _Loader) -> None:
@@ -297,6 +327,32 @@ class TestUnfinishedAppendRun:
 
         assert loader.ids() == _SEED_IDS + _WINDOW_IDS
         assert "RESTORE" not in loader.operations()
+
+    @pytest.mark.parametrize(
+        "before, attempt, restores",
+        [
+            (lambda loader, job: _failed_mid_run(loader), 1, True),
+            (lambda loader, job: loader.load(loader.messages(job, [[3, 4]], final=False)), 2, True),
+            (lambda loader, job: loader.load(loader.messages(job, [[3, 4]], final=False)), 1, False),
+            (lambda loader, job: _old_marker_behind_a_completed_job(loader), 1, False),
+        ],
+        ids=["failed_job", "earlier_attempt", "same_attempt", "old_marker_behind_a_completed_job"],
+    )
+    def test_the_pre_load_check_predicts_the_restore(
+        self, loader: _Loader, before: Any, attempt: int, restores: bool
+    ) -> None:
+        loader.seed()
+        job = loader.new_job()
+        before(loader, job)
+        restores_so_far = loader.operations().count("RESTORE")
+
+        predicted = UnfinishedAppendRuns(
+            ExternalDataSchema.objects.get(id=loader.schema.id), make_local_table_ref(loader.table_path)
+        ).restores_before_first_batch(f"{job.workflow_run_id}-a{attempt}")
+        loader.load(loader.messages(job, [[5, 6]], attempt=attempt, final=False))
+
+        assert predicted is restores
+        assert loader.operations().count("RESTORE") == restores_so_far + int(restores)
 
     def test_a_first_resumed_batch_records_the_job(self, loader: _Loader) -> None:
         loader.seed()

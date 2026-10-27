@@ -9,12 +9,13 @@ import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
 import { roundToDecimal } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import type { GoalLine } from '~/queries/schema/schema-general'
 import type { GroupTypeIndex, LabelGroupType } from '~/types'
+
+import type { SeriesDatum } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 
 import { chartStyleCurve } from '../../shared/chartStyleAdapter'
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
@@ -32,6 +33,7 @@ import {
 } from '../shared/retentionChartTransforms'
 
 interface RetentionLineChartProps {
+    resultMenuEnabled?: boolean
     inSharedMode?: boolean
 }
 const EMPTY_GOAL_LINES: GoalLine[] = []
@@ -56,7 +58,10 @@ function resolveGroupTypeLabel(
     return aggregationLabel(labelGroupType).plural
 }
 
-export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartProps): JSX.Element | null {
+export function RetentionLineChart({
+    inSharedMode = false,
+    resultMenuEnabled = false,
+}: RetentionLineChartProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { insightDataLoading } = useValues(insightVizDataLogic(insightProps))
     const theme = useChartTheme()
@@ -193,14 +198,28 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
                 goalLines,
                 showTrendLines,
                 series,
-                tooltip: INSIGHT_TOOLTIP_CONFIG,
+                tooltip: {
+                    ...INSIGHT_TOOLTIP_CONFIG,
+                    resolveClickToNearestSeries: resultMenuEnabled && !inSharedMode,
+                },
                 isIntervalView,
                 period,
                 timezone,
             }),
             curve: chartStyleCurve(retentionFilter?.chartStyle),
         }),
-        [isPercentage, goalLines, showTrendLines, series, isIntervalView, period, timezone, retentionFilter?.chartStyle]
+        [
+            resultMenuEnabled,
+            inSharedMode,
+            isPercentage,
+            goalLines,
+            showTrendLines,
+            series,
+            isIntervalView,
+            period,
+            timezone,
+            retentionFilter?.chartStyle,
+        ]
     )
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {

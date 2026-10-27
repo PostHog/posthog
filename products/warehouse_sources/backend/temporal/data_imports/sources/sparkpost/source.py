@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -55,6 +56,16 @@ class SparkPostSource(
     ResumableSource[SparkPostSourceConfig, SparkPostResumeConfig],
     WebhookSource[SparkPostSourceConfig],
 ):
+    codebase_detection = detect(
+        env=("^SPARKPOST_",),
+        npm=("sparkpost",),
+        pypi=("sparkpost",),
+        composer=("sparkpost/sparkpost", "sparkpost/php-sparkpost"),
+        go=("github.com/SparkPost/gosparkpost",),
+        maven=("com.sparkpost:sparkpost-lib", "com.sparkpost:sparkpost"),
+        rubygems=("sparkpost",),
+    )
+
     api_docs_url = "https://developers.sparkpost.com/api/"
 
     @property
@@ -73,7 +84,7 @@ class SparkPostSource(
             name=ExternalDataSourceType.SPARKPOST,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="SparkPost",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             # Kept hidden for now: the implementation follows the public SparkPost docs but its
             # end-to-end sync behaviour hasn't been exercised against a live account yet.
             caption="""Connect your SparkPost account to sync message events, suppression lists, recipient lists, templates, sending domains, subaccounts, and webhooks into the PostHog Data warehouse.

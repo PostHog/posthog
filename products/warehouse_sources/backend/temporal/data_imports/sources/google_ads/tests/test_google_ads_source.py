@@ -71,12 +71,14 @@ _MANAGER_ID_ERROR = "valid Google Ads manager customer ID"
 
 @pytest.mark.parametrize("repeated", [False, True])
 @pytest.mark.parametrize("version", ["v23", "v24", "v25"])
-def test_change_resource_proto_plus_serializes_to_json(repeated, version):
+@pytest.mark.parametrize("as_int", [False, True])
+def test_change_resource_proto_plus_serializes_to_json(repeated, version, as_int):
     enum_types = importlib.import_module(f"google.ads.googleads.{version}.enums.types")
+    message_type = enum_types.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.MESSAGE
     value = ChangeEvent.ChangedResource(campaign={"name": "Example campaign"})
     column = GoogleAdsColumn(
         qualified_name="change_event.new_resource",
-        data_type=enum_types.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.MESSAGE,
+        data_type=int(message_type) if as_int else message_type,
         is_repeatable=repeated,
         type_url="google.ads.googleads.v23.resources.ChangeEvent.ChangedResource",
     )
@@ -621,7 +623,7 @@ def _google_ads_exception_with_trigger(request_error: int, trigger_value: str) -
 def _string_column(qualified_name: str) -> GoogleAdsColumn:
     return GoogleAdsColumn(
         qualified_name=qualified_name,
-        data_type=ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.STRING,  # type: ignore[arg-type]
+        data_type=ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.STRING,
         is_repeatable=False,
         type_url="",
     )
@@ -1522,6 +1524,60 @@ class TestGetOAuthAccountsNetworkErrorHandling:
                 source.get_oauth_accounts(1, 2)
 
 
+class TestGetOAuthAccountsPermissionErrors:
+    @pytest.mark.parametrize(
+        "body, expected",
+        [
+            (
+                '{"error": {"status": "PERMISSION_DENIED", "details": [{"reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT"}]}}',
+                "allow access to your Google Ads data",
+            ),
+            ('{"error": {"status": "PERMISSION_DENIED"}}', "Google rejected the credentials"),
+        ],
+    )
+    def test_forbidden_listing_names_the_fix(self, body, expected):
+        cache.clear()
+        integration = mock.Mock(errors=None, kind="google-ads", sensitive_config={"access_token": "token"})
+
+        with (
+            mock.patch.object(GoogleAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{_SOURCE_MODULE}.OauthIntegration") as mock_oauth,
+            mock.patch(
+                "posthog.models.integration.google_ads.requests.request",
+                return_value=mock.Mock(status_code=403, text=body),
+            ),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+
+            with pytest.raises(IntegrationAccountListingError, match=expected):
+                GoogleAdsSource().get_oauth_accounts(1, 2)
+
+
+class TestGetOAuthAccountsQuotaExhausted:
+    def test_rate_limited_listing_is_actionable(self):
+        # A 429 RESOURCE_EXHAUSTED isn't retried automatically here, unlike the sync path's
+        # Temporal activity retries, so it must become the same actionable, catchable error the
+        # other listing failures raise rather than an unhandled 500.
+        cache.clear()
+        integration = mock.Mock(errors=None, kind="google-ads", sensitive_config={"access_token": "token"})
+        body = (
+            '{"error": {"status": "RESOURCE_EXHAUSTED", "message": "Resource has been exhausted (e.g. check quota)."}}'
+        )
+
+        with (
+            mock.patch.object(GoogleAdsSource, "get_oauth_integration", return_value=integration),
+            mock.patch(f"{_SOURCE_MODULE}.OauthIntegration") as mock_oauth,
+            mock.patch(
+                "posthog.models.integration.google_ads.requests.request",
+                return_value=mock.Mock(status_code=429, text=body),
+            ),
+        ):
+            mock_oauth.return_value.access_token_expired.return_value = False
+
+            with pytest.raises(IntegrationAccountListingError, match="rate-limited"):
+                GoogleAdsSource().get_oauth_accounts(1, 2)
+
+
 class _DrainClock:
     """A monotonic clock the test drives itself, one second per window drained.
 
@@ -1630,7 +1686,7 @@ class TestGoogleAdsQueryConstruction:
             "ORDER BY segments.date ASC"
         )
         assert all("2100-01-01" not in q for q in queries)
-        assert response.sort_mode == "asc"
+        assert response.sort_mode is None
 
     def test_lookback_overlap_cannot_consume_a_whole_run(self):
         # Spending the whole budget on lookback overlap leaves the cursor unmoved, so the next run
@@ -1817,6 +1873,34 @@ class TestGoogleAdsQueryConstruction:
             "WHERE segments.date >= '1970-01-01' AND segments.date < '2026-07-18' "
             "AND metrics.impressions > 0 ORDER BY segments.date ASC LIMIT 1"
         )
+
+    @pytest.mark.parametrize(
+        "skip_removed,expected_query",
+        [
+            (False, "SELECT ad_group_criterion.criterion_id FROM ad_group_criterion"),
+            (
+                True,
+                "SELECT ad_group_criterion.criterion_id FROM ad_group_criterion "
+                "WHERE ad_group_criterion.status != 'REMOVED'",
+            ),
+        ],
+    )
+    def test_skip_removed_filters_only_when_enabled(self, skip_removed: bool, expected_query: str) -> None:
+        table = GoogleAdsTable(
+            name="ad_group_criterion",
+            alias="ad_group_criterion",
+            columns=[_string_column("ad_group_criterion.criterion_id")],
+            parents=None,
+            requires_filter=False,
+            primary_key=["ad_group_criterion.criterion_id"],
+            should_sync_default=False,
+            description=None,
+            removed_filter="ad_group_criterion.status != 'REMOVED'",
+        )
+
+        _response, queries = self._run_source(table, skip_removed=skip_removed)
+
+        assert queries == [expected_query]
 
     def test_full_refresh_report_table_scans_the_full_range_without_windows(self):
         # A full-refresh pipeline persists no cursor, so a budgeted windowed drain restarts from

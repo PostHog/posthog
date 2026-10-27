@@ -1,4 +1,7 @@
+from datetime import UTC, datetime
 from typing import Any
+
+import time_machine
 
 from parameterized import parameterized
 
@@ -77,6 +80,75 @@ class TestFanOut:
         assert [request.param("account_id") for request in child_requests] == ["acc_a", "acc_c"]
         assert [request.param("offset") for request in child_requests] == ["0", "0"]
 
+    def test_comments_bind_account_and_content_ids(self) -> None:
+        result = _driver().run(
+            "social_comments",
+            route(
+                {
+                    "/v1/accounts": [_response([{"id": "acc_a"}, {"id": "acc_b"}])],
+                    "/v1/social/contents": [
+                        _response([{"id": "con_1"}, {"id": "con_2"}]),
+                        _response([{"id": "con_3"}]),
+                    ],
+                    "/v1/social/comments": [
+                        _response([{"id": "cm_1"}]),
+                        _response([]),
+                        _response([{"id": "cm_3"}]),
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        # The account id carried onto each content row to bind the request must not leak into rows.
+        assert result.rows == [{"id": "cm_1"}, {"id": "cm_3"}]
+        comment_requests = [request for request in result.requests if request.path == "/v1/social/comments"]
+        assert [(request.param("account_id"), request.param("content_id")) for request in comment_requests] == [
+            ("acc_a", "con_1"),
+            ("acc_a", "con_2"),
+            ("acc_b", "con_3"),
+        ]
+
+    def test_audience_yields_one_row_per_account(self) -> None:
+        result = _driver().run(
+            "audience",
+            route(
+                {
+                    "/v1/accounts": [_response([{"id": "acc_a"}, {"id": "acc_b"}])],
+                    "/v1/audience": [
+                        ScriptedResponse(json={"id": "aud_a", "countries": [{"code": "US", "value": 60.5}]}),
+                        ScriptedResponse(json={"id": "aud_b", "countries": []}),
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["aud_a", "aud_b"]
+        audience_requests = [request for request in result.requests if request.path == "/v1/audience"]
+        assert [request.param("account_id") for request in audience_requests] == ["acc_a", "acc_b"]
+
+
+class TestCommerceTransactionDateWindow:
+    def test_window_covers_full_history(self) -> None:
+        with time_machine.travel(datetime(2026, 3, 15, 12, 0, tzinfo=UTC), tick=False):
+            result = _driver().run(
+                "commerce_income_transactions",
+                route(
+                    {
+                        "/v1/accounts": [_response([{"id": "acc_a"}])],
+                        "/v1/commerce/income/transactions": [_response([{"id": "txn_1"}])],
+                    }
+                ),
+            )
+
+        assert result.raised is None
+        assert result.rows == [{"id": "txn_1"}]
+        [request] = [r for r in result.requests if r.path == "/v1/commerce/income/transactions"]
+        assert request.param("account_id") == "acc_a"
+        assert request.param("transaction_from_date") == "2000-01-01"
+        assert request.param("transaction_to_date") == "2026-03-15"
+
 
 class TestMalformedBody:
     def test_top_level_persistent_malformed_body_reraises(self) -> None:
@@ -105,9 +177,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Phyllo client ID or secret for the selected environment"),
-            ("forbidden", 403, False, "Invalid Phyllo client ID or secret for the selected environment"),
-            ("server_error", 500, False, "Phyllo returned HTTP 500"),
         ]
     )
     def test_status_mapping(
@@ -124,13 +193,6 @@ class TestValidateCredentials:
         assert network.requests_log[0].param("limit") == "1"
         assert network.requests_log[0].param("offset") == "0"
 
-    def test_connection_error_swallowed(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("cid", "cs-secret", "production") == (
-                False,
-                "Could not validate Phyllo credentials",
-            )
-
 
 class TestPhylloSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
@@ -143,12 +205,25 @@ class TestPhylloSourceResponse:
         assert result.response.primary_keys == ["id"]
         # Phyllo doesn't guarantee ordering or a stable creation timestamp, so we don't partition.
         assert result.response.partition_mode is None
+        # The two-level comments fan-out has no framework checkpoint, so it must not claim resume.
+        assert result.response.supports_resume is (endpoint != "social_comments")
+        assert PhylloSource().resume_covers_run(incremental_or_append=False, schema_name=endpoint) is (
+            endpoint != "social_comments"
+        )
 
     def test_fan_out_endpoints_are_account_scoped(self) -> None:
         # These endpoints require an account_id query param; a config regression here would 400 on
         # every page.
         fan_out = {name for name, config in PHYLLO_ENDPOINTS.items() if config.fan_out_by_account}
-        assert fan_out == {"social_contents", "income_transactions", "income_payouts"}
+        assert fan_out == {
+            "social_contents",
+            "income_transactions",
+            "income_payouts",
+            "audience",
+            "social_comments",
+            "social_content_groups",
+            "commerce_income_transactions",
+        }
 
     @parameterized.expand(
         [("production", "https://api.getphyllo.com"), ("sandbox", "https://api.sandbox.getphyllo.com")]

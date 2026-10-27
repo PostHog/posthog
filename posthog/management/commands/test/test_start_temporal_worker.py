@@ -9,6 +9,7 @@ from posthog.management.commands.start_temporal_worker import (
     AI_WORKFLOWS,
     ALERT_AI_QUEUE_ACTIVITIES,
     DATA_SYNC_WORKFLOWS,
+    INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES,
     WA_DIGEST_ACTIVITIES,
     WA_DIGEST_WORKFLOWS,
     WEEKLY_DIGEST_WORKFLOWS,
@@ -16,6 +17,8 @@ from posthog.management.commands.start_temporal_worker import (
     _task_queue_specs,
     workflows_include_data_import_syncs,
 )
+from posthog.temporal.usage_report.activities import aggregate_and_chunk_org_reports
+from posthog.temporal.usage_report.workflow import RunUsageReportsWorkflow
 
 from products.alerts_platform.backend.facade.temporal import (
     DELIVERY_ACTIVITIES,
@@ -38,6 +41,21 @@ from products.wizard.backend.facade.temporal import (
 
 class _NotADataSyncWorkflow:
     pass
+
+
+# Queue settings collapse to a single dev queue under DEBUG, so match on the spec entries rather than on queue names.
+def test_aggregation_runs_on_its_own_queue_and_the_billing_queue() -> None:
+    aggregation_entries = [
+        activities
+        for task_queue, workflows, activities in _task_queue_specs
+        if task_queue == settings.USAGE_REPORT_AGGREGATION_TASK_QUEUE and not workflows
+    ]
+    assert any(aggregate_and_chunk_org_reports in activities for activities in aggregation_entries)
+    # A workflow may have scheduled aggregation on the billing queue before the queue change deployed.
+    (billing_activities,) = [
+        activities for _, workflows, activities in _task_queue_specs if RunUsageReportsWorkflow in workflows
+    ]
+    assert aggregate_and_chunk_org_reports in billing_activities
 
 
 @pytest.mark.parametrize(
@@ -113,3 +131,4 @@ def test_ai_queue_registers_the_alert_evaluate_activity() -> None:
     assert len(entries) == 1
     assert ALERT_AI_QUEUE_ACTIVITIES
     assert set(ALERT_AI_QUEUE_ACTIVITIES) <= set(entries[0])
+    assert set(INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES) <= set(entries[0])

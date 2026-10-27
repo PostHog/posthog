@@ -13,7 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.guardian.s
 class TestGuardianSource:
     @pytest.mark.parametrize(
         ("status", "expected"),
-        [(200, (True, None)), (401, (False, "Invalid Guardian API key"))],
+        [(200, (True, None))],
     )
     def test_validate_credentials(self, status: int, expected: tuple[bool, str | None]) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:

@@ -8,6 +8,7 @@ from __future__ import annotations
 # timeout — keep it below `WORKFLOW_HARD_CEILING_S`. Tuning this is a config decision,
 # not a per-run override knob.
 DEFAULT_MAX_RUNTIME_S = 20 * 60
+TRIGGERED_BY_ONBOARDING = "onboarding"
 
 # Slack added on top of `DEFAULT_MAX_RUNTIME_S` for the Temporal activity
 # `start_to_close_timeout`, so heartbeat-based failures get a chance to surface
@@ -129,6 +130,16 @@ DUE_GRACE_SECONDS = 60
 
 DISPATCH_SMEAR_SECONDS = 600
 DISPATCH_BATCH_INTERVAL_SECONDS = 60
+# The smear stays this far under one tick, so the runs of one tick never start in the next tick.
+# This is also below the shortest scout interval.
+MAX_DISPATCH_SMEAR_SECONDS = COORDINATOR_INTERVAL_MINUTES * 60 - 180
+# A cron scout starts at most this long after its cron time, whatever the smear is.
+CRON_START_DELAY_CAP_SECONDS = 20 * 60
+# With child start delays, the coordinator starts every child of the tick before it closes. Temporal
+# limits the pending child executions of one workflow (2,000 by default), so the tick cap stays under it.
+CHILD_START_DELAY_MAX_RUNS_PER_TICK = 1500
+# The coordinator starts children in groups of this size, so each workflow task stays small.
+CHILD_START_CHUNK_SIZE = 200
 
 
 def dispatch_ticks_per_interval(run_interval_minutes: int) -> int:

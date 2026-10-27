@@ -93,9 +93,11 @@ describe('TaxonomicFilterMenu pinned rows', () => {
 
         await userEvent.click(screen.getByTestId('taxonomic-filter-menu-trigger'))
         await waitFor(() => {
-            expect(screen.getByText('Pinned')).toBeInTheDocument()
+            expect(screen.getByTestId('taxonomic-filter-menu-new')).toBeInTheDocument()
         })
-        await userEvent.click(screen.getByText('Pinned'))
+        expect(screen.queryByText('Recent')).not.toBeInTheDocument()
+        expect(screen.queryByText('Pinned')).not.toBeInTheDocument()
+        await userEvent.click(screen.getByTestId('taxonomic-filter-menu-new'))
 
         await waitFor(() => {
             expect(pinnedRowTexts().length).toBeGreaterThan(0)

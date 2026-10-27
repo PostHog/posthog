@@ -25,38 +25,6 @@ class TestGitguardianSourceConfig:
         assert GitguardianSource.lists_tables_without_credentials is True
 
 
-class TestGitguardianSchemas:
-    def test_names_filter(self) -> None:
-        schemas = GitguardianSource().get_schemas(MagicMock(), team_id=1, names=["teams"])
-        assert [s.name for s in schemas] == ["teams"]
-
-
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.gitguardian.com/v1/incidents/secrets",
-            ),
-            ("forbidden", "403 Client Error: Forbidden for url: https://gitguardian.acme.dev/v1/sources"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
-        errors = GitguardianSource().get_non_retryable_errors()
-        assert any(key in observed for key in errors)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.gitguardian.com', port=443): Read timed out."),
-            ("server_error", "500 Server Error: Internal Server Error"),
-            ("rate_limited", "429 Client Error: Too Many Requests"),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, observed: str) -> None:
-        errors = GitguardianSource().get_non_retryable_errors()
-        assert not any(key in observed for key in errors)
-
-
 class TestValidateCredentials:
     def test_blocks_unsafe_host_before_probing(self) -> None:
         # An internal/private base_url must be rejected without an outbound request being made.

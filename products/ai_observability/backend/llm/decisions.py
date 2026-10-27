@@ -35,16 +35,26 @@ from products.ai_observability.backend.llm.errors import (
     is_context_window_error_message,
 )
 from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
+from products.ai_observability.backend.llm.providers.openai import OpenAIConfig
 from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_HEADERS, decision_model_ids
 
 
-def is_decision_model(provider: str | None, model: str | None, *, openrouter_enabled: bool) -> bool:
+def is_decision_model(
+    provider: str | None,
+    model: str | None,
+    *,
+    openrouter_enabled: bool,
+    decision_only: bool = False,
+    openai_enabled: bool = False,
+) -> bool:
     if provider == "system_one":
         return True
+    if provider == "openai":
+        return openai_enabled and model in OpenAIConfig.DECISION_MODELS
     # Disabled projects keep the chat path independent of catalogue availability.
     if provider != "openrouter" or not model or not openrouter_enabled:
         return False
-    models = decision_model_ids()
+    models = decision_model_ids(decision_only=decision_only)
     if models is None:
         raise ProviderConnectionError("Could not load OpenRouter model capabilities. Try again.")
     return model in models
@@ -78,8 +88,10 @@ class DecisionEndpointBlockedError(LLMError):
 
 
 class DecisionRateLimitError(RetryableRateLimitError):
-    def __init__(self, retry_after: str | None) -> None:
-        super().__init__("The decision endpoint is temporarily unavailable. Try again later.", retry_after)
+    def __init__(self, retry_after: str | None, *, status: int) -> None:
+        super().__init__(
+            "The decision endpoint is temporarily unavailable. Try again later.", retry_after, status=status
+        )
 
 
 class DecisionClient:
@@ -122,7 +134,7 @@ class DecisionClient:
         try:
             verdict = validate_url_and_pin_ips(base_url)
             if not verdict.allowed:
-                if path == "decisions" and verdict.reason == UNRESOLVED_HOST_REASON:
+                if verdict.reason == UNRESOLVED_HOST_REASON:
                     raise ProviderHostUnresolvedError()
                 raise SSRFBlockedError(verdict.reason)
             headers = dict(OPENROUTER_HEADERS) if path == "decisions" else {}
@@ -163,7 +175,7 @@ class DecisionClient:
         if status == 404:
             raise ModelNotFoundError(model)
         if status in (408, 429, 503, 529):
-            raise DecisionRateLimitError(response.headers.get("Retry-After"))
+            raise DecisionRateLimitError(response.headers.get("Retry-After"), status=status)
         if status >= 500:
             raise ProviderConnectionError("The decision endpoint is temporarily unavailable. Try again.")
         if 300 <= status < 400:

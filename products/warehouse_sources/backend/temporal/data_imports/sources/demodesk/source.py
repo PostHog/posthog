@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DemodeskSource(ResumableSource[DemodeskSourceConfig, DemodeskResumeConfig]):
+    codebase_detection = detect(env=("^DEMODESK_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
 
     # Pinned to v2 (the vendor's recommended surface). Meeting endpoints still ride the legacy v1
@@ -139,7 +142,7 @@ class DemodeskSource(ResumableSource[DemodeskSourceConfig, DemodeskResumeConfig]
             caption="Enter your Demodesk API key. Admins can generate one in Demodesk under integration settings, in the Demodesk API section. Use a company admin's key to sync team-wide meetings and recordings. A regular user's key only syncs what that user can see.",
             docsUrl="https://posthog.com/docs/cdp/sources/demodesk",
             iconPath="/static/services/demodesk.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

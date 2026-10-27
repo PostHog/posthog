@@ -60,22 +60,59 @@ describe('calculating tile layouts', () => {
         expect(calculateLayouts(tiles).sm?.[0]).toMatchObject({ w: 2, h: 1 })
     })
 
-    it('defaults SQL metric tiles without a stored layout to 3 by 3', () => {
-        const tiles: DashboardTile[] = [
-            {
-                id: 1,
-                insight: {
-                    query: {
-                        kind: NodeKind.DataVisualizationNode,
-                        source: { kind: NodeKind.HogQLQuery, query: 'SELECT count() FROM events' },
-                        display: ChartDisplayType.Metric,
-                    },
+    it.each([
+        {
+            name: 'SQL metric',
+            query: {
+                kind: NodeKind.DataVisualizationNode,
+                source: { kind: NodeKind.HogQLQuery, query: 'SELECT count() FROM events' },
+                display: ChartDisplayType.Metric,
+            },
+            expected: { w: 3, h: 3 },
+        },
+        {
+            name: 'funnel',
+            query: { kind: NodeKind.InsightVizNode, source: { kind: NodeKind.FunnelsQuery, series: [] } },
+            expected: { w: 4, h: 4 },
+        },
+        {
+            name: 'retention',
+            query: { kind: NodeKind.InsightVizNode, source: { kind: NodeKind.RetentionQuery, retentionFilter: {} } },
+            expected: { w: 6, h: 7 },
+        },
+        {
+            name: 'paths',
+            query: { kind: NodeKind.InsightVizNode, source: { kind: NodeKind.PathsQuery, pathsFilter: {} } },
+            expected: { w: 12, h: 7 },
+        },
+        {
+            name: 'bold number trends',
+            query: {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    trendsFilter: { display: ChartDisplayType.BoldNumber },
                 },
-                layouts: {},
-            } as unknown as DashboardTile,
-        ]
+            },
+            expected: { w: 2, h: 2 },
+        },
+        {
+            name: 'line graph trends',
+            query: {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+                },
+            },
+            expected: { w: 6, h: 5 },
+        },
+    ])('sizes $name tiles without a stored layout by their query kind', ({ query, expected }) => {
+        const tiles: DashboardTile[] = [{ id: 1, insight: { query }, layouts: {} } as unknown as DashboardTile]
 
-        expect(calculateLayouts(tiles).sm?.[0]).toMatchObject({ w: 3, h: 3 })
+        expect(calculateLayouts(tiles).sm?.[0]).toMatchObject(expected)
     })
 
     it('when the tiles have only 2-col layouts, 1 col layout is calculated', () => {

@@ -60,26 +60,6 @@ export interface TaskArtifactFinalizeUploadPayload {
   content_type?: string;
 }
 
-export interface TaskRunPeer {
-  run_id: string;
-  task_id: string;
-  task_title: string;
-  created_by_email: string | null;
-  runtime: string;
-  model: string | null;
-  repository: string | null;
-  stage: string | null;
-  status: string;
-  sendable: boolean;
-  updated_at: string | null;
-}
-
-export interface PeerMessageSendResult {
-  result: string;
-  detail: string;
-  message_id?: string | null;
-}
-
 export class TaskToolsApiClient {
   private readonly http: PostHogHttpClient;
 
@@ -195,36 +175,6 @@ export class TaskToolsApiClient {
     return artifacts
       .map((artifact) => byStoragePath.get(artifact.storage_path))
       .filter((artifact): artifact is TaskRunArtifact => !!artifact);
-  }
-
-  async listTaskRunPeers(
-    taskId: string,
-    runId: string,
-  ): Promise<TaskRunPeer[]> {
-    const teamId = this.http.getTeamId();
-    const response = await this.http.request<{ peers: TaskRunPeer[] }>(
-      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/peers/`,
-    );
-    return response.peers ?? [];
-  }
-
-  async sendTaskRunPeerMessage(
-    taskId: string,
-    runId: string,
-    targetRunId: string,
-    payload: { content: string; artifactIds?: string[] },
-  ): Promise<PeerMessageSendResult> {
-    const teamId = this.http.getTeamId();
-    return this.http.request<PeerMessageSendResult>(
-      `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/peers/${encodeURIComponent(targetRunId)}/message/`,
-      {
-        method: "POST",
-        body: JSON.stringify({
-          content: payload.content,
-          artifact_ids: payload.artifactIds ?? [],
-        }),
-      },
-    );
   }
 
   async getSignalReportIdsForTask(

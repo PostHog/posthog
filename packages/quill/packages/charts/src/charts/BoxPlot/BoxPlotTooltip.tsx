@@ -5,15 +5,26 @@ import { TooltipSurface, TooltipSwatch } from '../../overlays/TooltipSurface'
 import type { BoxPlotAdaptedMeta } from './BoxPlot'
 import type { BoxPlotDatum } from './types'
 
-/** Rows shown per box, in the same order the legacy BoxPlotChart used. */
-const ROWS: { label: string; key: keyof BoxPlotDatum }[] = [
-    { label: 'Max', key: 'max' },
-    { label: '75th percentile', key: 'p75' },
-    { label: 'Median', key: 'median' },
-    { label: 'Mean', key: 'mean' },
-    { label: '25th percentile', key: 'p25' },
-    { label: 'Min', key: 'min' },
-]
+interface TooltipRow {
+    label: string
+    value: number
+}
+
+/** Whisker rows only appear when a whisker is clipped, so it differs from the true bound. */
+function tooltipRows(datum: BoxPlotDatum): TooltipRow[] {
+    const { whiskerMin, whiskerMax } = datum
+    const rows: (TooltipRow | null)[] = [
+        { label: 'Max', value: datum.max },
+        whiskerMax !== undefined && whiskerMax !== datum.max ? { label: 'Upper whisker', value: whiskerMax } : null,
+        { label: '75th percentile', value: datum.p75 },
+        { label: 'Median', value: datum.median },
+        { label: 'Mean', value: datum.mean },
+        { label: '25th percentile', value: datum.p25 },
+        whiskerMin !== undefined && whiskerMin !== datum.min ? { label: 'Lower whisker', value: whiskerMin } : null,
+        { label: 'Min', value: datum.min },
+    ]
+    return rows.filter((row): row is TooltipRow => row !== null)
+}
 
 export interface BoxPlotTooltipProps<Meta = unknown> {
     ctx: TooltipContext<BoxPlotAdaptedMeta<Meta>>
@@ -24,22 +35,25 @@ export interface BoxPlotTooltipProps<Meta = unknown> {
     /** Whether multiple series are being shown — drives whether each box's series label is
      *  printed in the header above its stats. */
     grouped: boolean
+    /** Formats each statistic. Defaults to `toLocaleString`. */
+    valueFormatter?: (value: number, entry: TooltipContext['seriesData'][number]) => string
 }
 
 function defaultFormatValue(v: number): string {
-    return Number.isFinite(v) ? v.toLocaleString() : '—'
+    return v.toLocaleString()
 }
 
 export function BoxPlotTooltip<Meta = unknown>({
     ctx,
     userTooltip,
     grouped,
+    valueFormatter = defaultFormatValue,
 }: BoxPlotTooltipProps<Meta>): React.ReactElement | null {
     if (userTooltip) {
         return <>{userTooltip(ctx)}</>
     }
 
-    const entries: { key: string; color: string; label: string; datum: BoxPlotDatum }[] = []
+    const entries: { datum: BoxPlotDatum; seriesEntry: TooltipContext['seriesData'][number] }[] = []
     for (const seriesEntry of ctx.seriesData) {
         if (seriesEntry.series.visibility?.tooltip === false) {
             continue
@@ -48,12 +62,7 @@ export function BoxPlotTooltip<Meta = unknown>({
         if (!datum) {
             continue
         }
-        entries.push({
-            key: seriesEntry.series.key,
-            color: seriesEntry.color,
-            label: seriesEntry.series.label,
-            datum,
-        })
+        entries.push({ datum, seriesEntry })
     }
     if (entries.length === 0) {
         return null
@@ -63,20 +72,22 @@ export function BoxPlotTooltip<Meta = unknown>({
         <TooltipSurface data-attr="hog-chart-boxplot-tooltip">
             <div className="font-semibold mb-1">{ctx.label}</div>
             {entries.map((entry, i) => (
-                <div key={entry.key} className={i > 0 ? 'mt-2' : undefined}>
+                <div key={entry.seriesEntry.series.key} className={i > 0 ? 'mt-2' : undefined}>
                     {grouped && (
                         <div className="flex items-center gap-2 mb-1">
-                            <TooltipSwatch color={entry.color} />
-                            <span className="font-semibold">{entry.label}</span>
+                            <TooltipSwatch color={entry.seriesEntry.color} />
+                            <span className="font-semibold">{entry.seriesEntry.series.label}</span>
                         </div>
                     )}
                     <table className="border-collapse">
                         <tbody>
-                            {ROWS.map((row) => (
-                                <tr key={row.key}>
+                            {tooltipRows(entry.datum).map((row) => (
+                                <tr key={row.label}>
                                     <td className="pr-3 opacity-70">{row.label}</td>
                                     <td className="font-medium">
-                                        {defaultFormatValue(entry.datum[row.key] as number)}
+                                        {Number.isFinite(row.value)
+                                            ? valueFormatter(row.value, entry.seriesEntry)
+                                            : '—'}
                                     </td>
                                 </tr>
                             ))}

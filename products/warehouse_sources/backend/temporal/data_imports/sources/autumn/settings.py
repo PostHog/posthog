@@ -16,7 +16,7 @@ AUTUMN_V2_4_MAX_PAGE_SIZE = 200
 PARTITION_BUCKET_MILLISECONDS = 7 * 24 * 60 * 60 * 1000
 
 
-@dataclass
+@dataclass(frozen=True)
 class AutumnEndpointConfig:
     name: str
     path: str
@@ -30,6 +30,9 @@ class AutumnEndpointConfig:
     # Field the server-side custom_range filter applies to (epoch milliseconds). Only
     # events.list supports a time-range filter; every other list endpoint is full refresh.
     incremental_range_field: str | None = None
+    # Customer-scoped endpoints take a single customer_id, so the table walks customers.list and
+    # issues one request per customer, stamping customer_id onto each row.
+    customer_fan_out: bool = False
 
 
 AUTUMN_ENDPOINTS: dict[str, AutumnEndpointConfig] = {
@@ -90,6 +93,14 @@ AUTUMN_ENDPOINTS: dict[str, AutumnEndpointConfig] = {
         primary_keys=["id"],
         data_selector="feature_grants",
         paginated=False,
+    ),
+    "Licenses": AutumnEndpointConfig(
+        name="Licenses",
+        path="/v1/licenses.list",
+        # A pool has no id of its own; a license plan can be offered by several parent plans.
+        primary_keys=["customer_id", "parent_plan_id", "license_plan_id"],
+        paginated=False,
+        customer_fan_out=True,
     ),
 }
 

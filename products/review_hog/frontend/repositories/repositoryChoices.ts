@@ -13,6 +13,8 @@ import type {
 export interface ChoiceOption<T extends string> {
     value: T
     label: string
+    /** True for a value of the viewer's own. The select marks it with the person icon. */
+    mine?: boolean
 }
 
 export const FLASH_FOR_OPTIONS: ChoiceOption<AutomaticFlashForEnumApi>[] = [
@@ -21,14 +23,10 @@ export const FLASH_FOR_OPTIONS: ChoiceOption<AutomaticFlashForEnumApi>[] = [
     { value: 'off', label: 'Only people who opt in' },
 ]
 
-export function flashForLabel(flashFor: AutomaticFlashForEnumApi): string {
-    return FLASH_FOR_OPTIONS.find((option) => option.value === flashFor)?.label ?? flashFor
-}
-
 export const DEFAULT_REVIEW_MODE_OPTIONS: ChoiceOption<DefaultReviewModeEnumApi>[] = [
     { value: 'follow', label: 'Let each repository decide' },
-    { value: 'flash', label: 'On everywhere' },
-    { value: 'off', label: 'Off everywhere' },
+    { value: 'flash', label: 'On everywhere', mine: true },
+    { value: 'off', label: 'Off everywhere', mine: true },
 ]
 
 export function defaultReviewModeLabel(mode: DefaultReviewModeEnumApi): string {
@@ -70,11 +68,23 @@ export function describeResult(decision: AutomaticReviewDecisionApi): string {
     return decision.flash ? 'Automatic review' : 'No automatic review'
 }
 
+/** A rule that names the viewer decides differently than its headline says, so the row says why. */
+const PERSON_NOTES: Partial<Record<AutomaticReviewReasonEnumApi, string>> = {
+    repository_excepted: "You are on this repository's except list.",
+    repository_not_listed: "You are not on this repository's people list.",
+    project_excepted: "You are on the project's except list.",
+    project_not_listed: "You are not on the project's people list.",
+}
+
 /** The note under a repository's own choice, or null when the select already says enough. */
 export function myChoiceNote(entry: ReviewRepositoryOverviewEntryApi): string | null {
     const inherited = entry.inherited_result
     if (entry.my_choice !== null) {
         return `Your choice. Without it: ${describeResult(inherited).toLowerCase()} (${describeSource(inherited)})`
+    }
+    const personNote = PERSON_NOTES[inherited.reason]
+    if (personNote) {
+        return personNote
     }
     // Rows on the project rule get no note: the notice under My default already covers them.
     const repositoryResult = entry.repository_result
@@ -116,10 +126,10 @@ export function myChoiceOptions(entry: ReviewRepositoryOverviewEntryApi): Choice
     const opposite: ReviewUserRepositoryChoiceModeEnumApi = inherited.flash ? 'off' : 'flash'
     const options: ChoiceOption<MyChoiceValue>[] = [
         { value: 'follow', label: `${describeResult(inherited)} (${describeSource(inherited)})` },
-        { value: opposite, label: CHOICE_LABELS[opposite] },
+        { value: opposite, label: CHOICE_LABELS[opposite], mine: true },
     ]
     if (entry.my_choice !== null && entry.my_choice !== opposite) {
-        options.push({ value: entry.my_choice, label: CHOICE_LABELS[entry.my_choice] })
+        options.push({ value: entry.my_choice, label: CHOICE_LABELS[entry.my_choice], mine: true })
     }
     return options
 }

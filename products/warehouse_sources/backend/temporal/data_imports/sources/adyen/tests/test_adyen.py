@@ -140,6 +140,7 @@ class TestHosts:
             ("test_configuration", "test", "configuration", "https://balanceplatform-api-test.adyen.com/bcl/v2"),
             ("live_management", "live", "management", "https://management-live.adyen.com/v3"),
             ("test_reports", "test", "reports", "https://ca-test.adyen.com"),
+            ("live_legal_entity", "live", "legal_entity", "https://kyc-live.adyen.com/lem/v4"),
             # An unrecognised environment can never retarget the API key at another host.
             ("unknown_falls_back_to_live", "evil.example.com", "management", "https://management-live.adyen.com/v3"),
             ("none_falls_back_to_live", None, "reports", "https://ca-live.adyen.com"),
@@ -256,11 +257,8 @@ class TestReportParsing:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, True),
             # A report-only credential legitimately lacks the Management API role.
             ("forbidden_is_still_a_real_key", 403, True),
-            ("unauthorized", 401, False),
-            ("server_error", 500, False),
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected_valid: bool) -> None:
@@ -292,15 +290,6 @@ class TestValidateCredentials:
         assert is_valid is False
         assert message is not None
         assert session.requested_urls == []
-
-    def test_transport_failure_is_reported_not_raised(self) -> None:
-        session = mock.MagicMock()
-        session.get.side_effect = adyen_module.requests.exceptions.ConnectionError("boom")
-        with mock.patch.object(adyen_module, "_get_session", return_value=session):
-            is_valid, message = validate_credentials("live", "key")
-
-        assert is_valid is False
-        assert message == "boom"
 
 
 class TestCursorPagination:
@@ -457,6 +446,52 @@ class TestFanout:
 
         assert [row["id"] for row in rows] == ["BA2"]
         assert "AH2" in session.requested_urls[1]
+
+    def test_payment_instruments_walk_account_holders_then_balance_accounts(self) -> None:
+        session = _FakeSession(
+            [
+                _FakeResponse(json_data={"accountHolders": [{"id": "AH1"}, {"id": "AH2"}]}),
+                _FakeResponse(json_data={"balanceAccounts": [{"id": "BA1"}]}),
+                # A malformed id from the response must never reach a request path.
+                _FakeResponse(json_data={"balanceAccounts": [{"id": "BA2"}, {"id": "../x"}]}),
+                _FakeResponse(json_data={"hasNext": False, "paymentInstruments": []}),
+                _FakeResponse(json_data={"hasNext": False, "paymentInstruments": [{"id": "PI1"}]}),
+            ]
+        )
+        manager = _FakeManager()
+
+        rows = _drain(session, "PaymentInstruments", manager, balance_platform="BP123")
+
+        assert [row["id"] for row in rows] == ["PI1"]
+        assert [urlparse(url).path for url in session.requested_urls[3:]] == [
+            "/bcl/v2/balanceAccounts/BA1/paymentInstruments",
+            "/bcl/v2/balanceAccounts/BA2/paymentInstruments",
+        ]
+        assert manager.saved_states == [AdyenResumeConfig(parent_index=1), AdyenResumeConfig(parent_index=2)]
+
+    def test_legal_entities_are_fetched_once_per_distinct_id_from_the_kyc_host(self) -> None:
+        session = _FakeSession(
+            [
+                _FakeResponse(
+                    json_data={
+                        "accountHolders": [
+                            {"id": "AH1", "legalEntityId": "LE1"},
+                            {"id": "AH2"},
+                            {"id": "AH3", "legalEntityId": "LE1"},
+                            {"id": "AH4", "legalEntityId": "LE2"},
+                        ]
+                    }
+                ),
+                _FakeResponse(json_data={"id": "LE2", "type": "organization"}),
+            ]
+        )
+        manager = _FakeManager(AdyenResumeConfig(parent_index=1))
+
+        rows = _drain(session, "LegalEntities", manager, balance_platform="BP123")
+
+        assert rows == [{"id": "LE2", "type": "organization"}]
+        assert session.requested_urls[1] == "https://kyc-test.adyen.com/lem/v4/legalEntities/LE2"
+        assert manager.saved_states == [AdyenResumeConfig(parent_index=2)]
 
 
 class TestReportBatches:

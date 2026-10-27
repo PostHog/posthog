@@ -69,6 +69,9 @@ const DIFF_RESPONSE: _LogsPatternsDiffResponseApi = {
             pattern: RESPONSE.patterns[0],
             baseline_estimated_count: null,
             baseline_volume_share_pct: null,
+            masked_example: 'GET <*> returned <N>',
+            services: [],
+            first_seen_ever: null,
         },
     ],
     current: {
@@ -87,6 +90,17 @@ const DIFF_RESPONSE: _LogsPatternsDiffResponseApi = {
         date_from: '2026-06-16T12:00:00+00:00',
         date_to: '2026-06-16T13:00:00+00:00',
     },
+    window: {
+        current: { from: '2026-06-23T12:00:00Z', to: '2026-06-23T13:00:00Z' },
+        baseline: { from: '2026-06-16T12:00:00Z', to: '2026-06-16T13:00:00Z' },
+        timezone: 'UTC',
+    },
+    source: 'body_mining',
+    pattern_version: null,
+    sampled: false,
+    truncated: false,
+    notes: [],
+    next: [],
 }
 
 describe('logsPatternsLogic', () => {
@@ -223,10 +237,7 @@ describe('logsPatternsLogic', () => {
             logic.actions.setCompareEnabled(true)
         }).toDispatchActions(['loadDiff', 'loadDiffSuccess'])
 
-        expect(mockDiffCreate).toHaveBeenCalledWith(expect.any(String), {
-            query: minedQuery,
-            baselineDateRange: undefined, // 'lastWeek' delegates the -7d default to the backend
-        })
+        expect(mockDiffCreate).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ query: minedQuery }))
         expect(logic.values.diffResponse).toEqual(DIFF_RESPONSE)
 
         mockDiffCreate.mockClear()
@@ -237,7 +248,7 @@ describe('logsPatternsLogic', () => {
         expect(mockCreate).toHaveBeenCalledTimes(1) // only the original mount load
     })
 
-    it('preceding baseline is the same-length window ending where the current one starts', async () => {
+    it('defaults to the preceding baseline: the same-length window ending where the current one starts', async () => {
         // Locks the window arithmetic: a drift here (wrong length, overlap, or gap) makes the
         // "vs. preceding period" comparison silently wrong while still returning results.
         mockDiffCreate.mockResolvedValue(DIFF_RESPONSE)
@@ -252,19 +263,19 @@ describe('logsPatternsLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadDiffSuccess'])
         expect(mockDiffCreate).toHaveBeenLastCalledWith(
             expect.any(String),
-            expect.objectContaining({ baselineDateRange: undefined })
-        )
-
-        logic.actions.setBaselineMode('preceding')
-        await expectLogic(logic).toDispatchActions(['loadDiffSuccess'])
-        expect(mockDiffCreate).toHaveBeenLastCalledWith(
-            expect.any(String),
             expect.objectContaining({
                 baselineDateRange: {
                     date_from: '2026-06-23T11:00:00.000Z',
                     date_to: '2026-06-23T12:00:00.000Z',
                 },
             })
+        )
+
+        logic.actions.setBaselineMode('lastWeek')
+        await expectLogic(logic).toDispatchActions(['loadDiffSuccess'])
+        expect(mockDiffCreate).toHaveBeenLastCalledWith(
+            expect.any(String),
+            expect.objectContaining({ baselineDateRange: undefined }) // the backend applies the -7d default
         )
     })
 
@@ -278,13 +289,13 @@ describe('logsPatternsLogic', () => {
         configLogic.mount()
 
         configLogic.actions.setCompareEnabled(true)
-        configLogic.actions.setBaselineMode('preceding')
+        configLogic.actions.setBaselineMode('lastWeek')
         configLogic.actions.setViewMode('patterns')
 
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadDiff', 'loadDiffSuccess'])
         expect(mockCreate).not.toHaveBeenCalled()
-        expect(logic.values.baselineMode).toBe('preceding')
+        expect(logic.values.baselineMode).toBe('lastWeek')
     })
 
     it('surfaces a load failure as patternsError and clears it on the next success', async () => {

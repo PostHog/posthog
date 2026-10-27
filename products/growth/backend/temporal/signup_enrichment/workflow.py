@@ -101,6 +101,11 @@ async def enrich_signup_organization_activity(
         if not org_exists:
             logger.info("signup_enrichment_recheck_skipped_org_deleted")
             return {"matched": False, "fields_filled": 0, "org_deleted": True}
+        # The personal email domain list can grow while a recheck waits, so a domain the trigger
+        # accepted can be a personal email provider by now.
+        if not gates.is_work_domain(inputs.domain):
+            logger.info("signup_enrichment_recheck_skipped_not_work_email")
+            return {"matched": False, "fields_filled": 0, "not_work_email": True}
 
     # Region-local on purpose: EU enrichment lands in the EU internal project, US in US — the
     # same split the usage report uses. Never fall back to a cross-region client here.

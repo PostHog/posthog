@@ -2,18 +2,20 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconChevronRight, IconPlus, IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSegmentedButton, LemonTextArea } from '@posthog/lemon-ui'
 
+import { PopoverReferenceContext } from 'lib/lemon-ui/Popover/Popover'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
+import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
-import { creditsToUsd } from '../../utils/credits'
-import { replayScannerLogic } from '../replayScannerLogic'
-import { ScannerTemplate, defaultScannerTemplates } from '../scannerTemplates'
+import { creditsToUsd, formatCreditCount } from '../../utils/credits'
+import { GoalDraftRequest, GoalSpendMode, goalSpendChoice, replayScannerLogic } from '../replayScannerLogic'
+import { ScannerGoalExperimentStarter } from './ScannerGoalExperimentStarter'
+import { SCANNER_GOAL_STARTERS, ScannerGoalStarter } from './scannerGoalStarters'
 import { ScannerResumeDraftBanner } from './ScannerResumeDraftBanner'
-import { SCANNER_TEMPLATE_ICONS } from './scannerTemplateIcons'
-import { startScannerFromTemplate } from './startScannerFromTemplate'
+import { startScannerFromScratch } from './startScannerFromScratch'
 
 // Credits, not recordings: the agent picks the model, so a fixed recording count no longer maps to
 // a fixed cost. The budget is what the user actually controls, and matches how we bill.
@@ -25,15 +27,21 @@ const MAX_SCAN_BUDGET = 100000000
  * step to review it, so a one-click start still gets a scanner fitted to the project. */
 export function ScannerGoalFlow(): JSX.Element {
     const logic = replayScannerLogic({ id: 'new' })
-    const { goalDraftInput, goalBudgetInput, goalDraftLoading, experimentContext } = useValues(logic)
-    const { draftScannerFromGoal, setGoalDraftInput, setGoalBudgetInput } = useActions(logic)
+    const { goalDraftInput, goalBudgetInput, goalSpendMode, goalDraftLoading, linkedExperimentContext } =
+        useValues(logic)
+    const { draftScannerFromGoal, setGoalDraftInput, setGoalBudgetInput, setGoalSpendMode } = useActions(logic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
-    const [pendingDraft, setPendingDraft] = useState<{ goal: string; templateKey?: string } | null>(null)
+    const { freeCreditsLeft } = useValues(visionQuotaLogic)
+    // The spend choice is captured with the goal, so a quota that loads while consent is open cannot change it.
+    const [pendingDraft, setPendingDraft] = useState<GoalDraftRequest | null>(null)
 
     // Drafting creates a scanner, so it needs the same editor access as the rest of the wizard.
     const editDisabledReason = getReplayVisionEditDisabledReason()
+    const spendChoice = goalSpendChoice(goalSpendMode, goalBudgetInput, freeCreditsLeft)
+    const spendMode = spendChoice.mode
     const budgetValid =
-        goalBudgetInput != null && goalBudgetInput >= MIN_SCAN_BUDGET && goalBudgetInput <= MAX_SCAN_BUDGET
+        spendMode === 'free' ||
+        (goalBudgetInput != null && goalBudgetInput >= MIN_SCAN_BUDGET && goalBudgetInput <= MAX_SCAN_BUDGET)
     const startDisabledReason =
         editDisabledReason ??
         (!budgetValid ? 'Enter a monthly credit budget' : goalDraftLoading ? 'Drafting your scanner' : null)
@@ -41,21 +49,25 @@ export function ScannerGoalFlow(): JSX.Element {
     const typedGoalDisabledReason =
         startDisabledReason ?? (!goalDraftInput.trim() ? 'Describe what you want to find out' : null)
 
-    const start = (goal: string, templateKey?: string): void => {
+    const start = (goal: string, templateKey?: string, experimentId?: number): void => {
+        if (!spendChoice.spend) {
+            return
+        }
+        const request: GoalDraftRequest = { goal, spend: spendChoice.spend, templateKey, experimentId }
         // Drafting calls an AI endpoint the backend rejects without org consent; interpose the
         // popover instead of letting the request 400.
         if (!dataProcessingAccepted) {
-            setPendingDraft({ goal, templateKey })
+            setPendingDraft(request)
             return
         }
-        draftScannerFromGoal(goal, goalBudgetInput ?? undefined, templateKey)
+        draftScannerFromGoal(request)
     }
     const startFromTypedGoal = (): void => {
         if (!typedGoalDisabledReason) {
             start(goalDraftInput.trim())
         }
     }
-    const startFromStarter = (starter: ScannerTemplate): void => {
+    const startFromStarter = (starter: ScannerGoalStarter): void => {
         if (!startDisabledReason) {
             start(starter.goal, starter.key)
         }
@@ -72,7 +84,7 @@ export function ScannerGoalFlow(): JSX.Element {
                 hidden={pendingDraft === null}
                 onApprove={() => {
                     if (pendingDraft) {
-                        draftScannerFromGoal(pendingDraft.goal, goalBudgetInput ?? undefined, pendingDraft.templateKey)
+                        draftScannerFromGoal(pendingDraft)
                     }
                     setPendingDraft(null)
                 }}
@@ -99,39 +111,72 @@ export function ScannerGoalFlow(): JSX.Element {
                             </div>
                             {/* A draft restored from an earlier experiment-scoped session keeps its targeting
                                 through this flow, so say whose sessions the scanner ends up watching. */}
-                            {experimentContext ? (
+                            {linkedExperimentContext ? (
                                 <div className="text-xs text-muted">
-                                    This scanner keeps watching people exposed to {experimentContext.experiment.name}.
-                                    You don't have to mention the experiment.
+                                    This scanner keeps watching people exposed to{' '}
+                                    {linkedExperimentContext.experiment.name}. You don't have to mention the experiment.
                                 </div>
                             ) : null}
                         </div>
 
-                        <div className="flex flex-col gap-1">
-                            <label htmlFor="vision-goal-flow-budget" className="text-sm font-semibold">
-                                About how much do you want to spend a month?
-                            </label>
-                            <div className="flex flex-wrap items-center gap-3">
-                                <LemonInput
-                                    id="vision-goal-flow-budget"
-                                    type="number"
-                                    min={MIN_SCAN_BUDGET}
-                                    max={MAX_SCAN_BUDGET}
-                                    value={goalBudgetInput ?? undefined}
-                                    onChange={(value) => setGoalBudgetInput(value ?? null)}
-                                    suffix={<span className="text-muted">credits</span>}
-                                    className="w-40"
-                                    data-attr="vision-goal-flow-budget"
+                        <div className="flex flex-col gap-2">
+                            <span className="text-sm font-semibold">How much should this scanner use?</span>
+                            {/* The card sits inside the consent popover's reference, which would give these buttons dropdown arrows. */}
+                            <PopoverReferenceContext.Provider value={null}>
+                                <LemonSegmentedButton<GoalSpendMode>
+                                    size="small"
+                                    value={spendMode}
+                                    onChange={setGoalSpendMode}
+                                    options={[
+                                        {
+                                            value: 'free',
+                                            label: 'Free',
+                                            disabledReason: spendChoice.freeDisabledReason ?? undefined,
+                                            'data-attr': 'vision-goal-flow-spend-free',
+                                        },
+                                        {
+                                            value: 'budget',
+                                            label: 'Set a budget',
+                                            'data-attr': 'vision-goal-flow-spend-budget',
+                                        },
+                                    ]}
                                 />
-                                {budgetValid && goalBudgetInput != null ? (
-                                    <span className="text-xs text-muted">
-                                        ≈ {creditsToUsd(goalBudgetInput)} a month
+                            </PopoverReferenceContext.Provider>
+                            {spendMode === 'free' ? (
+                                <div className="text-xs text-muted">
+                                    The scanner only uses your free monthly credits
+                                    {/* Its own span, so page translation cannot strand the changing balance. */}
+                                    <span>
+                                        {freeCreditsLeft != null ? ` (${formatCreditCount(freeCreditsLeft)} left)` : ''}
                                     </span>
-                                ) : null}
-                            </div>
-                            <div className="text-xs text-muted">
-                                1,000 credits ≈ $10. The agent picks the model and fits the scanner to this.
-                            </div>
+                                    . It pauses when they run out, so it never adds to your bill.
+                                </div>
+                            ) : (
+                                <>
+                                    <div className="flex flex-wrap items-center gap-3">
+                                        <LemonInput
+                                            id="vision-goal-flow-budget"
+                                            aria-label="Monthly credit budget"
+                                            type="number"
+                                            min={MIN_SCAN_BUDGET}
+                                            max={MAX_SCAN_BUDGET}
+                                            value={goalBudgetInput ?? undefined}
+                                            onChange={(value) => setGoalBudgetInput(value ?? null)}
+                                            suffix={<span className="text-muted">credits a month</span>}
+                                            className="w-48"
+                                            data-attr="vision-goal-flow-budget"
+                                        />
+                                        {budgetValid && goalBudgetInput != null ? (
+                                            <span className="text-xs text-muted">
+                                                ≈ {creditsToUsd(goalBudgetInput)} a month
+                                            </span>
+                                        ) : null}
+                                    </div>
+                                    <div className="text-xs text-muted">
+                                        1,000 credits ≈ $10. The agent picks the model and fits the scanner to this.
+                                    </div>
+                                </>
+                            )}
                         </div>
 
                         <div className="flex items-center justify-between mt-auto">
@@ -157,20 +202,27 @@ export function ScannerGoalFlow(): JSX.Element {
                         <span className="text-sm font-semibold">Common starting points</span>
                         <span className="text-xs text-muted">One click drafts a scanner fitted to your project.</span>
                         <div className="flex flex-col gap-1">
-                            {defaultScannerTemplates.map((template) => (
+                            {SCANNER_GOAL_STARTERS.map((starter) => (
                                 <LemonButton
-                                    key={template.key}
+                                    key={starter.key}
                                     fullWidth
-                                    icon={SCANNER_TEMPLATE_ICONS[template.icon]}
+                                    icon={starter.icon}
                                     sideIcon={<IconChevronRight />}
-                                    tooltip={template.goal}
+                                    tooltip={starter.goal}
                                     disabledReason={startDisabledReason}
-                                    onClick={() => startFromStarter(template)}
-                                    data-attr={`vision-goal-starter-${template.key}`}
+                                    onClick={() => startFromStarter(starter)}
+                                    data-attr={`vision-goal-starter-${starter.key}`}
                                 >
-                                    {template.goal_question}
+                                    {starter.question}
                                 </LemonButton>
                             ))}
+                            {/* Inside the consent popover's reference, which would give its buttons dropdown arrows. */}
+                            <PopoverReferenceContext.Provider value={null}>
+                                <ScannerGoalExperimentStarter
+                                    disabledReason={startDisabledReason}
+                                    onDraft={(goal, experimentId) => start(goal, 'track_experiment', experimentId)}
+                                />
+                            </PopoverReferenceContext.Provider>
                         </div>
                     </div>
                 </div>
@@ -186,7 +238,7 @@ export function ScannerGoalFlow(): JSX.Element {
                 <LemonButton
                     type="secondary"
                     icon={<IconPlus />}
-                    onClick={() => startScannerFromTemplate(null)}
+                    onClick={startScannerFromScratch}
                     data-attr="vision-template-blank"
                 >
                     Create from scratch

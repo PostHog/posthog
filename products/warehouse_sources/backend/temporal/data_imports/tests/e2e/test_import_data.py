@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
 from products.warehouse_sources.backend.temporal.data_imports.settings import import_data_activity_sync
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import TLSOptions
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
 )
@@ -171,12 +172,14 @@ async def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
             chunk_size_override=None,
             team_id=team.id,
             require_ssl=True,
+            tls=TLSOptions(),
             is_initial_sync=True,
             enabled_columns=None,
             row_filters=[],
             is_xmin=False,
             xmin_cursor=None,
             activity_attempt=1,
+            worker_deaths=0,
             resumable_source_manager=mock.ANY,
         )
 
@@ -225,12 +228,14 @@ async def test_postgres_source_without_ssh_tunnel(activity_environment, team, **
             chunk_size_override=None,
             team_id=team.id,
             require_ssl=True,
+            tls=TLSOptions(),
             is_initial_sync=True,
             enabled_columns=None,
             row_filters=[],
             is_xmin=False,
             xmin_cursor=None,
             activity_attempt=1,
+            worker_deaths=0,
             resumable_source_manager=mock.ANY,
         )
 
@@ -291,12 +296,14 @@ async def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, te
             chunk_size_override=None,
             team_id=team.id,
             require_ssl=True,
+            tls=TLSOptions(),
             is_initial_sync=True,
             enabled_columns=None,
             row_filters=[],
             is_xmin=False,
             xmin_cursor=None,
             activity_attempt=1,
+            worker_deaths=0,
             resumable_source_manager=mock.ANY,
         )
 
@@ -372,12 +379,14 @@ async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, tea
             chunk_size_override=None,
             team_id=team.id,
             require_ssl=True,
+            tls=TLSOptions(),
             is_initial_sync=True,
             enabled_columns=None,
             row_filters=[],
             is_xmin=False,
             xmin_cursor=None,
             activity_attempt=1,
+            worker_deaths=0,
             resumable_source_manager=mock.ANY,
         )
 

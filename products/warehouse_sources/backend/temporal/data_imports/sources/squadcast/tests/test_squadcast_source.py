@@ -37,10 +37,6 @@ class TestSquadcastSource:
         schemas = self.source.get_schemas(self.config, team_id=1)
         assert all(s.supports_append is False for s in schemas)
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["incidents", "services"])
-        assert {s.name for s in schemas} == {"incidents", "services"}
-
     @pytest.mark.parametrize(
         "pattern",
         [

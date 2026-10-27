@@ -1,9 +1,15 @@
 import pytest
+from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetricsTable, LogsTable
 from posthog.hogql.errors import QueryError
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.workload import WorkloadCollector
 
 from posthog.clickhouse.workload import Workload
@@ -96,3 +102,21 @@ class TestWorkloadCollector:
 
         assert Workload.LOGS in collector.workloads
         assert collector.get_workload() == Workload.LOGS
+
+
+class TestExecuteHogQLQueryWorkload(BaseTest):
+    @parameterized.expand(
+        [
+            ("spans_offline", "SELECT 1 FROM posthog.trace_spans", Workload.OFFLINE, Workload.LOGS),
+            ("spans_online", "SELECT 1 FROM posthog.trace_spans", Workload.ONLINE, Workload.LOGS),
+            ("logs_offline", "SELECT 1 FROM logs", Workload.OFFLINE, Workload.LOGS),
+            ("events_offline", "SELECT 1 FROM events", Workload.OFFLINE, Workload.OFFLINE),
+        ]
+    )
+    def test_table_cluster_wins_over_priority_workload(
+        self, _name: str, query: str, requested: Workload, expected: Workload
+    ) -> None:
+        with patch("posthog.hogql.query.sync_execute", return_value=([], [])) as sync_execute:
+            execute_hogql_query(query=parse_select(query), team=self.team, workload=requested)
+
+        assert sync_execute.call_args.kwargs["workload"] == expected
