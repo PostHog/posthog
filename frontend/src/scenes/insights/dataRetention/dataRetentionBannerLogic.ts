@@ -18,6 +18,9 @@ export interface RetentionBannerAction {
     to: string
 }
 
+// The longest window any plan offers, so there's nothing to upgrade to past it.
+export const LONGEST_PLAN_RETENTION_MONTHS = 84
+
 const SNOOZE_DAYS = 30
 // Don't nag accounts that can't yet have at-risk data: only warn once the account is within 90 days of its
 // retention horizon (or past it).
@@ -41,7 +44,7 @@ export interface dataRetentionBannerLogicValues {
     isSnoozed: boolean
     retention: EventsRetentionApi | null
     retentionApplies: boolean
-    retentionBannerAction: RetentionBannerAction
+    retentionBannerAction: RetentionBannerAction | null
     retentionEnforced: boolean
     retentionLoading: boolean
     retentionMonths: number | null
@@ -76,7 +79,7 @@ export interface dataRetentionBannerLogicActions {
 export interface dataRetentionBannerLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         retentionMonths: (retention: any) => number | null
-        retentionBannerAction: (retention: any) => RetentionBannerAction
+        retentionBannerAction: (retention: any) => RetentionBannerAction | null
         retentionEnforced: (retentionMonths: number | null) => boolean
         retentionPeriodLabel: (retentionMonths: number | null) => string | null
         isSnoozed: (snoozedUntil: string | null) => boolean
@@ -131,16 +134,23 @@ export const dataRetentionBannerLogic = kea<dataRetentionBannerLogicType>([
             (s) => [s.retention],
             (retention: EventsRetentionApi | null): number | null => retention?.retention_months ?? null,
         ],
-        // Upgrading doesn't help when the window is shorter than the plan's because someone set it in settings.
+        // Upgrading doesn't help when someone set a window shorter than the plan's, or when the plan is the longest.
         retentionBannerAction: [
             (s) => [s.retention],
-            (retention: EventsRetentionApi | null): RetentionBannerAction =>
-                retention?.retention_months != null && retention.retention_months < retention.plan_retention_months
-                    ? {
-                          children: 'Change retention',
-                          to: urls.settings('environment-product-analytics', 'project-events-retention'),
-                      }
-                    : { children: 'Upgrade plan', to: urls.organizationBilling() },
+            (retention: EventsRetentionApi | null): RetentionBannerAction | null => {
+                if (retention?.retention_months == null) {
+                    return null
+                }
+                if (retention.retention_months < retention.plan_retention_months) {
+                    return {
+                        children: 'Change retention',
+                        to: urls.settings('environment-product-analytics', 'project-events-retention'),
+                    }
+                }
+                return retention.plan_retention_months < LONGEST_PLAN_RETENTION_MONTHS
+                    ? { children: 'Upgrade plan', to: urls.organizationBilling() }
+                    : null
+            },
         ],
         retentionEnforced: [
             (s) => [s.retentionMonths],

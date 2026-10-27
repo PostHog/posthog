@@ -17,7 +17,7 @@ export function InsightRetentionBanner({ insightProps }: { insightProps: Insight
     }
 
     return (
-        <LemonBanner type="warning" onClose={snooze} action={retentionBannerAction}>
+        <LemonBanner type="warning" onClose={snooze} action={retentionBannerAction ?? undefined}>
             This insight's date range goes beyond your {retentionPeriodLabel} data retention, so events older than that
             aren't included.
         </LemonBanner>

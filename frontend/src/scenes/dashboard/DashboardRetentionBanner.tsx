@@ -15,7 +15,7 @@ export const DashboardRetentionBanner = (): JSX.Element | null => {
     }
 
     return (
-        <LemonBanner type="warning" className="mt-4 mb-2" onClose={snooze} action={retentionBannerAction}>
+        <LemonBanner type="warning" className="mt-4 mb-2" onClose={snooze} action={retentionBannerAction ?? undefined}>
             Some insights on this dashboard have date ranges that go beyond your {retentionPeriodLabel} data retention,
             so events older than that aren't included.
         </LemonBanner>

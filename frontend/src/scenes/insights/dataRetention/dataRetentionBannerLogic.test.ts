@@ -19,6 +19,7 @@ const RETENTION = {
     plan_retention_months: 84,
     min_retention_months: 1,
     max_retention_months: 84,
+    organization_retention_available: true,
 }
 
 describe('dataRetentionBannerLogic', () => {
@@ -27,6 +28,12 @@ describe('dataRetentionBannerLogic', () => {
             name: 'reads the window from the events retention endpoint',
             response: [200, RETENTION],
             retentionMonths: 84,
+            actionLabel: null,
+        },
+        {
+            name: 'offers an upgrade below the longest plan',
+            response: [200, { ...RETENTION, retention_months: 12, plan_retention_months: 12 }],
+            retentionMonths: 12,
             actionLabel: 'Upgrade plan',
         },
         {
@@ -39,13 +46,13 @@ describe('dataRetentionBannerLogic', () => {
             name: 'treats a null window as retention not enforced',
             response: [200, { ...RETENTION, retention_months: null, retained_from: null }],
             retentionMonths: null,
-            actionLabel: 'Upgrade plan',
+            actionLabel: null,
         },
         {
             name: 'treats an empty response as retention not enforced',
             response: [204],
             retentionMonths: null,
-            actionLabel: 'Upgrade plan',
+            actionLabel: null,
         },
     ])('$name', async ({ response, retentionMonths, actionLabel }) => {
         useMocks({ get: { '/api/projects/:team_id/events_retention/': () => response } })
@@ -56,7 +63,7 @@ describe('dataRetentionBannerLogic', () => {
         await expectLogic(logic)
             .toDispatchActions(['loadRetentionMonths', 'loadRetentionMonthsSuccess'])
             .toMatchValues({ retentionMonths, retentionEnforced: retentionMonths !== null })
-        expect(logic.values.retentionBannerAction.children).toEqual(actionLabel)
+        expect(logic.values.retentionBannerAction?.children ?? null).toEqual(actionLabel)
     })
 
     it('waits for the team id before loading', async () => {

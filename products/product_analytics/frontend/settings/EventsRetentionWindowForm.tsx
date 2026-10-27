@@ -2,10 +2,8 @@ import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonDialog, LemonInput, Link } from '@posthog/lemon-ui'
 
+import { LONGEST_PLAN_RETENTION_MONTHS } from 'scenes/insights/dataRetention/dataRetentionBannerLogic'
 import { urls } from 'scenes/urls'
-
-// The longest window any plan offers, so there's nothing to upgrade to past it.
-const LONGEST_PLAN_MONTHS = 84
 
 export interface EventsRetentionWindowFormProps {
     retentionMonths: number | null
@@ -129,7 +127,7 @@ export function EventsRetentionWindowForm({
             </div>
             <p className="mt-2 mb-0 text-sm text-secondary">
                 You can choose between {minMonths} and {maxMonths} months.
-                {maxMonths === planMonths && planMonths < LONGEST_PLAN_MONTHS && (
+                {maxMonths === planMonths && planMonths < LONGEST_PLAN_RETENTION_MONTHS && (
                     <>
                         {' '}
                         Need a longer window? <Link to={urls.organizationBilling()}>Upgrade your plan</Link>.
