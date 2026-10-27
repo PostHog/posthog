@@ -82,7 +82,7 @@ export async function applyChunkStepToResults<TIn, TOut, C, RPrev extends string
         const end = pipelineStepDurationHistogram.startTimer({ step_name: stepName, step_type: 'chunk' })
         try {
             stepResults = await instrumentFn(
-                { key: stepName, sendException: false, measureTime: false, attributes, parentContext },
+                { key: stepName, sendException: false, measureTime: false, summary: false, attributes, parentContext },
                 () => step(successfulValues)
             )
             end({ result: 'chunk' })

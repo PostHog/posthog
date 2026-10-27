@@ -160,6 +160,8 @@ interface FunctionInstrumentationOptions {
     parentContext?: Context
     /** False keeps the timeout guard and both duration metrics but emits no span. */
     span?: boolean
+    /** False skips the `instrumented_fn_duration_ms` summary, for callers that record their own duration. */
+    summary?: boolean
 }
 
 /**
@@ -205,6 +207,7 @@ export async function instrumentFn<T>(
     const attributes = (typeof options === 'string' ? undefined : options.attributes) ?? {}
     const parentContext = typeof options === 'string' ? undefined : options.parentContext
     const span = (typeof options === 'string' ? undefined : options.span) ?? true
+    const summary = (typeof options === 'string' ? undefined : options.summary) ?? true
 
     const t = timeoutGuard(timeoutMessage, getLoggingContext, timeout, sendException, () => {
         instrumentedFunctionTimeout.labels({ function: key }).inc()
@@ -224,17 +227,19 @@ export async function instrumentFn<T>(
 
     try {
         // Skip expensive span creation when tracing is disabled
-        const result = defaultConfig.DISABLE_OPENTELEMETRY_TRACING
-            ? await funcReportingErrorsInSpan()
-            : span
-              ? await withSpan(
-                    'instrumented_function',
-                    key,
-                    tag ? { ...attributes, tag } : attributes,
-                    funcReportingErrorsInSpan,
-                    parentContext
-                )
-              : await withSummary(key, tag, funcReportingErrorsInSpan)
+        const tracingEnabled = !defaultConfig.DISABLE_OPENTELEMETRY_TRACING
+        const run =
+            tracingEnabled && span
+                ? () =>
+                      withTracingSpan(
+                          'instrumented_function',
+                          key,
+                          tag ? { ...attributes, tag } : attributes,
+                          funcReportingErrorsInSpan,
+                          parentContext
+                      )
+                : funcReportingErrorsInSpan
+        const result = tracingEnabled && summary ? await withSummary(key, tag, run) : await run()
         end?.({ success: 'true' })
         if (logExecutionTime) {
             logTime(startTime, key)
