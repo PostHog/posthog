@@ -1,19 +1,23 @@
 from __future__ import annotations
 
+import math
+from dataclasses import asdict
 from typing import TYPE_CHECKING
 
 from django.db.models import Sum
+
+from posthog.models import Team
 
 from products.signals.backend.facade import api as signals
 from products.tasks.backend.facade import api as tasks
 
 from ..adapters.identity import Member, PostHogIdentity
 from ..db import WRITER_DB
-from ..facade.enums import BetsAccessLevel, BetStatus, IdeaOutcome, LedgerKind, ModelStep, WorkKind
+from ..facade.enums import BetsAccessLevel, BetStatus, IdeaOutcome, LedgerKind, ModelStep, WorkKind, WorkStage
 from ..models import Bet, BetsSettings, LedgerEntry, WorkItem
 from .ledger import totals
 from .loop import RUN_BUDGET_CENTS
-from .metrics import metric
+from .metrics import metric, proposed_plan
 from .next_actions import NextAction, next_actions
 from .step_models import choice, model_options, plan_available
 from .workspace import get_settings, project_id
@@ -21,7 +25,7 @@ from .workspace import get_settings, project_id
 ESTIMATE_SAMPLE = 10
 
 if TYPE_CHECKING:
-    from posthog.models import Team, User
+    from posthog.models import User
 
 BET_FIELDS = (
     "id",
@@ -43,6 +47,20 @@ BET_FIELDS = (
     "baseline_at",
     "updated_at",
 )
+
+
+PLAN_DEFAULTS = {
+    "days": None,
+    "mde": None,
+    "audience": None,
+    "weekly": False,
+    "too_long": False,
+    "mean": None,
+    "variance": None,
+    "proposed_days": None,
+    "approved": False,
+    "replanned": False,
+}
 
 
 def can_edit(team: Team, user: User) -> bool:
@@ -82,7 +100,9 @@ def entry(
     }
 
 
-def work_entry(work: WorkItem, user: User, pull_requests: dict, spent: dict[str, int]) -> dict:
+def work_entry(
+    work: WorkItem, user: User, pull_requests: dict, spent: dict[str, int], plan: dict | None = None
+) -> dict:
     prs = pull_requests.get(str(work.task_id), []) if work.task_id else []
     native = tasks.get_task_detail(work.task_id, work.team_id, user.id) if work.task_id else None
     run = native.latest_run if native else None
@@ -111,6 +131,7 @@ def work_entry(work: WorkItem, user: User, pull_requests: dict, spent: dict[str,
         "report_id": work.report_id,
         "dismissed_reason": work.dismissed_reason,
         "moves_metric": work.moves_metric,
+        "plan": {**PLAN_DEFAULTS, **(plan if plan is not None else work.plan)},
     }
 
 
@@ -165,7 +186,33 @@ def work_entries(bet: Bet, user: User) -> list[dict]:
         .annotate(total=Sum("amount_cents"))
         .values_list("work_item_id", "total")
     }
-    return [work_entry(work, user, pull_requests, spent) for work in items]
+    proposals = idea_proposals(bet, user, [work for work in items if work.stage == WorkStage.PROPOSED])
+    return [work_entry(work, user, pull_requests, spent, proposals.get(work.id)) for work in items]
+
+
+def idea_proposals(bet: Bet, user: User, ideas: list[WorkItem]) -> dict:
+    if not ideas or not bet.goal_insight:
+        return {}
+    team = Team.objects.get(id=bet.team_id)
+    settings = get_settings(bet.team_id)
+    proposals = {}
+    for work in ideas:
+        proposal = proposed_plan(
+            team,
+            user,
+            bet.goal_insight,
+            audience=work.plan.get("audience"),
+            mde=settings.mde_percent,
+            floor_days=math.ceil(settings.min_run_hours / 24),
+        )
+        if proposal:
+            planned, spread = proposal
+            proposals[work.id] = {
+                **(asdict(planned) if planned else {"mde": settings.mde_percent}),
+                "mean": spread.mean,
+                "variance": spread.variance,
+            }
+    return proposals
 
 
 def detail(team: Team, user: User, bet: Bet) -> dict:
@@ -220,6 +267,7 @@ def settings_entry(settings: BetsSettings, user: User) -> dict:
         "budget_cents": settings.budget_cents,
         "north_star_insight": settings.north_star_insight,
         "min_run_hours": settings.min_run_hours,
+        "mde_percent": settings.mde_percent,
         "goal_confirm_hours": settings.goal_confirm_hours,
         "models": [choice(settings, user, step) for step in ModelStep],
         "model_options": model_options(),

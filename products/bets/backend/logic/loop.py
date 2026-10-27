@@ -1,5 +1,7 @@
 import re
-from datetime import timedelta
+import math
+from dataclasses import asdict
+from datetime import datetime, timedelta
 from statistics import fmean
 from uuid import UUID, uuid4
 
@@ -42,7 +44,14 @@ from ..models import Bet, LedgerEntry, WorkItem
 from . import access
 from .baseline import baseline
 from .ledger import append, totals
-from .metrics import metric, refresh_metrics
+from .metrics import metric, proposed_plan, refresh_metrics
+from .plan import (
+    DRIFT,
+    MIN_DAYS,
+    MIN_OBSERVATIONS,
+    control_spread,
+    plan as make_plan,
+)
 from .prompts import instructions
 from .scout import scout_body, scout_job
 from .spend import reconcile_spend, spend_pending
@@ -63,6 +72,7 @@ GOAL_POINTS = 3
 OPEN = (WorkStage.WORKING, WorkStage.REVIEW, WorkStage.LIVE)
 OWNER_TITLE = re.compile(r"^\s*(?:bet idea:\s*)?owner idea (\d+)\s*[:.\-]\s*", re.IGNORECASE)
 VERDICT = re.compile(r"^\W*(not supported|supported)\b", re.IGNORECASE)
+AUDIENCE = re.compile(r"^\W*audience\W*:\D*([\d,]+)", re.IGNORECASE | re.MULTILINE)
 METRIC = re.compile(r"^\W*metric\W*:\s*(.+?)\W*$", re.IGNORECASE | re.MULTILINE)
 LINK = re.compile(r"\[([^\]]+)\]\(([^)\s]+)\)")
 EVIDENCE_KINDS = (
@@ -215,17 +225,15 @@ def observe(team: Team, user: User, bet: Bet, work: WorkItem) -> None:
         except PermissionDenied:
             move(work, WorkStage.STUCK, "The experiment is gone or the owner cannot edit it.")
             return
-        result = verdict(
-            data,
-            direction=bet.direction,
-            guardrails=bet.secondary_metrics,
-            min_run=timedelta(hours=get_settings(bet.team_id).min_run_hours),
-        )
+        planned = replan(team, user, bet, work, data)
+        result = verdict(data, direction=bet.direction, guardrails=bet.secondary_metrics, run_days=planned["days"])
         note = result.note
         if not result.facts.get("exposures") and work.merged_at and timezone.now() - work.merged_at > EXPOSURE_GRACE:
             note = "No exposures since the merge. Check that the change is deployed."
-        if result.outcome is None:
-            move(work, WorkStage.LIVE, note, result={**work.result, **result.facts})
+        if result.outcome is None or (planned.get("proposed_days") and result.outcome != IdeaOutcome.HARMED):
+            if planned.get("proposed_days") and result.outcome is not None:
+                note = extend_question(planned)
+            move(work, WorkStage.LIVE, note, result={**work.result, **result.facts}, plan=planned)
             return
         comment = f"Concluded by bet {bet.reference}: {result.note}"
         try:
@@ -276,6 +284,52 @@ def end_experiment(bet: Bet, work: WorkItem) -> None:
         )
     except PermissionDenied:
         logger.warning("bets.end_experiment_failed", bet_id=str(bet.id), work_id=str(work.id))
+
+
+def extend_question(planned: dict) -> str:
+    extra = planned["proposed_days"] - planned["days"]
+    return f"The traffic is lower than planned. It needs {extra} more days. Extend or stop?"
+
+
+def replan(team: Team, user: User, bet: Bet, work: WorkItem, data: dict) -> dict:
+    settings = get_settings(bet.team_id)
+    planned = dict(work.plan)
+    if not planned.get("days"):
+        proposal = proposed_plan(
+            team,
+            user,
+            bet.goal_insight,
+            audience=planned.get("audience"),
+            mde=settings.mde_percent,
+            floor_days=math.ceil(settings.min_run_hours / 24),
+        )
+        planned = {
+            **planned,
+            **(asdict(proposal[0]) if proposal and proposal[0] else {"days": MIN_DAYS, "mde": settings.mde_percent}),
+        }
+    started = data.get("start_date")
+    results = data.get("results") or {}
+    baselines = results.get("metric_baselines") or []
+    spread = control_spread(baselines[0]) if baselines else None
+    if planned.get("replanned") or not started or spread is None:
+        return planned
+    elapsed = (timezone.now() - datetime.fromisoformat(started)).total_seconds() / 86400
+    exposed = sum((results.get("exposures") or {}).values())
+    if elapsed < MIN_DAYS or baselines[0].get("number_of_samples", 0) < MIN_OBSERVATIONS or exposed <= 0:
+        return planned
+    fresh = make_plan(
+        spread,
+        mde=float(planned["mde"]),
+        audience=round(exposed / elapsed),
+        weekly=bool(planned.get("weekly")),
+        floor_days=math.ceil(settings.min_run_hours / 24),
+    )
+    planned["replanned"] = True
+    if fresh.days > planned["days"] * DRIFT:
+        planned["proposed_days"] = fresh.days
+    else:
+        planned["days"] = fresh.days
+    return planned
 
 
 def follow_cleanup(team: Team, user: User, bet: Bet, idea: WorkItem) -> None:
@@ -358,6 +412,8 @@ def ingest(bet: Bet) -> int:
         evidence = evidence_from(report.summary)
         metric_match = METRIC.search(report.summary)
         moves_metric = metric_match.group(1).strip("* ")[:255] if metric_match else ""
+        audience_match = AUDIENCE.search(report.summary)
+        audience = {"audience": int(audience_match.group(1).replace(",", ""))} if audience_match else {}
         owner = OWNER_TITLE.match(report.title)
         target = (
             items(bet).filter(key=f"owner:{owner.group(1)}", stage=WorkStage.PROPOSED, report_id=None).first()
@@ -373,6 +429,7 @@ def ingest(bet: Bet) -> int:
             target.summary = report.summary
             target.evidence = evidence
             target.moves_metric = moves_metric
+            target.plan = {**target.plan, **audience}
             target.assessment = (
                 IdeaAssessment.NOT_SUPPORTED
                 if verdict_match and verdict_match.group(1).lower() == "not supported"
@@ -396,6 +453,7 @@ def ingest(bet: Bet) -> int:
                     "report_id": report.report_id,
                     "evidence": evidence,
                     "moves_metric": moves_metric,
+                    "plan": audience,
                     "goal_version": bet.goal_version,
                 },
             )
@@ -715,7 +773,9 @@ def reconcile(team_id: int, bet_id: UUID) -> None:
 
 
 @transaction.atomic(using=WRITER_DB)
-def act(bet: Bet, work_id: UUID, action: str, user: User | None = None, reason: str = "") -> None:
+def act(
+    bet: Bet, work_id: UUID, action: str, user: User | None = None, reason: str = "", plan: dict | None = None
+) -> None:
     Bet.objects.for_team(bet.team_id).using(WRITER_DB).select_for_update().filter(id=bet.id).first()
     work = items(bet).select_for_update().filter(id=work_id).first()
     if work is None:
@@ -736,6 +796,7 @@ def act(bet: Bet, work_id: UUID, action: str, user: User | None = None, reason: 
             flag_key=f"bet-{bet.reference}-{number}",
             chosen_at=timezone.now(),
             chosen_by_id=user.id if user else None,
+            plan={**work.plan, **plan, "approved": True} if plan else work.plan,
         )
         ensure_task(bet, owner, work)
     elif action == "dismiss" and work.stage == WorkStage.PROPOSED:
@@ -746,6 +807,9 @@ def act(bet: Bet, work_id: UUID, action: str, user: User | None = None, reason: 
         if work.kind == WorkKind.IDEA and items(bet).filter(kind=WorkKind.IDEA, stage__in=OPEN).exists():
             raise ValidationError("Another idea is in progress. Wait for its result.")
         move(work, WorkStage.WORKING, work.note, attempts=0, task_run_id=None)
+    elif action == "extend" and work.stage == WorkStage.LIVE and work.plan.get("proposed_days"):
+        planned = {key: value for key, value in work.plan.items() if key != "proposed_days"}
+        move(work, WorkStage.LIVE, "Extended by the owner.", plan={**planned, "days": work.plan["proposed_days"]})
     elif action == "drop" and work.kind == WorkKind.IDEA and work.stage in OPEN:
         move(work, WorkStage.DROPPED, "Dropped by a person.", result={**work.result, "outcome": IdeaOutcome.DROPPED})
         end_experiment(bet, work)

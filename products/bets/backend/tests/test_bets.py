@@ -31,7 +31,7 @@ ENOUGH = MIN_SAMPLES_PER_VARIANT
 
 
 def evidence(
-    primary: list[float] | None, *, significant: bool = True, guard: list[float] | None = None, days: int = 1
+    primary: list[float] | None, *, significant: bool = True, guard: list[float] | None = None, days: int = 3
 ) -> dict:
     variant = {"key": "test", "significant": significant, "credible_interval": primary} if primary else {"key": "test"}
     return {
@@ -58,25 +58,30 @@ class TestVerdict(SimpleTestCase):
             ("win_when_lower_is_better", evidence([-0.2, -0.05]), "decrease", IdeaOutcome.WON),
             ("loss", evidence([-0.2, -0.05]), "increase", IdeaOutcome.LOST),
             ("guardrail_harm_beats_a_win", evidence([0.05, 0.2], guard=[-0.3, -0.1]), "increase", IdeaOutcome.HARMED),
-            ("not_significant_yet", evidence([-0.05, 0.2], significant=False), "increase", None),
             (
-                "no_clear_effect_after_the_limit",
-                evidence([-0.05, 0.2], significant=False, days=15),
+                "no_clear_effect_at_the_planned_end",
+                evidence([-0.05, 0.2], significant=False),
                 "increase",
                 IdeaOutcome.FLAT,
             ),
-            ("clear_win_before_the_minimum_run_waits", evidence([0.05, 0.2], days=0), "increase", None),
+            ("clear_win_before_the_planned_end_waits", evidence([0.05, 0.2], days=1), "increase", None),
+            (
+                "guardrail_harm_stops_before_the_planned_end",
+                evidence([0.05, 0.2], guard=[-0.3, -0.1], days=1),
+                "increase",
+                IdeaOutcome.HARMED,
+            ),
         ]
     )
     def test_outcome(self, _name: str, data: dict, direction: str, expected: IdeaOutcome | None) -> None:
         guardrails = [{"name": "Uploads", "direction": "increase", "max_regression": 0.05}]
-        outcome = verdict(data, direction=direction, guardrails=guardrails, min_run=timedelta(hours=12)).outcome
+        outcome = verdict(data, direction=direction, guardrails=guardrails, run_days=2).outcome
         assert outcome == expected
 
     def test_small_samples_never_decide(self) -> None:
         data = evidence([0.05, 0.2])
         data["results"]["metric_sample_counts"] = [{"control": ENOUGH, "test": ENOUGH - 1}]
-        assert verdict(data, direction="increase", guardrails=[]).outcome is None
+        assert verdict(data, direction="increase", guardrails=[], run_days=2).outcome is None
 
 
 @dataclass

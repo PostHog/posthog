@@ -29,6 +29,7 @@ class ExperimentSummaryData:
     pending_calculation: bool
     omitted_metric_count: int
     metric_sample_counts: tuple[dict[str, int], ...] = ()
+    metric_baselines: tuple[dict[str, float], ...] = ()
 
 
 @frozen

@@ -15,6 +15,7 @@ from products.product_analytics.backend.facade.api import get_insight_series, sa
 from products.product_analytics.backend.facade.measurement import insight_delivery_evidence
 
 from ..facade.contracts import Metric
+from .plan import Plan, Spread, estimated_spread, plan, weekly_pattern
 
 DELIVERY_CACHE_SECONDS = 300
 PERCENT_FORMATS = {"percentage", "percentage_scaled"}
@@ -145,3 +146,27 @@ def validate_goal(team: Team, user: User, short_id: str) -> None:
     result = _insight_series(team, user, short_id)
     if result is not None and len(result.series) != 1:
         raise ValidationError({"goal_insight": "Choose a saved insight with one series."})
+
+
+def observed(team: Team, user: User, short_id: str) -> tuple[int, float]:
+    delivery = _delivery(team, user, short_id)
+    if delivery is None or delivery.first_event_at is None:
+        return (0, 0.0)
+    start = max(delivery.first_event_at, delivery.window_start)
+    end = min(delivery.last_event_at or delivery.window_end, delivery.window_end)
+    return (delivery.participants, max((end - start).total_seconds() / 86400, 0.0))
+
+
+def proposed_plan(
+    team: Team, user: User, short_id: str, *, audience: int | None, mde: float, floor_days: int
+) -> tuple[Plan | None, Spread] | None:
+    current = metric(team, user, short_id)
+    if current.current is None:
+        return None
+    people, days = observed(team, user, short_id)
+    reach = audience or (round(people / days) if days >= 1 else 0)
+    spread = estimated_spread(current.current / 100 if current.unit == "%" else current.current)
+    weekly = weekly_pattern(current.values, current.dates)
+    if reach <= 0:
+        return (None, spread)
+    return (plan(spread, mde=mde, audience=reach, weekly=weekly, floor_days=floor_days), spread)

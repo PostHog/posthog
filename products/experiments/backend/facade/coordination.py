@@ -88,7 +88,11 @@ def _evidence(*, team: Team, user: User, experiment_id: int) -> dict:
     }
     if data is not None:
         result.update(
-            results={**data.context.model_dump(mode="json"), "metric_sample_counts": data.metric_sample_counts},
+            results={
+                **data.context.model_dump(mode="json"),
+                "metric_sample_counts": data.metric_sample_counts,
+                "metric_baselines": data.metric_baselines,
+            },
             pending=data.pending_calculation or data.omitted_metric_count > 0,
             computed_at=data.last_refresh.isoformat() if data.last_refresh else None,
         )

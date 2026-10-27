@@ -102,7 +102,7 @@ class BetsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         data = serializer.validated_data
         return Response(
             BetsDetailSerializer(
-                api.work(self.team, self.user, id, data["work_id"], data["action"], data["reason"])
+                api.work(self.team, self.user, id, data["work_id"], data["action"], data["reason"], data.get("plan"))
             ).data
         )
 

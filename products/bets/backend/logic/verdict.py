@@ -8,7 +8,6 @@ from posthog.dataclasses import frozen
 from ..facade.enums import IdeaOutcome
 
 MIN_SAMPLES_PER_VARIANT = 50
-MAX_EXPERIMENT_DAYS = 14
 
 
 @frozen
@@ -45,7 +44,7 @@ def verdict(
     *,
     direction: str,
     guardrails: list[dict],
-    min_run: timedelta = timedelta(days=7),
+    run_days: int,
     now: datetime | None = None,
 ) -> Verdict:
     results = evidence.get("results") or {}
@@ -94,11 +93,10 @@ def verdict(
     if harmed:
         return decided(IdeaOutcome.HARMED, "control", f"{', '.join(sorted(set(harmed)))} got worse.", facts)
     elapsed = (now or timezone.now()) - datetime.fromisoformat(started)
-    if elapsed < min_run:
-        hours = int(elapsed.total_seconds() // 3600)
-        return waiting(
-            "", f"Running for {hours} of {int(min_run.total_seconds() // 3600)} hours before a verdict.", facts
-        )
+    left = timedelta(days=run_days) - elapsed
+    if left > timedelta(0):
+        days_left = math.ceil(left.total_seconds() / 86400)
+        return waiting("", f"About {days_left} more {'day' if days_left == 1 else 'days'} before a verdict.", facts)
     better = [
         key
         for key, value in primary.items()
@@ -114,6 +112,4 @@ def verdict(
         return decided(IdeaOutcome.WON, best, f"The {best} variant improved the primary metric.", facts)
     if tests and len(worse) == len(tests):
         return decided(IdeaOutcome.LOST, "control", "Every test variant made the primary metric worse.", facts)
-    if elapsed >= max(min_run, timedelta(days=MAX_EXPERIMENT_DAYS)):
-        return decided(IdeaOutcome.FLAT, "control", f"No clear effect after {MAX_EXPERIMENT_DAYS} days.", facts)
-    return waiting("", "No clear effect yet.", facts)
+    return decided(IdeaOutcome.FLAT, "control", f"No clear effect after {run_days} days.", facts)

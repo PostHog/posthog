@@ -50,6 +50,7 @@ class MetricQueryResult:
     refresh_time: datetime | None
     pending: bool
     sample_counts: dict[str, int] | None = None
+    baseline_stats: dict[str, float] | None = None
 
 
 @dataclass
@@ -222,6 +223,15 @@ class ExperimentSummaryDataService:
                     refresh_time=refresh_time,
                     pending=False,
                     sample_counts=sample_counts,
+                    baseline_stats=(
+                        {
+                            "number_of_samples": result.baseline.number_of_samples,
+                            "sum": result.baseline.sum,
+                            "sum_squares": result.baseline.sum_squares,
+                        }
+                        if result.baseline is not None
+                        else None
+                    ),
                 )
 
             async with semaphore:
@@ -329,6 +339,7 @@ class ExperimentSummaryDataService:
         latest_refresh: datetime | None = None
         pending_calculation = False
         metric_sample_counts: list[dict[str, int]] = []
+        metric_baselines: list[dict[str, float]] = []
 
         def process_metric_results(
             query_results: list[MetricQueryResult | BaseException],
@@ -344,6 +355,7 @@ class ExperimentSummaryDataService:
                 if qr.metric_result:
                     results.append(qr.metric_result)
                     metric_sample_counts.append(qr.sample_counts or {})
+                    metric_baselines.append(qr.baseline_stats or {})
                 if qr.refresh_time and (latest_refresh is None or qr.refresh_time > latest_refresh):
                     latest_refresh = qr.refresh_time
             return results
@@ -379,4 +391,5 @@ class ExperimentSummaryDataService:
             pending_calculation=pending_calculation,
             omitted_metric_count=omitted_metric_count,
             metric_sample_counts=tuple(metric_sample_counts),
+            metric_baselines=tuple(metric_baselines),
         )

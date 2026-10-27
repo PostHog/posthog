@@ -33,7 +33,7 @@ The owner chooses which idea to build. Nothing is built before that. Give the ow
 2. Read the code for that part of the product.
 3. If the owner has ideas without a check, check each one first. File one report per owner idea. The title starts with "Owner idea N:" (N is the number below) and then the idea. The summary starts with the word "Supported." or "Not supported." Then give the evidence.
 4. Then file up to 3 reports with your own ideas, the strongest first. Each report is one change that can move the primary metric and that we did not try or dismiss yet.
-5. Each report has: the problem, the evidence, the proposed change, the files to touch, the expected effect, and the guardrail it could hurt. Add one line "Metric: <name>" with the metric this change moves first. When that is not the bet's primary metric, say how it leads to the primary metric.
+5. Each report has: the problem, the evidence, the proposed change, the files to touch, the expected effect, and the guardrail it could hurt. Add one line "Metric: <name>" with the metric this change moves first. When that is not the bet's primary metric, say how it leads to the primary metric. Add one line "Audience: <number> people a day" with how many people a day reach the place this change touches, measured in PostHog, and link the insight you used.
 6. Evidence must be links to PostHog data in markdown link form: session replays you watched (with the time), insights or queries with the numbers, error groups, experiments. Never invent evidence. An idea without evidence is not an idea.
 
 File nothing when you find no idea with evidence. Never write code, open pull requests, change flags or start experiments."""

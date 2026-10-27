@@ -269,8 +269,10 @@ export interface BetsSettingsApi {
     model_options: BetsModelOptionApi[]
     /** Whether a connected ChatGPT plan can pay for unattended runs. */
     plan_available: boolean
-    /** Hours an experiment runs before Bets reads a win or a loss. */
+    /** Shortest experiment run in hours. Zero lets the plan decide. */
     min_run_hours: number
+    /** Smallest relative change, in percent, an experiment plans to find. */
+    mde_percent: number
     /** Hours the goal metric must stay at the target before the bet counts as reached. */
     goal_confirm_hours: number
 }
@@ -523,6 +525,47 @@ export interface BetsEvidenceApi {
     url: string
 }
 
+export interface BetsPlanApi {
+    /**
+     * Days the experiment runs before Bets reads the result.
+     * @nullable
+     */
+    days: number | null
+    /**
+     * Smallest relative change, in percent, the run can find.
+     * @nullable
+     */
+    mde: number | null
+    /**
+     * People a day who see the change.
+     * @nullable
+     */
+    audience: number | null
+    /** Whether the metric has a weekly pattern. */
+    weekly: boolean
+    /** Whether the plan is longer than four weeks. */
+    too_long: boolean
+    /**
+     * Mean of the goal metric used for the plan.
+     * @nullable
+     */
+    mean: number | null
+    /**
+     * Variance of the goal metric used for the plan.
+     * @nullable
+     */
+    variance: number | null
+    /**
+     * New length after the re-plan, waiting for the owner to extend or stop.
+     * @nullable
+     */
+    proposed_days: number | null
+    /** Whether the owner approved this plan. */
+    approved: boolean
+    /** Whether Bets re-planned from the control group. */
+    replanned: boolean
+}
+
 export const BetsWorkApiAssessment = { ...IdeaAssessmentEnumApi, ...BlankEnumApi } as const
 export interface BetsWorkApi {
     /** Work item ID. */
@@ -606,6 +649,8 @@ export interface BetsWorkApi {
     dismissed_reason: string
     /** The metric the Scout expects this idea to move. */
     moves_metric: string
+    /** Experiment plan for an idea. */
+    plan: BetsPlanApi
 }
 
 export interface BetsScoutApi {
@@ -865,6 +910,7 @@ export interface BetsStatusApi {
  * * `drop` - Drop
  * * `build` - Build
  * * `dismiss` - Dismiss
+ * * `extend` - Extend
  */
 export type BetWorkActionEnumApi = (typeof BetWorkActionEnumApi)[keyof typeof BetWorkActionEnumApi]
 
@@ -873,23 +919,47 @@ export const BetWorkActionEnumApi = {
     Drop: 'drop',
     Build: 'build',
     Dismiss: 'dismiss',
+    Extend: 'extend',
 } as const
+
+export interface BetsPlanInputApi {
+    /**
+     * Days the experiment runs.
+     * @minimum 2
+     * @maximum 365
+     */
+    days: number
+    /**
+     * Smallest change worth finding, in percent.
+     * @minimum 0.1
+     * @maximum 100
+     */
+    mde: number
+    /**
+     * People a day who see the change.
+     * @minimum 1
+     */
+    audience: number
+}
 
 export interface BetsWorkActionApi {
     /** Work item belonging to this bet. */
     work_id: string
-    /** Build a proposed idea, dismiss it, retry stuck work, or drop an idea in progress.
+    /** Build a proposed idea, dismiss it, retry stuck work, drop an idea in progress, or extend its experiment.
      *
      * * `retry` - Retry
      * * `drop` - Drop
      * * `build` - Build
-     * * `dismiss` - Dismiss */
+     * * `dismiss` - Dismiss
+     * * `extend` - Extend */
     action: BetWorkActionEnumApi
     /**
      * Why the idea is dismissed.
      * @maxLength 1000
      */
     reason?: string
+    /** The experiment plan the owner approves with a build. */
+    plan?: BetsPlanInputApi
 }
 
 export interface BetsStepModelWriteApi {
@@ -932,11 +1002,17 @@ export interface PatchedBetsSettingsWriteApi {
      */
     north_star_insight?: string
     /**
-     * Hours an experiment runs before Bets reads a win or a loss.
+     * Shortest experiment run in hours. Zero lets the plan decide.
      * @minimum 0
      * @maximum 1440
      */
     min_run_hours?: number
+    /**
+     * Smallest relative change, in percent, an experiment plans to find.
+     * @minimum 0.1
+     * @maximum 100
+     */
+    mde_percent?: number
     /**
      * Hours the goal metric must stay at the target before the bet counts as reached.
      * @minimum 0

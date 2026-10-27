@@ -133,6 +133,27 @@ class BetsEvidenceSerializer(serializers.Serializer):
     url = serializers.CharField(help_text="Link to the PostHog data, or chart:<id> for a chart in the report.")
 
 
+class BetsPlanSerializer(serializers.Serializer):
+    days = serializers.IntegerField(allow_null=True, help_text="Days the experiment runs before Bets reads the result.")
+    mde = serializers.FloatField(allow_null=True, help_text="Smallest relative change, in percent, the run can find.")
+    audience = serializers.IntegerField(allow_null=True, help_text="People a day who see the change.")
+    weekly = serializers.BooleanField(help_text="Whether the metric has a weekly pattern.")
+    too_long = serializers.BooleanField(help_text="Whether the plan is longer than four weeks.")
+    mean = serializers.FloatField(allow_null=True, help_text="Mean of the goal metric used for the plan.")
+    variance = serializers.FloatField(allow_null=True, help_text="Variance of the goal metric used for the plan.")
+    proposed_days = serializers.IntegerField(
+        allow_null=True, help_text="New length after the re-plan, waiting for the owner to extend or stop."
+    )
+    approved = serializers.BooleanField(help_text="Whether the owner approved this plan.")
+    replanned = serializers.BooleanField(help_text="Whether Bets re-planned from the control group.")
+
+
+class BetsPlanInputSerializer(serializers.Serializer):
+    days = serializers.IntegerField(min_value=2, max_value=365, help_text="Days the experiment runs.")
+    mde = serializers.FloatField(min_value=0.1, max_value=100, help_text="Smallest change worth finding, in percent.")
+    audience = serializers.IntegerField(min_value=1, help_text="People a day who see the change.")
+
+
 class BetsWorkSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Work item ID.")
     goal_version = serializers.IntegerField(help_text="Goal revision this work belongs to.")
@@ -162,6 +183,7 @@ class BetsWorkSerializer(serializers.Serializer):
     report_id = serializers.UUIDField(allow_null=True, help_text="Scout report that describes the idea.")
     dismissed_reason = serializers.CharField(allow_blank=True, help_text="Why the owner dismissed the idea.")
     moves_metric = serializers.CharField(allow_blank=True, help_text="The metric the Scout expects this idea to move.")
+    plan = BetsPlanSerializer(help_text="Experiment plan for an idea.")
 
 
 class BetsOwnerSerializer(serializers.Serializer):
@@ -264,7 +286,8 @@ class BetsSettingsSerializer(serializers.Serializer):
     models = BetsStepModelSerializer(many=True, help_text="Model and billing for each step.")
     model_options = BetsModelOptionSerializer(many=True, help_text="Models a step may use.")
     plan_available = serializers.BooleanField(help_text="Whether a connected ChatGPT plan can pay for unattended runs.")
-    min_run_hours = serializers.IntegerField(help_text="Hours an experiment runs before Bets reads a win or a loss.")
+    min_run_hours = serializers.IntegerField(help_text="Shortest experiment run in hours. Zero lets the plan decide.")
+    mde_percent = serializers.FloatField(help_text="Smallest relative change, in percent, an experiment plans to find.")
     goal_confirm_hours = serializers.IntegerField(
         help_text="Hours the goal metric must stay at the target before the bet counts as reached."
     )
@@ -295,7 +318,13 @@ class BetsSettingsWriteSerializer(serializers.Serializer):
         min_value=0,
         max_value=24 * 60,
         required=False,
-        help_text="Hours an experiment runs before Bets reads a win or a loss.",
+        help_text="Shortest experiment run in hours. Zero lets the plan decide.",
+    )
+    mde_percent = serializers.FloatField(
+        min_value=0.1,
+        max_value=100,
+        required=False,
+        help_text="Smallest relative change, in percent, an experiment plans to find.",
     )
     goal_confirm_hours = serializers.IntegerField(
         min_value=0,
@@ -329,11 +358,12 @@ class BetsWorkActionSerializer(serializers.Serializer):
     work_id = serializers.UUIDField(help_text="Work item belonging to this bet.")
     action = serializers.ChoiceField(
         choices=BetWorkAction.choices,
-        help_text="Build a proposed idea, dismiss it, retry stuck work, or drop an idea in progress.",
+        help_text="Build a proposed idea, dismiss it, retry stuck work, drop an idea in progress, or extend its experiment.",
     )
     reason = serializers.CharField(
         max_length=1000, required=False, allow_blank=True, default="", help_text="Why the idea is dismissed."
     )
+    plan = BetsPlanInputSerializer(required=False, help_text="The experiment plan the owner approves with a build.")
 
 
 class BetsIdeaSerializer(serializers.Serializer):

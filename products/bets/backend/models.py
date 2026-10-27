@@ -23,7 +23,8 @@ class BetsSettings(BetsModel):
     north_star_insight = models.CharField(max_length=32, blank=True, default="")
     next_reference = models.PositiveIntegerField(default=1001)
     step_models = models.JSONField(default=dict, blank=True)
-    min_run_hours = models.PositiveIntegerField(default=168)
+    min_run_hours = models.PositiveIntegerField(default=0)
+    mde_percent = models.FloatField(default=30)
     goal_confirm_hours = models.PositiveIntegerField(default=72)
 
     class Meta(BetsModel.Meta):
@@ -89,6 +90,7 @@ class WorkItem(BetsModel):
     chosen_by_id = models.BigIntegerField(null=True, blank=True)
     dismissed_reason = models.TextField(blank=True, default="")
     moves_metric = models.CharField(max_length=255, blank=True, default="")
+    plan = models.JSONField(default=dict, blank=True)
 
     class Meta(BetsModel.Meta):
         db_table = "bets_work_item"

@@ -91,10 +91,12 @@ def refresh(team: Team, user: User, bet_id: str | UUID) -> dict:
     return read.detail(team, user, bet)
 
 
-def work(team: Team, user: User, bet_id: str | UUID, work_id: UUID, action: str, reason: str = "") -> dict:
+def work(
+    team: Team, user: User, bet_id: str | UUID, work_id: UUID, action: str, reason: str = "", plan: dict | None = None
+) -> dict:
     bet = _bet(team, bet_id)
     access.require_owner(team, user, bet.owner_id)
-    loop.act(bet, work_id, action, user=user, reason=reason)
+    loop.act(bet, work_id, action, user=user, reason=reason, plan=plan)
     wake(bet)
     return read.detail(team, user, _bet(team, bet_id))
 

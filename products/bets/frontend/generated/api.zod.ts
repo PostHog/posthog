@@ -267,19 +267,43 @@ export const BetsStatusCreateBody = /* @__PURE__ */ zod.object({
 export const betsWorkCreateBodyReasonDefault = ``
 export const betsWorkCreateBodyReasonMax = 1000
 
+export const betsWorkCreateBodyPlanOneDaysMin = 2
+export const betsWorkCreateBodyPlanOneDaysMax = 365
+
+export const betsWorkCreateBodyPlanOneMdeMin = 0.1
+export const betsWorkCreateBodyPlanOneMdeMax = 100
+
 export const BetsWorkCreateBody = /* @__PURE__ */ zod.object({
     work_id: zod.uuid().describe('Work item belonging to this bet.'),
     action: zod
-        .enum(['retry', 'drop', 'build', 'dismiss'])
-        .describe('\* `retry` - Retry\n\* `drop` - Drop\n\* `build` - Build\n\* `dismiss` - Dismiss')
+        .enum(['retry', 'drop', 'build', 'dismiss', 'extend'])
         .describe(
-            'Build a proposed idea, dismiss it, retry stuck work, or drop an idea in progress.\n\n\* `retry` - Retry\n\* `drop` - Drop\n\* `build` - Build\n\* `dismiss` - Dismiss'
+            '\* `retry` - Retry\n\* `drop` - Drop\n\* `build` - Build\n\* `dismiss` - Dismiss\n\* `extend` - Extend'
+        )
+        .describe(
+            'Build a proposed idea, dismiss it, retry stuck work, drop an idea in progress, or extend its experiment.\n\n\* `retry` - Retry\n\* `drop` - Drop\n\* `build` - Build\n\* `dismiss` - Dismiss\n\* `extend` - Extend'
         ),
     reason: zod
         .string()
         .max(betsWorkCreateBodyReasonMax)
         .default(betsWorkCreateBodyReasonDefault)
         .describe('Why the idea is dismissed.'),
+    plan: zod
+        .object({
+            days: zod
+                .number()
+                .min(betsWorkCreateBodyPlanOneDaysMin)
+                .max(betsWorkCreateBodyPlanOneDaysMax)
+                .describe('Days the experiment runs.'),
+            mde: zod
+                .number()
+                .min(betsWorkCreateBodyPlanOneMdeMin)
+                .max(betsWorkCreateBodyPlanOneMdeMax)
+                .describe('Smallest change worth finding, in percent.'),
+            audience: zod.number().min(1).describe('People a day who see the change.'),
+        })
+        .optional()
+        .describe('The experiment plan the owner approves with a build.'),
 })
 
 export const betsSettingsPartialUpdateBodyBudgetCentsMin = 0
@@ -289,6 +313,9 @@ export const betsSettingsPartialUpdateBodyNorthStarInsightMax = 32
 
 export const betsSettingsPartialUpdateBodyMinRunHoursMin = 0
 export const betsSettingsPartialUpdateBodyMinRunHoursMax = 1440
+
+export const betsSettingsPartialUpdateBodyMdePercentMin = 0.1
+export const betsSettingsPartialUpdateBodyMdePercentMax = 100
 
 export const betsSettingsPartialUpdateBodyGoalConfirmHoursMin = 0
 export const betsSettingsPartialUpdateBodyGoalConfirmHoursMax = 1440
@@ -325,7 +352,13 @@ export const BetsSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .min(betsSettingsPartialUpdateBodyMinRunHoursMin)
         .max(betsSettingsPartialUpdateBodyMinRunHoursMax)
         .optional()
-        .describe('Hours an experiment runs before Bets reads a win or a loss.'),
+        .describe('Shortest experiment run in hours. Zero lets the plan decide.'),
+    mde_percent: zod
+        .number()
+        .min(betsSettingsPartialUpdateBodyMdePercentMin)
+        .max(betsSettingsPartialUpdateBodyMdePercentMax)
+        .optional()
+        .describe('Smallest relative change, in percent, an experiment plans to find.'),
     goal_confirm_hours: zod
         .number()
         .min(betsSettingsPartialUpdateBodyGoalConfirmHoursMin)

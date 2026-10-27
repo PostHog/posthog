@@ -32,6 +32,7 @@ class BetWorkAction(LabeledStrEnum):
     DROP = "drop"
     BUILD = "build"
     DISMISS = "dismiss"
+    EXTEND = "extend"
 
 
 class BetActivityResource(LabeledStrEnum):

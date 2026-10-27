@@ -9,7 +9,8 @@ from products.product_analytics.backend.facade.api import saved_insight_for_read
 from products.product_analytics.backend.facade.measurement import insight_delivery_evidence
 
 from ..models import Bet
-from .metrics import metric, refresh_metrics
+from .metrics import metric, observed, refresh_metrics
+from .plan import readiness
 
 FRESH_WITHIN = timedelta(hours=24)
 
@@ -51,4 +52,7 @@ def baseline(team: Team, user: User, bet: Bet, *, since: datetime | None = None)
         return result(False, current.current, "Waiting for fresh events.")
     if current.current is None:
         return result(False, None, current.message or "Waiting for a value.")
+    ready = readiness(*observed(team, user, bet.goal_insight))
+    if not ready.ready:
+        return result(False, current.current, ready.note)
     return result(True, current.current, "")
