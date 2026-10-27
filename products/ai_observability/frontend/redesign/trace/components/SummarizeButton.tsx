@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -22,6 +24,7 @@ export function SummarizeButton({
     dataAttr,
     type,
 }: SummarizeButtonProps): JSX.Element {
+    const [consentRequested, setConsentRequested] = useState(false)
     const button = (
         <AccessControlAction
             resourceType={AccessControlResourceType.LlmAnalytics}
@@ -30,12 +33,9 @@ export function SummarizeButton({
             <LemonButton
                 type={type}
                 size="small"
-                onClick={consentGiven ? onClick : undefined}
+                onClick={consentGiven ? onClick : () => setConsentRequested(true)}
                 loading={loading}
                 data-attr={dataAttr}
-                disabledReason={
-                    consentGiven ? undefined : 'Your organization needs to approve AI data processing first'
-                }
             >
                 {label}
             </LemonButton>
@@ -44,9 +44,18 @@ export function SummarizeButton({
     if (consentGiven) {
         return button
     }
-    // The popover asks for approval and runs the request once it is given.
+    // The popover opens on click, also after an earlier dismissal, and runs the request once approval is given.
     return (
-        <AIConsentPopoverWrapper showArrow onApprove={onClick} hidden={loading}>
+        <AIConsentPopoverWrapper
+            showArrow
+            ignoreDismissal
+            hidden={!consentRequested || loading}
+            onApprove={() => {
+                setConsentRequested(false)
+                onClick()
+            }}
+            onDismiss={() => setConsentRequested(false)}
+        >
             {button}
         </AIConsentPopoverWrapper>
     )

@@ -21,7 +21,7 @@ from ...summarization.models import SummarizationMode
 from ...text_repr.formatters import TraceTextRepr
 from .node_contents_queries import load_trace_nodes
 from .summary import FailedSummary, ReadySummary, SummaryKey, TraceSummaryRetryableError, summary_items
-from .summary_store import delete_summary, requester_fingerprint, write_summary
+from .summary_store import delete_summary, job_owns_entry, requester_fingerprint, write_summary
 from .summary_text import render_trace
 from .trace import Trace
 from .trace_queries import load_trace, load_trace_root
@@ -94,11 +94,14 @@ class _Run:
         )
 
 
-def generate_summary(job: TraceSummaryJob, *, final_attempt: bool) -> TraceSummaryRun:
-    """Write the job's summary entry as `ready` or `failed` and report what the run did.
+def generate_summary(job: TraceSummaryJob, *, final_attempt: bool) -> TraceSummaryRun | None:
+    """Write the job's summary entry as `ready` or `failed` and report what the run did, or return None when the
+    entry no longer waits for this job.
 
     Raises `TraceSummaryRetryableError`, leaving the entry `pending`, when a later attempt can still succeed.
     An unexpected error is raised for Temporal to retry, and on the final attempt it writes `failed` instead."""
+    if not job_owns_entry(job):
+        return None
     team = Team.objects.select_related("organization").get(pk=job.team_id)
     run = _Run(job, team, User.objects.get(pk=job.requester_id))
     try:
@@ -127,6 +130,10 @@ def _generate(run: _Run, *, final_attempt: bool) -> TraceSummaryRun:
     root = load_trace_root(team, requester, job.trace_id, trace.created_at)
     step_ids = [event.id for event in trace.events if not event.is_trace_event and not event.is_annotation]
     steps = load_trace_nodes(team, requester, job.trace_id, step_ids, trace.created_at)
+    # Each read applies the restrictions in force when it runs. A change during the reads could put content under
+    # an entry whose viewers may not read it.
+    if requester_fingerprint(team.pk, requester) != job.fingerprint:
+        return run.failed("access_changed")
     rendered = render_trace(trace, root.trace_event, steps, text_repr_budget())
     try:
         response = summarize(

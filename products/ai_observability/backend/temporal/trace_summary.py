@@ -32,6 +32,8 @@ FAIL_TRACE_SUMMARY_ACTIVITY_NAME = "ai-observability-fail-trace-summary"
 async def generate_trace_summary_activity(job: TraceSummaryJob) -> None:
     async with Heartbeater():
         run = await on_asyncify_pool(api.generate_trace_summary)(job, final_attempt=is_last_attempt())
+    if run is None:
+        return
     properties: dict[str, object] = {
         "duration_ms": run.duration_ms,
         "input_characters": run.input_characters,

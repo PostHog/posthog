@@ -22,7 +22,12 @@ from products.ai_observability.backend.logic.traces.summary import (
     SummaryKey,
     workflow_id,
 )
-from products.ai_observability.backend.logic.traces.summary_store import read_summary, summary_key, write_summary
+from products.ai_observability.backend.logic.traces.summary_store import (
+    delete_summary,
+    read_summary,
+    summary_key,
+    write_summary,
+)
 from products.ai_observability.backend.logic.traces.trace_queries import LoadedTrace
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -172,6 +177,7 @@ class TestTraceSummary(BaseTest):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
         self.jobs: list[contracts.TraceSummaryJob] = []
+        delete_summary(summary_key(self.team, self.user, "trace-1"))
         patcher = patch.object(api, "start_trace_summary", side_effect=self.jobs.append)
         self.start = patcher.start()
         self.addCleanup(patcher.stop)
@@ -224,6 +230,14 @@ class TestTraceSummary(BaseTest):
 
         assert summary.failure is not None and (summary.status, summary.failure.reason) == ("failed", "error")
         assert api.get_trace_summary(self.team, self.user, "trace-1").status == "failed"
+
+    def test_a_failed_start_while_joining_a_running_job_keeps_its_entry(self) -> None:
+        self._request()
+        running = self._stored()
+        self.start.side_effect = ConnectionError("temporal is down")
+
+        assert self._request().status == "pending"
+        assert self._stored() == running
 
     def test_get_hides_another_fingerprint(self) -> None:
         restricted = User.objects.create_and_join(self.organization, "restricted@example.com", "testtest")

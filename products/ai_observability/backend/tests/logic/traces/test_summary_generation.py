@@ -1,4 +1,5 @@
 import re
+from datetime import timedelta
 from typing import Any
 
 import pytest
@@ -13,6 +14,9 @@ from posthog.models import User
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 
 from products.ai_observability.backend.facade.contracts import TraceSummaryFailureReason, TraceSummaryJob
+from products.ai_observability.backend.logic.traces.node_contents_queries import (
+    load_trace_nodes as real_load_trace_nodes,
+)
 from products.ai_observability.backend.logic.traces.summary import (
     FailedSummary,
     PendingSummary,
@@ -23,6 +27,7 @@ from products.ai_observability.backend.logic.traces.summary import (
 )
 from products.ai_observability.backend.logic.traces.summary_generation import generate_summary
 from products.ai_observability.backend.logic.traces.summary_store import (
+    delete_summary,
     read_summary,
     requester_fingerprint,
     write_summary,
@@ -48,6 +53,9 @@ def _status_error(status: int, code: str | None = None, message: str = "provider
     return openai.APIStatusError(
         message, response=httpx.Response(status, request=REQUEST), body={"code": code} if code else None
     )
+
+
+READY = ReadySummary(title="Invoice export", bullets=(), notes=(), flow="ask → answer", model="m", generated_at=T0)
 
 
 def _response(bullet_ref: str) -> SummarizationResponse:
@@ -138,7 +146,10 @@ class TestGenerateSummary(ClickhouseTestMixin, BaseTest):
         assert isinstance(entry, ReadySummary)
         assert [item.node_id for item in entry.bullets] == [GENERATION, None]
         assert entry.notes == (SummaryItem(text="No follow-up.", node_id=None),)
-        assert (run.status, run.input_characters) == ("ready", len(self.summarize.call_args.args[0]))
+        assert run is not None and (run.status, run.input_characters) == (
+            "ready",
+            len(self.summarize.call_args.args[0]),
+        )
 
     def test_restricted_content_never_reaches_the_model(self) -> None:
         self.summarize.return_value = _response("")
@@ -159,7 +170,46 @@ class TestGenerateSummary(ClickhouseTestMixin, BaseTest):
 
         self.summarize.assert_not_called()
         entry = read_summary(SummaryKey.for_job(job))
-        assert isinstance(entry, FailedSummary) and (entry.reason, run.failure_reason) == (reason, reason)
+        assert run is not None and isinstance(entry, FailedSummary)
+        assert (entry.reason, run.failure_reason) == (reason, reason)
+
+    def test_access_changed_during_the_reads_fails_without_calling_the_model(self) -> None:
+        job = self._job()
+
+        def hide_input_then_read(*args: Any, **kwargs: Any) -> Any:
+            hide_event_property(self.team, self.user, "$ai_input")
+            return real_load_trace_nodes(*args, **kwargs)
+
+        with patch(
+            "products.ai_observability.backend.logic.traces.summary_generation.load_trace_nodes",
+            side_effect=hide_input_then_read,
+        ):
+            run = generate_summary(job, final_attempt=True)
+
+        self.summarize.assert_not_called()
+        entry = read_summary(SummaryKey.for_job(job))
+        assert run is not None and isinstance(entry, FailedSummary) and entry.reason == "access_changed"
+
+    @parameterized.expand(
+        [
+            ("a result written before a retry", READY),
+            ("a newer request's entry", PendingSummary(requested_at=T0 + timedelta(seconds=5))),
+            ("an expired entry", None),
+        ]
+    )
+    def test_a_job_whose_entry_no_longer_waits_for_it_does_nothing(
+        self, _name: str, entry: PendingSummary | ReadySummary | None
+    ) -> None:
+        job = self._job()
+        if entry is None:
+            delete_summary(SummaryKey.for_job(job))
+        else:
+            write_summary(SummaryKey.for_job(job), entry)
+
+        run = generate_summary(job, final_attempt=True)
+
+        self.summarize.assert_not_called()
+        assert run is None and read_summary(SummaryKey.for_job(job)) == entry
 
     def test_withdrawn_approval_drops_the_entry_without_calling_the_model(self) -> None:
         job = self._job()
@@ -170,7 +220,7 @@ class TestGenerateSummary(ClickhouseTestMixin, BaseTest):
 
         self.summarize.assert_not_called()
         assert read_summary(SummaryKey.for_job(job)) is None
-        assert (run.status, run.failure_reason) == ("failed", "not_approved")
+        assert run is not None and (run.status, run.failure_reason) == ("failed", "not_approved")
 
     @parameterized.expand(
         [
@@ -199,7 +249,8 @@ class TestGenerateSummary(ClickhouseTestMixin, BaseTest):
         run = generate_summary(job, final_attempt=final_attempt)
 
         entry = read_summary(SummaryKey.for_job(job))
-        assert isinstance(entry, FailedSummary) and (entry.reason, run.status) == (expected, "failed")
+        assert run is not None and isinstance(entry, FailedSummary)
+        assert (entry.reason, run.status) == (expected, "failed")
 
     @parameterized.expand([("an outage", 503), ("a rate limit", 429), ("a cancelled request", 499)])
     def test_a_transient_failure_with_a_retry_left_keeps_the_entry_pending(self, _name: str, status: int) -> None:

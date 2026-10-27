@@ -99,7 +99,7 @@ export interface traceViewAdapterLogicActions {
     closeSummary: () => {
         value: true
     } // traceSummaryLogic
-    loadSummary: () => any // traceSummaryLogic
+    loadSummary: (_?: void | undefined) => void // traceSummaryLogic
     openSummary: (openedFrom: import('../traceSummaryLogic').SummaryOpenedFrom) => {
         openedFrom: import('../traceSummaryLogic').SummaryOpenedFrom
     } // traceSummaryLogic

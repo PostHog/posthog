@@ -316,8 +316,9 @@ def request_trace_summary(
     return _to_trace_summary(request_summary(team, user, trace_id, timestamp_hint, regenerate, start_trace_summary))
 
 
-def generate_trace_summary(job: contracts.TraceSummaryJob, *, final_attempt: bool) -> contracts.TraceSummaryRun:
-    """The trace summary job's body. Raises `TraceSummaryRetryableError` when a later attempt can succeed."""
+def generate_trace_summary(job: contracts.TraceSummaryJob, *, final_attempt: bool) -> contracts.TraceSummaryRun | None:
+    """The trace summary job's body, or None when its entry no longer waits for it. Raises
+    `TraceSummaryRetryableError` when a later attempt can succeed."""
     return generate_summary(job, final_attempt=final_attempt)
 
 

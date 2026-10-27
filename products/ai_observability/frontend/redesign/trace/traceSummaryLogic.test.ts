@@ -36,6 +36,7 @@ describe('traceSummaryLogic', () => {
     let postBodies: unknown[]
     let postAnswer: Answer
     let postHints: (string | null)[]
+    let firstGetGate: Promise<void> | null
 
     function answerGets(...answers: Answer[]): void {
         getAnswers = answers
@@ -68,12 +69,16 @@ describe('traceSummaryLogic', () => {
         postBodies = []
         postAnswer = [202, PENDING]
         postHints = []
+        firstGetGate = null
         useMocks({
             get: {
-                [SUMMARY_URL]: () => {
-                    const answer = getAnswers[Math.min(getCount, getAnswers.length - 1)]
+                [SUMMARY_URL]: async () => {
+                    const call = getCount
                     getCount += 1
-                    return answer
+                    if (call === 0 && firstGetGate) {
+                        await firstGetGate
+                    }
+                    return getAnswers[Math.min(call, getAnswers.length - 1)]
                 },
             },
             post: {
@@ -177,6 +182,29 @@ describe('traceSummaryLogic', () => {
 
         expect(logic.values.state).toEqual({ status: 'none' })
         expect(getCount).toBe(2)
+    })
+
+    it.each<[string, Answer]>([
+        ['succeeds', [404, { detail: 'No summary yet.' }]],
+        ['fails', [500, { detail: 'boom' }]],
+    ])('a read from an earlier visit that %s late leaves a requested summary pending', async (_name, late) => {
+        silenceKeaLoadersErrors()
+        let releaseFirstGet = (): void => {}
+        firstGetGate = new Promise((resolve) => {
+            releaseFirstGet = resolve
+        })
+        answerGets(late, [404, { detail: 'No summary yet.' }])
+        const logic = await opened()
+        logic.actions.closeSummary()
+        logic.actions.openSummary('tab')
+        await settle()
+
+        logic.actions.requestSummary({ regenerate: false, timestampHint: null })
+        await settle()
+        releaseFirstGet()
+        await settle()
+
+        expect(logic.values.state).toEqual({ status: 'pending' })
     })
 
     it.each<[string, Answer, SummaryModeState]>([
