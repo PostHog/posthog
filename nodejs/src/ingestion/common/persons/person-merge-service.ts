@@ -36,6 +36,7 @@ import {
     MergePersonsResult,
     MergePersonsSourceResult,
 } from './persons-store'
+import type { PersonsStoreForBatch } from './persons-store-for-batch'
 
 export const mergeFinalFailuresCounter = new Counter({
     name: 'person_merge_final_failure_total',
@@ -87,6 +88,9 @@ export const mergeNotAppliedRetriesCounter = new Counter({
 
 const NOT_APPLIED_FIRST_SLEEP_MS = 250
 const NOT_APPLIED_MAX_SLEEP_MS = 2_000
+
+/** One wait budget per batch: merges for one distinct id run serially, so per-event budgets would add up past the stall threshold. */
+const batchNotAppliedDeadlines = new WeakMap<PersonsStoreForBatch, number>()
 
 /** Maps a thrown fold failure to the fallback counter's reason label. */
 function foldAbandonReason(error: unknown): MergeFoldAbortReason {
@@ -378,7 +382,7 @@ export class PersonMergeService {
         refusal: PersonMergeNotAppliedError
     ): Promise<PersonMergeResult> {
         const call = this.context.event.event
-        const deadline = Date.now() + this.context.mergeNotAppliedWaitMs
+        const deadline = this.batchNotAppliedDeadline()
         let sleepMs = NOT_APPLIED_FIRST_SLEEP_MS
         let last = refusal
         for (let remaining = deadline - Date.now(); remaining > 0; remaining = deadline - Date.now()) {
@@ -405,6 +409,16 @@ export class PersonMergeService {
             reason: last.reason,
         })
         throw Object.assign(last, { isRetriable: true as const })
+    }
+
+    private batchNotAppliedDeadline(): number {
+        const store = this.context.personStore
+        let deadline = batchNotAppliedDeadlines.get(store)
+        if (deadline === undefined) {
+            deadline = Date.now() + this.context.mergeNotAppliedWaitMs
+            batchNotAppliedDeadlines.set(store, deadline)
+        }
+        return deadline
     }
 
     /**

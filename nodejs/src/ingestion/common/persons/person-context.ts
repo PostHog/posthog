@@ -43,7 +43,7 @@ export class PersonContext {
         public readonly mergeFoldPlan?: MergeFoldPlan,
         /** The personhog identity service publishes the merge verdict warnings it settles, so this consumer must not. */
         public readonly identityEmitsMergeWarnings: boolean = false,
-        /** Wall-clock budget for re-sending a merge the backend refused before it ran; 0 escalates at once. */
+        /** Per-batch wall-clock budget for re-sending merges the backend refused before they ran; 0 escalates at once. */
         public readonly mergeNotAppliedWaitMs: number = 0
     ) {
         this.eventProperties = event.properties!

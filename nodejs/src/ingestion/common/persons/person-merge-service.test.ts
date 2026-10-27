@@ -277,6 +277,29 @@ describe('PersonMergeService store-owned merges', () => {
             expect(await counterTotal(mergeFinalFailuresCounter)).toBe(finalBefore)
             expect(await outcomes()).toEqual({ escalated: 1 })
         })
+
+        it('shares one budget across the batch, so a later merge escalates at once when it is spent', async () => {
+            // Merges for one distinct id run serially within a batch; a fresh
+            // budget per event would add up past the consumer stall threshold.
+            store.mergePersons.mockRejectedValue(refused())
+            const first = makeService('$identify', undefined, false, 1_000)
+                .handleIdentifyOrAlias()
+                .catch((e) => e)
+            await jest.advanceTimersByTimeAsync(10_000)
+            await first
+            store.mergePersons.mockClear()
+
+            const second = makeService('$identify', undefined, false, 1_000)
+                .handleIdentifyOrAlias()
+                .catch((e) => e)
+            await jest.advanceTimersByTimeAsync(10)
+            const error = await second
+
+            expect(error).toBeInstanceOf(PersonMergeNotAppliedError)
+            expect(error.isRetriable).toBe(true)
+            expect(store.mergePersons).toHaveBeenCalledTimes(3)
+            expect(await outcomes()).toEqual({ escalated: 2 })
+        })
     })
 
     it('a deterministic raw refusal acks once with a warning instead of wedging the batch', async () => {
