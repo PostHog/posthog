@@ -87,6 +87,11 @@ export const rateLimitErrorsTotal = new Counter({
     labelNames: ['scope'] as const,
 })
 
+export const requestBodyTooLargeTotal = new Counter({
+    name: 'mcp_request_body_too_large_total',
+    help: 'Requests to /mcp rejected because the body was larger than the size cap.',
+})
+
 export const rateLimitBlockedByTeam = new Counter({
     name: 'mcp_rate_limit_blocked_by_team_total',
     help: 'Rate limit blocks on /mcp requests, by scope and team.',

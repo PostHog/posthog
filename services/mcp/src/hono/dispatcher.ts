@@ -45,7 +45,7 @@ import { getEnv, MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import { InstructionsBuilder } from './instructions'
 import { InterviewRecruitment, InterviewRequestError } from './interview-recruitment'
 import { initDurationSeconds, initTotal } from './metrics'
-import { bodyTooLargeResponse, MAX_BODY_BYTES, readBodyWithinLimit } from './request-body'
+import { MAX_BODY_BYTES, readBodyWithinLimit, rejectBodyTooLarge } from './request-body'
 import { RequestStateResolver, type ResolvedState } from './request-state-resolver'
 import { ResourceCatalog } from './resource-catalog'
 import { SkillCatalogService } from './skill-catalog-service'
@@ -194,14 +194,14 @@ class McpDispatcher {
     async handleRequest(req: Request, props: RequestProperties): Promise<Response> {
         const contentLength = req.headers.get('content-length')
         if (contentLength && parseInt(contentLength, 10) > MAX_BODY_BYTES) {
-            return bodyTooLargeResponse()
+            return rejectBodyTooLarge(props.apiToken)
         }
 
         let body: unknown
         try {
             const text = await readBodyWithinLimit(req, MAX_BODY_BYTES)
             if (text === undefined) {
-                return bodyTooLargeResponse()
+                return rejectBodyTooLarge(props.apiToken)
             }
             body = JSON.parse(text)
         } catch {

@@ -16,7 +16,7 @@ import { trackAuthFailure } from './analytics'
 import { resolveClientIp } from './client-ip'
 import { getEdgeClientIpSigningKeys } from './constants'
 import { authFailuresTotal, clientIpResolutionsTotal } from './metrics'
-import { bodyTooLargeResponse, MAX_BODY_BYTES, readBodyWithinLimit } from './request-body'
+import { MAX_BODY_BYTES, readBodyWithinLimit, rejectBodyTooLarge } from './request-body'
 import type { HonoCtx } from './types'
 
 const InitializeParamsSchema = z.object({
@@ -111,7 +111,7 @@ export async function authenticateAndParse(
 
     const bodyText = await preserveBody(c)
     if (bodyText === undefined) {
-        return { error: bodyTooLargeResponse() }
+        return { error: rejectBodyTooLarge(extractBearerToken(c.req.raw)) }
     }
     const props = parseRequestProperties(c.req.raw, parseClientInfo(bodyText), transport)
 

@@ -55,6 +55,7 @@ import {
 import { getPostHogClient } from '@/lib/posthog'
 import { URI_MAP } from '@/resources/ui-apps.generated'
 import { normalizeParamAliases } from '@/tools/cast-helpers'
+import { MAX_TOOL_ARGUMENT_VALUES } from '@/tools/exec'
 
 import { makeToolExecutorState, mockApi, toolFromPreBuilt } from '../shared/test-utils'
 
@@ -609,6 +610,26 @@ describe('ToolExecutor metrics', () => {
                 // `:undefined` is the received type — the param was absent, not
                 // mistyped, which is what separates an alias slip from a coercion bug.
                 $mcp_validation_fields: ['required_field:invalid_type:undefined'],
+            })
+        })
+
+        it('stamps the too_many_values error code on a call above the value cap', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                name: 'list-tool',
+                build() {
+                    return this.base
+                },
+                base: { schema: z.object({ items: z.array(z.string()) }), handler: vi.fn(), _meta: undefined },
+            } as any)
+
+            await executor.handleToolCall(
+                { name: 'list-tool', arguments: { items: new Array(MAX_TOOL_ARGUMENT_VALUES).fill(1) } },
+                makeToolExecutorState([{ name: 'list-tool' }])
+            )
+
+            expect(trackToolCallExtras('list-tool')).toMatchObject({
+                $mcp_error_type: 'validation',
+                $mcp_error_code: 'too_many_values',
             })
         })
 

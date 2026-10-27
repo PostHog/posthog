@@ -1144,6 +1144,7 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
         return {
             errorType: 'validation',
             ...(error.fields.length ? { validationFields: error.fields } : {}),
+            ...(error.code ? { errorCode: error.code } : {}),
         }
     }
     // Agent-recoverable command mistakes, so keep them out of the `internal` rate

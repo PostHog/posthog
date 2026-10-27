@@ -2773,15 +2773,18 @@ describe('exec tool', () => {
                 const listSchema = z.object({ items: z.array(z.object({ key: z.string() })) })
 
                 it.each([
-                    ['rejects an oversized call with one issue', MAX_TOOL_ARGUMENT_VALUES, 1, false],
-                    ['validates a large call under the cap as usual', 1_000, 1_000, false],
-                    ['accepts a valid call under the cap', 1_000, 0, true],
-                ])('%s', (_label, count, expectedIssues, valid) => {
+                    ['rejects an oversized call with one issue', MAX_TOOL_ARGUMENT_VALUES, 1, false, 'too_many_values'],
+                    ['validates a large call under the cap as usual', 1_000, 1_000, false, undefined],
+                    ['accepts a valid call under the cap', 1_000, 0, true, undefined],
+                ])('%s', (_label, count, expectedIssues, valid, expectedCode) => {
                     const items = Array.from({ length: count }, () => (valid ? { key: 'a' } : 1))
                     const { validation } = validateToolArguments(listSchema, { items })
 
                     expect(validation.success).toBe(valid)
                     expect(validation.error?.issues.length ?? 0).toBe(expectedIssues)
+                    expect(validation.error && describeValidationError(validation.error, listSchema).code).toBe(
+                        expectedCode
+                    )
                 })
             })
 

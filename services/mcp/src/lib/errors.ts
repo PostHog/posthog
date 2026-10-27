@@ -189,11 +189,14 @@ export class PostHogValidationError extends Error {
 export class ToolInputValidationError extends Error {
     /** Value-free descriptors of the rejection for telemetry. */
     public readonly fields: string[]
+    /** Machine-readable reason for telemetry, when the rejection has one. */
+    public readonly code: string | undefined
 
-    constructor(message: string, detail?: { fields?: string[] }) {
+    constructor(message: string, detail?: { fields?: string[]; code?: string }) {
         super(message)
         this.name = 'ToolInputValidationError'
         this.fields = detail?.fields ?? []
+        this.code = detail?.code
     }
 }
 

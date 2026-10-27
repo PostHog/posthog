@@ -1,5 +1,5 @@
 import { setupServer } from 'msw/node'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
 import { createApp } from '@/hono/app'
 import type { RedisLike } from '@/hono/cache/RedisCache'
@@ -94,7 +94,8 @@ defineSessionTrackingTests('Hono', harness)
 defineStatelessProtocolTests('Hono', harness)
 
 describe('Hono request body limit', () => {
-    it('stops reading a streamed body once it passes the size cap', async () => {
+    it('stops reading a streamed body once it passes the size cap, and logs the rejection', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
         const chunk = new Uint8Array(256 * 1024).fill(0x20)
         let sent = 0
         const body = new ReadableStream<Uint8Array>({
@@ -121,5 +122,7 @@ describe('Hono request body limit', () => {
 
         expect(res.status).toBe(200)
         expect(await res.json()).toMatchObject({ error: { code: -32600 } })
+        expect(warn).toHaveBeenCalledWith('[RequestBody] body too large', expect.stringContaining('"token":"****oken"'))
+        warn.mockRestore()
     })
 })

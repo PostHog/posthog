@@ -1078,6 +1078,8 @@ export function repairToolArguments(
 // that declares a `.max()`. So a large invalid call costs memory in proportion to its size.
 // The 1 MiB body limit in the dispatcher bounds the cost of counting the values.
 export const MAX_TOOL_ARGUMENT_VALUES = 50_000
+// `$mcp_error_code` on the errored tool call, so an alert can count calls that hit the cap.
+export const TOO_MANY_VALUES_CODE = 'too_many_values'
 
 export interface ToolArgumentValidation<S extends ZodObjectAny> {
     /** The arguments that were validated: the repaired ones when a repair ran. */
@@ -1096,6 +1098,7 @@ export function validateToolArguments<S extends ZodObjectAny>(
                 code: 'custom',
                 path: [],
                 message: `the arguments hold more than ${MAX_TOOL_ARGUMENT_VALUES} values; split the work into smaller calls`,
+                params: { reason: TOO_MANY_VALUES_CODE },
             },
         ]) as z.ZodError<z.output<S>>
         return { input, validation: { success: false, error } }
@@ -1728,7 +1731,7 @@ export function describeApiValidationError(attr: string | undefined, code: strin
  * true of the field paths as well: a key the schema never declared belongs to the
  * caller, so it is masked rather than recorded (see `normalizeDescriptorPath`).
  */
-export function describeValidationError(error: z.ZodError, schema: z.ZodType): { fields: string[] } {
+export function describeValidationError(error: z.ZodError, schema: z.ZodType): { fields: string[]; code?: string } {
     const declaredNames = declaredPropertyNames(schema)
     const fields = [
         ...new Set(
@@ -1744,7 +1747,10 @@ export function describeValidationError(error: z.ZodError, schema: z.ZodType): {
             })
         ),
     ].slice(0, MAX_VALIDATION_DESCRIPTORS)
-    return { fields }
+    const tooManyValues = error.issues.some(
+        (issue) => issue.code === 'custom' && issue.params?.['reason'] === TOO_MANY_VALUES_CODE
+    )
+    return { fields, ...(tooManyValues ? { code: TOO_MANY_VALUES_CODE } : {}) }
 }
 
 const PARAMETER_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/
