@@ -12,6 +12,7 @@ from typing import Any
 
 import click
 
+from ..worktrees import worktree_source
 from . import mutagen
 from .cli import _preferred_region, devbox_clone, devbox_start, resolve_workspace_name
 from .coder import (
@@ -28,11 +29,15 @@ from .coder import (
     region_from_workspace_name,
 )
 from .config import (
+    WORKTREE_AUTO_SOURCES,
     WORKTREE_BOX_CLEANUP_ACTIONS,
+    clear_worktree_auto_sources,
     clear_worktree_box_cleanup,
     load_worktree_boxes,
     record_worktree_box,
+    save_worktree_auto_sources,
     save_worktree_box_cleanup,
+    saved_worktree_auto_sources,
 )
 from .sync import _REMOTE_REPO_PATH, _detect_local_posthog_checkout, ensure_sync_session
 
@@ -40,6 +45,9 @@ CODER_NAME_MAX_LENGTH = 32
 _HASH_LENGTH = 4
 _BRANCH_PREFIXES_TO_DROP = ("worktree-",)
 _RESERVED_SUFFIXES = tuple(suffix for suffix in REGION_NAME_SUFFIXES.values() if suffix)
+_AUTO_OFF = "off"
+_AUTO_LOG_NAME = "hogli-devbox-worktree.log"
+_SUBAGENT_WORKTREE_PREFIX = "agent-"
 
 
 def label_budget(username: str, region: str) -> int:
@@ -82,6 +90,46 @@ def _current_branch(root: Path) -> str:
     result = subprocess.run(["git", "symbolic-ref", "--short", "-q", "HEAD"], cwd=root, capture_output=True, text=True)
     branch = result.stdout.strip() if result.returncode == 0 else ""
     return branch or root.name
+
+
+def parse_auto_sources(value: str) -> tuple[str, ...]:
+    if value.strip() == _AUTO_OFF:
+        return ()
+    sources = tuple(dict.fromkeys(source.strip() for source in value.split(",") if source.strip()))
+    unknown = [source for source in sources if source not in WORKTREE_AUTO_SOURCES]
+    if unknown or not sources:
+        raise click.BadParameter(
+            f"Use a comma-separated list of {', '.join(WORKTREE_AUTO_SOURCES)}, or '{_AUTO_OFF}'.",
+            param_hint="--auto",
+        )
+    return sources
+
+
+def should_auto_provision(root: Path, source: str, enabled: frozenset[str]) -> bool:
+    # A Claude subagent worktree lives for one task, and a fan-out would create one box per agent.
+    if source == "claude" and root.name.startswith(_SUBAGENT_WORKTREE_PREFIX):
+        return False
+    return source in enabled
+
+
+def _save_auto_sources(value: str) -> None:
+    sources = parse_auto_sources(value)
+    if not sources:
+        clear_worktree_auto_sources()
+        click.echo("Turned off automatic worktree boxes.")
+        return
+    save_worktree_auto_sources(sources)
+    click.echo(
+        f"New worktrees from {', '.join(sources)} now get their own devbox. "
+        "The husky post-checkout hook starts `hogli devbox:worktree` in the background when one is created."
+    )
+
+
+def _git_dir(root: Path) -> Path:
+    result = subprocess.run(
+        ["git", "rev-parse", "--absolute-git-dir"], cwd=root, capture_output=True, text=True, check=True
+    )
+    return Path(result.stdout.strip())
 
 
 def _app_url(workspace_name: str) -> str:
@@ -155,6 +203,16 @@ def _resolve_target(
     default=None,
     help="Save what `hogli worktrees:clean` does with a worktree's devbox when it removes the worktree.",
 )
+@click.option(
+    "--auto",
+    "auto_sources",
+    default=None,
+    metavar="SOURCES",
+    help=(
+        "Save which new worktrees get a devbox automatically, as a comma-separated list of "
+        f"{', '.join(WORKTREE_AUTO_SOURCES)}. 'off' turns it off. Only saves the setting."
+    ),
+)
 @click.option("--dry-run", is_flag=True, help="Print the plan without changing anything")
 @click.option("-y", "--yes", is_flag=True, help="Skip the clone confirmation prompt")
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
@@ -165,10 +223,15 @@ def devbox_worktree(
     clone_from: str | None,
     start_app: bool | None,
     on_clean: str | None,
+    auto_sources: str | None,
     dry_run: bool,
     yes: bool,
     verbose: bool,
 ) -> None:
+    if auto_sources is not None:
+        _save_auto_sources(auto_sources)
+        return
+
     root = _detect_local_posthog_checkout()
     if not _is_linked_worktree(root):
         _fail(
@@ -224,3 +287,28 @@ def devbox_worktree(
     ensure_sync_session(target.workspace_name, list_user_workspaces(), root, verbose=verbose)
     click.echo()
     click.echo(f"App URL, once the stack runs on the box: {_app_url(target.workspace_name)}")
+
+
+@click.command(
+    name="devbox:worktree:auto",
+    help="Start devbox:worktree in the background for this new worktree, if `devbox:worktree --auto` covers it",
+)
+def devbox_worktree_auto() -> None:
+    enabled = saved_worktree_auto_sources()
+    if not enabled:
+        return
+    root = _detect_local_posthog_checkout()
+    if not _is_linked_worktree(root) or not should_auto_provision(root, worktree_source(root), enabled):
+        return
+
+    log_path = _git_dir(root) / _AUTO_LOG_NAME
+    with log_path.open("ab") as log:
+        subprocess.Popen(
+            [str(root / "bin" / "hogli"), "devbox:worktree", "--yes"],
+            cwd=root,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    click.echo(f"hogli: creating a devbox for this worktree in the background. Log: {log_path}")

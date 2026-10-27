@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import json
 import fcntl
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TypedDict
@@ -17,11 +17,13 @@ class DevboxConfig(TypedDict, total=False):
     dotfiles_uri: str
     region: str
     worktree_box_cleanup: str
+    worktree_auto_box: str
 
 
-_PERSISTED_FIELDS = ("git_name", "git_email", "dotfiles_uri", "region", "worktree_box_cleanup")
+_PERSISTED_FIELDS = ("git_name", "git_email", "dotfiles_uri", "region", "worktree_box_cleanup", "worktree_auto_box")
 
 WORKTREE_BOX_CLEANUP_ACTIONS = ("stop", "delete")
+WORKTREE_AUTO_SOURCES = ("claude", "codex", "posthog-code", "phw", "other")
 
 
 def get_config_path() -> Path:
@@ -148,6 +150,26 @@ def clear_worktree_box_cleanup(config: DevboxConfig | None = None) -> DevboxConf
 def saved_worktree_box_cleanup() -> str | None:
     action = load_config().get("worktree_box_cleanup")
     return action if action in WORKTREE_BOX_CLEANUP_ACTIONS else None
+
+
+def save_worktree_auto_sources(sources: Sequence[str]) -> DevboxConfig:
+    config = load_config()
+    config["worktree_auto_box"] = ",".join(sources)
+    save_config(config)
+    return config
+
+
+def clear_worktree_auto_sources(config: DevboxConfig | None = None) -> DevboxConfig:
+    if config is None:
+        config = load_config()
+    config.pop("worktree_auto_box", None)
+    save_config(config)
+    return config
+
+
+def saved_worktree_auto_sources() -> frozenset[str]:
+    saved = load_config().get("worktree_auto_box", "")
+    return frozenset(source.strip() for source in saved.split(",")) & frozenset(WORKTREE_AUTO_SOURCES)
 
 
 def load_worktree_boxes() -> dict[str, str]:

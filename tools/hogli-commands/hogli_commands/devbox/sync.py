@@ -97,27 +97,18 @@ def decide_box_checkout(local: GitHead, box: BoxGitState, requested: bool | None
     return BoxCheckoutAction.CHECKOUT
 
 
-def find_local_posthog_checkout() -> Path | None:
-    """Return the local PostHog checkout root above cwd, or ``None`` outside one.
+def _detect_local_posthog_checkout() -> Path:
+    """Find the local PostHog checkout root by walking up from cwd.
 
     A checkout is identified by a co-located ``hogli.yaml`` and ``.git``
-    at the same level, so a git worktree (whose ``.git`` is a file) counts.
+    directory at the same level. Bails with a hint if we can't find one --
+    running ``hogli devbox:sync`` from anywhere outside the repo is almost
+    certainly a mistake.
     """
     cwd = Path.cwd().resolve()
     for candidate in (cwd, *cwd.parents):
         if (candidate / "hogli.yaml").is_file() and (candidate / ".git").exists():
             return candidate
-    return None
-
-
-def _detect_local_posthog_checkout() -> Path:
-    """Find the local PostHog checkout root, bailing with a hint outside one.
-
-    Running ``hogli devbox:sync`` from anywhere outside the repo is almost
-    certainly a mistake.
-    """
-    if (checkout := find_local_posthog_checkout()) is not None:
-        return checkout
     _fail(
         "Could not find a PostHog checkout above the current directory.\n"
         "Run `hogli devbox:sync` from inside a `posthog` clone."
@@ -418,22 +409,6 @@ def create_sync_session(
         config_path=config_path,
         labels=mutagen.workspace_labels(name),
     )
-
-
-def list_sync_sessions(name: str) -> list[dict[str, Any]]:
-    return [
-        _session_summary(session)
-        for session in mutagen.sync_list(label_selector=mutagen.workspace_label_selector(name))
-    ]
-
-
-def flush_sync_sessions(name: str) -> list[dict[str, Any]]:
-    mutagen.sync_flush(mutagen.workspace_label_selector(name))
-    return list_sync_sessions(name)
-
-
-def terminate_sync_sessions(name: str) -> None:
-    mutagen.sync_terminate(mutagen.workspace_label_selector(name))
 
 
 def _ensure_workspace_running(name: str, workspaces: list[dict[str, Any]] | None) -> None:

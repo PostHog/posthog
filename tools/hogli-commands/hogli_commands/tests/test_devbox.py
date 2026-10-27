@@ -17,7 +17,6 @@ from unittest.mock import MagicMock, patch
 from click.testing import CliRunner
 from hogli.cli import cli
 from hogli_commands.devbox import (
-    agent as devbox_agent,
     cli as devbox_cli,
     coder,
     config as devbox_config,
@@ -928,6 +927,25 @@ class TestWorktreeLabel:
             devbox_worktree.derive_label("feat/x", 3)
 
 
+class TestWorktreeAutoProvision:
+    @pytest.mark.parametrize(
+        "worktree_name, source, enabled, expected",
+        [
+            ("zesty-gliding-bunny", "claude", {"claude"}, True),
+            ("agent-afae8d7b", "claude", {"claude"}, False),
+            ("agent-afae8d7b", "phw", {"phw"}, True),
+            ("feat-x", "codex", {"claude", "phw"}, False),
+            ("feat-x", "other", {"other"}, True),
+        ],
+        ids=["claude-session", "claude-subagent", "phw-named-agent", "source-not-enabled", "plain-git-worktree"],
+    )
+    def test_only_enabled_sources_get_a_box_and_never_subagents(
+        self, worktree_name: str, source: str, enabled: set[str], expected: bool
+    ) -> None:
+        root = Path("/work") / worktree_name
+        assert devbox_worktree.should_auto_provision(root, source, frozenset(enabled)) is expected
+
+
 class TestDevboxWorktreeCommand:
     @pytest.fixture
     def worktree_root(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -1069,34 +1087,6 @@ class TestWorkspaceRegion:
     )
     def test_get_workspace_region(self, workspace: dict[str, object], expected: str | None) -> None:
         assert coder.get_workspace_region(workspace) == expected
-
-
-class TestPreviewApp:
-    @pytest.mark.parametrize(
-        "app, expected_url",
-        [
-            (
-                {"slug": "app", "subdomain": True, "subdomain_name": "app--box--alice", "health": "healthy"},
-                "https://app--box--alice.coder.example.com",
-            ),
-            (
-                {"slug": "app", "subdomain": False, "health": "healthy"},
-                "https://coder.example.com/@alice/box.dev/apps/app/",
-            ),
-        ],
-        ids=["subdomain", "path"],
-    )
-    def test_url_follows_the_app_routing_mode(
-        self, monkeypatch: pytest.MonkeyPatch, app: dict[str, object], expected_url: str
-    ) -> None:
-        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
-        workspace = {
-            "name": "box",
-            "owner_name": "alice",
-            "latest_build": {"resources": [{"agents": [{"name": "dev", "apps": [app]}]}]},
-        }
-
-        assert coder.get_preview_app(workspace) == coder.PreviewApp(url=expected_url, health="healthy")
 
 
 def _parse_parameter_flags(args: list[str]) -> dict[str, str]:
@@ -2059,7 +2049,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(
             devbox_cli,
             "_start_existing_workspace",
-            lambda name, ws, start_app=None, verbose=False, show_connection_info=True: resumed.append(name),
+            lambda name, ws, start_app=None, verbose=False: resumed.append(name),
         )
         monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
@@ -2098,7 +2088,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(
             devbox_cli,
             "_start_existing_workspace",
-            lambda name, ws, start_app=None, verbose=False, show_connection_info=True: resumed.append(name),
+            lambda name, ws, start_app=None, verbose=False: resumed.append(name),
         )
         monkeypatch.setattr(devbox_cli, "create_workspace", _stub_create_workspace(captured))
 
@@ -4455,115 +4445,6 @@ class TestDevboxSyncCommand:
         result = runner.invoke(cli, ["devbox:sync", "--pause", "--resume"])
         assert result.exit_code != 0
         assert "at most one" in result.output
-
-
-def _forbid(step: str) -> Callable[..., None]:
-    def fail(*args: object, **kwargs: object) -> None:
-        raise AssertionError(f"{step} must not run")
-
-    return fail
-
-
-class TestDevboxAgentCommand:
-    @pytest.mark.parametrize(
-        "extra_args, checkout, expected_sync_step",
-        [
-            pytest.param([], Path("/work/posthog-wt"), "Then stop the mirror", id="in-checkout"),
-            pytest.param(["--live-sync"], Path("/work/posthog-wt"), "Keep the mirror running", id="live-sync"),
-            pytest.param([], None, "Skip the mirror: the current directory is not in a PostHog checkout", id="outside"),
-            pytest.param(["--no-sync"], Path("/work/posthog-wt"), "Skip the mirror (--no-sync)", id="no-sync"),
-        ],
-    )
-    def test_dry_run_prints_plan_without_touching_the_box(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        extra_args: list[str],
-        checkout: Path | None,
-        expected_sync_step: str,
-    ) -> None:
-        monkeypatch.setattr(devbox_agent, "find_local_posthog_checkout", lambda: checkout)
-        monkeypatch.setattr(devbox_agent, "get_coder_url", lambda: "https://coder.example.com")
-        for step in ("ensure_runtime_ready", "start_or_create_workspace", "run_remote_script", "sync_session_exists"):
-            monkeypatch.setattr(devbox_agent, step, _forbid(step))
-
-        result = runner.invoke(cli, ["devbox:agent", "--dry-run", "-n", "api", *extra_args, "Fix the flaky test"])
-
-        assert result.exit_code == 0, result.output
-        assert "Check that https://coder.example.com is reachable." in result.output
-        assert "Start or resume devbox 'api'" in result.output
-        assert expected_sync_step in result.output
-        assert "Launch Claude Code in ~/posthog" in result.output
-        assert "Prompt: Fix the flaky test" in result.output
-
-    @pytest.mark.parametrize(
-        "extra_args, mirror_source, expected_exit, expected_sync_calls",
-        [
-            pytest.param([], "/work/posthog-wt", 0, ["flush", "terminate"], id="reuses-mirror-of-this-checkout"),
-            pytest.param([], "/work/posthog-main", 1, [], id="refuses-mirror-of-another-checkout"),
-            pytest.param(["--no-sync"], "/work/posthog-main", 0, ["terminate"], id="no-sync-stops-running-mirror"),
-        ],
-    )
-    def test_existing_mirror_handling(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        extra_args: list[str],
-        mirror_source: str,
-        expected_exit: int,
-        expected_sync_calls: list[str],
-    ) -> None:
-        sync_calls: list[str] = []
-        launched: list[str] = []
-        monkeypatch.setattr(devbox_agent, "find_local_posthog_checkout", lambda: Path("/work/posthog-wt"))
-        monkeypatch.setattr(devbox_agent, "ensure_runtime_ready", lambda: None)
-        monkeypatch.setattr(devbox_agent, "start_or_create_workspace", lambda *a, **kw: "devbox-test-user-api")
-        monkeypatch.setattr(
-            devbox_agent,
-            "list_user_workspaces",
-            lambda: [{"name": "devbox-test-user-api", "latest_build": {"status": "running"}}],
-        )
-        monkeypatch.setattr(devbox_agent, "_workspace_arg_suffix", lambda name: " api")
-        monkeypatch.setattr(devbox_agent, "sync_session_exists", lambda name, verbose=False: True)
-        monkeypatch.setattr(
-            devbox_agent,
-            "list_sync_sessions",
-            lambda name: [{"alpha": mirror_source, "conflicts": 0, "conflictPaths": []}],
-        )
-        monkeypatch.setattr(
-            devbox_agent,
-            "flush_sync_sessions",
-            lambda name: sync_calls.append("flush") or [{"alpha": mirror_source, "conflicts": 0, "conflictPaths": []}],
-        )
-        monkeypatch.setattr(devbox_agent, "terminate_sync_sessions", lambda name: sync_calls.append("terminate"))
-        monkeypatch.setattr(devbox_agent, "create_sync_session", _forbid("create_sync_session"))
-        monkeypatch.setattr(devbox_agent, "server_supports_user_secrets", lambda: False)
-        monkeypatch.setattr(devbox_agent, "coder_ssh_alias_configured", lambda name: True)
-        monkeypatch.setattr(
-            devbox_agent,
-            "run_remote_script",
-            lambda name, script, timeout: launched.append(name) or subprocess.CompletedProcess([], 0, "mode=tmux", ""),
-        )
-        monkeypatch.setattr(devbox_agent, "get_preview_app", lambda ws: None)
-
-        result = runner.invoke(cli, ["devbox:agent", "-n", "api", *extra_args, "Fix the flaky test"])
-
-        assert result.exit_code == expected_exit, result.output
-        assert sync_calls == expected_sync_calls
-        assert launched == (["devbox-test-user-api"] if expected_exit == 0 else [])
-
-    def test_unreachable_box_fails_with_doctor_hint_before_starting(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        def unreachable() -> None:
-            coder._fail("Cannot reach https://coder.example.com over the tailnet.")
-
-        monkeypatch.setattr(devbox_agent, "find_local_posthog_checkout", lambda: Path("/work/posthog-wt"))
-        monkeypatch.setattr(devbox_agent, "ensure_runtime_ready", unreachable)
-        for step in ("start_or_create_workspace", "run_remote_script", "sync_session_exists"):
-            monkeypatch.setattr(devbox_agent, step, _forbid(step))
-
-        result = runner.invoke(cli, ["devbox:agent", "Fix the flaky test"])
-
-        assert result.exit_code == 1, result.output
-        assert "Cannot reach https://coder.example.com" in result.output
-        assert "hogli devbox:doctor" in result.output
 
 
 class TestDevboxLifecycleSyncIntegration:

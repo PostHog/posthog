@@ -68,6 +68,8 @@ Run `hogli devbox:worktree` from a linked worktree to give it its own labeled bo
 
 `hogli worktrees:clean --mode full --stop-boxes` (or `--delete-boxes`) also stops (or deletes) the box of each worktree it removes. Save a default with `hogli devbox:worktree --on-clean stop|delete|keep`, and override it with `--keep-boxes`. Only boxes that `devbox:worktree` set up are touched.
 
+To give every new worktree a box, run `hogli devbox:worktree --auto claude,phw` once with the worktree sources you want (`claude`, `codex`, `posthog-code`, `phw`, `other`). The husky `post-checkout` hook then runs `devbox:worktree` in the background after `git worktree add`, including for `claude -w`. Claude subagent worktrees are skipped. Turn it off with `--auto off`.
+
 ## Prerequisites
 
 - Access to the PostHog Tailscale tailnet (on macOS, the Tailscale app bundle CLI is detected automatically if `tailscale` isn't on PATH)

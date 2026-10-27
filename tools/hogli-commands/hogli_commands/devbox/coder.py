@@ -1407,16 +1407,6 @@ curl -sS -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/met
 """
 
 
-def run_remote_script(workspace_name: str, script: str, *, timeout: float) -> subprocess.CompletedProcess[str]:
-    encoded = base64.b64encode(script.encode()).decode()
-    return subprocess.run(
-        ["ssh", _ssh_host_alias(workspace_name), f"echo {encoded} | base64 -d | bash"],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-    )
-
-
 def get_source_instance_id(workspace_name: str, *, timeout: int = INSTANCE_ID_TIMEOUT) -> str:
     """Return the source devbox's own EC2 instance id (``i-...``), read from IMDS.
 
@@ -1428,8 +1418,14 @@ def get_source_instance_id(workspace_name: str, *, timeout: int = INSTANCE_ID_TI
     if not coder_ssh_alias_configured(workspace_name):
         _fail(f"ssh alias for '{workspace_name}' is not configured. {RUNTIME_SETUP_HINT}")
 
+    encoded = base64.b64encode(_INSTANCE_ID_SCRIPT.encode()).decode()
     try:
-        result = run_remote_script(workspace_name, _INSTANCE_ID_SCRIPT, timeout=timeout)
+        result = subprocess.run(
+            ["ssh", _ssh_host_alias(workspace_name), f"echo {encoded} | base64 -d | bash"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
     except subprocess.TimeoutExpired:
         _fail(f"Timed out after {timeout}s reading the source devbox's instance id.")
 
@@ -1746,32 +1742,6 @@ def logs_replace(name: str, follow: bool) -> None:
         args.append("--follow")
 
     _run_or_exit(args)
-
-
-PREVIEW_APP_SLUG = "app"
-
-
-@dataclass(frozen=True)
-class PreviewApp:
-    url: str
-    health: str
-
-
-def get_preview_app(workspace: dict[str, Any]) -> PreviewApp | None:
-    for agent in _agents(workspace):
-        for app in agent.get("apps") or []:
-            if app.get("slug") != PREVIEW_APP_SLUG:
-                continue
-            health = str(app.get("health") or "unknown")
-            if app.get("subdomain") is False:
-                path = f"@{workspace.get('owner_name')}/{workspace.get('name')}.{agent.get('name')}"
-                return PreviewApp(url=f"{get_coder_url().rstrip('/')}/{path}/apps/{PREVIEW_APP_SLUG}/", health=health)
-            host = urllib.parse.urlparse(get_coder_url()).hostname
-            subdomain = app.get("subdomain_name") or (
-                f"{PREVIEW_APP_SLUG}--{workspace.get('name')}--{workspace.get('owner_name')}"
-            )
-            return PreviewApp(url=f"https://{subdomain}.{host}", health=health)
-    return None
 
 
 def open_in_browser(name: str) -> None:

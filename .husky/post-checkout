@@ -16,6 +16,18 @@
 HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [ -f "$HOOK_DIR/../bin/helpers/worktree-borrow.sh" ]; then
     . "$HOOK_DIR/../bin/helpers/worktree-borrow.sh"
+
+    # `git worktree add` checks out from the all-zeros ref. The grep keeps
+    # Python off the path of everyone who has not run `devbox:worktree --auto`.
+    case "$1" in
+        *[!0]*) ;;
+        *)
+            if grep -qs '"worktree_auto_box"' "$HOME/.config/posthog/hogli_devbox.json"; then
+                (posthog_worktree_borrow && bin/hogli devbox:worktree:auto) || echo "husky: couldn't start the automatic devbox. Run 'hogli devbox:worktree'."
+            fi
+            ;;
+    esac
+
     posthog_worktree_borrow node
 fi
 

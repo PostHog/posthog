@@ -66,6 +66,15 @@ def _worktree_roots(repo_root: Path) -> list[tuple[str, Path]]:
     ]
 
 
+def worktree_source(path: Path) -> str:
+    """Name the tool whose worktree root holds *path*, or ``other`` for a worktree made elsewhere."""
+    resolved = _resolve(path)
+    for source, root in _worktree_roots(_resolve_repo(str(path))):
+        if _is_under(resolved, root):
+            return source
+    return "other"
+
+
 # Dependency/build-artifact directory names removed in --mode deps. Matched at
 # any depth and never descended into once matched, so walking stays cheap.
 DEPS_RECURSIVE_DIRS = frozenset(
