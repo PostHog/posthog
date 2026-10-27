@@ -809,12 +809,13 @@ async def _import_data_with_reporting(
 
             try:
                 pipeline_job_inputs = await SourceInputsStore.aload(model.pipeline)
+                config = new_source.parse_config(pipeline_job_inputs)
             except SourceCredentialsMissingError as e:
+                # The credentials row of a stripped source is lost. Only the user can fix it, by entering the
+                # credentials again, so a retry cannot help.
                 await handle_non_retryable_error(
                     job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, str(e), logger, e
                 )
-            try:
-                config = new_source.parse_config(pipeline_job_inputs)
             except CredentialsServiceFailure as e:
                 # A source whose config carries a PostHog-owned credential resolves it here, so a
                 # failure at this point is ours and not a corrupt `job_inputs`. Route it through the
