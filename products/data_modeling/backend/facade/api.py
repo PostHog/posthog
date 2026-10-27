@@ -56,6 +56,7 @@ _LAZY = {
     "saved_query_node_ids": "logic.saved_query_reads",
     "upstream_table_refs": "logic.saved_query_reads",
     "upstream_saved_query_ids": "logic.saved_query_reads",
+    "upstream_tables_being_replaced": "logic.upstream_reloads",
     "unbuilt_upstream_saved_query_ids": "logic.saved_query_reads",
     "last_query_change_at": "logic.saved_query_reads",
     "completed_full_refresh_workflow_ids": "logic.saved_query_reads",

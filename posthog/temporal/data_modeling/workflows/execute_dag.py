@@ -457,6 +457,11 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                         result: MaterializeViewWorkflowResult = await handle
                         if trino_skip is not None and result.trino_materialized is False:
                             skipped_trino_jobs.append(trino_skip)
+                        if result.skip_reason is not None:
+                            # The node keeps its previous complete data, so downstream nodes still run.
+                            return NodeResult(
+                                node_id=node_id, success=True, skipped=True, skip_reason=result.skip_reason
+                            )
                         if result.quality_blocking_failures is not None and result.quality_blocking_failures > 0:
                             temporalio.workflow.logger.warning(
                                 f"Node {node_id} materialized but was not published: "

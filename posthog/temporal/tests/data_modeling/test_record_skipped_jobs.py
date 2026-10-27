@@ -6,6 +6,10 @@ import pytest_asyncio
 from temporalio.testing import ActivityEnvironment
 
 from posthog.sync import database_sync_to_async
+from posthog.temporal.data_modeling.activities.check_upstream_reloads import (
+    CheckUpstreamReloadsInputs,
+    check_upstream_reloads_activity,
+)
 from posthog.temporal.data_modeling.activities.create_data_modeling_job import (
     RecordSkippedDataModelingJobsInputs,
     SkippedDataModelingNode,
@@ -18,8 +22,15 @@ from products.data_modeling.backend.facade.models import (
     DataModelingJobEngine,
     DataModelingJobStatus,
     DataWarehouseSavedQuery,
+    Edge,
     Node,
     NodeType,
+)
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
 )
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -125,3 +136,61 @@ class TestRecordSkippedDataModelingJobs:
             lambda: DataModelingJob.objects.filter(saved_query_id=blocked_query.id).count()
         )()
         assert count == 1
+
+
+class TestCheckUpstreamReloads:
+    @pytest.mark.parametrize("skipped_job_engine", [DataModelingJobEngine.CLICKHOUSE, None])
+    async def test_a_running_full_refresh_upstream_writes_a_skip_row_naming_the_table(
+        self, ateam, adag_local, skipped_job_engine
+    ):
+        node, saved_query = await _make_node(ateam, adag_local, "revenue_daily")
+
+        def _start_full_refresh() -> None:
+            table = DataWarehouseTable.objects.create(name="stripe_charges", team=ateam)
+            source = ExternalDataSource.objects.create(
+                team=ateam, source_id="source_id", connection_id="connection_id", source_type="Stripe"
+            )
+            schema = ExternalDataSchema.objects.create(name="Charge", team=ateam, source=source, table=table)
+            table_node = Node.objects.create(
+                team=ateam,
+                dag=adag_local,
+                name="stripe_charges",
+                type=NodeType.TABLE,
+                properties={"origin": "warehouse", "warehouse_table_id": str(table.id)},
+            )
+            Edge.objects.create(team=ateam, dag=adag_local, source=table_node, target=node)
+            ExternalDataJob.objects.create(
+                team=ateam,
+                pipeline=source,
+                schema=schema,
+                status=ExternalDataJob.Status.RUNNING,
+                schema_snapshot={"sync_type": "full_refresh"},
+            )
+
+        await database_sync_to_async(_start_full_refresh)()
+        env = ActivityEnvironment()
+        env.info = dataclasses.replace(env.info, workflow_id=WORKFLOW_ID, workflow_run_id="run-1")
+
+        result = await env.run(
+            check_upstream_reloads_activity,
+            CheckUpstreamReloadsInputs(
+                team_id=ateam.pk,
+                dag_id=str(adag_local.id),
+                node_id=str(node.id),
+                skipped_job_engine=skipped_job_engine,
+            ),
+        )
+
+        reason = (
+            "Skipped because a sync is loading the upstream table stripe_charges again from the start. "
+            "The view keeps its previous data and runs again when the sync finishes."
+        )
+        assert result.reason == reason
+        jobs = await database_sync_to_async(
+            lambda: list(DataModelingJob.objects.filter(saved_query_id=saved_query.id).values("status", "error"))
+        )()
+        if skipped_job_engine is None:
+            assert result.skipped_job_id is None
+            assert jobs == []
+        else:
+            assert jobs == [{"status": DataModelingJobStatus.SKIPPED, "error": reason}]

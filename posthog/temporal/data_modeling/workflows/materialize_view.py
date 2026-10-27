@@ -15,6 +15,8 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.data_modeling.activities import (
+    CheckUpstreamReloadsInputs,
+    CheckUpstreamReloadsResult,
     ClearCDPStagingInputs,
     CreateDataModelingJobInputs,
     FailMaterializationInputs,
@@ -31,6 +33,7 @@ from posthog.temporal.data_modeling.activities import (
     SucceedMaterializationInputs,
     SucceedMaterializationResult,
     check_managed_warehouse_shadow_eligibility_activity,
+    check_upstream_reloads_activity,
     clear_cdp_staging_activity,
     create_data_modeling_job_activity,
     fail_materialization_activity,
@@ -91,6 +94,11 @@ NON_RETRYABLE_ERRORS = [
 ]
 
 CLICKHOUSE_RUN_WITHOUT_TRINO_SHADOW_PATCH = "data-modeling-clickhouse-run-without-trino-shadow"
+WAIT_FOR_UPSTREAM_RELOADS_PATCH = "data-modeling-wait-for-upstream-reloads"
+UPSTREAM_RELOAD_RECHECK_INTERVAL = dt.timedelta(minutes=30)
+# A full refresh can take most of a day. A table that is loaded again without a break must still
+# get a materialization, so after this long the wait ends and the run uses the partial table.
+MAX_UPSTREAM_RELOAD_WAIT = dt.timedelta(hours=24)
 
 
 def _is_cancellation(error: BaseException) -> bool:
@@ -120,6 +128,8 @@ class MaterializeViewWorkflowInputs:
     dangerously_execute_raw_sql: bool = False
     manually_triggered_by_id: int | None = None
     skip_trino: bool = False
+    # A follow-up run started by a run that skipped for an upstream reload. It waits for the reload.
+    wait_for_upstream_reloads: bool = False
     # Old workflow payloads contain this field, so removing it would prevent replay after deployment.
     duckgres_only: bool = False
 
@@ -147,6 +157,8 @@ class MaterializeViewWorkflowResult:
             not run one again.
         trino_materialized: Whether this run materialized the node in Trino. None means it made
             no Trino attempt, as for every ClickHouse run.
+        skip_reason: Why the run skipped without materializing, because a sync is loading an
+            upstream table again. None for a run that materialized or failed.
     """
 
     job_id: str
@@ -156,6 +168,7 @@ class MaterializeViewWorkflowResult:
     quality_blocking_failures: int | None = None
     quality_audited: bool = False
     trino_materialized: bool | None = None
+    skip_reason: str | None = None
 
 
 @frozen
@@ -231,6 +244,12 @@ class MaterializeViewWorkflow(PostHogWorkflow):
         job_id = None
         managed_warehouse_job_id = None
         managed_warehouse_only = inputs.managed_warehouse_only
+
+        # A person who asks for a run gets it at once, so only automatic runs wait.
+        if inputs.manually_triggered_by_id is None and temporalio.workflow.patched(WAIT_FOR_UPSTREAM_RELOADS_PATCH):
+            skipped = await self._skip_or_wait_for_upstream_reloads(inputs, parent_workflow_id)
+            if skipped is not None:
+                return skipped
 
         # Histories recorded without the patch marker replay the in-workflow shadow below.
         if not managed_warehouse_only and temporalio.workflow.patched(CLICKHOUSE_RUN_WITHOUT_TRINO_SHADOW_PATCH):
@@ -579,6 +598,83 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             rows_materialized=result.row_count if result else 0,
             duration_seconds=result.duration_seconds if result else 0,
             trino_materialized=trino_materialized,
+        )
+
+    async def _skip_or_wait_for_upstream_reloads(
+        self, inputs: MaterializeViewWorkflowInputs, parent_workflow_id: str | None
+    ) -> MaterializeViewWorkflowResult | None:
+        """A result when the run skips because a sync is loading an upstream table, else None.
+
+        A scheduled run skips at once, so it does not hold a DAG slot, and starts one follow-up run
+        per node. The follow-up run waits until the sync finishes, then materializes.
+        """
+        check_inputs = CheckUpstreamReloadsInputs(team_id=inputs.team_id, dag_id=inputs.dag_id, node_id=inputs.node_id)
+        if inputs.wait_for_upstream_reloads:
+            wait_started = temporalio.workflow.now()
+            while True:
+                check = await self._check_upstream_reloads(check_inputs)
+                if check.reason is None:
+                    return None
+                if temporalio.workflow.now() - wait_started >= MAX_UPSTREAM_RELOAD_WAIT:
+                    temporalio.workflow.logger.warning(
+                        "Upstream table is still being loaded again, materializing anyway",
+                        extra=inputs.properties_to_log,
+                    )
+                    return None
+                await temporalio.workflow.sleep(UPSTREAM_RELOAD_RECHECK_INTERVAL)
+
+        engine = MANAGED_WAREHOUSE_ENGINE if inputs.managed_warehouse_only else CLICKHOUSE_ENGINE
+        check = await self._check_upstream_reloads(
+            dataclasses.replace(check_inputs, skipped_job_engine=engine, parent_workflow_id=parent_workflow_id)
+        )
+        if check.reason is None or check.skipped_job_id is None:
+            return None
+        temporalio.workflow.logger.info(
+            "Skipping materialization while an upstream table is being loaded again",
+            extra=inputs.properties_to_log,
+        )
+        get_node_finished_metric("skipped", engine, tier=tier_label(parent_workflow_id), run_mode=UNKNOWN_RUN_MODE).add(
+            1
+        )
+        try:
+            await temporalio.workflow.start_child_workflow(
+                MaterializeViewWorkflow.run,
+                MaterializeViewWorkflowInputs(
+                    team_id=inputs.team_id,
+                    dag_id=inputs.dag_id,
+                    node_id=inputs.node_id,
+                    managed_warehouse_only=inputs.managed_warehouse_only,
+                    dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
+                    wait_for_upstream_reloads=True,
+                ),
+                # One follow-up per node and engine: a later skipped run finds this one still waiting.
+                id=f"materialize-view-after-reload-{engine}-{inputs.node_id}",
+                id_reuse_policy=temporalio.common.WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
+                retry_policy=temporalio.common.RetryPolicy(maximum_attempts=1),
+            )
+        except WorkflowAlreadyStartedError:
+            pass
+        except Exception as e:
+            capture_exception(e)
+            temporalio.workflow.logger.warning(
+                "Could not start the run that waits for the upstream reload",
+                extra={"error": str(e), **inputs.properties_to_log},
+            )
+        return MaterializeViewWorkflowResult(
+            job_id=check.skipped_job_id,
+            node_id=inputs.node_id,
+            rows_materialized=0,
+            duration_seconds=0,
+            skip_reason=check.reason,
+        )
+
+    async def _check_upstream_reloads(self, check_inputs: CheckUpstreamReloadsInputs) -> CheckUpstreamReloadsResult:
+        return await temporalio.workflow.execute_activity(
+            check_upstream_reloads_activity,
+            check_inputs,
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
         )
 
     async def _staged_audit_verdict(

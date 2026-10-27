@@ -20,6 +20,7 @@ exception is ``soft_delete_tables``: consumers may not iterate the model to call
 
 from collections import defaultdict
 from collections.abc import Collection
+from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -46,6 +47,7 @@ from products.warehouse_sources.backend.models.column_statistics import (
 from products.warehouse_sources.backend.models.external_data_job import (
     ExternalDataJob as _ExternalDataJob,
     latest_completed_job_subquery,
+    snapshot_replaces_table,
 )
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema as _ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as _ExternalDataSource
@@ -85,6 +87,7 @@ __all__ = [
     "list_schemas_for_source",
     "list_imported_schema_snapshots",
     "source_locations_for_tables",
+    "tables_being_replaced",
     "get_table",
     "get_queryable_table",
     "resolve_object_by_name",
@@ -405,6 +408,24 @@ def source_locations_for_tables(team_id: int, table_ids: Collection[UUID]) -> di
         table_id: contracts.TableSourceLocation(source_id=source_id, schema_id=schema_id)
         for table_id, source_id, schema_id in rows
     }
+
+
+def tables_being_replaced(team_id: int, table_ids: Collection[UUID], *, started_after: datetime) -> set[UUID]:
+    """The tables a running sync deleted and is loading again, so they hold only part of their rows.
+
+    A sync that merges or appends never empties its table, so it is not counted. Runs that started
+    before ``started_after`` are not counted either, because a run that old has stopped and kept
+    its Running status.
+    """
+    if not table_ids:
+        return set()
+    rows = _ExternalDataJob.objects.filter(
+        team_id=team_id,
+        schema__table_id__in=list(table_ids),
+        status=_ExternalDataJob.Status.RUNNING,
+        created_at__gte=started_after,
+    ).values_list("schema__table_id", "schema_snapshot")
+    return {table_id for table_id, schema_snapshot in rows if snapshot_replaces_table(schema_snapshot)}
 
 
 def get_table(table_id: UUID, team_id: int) -> contracts.DataWarehouseTable:

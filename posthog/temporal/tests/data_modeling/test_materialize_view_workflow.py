@@ -10,6 +10,7 @@ import temporalio.workflow
 from temporalio.exceptions import CancelledError, ChildWorkflowError, WorkflowAlreadyStartedError
 
 from posthog.temporal.data_modeling.activities import (
+    CheckUpstreamReloadsResult,
     FailMaterializationInputs,
     ManagedWarehouseShadowResult,
     MaterializeViewResult,
@@ -20,6 +21,8 @@ from posthog.temporal.data_modeling.activities import (
 )
 from posthog.temporal.data_modeling.activities.enrich_view_semantics import EnrichViewSemanticsInputs
 from posthog.temporal.data_modeling.workflows.materialize_view import (
+    UPSTREAM_RELOAD_RECHECK_INTERVAL,
+    WAIT_FOR_UPSTREAM_RELOADS_PATCH,
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
     _StagedAuditVerdict,
@@ -67,6 +70,8 @@ class TestQualityGateBranching:
         inputs: MaterializeViewWorkflowInputs | None = None,
         execute_activity: AsyncMock | None = None,
         patched: bool = True,
+        upstream_reload_patched: bool = False,
+        now: MagicMock | None = None,
     ) -> tuple:
         execute_activity = execute_activity or AsyncMock(side_effect=activity_results)
         child = (
@@ -83,9 +88,19 @@ class TestQualityGateBranching:
                 patch.object(temporalio.workflow, "start_child_workflow", new=start_child or AsyncMock())
             )
             stack.enter_context(patch.object(temporalio.workflow, "info", return_value=info))
-            stack.enter_context(patch.object(temporalio.workflow, "now", return_value=dt.datetime(2026, 8, 1)))
+            stack.enter_context(
+                patch.object(temporalio.workflow, "now", new=now or MagicMock(return_value=dt.datetime(2026, 8, 1)))
+            )
             stack.enter_context(patch.object(temporalio.workflow, "logger"))
-            stack.enter_context(patch.object(temporalio.workflow, "patched", return_value=patched))
+            stack.enter_context(
+                patch.object(
+                    temporalio.workflow,
+                    "patched",
+                    side_effect=lambda patch_id: (
+                        upstream_reload_patched if patch_id == WAIT_FOR_UPSTREAM_RELOADS_PATCH else patched
+                    ),
+                )
+            )
             stack.enter_context(patch(f"{WORKFLOW_MODULE}.capture_exception"))
             if shadow_handle is not None:
                 stack.enter_context(patch.object(temporalio.workflow, "start_activity", return_value=shadow_handle))
@@ -239,6 +254,94 @@ class TestQualityGateBranching:
         finished = self.metrics["get_node_finished_metric"]
         assert finished.call_args.args == ("failed", "clickhouse")
         assert finished.call_args.kwargs["run_mode"] == expected
+
+    @pytest.mark.parametrize("manually_triggered", [False, True])
+    async def test_a_scheduled_run_skips_while_an_upstream_table_is_loaded_again(
+        self, manually_triggered: bool
+    ) -> None:
+        reason = "Skipped because a sync is loading the upstream table invoices again from the start."
+        results = {
+            "check_upstream_reloads_activity": CheckUpstreamReloadsResult(reason=reason, skipped_job_id="skipped-job"),
+            "create_data_modeling_job_activity": "job-1",
+            "materialize_view_activity": _materialize_result("skip"),
+            "prepare_queryable_table_activity": PrepareQueryableTableResult(
+                storage_delta_mib=None, total_storage_mib=None
+            ),
+        }
+
+        async def execute_activity(activity, *args, **kwargs):
+            return results.get(activity.__name__)
+
+        start_child = AsyncMock()
+        inputs = dataclasses.replace(_inputs(), manually_triggered_by_id=5 if manually_triggered else None)
+        result, executed = await self._run(
+            [],
+            {},
+            inputs=inputs,
+            execute_activity=AsyncMock(side_effect=execute_activity),
+            start_child=start_child,
+            upstream_reload_patched=True,
+        )
+
+        started = [call.args[0].__name__ for call in executed.await_args_list]
+        if manually_triggered:
+            assert "check_upstream_reloads_activity" not in started
+            assert result.skip_reason is None
+            assert result.rows_materialized == 10
+            return
+        assert result.skip_reason == reason
+        assert result.job_id == "skipped-job"
+        assert started == ["check_upstream_reloads_activity"]
+        follow_up = start_child.await_args
+        assert follow_up is not None
+        assert follow_up.args[1] == dataclasses.replace(_inputs(), wait_for_upstream_reloads=True)
+        assert follow_up.kwargs["id"] == "materialize-view-after-reload-clickhouse-node-1"
+        assert follow_up.kwargs["parent_close_policy"] == temporalio.workflow.ParentClosePolicy.ABANDON
+
+    @pytest.mark.parametrize(
+        "reload_checks,expected_sleeps",
+        [
+            (["reloading", "reloading", None], 2),
+            (["reloading"] * 60, 48),
+        ],
+    )
+    async def test_a_follow_up_run_waits_for_the_reload_then_materializes(
+        self, reload_checks: list[str | None], expected_sleeps: int
+    ) -> None:
+        checks = iter(reload_checks)
+        clock = [dt.datetime(2026, 8, 1)]
+
+        async def execute_activity(activity, *args, **kwargs):
+            if activity.__name__ == "check_upstream_reloads_activity":
+                return CheckUpstreamReloadsResult(reason=next(checks))
+            return {
+                "create_data_modeling_job_activity": "job-1",
+                "materialize_view_activity": _materialize_result("skip"),
+                "prepare_queryable_table_activity": PrepareQueryableTableResult(
+                    storage_delta_mib=None, total_storage_mib=None
+                ),
+            }.get(activity.__name__)
+
+        async def sleep(duration: dt.timedelta) -> None:
+            clock[0] += duration
+
+        start_child = AsyncMock()
+        with patch.object(temporalio.workflow, "sleep", new=AsyncMock(side_effect=sleep)) as slept:
+            result, _ = await self._run(
+                [],
+                {},
+                inputs=dataclasses.replace(_inputs(), wait_for_upstream_reloads=True),
+                execute_activity=AsyncMock(side_effect=execute_activity),
+                start_child=start_child,
+                upstream_reload_patched=True,
+                now=MagicMock(side_effect=lambda: clock[0]),
+            )
+
+        assert slept.await_count == expected_sleeps
+        assert all(call.args[0] == UPSTREAM_RELOAD_RECHECK_INTERVAL for call in slept.await_args_list)
+        assert result.skip_reason is None
+        assert result.rows_materialized == 10
+        start_child.assert_not_awaited()
 
     async def test_blocking_failures_stop_the_publish(self):
         activity_results = [

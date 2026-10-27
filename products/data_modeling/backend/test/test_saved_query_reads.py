@@ -1,6 +1,9 @@
+from datetime import timedelta
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -22,7 +25,8 @@ from products.data_modeling.backend.models.data_modeling_job import (
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
-from products.data_modeling.backend.test.helpers import saved_query_node, table_node
+from products.data_modeling.backend.test.helpers import saved_query_node, table_node, warehouse_source_node
+from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema
 
 
 class TestSavedQueryReads(BaseTest):
@@ -207,3 +211,56 @@ class TestSavedQueryReads(BaseTest):
         assert api.unbuilt_upstream_saved_query_ids(
             self.team.id, target.saved_query_id, engine=DataModelingJobEngine.MANAGED_WAREHOUSE
         ) == frozenset({built_elsewhere.saved_query_id, failed.saved_query_id})
+
+    @parameterized.expand(
+        [
+            ("full_refresh", {"sync_type": "full_refresh"}, ExternalDataJob.Status.RUNNING, 1, True),
+            (
+                "scheduled_full_refresh",
+                {"sync_type": "incremental", "scheduled_full_refresh": True},
+                ExternalDataJob.Status.RUNNING,
+                1,
+                True,
+            ),
+            (
+                "reset",
+                {"sync_type": "incremental", "sync_type_config": {"reset_pipeline": True}},
+                ExternalDataJob.Status.RUNNING,
+                1,
+                True,
+            ),
+            (
+                "webhook_reset",
+                {"sync_type": "webhook", "sync_type_config": {"reset_pipeline": True}},
+                ExternalDataJob.Status.RUNNING,
+                1,
+                False,
+            ),
+            ("incremental", {"sync_type": "incremental"}, ExternalDataJob.Status.RUNNING, 1, False),
+            ("cdc", {"sync_type": "cdc"}, ExternalDataJob.Status.RUNNING, 1, False),
+            ("finished_full_refresh", {"sync_type": "full_refresh"}, ExternalDataJob.Status.COMPLETED, 1, False),
+            ("stale_full_refresh", {"sync_type": "full_refresh"}, ExternalDataJob.Status.RUNNING, 96, False),
+        ]
+    )
+    def test_upstream_tables_being_replaced_counts_only_running_syncs_that_empty_the_table(
+        self, _name: str, schema_snapshot: dict, status: str, started_hours_ago: int, replaced: bool
+    ) -> None:
+        dag = DAG.objects.create(team=self.team, name="Default")
+        invoices = warehouse_source_node(self.team, dag, sync_frequency_interval=timedelta(hours=24))
+        reads_directly = saved_query_node(self.team, dag, "reads_directly", NodeType.MAT_VIEW)
+        reads_through_view = saved_query_node(self.team, dag, "reads_through_view", NodeType.MAT_VIEW)
+        for source, dependent in [(invoices, reads_directly), (reads_directly, reads_through_view)]:
+            Edge.objects.create(team=self.team, dag=dag, source=source, target=dependent)
+        schema = ExternalDataSchema.objects.get(team=self.team, table_id=invoices.properties["warehouse_table_id"])
+        now = timezone.now()
+        job = ExternalDataJob.objects.create(
+            team=self.team, pipeline=schema.source, schema=schema, status=status, schema_snapshot=schema_snapshot
+        )
+        ExternalDataJob.objects.filter(id=job.id).update(created_at=now - timedelta(hours=started_hours_ago))
+
+        expected = ["stripe_charges"] if replaced else []
+        for saved_query_id in [reads_directly.saved_query_id, reads_through_view.saved_query_id]:
+            assert (
+                api.upstream_tables_being_replaced(self.team.id, saved_query_id, started_after=now - timedelta(days=3))
+                == expected
+            )

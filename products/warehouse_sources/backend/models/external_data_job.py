@@ -10,7 +10,11 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTMode
 from posthog.sync import database_sync_to_async
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.types import ExternalDataJobPipelineVersion, ExternalDataJobStatus
+from products.warehouse_sources.backend.types import (
+    ExternalDataJobPipelineVersion,
+    ExternalDataJobStatus,
+    ExternalDataSchemaSyncType,
+)
 
 
 class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
@@ -120,6 +124,22 @@ def get_external_data_job(job_id: UUID) -> ExternalDataJob:
     return ExternalDataJob.objects.prefetch_related(
         "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
     ).get(pk=job_id)
+
+
+def snapshot_replaces_table(schema_snapshot: dict | None) -> bool:
+    """Whether the run that took this snapshot deletes its table and loads every row again.
+
+    The table then holds only the rows loaded so far until the run ends. A reset of a webhook schema
+    keeps the table, because the poll cannot load those rows again.
+    """
+    if not schema_snapshot:
+        return False
+    sync_type = schema_snapshot.get("sync_type")
+    if sync_type == ExternalDataSchemaSyncType.FULL_REFRESH or schema_snapshot.get("scheduled_full_refresh") is True:
+        return True
+    reset_pipeline = (schema_snapshot.get("sync_type_config") or {}).get("reset_pipeline")
+    resets = reset_pipeline is True or (isinstance(reset_pipeline, str) and reset_pipeline.lower() == "true")
+    return resets and sync_type != ExternalDataSchemaSyncType.WEBHOOK
 
 
 def latest_completed_job_subquery(team_id: int, field: str) -> Subquery:

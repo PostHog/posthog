@@ -542,6 +542,7 @@ _mock_workflow_calls: list[str] = []
 _mock_workflow_should_fail: set[str] = set()
 _mock_workflow_should_block_on_quality: set[str] = set()
 _mock_workflow_should_self_audit: set[str] = set()
+_mock_workflow_should_wait_for_reload: set[str] = set()
 _recorded_skipped_nodes: list[RecordSkippedDataModelingJobsInputs] = []
 _notified_dag_failures: list[NotifyDAGMaterializationFailuresInputs] = []
 
@@ -565,13 +566,15 @@ class MockMaterializeViewWorkflow:
         if inputs.node_id in _mock_workflow_should_fail:
             raise temporalio.exceptions.ApplicationError(f"Node {inputs.node_id} failed")
         blocked = inputs.node_id in _mock_workflow_should_block_on_quality
+        waits_for_reload = inputs.node_id in _mock_workflow_should_wait_for_reload
         return MaterializeViewWorkflowResult(
             job_id="test-job",
             node_id=inputs.node_id,
-            rows_materialized=100,
+            rows_materialized=0 if waits_for_reload else 100,
             duration_seconds=1.0,
             quality_blocking_failures=1 if blocked else None,
             quality_audited=blocked or inputs.node_id in _mock_workflow_should_self_audit,
+            skip_reason="Skipped because a sync is loading the upstream table again." if waits_for_reload else None,
         )
 
 
@@ -582,11 +585,13 @@ class TestExecuteDAGWorkflowWithMocks:
     def reset_mock_state(self):
         _mock_workflow_calls.clear()
         _mock_workflow_should_fail.clear()
+        _mock_workflow_should_wait_for_reload.clear()
         _recorded_skipped_nodes.clear()
         _notified_dag_failures.clear()
         yield
         _mock_workflow_calls.clear()
         _mock_workflow_should_fail.clear()
+        _mock_workflow_should_wait_for_reload.clear()
         _recorded_skipped_nodes.clear()
         _notified_dag_failures.clear()
 
@@ -922,6 +927,50 @@ class TestExecuteDAGWorkflowWithMocks:
         assert result.skipped_nodes == 0
         assert len(result.node_results) == 3
         assert all(r.success for r in result.node_results)
+        assert _notified_dag_failures == []
+
+    async def test_a_node_skipped_for_an_upstream_reload_does_not_block_downstream(self):
+        dag_id = "test-dag"
+        node_a_id = str(uuid.uuid4())
+        node_b_id = str(uuid.uuid4())
+
+        @temporal_activity.defn(name="get_dag_structure_activity")
+        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAGPlan:
+            return DAGPlan(
+                nodes=[node_a_id, node_b_id],
+                executable_nodes=[node_a_id, node_b_id],
+                edges=[(node_a_id, node_b_id)],
+            )
+
+        _mock_workflow_should_wait_for_reload.add(node_a_id)
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with temporalio.worker.Worker(
+                env.client,
+                task_queue="test-queue",
+                workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
+                activities=[
+                    stub_preempt_dag_run,
+                    stub_check_team_shadow_eligibility,
+                    stub_get_dag_structure,
+                    stub_record_skipped_data_modeling_jobs,
+                    stub_notify_dag_materialization_failures,
+                ],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ):
+                result: ExecuteDAGResult = await env.client.execute_workflow(
+                    ExecuteDAGWorkflow.run,
+                    ExecuteDAGInputs(team_id=1, dag_id=dag_id),
+                    id=f"test-upstream-reload-{uuid.uuid4()}",
+                    task_queue="test-queue",
+                    execution_timeout=dt.timedelta(seconds=30),
+                )
+
+        assert _mock_workflow_calls == [node_a_id, node_b_id]
+        assert (result.successful_nodes, result.failed_nodes, result.skipped_nodes) == (1, 0, 1)
+        node_a_result = next(r for r in result.node_results if r.node_id == node_a_id)
+        assert node_a_result.skip_reason == "Skipped because a sync is loading the upstream table again."
+        assert _recorded_skipped_nodes == []
         assert _notified_dag_failures == []
 
     async def test_ephemeral_nodes_are_skipped(self):
