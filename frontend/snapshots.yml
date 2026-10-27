@@ -6434,6 +6434,8 @@ snapshots:
         hash: v1.k794b7964.59974ba8a33be7e981f575614bb77b3fe73dc905c9f6cb5db54e61591c7484ae.Qzl-nCRtGQHeYMHKmGsneXCagaDtWsjsyZlavdRVmmU
     mcp-apps-explain-chart--evidence-chart--light:
         hash: v1.k794b7964.c25bffca27dae4d96ed3a8a534297c79fc55e9f5a332472bedfeb46f4cb79bd8.DQxHAg-l47utDGyaTLdaaAMkkaLBaeHnxF-YTKFnmh0
+    mcp-apps-explain-chart--single-chapter--light:
+        hash: v1.k794b7964.8d0d4e81255c25acbe114b45d698a66d4b3ff5be122c97eea1f5cc2066711a72.jx6b5OO_YEIBQZHEUccM0lJ6vaRZBUUWxs3dJgxxwKw
     mcp-apps-explain-chart--summary--light:
         hash: v1.k794b7964.8e544f3f6c9e2e43bf03efd6bf30e402e2f24a41ec060922b5e3068643ce4c86.BQcCbMIGeBusavfXWYInYZD6jMZfnN4zr-HV9oOAFHg
     mcp-apps-feature-flags--boolean-flag--light:
