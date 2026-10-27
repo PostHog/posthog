@@ -3309,6 +3309,21 @@ export interface SignalReportSuggestedReviewersArtefactApi {
     readonly task_id: string | null
 }
 
+export interface SignalReportLeaveReviewersApi {
+    /** Why the user steps off. 'wrong_area': the work should not be on them, for example they moved off the area or left the team. 'already_covered': someone else is on it. 'unavailable': they do not have bandwidth right now. 'other': explain in removal_note. Research reads the reason when it picks reviewers for later reports.
+     *
+     * * `wrong_area` - Not their area
+     * * `already_covered` - Someone else is on it
+     * * `unavailable` - No bandwidth
+     * * `other` - Other */
+    removal_reason?: ReviewerRemovalReasonEnumApi
+    /**
+     * The user's own words for why, such as "I'm not on the payments team any more". Scouts read it when they route later reports.
+     * @maxLength 500
+     */
+    removal_note?: string
+}
+
 /**
  * * `session_replay` - session_replay
  * * `llm_analytics` - llm_analytics

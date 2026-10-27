@@ -108948,6 +108948,21 @@ export namespace Schemas {
       note: string;
     }
 
+    export interface SignalReportLeaveReviewers {
+      /** Why the user steps off. 'wrong_area': the work should not be on them, for example they moved off the area or left the team. 'already_covered': someone else is on it. 'unavailable': they do not have bandwidth right now. 'other': explain in removal_note. Research reads the reason when it picks reviewers for later reports.
+       *
+       * * `wrong_area` - Not their area
+       * * `already_covered` - Someone else is on it
+       * * `unavailable` - No bandwidth
+       * * `other` - Other */
+      removal_reason?: ReviewerRemovalReasonEnum;
+      /**
+         * The user's own words for why, such as "I'm not on the payments team any more". Scouts read it when they route later reports.
+         * @maxLength 500
+         */
+      removal_note?: string;
+    }
+
     export interface SignalReportMergeRequest {
       /**
          * Ids of the duplicate reports to fold into this one (1–10). Each must be a live report in this project: a resolved, archived or deleted report is rejected with 409, as is the survivor's own id. Duplicates in the list are de-duplicated. The whole merge applies or none of it does.

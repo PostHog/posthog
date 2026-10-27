@@ -825,15 +825,36 @@ export const SignalsReportsReviewersUpdateBody = () => zod.object({
 })
 
 /**
- * Take the calling user off this report's suggested reviewers, leaving the other reviewers as they are. The report itself is untouched: it stays open for whoever is left, and for the project. Succeeds whether or not the caller was on the list.
- * @summary Step off a report's suggested reviewers
+ * Take the calling user off this report's suggested reviewers, and record why. The other reviewers stay, and the report stays open. Succeeds whether or not the caller was on the list.
+ * @summary Step off a report's suggested reviewers, with a reason
  */
-export const SignalsReportsReviewersMeDestroyParams = () => zod.object({
+export const SignalsReportsReviewersMeCreateParams = () => zod.object({
     id: zod.string().describe('A UUID string identifying this signal report.'),
     project_id: zod
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReportsReviewersMeCreateBodyRemovalNoteMax = 500
+
+export const SignalsReportsReviewersMeCreateBody = () => zod.object({
+    removal_reason: zod
+        .enum(['wrong_area', 'already_covered', 'unavailable', 'other'])
+        .describe(
+            '\* `wrong_area` - Not their area\n\* `already_covered` - Someone else is on it\n\* `unavailable` - No bandwidth\n\* `other` - Other'
+        )
+        .optional()
+        .describe(
+            "Why the user steps off. 'wrong_area': the work should not be on them, for example they moved off the area or left the team. 'already_covered': someone else is on it. 'unavailable': they do not have bandwidth right now. 'other': explain in removal_note. Research reads the reason when it picks reviewers for later reports.\n\n\* `wrong_area` - Not their area\n\* `already_covered` - Someone else is on it\n\* `unavailable` - No bandwidth\n\* `other` - Other"
+        ),
+    removal_note: zod
+        .string()
+        .max(signalsReportsReviewersMeCreateBodyRemovalNoteMax)
+        .optional()
+        .describe(
+            'The user\'s own words for why, such as \"I\'m not on the payments team any more\". Scouts read it when they route later reports.'
         ),
 })
 

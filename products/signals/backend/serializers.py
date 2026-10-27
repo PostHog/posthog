@@ -3052,6 +3052,31 @@ class SignalReportArtefactWriteSerializer(serializers.Serializer):
         return attrs
 
 
+class SignalReportLeaveReviewersSerializer(serializers.Serializer):
+    removal_reason = serializers.ChoiceField(
+        choices=ReviewerRemovalReason.choices,
+        required=False,
+        help_text=(
+            "Why the user steps off. 'wrong_area': the work should not be on them, for example they moved off the "
+            "area or left the team. 'already_covered': someone else is on it. 'unavailable': they do not have "
+            "bandwidth right now. 'other': explain in removal_note. Research reads the reason when it picks "
+            "reviewers for later reports."
+        ),
+    )
+    removal_note = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=SignalReportArtefactWriteSerializer.REMOVAL_NOTE_MAX_LENGTH,
+        help_text=(
+            "The user's own words for why, such as \"I'm not on the payments team any more\". Scouts read it when "
+            "they route later reports."
+        ),
+    )
+
+    def validate_removal_note(self, value: str) -> str | None:
+        return value.strip() or None
+
+
 # Writable types only — `video_segment` (and any other NON_WRITABLE type) is read-only and rejected
 # by the write API, so it must not be advertised as an option here.
 _WRITABLE_ARTEFACT_TYPES = sorted(set(SignalReportArtefact.ArtefactType.values) - NON_WRITABLE_ARTEFACT_TYPES)

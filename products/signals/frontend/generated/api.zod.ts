@@ -1008,6 +1008,31 @@ export const SignalsReportsReviewersUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Take the calling user off this report's suggested reviewers, and record why. The other reviewers stay, and the report stays open. Succeeds whether or not the caller was on the list.
+ * @summary Step off a report's suggested reviewers, with a reason
+ */
+export const signalsReportsReviewersMeCreateBodyRemovalNoteMax = 500
+
+export const SignalsReportsReviewersMeCreateBody = /* @__PURE__ */ zod.object({
+    removal_reason: zod
+        .enum(['wrong_area', 'already_covered', 'unavailable', 'other'])
+        .describe(
+            '\* `wrong_area` - Not their area\n\* `already_covered` - Someone else is on it\n\* `unavailable` - No bandwidth\n\* `other` - Other'
+        )
+        .optional()
+        .describe(
+            "Why the user steps off. 'wrong_area': the work should not be on them, for example they moved off the area or left the team. 'already_covered': someone else is on it. 'unavailable': they do not have bandwidth right now. 'other': explain in removal_note. Research reads the reason when it picks reviewers for later reports.\n\n\* `wrong_area` - Not their area\n\* `already_covered` - Someone else is on it\n\* `unavailable` - No bandwidth\n\* `other` - Other"
+        ),
+    removal_note: zod
+        .string()
+        .max(signalsReportsReviewersMeCreateBodyRemovalNoteMax)
+        .optional()
+        .describe(
+            'The user\'s own words for why, such as \"I\'m not on the payments team any more\". Scouts read it when they route later reports.'
+        ),
+})
+
+/**
  * Transition a report to a new state. The model validates allowed transitions, except that a
  * verdict the report already holds (dismissing a suppressed report, resolving a resolved one)
  * is a 200 that records the dismissal feedback without touching the status.

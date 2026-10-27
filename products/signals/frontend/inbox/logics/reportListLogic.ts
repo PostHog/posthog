@@ -15,8 +15,8 @@ import type { UserType } from '~/types'
 
 import {
     signalsReportsRefreshMetricsCreate,
+    signalsReportsReviewersMeCreate,
     signalsReportsReviewersMeDestroy,
-    signalsReportsReviewersUpdate,
     signalsReportsSourceMetadataCreate,
 } from 'products/signals/frontend/generated/api'
 import type {
@@ -959,19 +959,10 @@ export const reportListLogic = kea<reportListLogicType>([
                 extra: reason ? { removal_reason: reason } : undefined,
             })
             const teamId = String(values.currentTeamId)
-            const userUuid = values.user?.uuid
             try {
-                if (reason && userUuid) {
-                    // The step-off endpoint takes no body, so a removal with a reason goes through the reviewers edit.
-                    await signalsReportsReviewersUpdate(teamId, reportId, {
-                        action: 'remove',
-                        content: [],
-                        targets: [{ user_uuid: userUuid }],
-                        removal_reason: reason,
-                    })
-                } else {
-                    await signalsReportsReviewersMeDestroy(teamId, reportId)
-                }
+                await (reason
+                    ? signalsReportsReviewersMeCreate(teamId, reportId, { removal_reason: reason })
+                    : signalsReportsReviewersMeDestroy(teamId, reportId))
             } catch (error: any) {
                 lemonToast.error(error?.detail || "Couldn't unassign you from the report. Try again.")
                 return

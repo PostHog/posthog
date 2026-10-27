@@ -260,6 +260,7 @@ from products.signals.backend.serializers import (
     SignalReportCheckReplacementSerializer,
     SignalReportCheckSerializer,
     SignalReportClaimSerializer,
+    SignalReportLeaveReviewersSerializer,
     SignalReportListQuerySerializer,
     SignalReportListSerializer,
     SignalReportMetricRefreshRequestSerializer,
@@ -3062,11 +3063,13 @@ class SignalReportViewSet(
         return Response(read_serializer.data)
 
     @extend_schema(
+        methods=["DELETE"],
         summary="Step off a report's suggested reviewers",
         description=(
             "Take the calling user off this report's suggested reviewers, leaving the other reviewers "
             "as they are. The report itself is untouched: it stays open for whoever is left, and for "
-            "the project. Succeeds whether or not the caller was on the list."
+            "the project. Succeeds whether or not the caller was on the list. POST to the same path to "
+            "say why."
         ),
         request=None,
         responses={
@@ -3074,9 +3077,24 @@ class SignalReportViewSet(
             400: OpenApiResponse(description="A reviewer who stays no longer resolves to a member of this team."),
         },
     )
-    @action(detail=True, methods=["delete"], url_path="reviewers/me", required_scopes=["task:write"])
+    @extend_schema(
+        methods=["POST"],
+        summary="Step off a report's suggested reviewers, with a reason",
+        description=(
+            "Take the calling user off this report's suggested reviewers, and record why. The other reviewers "
+            "stay, and the report stays open. Succeeds whether or not the caller was on the list."
+        ),
+        request=SignalReportLeaveReviewersSerializer,
+        responses={
+            204: OpenApiResponse(description="The caller is no longer a suggested reviewer."),
+            400: OpenApiResponse(description="The reason is invalid, or a reviewer who stays no longer resolves."),
+        },
+    )
+    @action(detail=True, methods=["delete", "post"], url_path="reviewers/me", required_scopes=["task:write"])
     def leave_reviewers(self, request, **kwargs):
         report = cast(SignalReport, self.get_object())
+        removal = SignalReportLeaveReviewersSerializer(data=request.data if request.method == "POST" else {})
+        removal.is_valid(raise_exception=True)
         scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
         try:
             remove_suggested_reviewer(
@@ -3085,6 +3103,8 @@ class SignalReportViewSet(
                 user=cast(User, request.user),
                 scoped_team_ids=tuple(scoped_team_ids) if scoped_team_ids is not None else None,
                 was_impersonated=is_impersonated_session(request),
+                removal_reason=removal.validated_data.get("removal_reason"),
+                removal_note=removal.validated_data.get("removal_note"),
             )
         except StaleReviewerProposal as e:
             return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)

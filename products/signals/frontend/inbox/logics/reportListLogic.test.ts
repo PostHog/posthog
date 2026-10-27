@@ -534,10 +534,10 @@ describe('reportListLogic', () => {
                     '/api/projects/:team_id/signals/reports/available_reviewers': {},
                     [REPORTS_URL]: { count: 1, next: null, previous: null, results: [makeReport('r1')] },
                 },
-                put: {
-                    '/api/projects/:team_id/signals/reports/:id/reviewers/': async ({ request }) => {
-                        requests.push({ method: 'PUT', body: await request.json() })
-                        return [200, { id: 'artefact', type: 'suggested_reviewers', content: [] }]
+                post: {
+                    '/api/projects/:team_id/signals/reports/:id/reviewers/me/': async ({ request }) => {
+                        requests.push({ method: 'POST', body: await request.json() })
+                        return [204, null]
                     },
                 },
                 delete: {
@@ -559,9 +559,9 @@ describe('reportListLogic', () => {
 
         afterEach(() => logic.unmount())
 
-        // A reason only reaches research through the reviewers edit, because the step-off endpoint takes no body.
+        // A dropped reason would remove you silently, so research would never learn why.
         test.each([
-            ['with a reason', 'wrong_area' as const, 'PUT'],
+            ['with a reason', 'wrong_area' as const, 'POST'],
             ['without a reason', undefined, 'DELETE'],
         ])('%s', async (_case, reason, method) => {
             logic.actions.unassignMe('r1', 'context_menu', reason)
@@ -570,11 +570,7 @@ describe('reportListLogic', () => {
             expect(requests).toHaveLength(1)
             expect(requests[0].method).toEqual(method)
             if (reason) {
-                expect(requests[0].body).toMatchObject({
-                    action: 'remove',
-                    targets: [{ user_uuid: MOCK_USER_UUID }],
-                    removal_reason: reason,
-                })
+                expect(requests[0].body).toEqual({ removal_reason: reason })
             }
         })
     })

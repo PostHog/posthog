@@ -1480,6 +1480,29 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(former.uuid)]
 
+    def test_leave_reviewers_with_a_reason_reaches_research_and_scouts(self):
+        teammate = self._create_org_member("teammate@example.com", github_login="teammate")
+        report = self._create_report()
+        self._create_artefact(report, content=[{"user_uuid": str(self.user.uuid)}, {"user_uuid": str(teammate.uuid)}])
+
+        with patch(
+            "products.signals.backend.views.forward_reviewer_correction_note",
+            return_value=ForwardedCorrectionNotes(note_ids=(), targets_resolved=0),
+        ) as mock_forward:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.post(
+                    self._leave_reviewers_url(str(report.id)),
+                    {"removal_reason": "wrong_area", "removal_note": "I'm not on that team any more."},
+                    format="json",
+                )
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(teammate.uuid)]
+        (row,) = _recent_reviewer_corrections(self.team)["corrections"]
+        assert (row["removal_reason"], row["removal_reason_reviewers"]) == ("wrong_area", [str(self.user.uuid)])
+        correction = mock_forward.call_args.kwargs["correction"]
+        assert (correction.removal_reason, correction.removal_note) == ("wrong_area", "I'm not on that team any more.")
+
     def test_leave_reviewers_writes_nothing_when_the_caller_is_not_a_reviewer(self):
         teammate = self._create_org_member("teammate@example.com", github_login="teammate")
         report = self._create_report()

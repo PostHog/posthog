@@ -7827,7 +7827,7 @@
         }
     },
     "inbox-report-reviewers-update": {
-        "description": "Add or remove specific people from a report's suggested reviewers, replace the complete list, or confirm the current list. For add or remove, pass the changed people in `targets` and the full list in `content` for compatibility with older servers. For replace or confirm, first read the report and pass `reviewer_assignment.state` as `expected_reviewers`. When you remove people, pass `removal_reason` when the person said why, and `removal_note` for the area or context. Research reads both when it picks reviewers for later reports. Prefer this over dismissing a report as `wrong_assignee`, which closes it for everyone.",
+        "description": "Add or remove specific people from a report's suggested reviewers, replace the complete list, or confirm the current list. For add or remove, pass the changed people in `targets` and the full list in `content` for compatibility with older servers. For replace or confirm, first read the report and pass `reviewer_assignment.state` as `expected_reviewers`. When you remove people, pass `removal_reason` when the person said why, and `removal_note` for the area or context. Research reads the reason and scouts read the note when they route later reports. Prefer this over dismissing a report as `wrong_assignee`, which closes it for everyone. To remove the authenticated user, use `inbox-reports-leave-reviewers` instead.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Update a report's suggested reviewers",
@@ -7887,13 +7887,13 @@
         }
     },
     "inbox-reports-leave-reviewers": {
-        "description": "Take the authenticated user off this report's suggested reviewers, leaving the other reviewers in place. Use it when a report was routed to them by mistake, so it stops reaching them without closing it for anyone else. The report's own state does not change: it stays open for whoever is left, and for the project. Succeeds whether or not the user was on the list, so a repeat call is safe. It records no reason. To say why, use `inbox-report-reviewers-update` with `action: remove`, the user as the target, and `removal_reason`. To change who else reviews a report, edit its `suggested_reviewers` artefact instead.",
+        "description": "Take the authenticated user off this report's suggested reviewers, leaving the other reviewers in place. Use it when a report was routed to them by mistake, so it stops reaching them without closing it for anyone else. The report's own state does not change: it stays open for whoever is left, and for the project. Succeeds whether or not the user was on the list, so a repeat call is safe. When the user says why, pass `removal_reason` and put their own words in `removal_note`. For example, \"I'm not on that team any more\" is `wrong_area` with that sentence as the note. Research reads the reason and scouts read the note when they route later reports. To change who else reviews a report, edit its `suggested_reviewers` artefact instead.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Step off a report's suggested reviewers",
         "title": "Step off a report's suggested reviewers",
         "required_scopes": ["task:write"],
-        "api_operations": ["DELETE /api/projects/{project_id}/signals/reports/{id}/reviewers/me/"],
+        "api_operations": ["POST /api/projects/{project_id}/signals/reports/{id}/reviewers/me/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
