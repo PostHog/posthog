@@ -37,7 +37,11 @@ export const ContentAutopilotPromptsTopicTable = ({
             render: (_, row) => (
                 <Link
                     subtle
-                    onClick={() => onSelect(row.topic)}
+                    onClick={(event) => {
+                        // The row handler below would otherwise select the topic a second time.
+                        event.stopPropagation()
+                        onSelect(row.topic)
+                    }}
                     className={row.topic ? 'font-semibold' : 'font-semibold text-muted'}
                     data-attr="content-autopilot-prompts-overview-topic"
                 >

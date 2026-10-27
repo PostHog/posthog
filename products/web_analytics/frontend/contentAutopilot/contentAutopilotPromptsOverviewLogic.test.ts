@@ -71,6 +71,27 @@ describe('contentAutopilotPromptsOverviewLogic', () => {
         }
     })
 
+    it('keeps the overview when a superseded request fails', async () => {
+        let rejectFirst: (error: Error) => void = () => {}
+        mockOverview.mockImplementationOnce(
+            () =>
+                new Promise((_, reject) => {
+                    rejectFirst = reject
+                })
+        )
+        logic = contentAutopilotPromptsOverviewLogic()
+        logic.mount()
+        logic.actions.loadPromptSetOverview()
+        await expectLogic(logic)
+            .toDispatchActions(['loadPromptSetOverviewSuccess'])
+            .toMatchValues({ overview: EXAMPLE_PROMPT_SET_OVERVIEW })
+
+        rejectFirst(new ApiError('Server error', 500))
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ overview: EXAMPLE_PROMPT_SET_OVERVIEW, overviewError: null })
+    })
+
     it('filters the prompt list when a topic is picked', async () => {
         logic = contentAutopilotPromptsOverviewLogic()
         logic.mount()

@@ -110,11 +110,17 @@ export const contentAutopilotPromptsOverviewLogic = kea<contentAutopilotPromptsO
             null as AEOPromptSetOverviewApi | null,
             {
                 loadPromptSetOverview: async (_, breakpoint) => {
-                    const overview = await aeoPromptsOverview(String(values.currentTeamIdStrict), {
-                        days: OVERVIEW_DAYS,
-                    })
-                    breakpoint()
-                    return overview
+                    try {
+                        const overview = await aeoPromptsOverview(String(values.currentTeamIdStrict), {
+                            days: OVERVIEW_DAYS,
+                        })
+                        breakpoint()
+                        return overview
+                    } catch (error) {
+                        // A superseded request's failure must not replace the newer overview with an error
+                        breakpoint()
+                        throw error
+                    }
                 },
             },
         ],
