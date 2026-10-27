@@ -212,10 +212,11 @@ export const TasksListQueryParams = () => zod.object({
             'space_setup',
             'business_knowledge',
             'metrics_import',
+            'knowledge_writer',
         ])
         .optional()
         .describe(
-            'Exclude tasks with this origin product from the results\n\n\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import'
+            'Exclude tasks with this origin product from the results\n\n\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import\n\* `knowledge_writer` - Knowledge Writer'
         ),
     hog_flow_id: zod
         .string()
@@ -271,6 +272,7 @@ export const TasksListQueryParams = () => zod.object({
                     'experiments',
                     'hogdesk',
                     'image_builder',
+                    'knowledge_writer',
                     'loop',
                     'mcp_analytics',
                     'onboarding',
@@ -292,7 +294,7 @@ export const TasksListQueryParams = () => zod.object({
                     'workflow',
                 ])
                 .describe(
-                    '\* `autoresearch` - autoresearch\n\* `error_tracking` - error_tracking\n\* `eval_clusters` - eval_clusters\n\* `experiments` - experiments\n\* `hogdesk` - hogdesk\n\* `image_builder` - image_builder\n\* `loop` - loop\n\* `mcp_analytics` - mcp_analytics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai\n\* `posthog_desktop` - posthog_desktop\n\* `posthog_mobile` - posthog_mobile\n\* `posthog_web` - posthog_web\n\* `review_hog` - review_hog\n\* `scout_suggestions` - scout_suggestions\n\* `session_summaries` - session_summaries\n\* `signal_report` - signal_report\n\* `signals_chat` - signals_chat\n\* `signals_scout` - signals_scout\n\* `slack` - slack\n\* `space_setup` - space_setup\n\* `support_queue` - support_queue\n\* `support_reply` - support_reply\n\* `task_analysis` - task_analysis\n\* `workflow` - workflow'
+                    '\* `autoresearch` - autoresearch\n\* `error_tracking` - error_tracking\n\* `eval_clusters` - eval_clusters\n\* `experiments` - experiments\n\* `hogdesk` - hogdesk\n\* `image_builder` - image_builder\n\* `knowledge_writer` - knowledge_writer\n\* `loop` - loop\n\* `mcp_analytics` - mcp_analytics\n\* `onboarding` - onboarding\n\* `posthog_ai` - posthog_ai\n\* `posthog_desktop` - posthog_desktop\n\* `posthog_mobile` - posthog_mobile\n\* `posthog_web` - posthog_web\n\* `review_hog` - review_hog\n\* `scout_suggestions` - scout_suggestions\n\* `session_summaries` - session_summaries\n\* `signal_report` - signal_report\n\* `signals_chat` - signals_chat\n\* `signals_scout` - signals_scout\n\* `slack` - slack\n\* `space_setup` - space_setup\n\* `support_queue` - support_queue\n\* `support_reply` - support_reply\n\* `task_analysis` - task_analysis\n\* `workflow` - workflow'
                 )
         )
         .optional()
@@ -389,13 +391,14 @@ export const TasksCreateBody = () => zod.object({
             'space_setup',
             'business_knowledge',
             'metrics_import',
+            'knowledge_writer',
         ])
         .describe(
-            '\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import'
+            '\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import\n\* `knowledge_writer` - Knowledge Writer'
         )
         .optional()
         .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import'
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import\n\* `knowledge_writer` - Knowledge Writer'
         ),
     repository: zod
         .string()

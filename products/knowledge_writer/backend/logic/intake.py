@@ -3,10 +3,10 @@ import uuid
 from django.db import IntegrityError
 
 import structlog
-import posthoganalytics
 from pydantic import TypeAdapter, ValidationError
 
 from posthog.models.team import Team
+from posthog.ph_client import ph_scoped_capture
 
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -15,7 +15,7 @@ from ..feature_flags import is_agent_launch_enabled
 from ..settings import writer_settings
 from .caps import OPEN_PULL_REQUEST_CAP, alert_cap_reached, daily_run_cap_reached, unpublished_writer_runs
 from .launch import start_writer
-from .publish import open_writer_pull_requests
+from .pull_requests import open_writer_pull_requests
 from .routing import route_request
 
 logger = structlog.get_logger(__name__)
@@ -78,19 +78,20 @@ def submit(payload: object, *, team_id: int) -> IntakeOutcome:
 def capture_verdict(verdict: AdapterVerdict, *, team_id: int) -> None:
     request = verdict.request
     try:
-        posthoganalytics.capture(
-            VERDICT_EVENT,
-            distinct_id=f"knowledge_writer:{team_id}",
-            uuid=uuid.uuid5(uuid.NAMESPACE_URL, f"knowledge_writer:{verdict.source}:{verdict.subject_id}"),
-            properties={
-                "source": verdict.source,
-                "subject_id": verdict.subject_id,
-                "needs_docs": verdict.needs_docs,
-                "reason": verdict.reason,
-                "change_kind": request.change_kind if request else None,
-                "dedupe_id": request.dedupe_id if request else None,
-                "team_id": team_id,
-            },
-        )
+        with ph_scoped_capture() as capture:
+            capture(
+                VERDICT_EVENT,
+                distinct_id=f"knowledge_writer:{team_id}",
+                uuid=uuid.uuid5(uuid.NAMESPACE_URL, f"knowledge_writer:{verdict.source}:{verdict.subject_id}"),
+                properties={
+                    "source": verdict.source,
+                    "subject_id": verdict.subject_id,
+                    "needs_docs": verdict.needs_docs,
+                    "reason": verdict.reason,
+                    "change_kind": request.change_kind if request else None,
+                    "dedupe_id": request.dedupe_id if request else None,
+                    "team_id": team_id,
+                },
+            )
     except Exception:
         logger.warning("knowledge_writer_verdict_capture_failed", team_id=team_id, exc_info=True)

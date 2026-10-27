@@ -73,6 +73,7 @@ def start_writer(
             repository=writer.docs_repository,
             create_pr=False,
             internal=True,
+            posthog_mcp_scopes="read_only",
             origin_key=request.dedupe_id,
             branch=joining.head_branch if joining is not None else None,
         )

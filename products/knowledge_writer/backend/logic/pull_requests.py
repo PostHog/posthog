@@ -4,6 +4,7 @@ from uuid import UUID
 import structlog
 
 from posthog.egress.limiter.policies import Priority
+from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import GitHubIntegration, Integration
 
 from products.tasks.backend.facade import api as tasks_facade
@@ -51,10 +52,9 @@ def pull_request_body(request: DocsRequest, *, section: str | None) -> str:
     return f"The knowledge writer opened this{requester}.\n\n{link_back_block([request.source_url])}{marker}"
 
 
-def body_with_source(body: str, source_url: str) -> str:
-    if LINK_BACK_END not in body:
-        return f"{body}\n\n{link_back_block([source_url])}"
-    return body.replace(LINK_BACK_END, f"- {source_url}\n{LINK_BACK_END}", 1)
+def joined_source_comment(request: DocsRequest) -> str:
+    requester = f" for {request.requested_by}" if request.requested_by else ""
+    return f"The knowledge writer added a source to this pull request{requester}:\n\n- {request.source_url}"
 
 
 def docs_github(team_id: int, docs_owner: str) -> GitHubIntegration | None:
@@ -106,6 +106,10 @@ def open_writer_pull_requests(writer: WriterSettings) -> list[WriterPullRequest]
     return None
 
 
+class WriterPullRequestFailed(Exception):
+    pass
+
+
 def open_or_join_pull_request(task_run_id: UUID, *, team_id: int) -> str | None:
     writer = writer_settings()
     if writer is None or writer.team_id != team_id:
@@ -132,7 +136,10 @@ def open_or_join_pull_request(task_run_id: UUID, *, team_id: int) -> str | None:
         else open_pull_request(github, docs_name, request, head_branch, section=read_section(run.task_id, team_id))
     )
     if pull_request is None:
-        logger.warning("knowledge_writer_pull_request_failed", team_id=team_id, task_run_id=str(task_run_id))
+        capture_exception(
+            WriterPullRequestFailed("knowledge writer docs pull request failed"),
+            {"team_id": team_id, "task_run_id": str(task_run_id)},
+        )
         return None
     stored = pull_request_json.dump_python(pull_request, mode="json")
     tasks_facade.update_task_state_entry(run.task_id, team_id, PULL_REQUEST_STATE_KEY, lambda _current: (stored, None))
@@ -152,6 +159,7 @@ def open_pull_request(
         title=f"docs: update for {request.source_url}"[:255],
         body=pull_request_body(request, section=section),
         head_branch=head_branch,
+        draft=True,
     )
     if not created.get("success"):
         return None
@@ -168,9 +176,7 @@ def add_source_to_pull_request(
         return None
     if current.get("state") != "open":
         return open_pull_request(github, docs_name, request, pull_request.head_branch, section=pull_request.section)
-    updated = github.update_pull_request_body(
-        docs_name, pull_request.number, body_with_source(current.get("body") or "", request.source_url)
-    )
-    if not updated.get("success"):
+    commented = github.comment_on_pull_request(docs_name, pull_request.number, joined_source_comment(request))
+    if not commented.get("success"):
         return None
     return pull_request

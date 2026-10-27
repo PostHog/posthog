@@ -1064,7 +1064,14 @@ class GitHubIntegration(GitHubIntegrationBase):
         return {"content": content, "sha": entry["sha"]}
 
     def create_pull_request(
-        self, repository: str, title: str, body: str, head_branch: str, base_branch: str | None = None
+        self,
+        repository: str,
+        title: str,
+        body: str,
+        head_branch: str,
+        base_branch: str | None = None,
+        *,
+        draft: bool = False,
     ) -> dict[str, Any]:
         """Create a pull request."""
         org = self.organization()
@@ -1081,6 +1088,7 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "body": body,
                 "head": head_branch,
                 "base": base_branch,
+                "draft": draft,
             },
         )
 

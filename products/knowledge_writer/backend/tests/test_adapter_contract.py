@@ -79,6 +79,17 @@ def test_adapter_keeps_the_contract(source: DocsRequestSource) -> None:
         assert verdict.request.dedupe_id.startswith(f"knowledge_writer:{source}:")
 
 
+def test_docs_requests_for_one_pull_request_share_a_dedupe_id_across_repository_casing() -> None:
+    sample = SAMPLE_EVENTS[DocsRequestSource.COMMAND_TAG]
+    adapter = REGISTRY[DocsRequestSource.COMMAND_TAG]
+
+    original_casing = adapter.assess(sample)
+    lowercase = adapter.assess(dataclasses.replace(sample, repository="posthog/posthog"))
+
+    assert original_casing.request is not None and lowercase.request is not None
+    assert original_casing.request.dedupe_id == lowercase.request.dedupe_id
+
+
 @pytest.mark.parametrize(
     "payload",
     [
