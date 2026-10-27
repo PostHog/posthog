@@ -1100,6 +1100,7 @@ It also rides on the forwarded correction note, where it replaces the generic ca
 `wrong_area` is personal relevance and scopes an exclusion to the source report's area, `owned_by_someone_else` is ownership, and `unavailable` is never ownership evidence.
 The note is quoted line by line, so it cannot pose as a section that the suppression parser reads back.
 The note is stored only when its author passes `principal_may_steer_scouts`, the gate a hand-written scout note passes, because the profile hands it to every scout verbatim. The reason code is a fixed choice and needs no gate.
+The profile endpoint blanks removal notes for a caller who fails `_may_read_reports`, because a note can quote dismissal text. It redacts the served copy, so the shared stored profile keeps the notes for scouts and research.
 The web dismiss dialog no longer offers `wrong_assignee`: a removal with a reason reaches research, and a dismissal closes the report for everyone. The state API still accepts the code from older clients.
 A `wrong_assignee` dismissal from an older client or an agent also takes the caller off the reviewers with `owned_by_someone_else` and the dismissal note, because research reads the reviewer corrections and never the dismissal note.
 A bulk dismissal processes only the reports that name the caller, and it skips the per-report correction notes, because the dismissal already sends each scout one note for the batch.
