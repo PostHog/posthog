@@ -23,7 +23,10 @@ export function TodayLogo({ name, mediaId, colorSeed, size }: TodayLogoProps): J
     const color = colorSeed !== null ? lettermarkColorIndex(colorSeed) : null
     return (
         <Avatar size="xs" className={SIZE_CLASSES[size]}>
-            {mediaId && <AvatarImage src={backendAssetUrl(`/uploaded_media/${mediaId}`)} alt="" />}
+            {mediaId && (
+                // An org or project has one logo for both themes, so a light tile keeps dark logos visible on dark chrome.
+                <AvatarImage src={backendAssetUrl(`/uploaded_media/${mediaId}`)} alt="" className="dark:bg-white" />
+            )}
             <AvatarFallback
                 className="font-semibold"
                 // The palette is 16 theme-independent pairs in base.scss.
