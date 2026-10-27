@@ -596,7 +596,11 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
     )
     ticket_brief = TicketBriefSerializer(
         required=False,
-        help_text="Structured summary of the ticket for the support engineer. Replaces the whole brief.",
+        allow_null=True,
+        help_text=(
+            "Structured summary of the ticket for the support engineer. Replaces the whole brief. "
+            "Pass null to clear it."
+        ),
     )
 
     class Meta:
@@ -622,6 +626,10 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
             "sla_due_at": {"help_text": "SLA deadline. Pass null to clear it."},
             "snoozed_until": {"help_text": "Time to reopen the ticket. Pass null to reopen it now."},
         }
+
+    def validate_ticket_brief(self, value: dict[str, Any] | None) -> dict[str, Any]:
+        # The column is not nullable, so an explicit null clears the brief instead of storing one.
+        return value or {}
 
     def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
         validated_data.pop("assignee", None)

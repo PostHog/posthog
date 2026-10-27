@@ -93130,8 +93130,8 @@ export namespace Schemas {
       snoozed_until?: string | null;
       /** Tag names to set on the ticket. */
       tags?: string[];
-      /** Structured summary of the ticket for the support engineer. Replaces the whole brief. */
-      ticket_brief?: TicketBrief;
+      /** Structured summary of the ticket for the support engineer. Replaces the whole brief. Pass null to clear it. */
+      ticket_brief?: TicketBrief | null;
     }
 
     export interface PatchedTicketView {
@@ -119986,8 +119986,8 @@ export namespace Schemas {
       snoozed_until?: string | null;
       /** Tag names to set on the ticket. */
       tags?: string[];
-      /** Structured summary of the ticket for the support engineer. Replaces the whole brief. */
-      ticket_brief?: TicketBrief;
+      /** Structured summary of the ticket for the support engineer. Replaces the whole brief. Pass null to clear it. */
+      ticket_brief?: TicketBrief | null;
     }
 
     export interface TolerationPileupEntry {
