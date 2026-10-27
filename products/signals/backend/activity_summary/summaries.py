@@ -16,6 +16,7 @@ from posthog.llm.gateway_client import build_openai_client, trace_id_from_seed
 
 from products.signals.backend.activity_summary.prompt import (
     RESPONSE_FORMAT,
+    EmptyProfileError,
     MalformedSummaryError,
     normalize_summary,
     system_prompt,
@@ -64,6 +65,8 @@ class SummaryOutcome:
     tokens_out: int | None
     latency_ms: int
     error: str | None
+    # The model answered a first summary with a headline and no profile. The update stores it as a skip.
+    empty_profile: bool = False
 
 
 def gateway_client(team_id: int, user_id: int, as_of: datetime.date) -> OpenAI:
@@ -130,6 +133,15 @@ def summarize(
                 had_previous_summary=previous_summary is not None,
                 computed=computed,
                 profile_max_chars=profile_max_chars,
+            )
+        except EmptyProfileError:
+            return SummaryOutcome(
+                summary=None,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                latency_ms=round((time.monotonic() - started) * 1000),
+                error=None,
+                empty_profile=True,
             )
         except MalformedSummaryError as malformed:
             error = f"malformed_output: {malformed}"

@@ -28,6 +28,7 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.activity_summary.config import read_config
 from products.signals.backend.activity_summary.logic import (
+    CALLED_MODEL_STATUSES,
     MAX_SKIP_BACKOFF,
     MAX_VERSIONS,
     VIEW_UPDATE_INTERVAL,
@@ -306,7 +307,7 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
             max_versions=input.max_versions,
             max_skip_backoff=datetime.timedelta(hours=input.max_skip_backoff_hours),
         )
-        called_model = update.status in (UpdateStatus.OK, UpdateStatus.FAILED)
+        called_model = update.status in CALLED_MODEL_STATUSES
     except Exception as error:
         if not last_attempt:
             raise
@@ -324,7 +325,7 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
             _emit_embedding(input.team_id, input.user_id)
         except Exception:
             logger.exception("activity_summary_embedding_failed", team_id=input.team_id, user_id=input.user_id)
-    if update.status in (UpdateStatus.OK, UpdateStatus.FAILED) and input.capture_events:
+    if update.status in CALLED_MODEL_STATUSES and input.capture_events:
         try:
             _capture_generated(input.team_id, input.user_id, update, input.trigger)
         except Exception:

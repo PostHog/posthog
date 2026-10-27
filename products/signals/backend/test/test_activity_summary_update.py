@@ -31,6 +31,7 @@ ANSWER = json.dumps(
         "recent_shift": None,
     }
 )
+EMPTY_PROFILE_ANSWER = json.dumps({**json.loads(ANSWER), "profile": "", "themes": [], "modes": []})
 
 
 @time_machine.travel(NOW, tick=False)
@@ -236,6 +237,54 @@ class TestUpdateActivitySummary(BaseTest):
         assert after.next_eligible_at == NOW + datetime.timedelta(hours=6)
         assert after.version == before.version == 1
         assert self._versions() == [1]
+
+    def test_an_empty_first_profile_is_a_paid_skip_that_backs_off_and_doubles(self) -> None:
+        self._changes(3)
+        llm = FakeLLM([EMPTY_PROFILE_ANSWER])
+
+        result = self._update(llm)
+
+        assert (result.status, result.summary, result.error) == (UpdateStatus.SKIPPED_EMPTY_PROFILE, None, None)
+        assert len(llm.requests) == 1
+        skipped = self._stored()
+        assert skipped is not None
+        assert (skipped.status, skipped.summary, skipped.generated_at, skipped.input_watermark) == (
+            UserActivitySummary.Status.EMPTY_PROFILE,
+            None,
+            None,
+            None,
+        )
+        assert (skipped.tokens_in, skipped.tokens_out, skipped.cost_usd) == (100, 20, result.cost_usd)
+        assert result.cost_usd
+        assert skipped.updated_at == NOW
+        assert skipped.next_eligible_at == NOW + datetime.timedelta(hours=6)
+        assert self._versions() == []
+
+        with time_machine.travel(NOW + datetime.timedelta(hours=7), tick=False):
+            assert self._update(llm).status == UpdateStatus.SKIPPED_EMPTY_PROFILE
+        skipped_again = self._stored()
+        assert skipped_again is not None
+        assert skipped_again.next_eligible_at == NOW + datetime.timedelta(hours=7 + 12)
+
+    def test_an_empty_profile_on_an_incremental_update_fails_and_keeps_the_stored_summary(self) -> None:
+        self._changes(3, days_ago=2)
+        self._update(FakeLLM([ANSWER]))
+        before = self._stored()
+        assert before is not None
+        self._changes(3, days_ago=0.5)
+        llm = FakeLLM([EMPTY_PROFILE_ANSWER])
+
+        result = self._update(llm, force=True)
+
+        assert result.status == UpdateStatus.FAILED
+        assert len(llm.requests) == 2
+        after = self._stored()
+        assert after is not None
+        assert (after.status, after.error) == (
+            UserActivitySummary.Status.FAILED,
+            "malformed_output: response has no profile",
+        )
+        assert (after.summary, after.input_watermark, after.version) == (before.summary, before.input_watermark, 1)
 
     def test_keeps_the_latest_max_versions_and_deletes_them_with_the_summary(self) -> None:
         for update in range(3):

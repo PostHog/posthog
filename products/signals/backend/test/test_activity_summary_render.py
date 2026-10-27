@@ -13,6 +13,7 @@ from products.signals.backend.activity_summary.computed import compute_fields
 from products.signals.backend.activity_summary.prompt import (
     MAX_LABEL_CHARS,
     MAX_RECENT_SHIFT_CHARS,
+    EmptyProfileError,
     MalformedSummaryError,
     normalize_summary,
     summary_text,
@@ -843,16 +844,20 @@ def test_normalize_summary(_name: str, content: str, had_previous: bool, expecte
 
 @parameterized.expand(
     [
-        ("empty", None),
-        ("not JSON", "Here is the summary: ..."),
-        ("not an object", "[1, 2]"),
-        ("no profile", _answer(profile="  ")),
-        ("no headline", _answer(headline=None)),
+        ("empty", None, False, MalformedSummaryError),
+        ("not JSON", "Here is the summary: ...", False, MalformedSummaryError),
+        ("not an object", "[1, 2]", False, MalformedSummaryError),
+        ("no profile on a first summary", _answer(profile="  "), False, EmptyProfileError),
+        ("no profile with a previous summary", _answer(profile="  "), True, MalformedSummaryError),
+        ("no headline", _answer(headline=None), False, MalformedSummaryError),
+        ("no headline and no profile", _answer(headline=None, profile=""), False, MalformedSummaryError),
     ]
 )
-def test_normalize_summary_rejects_a_malformed_answer(_name: str, content: str | None) -> None:
-    with pytest.raises(MalformedSummaryError):
-        normalize_summary(content, had_previous_summary=False)
+def test_normalize_summary_rejects_a_malformed_answer(
+    _name: str, content: str | None, had_previous: bool, error: type[Exception]
+) -> None:
+    with pytest.raises(error):
+        normalize_summary(content, had_previous_summary=had_previous)
 
 
 def test_summary_text_is_the_headline_and_the_theme_labels_in_order() -> None:
@@ -939,6 +944,7 @@ _CONNECTION_ERROR = APIConnectionError(request=SimpleNamespace())  # type: ignor
             "api_error: APIConnectionError",
             (None, None),
         ),
+        ("an empty first profile is not retried", [_answer(profile="")], False, 1, None, (100, 20)),
     ]
 )
 def test_summarize_retries_a_malformed_or_truncated_answer_once(
@@ -962,6 +968,7 @@ def test_summarize_retries_a_malformed_or_truncated_answer_once(
     assert {req["user"] for req in llm.requests} == {PIPELINE_DISTINCT_ID}
     assert {req["max_completion_tokens"] for req in llm.requests} == {MAX_COMPLETION_TOKENS}
     assert (outcome.summary is not None, outcome.error) == (succeeds, error)
+    assert outcome.empty_profile == (not succeeds and error is None)
     assert (outcome.tokens_in, outcome.tokens_out) == tokens
 
 
