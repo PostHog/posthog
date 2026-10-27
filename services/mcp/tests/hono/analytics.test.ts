@@ -609,6 +609,18 @@ describe('Hono MCP analytics contexts', () => {
             // Its result is a live presigned S3 POST (policy, signature, credential) — output
             // fields, not secret-shaped keys, so key-based redaction can't catch them.
             ['the presigned upload tool', 'media-image-upload-start', { name: 'logo.png', purpose: 'email' }, false],
+            [
+                'execute-sql wrapped in a connection call',
+                'posthog-connection-call',
+                { connection_id: '1', tool: 'execute-sql', arguments: { query: 'SELECT count() FROM events' } },
+                false,
+            ],
+            [
+                'a connection forward',
+                'posthog-connection-forward',
+                { id: '1', method: 'GET', path: 'api/projects/1/persons/' },
+                false,
+            ],
         ])('gates capture for %s', async (_case, toolName, input, captured) => {
             await trackToolSpan(toolName, makeState(), { durationMs: 100, isError: false, input, output: 'rows' })
 
