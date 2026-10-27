@@ -1225,6 +1225,20 @@ class TestActionRegistrationAndIntegration(APIBaseTest):
         assert "feature_flag.update" in ACTION_REGISTRY
         assert ACTION_REGISTRY["feature_flag.update"] == UpdateFeatureFlagAction
 
+    def test_an_action_another_product_registers_first_leaves_the_built_ins_available(self):
+        from products.approvals.backend.actions import registry
+        from products.approvals.backend.actions.base import BaseAction
+
+        external_action = type("ExternalAction", (BaseAction,), {"key": "external.operation"})
+        with (
+            patch.dict(registry.ACTION_REGISTRY, clear=True),
+            patch.object(registry, "_builtin_actions_registered", False),
+        ):
+            registry.register_action(external_action)
+
+            assert registry.get_action("feature_flag.update") is UpdateFeatureFlagAction
+            assert registry.get_action("external.operation") is external_action
+
     def test_action_coexists_with_enable_disable_actions(self):
         from products.approvals.backend.actions.registry import ACTION_REGISTRY, register_actions
 

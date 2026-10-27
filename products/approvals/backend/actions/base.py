@@ -30,6 +30,11 @@ class BaseAction(ABC):
     # The fallback policy's conditions name the other action's fields, so they are not evaluated.
     fallback_policy_action_keys: tuple[str, ...] = ()
 
+    # Whether only a fallback policy with no conditions counts. A conditioned policy limits review
+    # to some changes of its own action, and this action carries none of the fields it names, so
+    # borrowing it would review this action whatever the admin limited it to.
+    fallback_policy_must_be_unconditioned: bool = False
+
     @classmethod
     def fallback_policy_action_keys_for(cls, organization) -> tuple[str, ...]:
         """The fallback keys to try for this organization, in order.

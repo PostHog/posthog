@@ -90,8 +90,15 @@ class PolicyEngine:
         """Get the active policy for an action, falling back to its fallback action keys in order."""
         for action_key in (action_class.key, *action_class.fallback_policy_action_keys_for(organization)):
             policy = self.get_policy(action_key, team, organization)
-            if policy:
-                return policy
+            if not policy:
+                continue
+            if (
+                action_key != action_class.key
+                and action_class.fallback_policy_must_be_unconditioned
+                and policy.conditions
+            ):
+                continue
+            return policy
         return None
 
     def get_all_matching_policies(self, action_key: str, team, organization, intent: dict):
