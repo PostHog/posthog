@@ -529,13 +529,10 @@ impl<F> PinnedDrop for GrpcMetricsFuture<F> {
 
 /// Tower layer that sheds gRPC requests when the server is at capacity.
 ///
-/// Admission is a semaphore of `max_requests` permits shared across all
-/// connections on the pod. A request that finds no permit is refused with
-/// the configured status (default `UNAVAILABLE`) and `x-not-applied`, so
-/// the caller knows nothing ran. [`with_wait`](Self::with_wait) lets the
-/// request wait a bounded time for a permit first, so a sub-second burst
-/// shows up as latency rather than refusals while a sustained overload
-/// still sheds. When `max_requests` is 0, the layer is a pass-through.
+/// A request that finds no permit is refused with `x-not-applied`, so the
+/// caller knows nothing ran. [`with_wait`](Self::with_wait) lets it wait a
+/// bounded time first, so a sub-second burst shows up as latency rather
+/// than refusals. When `max_requests` is 0, the layer is a pass-through.
 #[derive(Clone)]
 pub struct GrpcLoadShedLayer {
     max_requests: usize,
@@ -609,8 +606,6 @@ pub struct GrpcLoadShedService<S> {
     grpc_status: HeaderValue,
 }
 
-/// Why a request was shed, as the `reason` label on
-/// `grpc_server_load_shed_total`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ShedReason {
     NoWait,
@@ -730,10 +725,9 @@ where
     }
 }
 
-/// Every variant releases what it holds on drop: the permit frees the
-/// admission slot and the `WaiterSlot` frees the queue slot, on completion
-/// and on cancellation alike. That is what keeps the counts correct under
-/// client disconnects.
+/// The permit and the `WaiterSlot` release on drop, on completion and on
+/// cancellation alike, which keeps the counts correct under client
+/// disconnects.
 #[pin_project(project = GrpcLoadShedFutureProj)]
 pub enum GrpcLoadShedFuture<S, ReqBody, ResBody>
 where
