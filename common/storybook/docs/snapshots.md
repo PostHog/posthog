@@ -36,7 +36,16 @@ The runner counts these as loaders: `.Spinner`, `.quill-spinner`, `.LemonSkeleto
 | `snapshotTargetSelector`      | `#storybook-root` | Snapshots one element. Throws with `layout: 'fullscreen'`.                                                                             |
 | `includeNavigationInSnapshot` | `false`           | For `layout: 'fullscreen'`, snapshots the viewport with the navigation instead of the scene alone.                                     |
 
-`viewportWidths` names each snapshot `<story-id>--<width>--<theme>`, for example `my-story--medium--light`. `DefinitionView.stories.tsx` is a working example.
+`viewportWidths` takes one snapshot per width instead of the single default one, and names each `<story-id>--<width>--<theme>`:
+
+```ts
+export const MyStoryViewports: Story = createInsightStory(fixture, 'edit')
+MyStoryViewports.parameters = {
+  testOptions: { viewportWidths: ['medium', 'wide', 'superwide'] },
+}
+```
+
+That gives `my-story-viewports--medium--light` and so on. `frontend/src/scenes/data-management/definition/DefinitionView.stories.tsx` is a working example.
 
 ### Themes, browsers and charts
 
@@ -79,25 +88,15 @@ An iframe that loads `/embedded/` or `/shared/` gets a fixed placeholder page, s
 
 - Baselines are hashes in `frontend/snapshots.yml`, one entry per `<story-id>[--<width>]--<theme>`, signed by visual review. The PNGs under `frontend/__snapshots__/` are not the baseline, and CI deletes them before each run.
 - On a PR, CI runs only the stories that the diff can affect, in Chromium. Master and the merge queue run every story, in WebKit too.
-- The `run-ci-frontend` label runs every story on a PR. Use it to bring back a baseline for a story that the diff doesn't touch.
+- The `run-ci-frontend` label runs every story on a PR. Use it to bring back a baseline for a story that the diff doesn't touch. The label takes effect on the next push or ready-for-review, not when you add it.
 - Each changed snapshot shows up in the visual review run for the PR. A person approves it there, and finalizing the run commits the new hashes to the PR branch.
 - A finalized run pushes a commit to the branch. In a stack, that forces a restack of every layer above it, so put the stories that change in the top layer.
 - New and changed story files run up to three more times. A story that renders two different pictures across those runs fails as flaky before anyone approves it.
-- A quarantined story doesn't gate the PR. When your change alters that story, approve it by its ID. When it doesn't, leave the diff alone: it is the flake that the quarantine hides.
+- A quarantined story still renders and is diffed, but it doesn't gate the PR. The Quarantine part of [the visual review README](../../../products/visual_review/README.md#current-state) says when to approve its new picture and how a quarantine ends.
 
 ## Make a story deterministic
 
-The [deterministic stories](../../../../docs/published/handbook/engineering/conventions/frontend-coding.md#deterministic-stories) section of the frontend coding conventions lists each pattern that caused a real quarantine, and its fix. In short:
-
-- Pin the clock with `mockDate`, and write mock dates relative to it.
-- Wait for readiness, not existence, with `waitForSelector`.
-- Mock every request with `mswDecorator`.
-- Give self-measuring content a fixed width, not a `max-w-*`.
-- Don't let the viewport set the height of a fullscreen story.
-- In a `play` function, wait for the state after a timer settles, not the first state.
-- Read the theme from `body[theme]`, not from a logic value.
-- Keep chart containers at a fixed size.
-- Avoid layout that computes the next state from the current one, such as a zoom computed from the current zoom.
+[Deterministic stories](../../../docs/published/handbook/engineering/conventions/frontend-coding.md#deterministic-stories) in the frontend coding conventions lists each pattern that caused a real quarantine, and its fix.
 
 Before you change a flaky story, compare the two pictures. The Flakiness tab in visual review lists the stories that flaked on master, and each run shows the baseline and the variant.
 The region that differs usually names the cause: a strip at the bottom is a height race, an empty chart is a canvas reset, a shifted block is a width race, a skeleton is a late load.

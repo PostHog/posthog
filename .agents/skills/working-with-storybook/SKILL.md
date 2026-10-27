@@ -3,87 +3,45 @@ name: working-with-storybook
 description: >
   Runs, writes and debugs PostHog Storybook stories and their visual review snapshots.
   Use when you start Storybook to look at a change, write or change a `*.stories.tsx` file,
-  mock API data, feature flags, the date, the URL or plan features for a story,
-  pick a story `layout` or `testOptions`, or fix a story that times out, renders nothing or flakes in visual review.
-  Covers `STORYBOOK_STORIES` for running a few stories, the global decorators and their parameters
-  (`featureFlags`, `mockDate`, `pageUrl`, theme), MSW mocks (`mswDecorator`, `useStorybookMocks`),
-  `useAvailableFeatures`, the app context every story starts with, every `testOptions` key,
-  tags (`test-skip`, `test-skip-webkit`, `!test`, `autodocs`), what the test runner does before each snapshot,
-  and how CI baselines and visual review work.
-  Trigger terms: storybook, story, stories, pnpm storybook, STORYBOOK_STORIES, testOptions, waitForSelector,
-  mswDecorator, mockDate, pageUrl, visual review, snapshot, baseline, flaky story.
+  set feature flags, the date, the URL, mocks or `testOptions` for a story,
+  or fix a story that times out, renders nothing or flakes in visual review.
+  Points to the Storybook docs in `common/storybook/` and adds the steps an agent follows to render and screenshot a story.
+  Trigger terms: storybook, story, stories, pnpm storybook, STORYBOOK_STORIES, featureFlags, testOptions,
+  mswDecorator, mockDate, visual review, snapshot, flaky story.
 ---
 
 # Working with Storybook
 
-Storybook is where a UI change gets looked at before the stack runs, and where CI takes the light and dark snapshots that visual review compares.
-The setup lives in `common/storybook/.storybook/`: `main.ts` (story globs, Vite), `preview.tsx` (global decorators and parameters), `test-runner.ts` (the snapshot runner), `decorators/`.
+The Storybook docs live next to the setup, in [common/storybook/README.md](../../../common/storybook/README.md) and its `docs/` folder.
+This skill does not repeat them. Read the one the task needs:
 
-## Pick the reference
+| Task                                                                                | Read                                                                                                                       |
+| ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Start Storybook, open a story by URL, run the snapshot runner locally               | [README](../../../common/storybook/README.md)                                                                              |
+| Write a story, or set its feature flags, date, URL, layout, theme or tags           | [Writing stories](../../../common/storybook/docs/writing-stories.md)                                                       |
+| Mock API responses, plan features, the current user, team or preflight              | [Mocking data](../../../common/storybook/docs/mocking-data.md)                                                             |
+| Pick `testOptions`, fix a timeout, an empty render or a flake, understand baselines | [Snapshots](../../../common/storybook/docs/snapshots.md)                                                                   |
+| Write a story that loads data, measures itself or uses timers                       | [Deterministic stories](../../../docs/published/handbook/engineering/conventions/frontend-coding.md#deterministic-stories) |
+| Find out why visual review blocks a PR, approve, tolerate or quarantine a snapshot  | [triaging-visual-review-runs](../../../products/visual_review/skills/triaging-visual-review-runs/SKILL.md)                 |
 
-| You want to                                                                                         | Read                                                                                   |
-| --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Start Storybook for a few stories, open a story by URL, take screenshots, run the test runner       | [references/running-storybook.md](references/running-storybook.md)                     |
-| Set flags, the date, the URL, the layout or the theme of a story, or tag it                         | [references/story-parameters.md](references/story-parameters.md)                       |
-| Mock API responses, plan features, the current user, team or preflight                              | [references/mocking-data.md](references/mocking-data.md)                               |
-| Pick `testOptions`, understand what the runner waits for, fix a timeout, an empty render or a flake | [references/snapshots-and-visual-review.md](references/snapshots-and-visual-review.md) |
+## Render a story to check a change
 
-Feature flags have their own skill, [setting-feature-flags-in-storybook](../setting-feature-flags-in-storybook/SKILL.md), because the wrong way passes in jest and fails only in visual review.
+1. Start Storybook in the background with only the stories you need: `STORYBOOK_STORIES=<dir or story file> pnpm storybook`. Never edit the `stories` list in `common/storybook/.storybook/main.ts`.
+2. Wait for the index, then find the story ID:
 
-## Rules that apply to every story
+   ```sh
+   until curl -sf http://localhost:6006/index.json >/dev/null; do sleep 1; done
+   curl -s http://localhost:6006/index.json | jq -r '.entries | keys[]'
+   ```
 
-- **Run only the stories you need.** Set `STORYBOOK_STORIES=<dir or story file>` before `pnpm storybook`. Never edit the `stories` list in `main.ts` to narrow it.
-- **Set state through parameters, not through logic actions.** `featureFlags`, `mockDate` and `pageUrl` are parameters that global decorators apply before the story renders. An action dispatched from a story can run after the snapshot, or be undone by a load that finishes later.
-- **Mock every request the story makes.** Use `mswDecorator` or `useStorybookMocks`. An unmocked request goes to the network, logs a warning, and can resolve after the snapshot.
-- **Make the picture the same on every run.** Pin the clock with `mockDate` and write mock dates relative to it. Wait for content that renders only after the data arrives. Give self-measuring content a fixed width.
-- **Each committed story shows a state no other story shows.** Every story adds a light and a dark baseline that every later change to that surface must approve again. A story written only to look at a change, or for a PR screenshot, is scratch: keep it out of the commit.
-- **A story gets a fresh kea context, a fresh router and the default mocks.** Nothing carries over from the story before it, except module-level state such as `useAvailableFeatures`, which every story must set again.
+3. Load `http://localhost:6006/iframe.html?viewMode=story&id=<story-id>&globals=theme:<light|dark>` in a headless browser. The first load after a start compiles the dependencies and can take a few minutes, so give it a page load timeout of a few minutes.
+4. Take screenshots with a Playwright script kept outside the repo, for example in your scratch directory. Use `deviceScaleFactor: 2`, so a screenshot in a PR doesn't look soft.
+5. Check the light and dark themes, and the narrow widths the root `AGENTS.md` asks for. Compare before and after.
 
-## Shape of a story file
+A story you write only for this check or for a PR screenshot is scratch. Keep it out of the commit.
 
-```tsx
-import { Meta, StoryObj } from '@storybook/react'
+## Before you commit a story
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
-import { mswDecorator } from '~/mocks/browser'
-
-import { MyComponent } from './MyComponent'
-
-const meta: Meta<typeof MyComponent> = {
-  title: 'Components/My component',
-  component: MyComponent,
-  decorators: [
-    mswDecorator({
-      get: { '/api/environments/:team_id/my_things/': { results: [{ id: 1, name: 'First thing' }] } },
-    }),
-  ],
-  parameters: {
-    layout: 'padded',
-    mockDate: '2024-01-15',
-    featureFlags: [FEATURE_FLAGS.MY_FLAG],
-    testOptions: { waitForSelector: 'text=First thing' },
-  },
-}
-export default meta
-
-type Story = StoryObj<typeof MyComponent>
-
-export const Default: Story = {}
-
-export const Empty: Story = {
-  decorators: [mswDecorator({ get: { '/api/environments/:team_id/my_things/': { results: [] } } })],
-  parameters: { testOptions: { waitForSelector: 'text=No things yet' } },
-}
-```
-
-Storybook merges a story's `parameters` into the meta's: plain objects merge key by key at every depth, and every other value, arrays included, replaces the meta's value.
-So a story's `testOptions: { waitForSelector }` keeps the meta's other `testOptions` keys.
-An array `featureFlags` replaces the meta's list, so repeat the meta's flags in it. A record `featureFlags` merges with a meta record.
-
-## Related
-
-- [Deterministic stories](../../../docs/published/handbook/engineering/conventions/frontend-coding.md#deterministic-stories) in the frontend coding conventions lists the patterns that caused real quarantines, with the fix for each.
-- [writing-ui-components](../writing-ui-components/SKILL.md) says when a component needs a story.
-- [verifying-changes](../verifying-changes/SKILL.md) says when a Storybook render is enough to confirm a change.
-- `common/storybook/.storybook/README.md` covers the local test runner and viewport widths.
+- Read [Writing stories](../../../common/storybook/docs/writing-stories.md) first when the story sets feature flags. The wrong way passes in jest and fails only in visual review.
+- Each committed story shows a state no other story shows, because each one adds two baselines that every later change must approve again.
+- Don't commit images from a local snapshot run. CI takes the snapshots, and visual review commits the baseline hashes.

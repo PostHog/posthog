@@ -1,7 +1,55 @@
-# Story parameters, decorators and tags
+# Writing stories
+
+## Shape of a story file
+
+```tsx
+import { Meta, StoryObj } from '@storybook/react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+
+import { mswDecorator } from '~/mocks/browser'
+
+import { MyComponent } from './MyComponent'
+
+const meta: Meta<typeof MyComponent> = {
+  title: 'Components/My component',
+  component: MyComponent,
+  decorators: [
+    mswDecorator({
+      get: { '/api/environments/:team_id/my_things/': { results: [{ id: 1, name: 'First thing' }] } },
+    }),
+  ],
+  parameters: {
+    layout: 'padded',
+    mockDate: '2024-01-15',
+    featureFlags: [FEATURE_FLAGS.MY_FLAG],
+    testOptions: { waitForSelector: 'text=First thing' },
+  },
+}
+export default meta
+
+type Story = StoryObj<typeof MyComponent>
+
+export const Default: Story = {}
+
+export const Empty: Story = {
+  decorators: [mswDecorator({ get: { '/api/environments/:team_id/my_things/': { results: [] } } })],
+  parameters: { testOptions: { waitForSelector: 'text=No things yet' } },
+}
+```
+
+Each committed story should show a state that no other story shows.
+Every story adds a light and a dark baseline, and every later change to that surface has to approve both again.
+A story you write only to look at a change, or for a PR screenshot, is scratch. Keep it out of the commit.
+
+A story must render the same picture on every run.
+[Deterministic stories](../../../docs/published/handbook/engineering/conventions/frontend-coding.md#deterministic-stories) lists the patterns that broke that, with a fix for each.
+
+## Global decorators
 
 Every story runs inside six global decorators from `common/storybook/.storybook/preview.tsx`.
-Each one reads a parameter, so a story sets state by setting the parameter, not by calling logic actions.
+Each one reads a parameter, so set state through the parameter, not by calling logic actions.
+An action dispatched from a story can run after the snapshot, or a load that finishes later can undo it.
 
 | Decorator                 | Parameter                    | What it does                                                                                    |
 | ------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------------- |
@@ -35,9 +83,27 @@ parameters: { featureFlags: { 'bool-flag': true, 'my-experiment': 'test' } } // 
 - The default is no flags, so every flag is off.
 - `featureFlagLogic` reads the persisted flags on mount and keeps them under every later flag load, so a pinned variant survives the empty flag callback posthog-js fires on load.
 - `STORYBOOK_FEATURE_FLAGS` from `lib/constants` is every flag except `TODAY_RAIL_NAV` and `INTERNAL_FEEDBACK_WIDGET`. The rail swaps the whole navigation, so a story opts in to it on its own. Use the constant for a scene story that shows the app with everything on.
-- Never call `featureFlagLogic.actions.setFeatureFlags` from a story. It passes in jest, and in visual review posthog-js wipes it, so the snapshot shows the flag-off branch.
+- A component that reads flags from a different posthog-js instance, such as the toolbar, needs that instance's own override. `Toolbar.stories.tsx` calls `toolbarPosthogJS.featureFlags.overrideFeatureFlags` for this reason.
+- The parameter only sets the flag. When the render also depends on other runtime state, such as localStorage, an `APP_CONTEXT` field or a logic that has to resolve an entry, set that up too. A small wrapper in the story file can set the state and mount the logic before it renders the component. Don't add test-only props to the production component.
 
-[setting-feature-flags-in-storybook](../../setting-feature-flags-in-storybook/SKILL.md) explains the failure in full. A component that reads flags from a different posthog-js instance, such as the toolbar, needs that instance's own override: `Toolbar.stories.tsx` calls `toolbarPosthogJS.featureFlags.overrideFeatureFlags` for this reason.
+### Don't set flags from a story
+
+Never call `featureFlagLogic.actions.setFeatureFlags` from a story.
+It works in jest, where `NODE_ENV` is `test`, but not in the built Storybook that visual review uses.
+There, posthog-js loads flags and fires `onFeatureFlags` with an empty set.
+That dispatches `setFeatureFlags` and wipes the flags the story set, so the unit test passes and the snapshot shows the flag-off branch.
+
+Don't work around it by turning off posthog-js flags, for example with `advanced_disable_feature_flags`, either.
+`appLogic.showApp` waits until `receivedFeatureFlags` is true, and the same `onFeatureFlags` callback sets it.
+Without that callback, every `Scenes-App/*` story waits for a 3 second timeout and flakes.
+The login page is the exception: with no user on `/login`, `showApp` renders without waiting for flags. Login stories still need the `featureFlags` parameter to get a fixed flag state.
+
+### Why the parameter works
+
+`withFeatureFlags` calls `setFeatureFlags` in `frontend/src/mocks/browser.tsx`, which writes the flags, array or record, to `window.POSTHOG_APP_CONTEXT.persisted_feature_flags`.
+`getPersistedFeatureFlags` in `frontend/src/lib/logic/featureFlagLogic.ts` reads that as the initial value of `featureFlagLogic`, and `spyOnFeatureFlags` always merges it in as the baseline.
+So booleans and pinned variants both survive the empty `onFeatureFlags` callback.
+The one production-side piece is that `getPersistedFeatureFlags` accepts the record form as well as the array form the server sends.
 
 ## `mockDate`
 
@@ -89,7 +155,7 @@ parameters: {
 
 - Many stories set `viewMode: 'story'`. Nothing in the runner reads it, and it changes nothing that a snapshot shows.
 - `docs`, `controls`, `actions` and `options` are standard Storybook parameters for the Storybook UI. The runner ignores them.
-- `parameters.msw.mocks` works only with `mswDecorator` on the story or meta. No global decorator reads it. See [mocking-data.md](mocking-data.md).
+- `parameters.msw.mocks` works only with `mswDecorator` on the story or meta. No global decorator reads it. See [Mocking data](mocking-data.md).
 - A parameter that only one file uses, such as `narrow`, `width` or `tab`, is read by that file's own `render` or `beforeEach`. Read the file before you copy one.
 
 ## Story functions: `render`, `play`, `beforeEach`, `loaders`
