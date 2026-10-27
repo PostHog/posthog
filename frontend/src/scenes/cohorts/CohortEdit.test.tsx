@@ -653,6 +653,45 @@ describe('cohortEditLogic', () => {
         })
     })
 
+    describe('persons list footer', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        it.each([
+            { count: 2455, expectedFooter: 'Showing 2 of 2,455 entries' },
+            { count: 2, expectedFooter: 'Showing all 2 entries' },
+        ])('shows "$expectedFooter" when the cohort count is $count', async ({ count, expectedFooter }) => {
+            const cohortId = 7
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        ...mockCohort,
+                        id: cohortId,
+                        is_static: false,
+                        is_calculating: false,
+                        count,
+                        version: 1,
+                        pending_version: 1,
+                        last_calculation: '2024-01-01T00:00:00Z',
+                    },
+                },
+                post: {
+                    '/api/environments/:team_id/query/:query_kind/': {
+                        columns: ['id'],
+                        types: ['UUID'],
+                        results: [['person-a'], ['person-b']],
+                        hasMore: false,
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            expect(await screen.findByText(expectedFooter)).toBeInTheDocument()
+        })
+    })
+
     describe('used-in summary', () => {
         afterEach(() => {
             cleanup()
