@@ -594,6 +594,38 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
 
     @parameterized.expand(
         [
+            ("text_equals", "properties.status = 'SUCCESS'", [1, 0, 0, 0, 0, 0]),
+            ("text_not_equals", "properties.status != 'SUCCESS'", [0, 1, 1, 1, 1, 1]),
+            ("text_in", "properties.status IN ('SUCCESS', 'FAILURE')", [1, 1, 0, 0, None, 0]),
+            ("text_and_boolean_in", "properties.status IN ('SUCCESS', 'true')", [1, 0, 1, 1, None, 0]),
+            ("boolean_text_equals", "properties.status = 'true'", [0, 0, 1, 1, 0, 0]),
+        ]
+    )
+    def test_boolean_property_compared_to_text_matches_text(
+        self, _name: str, predicate: str, expected: list[int | None]
+    ) -> None:
+        context = self._context(event_properties={"status": {"type": "Boolean"}})
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(parse_select(f"SELECT {predicate} FROM events"), context, "clickhouse")
+        rows = sync_execute(
+            "WITH events_json AS (SELECT 1 AS team_id, CAST(arrayJoin(%(documents)s), 'JSON') AS properties) "
+            + printed,
+            {
+                **context.values,
+                "documents": [
+                    '{"status":"SUCCESS"}',
+                    '{"status":"FAILURE"}',
+                    '{"status":true}',
+                    '{"status":"true"}',
+                    "{}",
+                    '{"status":false}',
+                ],
+            },
+        )
+        assert [row[0] for row in rows] == expected
+
+    @parameterized.expand(
+        [
             (name, property_name, value, escape_forward_slashes)
             for name, property_name, value in [
                 ("typed_array", "$exception_types", ["a", '"b"', "https://example.com/path", r"a\/b", r"a\\/b"]),
