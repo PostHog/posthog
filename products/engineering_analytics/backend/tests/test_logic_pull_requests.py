@@ -902,10 +902,8 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
 
         assert [(item.number, item.head_branch) for item in result.items] == [(92, "feat/b"), (91, "feat/a")]
         spend = {item.number: item.llm_spend for item in result.items}
-        assert {number: (s.cost_usd, s.generations) for number, s in spend.items() if s} == {
-            91: (pytest.approx(135.0), 4),
-            92: (pytest.approx(24.0), 2),
-        }
+        assert {number: s.generations for number, s in spend.items() if s} == {91: 4, 92: 2}
+        assert {number: s.cost_usd for number, s in spend.items() if s} == pytest.approx({91: 135.0, 92: 24.0})
         for number in (91, 92):
             assert spend[number] == api.get_pr_cost(team=self.team, pr_number=number, repo="PostHog/posthog").llm_spend
 
