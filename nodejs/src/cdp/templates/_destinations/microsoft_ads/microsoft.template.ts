@@ -152,11 +152,16 @@ fn hashEmail(value) {
     return sha256Hex(f'{localPart}@{parts[2]}')
 }
 
+// Removes every whitespace character, not only the ASCII space, so a number with non-breaking or thin spaces between digit groups still hashes
+fn removeWhitespace(value) {
+    return arrayStringConcat(arrayFilter(character -> not match(character, '[\\t\\n\\r \u00a0\u1680\u2000-\u200a\u2028\u2029\u202f\u205f\u3000\ufeff]'), splitByString('', value)), '')
+}
+
 // Microsoft hashes the E.164 form including the leading +. A number without a country code
 // is dropped, because guessing the country would send a hash that matches the wrong person or nobody.
 fn hashPhone(value) {
-    let phone := trim(toString(value))
-    for (let separator in [' ', '-', '.', '(', ')']) {
+    let phone := removeWhitespace(toString(value))
+    for (let separator in ['-', '.', '(', ')']) {
         phone := replaceAll(phone, separator, '')
     }
     if (startsWith(phone, '00')) {

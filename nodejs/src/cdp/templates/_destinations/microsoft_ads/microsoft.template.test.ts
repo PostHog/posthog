@@ -188,6 +188,11 @@ describe('microsoft template', () => {
             { phone: '0044 20 7946 0000' },
             { ph: '543f9cda443b9c55ebcf8ab34b586f9dc34948776b73de02393c41d5f8edc356' },
         ],
+        [
+            'phone with Unicode spaces',
+            { phone: '+1\u00a0425\u202f555\u20091234' },
+            { ph: 'c59475d96e9f01d7d18d06cfad84dd02333207f02c0c2c5663ef2782cda0390e' },
+        ],
         ['phone without a country code', { phone: '425 555 1234' }, {}],
         [
             'short international phone',
