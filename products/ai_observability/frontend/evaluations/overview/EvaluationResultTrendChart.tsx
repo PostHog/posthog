@@ -17,6 +17,8 @@ import {
     trackedCategory,
 } from './evaluationOverviewDisplay'
 
+// The volume axis is hidden, so the chart needs no room for labels on the right.
+const CHART_MARGINS = { right: 16 }
 const VOLUME_KEY = 'volume'
 const PASSED_KEY = 'passed'
 const FAILED_KEY = 'failed'
@@ -164,6 +166,7 @@ export function EvaluationResultTrendChart({
                 { id: VOLUME_KEY, position: 'right', hide: true },
             ],
             valueDomain: isScore ? (scale ? { min: scale.min, max: scale.max } : undefined) : { min: floor, max: 100 },
+            margins: CHART_MARGINS,
         }
     }, [isScore, summary, values, timezone, interval, breakdown])
 

@@ -145,6 +145,49 @@ jest.mock('products/dashboards/frontend/components/DashboardTextItem/DashboardTe
 }))
 
 jest.mock('react-grid-layout', () => {
+    const MockGrid = ({
+        className,
+        style,
+        rowHeight,
+        margin,
+        gridConfig,
+        resizeConfig,
+        dragConfig,
+        positionStrategy,
+        children,
+    }: {
+        className: string
+        style?: Record<string, number>
+        rowHeight?: number
+        margin?: [number, number]
+        gridConfig?: { rowHeight: number; margin: [number, number] }
+        resizeConfig: { enabled: boolean }
+        dragConfig: { enabled: boolean }
+        positionStrategy?: unknown
+        children: any
+    }): JSX.Element => {
+        jest.requireActual('react').useEffect(() => {
+            mockGridMounts++
+        }, [])
+        return (
+            <div
+                ref={(element) => {
+                    if (element) {
+                        mockPositionStrategies.set(element, positionStrategy)
+                    }
+                }}
+                data-attr="react-grid-layout"
+                data-style-width={style?.width}
+                data-class-name={className}
+                data-row-height={String(rowHeight ?? gridConfig?.rowHeight)}
+                data-margin={(margin ?? gridConfig?.margin ?? []).join(',')}
+                data-resize-enabled={String(resizeConfig.enabled)}
+                data-drag-enabled={String(dragConfig.enabled)}
+            >
+                {children}
+            </div>
+        )
+    }
     return {
         cloneLayoutItem: (item: Record<string, unknown>) => ({ ...item }),
         useContainerWidth: () => ({
@@ -157,47 +200,8 @@ jest.mock('react-grid-layout', () => {
             allowOverlap: false,
             compact: (layout: unknown[]) => layout,
         },
-        Responsive: ({
-            className,
-            style,
-            rowHeight,
-            margin,
-            resizeConfig,
-            dragConfig,
-            positionStrategy,
-            children,
-        }: {
-            className: string
-            style?: Record<string, number>
-            rowHeight: number
-            margin: [number, number]
-            resizeConfig: { enabled: boolean }
-            dragConfig: { enabled: boolean }
-            positionStrategy?: unknown
-            children: any
-        }) => {
-            jest.requireActual('react').useEffect(() => {
-                mockGridMounts++
-            }, [])
-            return (
-                <div
-                    ref={(element) => {
-                        if (element) {
-                            mockPositionStrategies.set(element, positionStrategy)
-                        }
-                    }}
-                    data-attr="react-grid-layout"
-                    data-style-width={style?.width}
-                    data-class-name={className}
-                    data-row-height={String(rowHeight)}
-                    data-margin={margin.join(',')}
-                    data-resize-enabled={String(resizeConfig.enabled)}
-                    data-drag-enabled={String(dragConfig.enabled)}
-                >
-                    {children}
-                </div>
-            )
-        },
+        Responsive: MockGrid,
+        GridLayout: MockGrid,
     }
 })
 

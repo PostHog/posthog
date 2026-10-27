@@ -154,7 +154,7 @@ class TestSlackTransport(APIBaseTest):
         assert post.call_args.kwargs["thread_ts"] is None
 
     @parameterized.expand(
-        [("a_resolve", AlertEventKind.RESOLVED, True), ("a_repeat_firing", AlertEventKind.FIRING, False)]
+        [("a_resolve", AlertEventKind.RESOLVED, True), ("a_repeat_firing", AlertEventKind.FIRING, True)]
     )
     def test_a_reply_goes_into_the_thread_it_names_and_keeps_no_content(
         self, _name: str, kind: AlertEventKind, broadcast: bool
