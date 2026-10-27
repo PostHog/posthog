@@ -433,6 +433,12 @@ class TestCustomerioLiquid(SimpleTestCase):
         assert rewritten.unsupported_globals == ("journey",)
         assert rewritten.missing_snippets == ("legal",)
 
+    def test_stops_inlining_snippets_past_the_budget(self) -> None:
+        room = liquid.SnippetRoom(remaining=10)
+        rewritten = liquid.rewrite('{% snippet "big" %}' * 3, {"big": "0123456"}, room)
+        assert rewritten.text == '0123456{% snippet "big" %}{% snippet "big" %}'
+        assert rewritten.missing_snippets == ("big",)
+
 
 class TestWorkflowImportAPI(APIBaseTest):
     def setUp(self) -> None:

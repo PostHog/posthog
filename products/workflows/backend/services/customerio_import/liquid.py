@@ -1,6 +1,7 @@
 """Customer.io Liquid rewritten for PostHog's Liquid globals."""
 
 import re
+from dataclasses import dataclass
 
 from posthog.dataclasses import frozen
 
@@ -42,16 +43,29 @@ class RewrittenLiquid:
     missing_snippets: tuple[str, ...] = ()
 
 
-def rewrite(text: str | None, snippets: dict[str, str]) -> RewrittenLiquid:
+@dataclass(frozen=False)
+class SnippetRoom:
+    """How many more bytes of snippet content one automation may inline.
+
+    Snippets are inlined by copy, so a short template that repeats a large one could grow without bound.
+    """
+
+    remaining: int = 2_000_000
+
+
+def rewrite(text: str | None, snippets: dict[str, str], room: SnippetRoom | None = None) -> RewrittenLiquid:
     if not text:
         return RewrittenLiquid(text=text or "")
     missing_snippets: list[str] = []
+    room = room or SnippetRoom()
 
     def inline_snippet(match: re.Match[str]) -> str:
         name = match.group(1)
-        if name in snippets:
+        content = snippets.get(name)
+        if content is not None and len(content) <= room.remaining:
+            room.remaining -= len(content)
             # A snippet is Customer.io Liquid too, so it goes through the same rewrite after this.
-            return snippets[name]
+            return content
         missing_snippets.append(name)
         return match.group(0)
 
