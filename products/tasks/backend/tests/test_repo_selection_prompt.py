@@ -8,6 +8,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.models.repo_routing_rule import RepoRoutingRule
 
 from products.tasks.backend.logic.repo_selection.agent import (
+    RepoSelectionRejectedError,
     RepoSelectionUsageLimitError,
     _build_repo_selection_prompt,
     _routing_rules_block,
@@ -273,7 +274,11 @@ def test_source_repository_is_a_default_for_the_agent_not_an_answer(
     session.end = AsyncMock()
     start = AsyncMock(return_value=(session, result))
     github = MagicMock()
-    github.list_all_cached_repositories.return_value = [{"full_name": "acme/a"}, {"full_name": "acme/b"}]
+    github.list_all_cached_repositories.return_value = [
+        {"full_name": "acme/a", "private": False},
+        {"full_name": "acme/b", "private": False},
+        {"full_name": "acme/gone", "private": False},
+    ]
 
     with (
         patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
@@ -304,3 +309,123 @@ def test_source_repository_is_a_default_for_the_agent_not_an_answer(
         assert routing_rules in prompt
     if past_corrections:
         assert past_corrections in prompt
+
+
+@pytest.mark.parametrize(
+    "source_metadata,target_private,expected",
+    [
+        ({"private": True}, False, None),
+        ({"private": True}, None, None),
+        ({"private": True}, True, "acme/b"),
+        ({"private": False}, False, "acme/b"),
+        ({"private": False}, True, "acme/b"),
+        ({}, False, None),
+        (None, False, None),
+        ({"private": "false"}, False, None),
+        (None, True, "acme/b"),
+    ],
+)
+def test_source_visibility_constrains_single_eligible_repository(
+    source_metadata: dict[str, bool | str] | None, target_private: bool | None, expected: str | None
+) -> None:
+    github = MagicMock()
+    cached_repositories = [{"full_name": "acme/b", "private": target_private}]
+    if source_metadata is not None:
+        cached_repositories.append({"full_name": "acme/a", **source_metadata})
+    github.list_all_cached_repositories.return_value = cached_repositories
+    start = AsyncMock()
+
+    with (
+        patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
+        patch(f"{_AGENT}._list_eligible_full_names", return_value={"acme/b"}),
+        patch(f"{_AGENT}.MultiTurnSession.start", start),
+    ):
+        cache.return_value.sync_full_cache = AsyncMock()
+        selected = async_to_sync(select_repository)(
+            1,
+            1,
+            "Find the repository for this issue.",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            priority=Priority.NORMAL,
+            github=github,
+            candidate_repos=["acme/a", "acme/b"],
+            source_repository=" Acme/A ",
+        )
+
+    assert selected.repository == expected
+    assert "acme/a" not in selected.reason
+    start.assert_not_awaited()
+
+
+@pytest.mark.parametrize("source_private", [None, True])
+def test_nonpublic_source_can_keep_its_repository(source_private: bool | None) -> None:
+    github = MagicMock()
+    github.list_all_cached_repositories.return_value = [
+        {"full_name": "acme/a", "private": source_private},
+        {"full_name": "acme/b", "private": False},
+    ]
+
+    with (
+        patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
+        patch(f"{_AGENT}._list_eligible_full_names", return_value={"acme/a", "acme/b"}),
+    ):
+        cache.return_value.sync_full_cache = AsyncMock()
+        selected = async_to_sync(select_repository)(
+            1,
+            1,
+            "Find the repository for this issue.",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            priority=Priority.NORMAL,
+            github=github,
+            candidate_repos=["acme/a", "acme/b"],
+            source_repository="acme/a",
+        )
+
+    assert selected.repository == "acme/a"
+
+
+@pytest.mark.parametrize("selected_repository", ["acme/b", "acme/c"])
+def test_source_visibility_constrains_agent_selection(selected_repository: str) -> None:
+    result = RepoSelectionResult(repository=selected_repository, reason="Matching code.")
+    session = MagicMock()
+    session.end = AsyncMock()
+    start = AsyncMock(return_value=(session, result))
+    github = MagicMock()
+    github.list_all_cached_repositories.return_value = [
+        {"full_name": "acme/a", "private": True},
+        {"full_name": "acme/b", "private": True},
+        {"full_name": "acme/c", "private": False},
+        {"full_name": "acme/d", "private": True},
+    ]
+
+    with (
+        patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
+        patch(f"{_AGENT}._list_eligible_full_names", return_value={"acme/b", "acme/c", "acme/d"}),
+        patch(f"{_AGENT}._routing_rules_block", return_value=None),
+        patch(f"{_AGENT}.MultiTurnSession.start", start),
+    ):
+        cache.return_value.sync_full_cache = AsyncMock()
+
+        def select() -> RepoSelectionResult:
+            return async_to_sync(select_repository)(
+                1,
+                1,
+                "Find the repository for this issue.",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                priority=Priority.NORMAL,
+                github=github,
+                candidate_repos=["acme/b", "acme/c", "acme/d"],
+                source_repository="acme/a",
+            )
+
+        if selected_repository == "acme/c":
+            with pytest.raises(RepoSelectionRejectedError):
+                select()
+        else:
+            assert select().repository == "acme/b"
+
+    prompt = start.call_args.kwargs["prompt"]
+    assert "1. `acme/b` (private)" in prompt
+    assert "2. `acme/d` (private)" in prompt
+    assert "`acme/c`" not in prompt
+    session.end.assert_awaited_once()

@@ -286,8 +286,8 @@ def _visibility_label(private: bool | None) -> str:
     return "private" if private else "public"
 
 
-def _candidate_visibility(github: GitHubIntegrationBase, candidate_repos: list[str]) -> dict[str, bool | None]:
-    """The `private` flag of each candidate from the light cache, or None when the cached entry lacks it.
+def _candidate_visibility(github: GitHubIntegrationBase, repositories: list[str]) -> dict[str, bool | None]:
+    """The `private` flag of each requested repository, including an ineligible source, from the light cache.
 
     A pure cache read: `_list_candidate_repos` already refreshed the cache when it was stale, so a
     second refresh would only cost another GitHub round trip. Entries synced before the flag was
@@ -300,7 +300,16 @@ def _candidate_visibility(github: GitHubIntegrationBase, candidate_repos: list[s
             continue
         private = repo.get("private")
         cached[full_name.lower()] = private if isinstance(private, bool) else None
-    return {repo: cached.get(repo) for repo in candidate_repos}
+    return {repo: cached.get(repo) for repo in repositories}
+
+
+def _filter_candidates_by_source_visibility(
+    source_repository: str | None, candidate_repos: list[str], visibility: Mapping[str, bool | None]
+) -> list[str]:
+    """Unknown source visibility cannot justify moving issue content to a public repository."""
+    if source_repository is None or visibility.get(source_repository) is False:
+        return candidate_repos
+    return [repo for repo in candidate_repos if repo == source_repository or visibility.get(repo) is True]
 
 
 def _build_repo_selection_prompt(
@@ -640,7 +649,8 @@ async def select_repository(
     `source_repository` is a repository the request itself names — a GitHub issue says which
     repository it was filed against. When it is an eligible candidate the prompt makes it the
     default, and the agent still decides: the code an issue describes can live in another
-    repository. When it is not a candidate it is ignored.
+    repository. Its visibility constrains destinations even when it is not an eligible candidate:
+    a source that is not confirmed public can only stay in place or move to a confirmed private repo.
 
     Callers that have already resolved the integration and candidate list (e.g. to run their
     own cheap early-exit first) may pass `github` and `candidate_repos` to skip the redundant
@@ -688,6 +698,20 @@ async def select_repository(
         raise RepoSelectionUnavailableError(
             "No connected GitHub repositories are eligible (archived or missing cache data)."
         )
+
+    source_repository = (source_repository or "").strip().lower() or None
+    visibility = await database_sync_to_async(_candidate_visibility, thread_sensitive=False)(
+        github, [*candidate_repos, source_repository] if source_repository else candidate_repos
+    )
+    candidate_repos = _filter_candidates_by_source_visibility(source_repository, candidate_repos, visibility)
+    if not candidate_repos:
+        return RepoSelectionResult(
+            repository=None,
+            reason=(
+                "The source repository is private or its visibility is unknown, "
+                "and no eligible private destination is available."
+            ),
+        )
     if len(candidate_repos) == 1:
         return RepoSelectionResult(
             repository=candidate_repos[0],
@@ -697,7 +721,6 @@ async def select_repository(
     if output_fn:
         output_fn(f"Selecting repository from {len(candidate_repos)} candidates...")
     routing_rules = await database_sync_to_async(_routing_rules_block, thread_sensitive=False)(team_id, candidate_repos)
-    visibility = await database_sync_to_async(_candidate_visibility, thread_sensitive=False)(github, candidate_repos)
     prompt = _build_repo_selection_prompt(
         context,
         candidate_repos,

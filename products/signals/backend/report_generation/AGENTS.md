@@ -7,15 +7,16 @@ It is exercised locally via management commands, and it is also used by the prod
 
 - `select_repo.py`
   Selects the most relevant GitHub repository for a set of signals.
-  - If the team has 0 eligible repos: returns `None` (report goes to `pending_input`).
-  - If the team has 1 eligible repo: returns it directly (no sandbox needed).
-  - If the team has multiple eligible repos: spawns a sandbox agent that uses `gh` CLI to explore candidates and pick the best match. Uses `PostHog/.github` as a small dummy repo for the sandbox clone, since the agent only needs `gh` CLI access (not the repo itself).
+  - If no eligible repo passes the source-visibility check: returns `None` (report goes to `pending_input`).
+  - If 1 eligible repo passes the source-visibility check: returns it directly (no sandbox needed).
+  - If multiple eligible repos pass the source-visibility check: spawns a sandbox agent that uses `gh` CLI to explore candidates and pick the best match. Uses `PostHog/.github` as a small dummy repo for the sandbox clone, since the agent only needs `gh` CLI access (not the repo itself).
   - Output: `RepoSelectionResult(repository: str | None, reason: str)`.
   - Persisted as a `repo_selection` artefact on the report (by the caller activity, not here).
   - On re-promotion, the activity reuses the previous artefact instead of re-running selection.
   - A source repository is the agent's default when eligible. Code ownership, applicable routing rules, and past corrections can override it; matching paths alone do not establish ownership. Equally plausible candidates favor the source. See `source_repository.py`.
+  - Before the shortcut or agent runs, a source not confirmed public restricts destinations to itself when eligible or to confirmed-private candidates. Missing or non-boolean visibility is unconfirmed. The restricted candidates also govern result validation.
 - `source_repository.py`
-  The repository a report's signals were filed against. A single unambiguous GitHub issue repository supplies a selection default; issues from two repositories supply none. An unavailable source does not prevent selection from eligible repositories.
+  The repository a report's signals were filed against. A single unambiguous GitHub issue repository supplies a selection default; issues from two repositories supply none. An unavailable source can still route to an eligible confirmed-private repository, or to any eligible repository when the source is confirmed public.
 - `research.py`
   Orchestrates a multi-turn sandbox session over a report's signals.
   The agent researches each signal, then produces:
