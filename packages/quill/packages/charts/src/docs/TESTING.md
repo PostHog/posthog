@@ -2,35 +2,36 @@
 
 Two audiences:
 
-- **Embedding hog-charts** in your own component or page and writing tests for that surrounding code → [Testing code that uses hog-charts](#testing-code-that-uses-hog-charts).
+- **Embedding a chart** in your own component or page and writing tests for that surrounding code → [Testing code that uses charts](#testing-code-that-uses-charts).
 - **Working on the library itself** — chart types, overlays, the draw loop → [Testing the library itself](#testing-the-library-itself).
 
 The contract both sections rely on: the `data-attr` selectors and the `ChartAccessor` are stable. Renaming a `data-attr` is a breaking change — it breaks consumers' tests as much as renaming an exported type. JSdom's canvas is a stub, so canvas pixels aren't a viable test surface anyway — assertions go through the DOM.
 
-## Testing code that uses hog-charts
+## Testing code that uses charts
 
-You've rendered a tree that contains a chart somewhere — a dashboard, an insight scene, a custom panel. Use your own `render` (or RTL wrappers like kea-test-utils) and read the chart with `getChart(scope)`:
+You've rendered a tree that contains a chart somewhere: a dashboard, an insight scene, a custom panel. Render it your usual way, then read the chart with `findChart()`:
 
 ```tsx
 import { render } from '@testing-library/react'
-import { ensureJsdom, getChart, hoverAtIndex, waitForChartTooltip } from '@posthog/quill-charts/testing'
+import { findChart, setupChartTests } from '@posthog/quill-charts/testing'
 
-ensureJsdom()
+setupChartTests()
 
 it('renders the goal line on the dashboard chart', async () => {
-  const { container } = render(<Dashboard />)
-  const chart = getChart(container)
+  render(<Dashboard />)
+  const chart = await findChart()
 
   expect(chart.referenceLines()).toHaveLength(1)
-  expect(chart.yTicks()).toContain('0')
 
-  hoverAtIndex(chart.element, 1, LABELS.length)
-  const tooltip = await waitForChartTooltip()
-  expect(tooltip.textContent).toContain('Tue')
+  const tooltip = await chart.hoverTooltip(1)
+  expect(tooltip.label()).toBe('Tue')
+  expect(tooltip.value('Pageviews')).toBe('134')
 })
 ```
 
-`ensureJsdom()` installs the jsdom mocks (`ResizeObserver`, `getBoundingClientRect`) and a synchronous `requestAnimationFrame` shim. It's idempotent — call it once at the top of a file and forget about it.
+- `setupChartTests()` registers the hooks every chart test needs: jsdom mocks for `ResizeObserver` and `getBoundingClientRect`, synchronous animation frames, and cleanup after each test.
+- `findChart()` waits for the chart to render. Pass `seriesCount` to wait for a specific series count, or `scope` when the page has more than one chart. `getChart()` is the synchronous version.
+- `chart.hoverTooltip(i)` hovers the label at index `i` until the tooltip shows its content, then reads it as a `DefaultTooltip`. For a custom tooltip, read `tooltip.element`.
 
 The accessor surface (full list in `testing/accessor.ts`):
 
@@ -56,14 +57,13 @@ chart.sankeyNodeLabels() // ['/home', '/pricing', …] Sankey node labels in lay
 chart.sankeyColumnLabels() // ['Step 1', 'Step 2', …] Sankey column headers, left to right
 ```
 
-For interactions, use the module-level helpers:
+Gestures work under any wrapper, because the chart records its label count on its root:
 
-- `hoverAtIndex(wrapper, i, totalLabels)` — `mouseMove` over labels[i].
-- `clickAtIndex(wrapper, i, totalLabels)` — hover-then-click. Resolves after the click handler runs.
-- `dragSelection(wrapper, fromIndex, toIndex, totalLabels)` — simulates a drag-to-zoom gesture between two label indices.
-- `waitForChartTooltip()` — resolves with the rendered tooltip element once it mounts in the `FloatingPortal`.
+- `chart.hoverAtIndex(i)` fires one `mouseMove` over the label at index `i`, without waiting.
+- `await chart.clickAtIndex(i)` hovers, then clicks. It resolves after the click handler runs.
+- `chart.dragSelection(from, to)` drags between two label indices, for drag-to-zoom.
 
-`chart.hoverAtIndex(i)`, `chart.dragSelection(i, j)`, and `chart.waitForTooltip()` (returning a structured `TooltipSnapshot` with `seriesData`, `isPinned`, etc.) need `renderChart` — they read label count and the captured `TooltipContext` that only the library's own render wrapper sets up. For most consumer tests, DOM assertions through the accessor are enough.
+`chart.waitForTooltip()` returns the structured `TooltipContext` (`seriesData`, `isPinned` and so on). It needs `renderChart`, which captures that context.
 
 ## Testing the library itself
 
@@ -88,7 +88,7 @@ describe('LineChart', () => {
 })
 ```
 
-`renderChart` is `render` plus three things consumers don't need: auto-`ensureJsdom`, tooltip-context capture (so `chart.waitForTooltip()` returns the structured `TooltipContext`), and a cached `labels.length` (so `chart.hoverAtIndex(i)` doesn't take a `totalLabels` argument).
+`renderChart` is `render` plus the jsdom mocks and tooltip-context capture, so `chart.waitForTooltip()` returns the context the chart's tooltip content received.
 
 ### Interactions and tooltip context
 

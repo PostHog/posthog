@@ -7051,6 +7051,19 @@ export type FileSystemDestroyParams = {
     recursive?: boolean
 }
 
+export type FileSystemFrequentListParams = {
+    /**
+     * Maximum number of frequently viewed items to return.
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number
+    /**
+     * A search term.
+     */
+    search?: string
+}
+
 export type FileSystemSearchRetrieveParams = {
     /**
      * Maximum number of results to return, best first.

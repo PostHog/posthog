@@ -144,6 +144,9 @@ function DestinationEmailTemplaterForm({
     fieldsHidden?: boolean
 }): JSX.Element {
     const { logicProps, mergeTags, activeContentTab, emailTemplate } = useValues(emailTemplaterLogic)
+    // The editor rebuilds itself when its options change, so it keeps the tags it started with.
+    // Later changes reach it through setMergeTags in the logic.
+    const [initialMergeTags] = useState(mergeTags)
     const { setEmailEditorRef, onEmailEditorReady } = useActions(emailTemplaterLogic)
 
     return (
@@ -202,7 +205,7 @@ function DestinationEmailTemplaterForm({
                                     onReady={() => onEmailEditorReady()}
                                     minHeight={20}
                                     options={{
-                                        mergeTags,
+                                        mergeTags: initialMergeTags,
                                         displayMode: 'email',
                                         appearance: {
                                             actionBar: {
@@ -547,6 +550,9 @@ function NativeEmailTemplaterForm({
         visibleFields,
         emailTemplate,
     } = useValues(emailTemplaterLogic)
+    // The editor rebuilds itself when its options change, so it keeps the tags it started with.
+    // Later changes reach it through setMergeTags in the logic.
+    const [initialMergeTags] = useState(mergeTags)
     const { setEmailEditorRef, onEmailEditorReady, setActiveContentTab, hideAdvancedField, revealAdvancedField } =
         useActions(emailTemplaterLogic)
     // With the AI panel integration on, chat sits beside the editor and width is scarce, so the
@@ -726,7 +732,7 @@ function NativeEmailTemplaterForm({
                                     onReady={() => onEmailEditorReady()}
                                     minHeight={20}
                                     options={{
-                                        mergeTags,
+                                        mergeTags: initialMergeTags,
                                         displayMode: 'email',
                                         appearance: {
                                             actionBar: {
