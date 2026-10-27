@@ -153,6 +153,7 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     create_pull_request.assert_called_once()
     assert create_pull_request.call_args.args == ("posthog.com",)
     assert create_pull_request.call_args.kwargs["head_branch"] == DOCS_HEAD["branch"]
+    assert create_pull_request.call_args.kwargs["draft"] is True
     assert LINK_BACK_START in create_pull_request.call_args.kwargs["body"]
     assert COMMAND.pull_request_url in create_pull_request.call_args.kwargs["body"]
 

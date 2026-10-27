@@ -159,6 +159,7 @@ def open_pull_request(
         title=f"docs: update for {request.source_url}"[:255],
         body=pull_request_body(request, section=section),
         head_branch=head_branch,
+        draft=True,
     )
     if not created.get("success"):
         return None
