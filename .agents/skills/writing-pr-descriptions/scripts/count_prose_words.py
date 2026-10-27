@@ -21,6 +21,7 @@ from pathlib import Path
 from markdown_it import MarkdownIt
 
 NON_PROSE_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6", "table", "pre", "details"}
+TASK_MARKERS = {"[x]", "[X]"}
 
 
 class ProseWordCounter(HTMLParser):
@@ -39,7 +40,9 @@ class ProseWordCounter(HTMLParser):
 
     def handle_data(self, data: str) -> None:
         if not self.non_prose_depth:
-            self.words += sum(1 for word in data.split() if any(char.isalnum() for char in word))
+            self.words += sum(
+                1 for word in data.split() if word not in TASK_MARKERS and any(char.isalnum() for char in word)
+            )
 
 
 def count_prose_words(markdown: str) -> int:
