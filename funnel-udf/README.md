@@ -23,7 +23,7 @@ For revertible cloud deploys:
 
 ## Design decisions
 
-- Optional matches can be skipped when the same event also matches a required step. One event must not count twice on a selected path.
+- Each replay slot holds the events of its own step, optional steps included. Optional matches never change funnel counts, because the duplicate-event check only sees required steps.
 - Unversioned binaries use the current event layout. Replay queries must use that layout even while cloud queries select an older UDF version.
 - We tried writing the UDFs in Python, but this cause ClickHouse nodes to crash as the garbage collector could not keep up. As such we're now writing the functions in Rust.
 - We're using `cross-rs` to compile the binaries - it's a cross platfrom rust compiler.

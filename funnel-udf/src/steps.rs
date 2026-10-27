@@ -14,6 +14,11 @@ pub struct EnteredTimestamp {
     pub timings: Vec<f64>,
     pub uuids: Vec<Uuid>,
     pub steps: u32,
+    // The event of every step on the path, optional steps included, in step order. Only the replay slots read it.
+    // `uuids` keeps the required steps only, because the duplicate-event check reads it and an optional step must
+    // not change which paths count.
+    #[serde(default)]
+    pub step_uuids: Vec<Uuid>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -65,6 +70,7 @@ pub const DEFAULT_ENTERED_TIMESTAMP: EnteredTimestamp = EnteredTimestamp {
     timings: vec![],
     uuids: vec![],
     steps: 0,
+    step_uuids: vec![],
 };
 
 pub fn run(args: &Args) -> Vec<Result> {
@@ -143,6 +149,7 @@ impl AggregateFunnelRow {
                 timings: vec![],
                 uuids: vec![],
                 steps: 0,
+                step_uuids: vec![],
             };
 
             if events_with_same_timestamp.len() == 1 {
@@ -210,7 +217,7 @@ impl AggregateFunnelRow {
             .count();
 
         let matched_steps = (0..final_index).filter(|i| final_value.steps & (1 << i) != 0);
-        for (step_index, uuid) in matched_steps.zip(&final_value.uuids) {
+        for (step_index, uuid) in matched_steps.zip(&final_value.step_uuids) {
             // Always put the actual event uuids first, we use it to extract timestamps
             // This might create duplicates, but that's fine (we can remove it in clickhouse)
             vars.event_uuids[step_index].insert(0, *uuid);
@@ -257,12 +264,7 @@ impl AggregateFunnelRow {
 
             // Go backwards until you hit a match or you get to the previous mandatory step
             while previous_step_index > 0
-                && (previous_timestamp == 0.0
-                    || !in_match_window
-                    || (processing_multiple_events
-                        && vars.entered_timestamp[previous_step_index]
-                            .uuids
-                            .contains(&event.uuid)))
+                && (previous_timestamp == 0.0 || !in_match_window)
                 && args.optional_steps.contains(&(previous_step_index as i8))
             {
                 previous_step_index -= 1;
@@ -304,14 +306,17 @@ impl AggregateFunnelRow {
                         let mut u = previous_step.uuids.clone();
                         if !args.optional_steps.contains(&(step as i8)) {
                             t.push(event.timestamp);
+                            u.push(event.uuid);
                         }
-                        u.push(event.uuid);
+                        let mut s = previous_step.step_uuids.clone();
+                        s.push(event.uuid);
                         let new_entered_timestamp = EnteredTimestamp {
                             timestamp: previous_step.timestamp,
                             excluded: previous_step.excluded,
                             timings: t,
                             uuids: u,
                             steps: previous_step.steps | (1 << (step - 1)),
+                            step_uuids: s,
                         };
 
                         if !previous_step.excluded {
@@ -416,12 +421,39 @@ mod tests {
         }
     }
 
+    // Each event is (timestamp, uuid, steps). The expected counts are the ones the previous UDF version returns.
     #[rstest]
-    #[case(3, vec![2])]
-    #[case(4, vec![2, 3])]
-    fn optional_steps_can_skip_an_event_used_by_the_required_step(
+    #[case::optional_and_next_required(
+        3,
+        vec![2],
+        vec![(1.0, 1, vec![1]), (2.0, 2, vec![2, 3]), (2.0, 3, vec![1])],
+        1,
+        0b111,
+        vec![3, 2, 2]
+    )]
+    #[case::two_optionals_and_next_required(
+        4,
+        vec![2, 3],
+        vec![(1.0, 1, vec![1]), (2.0, 2, vec![2, 3, 4]), (2.0, 3, vec![1])],
+        1,
+        0b1111,
+        vec![3, 2, 2, 2]
+    )]
+    #[case::optional_and_later_required(
+        4,
+        vec![2],
+        vec![(1.0, 1, vec![1]), (2.0, 10, vec![2, 4]), (2.0, 11, vec![3])],
+        2,
+        0b1111,
+        vec![1, 10, 11, 10]
+    )]
+    fn optional_step_matches_do_not_change_counts(
         #[case] num_steps: usize,
         #[case] optional_steps: Vec<i8>,
+        #[case] events: Vec<(f64, u128, Vec<i8>)>,
+        #[case] step_reached: i8,
+        #[case] steps_bitfield: u32,
+        #[case] first_event_per_step: Vec<u128>,
         #[values("ordered", "strict")] funnel_order_type: &str,
     ) {
         let args = Args {
@@ -431,32 +463,22 @@ mod tests {
             funnel_order_type: funnel_order_type.to_string(),
             prop_vals: vec![PropVal::Int(0)],
             optional_steps,
-            value: vec![
-                Event {
-                    timestamp: 1.0,
-                    uuid: Uuid::from_u128(1),
+            value: events
+                .into_iter()
+                .map(|(timestamp, uuid, steps)| Event {
+                    timestamp,
+                    uuid: Uuid::from_u128(uuid),
                     breakdown: PropVal::Int(0),
-                    steps: vec![1],
-                },
-                Event {
-                    timestamp: 2.0,
-                    uuid: Uuid::from_u128(2),
-                    breakdown: PropVal::Int(0),
-                    steps: (2..=num_steps as i8).collect(),
-                },
-                Event {
-                    timestamp: 2.0,
-                    uuid: Uuid::from_u128(3),
-                    breakdown: PropVal::Int(0),
-                    steps: vec![1],
-                },
-            ],
+                    steps,
+                })
+                .collect(),
         };
 
         let results = run(&args);
-        assert_eq!(results[0].0, 1);
-        assert_eq!(results[0].4, 1 | (1 << (num_steps - 1)));
-        assert_eq!(results[0].3[0][0], Uuid::from_u128(3));
-        assert_eq!(results[0].3[num_steps - 1][0], Uuid::from_u128(2));
+        assert_eq!(results[0].0, step_reached);
+        assert_eq!(results[0].4, steps_bitfield);
+        for (step, uuid) in first_event_per_step.iter().enumerate() {
+            assert_eq!(results[0].3[step][0], Uuid::from_u128(*uuid));
+        }
     }
 }
