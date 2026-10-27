@@ -563,6 +563,31 @@ impl RoutingTable {
             });
         }
 
+        // A deleted registration leaves this router out of every freeze
+        // quorum until it re-registers, which ending the run does.
+        {
+            let store = Arc::clone(&self.store);
+            let router_name = self.config.router_name.clone();
+            let retry_interval = self.config.heartbeat_interval;
+            let token = cancel.child_token();
+            tasks.spawn(async move {
+                let lost = util::await_held_key_lost(
+                    &store,
+                    util::HeldKey::Router(&router_name),
+                    lease_id,
+                    retry_interval,
+                    &token,
+                )
+                .await;
+                match lost {
+                    Some(how) => Err(Error::invalid_state(format!(
+                        "registration of router {router_name} {how}; re-registering"
+                    ))),
+                    None => Ok(()),
+                }
+            });
+        }
+
         {
             let addresses = Arc::clone(&self.addresses);
             let token = cancel.child_token();
