@@ -114,6 +114,7 @@ from .get_task_processing_context import TaskProcessingContext
 logger = logging.getLogger(__name__)
 SANDBOX_CREATION_CANCELLATION_WAIT_SECONDS = 10
 SANDBOX_CREATION_HEARTBEAT_SECONDS = 1
+REPOSITORY_CLONE_RETRY_DELAYS_SECONDS = (1, 2, 16, 32, 64)
 
 NETWORK_RESTRICTED_AGENT_ENV = {
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
@@ -1235,10 +1236,16 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
                     )
 
                 error_output = stderr or stdout or execution_error or "No output captured"
+                attempt = activity.info().attempt
                 raise RepositoryCloneError(
                     f"Could not clone {input.repository} (git exited with code {clone_result.exit_code})",
                     error_context,
                     cause=RuntimeError(error_output[:200]),
+                    next_retry_delay=(
+                        timedelta(seconds=REPOSITORY_CLONE_RETRY_DELAYS_SECONDS[attempt - 1])
+                        if attempt <= len(REPOSITORY_CLONE_RETRY_DELAYS_SECONDS)
+                        else None
+                    ),
                 )
 
         # A fresh single-repository run checks its requested branch out in the next

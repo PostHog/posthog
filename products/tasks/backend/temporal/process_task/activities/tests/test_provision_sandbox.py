@@ -4,6 +4,7 @@ import socket
 import asyncio
 import subprocess
 import dataclasses
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -615,29 +616,47 @@ def test_clone_failure_records_failed_latency_and_captures_command_result(mocker
 
 
 @pytest.mark.parametrize(
-    "stderr, expected_error",
+    "stderr, expected_error, attempt, retry_delay",
     [
         (
             "Cloning into 'repo'...\nfatal: could not read Username for 'https://github.com': No such device or address\n",
             RepositoryAccessError,
+            1,
+            None,
         ),
         (
             "Cloning into 'repo'...\nremote: Repository not found.\nfatal: repository 'https://github.com/acme/repo.git/' not found\n",
             RepositoryCloneError,
+            1,
+            1,
         ),
         (
             "fatal: Authentication failed for 'https://github.com/example/repo.git/'\n",
             RepositoryAccessError,
+            3,
+            None,
         ),
         (
             "Cloning into 'repo'...\nfatal: unable to access 'https://github.com/acme/repo.git/': Could not resolve host: github.com\n",
             RepositoryCloneError,
+            1,
+            1,
         ),
+        *[
+            (
+                "error: RPC failed; HTTP 404",
+                RepositoryCloneError,
+                attempt,
+                delay,
+            )
+            for attempt, delay in [(1, 1), (2, 2), (3, 16), (4, 32), (5, 64), (6, None)]
+        ],
     ],
 )
 def test_clone_failure_stops_retries_only_when_github_denies_access(
-    mocker, activity_environment, stderr, expected_error
+    mocker, activity_environment, stderr, expected_error, attempt, retry_delay
 ):
+    activity_environment.info = dataclasses.replace(activity_environment.info, attempt=attempt)
     context = TaskProcessingContext(
         task_id="task-id",
         run_id="run-id",
@@ -673,6 +692,7 @@ def test_clone_failure_stops_retries_only_when_github_denies_access(
     assert error.value.non_retryable is access_denied
     assert is_expected_activity_failure(error.value) is access_denied
     assert capture_exception.called is not access_denied
+    assert error.value.next_retry_delay == (timedelta(seconds=retry_delay) if retry_delay is not None else None)
 
 
 @pytest.mark.parametrize(

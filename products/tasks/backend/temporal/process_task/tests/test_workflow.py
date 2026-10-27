@@ -3400,6 +3400,7 @@ class TestProcessTaskWorkflowUnit:
             if activity_fn is launch_agent_server:
                 return StartAgentServerOutput(sandbox_url=created.sandbox_url)
             if activity_fn is clone_repository_in_sandbox:
+                assert kwargs["retry_policy"].maximum_attempts == 6
                 raise RuntimeError("clone timed out")
             if activity_fn is mark_repo_ready:
                 ready_inputs.append(args[0])
