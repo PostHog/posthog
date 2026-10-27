@@ -87063,6 +87063,11 @@ export namespace Schemas {
        * * `distinct_id` - User ID (default)
        * * `device_id` - Device ID */
       bucketing_identifier?: BucketingIdentifierEnum | null;
+      /**
+         * The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2: the update is then refused with 409 if anyone else changed the flag after that version. Other flags do not check it.
+         * @minimum 0
+         */
+      version?: number;
     }
 
     export interface PatchedFeatureRequestProductArea {
