@@ -393,6 +393,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/transactional/suppression': ['Transactional', 'transactional'],
     '/transactional/reputation': ['Transactional', 'transactional'],
     '/transactional/settings': ['Transactional', 'transactional'],
+    '/transactional/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
+    '/broadcasts/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
     '/broadcasts/new': ['Broadcast', 'broadcast'],
     '/broadcasts/:id': ['Broadcast', 'broadcast'],
 }
@@ -2029,6 +2031,8 @@ export const productUrls = {
     broadcast: (id: string): string => `/broadcasts/${id}`,
     broadcastNew: (): string => '/broadcasts/new',
     transactional: (tab?: MessagingNavTabKey): string => `/transactional${tab ? `/${tab}` : ''}`,
+    transactionalTemplate: (id: string): string => `/transactional/library/templates/${id}`,
+    broadcastsTemplate: (id: string): string => `/broadcasts/library/templates/${id}`,
 }
 
 /** This const is auto-generated, as is the whole file */

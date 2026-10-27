@@ -35,6 +35,7 @@ import type { IntegrationType } from '../../../../frontend/src/types'
 import { workflowLogic } from '../Workflows/workflowLogic'
 import { NEW_TEMPLATE } from './constants'
 import { TRANSACTIONAL_PARAM, newTemplateAgentLogic } from './newTemplateAgentLogic'
+import { TemplateSection, templateLibraryUrl, templateSectionFor, templateUrlInSection } from './templateSection'
 import { MessageTemplate } from './types'
 
 export type TransactionalTemplateTab = 'design' | 'metrics' | 'sends' | 'versions' | 'api'
@@ -84,6 +85,7 @@ export interface messageTemplateLogicValues {
     originalTemplate: MessageTemplate
     publishedContent: TemplateContent | null
     savedDraft: TemplateContent | null
+    section: TemplateSection
     showTemplateErrors: boolean
     template: MessageTemplate
     templateAllErrors: Record<string, any>
@@ -448,7 +450,8 @@ export interface messageTemplateLogicMeta {
         createAsTransactional: (searchParams: Record<string, any>, arg: MessageTemplateLogicProps) => boolean
         transactionalHogFlowId: (originalTemplate: MessageTemplate) => string | null
         isTransactional: (transactionalHogFlowId: string | null, createAsTransactional: boolean) => boolean
-        listUrl: (isTransactional: boolean) => string
+        section: (location: { hash: string; pathname: string; search: string }) => TemplateSection
+        listUrl: (isTransactional: boolean, section: any) => string
         draftsEnabled: (transactionalHogFlowId: string | null) => boolean
         hasDraft: (
             savedDraft: {
@@ -670,10 +673,16 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             (transactionalHogFlowId: string | null, createAsTransactional: boolean): boolean =>
                 !!transactionalHogFlowId || createAsTransactional,
         ],
+        // The nav section the page was opened under. Links from the page stay in it.
+        section: [
+            () => [router.selectors.location],
+            (location: { pathname: string }): TemplateSection => templateSectionFor(location.pathname),
+        ],
         // The list a person returns to: transactional emails live in their own section.
         listUrl: [
-            (s) => [s.isTransactional],
-            (isTransactional: boolean): string => (isTransactional ? urls.transactional() : urls.workflows('library')),
+            (s) => [s.isTransactional, s.section],
+            (isTransactional: boolean, section: TemplateSection): string =>
+                isTransactional ? urls.transactional() : templateLibraryUrl(section),
         ],
         // Sends use a transactional template's content, so its edits save as a draft until they are published.
         draftsEnabled: [
@@ -1016,7 +1025,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                         `Template created. Couldn't make it transactional: ${error?.detail ?? 'unknown error'}. Try again from the API tab.`
                     )
                 }
-                router.actions.replace(urls.workflowsLibraryTemplate(template.id))
+                router.actions.replace(urls.transactionalTemplate(template.id))
                 return
             }
             lemonToast.success(
@@ -1033,7 +1042,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             if (props.id === 'new') {
                 router.actions.push(urls.workflows('library'))
             } else if (template.id) {
-                router.actions.replace(urls.workflowsLibraryTemplate(template.id))
+                router.actions.replace(templateUrlInSection(template.id, values.section))
             }
             actions.replayDeferredExternalEdit()
         },
@@ -1062,7 +1071,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     content: template.content,
                 })
                 lemonToast.success('Template duplicated successfully')
-                router.actions.push(urls.workflowsLibraryTemplate(duplicatedTemplate.id))
+                router.actions.push(templateUrlInSection(duplicatedTemplate.id, values.section))
             } catch {
                 lemonToast.error('Failed to duplicate template')
             }

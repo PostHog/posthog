@@ -51,7 +51,7 @@ export function TransactionalEmailsTable(): JSX.Element {
                     sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
                     render: (_, template) => (
                         <LemonTableLink
-                            to={urls.workflowsLibraryTemplate(template.id)}
+                            to={urls.transactionalTemplate(template.id)}
                             title={
                                 <span className="flex items-center gap-1">
                                     {template.name || 'Unnamed template'}
@@ -76,7 +76,7 @@ export function TransactionalEmailsTable(): JSX.Element {
                     width: 0,
                     render: (_, template) =>
                         template.transactional_hog_flow_id ? (
-                            <Link to={urls.workflowsLibraryTemplate(template.id)}>
+                            <Link to={urls.transactionalTemplate(template.id)}>
                                 <AppMetricsSparkline
                                     logicKey={`transactional-${template.id}`}
                                     // Lines, not stacked bars: a delivered or failed email was also counted as sent.

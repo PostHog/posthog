@@ -86,6 +86,9 @@ export const manifest: ProductManifest = {
         '/transactional/suppression': ['Transactional', 'transactional'],
         '/transactional/reputation': ['Transactional', 'transactional'],
         '/transactional/settings': ['Transactional', 'transactional'],
+        // A template opened from a section's Templates tab stays in that section.
+        '/transactional/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
+        '/broadcasts/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
         // kea-router matches in declaration order, so the literal 'new' comes before ':id'.
         '/broadcasts/new': ['Broadcast', 'broadcast'],
         '/broadcasts/:id': ['Broadcast', 'broadcast'],
@@ -104,6 +107,8 @@ export const manifest: ProductManifest = {
         broadcast: (id: string): string => `/broadcasts/${id}`,
         broadcastNew: (): string => '/broadcasts/new',
         transactional: (tab?: MessagingNavTabKey): string => `/transactional${tab ? `/${tab}` : ''}`,
+        transactionalTemplate: (id: string): string => `/transactional/library/templates/${id}`,
+        broadcastsTemplate: (id: string): string => `/broadcasts/library/templates/${id}`,
     },
     fileSystemTypes: {
         workflows: {
