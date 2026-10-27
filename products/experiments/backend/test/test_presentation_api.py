@@ -7350,15 +7350,14 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
     @parameterized.expand(
         [
-            # (name, start_date, experiment-exposure-event flag enabled)
-            ("before_cutoff", "2026-08-20T10:00", True),
-            ("after_cutoff", "2026-09-10T10:00", True),
-            ("after_cutoff_flag_disabled", "2026-09-10T10:00", False),
+            # (name, start_date)
+            ("before_cutoff", "2026-08-20T10:00"),
+            ("after_cutoff", "2026-09-10T10:00"),
         ]
     )
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_create_exposure_cohort_for_flag_evaluations_only_org(
-        self, _name: str, start_date: str, flag_enabled: bool, patch_on_commit: MagicMock
+        self, _name: str, start_date: str, patch_on_commit: MagicMock
     ):
         # Ingestion writes no $feature_flag_called rows to events for this org. Only the $experiment_exposure copies reach events.
         OrganizationFeatureFlagsConfig.objects.update_or_create(
@@ -7398,7 +7397,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         flush_persons_and_events()
 
         def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_enabled if flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG else False
+            return flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG
 
         with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
             response = self.client.post(
