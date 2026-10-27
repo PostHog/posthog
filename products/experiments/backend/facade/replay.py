@@ -136,9 +136,19 @@ def session_variant(linkage: ExperimentExposureLinkage, distinct_id: str) -> str
     return replay_context.session_variant(_resolved(linkage), distinct_id)
 
 
-def resolve_in_session_exposure_semantics(team: Team, experiment: Experiment) -> InSessionExposureSemantics:
-    """Resolve whether the in-session narrowing can answer for this experiment, and how. Postgres reads only."""
-    semantics = replay_linkage.resolve_in_session_exposure_semantics(team, experiment)
+def resolve_in_session_exposure_semantics(*, team_id: int, experiment_id: int) -> InSessionExposureSemantics | None:
+    """Resolve whether the in-session narrowing can answer for this experiment, and how. Postgres reads only.
+
+    None for an unknown or deleted experiment.
+    """
+    experiment = (
+        Experiment.objects.filter(id=experiment_id, team_id=team_id, deleted=False)
+        .select_related("team", "feature_flag")
+        .first()
+    )
+    if experiment is None:
+        return None
+    semantics = replay_linkage.resolve_in_session_exposure_semantics(experiment.team, experiment)
     return InSessionExposureSemantics(
         unavailable_reason=semantics.unavailable_reason,
         uses_stamped_fallback=semantics.uses_stamped_fallback,
