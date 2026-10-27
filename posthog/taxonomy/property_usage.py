@@ -4,7 +4,9 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.utils.event_usage import PROPERTY_USAGE_APP_SOURCE, property_usage_instance_id
-from posthog.models import PropertyDefinition, Team, User
+from posthog.models import OrganizationMembership, PropertyDefinition, Team, User
+
+from products.access_control.backend.facade.subject_access_control import restricted_visible_membership_ids
 
 USAGE_WINDOW_DAYS = 30
 TOP_USERS_LIMIT = 10
@@ -41,7 +43,21 @@ def property_definition_usage_instance_id(definition: PropertyDefinition) -> str
     )
 
 
-def fetch_property_usage_detail(team: Team, definition: PropertyDefinition) -> PropertyUsageDetail:
+def _visible_member_user_ids(team: Team, requester: User, user_ids: list[int]) -> set[int]:
+    """User ids the requester may see named, by the same rule as the organization members list.
+
+    Former members and members hidden from the requester still count toward the totals.
+    """
+    if not user_ids:
+        return set()
+    memberships = OrganizationMembership.objects.filter(organization_id=team.organization_id, user_id__in=user_ids)
+    visible_membership_ids = restricted_visible_membership_ids(team.organization, requester)
+    if visible_membership_ids is not None:
+        memberships = memberships.filter(id__in=visible_membership_ids)
+    return set(memberships.values_list("user_id", flat=True))
+
+
+def fetch_property_usage_detail(team: Team, definition: PropertyDefinition, requester: User) -> PropertyUsageDetail:
     today = datetime.now(team.timezone_info).date()
     first_day = today - timedelta(days=USAGE_WINDOW_DAYS - 1)
     window_start = datetime.combine(first_day, datetime.min.time(), tzinfo=team.timezone_info).astimezone(UTC)
@@ -87,23 +103,19 @@ def fetch_property_usage_detail(team: Team, definition: PropertyDefinition) -> P
         previous = last_queried_by_user_id.get(user_id)
         last_queried_by_user_id[user_id] = max(previous, max_timestamp) if previous else max_timestamp
 
-    # Only name people who are still in the organization. Former members count toward the totals only.
-    top_user_ids = sorted(counts_by_user_id, key=lambda user_id: counts_by_user_id[user_id], reverse=True)
-    members = {
-        user.id: user
-        for user in User.objects.filter(
-            id__in=top_user_ids, organization_membership__organization_id=team.organization_id
-        )
-    }
+    ranked_user_ids = sorted(counts_by_user_id, key=lambda user_id: counts_by_user_id[user_id], reverse=True)
+    visible_user_ids = _visible_member_user_ids(team, requester, ranked_user_ids)
+    top_user_ids = [user_id for user_id in ranked_user_ids if user_id in visible_user_ids][:TOP_USERS_LIMIT]
+    users_by_id = User.objects.in_bulk(top_user_ids)
     top_users = tuple(
         PropertyUsageUser(
-            user=members[user_id],
+            user=users_by_id[user_id],
             count=counts_by_user_id[user_id],
             last_queried_at=last_queried_by_user_id[user_id],
         )
         for user_id in top_user_ids
-        if user_id in members
-    )[:TOP_USERS_LIMIT]
+        if user_id in users_by_id
+    )
 
     days = [first_day + timedelta(days=offset) for offset in range(USAGE_WINDOW_DAYS)]
     return PropertyUsageDetail(

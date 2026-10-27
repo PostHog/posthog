@@ -12,6 +12,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, EventDefinition, EventProperty, Organization, PropertyDefinition, Team, User
 from posthog.taxonomy.property_definition_api import (
     PropertyDefinitionQuerySerializer,
@@ -20,6 +21,8 @@ from posthog.taxonomy.property_definition_api import (
     QueryContext,
 )
 from posthog.test.fixtures import create_app_metric2
+
+from products.access_control.backend.models.access_control import AccessControl
 
 
 def exclude_virtual_properties(results: list) -> list:
@@ -1260,3 +1263,36 @@ class TestPropertyUsageDetailAPI(ClickhouseTestMixin, APIBaseTest):
         assert [(row["user"]["id"], row["count"], row["last_queried_at"]) for row in data["top_users"]] == [
             (self.user.pk, 5, "2026-10-27T11:00:00Z")
         ]
+
+    def test_usage_detail_leaves_out_members_hidden_from_the_requester(self) -> None:
+        definition = PropertyDefinition.objects.create(team=self.team, name="plan", type=PropertyDefinition.Type.EVENT)
+        hidden = User.objects.create_and_join(self.organization, "hidden@example.com", None)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=hidden.organization_memberships.get(organization=self.organization),
+            access_level="none",
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.members_can_see_org_members = False
+        self.organization.save()
+        for user, count in [(self.user, 2), (hidden, 9)]:
+            create_app_metric2(
+                team_id=self.team.pk,
+                app_source="property_usage",
+                app_source_id=str(user.pk),
+                instance_id="property:event:plan",
+                metric_kind="",
+                metric_name="viewed",
+                count=count,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/{definition.id}/usage/")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert [row["user"]["email"] for row in data["top_users"]] == [self.user.email]
+        assert (data["query_usage_30_day"], data["distinct_users"]) == (11, 2)

@@ -5436,7 +5436,7 @@ export interface PropertyUsageDetailApi {
     last_queried_at: string | null
     /** One entry per day for the last 30 days, oldest first, including days with no queries. */
     daily: PropertyUsageDayApi[]
-    /** Up to 10 organization members who queried the property most, highest first. */
+    /** Up to 10 organization members who queried the property most, highest first. Members hidden from the requester by the organization's member list visibility are left out. */
     top_users: PropertyUsageUserApi[]
     /** Number of distinct users who queried the property in the last 30 days. */
     distinct_users: number

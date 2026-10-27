@@ -252,7 +252,10 @@ class PropertyUsageDetailSerializer(serializers.Serializer):
     )
     top_users = PropertyUsageUserSerializer(
         many=True,
-        help_text=f"Up to {TOP_USERS_LIMIT} organization members who queried the property most, highest first.",
+        help_text=(
+            f"Up to {TOP_USERS_LIMIT} organization members who queried the property most, highest first. "
+            "Members hidden from the requester by the organization's member list visibility are left out."
+        ),
     )
     distinct_users = serializers.IntegerField(
         help_text="Number of distinct users who queried the property in the last 30 days.",
@@ -1195,7 +1198,7 @@ class PropertyDefinitionViewSet(
     )
     @action(methods=["GET"], detail=True, required_scopes=["property_definition:read"])
     def usage(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> response.Response:
-        detail = fetch_property_usage_detail(self.team, self.get_object())
+        detail = fetch_property_usage_detail(self.team, self.get_object(), cast(User, request.user))
         return response.Response(PropertyUsageDetailSerializer(detail).data)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
