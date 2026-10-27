@@ -442,8 +442,6 @@ describe('rrule-helpers', () => {
         })
 
         it('shows a rule the picker cannot model as written rather than describing it wrongly', () => {
-            // parseRRuleToState has no hourly case and falls back to weekly, but the API accepts
-            // any rule dateutil parses.
             expect(summarizeSchedule('FREQ=HOURLY;INTERVAL=1', STARTS, 'UTC')).toBe('FREQ=HOURLY;INTERVAL=1')
         })
 

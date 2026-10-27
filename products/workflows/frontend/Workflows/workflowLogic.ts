@@ -4682,8 +4682,7 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!workflowId || workflowId === 'new') {
                 return
             }
-            // setSchedules rebaselines the picker from the saved schedules, so unsaved edits to a
-            // schedule that is not the one being removed have to be put back afterwards.
+            // setSchedules rebaselines the picker, so edits to a surviving schedule go back after.
             const editedScheduleId = values.currentSchedule?.id
             const stagedEdits: ScheduleEdits | null =
                 values.pendingSchedule !== false && editedScheduleId !== scheduleId

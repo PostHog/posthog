@@ -278,9 +278,8 @@ export function buildSummary(state: ScheduleState, startsAt: string | null, time
 }
 
 /** Parse natural language like "every week on Monday and Wednesday" into a ScheduleState. */
-// The picker models these four frequencies, and parseRRuleToState falls back to weekly for
-// anything else. The API accepts any rule dateutil parses, so an hourly rule reaching this
-// would read as weekly. Show such a rule as written instead of describing it wrongly.
+// parseRRuleToState falls back to weekly outside these four, and the API accepts any rule
+// dateutil parses, so anything else is shown as written rather than described wrongly.
 const SUMMARIZABLE_FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY', 'YEARLY']
 
 export function summarizeSchedule(rrule: string, startsAt: string | null, timezone?: string): string {
