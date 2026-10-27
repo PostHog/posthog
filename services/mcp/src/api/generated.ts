@@ -12018,20 +12018,22 @@ export namespace Schemas {
     }
 
     /**
-     * * `heartbeat` - heartbeat
-     * * `awaiting_input` - awaiting_input
-     * * `turn_failed` - turn_failed
-     * * `command_dispatched` - command_dispatched
-     * * `agent_activity` - agent_activity
-     * * `budget_steer` - budget_steer
-     * * `process_killed` - process_killed
+     * * `heartbeat` - Heartbeat
+     * * `awaiting_input` - Awaiting input
+     * * `permission_requested` - Permission requested
+     * * `turn_failed` - Turn failed
+     * * `command_dispatched` - Command dispatched
+     * * `agent_activity` - Agent activity
+     * * `budget_steer` - Budget steer
+     * * `process_killed` - Process killed
      */
-    export type AgentCallbackRequestKindEnum = typeof AgentCallbackRequestKindEnum[keyof typeof AgentCallbackRequestKindEnum];
+    export type AgentProxyCallbackKindEnum = typeof AgentProxyCallbackKindEnum[keyof typeof AgentProxyCallbackKindEnum];
 
 
-    export const AgentCallbackRequestKindEnum = {
+    export const AgentProxyCallbackKindEnum = {
       Heartbeat: 'heartbeat',
       AwaitingInput: 'awaiting_input',
+      PermissionRequested: 'permission_requested',
       TurnFailed: 'turn_failed',
       CommandDispatched: 'command_dispatched',
       AgentActivity: 'agent_activity',
@@ -12068,16 +12070,17 @@ export namespace Schemas {
     }
 
     export interface AgentCallbackRequest {
-      /** Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its inactivity timer. 'awaiting_input' fires a mobile push notification when an interactive run finishes a turn and is waiting for user input. 'turn_failed' fails the run outright when a pi turn ends in a runtime error. 'command_dispatched' and 'agent_activity' record boot milestones. 'budget_steer' captures the agent's budget warning. 'process_killed' captures a sandbox memory watchdog kill.
+      /** Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its inactivity timer. 'awaiting_input' fires a mobile push notification when an interactive run finishes a turn and is waiting for user input. 'permission_requested' fires a 'needs your input' push when an interactive run waits on a permission request or a question. 'turn_failed' fails the run outright when a pi turn ends in a runtime error. 'command_dispatched' and 'agent_activity' record boot milestones. 'budget_steer' captures the agent's budget warning. 'process_killed' captures a sandbox memory watchdog kill.
        *
-       * * `heartbeat` - heartbeat
-       * * `awaiting_input` - awaiting_input
-       * * `turn_failed` - turn_failed
-       * * `command_dispatched` - command_dispatched
-       * * `agent_activity` - agent_activity
-       * * `budget_steer` - budget_steer
-       * * `process_killed` - process_killed */
-      kind: AgentCallbackRequestKindEnum;
+       * * `heartbeat` - Heartbeat
+       * * `awaiting_input` - Awaiting input
+       * * `permission_requested` - Permission requested
+       * * `turn_failed` - Turn failed
+       * * `command_dispatched` - Command dispatched
+       * * `agent_activity` - Agent activity
+       * * `budget_steer` - Budget steer
+       * * `process_killed` - Process killed */
+      kind: AgentProxyCallbackKindEnum;
       /** Whether the agent is currently active (true) or idle (false). This is true for 'heartbeat' and 'agent_activity', and false otherwise. */
       agent_active: boolean;
       /** Whether this heartbeat marks new activity after the agent was idle, bypassing throttling. */
@@ -12087,10 +12090,15 @@ export namespace Schemas {
       /** Whether 'awaiting_input' reports a turn that ended with the 'end_turn' stop reason. False for any other stop reason. */
       turn_succeeded?: boolean;
       /**
-         * Stream sequence of the event this callback reports, used to drop retried callbacks. Required for a budget steer or a process kill.
+         * Stream sequence used to deduplicate turn results, budget steers and process kills. Also sent with 'permission_requested' to identify the event.
          * @minimum 1
          */
       sequence?: number;
+      /**
+         * ID of the pending permission request that 'permission_requested' reports.
+         * @maxLength 200
+         */
+      request_id?: string;
       /** Original event time, preserved across retries. */
       timestamp?: string;
       /** Budget stage: warn or critical. */

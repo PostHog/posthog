@@ -2076,6 +2076,8 @@ export const TasksRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
 export const tasksRunsAgentCallbackCreateBodyActivityStartedDefault = false
 export const tasksRunsAgentCallbackCreateBodyTurnCompletedDefault = true
 export const tasksRunsAgentCallbackCreateBodyTurnSucceededDefault = false
+export const tasksRunsAgentCallbackCreateBodyRequestIdMax = 200
+
 export const tasksRunsAgentCallbackCreateBodySpentUsdMin = 0
 
 export const tasksRunsAgentCallbackCreateBodyCapUsdMin = 0
@@ -2097,6 +2099,7 @@ export const TasksRunsAgentCallbackCreateBody = /* @__PURE__ */ zod.object({
         .enum([
             'heartbeat',
             'awaiting_input',
+            'permission_requested',
             'turn_failed',
             'command_dispatched',
             'agent_activity',
@@ -2104,10 +2107,10 @@ export const TasksRunsAgentCallbackCreateBody = /* @__PURE__ */ zod.object({
             'process_killed',
         ])
         .describe(
-            '\* `heartbeat` - heartbeat\n\* `awaiting_input` - awaiting_input\n\* `turn_failed` - turn_failed\n\* `command_dispatched` - command_dispatched\n\* `agent_activity` - agent_activity\n\* `budget_steer` - budget_steer\n\* `process_killed` - process_killed'
+            '\* `heartbeat` - Heartbeat\n\* `awaiting_input` - Awaiting input\n\* `permission_requested` - Permission requested\n\* `turn_failed` - Turn failed\n\* `command_dispatched` - Command dispatched\n\* `agent_activity` - Agent activity\n\* `budget_steer` - Budget steer\n\* `process_killed` - Process killed'
         )
         .describe(
-            "Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its inactivity timer. 'awaiting_input' fires a mobile push notification when an interactive run finishes a turn and is waiting for user input. 'turn_failed' fails the run outright when a pi turn ends in a runtime error. 'command_dispatched' and 'agent_activity' record boot milestones. 'budget_steer' captures the agent's budget warning. 'process_killed' captures a sandbox memory watchdog kill.\n\n\* `heartbeat` - heartbeat\n\* `awaiting_input` - awaiting_input\n\* `turn_failed` - turn_failed\n\* `command_dispatched` - command_dispatched\n\* `agent_activity` - agent_activity\n\* `budget_steer` - budget_steer\n\* `process_killed` - process_killed"
+            "Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its inactivity timer. 'awaiting_input' fires a mobile push notification when an interactive run finishes a turn and is waiting for user input. 'permission_requested' fires a 'needs your input' push when an interactive run waits on a permission request or a question. 'turn_failed' fails the run outright when a pi turn ends in a runtime error. 'command_dispatched' and 'agent_activity' record boot milestones. 'budget_steer' captures the agent's budget warning. 'process_killed' captures a sandbox memory watchdog kill.\n\n\* `heartbeat` - Heartbeat\n\* `awaiting_input` - Awaiting input\n\* `permission_requested` - Permission requested\n\* `turn_failed` - Turn failed\n\* `command_dispatched` - Command dispatched\n\* `agent_activity` - Agent activity\n\* `budget_steer` - Budget steer\n\* `process_killed` - Process killed"
         ),
     agent_active: zod
         .boolean()
@@ -2135,8 +2138,13 @@ export const TasksRunsAgentCallbackCreateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .optional()
         .describe(
-            'Stream sequence of the event this callback reports, used to drop retried callbacks. Required for a budget steer or a process kill.'
+            "Stream sequence used to deduplicate turn results, budget steers and process kills. Also sent with 'permission_requested' to identify the event."
         ),
+    request_id: zod
+        .string()
+        .max(tasksRunsAgentCallbackCreateBodyRequestIdMax)
+        .optional()
+        .describe("ID of the pending permission request that 'permission_requested' reports."),
     timestamp: zod.iso.datetime({ offset: true }).optional().describe('Original event time, preserved across retries.'),
     stage: zod.string().optional().describe('Budget stage: warn or critical.'),
     mode: zod.string().optional().describe('Budget steer mode: publish or wrap_up.'),
