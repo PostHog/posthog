@@ -48,6 +48,10 @@ pnpm --filter=@posthog/mcp run generate:ui-apps
 MCP tools should be **basic capabilities** – atomic CRUD operations and simple actions.
 Agents compose these primitives into higher-level workflows.
 
+For tools that save a visual artifact, briefly suggest checking the rendered result after substantial visual changes
+when browser access is already available. Skip browser checks for small edits. Check the final saved artifact once after
+all edits, rather than after every tool call. The tool can save the artifact, but it cannot give an agent browser access.
+
 **Good tools**:
 
 - List feature flags
@@ -128,7 +132,9 @@ Start with a release condition matching one authenticated user's distinct ID; do
 
 Clients cache tool schemas. Refresh the client's tool list or reconnect after deployment before collecting trial data.
 Use the targeted user's calls after that refresh for offline evaluation, and record when the payload changes.
-Existing intent analytics stay unchanged; the server does not capture the prompt text separately.
+Each `$mcp_tool_call` records the evaluated flag as `$feature/mcp-intent-prompt`: `true` for enabled and `false` for disabled.
+If evaluation is unavailable, the property is omitted. This records flag assignment; clients may still have cached an earlier prompt.
+The server does not capture the prompt text separately.
 
 This collection trial changes no tool results and adds no recommendations or elicitation.
 Evaluate intent against independently recorded abstract task goals, checking invented goals, identifying details, and appropriate uncertainty.
@@ -635,7 +641,11 @@ Product teams own their definitions and control which operations are exposed as 
    The two overrides above reshape a generated tool's schema.
    Neither can change what happens around the request.
    `validators` runs as a synchronous `superRefine`, so it cannot await anything;
-   `inject_body` supplies static values; `rename_params` only renames.
+   `inject_body` supplies static values; `rename_params` renames body or query parameters.
+   Query aliases retain the original HTTP parameter name. For example, `dashboard-insights-run` exposes
+   `dashboard_tile_ids` as an integer array and sends it as the API's comma-separated `tile_ids` parameter.
+   The tool also accepts `tile_ids` as a legacy alias, with either an array or a comma-separated string.
+   Its `id` parameter accepts `dashboard_id` and `dashboardId` aliases.
 
    When a tool has to read current state before writing, or handle a specific error, set `hooks:` on the tool.
    The value is a module path relative to `src/tools/`, without the extension:
@@ -661,7 +671,9 @@ Product teams own their definitions and control which operations are exposed as 
    `src/tools/featureFlags/updateFeatureFlagHooks.ts` is the reference.
    Do not shadow a generated tool with a hand-written tool of the same name.
 
-   The Logs tools use `logs/redactCredentialsHooks` to mask credentials in response strings and structured fields. This covers credential parameters, JSON and header values, URL passwords, bearer tokens, and private PostHog tokens. Nested URL encoding and JSON escaping do not bypass masking. The hook preserves unrelated text, except that strings with more than eight encoding layers are masked in full to bound parsing work. It does not change stored logs or responses outside MCP.
+   The Logs tools use `logs/redactCredentialsHooks` to mask credentials in response strings and structured fields. This covers credential parameters, JSON and header values, URL passwords, bearer tokens, private PostHog and GitHub tokens, credential command-line flags such as `--password VALUE` and `-u user:pass`, and private key blocks inside one string. Nested URL encoding and JSON escaping do not bypass masking. The hook preserves unrelated text, except that strings with more than eight encoding layers are masked in full to bound parsing work. It does not change stored logs or responses outside MCP.
+
+   The Engineering analytics CI failure-log tools and the broken-tests tool use `engineeringAnalytics/redactFailureLogsHooks`. It applies the same masking, but with a narrower list of credential names: CI output uses names such as `key`, `code` and `input_tokens` for diagnostics. It also masks the lines of a private key that spans several log lines in one job, including body lines next to an omitted gap, and keeps each line's original line number.
 
    #### Typed-confirm paradigm for destructive tools
 

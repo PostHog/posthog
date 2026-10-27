@@ -943,9 +943,8 @@ class TestQueryRunner(BaseTest):
 
     def test_cache_hit_and_fresh_events_carry_one_identity(self) -> None:
         runner_class = setup_test_query_runner_class()
-        self.team.modifiers = {"useNewEventsSchema": True}
-        self.team.save()
         with (
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)),
             mock.patch(
                 "posthog.hogql_queries.query_runner.create_default_modifiers_for_user", side_effect=_add_user_modifier
             ),
@@ -2184,6 +2183,18 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
                 False,
             ),
             ("saved view over a system table", "select * from notebook_view", {"notebook"}, False),
+            (
+                "system table with a warehouse scope",
+                "select * from system.data_modeling_views",
+                {"warehouse_view"},
+                False,
+            ),
+            (
+                "saved view over a system table with a warehouse scope",
+                "select * from tables_view",
+                {"warehouse_table"},
+                False,
+            ),
         ]
     )
     def test_shared_link_viewer_partitions_only_on_scopes_a_table_carries(
@@ -2202,6 +2213,11 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
             team=self.team,
             name="notebook_view",
             query={"kind": "HogQLQuery", "query": "select * from system.notebooks"},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="tables_view",
+            query={"kind": "HogQLQuery", "query": "select name from system.data_warehouse_tables"},
         )
         query = {"kind": "HogQLQuery", "query": sql}
         shared_runner = HogQLQueryRunner(query=query, team=self.team, user=_shared_link_user(self.team))

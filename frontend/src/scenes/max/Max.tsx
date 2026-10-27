@@ -284,7 +284,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                                 </LemonBanner>
                             </div>
                         )}
-                        <Thread className={cn('p-3', sidePanel && 'p-1')} />
+                        <Thread compact={sidePanel} />
                         <SandboxComposerSurfaces />
                         {!conversation?.has_unsupported_content && (
                             <SidebarQuestionInput isSticky sidePanel={sidePanel} />

@@ -7,7 +7,6 @@ from urllib.parse import urlencode
 
 from django.db.models import Q
 
-import nh3
 import structlog
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
@@ -26,11 +25,11 @@ from posthog.utils import absolute_uri
 from products.exports.backend.facade.api import get_delivery_image_url
 from products.slack_app.backend.facade.api import slack_followup_invite
 from products.subscriptions.backend.facade.contracts import PromptRejectedError, SubscriptionTriggerType
+from products.subscriptions.backend.logic.email_formatting import render_ai_email_html
 from products.subscriptions.backend.logic.slack_subscriptions import (
     UTM_TAGS_BASE,
     SlackDeliveryResult,
     SlackMessage,
-    _subscription_header_blocks,
     _summary_rich_text,
     deliver_slack_message_data,
 )
@@ -47,7 +46,6 @@ from products.subscriptions.backend.models.subscription import (
     AIQueryPlanStatus,
     Subscription,
     SubscriptionDelivery,
-    SubscriptionResource,
     get_unsubscribe_token,
 )
 from products.subscriptions.backend.temporal.ai_subscription.report_pipeline import AiReportResult, generate_ai_report
@@ -58,37 +56,6 @@ logger = structlog.get_logger(__name__)
 
 
 _MARKDOWN_RENDERER = MarkdownIt("commonmark", {"breaks": True, "html": False}).enable("table")
-
-# defense-in-depth on top of html=False: allow only the tags commonmark emits
-_ALLOWED_EMAIL_TAGS = {
-    "a",
-    "p",
-    "br",
-    "hr",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "ul",
-    "ol",
-    "li",
-    "strong",
-    "em",
-    "b",
-    "i",
-    "code",
-    "pre",
-    "blockquote",
-    "table",
-    "thead",
-    "tbody",
-    "tr",
-    "th",
-    "td",
-}
-_ALLOWED_EMAIL_ATTRS = {"a": {"href", "title"}}
 
 # Slack's hard limit is 3000 chars per section block; keep margin for safety.
 SLACK_MRKDWN_SECTION_LIMIT = 2900
@@ -542,11 +509,6 @@ def _build_feedback_url(subscription_url: str, delivery_id: uuid.UUID, feedback:
     return f"{subscription_url}?{params}"
 
 
-def render_ai_email_html(markdown: str) -> str:
-    rendered = _MARKDOWN_RENDERER.render(strip_external_links_markdown(markdown))
-    return nh3.clean(rendered, tags=_ALLOWED_EMAIL_TAGS, attributes=_ALLOWED_EMAIL_ATTRS)
-
-
 def send_email_ai_subscription_report(
     *,
     email: str,
@@ -634,15 +596,17 @@ def _build_ai_slack_message(
     channel = channel_id_from_target(subscription.target_value)
     markdown = strip_external_links_markdown(markdown, additional_allowed_origin=absolute_uri("/"))
     env: EnvType = {}
-    _MARKDOWN_RENDERER.parse(markdown, env)
+    tokens = _MARKDOWN_RENDERER.parse(markdown, env)
+    if tokens and tokens[0].type == "heading_open" and tokens[0].tag == "h1" and tokens[0].map:
+        markdown = "".join(markdown.splitlines(keepends=True)[tokens[0].map[1] :]).lstrip("\r\n")
     sections = _safe_slack_markdown_sections(markdown)
     title = subscription.title or "Your PostHog AI report"
     first_section = sections[0] if sections else "_No report content was generated._"
+    heading = f'Your report "{title}" is ready! 🎉'
 
     blocks: list[dict] = [
-        *_subscription_header_blocks(
-            subscription, SubscriptionResource("AI prompt", title, subscription.url or ""), False
-        ),
+        {"type": "divider"},
+        {"type": "header", "text": {"type": "plain_text", "text": heading[:150]}},
         *_slack_report_blocks(first_section, env),
     ]
     for chart in (charts or []) if subscription.includes_delivery_part("include_images") else []:
