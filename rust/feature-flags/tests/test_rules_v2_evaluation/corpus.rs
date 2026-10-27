@@ -30,11 +30,38 @@ pub fn value_cases() -> Vec<Value> {
         .clone()
 }
 
+/// Expands each case to the shape of the other corpora: `defaults.flag`, `defaults.context`
+/// overlaid with the case's own context fields, and the `legacy` rendering of its value.
 pub fn experiment_cases() -> Vec<Value> {
-    load("corpus/v2_experiment_evaluation.json")["cases"]
-        .as_array()
-        .unwrap()
-        .clone()
+    let corpus = load("corpus/v2_experiment_evaluation.json");
+    let defaults = &corpus["defaults"];
+    let mut cases = corpus["cases"].as_array().unwrap().clone();
+    for case in &mut cases {
+        let mut context = defaults["context"].clone();
+        for (field, value) in case["context"].as_object().into_iter().flatten() {
+            context[field] = value.clone();
+        }
+        case["flag"] = defaults["flag"].clone();
+        case["context"] = context;
+        case["legacy"] = legacy(&case["expected"]["value"]);
+    }
+    cases
+}
+
+/// The typed value corpus's legacy rendering table; a failure has no value and renders as null.
+pub fn legacy(value: &Value) -> Value {
+    match value {
+        Value::Null | Value::Bool(false) => {
+            json!({"enabled": false, "variant": null, "value": false, "payload": null})
+        }
+        Value::Bool(true) => {
+            json!({"enabled": true, "variant": null, "value": true, "payload": null})
+        }
+        Value::String(_) => {
+            json!({"enabled": true, "variant": value, "value": value, "payload": null})
+        }
+        _ => json!({"enabled": true, "variant": null, "value": true, "payload": value}),
+    }
 }
 
 pub fn read(case: &Value) -> FeatureFlag {
