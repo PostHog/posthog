@@ -56,6 +56,7 @@ from products.workflows.backend.presentation.views.hog_flow import (
     _should_validate_strictly,
     mint_audience_confirm_token,
 )
+from products.workflows.backend.tests.api.test_workflow_data_suggestions import _push_function_template
 
 _AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "x", "operator": "icontains"}
 _WIDER_AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "@", "operator": "icontains"}
@@ -192,6 +193,36 @@ class TestHogFlowAPI(APIBaseTest):
         }
 
         return hog_flow, action
+
+    @parameterized.expand(
+        [
+            ("empty list", [], 400),
+            ("empty object", {}, 400),
+            ("zero", 0, 400),
+            ("false", False, 400),
+            ("a channel", "provider", 201),
+        ]
+    )
+    def test_an_active_push_step_needs_a_channel(self, _name: str, channels: Any, expected_status: int) -> None:
+        sync_template_to_db(_push_function_template())
+        provider = Integration.objects.create(team=self.team, kind="firebase", config={})
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-native-push",
+                "inputs": {
+                    "distinctId": {"value": "{event.distinct_id}"},
+                    "channels": {"value": [provider.id] if channels == "provider" else channels},
+                    "title": {"value": "Hi"},
+                },
+            }
+        )
+        hog_flow["actions"][1]["type"] = "function_push"
+
+        active = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "active"})
+        draft = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "draft"})
+
+        assert active.status_code == expected_status, active.json()
+        assert draft.status_code == 201, draft.json()
 
     @patch("products.workflows.backend.presentation.views.hog_flow.publish_resource_edited")
     def test_emits_resource_edited_on_create_and_update(self, mock_emit):
@@ -594,6 +625,32 @@ class TestHogFlowAPI(APIBaseTest):
         assert {flow["name"] for flow in response.json()["results"]} == {"Loop"}
 
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?origin_product=spreadsheets")
+        assert response.status_code == 400
+
+    def test_source_record_is_set_on_create_filters_the_list_and_never_changes(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}},
+        )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "source_record": "early_access:feature-1"}
+        )
+        assert response.status_code == 201, response.json()
+        flow_id = response.json()["id"]
+        HogFlow.objects.create(team=self.team, name="Other record", created_by=self.user, source_record="cohort:7")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"source_record": "early_access:feature-2"}
+        )
+        assert response.status_code == 200, response.json()
+        assert HogFlow.objects.get(id=flow_id).source_record == "early_access:feature-1"
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?source_record=early_access:feature-1")
+        assert response.status_code == 200, response.json()
+        assert [flow["id"] for flow in response.json()["results"]] == [flow_id]
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "source_record": "not a record"}
+        )
         assert response.status_code == 400
 
     def test_list_returns_last_run_for_loops_from_one_lookup(self):
@@ -6557,9 +6614,8 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
             ("clicks", "email_link_clicked", "click rate", 0.25),
         ]
     )
-    @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=True)
     def test_a_suggestion_carries_what_posthog_measured_next_to_what_it_claimed(
-        self, _name, named_metric, expected_label, expected_value, _mock_flag
+        self, _name, named_metric, expected_label, expected_value
     ):
         HogFlow.objects.filter(id=self.flow.id).update(
             actions=[{"id": "email_1", "type": "function_email", "name": "Email", "config": {}}], status="active"
@@ -6627,10 +6683,7 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
             ("reversed", "{end}/{start}", 157, "-7d"),
         ]
     )
-    @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=True)
-    def test_posthog_measures_the_window_the_suggestion_names(
-        self, _name, window, expected_sends, expected_window, _mock_flag
-    ):
+    def test_posthog_measures_the_window_the_suggestion_names(self, _name, window, expected_sends, expected_window):
         HogFlow.objects.filter(id=self.flow.id).update(
             actions=[{"id": "email_1", "type": "function_email", "name": "Email", "config": {}}], status="active"
         )
@@ -6695,12 +6748,11 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
         assert measured["target"]["n"] == expected_sends
         assert measured["window"] == expected_window.format(**bounds)
 
-    @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=True)
     @patch(
         "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals",
         side_effect=Exception("clickhouse is down"),
     )
-    def test_a_producer_cannot_pass_off_its_own_numbers_as_posthogs(self, _mock_totals, _mock_flag):
+    def test_a_producer_cannot_pass_off_its_own_numbers_as_posthogs(self, _mock_totals):
         HogFlow.objects.filter(id=self.flow.id).update(
             actions=[{"id": "email_1", "type": "function_email", "name": "Email", "config": {}}], status="active"
         )

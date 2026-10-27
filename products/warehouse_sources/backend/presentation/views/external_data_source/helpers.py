@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.facade.source_management import (
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
     AnySource,
@@ -489,8 +490,9 @@ def _collect_secret_values(data: Any, sensitive: set[str], into: set[str]) -> No
 
 def get_error_redaction_values(source: ExternalDataSource) -> frozenset[str]:
     """The stored secret values of a source, to mask wherever they appear in its error messages."""
-    job_inputs = source.job_inputs
-    if not isinstance(job_inputs, dict):
+    try:
+        job_inputs = SourceInputsStore.load(source)
+    except UnreadableSourceInputsError:
         return frozenset()
     try:
         source_config = SourceRegistry.get_source(ExternalDataSourceType(source.source_type)).get_source_config

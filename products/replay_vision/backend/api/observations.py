@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
+from django.db.models import Case, IntegerField, Q, QuerySet, Subquery, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 from django.http.response import HttpResponseBase
@@ -60,6 +60,7 @@ from products.replay_vision.backend.models.replay_observation import (
     annotate_output_number,
     hydrate_for_serialization,
     jsonb_typeof,
+    watch_group_root,
 )
 from products.replay_vision.backend.models.replay_observation_feed_dismissal import (
     FeedDismissalReason,
@@ -105,6 +106,7 @@ from products.replay_vision.backend.search_suggestions import (
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
+from products.replay_vision.backend.watch_rank import ANCHOR_VERSION, ISSUE_CATEGORIES
 from products.signals.backend.facade.api import get_reports_for_signal_source_slice
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -777,6 +779,13 @@ class ReplayObservationFilter(django_filters.FilterSet):
         lookup_expr="icontains",
         help_text="Filter to observations whose person email contains this value (case-insensitive).",
     )
+    watch_group = django_filters.UUIDFilter(
+        method="_filter_watch_group",
+        help_text=(
+            "Only observations the watch feed groups with this observation as near duplicates, including itself. "
+            "Pair it with the feed's `date_from` to list the sessions a feed card counts."
+        ),
+    )
     date_from = django_filters.CharFilter(
         method="_filter_date_from",
         help_text=(
@@ -891,6 +900,28 @@ class ReplayObservationFilter(django_filters.FilterSet):
             q |= Q(scanner_result__model_output__tags__contains=[tag])
             q |= Q(scanner_result__model_output__tags_freeform__contains=[tag])
         return queryset.filter(q)
+
+    def _filter_watch_group(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: uuid.UUID
+    ) -> QuerySet[ReplayObservation]:
+        if self._team is None:
+            return queryset.none()
+        root = watch_group_root()
+        current = Q(
+            status=ObservationStatus.SUCCEEDED, watch_rank__isnull=False, watch_rank__anchor_version=ANCHOR_VERSION
+        )
+        # The asked row's root comes from a subquery, so the filter adds no statement of its own.
+        asked_root = Subquery(
+            ReplayObservation.objects.filter(current, id=value, team_id=self._team.id)
+            .annotate(_root=root)
+            .values("_root")[:1]
+        )
+        # Matches the rows the feed counts for a card, which leaves out routine rows.
+        return (
+            queryset.alias(_watch_group_root=root, _watch_category=KeyTextTransform("category", "watch_rank"))
+            .filter(current, _watch_category__in=ISSUE_CATEGORIES)
+            .filter(_watch_group_root=asked_root)
+        )
 
     def _filter_variant(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: str

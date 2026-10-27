@@ -576,6 +576,12 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # not be reachable through the API without the flag sets this as well.
     requires_team_feature_flag: str | None = None
 
+    # Top-level ``job_inputs`` keys that hold server-written runtime state, such as a pointer to an
+    # uploaded file. They are neither credentials nor settings a person picks, so they stay in
+    # ``job_inputs`` when the connection fields move to their own store. Keys that start with
+    # ``cdc_`` are runtime state for every source and need no entry here.
+    runtime_job_input_keys: frozenset[str] = frozenset()
+
     # Cap on how many active sources of this type a team may have (``None`` = unlimited). Custom
     # sources are capped; everything else is open. The API enforces this at create.
     max_instances_per_team: int | None = None

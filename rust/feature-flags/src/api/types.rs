@@ -367,6 +367,27 @@ impl FlagsResponse {
         }
     }
 
+    /// Empty flags with the minimal config that `posthog-js` needs to boot. Served to GET
+    /// requests and to requests the service refuses to evaluate (bots, blocked callers).
+    pub fn minimal(request_id: Uuid) -> Self {
+        let mut config = ConfigResponse::new();
+        config.set(
+            "supportedCompression",
+            serde_json::json!(["gzip", "gzip-js"]),
+        );
+        config.set(
+            "config",
+            serde_json::json!({"enable_collect_everything": true}),
+        );
+        config.set("toolbarParams", serde_json::json!({}));
+        config.set("isAuthenticated", serde_json::json!(false));
+        config.set("sessionRecording", serde_json::json!(false));
+
+        let mut response = Self::new(false, HashMap::new(), None, request_id);
+        response.config = config;
+        response
+    }
+
     /// Test helper to create a FlagsResponse with a specific evaluated_at timestamp
     #[cfg(test)]
     pub fn with_evaluated_at(

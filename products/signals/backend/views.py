@@ -138,6 +138,7 @@ from products.signals.backend.free_trial import (
     capture_signal_report_free_trial_paused,
 )
 from products.signals.backend.implementation_pr import (
+    ImplementationPr,
     fetch_implementation_prs_for_reports,
     implementation_pr_report_filter,
     primary_pull_request,
@@ -182,10 +183,13 @@ from products.signals.backend.report_check_authoring import (
     replace_metric_check,
 )
 from products.signals.backend.report_claims import (
+    ReportClaim,
     actor_works_under_claim,
     get_active_claim,
     get_active_claims,
+    reports_claimed_for_user,
     reports_with_active_claim,
+    responsible_users,
 )
 from products.signals.backend.report_content_gates import organization_report_monitoring_enabled
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -234,7 +238,7 @@ from products.signals.backend.report_task_actions import (
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
 from products.signals.backend.reviewer_rules import ReviewerRules, ReviewerWriteError, StaleReviewerProposal
-from products.signals.backend.scout_authorship import inbox_hidden_report_exists
+from products.signals.backend.scout_authorship import inbox_hidden_report_filter
 from products.signals.backend.scout_harness.trial_access import trial_state_errors, trial_store_for_request
 from products.signals.backend.scout_report.trial_inbox import TrialInboxReads, private_report_artefacts
 from products.signals.backend.serializers import (
@@ -1602,7 +1606,7 @@ class SignalReportViewSet(
         # List-only: a report a scout kept out of the inbox stays reachable by id and by its other actions.
         if self.action != "list" or self._bool_query_param("include_unlisted") is True:
             return queryset
-        return queryset.exclude(inbox_hidden_report_exists(self.team_id))
+        return queryset.filter(inbox_hidden_report_filter(self.team_id))
 
     def _apply_signal_report_search_filter(self, queryset):
         search = self.request.query_params.get("search")
@@ -1718,8 +1722,14 @@ class SignalReportViewSet(
         raw = self.request.query_params.get("assignee")
         if raw is None or not raw.strip():
             return queryset
-        if raw.strip().lower() != "me":
-            raise serializers.ValidationError({"assignee": "Invalid value. Allowed: me."})
+        value = raw.strip().lower()
+        if value == "mine":
+            user_id = self.request.user.id
+            if user_id is None:  # unreachable behind authentication
+                raise exceptions.NotAuthenticated()
+            return queryset.filter(reports_claimed_for_user(team_id=self.team_id, user_id=user_id))
+        if value != "me":
+            raise serializers.ValidationError({"assignee": "Invalid value. Allowed: me, mine."})
         actor = self._request_attribution()
         return queryset.filter(reports_with_active_claim(team_id=self.team_id, actor=actor))
 
@@ -2295,6 +2305,22 @@ class SignalReportViewSet(
             "billing_period_bounds": current_billing_period_bounds(self.organization),
         }
 
+    @staticmethod
+    def _claim_and_pull_request_context(
+        report_ids: list[str],
+        pull_requests_map: dict[str, list[ImplementationPr]],
+        claims: dict[str, ReportClaim],
+    ) -> dict[str, object]:
+        implementation_pr_by_report = {rid: primary_pull_request(prs) for rid, prs in pull_requests_map.items()}
+        return {
+            "pull_requests_map": pull_requests_map,
+            "claims_map": dict.fromkeys(report_ids) | claims,
+            "claim_responsible_users_map": responsible_users(claims.values()),
+            "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
+            "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
+            "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
+        }
+
     def _enriched_report_context(self, report: SignalReport) -> dict:
         # Detail-view parity with list(): inject the source metadata map the serializer reads.
         # This lookup is best-effort so a ClickHouse failure cannot hide the report.
@@ -2306,10 +2332,8 @@ class SignalReportViewSet(
             signal_meta_map = {}
         try:
             pull_requests_map = fetch_implementation_prs_for_reports(report_ids, team_id=self.team_id)
-            implementation_pr_by_report = {rid: primary_pull_request(prs) for rid, prs in pull_requests_map.items()}
         except Exception:
             logger.exception("signals.enriched_context.implementation_pr_failed", report_id=str(report.id))
-            implementation_pr_by_report = {}
             pull_requests_map = {}
         try:
             source_suggestion = current_source_suggestion(self.team, str(report.id))
@@ -2321,15 +2345,12 @@ class SignalReportViewSet(
         except Exception:
             logger.exception("signals.enriched_context.report_plan_failed", report_id=str(report.id))
             plan = None
+        claims = get_active_claims(team_id=self.team_id, report_ids=report_ids)
         return {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
-            "pull_requests_map": pull_requests_map,
-            "claims_map": dict.fromkeys(report_ids) | get_active_claims(team_id=self.team_id, report_ids=report_ids),
-            "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
-            "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
-            "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
+            **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
             "source_suggestions_map": {str(report.id): source_suggestion},
             "report_plans_map": {str(report.id): plan},
         }
@@ -2745,8 +2766,12 @@ class SignalReportViewSet(
                 type=OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                enum=["me"],
-                description="Use 'me' to return reports claimed by the current user, task, or MCP agent.",
+                enum=["me", "mine"],
+                description=(
+                    "'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or "
+                    "the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, "
+                    "claims by MCP agents acting for them, and claims by internal tasks they started."
+                ),
             ),
         ],
     )
@@ -2889,10 +2914,8 @@ class SignalReportViewSet(
         with tracer.start_as_current_span("signals.reports.list.fetch_implementation_prs"):
             try:
                 pull_requests_map = fetch_implementation_prs_for_reports(report_ids, team_id=self.team_id)
-                implementation_pr_by_report = {rid: primary_pull_request(prs) for rid, prs in pull_requests_map.items()}
             except Exception:
                 logger.exception("signals.reports.list.implementation_pr_failed", report_count=len(report_ids))
-                implementation_pr_by_report = {}
                 pull_requests_map = {}
 
         # One grouped query for the whole page, in place of the per-row annotation the other
@@ -2913,15 +2936,12 @@ class SignalReportViewSet(
                     artefact_count=artefact_counts.get(str(report.id), 0),
                     channel_id=live_channel_ids.get(str(report.id)),
                 )
+        claims = get_active_claims(team_id=self.team_id, report_ids=report_ids)
         context = {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
-            "pull_requests_map": pull_requests_map,
-            "claims_map": dict.fromkeys(report_ids) | get_active_claims(team_id=self.team_id, report_ids=report_ids),
-            "implementation_pr_url_map": {rid: pr.url for rid, pr in implementation_pr_by_report.items()},
-            "implementation_pr_state_map": {rid: pr.state for rid, pr in implementation_pr_by_report.items()},
-            "implementation_pr_merged_ids": {rid for rid, pr in implementation_pr_by_report.items() if pr.merged},
+            **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
             "inbox_ranker": self._inbox_ranker,
         }
@@ -3073,9 +3093,14 @@ class SignalReportViewSet(
     @action(detail=True, methods=["delete"], url_path="reviewers/me", required_scopes=["task:write"])
     def leave_reviewers(self, request, **kwargs):
         report = cast(SignalReport, self.get_object())
+        scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
         try:
             remove_suggested_reviewer(
-                team=self.team, report_id=str(report.id), user=cast(User, request.user), request=request
+                team=self.team,
+                report_id=str(report.id),
+                user=cast(User, request.user),
+                scoped_team_ids=tuple(scoped_team_ids) if scoped_team_ids is not None else None,
+                was_impersonated=is_impersonated_session(request),
             )
         except StaleReviewerProposal as e:
             return Response({"detail": str(e)}, status=status.HTTP_409_CONFLICT)
@@ -3360,7 +3385,8 @@ class SignalReportViewSet(
         summary="Start a report action as a background agent run",
         description=(
             "Create a task linked to the report and start its first run in the background, with the "
-            "instructions the inbox uses for the same action. The run shows in the report's runs and counts "
+            "instructions the inbox uses for the same action. `ask` sends your own message with the framing "
+            "of the inbox's Ask AI. The run shows in the report's runs and counts "
             "toward the report's task limit. Nobody can answer questions in a background run, so the agent "
             "writes a note to the report's work log when it needs a decision."
         ),
@@ -3387,7 +3413,7 @@ class SignalReportViewSet(
         kind = ReportTaskActionKind(data["action"])
         state = ReportActionState.read(report)
         report_action = resolve_report_task_action(
-            context, report, kind, data.get("suggested_prompt_index"), state=state
+            context, report, kind, data.get("suggested_prompt_index"), state=state, message=data.get("message")
         )
         if report_action is None:
             raise exceptions.NotFound("This report has no suggested prompt at that index.")
@@ -5491,7 +5517,9 @@ def _stored_reviewer_entry(entry: dict) -> dict:
     }
 
 
-def remove_suggested_reviewer(*, team: Team, report_id: str, user: User, request: Request) -> bool:
+def remove_suggested_reviewer(
+    *, team: Team, report_id: str, user: User, scoped_team_ids: tuple[int, ...] | None, was_impersonated: bool
+) -> bool:
     """Take one person off a report's suggested reviewers and leave everyone else as they are.
 
     Returns whether the person was on the list. This is deliberately not routed through
@@ -5506,14 +5534,10 @@ def remove_suggested_reviewer(*, team: Team, report_id: str, user: User, request
     implementation task as the user a reviewers edit is attributed to. Stepping off a report must
     never start work, least of all under the credentials of the person who just declined it.
     """
-    user_id = request.user.id
+    user_id = user.id
     if user_id is None:  # unreachable behind authentication, but keeps attribution honest
         raise serializers.ValidationError("Cannot attribute a reviewer edit to an anonymous user.")
     attribution = ArtefactAttribution.from_user(user_id)
-    # Read off the request here: scout note forwarding runs after commit, where there is no request.
-    scoped_team_ids = get_authenticator_scoped_team_ids(request.successful_authenticator)
-    scoped_team_id_tuple = tuple(scoped_team_ids) if scoped_team_ids is not None else None
-    was_impersonated = is_impersonated_session(request)
     github_login = user.get_github_login()
     github_login = github_login.lower() if github_login else None
 
@@ -5565,7 +5589,7 @@ def remove_suggested_reviewer(*, team: Team, report_id: str, user: User, request
         log_activity(
             organization_id=None,
             team_id=team.id,
-            user=cast(User, request.user),
+            user=user,
             was_impersonated=was_impersonated,
             item_id=report_id,
             scope="SignalReport",
@@ -5591,7 +5615,7 @@ def remove_suggested_reviewer(*, team: Team, report_id: str, user: User, request
                 added_reviewers=(),
                 removed_reviewers=(github_login or str(user.uuid),),
                 actor_user_id=user_id,
-                scoped_team_ids=scoped_team_id_tuple,
+                scoped_team_ids=scoped_team_ids,
             )
         )
         # on_commit so a rolled-back edit steers nothing. No notification: a removal adds no

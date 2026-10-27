@@ -6,6 +6,7 @@ use crate::metrics::consts::{
     FLAG_BODY_READ_TIME_MS, FLAG_CONCURRENCY_LIMIT_WAIT_TIME_MS, FLAG_DB_OPERATIONS_PER_REQUEST,
     FLAG_PHASE_DURATION_MS, FLAG_PRE_HANDLER_TIME_MS, FLAG_QUEUE_TIME_MS,
 };
+use crate::team::request_blocklist::BlockReason;
 use crate::utils::bot_detection::{BotCategory, BotSource};
 use std::cell::RefCell;
 use std::future::Future;
@@ -184,6 +185,9 @@ pub struct FlagsCanonicalLogLine {
 
     // Request metadata (useful for SDK debugging)
     pub user_agent: Option<String>,
+    /// Host of the `Origin` header, or of `Referer` without one. Shows support which site
+    /// calls `/flags` with a team's token. Log only: it is unbounded, so never a metric label.
+    pub origin_host: Option<String>,
     pub lib: Option<String>,
     pub lib_version: Option<String>,
     pub api_version: Option<String>,
@@ -322,6 +326,10 @@ pub struct FlagsCanonicalLogLine {
     pub bot_category: Option<BotCategory>,
     /// Which signal fired (UA or IP), set iff `is_bot` is true.
     pub bot_source: Option<BotSource>,
+
+    /// Set when the team's request blocklist refused the request before billing and
+    /// evaluation.
+    pub request_blocked_by: Option<BlockReason>,
 }
 
 impl Default for FlagsCanonicalLogLine {
@@ -331,6 +339,7 @@ impl Default for FlagsCanonicalLogLine {
             ip: String::new(),
             start_time: Instant::now(),
             user_agent: None,
+            origin_host: None,
             lib: None,
             lib_version: None,
             api_version: None,
@@ -376,6 +385,7 @@ impl Default for FlagsCanonicalLogLine {
             is_bot: false,
             bot_category: None,
             bot_source: None,
+            request_blocked_by: None,
         }
     }
 }
@@ -396,6 +406,10 @@ impl FlagsCanonicalLogLine {
         // Truncate user_agent to prevent log bloat from very long headers (some bots send KB+).
         // Note: distinct_id is already truncated at request parsing time (see MAX_DISTINCT_ID_LEN).
         let user_agent = self.user_agent.as_deref().map(|ua| truncate_chars(ua, 512));
+        let origin_host = self
+            .origin_host
+            .as_deref()
+            .map(|host| truncate_chars(host, 512));
 
         tracing::info!(
             request_id = %self.request_id,
@@ -405,6 +419,7 @@ impl FlagsCanonicalLogLine {
             anon_distinct_id = self.anon_distinct_id.as_deref(),
             ip = %self.ip,
             user_agent = user_agent,
+            origin_host = origin_host,
             lib = self.lib.as_deref(),
             lib_version = self.lib_version.as_deref(),
             api_version = self.api_version.as_deref(),
@@ -451,6 +466,7 @@ impl FlagsCanonicalLogLine {
             is_bot = self.is_bot,
             bot_category = self.bot_category.map(|c| c.as_str()),
             bot_source = self.bot_source.map(|s| s.as_str()),
+            request_blocked_by = self.request_blocked_by.map(|r| r.as_str()),
             "canonical_log_line"
         );
     }
@@ -730,6 +746,8 @@ mod tests {
     fn test_emit_with_all_fields_populated() {
         let mut log = FlagsCanonicalLogLine::new(Uuid::new_v4(), "10.0.0.1".to_string());
         log.user_agent = Some("posthog-python/1.0.0".to_string());
+        log.origin_host = Some("app.example.com".to_string());
+        log.request_blocked_by = Some(BlockReason::Host);
         log.lib = Some("posthog-python".to_string());
         log.lib_version = Some("1.0.0".to_string());
         log.api_version = Some("3".to_string());

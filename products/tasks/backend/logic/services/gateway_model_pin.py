@@ -18,17 +18,18 @@ _GATEWAY_RESTRICTED_MODEL_PRODUCTS: dict[str, frozenset[str]] = {
     "zai-org/glm-5.2": frozenset({"posthog_code"}),
     "zai-org/glm-5.3": frozenset({"posthog_code", "review_hog"}),
     "zai-org/glm-5.3-flash": frozenset({"posthog_code", "review_hog"}),
+    # Only ReviewHog's arm-set trial calls it, and the desktop pin has no room left under MAX_GATEWAY_PIN_LENGTH.
+    "gpt-6.1-terra": frozenset({"review_hog"}),
 }
+
+
+def _admits(product: str, model_id: str) -> bool:
+    return product in _GATEWAY_RESTRICTED_MODEL_PRODUCTS.get(model_id, frozenset({product}))
 
 
 def _first_party_pin(product: str) -> list[str]:
     routed = (model.id for model in MODELS if not model.id.startswith("@cf/"))
-    admitted = (
-        model_id
-        for model_id in routed
-        if product in _GATEWAY_RESTRICTED_MODEL_PRODUCTS.get(model_id, frozenset({product}))
-    )
-    return list(dict.fromkeys([*SDK_IMPLICIT_MODELS, *admitted]))
+    return list(dict.fromkeys([*SDK_IMPLICIT_MODELS, *(model_id for model_id in routed if _admits(product, model_id))]))
 
 
 # Ids the legacy gateway serves to PostHog Desktop that the catalog lacks; older app builds call them.
@@ -39,9 +40,16 @@ def gateway_pin(models: list[str]) -> list[str]:
     return [model for model in models if not model.startswith("@cf/")]
 
 
-# Every model a PostHog Desktop session or cloud run may call, slash ids included. Go picks the provider.
+# Every model a PostHog Desktop session or cloud run may call, slash ids included, except the ones reserved for
+# other products. Go picks the provider.
 DESKTOP_AGENT_MODELS: list[str] = list(
-    dict.fromkeys([*SDK_IMPLICIT_MODELS, *(model.id for model in MODELS), *_DESKTOP_LEGACY_MODELS])
+    dict.fromkeys(
+        [
+            *SDK_IMPLICIT_MODELS,
+            *(model.id for model in MODELS if _admits("posthog_code", model.id)),
+            *_DESKTOP_LEGACY_MODELS,
+        ]
+    )
 )
 # The Go gateway refuses a pin longer than this at mint.
 MAX_GATEWAY_PIN_LENGTH = 32

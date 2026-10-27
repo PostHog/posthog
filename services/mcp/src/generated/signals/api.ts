@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 74 enabled ops
+ * PostHog API - MCP 79 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -313,9 +313,11 @@ export const SignalsReportsListQueryParams = () => zod.object({
             'Filter by whether the latest actionability judgment says the issue is already being handled. False also includes older reports where that judgment did not record a value.'
         ),
     assignee: zod
-        .enum(['me'])
+        .enum(['me', 'mine'])
         .optional()
-        .describe("Use 'me' to return reports claimed by the current user, task, or MCP agent."),
+        .describe(
+            "'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, claims by MCP agents acting for them, and claims by internal tasks they started."
+        ),
     channel_id: zod
         .string()
         .optional()
@@ -523,7 +525,7 @@ export const SignalsReportsActionsListParams = () => zod.object({
 })
 
 /**
- * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
+ * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. `ask` sends your own message with the framing of the inbox's Ask AI. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
  * @summary Start a report action as a background agent run
  */
 export const SignalsReportsActionsRunCreateParams = () => zod.object({
@@ -537,20 +539,29 @@ export const SignalsReportsActionsRunCreateParams = () => zod.object({
 
 export const signalsReportsActionsRunCreateBodySuggestedPromptIndexMin = 0
 
+export const signalsReportsActionsRunCreateBodyMessageMax = 2000
+
 export const SignalsReportsActionsRunCreateBody = () => zod.object({
     action: zod
-        .enum(['get_it_merged', 'make_it_green', 'suggested_prompt'])
+        .enum(['get_it_merged', 'make_it_green', 'suggested_prompt', 'ask'])
         .describe(
-            '\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `suggested_prompt` - Suggested prompt'
+            '\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `suggested_prompt` - Suggested prompt\n\* `ask` - Ask'
         )
         .describe(
-            'The action to run. Use a value from the actions list.\n\n\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `suggested_prompt` - Suggested prompt'
+            'The action to run. Use a value from the actions list, or `ask` to send your own `message`.\n\n\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `suggested_prompt` - Suggested prompt\n\* `ask` - Ask'
         ),
     suggested_prompt_index: zod
         .number()
         .min(signalsReportsActionsRunCreateBodySuggestedPromptIndexMin)
         .optional()
         .describe('Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.'),
+    message: zod
+        .string()
+        .max(signalsReportsActionsRunCreateBodyMessageMax)
+        .optional()
+        .describe(
+            "Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged` and `make_it_green`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`."
+        ),
 })
 
 /**
@@ -1350,6 +1361,119 @@ export const SignalsReportsBulkStateCreateBody = () => zod.object({
  * @summary List the ranking model's public outcomes
  */
 export const SignalsReportsRankingOutcomesListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * List the standing instructions that keep you off automatic reviewer selection, active and revoked.
+ * @summary List your reviewer exclusions
+ */
+export const SignalsReviewerExclusionsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * @summary Stay off automatic reviewer selection in an area
+ */
+export const SignalsReviewerExclusionsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReviewerExclusionsCreateBodyRepositoryMax = 200
+
+export const signalsReviewerExclusionsCreateBodyPathPrefixMax = 500
+
+export const signalsReviewerExclusionsCreateBodyInstructionMax = 2000
+
+export const SignalsReviewerExclusionsCreateBody = () => zod.object({
+    repository: zod
+        .string()
+        .max(signalsReviewerExclusionsCreateBodyRepositoryMax)
+        .optional()
+        .describe('Repository in `owner\/name` form. Leave empty to cover every repository.'),
+    path_prefix: zod
+        .string()
+        .max(signalsReviewerExclusionsCreateBodyPathPrefixMax)
+        .optional()
+        .describe('Path inside the repository, such as `src\/billing`. Needs a repository.'),
+    instruction: zod
+        .string()
+        .max(signalsReviewerExclusionsCreateBodyInstructionMax)
+        .describe('Why you stay off this area, for the people who read it later.'),
+    report_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional report to take you off first. The report removal and the instruction save are separate steps.'
+        ),
+})
+
+/**
+ * @summary Get one of your reviewer exclusions
+ */
+export const SignalsReviewerExclusionsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal reviewer exclusion.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * @summary Change one of your reviewer exclusions
+ */
+export const SignalsReviewerExclusionsPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal reviewer exclusion.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReviewerExclusionsPartialUpdateBodyRepositoryMax = 200
+
+export const signalsReviewerExclusionsPartialUpdateBodyPathPrefixMax = 500
+
+export const signalsReviewerExclusionsPartialUpdateBodyInstructionMax = 2000
+
+export const SignalsReviewerExclusionsPartialUpdateBody = () => zod.object({
+    repository: zod
+        .string()
+        .max(signalsReviewerExclusionsPartialUpdateBodyRepositoryMax)
+        .optional()
+        .describe('Repository in `owner\/name` form. Leave empty to cover every repository.'),
+    path_prefix: zod
+        .string()
+        .max(signalsReviewerExclusionsPartialUpdateBodyPathPrefixMax)
+        .optional()
+        .describe('Path inside the repository, such as `src\/billing`. Needs a repository.'),
+    instruction: zod
+        .string()
+        .max(signalsReviewerExclusionsPartialUpdateBodyInstructionMax)
+        .optional()
+        .describe('New text for the instruction.'),
+})
+
+/**
+ * Make you eligible for automatic reviewer selection in this area again. Revoking does not add you to any report, and it does not change old reports.
+ * @summary Revoke one of your reviewer exclusions
+ */
+export const SignalsReviewerExclusionsRevokeCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal reviewer exclusion.'),
     project_id: zod
         .string()
         .describe(
