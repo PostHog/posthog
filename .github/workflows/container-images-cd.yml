@@ -109,8 +109,8 @@ jobs:
             !cancelled() && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' &&
             needs.changes.outputs.image != 'false'
         runs-on: depot-ubuntu-24.04
-        # Covers two bounded build attempts plus the post-build image-boot verification before
-        # dispatch.
+        # Covers two bounded build attempts plus the post-build image-boot verification and the
+        # frontend asset publish to three buckets before dispatch.
         timeout-minutes: 60
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
