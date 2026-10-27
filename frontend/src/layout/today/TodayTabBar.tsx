@@ -4,7 +4,10 @@ import { IconSearch } from '@posthog/icons'
 import { cn } from '@posthog/quill'
 
 import { commandLogic } from 'lib/components/Command/commandLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { TodayNotificationsTab } from './TodayNotificationsTab'
 import { TODAY_PANES, TODAY_RAIL_PANES } from './todayRailItems'
 import { todayShellLogic } from './todayShellLogic'
 
@@ -15,6 +18,7 @@ export function TodayTabBar(): JSX.Element {
     const { activePane } = useValues(todayShellLogic)
     const { clickRailPane } = useActions(todayShellLogic)
     const { toggleCommand } = useActions(commandLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className="TodayTabBar" data-quill>
@@ -39,6 +43,13 @@ export function TodayTabBar(): JSX.Element {
                         </button>
                     )
                 })}
+                {featureFlags[FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS] && (
+                    <TodayNotificationsTab
+                        active={activePane === 'notifications'}
+                        onClick={() => clickRailPane('notifications')}
+                        className={TAB_CLASS}
+                    />
+                )}
                 <button
                     type="button"
                     data-attr="today-rail-search"

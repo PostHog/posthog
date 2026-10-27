@@ -1,5 +1,10 @@
 import { useActions, useValues } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { TodayNotificationsRailTile } from 'products/notifications/frontend/pane/TodayNotificationsRailTile'
+
 import { TodayAccountMenu } from './TodayAccountMenu'
 import { TodayMoreMenu } from './TodayMoreMenu'
 import { TODAY_PANES, TODAY_RAIL_FOOTER_PANES, TODAY_RAIL_PANES } from './todayRailItems'
@@ -12,6 +17,7 @@ const RAIL_DATA_ATTRS: Partial<Record<TodayRailPane, string>> = { settings: 'tod
 export function TodayRail(): JSX.Element {
     const { activePane, effectivePhaiView } = useValues(todayShellLogic)
     const { clickRailPane } = useActions(todayShellLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const renderTile = (pane: TodayRailPane): JSX.Element => (
         <TodayRailTile
@@ -34,6 +40,12 @@ export function TodayRail(): JSX.Element {
         >
             {TODAY_RAIL_PANES.map(renderTile)}
             <div className="mt-auto flex w-full flex-col items-center gap-3">
+                {featureFlags[FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS] && (
+                    <TodayNotificationsRailTile
+                        active={activePane === 'notifications'}
+                        onClick={() => clickRailPane('notifications')}
+                    />
+                )}
                 <TodayMoreMenu />
                 {TODAY_RAIL_FOOTER_PANES.map(renderTile)}
             </div>

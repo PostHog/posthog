@@ -14,10 +14,8 @@ export function TodayFilterMenuTrigger({ active, dataAttr }: { active: boolean; 
                             <Button
                                 size="icon"
                                 aria-label={label}
-                                className={cn(
-                                    'relative text-muted-foreground',
-                                    active && 'bg-fill-selected text-foreground'
-                                )}
+                                indicator={active ? 'default' : undefined}
+                                className={cn('text-muted-foreground', active && 'bg-fill-selected text-foreground')}
                                 data-attr={dataAttr}
                             />
                         }
@@ -25,7 +23,6 @@ export function TodayFilterMenuTrigger({ active, dataAttr }: { active: boolean; 
                 }
             >
                 <IconFilter />
-                {active && <span aria-hidden className="absolute top-0 right-0 size-1.5 rounded-full bg-primary" />}
             </TooltipTrigger>
             <TooltipContent>{label}</TooltipContent>
         </Tooltip>

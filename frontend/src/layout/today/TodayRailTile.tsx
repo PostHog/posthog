@@ -1,6 +1,6 @@
 import { forwardRef } from 'react'
 
-import { cn } from '@posthog/quill'
+import { Badge, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
@@ -13,6 +13,13 @@ const DOT_CLASS = {
     destructive: 'bg-[var(--destructive-foreground)]',
 } as const
 
+const COUNT_CLASS = {
+    default: 'bg-[var(--primary)] text-[var(--primary-foreground)]',
+    destructive: 'bg-[var(--destructive-foreground)] text-[var(--background)]',
+} as const
+
+const MAX_SHOWN_COUNT = 9
+
 export interface TodayRailTileProps extends Omit<React.HTMLAttributes<HTMLElement>, 'onClick'> {
     label: string
     icon: JSX.Element
@@ -22,10 +29,12 @@ export interface TodayRailTileProps extends Omit<React.HTMLAttributes<HTMLElemen
     onClick?: (event: React.MouseEvent<HTMLElement>) => void
     dataAttr: string
     severity?: TodayRailSeverity
+    /** A number on the icon's corner. It takes the dot's place, in the dot's tone. */
+    count?: number
 }
 
 export const TodayRailTile = forwardRef<HTMLElement, TodayRailTileProps>(function TodayRailTile(
-    { label, icon, active, to, onClick, dataAttr, severity = 'none', ...props },
+    { label, icon, active, to, onClick, dataAttr, severity = 'none', count = 0, ...props },
     ref
 ): JSX.Element {
     const indicator = SEVERITY_INDICATOR[severity]
@@ -59,14 +68,26 @@ export const TodayRailTile = forwardRef<HTMLElement, TodayRailTileProps>(functio
                 )}
             >
                 {icon}
-                {indicator && (
-                    <span
+                {count > 0 ? (
+                    <Badge
                         aria-hidden
                         className={cn(
-                            'absolute -top-0.5 -end-0.5 size-2 rounded-full ring-2 ring-[var(--chrome)]',
-                            DOT_CLASS[indicator]
+                            'absolute -top-1 -end-1.5 min-w-4 px-1 tabular-nums ring-2 ring-[var(--chrome)]',
+                            COUNT_CLASS[indicator === 'destructive' ? 'destructive' : 'default']
                         )}
-                    />
+                    >
+                        {count > MAX_SHOWN_COUNT ? `${MAX_SHOWN_COUNT}+` : count}
+                    </Badge>
+                ) : (
+                    indicator && (
+                        <span
+                            aria-hidden
+                            className={cn(
+                                'absolute -top-0.5 -end-0.5 size-2 rounded-full ring-2 ring-[var(--chrome)]',
+                                DOT_CLASS[indicator]
+                            )}
+                        />
+                    )
                 )}
             </span>
             <span className="max-w-full truncate px-0.5 text-[10px] leading-3 font-medium">{label}</span>
