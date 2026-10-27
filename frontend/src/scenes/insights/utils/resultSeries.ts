@@ -28,7 +28,6 @@ export interface ResultSeriesRow {
     order?: number | null
 }
 
-/** The project's actions by id, as `actionsModel` holds them. The query does not hold an action's current name. */
 export type ActionsById = Partial<Record<number | string, Pick<ActionType, 'name'>>>
 
 const WEEK_OR_LONGER_INTERVALS = new Set<IntervalType>(['week', 'month', 'quarter', 'year'])
@@ -84,16 +83,13 @@ export function getResultSeries(
     return { order, node: withDisplayName(node, actionsById), math: getRunnerMath(querySource, node) }
 }
 
-/** Whether a series of the query is an action saved without a name, which only `actionsById` can name. */
-export function hasNamelessActionSeries(querySource: InsightQueryNode | null | undefined): boolean {
+export function getNamelessActionIds(querySource: InsightQueryNode | null | undefined): number[] {
     if (!querySource || !isInsightQueryWithSeries(querySource)) {
-        return false
+        return []
     }
-    return (querySource.series as SeriesNode[]).some((node) =>
-        (isGroupSeriesNode(node) ? node.nodes : [node]).some(
-            (member) => isActionsSeriesNode(member) && !ensureStringIsNotBlank(member.name)
-        )
-    )
+    return (querySource.series as SeriesNode[])
+        .flatMap((node) => (isGroupSeriesNode(node) ? node.nodes : [node]))
+        .flatMap((member) => (isActionsSeriesNode(member) && !ensureStringIsNotBlank(member.name) ? [member.id] : []))
 }
 
 /**

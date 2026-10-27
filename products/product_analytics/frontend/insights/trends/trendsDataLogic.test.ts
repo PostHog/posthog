@@ -7,11 +7,11 @@ import { getTrendResultCustomizationKey } from 'scenes/insights/utils'
 
 import { ExportType } from '~/exporter/types'
 import { useMocks } from '~/mocks/jest'
-import { actionsModel } from '~/models/actionsModel'
+import { actionNamesModel } from '~/models/actionNamesModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataNode, LifecycleQuery, NodeKind, ResultCustomizationBy, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
+import { BaseMathType, ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
 
 import { breakdownPieResult, lifecycleResult, trendPieResult, trendResult } from './__mocks__/trendsDataLogicMocks'
 import { trendsDataLogic } from './trendsDataLogic'
@@ -268,16 +268,23 @@ describe('trendsDataLogic', () => {
     })
 
     describe('actionsById', () => {
-        it('loads the name of an action series saved without a name', async () => {
-            useMocks({ get: { '/api/projects/:team_id/actions/': { results: [{ id: 7, name: 'Signed up' }] } } })
+        it('loads the name of an action series saved without a name, once per action', async () => {
+            const retrieveAction = jest.fn(() => [200, { id: 7, name: 'Signed up' }])
+            useMocks({ get: { '/api/projects/:team_id/actions/:id/': retrieveAction } })
             const query: TrendsQuery = { kind: NodeKind.TrendsQuery, series: [{ kind: NodeKind.ActionsNode, id: 7 }] }
 
             await expectLogic(logic, () => {
                 insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
             }).toFinishAllListeners()
-            await expectLogic(actionsModel).toDispatchActions(['loadActionsSuccess'])
+            await expectLogic(actionNamesModel).toDispatchActions(['setActionNames'])
+            await expectLogic(logic, () => {
+                insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource({
+                    series: [{ kind: NodeKind.ActionsNode, id: 7, math: BaseMathType.UniqueUsers }],
+                })
+            }).toFinishAllListeners()
 
             expect(logic.values.actionsById[7]?.name).toEqual('Signed up')
+            expect(retrieveAction).toHaveBeenCalledTimes(1)
         })
     })
 
