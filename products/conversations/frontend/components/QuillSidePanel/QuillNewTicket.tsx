@@ -8,7 +8,7 @@ import { QuillTicketComposer } from './QuillTicketComposer'
 
 export function QuillNewTicket(): JSX.Element {
     const { messageSending, newTicketDraft, supportResponseTime } = useValues(sidepanelTicketsLogic)
-    const { sendMessage, setView, setNewTicketContext } = useActions(sidepanelTicketsLogic)
+    const { sendMessage, setView } = useActions(sidepanelTicketsLogic)
 
     const placeholder = supportResponseTime
         ? `Describe what you need help with and our support engineers aim to get back to you within ${supportResponseTime}.`
@@ -38,8 +38,7 @@ export function QuillNewTicket(): JSX.Element {
                 </Heading>
             </div>
             {/* The draft seeds the editor once. The parent keys this view on the draft revision, so a new prefill
-                remounts it. Clearing the editor drops the prefill's hidden context, because the customer has
-                started a different ticket. */}
+                remounts it. */}
             <QuillTicketComposer
                 onSend={sendMessage}
                 sending={messageSending}
@@ -48,11 +47,6 @@ export function QuillNewTicket(): JSX.Element {
                 minRows={4}
                 draftContent={newTicketDraft}
                 autoFocus
-                onEmptyChange={(empty) => {
-                    if (empty) {
-                        setNewTicketContext(null)
-                    }
-                }}
             />
         </div>
     )

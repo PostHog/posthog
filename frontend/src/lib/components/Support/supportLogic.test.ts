@@ -200,19 +200,6 @@ describe('supportLogic', () => {
             expect(sendMessage.mock.calls[0][0]).toContain(expected)
         })
 
-        it.each([
-            ['a path array, as the form field sends it', ['message']],
-            ['a string', 'message'],
-        ])('drops the ticket context once the customer clears the prefilled message, named by %s', (_name, field) => {
-            logic.actions.openSupportForm({ kind: 'support', message: 'Prefilled', ticket_context: 'Tier request' })
-            logic.actions.setSendSupportRequestValue(field, 'Prefilled, edited')
-            expect(logic.values.sendSupportRequest.ticket_context).toBe('Tier request')
-
-            logic.actions.setSendSupportRequestValue(field, '')
-            logic.actions.setSendSupportRequestValue(field, 'Something unrelated')
-            expect(logic.values.sendSupportRequest.ticket_context).toBeUndefined()
-        })
-
         it('accepts a submission with no topic or severity, since the form no longer collects them', async () => {
             const sendMessage = jest.fn().mockResolvedValue({ ticket_id: 't1' })
             conversationsMock(sendMessage)
