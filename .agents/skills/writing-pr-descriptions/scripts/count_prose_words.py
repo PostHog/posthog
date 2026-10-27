@@ -3,8 +3,8 @@
 """
 Print the number of prose words in a PR body.
 
-Headings, tables, code blocks, HTML tags, images, and everything inside <details> are not prose.
-List markers, checkboxes and other words without a letter or digit do not count.
+Headings, tables, code blocks, HTML tags, images, task list checkboxes, and everything inside <details> are not prose.
+List markers and other words without a letter or digit do not count.
 
 Usage:
     uv run python count_prose_words.py pr-body.md
@@ -13,15 +13,17 @@ Usage:
 
 from __future__ import annotations
 
+import re
 import sys
 import argparse
 from html.parser import HTMLParser
 from pathlib import Path
 
 from markdown_it import MarkdownIt
+from markdown_it.rules_core import StateCore
 
 NON_PROSE_TAGS = {"h1", "h2", "h3", "h4", "h5", "h6", "table", "pre", "details"}
-TASK_MARKERS = {"[x]", "[X]"}
+TASK_MARKER = re.compile(r"^\[[ xX]\](?=\s|$)")
 
 
 class ProseWordCounter(HTMLParser):
@@ -40,14 +42,21 @@ class ProseWordCounter(HTMLParser):
 
     def handle_data(self, data: str) -> None:
         if not self.non_prose_depth:
-            self.words += sum(
-                1 for word in data.split() if word not in TASK_MARKERS and any(char.isalnum() for char in word)
-            )
+            self.words += sum(1 for word in data.split() if any(char.isalnum() for char in word))
+
+
+def render_task_markers_as_checkboxes(state: StateCore) -> None:
+    """Render GitHub task list markers as checkbox tags, as GitHub does, so they parse as markup."""
+    for list_item, inline in zip(state.tokens, state.tokens[2:]):
+        if list_item.type == "list_item_open" and inline.type == "inline":
+            inline.content = TASK_MARKER.sub('<input type="checkbox">', inline.content, count=1)
 
 
 def count_prose_words(markdown: str) -> int:
+    parser = MarkdownIt("commonmark").enable("table")
+    parser.core.ruler.before("inline", "task_markers", render_task_markers_as_checkboxes)
     counter = ProseWordCounter()
-    counter.feed(MarkdownIt("commonmark").enable("table").render(markdown))
+    counter.feed(parser.render(markdown))
     counter.close()
     return counter.words
 
