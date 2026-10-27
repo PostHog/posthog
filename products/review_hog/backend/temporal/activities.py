@@ -1589,25 +1589,26 @@ async def _run_single_agent_session(
     whether the session fell back to the control arm.
     """
     arm = arms.for_pass(pass_number)
-    # The same read as dedup's, so a result that fell back to the control arm counts as done too.
     done = await database_sync_to_async(load_single_agent_results, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, arms=arms
     )
-    if (pass_number, chunk_id) in done:
+    if (pass_number, chunk_id) in done.reviews:
         logger.info("Reusing the persisted %s result for this turn", step_name)
-        return False
+        return (pass_number, chunk_id) in done.fallbacks
     prompt = await database_sync_to_async(_prepare_single_agent_prompt, thread_sensitive=False)(
         input, chunk_id, for_lens, guidelines
     )
-    fell_back = False
+    fallback_for: ReviewArm | None = None
     try:
         review = await _single_agent_sandbox_review(input, prompt=prompt, step_name=step_name, arm=arm)
-    except AgentTurnFailed as exc:
-        if arm == SINGLE_AGENT_FLASH_ARM or exc.category in RUN_LIMIT_FAILURE_CATEGORIES:
+    # Broad on purpose: output the trial model cannot shape into findings fails the session like an agent error.
+    except Exception as exc:
+        run_limit = isinstance(exc, AgentTurnFailed) and exc.category in RUN_LIMIT_FAILURE_CATEGORIES
+        if arm == SINGLE_AGENT_FLASH_ARM or run_limit:
             _raise_if_non_retryable_unit_failure(exc)
             raise
-        logger.warning("%s failed on %s (%s); running it again on the control arm", step_name, arm.model, exc.category)
-        arm, fell_back = SINGLE_AGENT_FLASH_ARM, True
+        logger.warning("%s failed on %s (%r); running it again on the control arm", step_name, arm.model, exc)
+        arm, fallback_for = SINGLE_AGENT_FLASH_ARM, arm
         try:
             review = await _single_agent_sandbox_review(input, prompt=prompt, step_name=step_name, arm=arm)
         except AgentTurnFailed as fallback_exc:
@@ -1621,9 +1622,10 @@ async def _run_single_agent_session(
         head_sha=input.head_sha,
         results={(pass_number, chunk_id): IssuesReview(issues=issues)},
         review_arm=arm,
+        fallback_for=fallback_for,
     )
     await _refresh_status_comment(input.team_id, input.report_id, input.review_mode, input.review_design)
-    return fell_back
+    return fallback_for is not None
 
 
 @activity.defn
@@ -1790,7 +1792,7 @@ def _combine_and_clean(
     if review_design == REVIEW_DESIGN_SINGLE_AGENT:
         perspective_results = load_single_agent_results(
             team_id=team_id, report_id=report_id, head_sha=head_sha, arms=single_agent_arms(arm_set)
-        )
+        ).reviews
     else:
         perspective_results = load_perspective_results(
             team_id=team_id, report_id=report_id, head_sha=head_sha, review_arm=review_arm, review_design=review_design

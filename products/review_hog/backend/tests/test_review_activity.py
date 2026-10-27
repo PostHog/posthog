@@ -38,6 +38,7 @@ from products.review_hog.backend.reviewer.models.perspective_selection import (
 )
 from products.review_hog.backend.reviewer.models.single_agent_review import SingleAgentFinding, SingleAgentReview
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
+from products.review_hog.backend.reviewer.persistence import SingleAgentResults
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.tools.coordinator_review import CoordinatorResult, CoordinatorReview
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import AlreadyRaised, DedupOutcome, Duplicate
@@ -336,6 +337,9 @@ _TRIAL_ARMS = SingleAgentArms(
 )
 
 
+_NO_RESULTS = SingleAgentResults(reviews={}, fallbacks=frozenset())
+
+
 def _single_agent_stage(**extra: object) -> dict:
     return {
         "team_id": 1,
@@ -386,7 +390,7 @@ async def test_review_activity_fails_non_retryably_only_on_non_retryable_agent_c
         patch(f"{_MODULE}._prepare_single_agent_prompt", MagicMock(return_value="review-prompt")),
         patch(f"{_MODULE}.load_review_arm", return_value=DEFAULT_REVIEW_ARM),
         patch(f"{_MODULE}.load_perspective_results", return_value={}),
-        patch(f"{_MODULE}.load_single_agent_results", return_value={}),
+        patch(f"{_MODULE}.load_single_agent_results", return_value=_NO_RESULTS),
         patch(f"{_MODULE}.persist_perspective_results"),
         patch(f"{_MODULE}.run_sandbox_review", AsyncMock(side_effect=failure)),
     ):
@@ -412,31 +416,31 @@ async def test_review_activity_fails_non_retryably_only_on_non_retryable_agent_c
     ],
 )
 @pytest.mark.parametrize(
-    "first_category,control_fails,falls_back",
+    "first_failure,control_fails,falls_back",
     [
-        ("upstream_request_rejected", False, True),
-        ("upstream_request_rejected", True, True),
-        ("task_spend_limit", False, False),
+        (AgentTurnFailed("rejected", category="upstream_request_rejected", agent_message="rejected"), False, True),
+        (AgentTurnFailed("rejected", category="upstream_request_rejected", agent_message="rejected"), True, True),
+        (ValueError("no valid findings after the JSON retry"), False, True),
+        (AgentTurnFailed("limit", category="task_spend_limit", agent_message="limit"), False, False),
     ],
 )
 async def test_single_agent_session_on_a_trial_arm_runs_again_on_the_control_arm_when_its_agent_fails(
     activity_fn: Callable[..., Awaitable[bool | None]],
     stage_extra: dict,
     trial_arm: ReviewArm,
-    first_category: str,
+    first_failure: Exception,
     control_fails: bool,
     falls_back: bool,
 ) -> None:
     # A gateway that rejects the trial model fails non-retryably, so without the second run on the control
     # arm a trial model outage would fail every main session of the trial's PRs.
-    first = AgentTurnFailed("trial failed", category=first_category, agent_message="trial failed")
     rejected = AgentTurnFailed("model rejected", category="upstream_request_rejected", agent_message="rejected")
-    mock_review = AsyncMock(side_effect=[first, rejected if control_fails else SingleAgentReview(findings=[])])
+    mock_review = AsyncMock(side_effect=[first_failure, rejected if control_fails else SingleAgentReview(findings=[])])
     mock_persist = MagicMock()
     input_type = LensReviewInput if stage_extra else SandboxStageInput
     with (
         patch(f"{_MODULE}.ReviewActivityHeartbeater"),
-        patch(f"{_MODULE}.load_single_agent_results", return_value={}),
+        patch(f"{_MODULE}.load_single_agent_results", return_value=_NO_RESULTS),
         patch(f"{_MODULE}._prepare_single_agent_prompt", return_value="prompt"),
         patch(f"{_MODULE}.persist_perspective_results", mock_persist),
         patch(f"{_MODULE}.run_sandbox_review", mock_review),
@@ -456,6 +460,29 @@ async def test_single_agent_session_on_a_trial_arm_runs_again_on_the_control_arm
         mock_persist.assert_not_called()
     else:
         assert mock_persist.call_args.kwargs["review_arm"] == SINGLE_AGENT_FLASH_ARM
+        assert mock_persist.call_args.kwargs["fallback_for"] == trial_arm
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("persisted_as_fallback", [False, True])
+async def test_reused_single_agent_session_reports_whether_its_result_fell_back(persisted_as_fallback: bool) -> None:
+    # A workflow retry reuses the persisted result, so the completed event must still count a fallback that ran.
+    key = (2000, 1)
+    done = SingleAgentResults(
+        reviews={key: IssuesReview(issues=[])}, fallbacks=frozenset({key}) if persisted_as_fallback else frozenset()
+    )
+    mock_review = AsyncMock()
+    with (
+        patch(f"{_MODULE}.load_single_agent_results", return_value=done),
+        patch(f"{_MODULE}.run_sandbox_review", mock_review),
+        patch.dict(SINGLE_AGENT_ARM_SETS, {"trial": _TRIAL_ARMS}),
+    ):
+        fell_back = await ActivityEnvironment().run(
+            single_agent_review_activity, SandboxStageInput(**_single_agent_stage(arm_set="trial"))
+        )
+
+    assert fell_back is persisted_as_fallback
+    mock_review.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -650,7 +677,7 @@ async def test_single_agent_session_persists_mapped_findings_under_the_arm_dedup
     env = ActivityEnvironment()
     with (
         patch(f"{_MODULE}.ReviewActivityHeartbeater"),
-        patch(f"{_MODULE}.load_single_agent_results", return_value={}),
+        patch(f"{_MODULE}.load_single_agent_results", return_value=_NO_RESULTS),
         patch(f"{_MODULE}._prepare_single_agent_prompt", return_value="prompt"),
         patch(f"{_MODULE}.persist_perspective_results", mock_persist),
         patch(f"{_MODULE}.run_sandbox_review", mock_review),

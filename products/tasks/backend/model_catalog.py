@@ -267,14 +267,9 @@ MODELS: tuple[CatalogModel, ...] = (
     CatalogModel("gpt-6-astra", CODEX, _THROUGH_MAX, cost=_GPT_FRONTIER_COST),
     CatalogModel("gpt-6-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_SOL_COST),
     CatalogModel("gpt-6.1-sol", CODEX, _THROUGH_MAX, cost=_GPT_6_1_SOL_COST),
-    # ReviewHog trials it on internal runs, which skip the access check. The flag keeps it out of every picker.
-    CatalogModel(
-        "gpt-6.1-terra",
-        CODEX,
-        _THROUGH_MAX,
-        access_flag="posthog-code-gpt-6-1-terra-model",
-        cost=_GPT_6_1_TERRA_COST,
-    ),
+    # Only ReviewHog's arm-set trial pins it. `retired` is the catalog's state for a model no picker offers
+    # that still runs when pinned, which keeps it out of the Slack picker too, since that picker ignores access flags.
+    CatalogModel("gpt-6.1-terra", CODEX, _THROUGH_MAX, cost=_GPT_6_1_TERRA_COST, retired=True),
     CatalogModel("gpt-6-luna", CODEX, _THROUGH_MAX, cost=_GPT_6_LUNA_COST),
 )
 

@@ -469,7 +469,6 @@ export const MODELS: readonly CatalogModel[] = [
         runtimeAdapter: 'codex',
         reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
         label: 'GPT-6.1 Terra',
-        accessFlag: 'posthog-code-gpt-6-1-terra-model',
         cost: {
             inputPerMtok: 1,
             outputPerMtok: 5,
@@ -481,6 +480,7 @@ export const MODELS: readonly CatalogModel[] = [
         },
         costMultiplier: '0.5× base',
         costSummary: 'Per 1M tokens: $1 input/$5 output to 272K; $2 input/$7.50 output above',
+        retired: true,
     },
     {
         id: 'gpt-6-luna',

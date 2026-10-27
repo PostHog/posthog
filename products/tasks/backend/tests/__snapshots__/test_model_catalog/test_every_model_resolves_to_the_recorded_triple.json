@@ -472,7 +472,7 @@
         },
         "gpt-6.1-terra": {
           "cost_multiplier": "0.5× base",
-          "offered": true,
+          "offered": false,
           "reasoning_efforts": [
             "low",
             "medium",

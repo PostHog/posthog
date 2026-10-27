@@ -1064,8 +1064,8 @@ class TestWorkingState(BaseTest):
         }
 
     def test_single_agent_results_read_each_session_under_its_own_arm(self) -> None:
-        # A set whose main and lens sessions run on different arms loses its lens findings if dedup reads one arm,
-        # and a session that fell back to the control arm loses its findings if the control arm is not read.
+        # A set whose main and lens sessions run on different arms loses its lens findings if dedup reads one arm.
+        # A fallback must count for its own set only: an earlier control turn's result at this head is not one.
         trial = SingleAgentArms(
             main=replace(SINGLE_AGENT_FLASH_ARM, reasoning_effort=ReasoningEffort.HIGH),
             lens=replace(SINGLE_AGENT_FLASH_ARM, model="gpt-6-luna"),
@@ -1073,39 +1073,44 @@ class TestWorkingState(BaseTest):
         perf_pass = FLASH_LENSES["performance-reliability"].pass_number
         contracts_pass = FLASH_LENSES["contracts-security"].pass_number
         stored = [
-            ((SINGLE_AGENT_PASS_NUMBER, 1), trial.main, "main-trial"),
-            ((perf_pass, 1), SINGLE_AGENT_FLASH_ARM, "perf-control"),
-            ((perf_pass, 1), trial.lens, "perf-trial"),
-            ((contracts_pass, 1), SINGLE_AGENT_FLASH_ARM, "contracts-control"),
-            ((1, 1), SINGLE_AGENT_FLASH_ARM, "pipeline"),
+            ((SINGLE_AGENT_PASS_NUMBER, 1), trial.main, None, "main-trial"),
+            ((perf_pass, 1), SINGLE_AGENT_FLASH_ARM, None, "perf-control-turn"),
+            ((perf_pass, 1), trial.lens, None, "perf-trial"),
+            ((contracts_pass, 1), SINGLE_AGENT_FLASH_ARM, trial.lens, "contracts-fallback"),
+            ((contracts_pass, 2), SINGLE_AGENT_FLASH_ARM, None, "contracts-control-turn"),
+            ((1, 1), SINGLE_AGENT_FLASH_ARM, None, "pipeline"),
         ]
-        for key, arm, issue_id in stored:
+        for key, arm, fallback_for, issue_id in stored:
             persist_perspective_results(
                 team_id=self.team.id,
                 report_id=self.report_id,
                 head_sha="sha-aaa",
                 results={key: IssuesReview(issues=[_issue(issue_id)])},
                 review_arm=arm,
+                fallback_for=fallback_for,
             )
 
         loaded = {
-            name: {
-                key: review.issues[0].id
-                for key, review in load_single_agent_results(
-                    team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", arms=arms
-                ).items()
-            }
+            name: load_single_agent_results(
+                team_id=self.team.id, report_id=self.report_id, head_sha="sha-aaa", arms=arms
+            )
             for name, arms in (("control", SINGLE_AGENT_ARM_SETS[CONTROL_ARM_SET]), ("trial", trial))
         }
 
-        assert loaded == {
-            "control": {(perf_pass, 1): "perf-control", (contracts_pass, 1): "contracts-control"},
+        assert {
+            name: {key: r.issues[0].id for key, r in results.reviews.items()} for name, results in loaded.items()
+        } == {
+            "control": {(perf_pass, 1): "perf-control-turn", (contracts_pass, 2): "contracts-control-turn"},
             "trial": {
                 (SINGLE_AGENT_PASS_NUMBER, 1): "main-trial",
                 (perf_pass, 1): "perf-trial",
-                (contracts_pass, 1): "contracts-control",
+                (contracts_pass, 1): "contracts-fallback",
             },
         }
+        assert (loaded["control"].fallbacks, loaded["trial"].fallbacks) == (
+            frozenset(),
+            frozenset({(contracts_pass, 1)}),
+        )
 
 
 class TestPersistCommitSnapshot(BaseTest):
