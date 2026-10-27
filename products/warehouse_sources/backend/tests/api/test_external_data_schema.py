@@ -2662,12 +2662,31 @@ class TestExternalDataSchema(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_webhook_support", "BalanceTransaction", 400, ExternalDataSchema.SyncType.FULL_REFRESH),
-            ("webhook_support", "Charge", 200, ExternalDataSchema.SyncType.WEBHOOK),
+            (
+                "no_webhook_support",
+                "BalanceTransaction",
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                400,
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+            ),
+            (
+                "no_webhook_support_already_webhook",
+                "BalanceTransaction",
+                ExternalDataSchema.SyncType.WEBHOOK,
+                400,
+                ExternalDataSchema.SyncType.WEBHOOK,
+            ),
+            (
+                "webhook_support",
+                "Charge",
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                200,
+                ExternalDataSchema.SyncType.WEBHOOK,
+            ),
         ]
     )
     def test_update_schema_to_webhook_requires_webhook_support(
-        self, _name, schema_name, expected_status, expected_sync_type
+        self, _name, schema_name, from_sync_type, expected_status, expected_sync_type
     ):
         source = ExternalDataSource.objects.create(
             team=self.team,
@@ -2680,7 +2699,7 @@ class TestExternalDataSchema(APIBaseTest):
             source=source,
             should_sync=True,
             status=ExternalDataSchema.Status.COMPLETED,
-            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            sync_type=from_sync_type,
         )
 
         mock_hog_fn_result = WebhookHogFunctionCreateResult(

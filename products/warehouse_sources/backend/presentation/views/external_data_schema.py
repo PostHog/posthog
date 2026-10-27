@@ -1140,8 +1140,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 )
 
         # A webhook-mode table that no webhook event feeds never receives a row (e.g. Stripe
-        # BalanceTransaction), so a raw PATCH must not move a table into that state.
-        if self._webhook_support_check_applies(instance) and not self._supports_webhooks_cached(instance):
+        # BalanceTransaction), so no request may save webhook for such a table.
+        if self._webhook_support_check_applies() and not self._supports_webhooks_cached(instance):
             raise ValidationError(f"{instance.name} doesn't support webhook sync. Pick another sync method.")
 
         # Reject non-webhook sync types for webhook-only schemas (e.g. Stripe Discount —
@@ -1799,7 +1799,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         """
         if self._webhook_only_check_applies():
             self._is_webhook_only_schema_cached(instance)
-        if self._webhook_support_check_applies(instance):
+        if self._webhook_support_check_applies():
             self._supports_webhooks_cached(instance)
 
     def seed_webhook_only_check(self, webhook_only: bool) -> None:
@@ -1819,14 +1819,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             self.__dict__["_webhook_only_result"] = self._is_webhook_only_schema(schema)
         return self.__dict__["_webhook_only_result"]
 
-    def _webhook_support_check_applies(self, instance: ExternalDataSchema) -> bool:
-        # Only a move into webhook is checked, so a PATCH that re-sends an existing webhook
-        # sync_type (e.g. to pause the table) still saves.
+    def _webhook_support_check_applies(self) -> bool:
         data = self.initial_data if isinstance(self.initial_data, dict) else {}
-        return (
-            data.get("sync_type") == ExternalDataSchema.SyncType.WEBHOOK
-            and instance.sync_type != ExternalDataSchema.SyncType.WEBHOOK
-        )
+        return data.get("sync_type") == ExternalDataSchema.SyncType.WEBHOOK
 
     def _supports_webhooks_cached(self, schema: ExternalDataSchema) -> bool:
         if "_supports_webhooks_result" not in self.__dict__:
