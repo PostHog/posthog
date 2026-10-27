@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any
 
 from django.utils import timezone
@@ -14,13 +15,16 @@ _FINAL_STATUSES = {
 }
 
 
-def _parent_run_id(instance: dagster.DagsterInstance, run_id: str) -> str | None:
-    run = instance.get_run_by_id(run_id)
-    return run.parent_run_id if run else None
+def _record(instance: dagster.DagsterInstance, run_id: str, job: DeletionRunJob, **fields: Any) -> None:
+    # Any step can make the first write, so the start time comes from Dagster and not from the write.
+    record = instance.get_run_record_by_id(run_id)
+    started_at = datetime.fromtimestamp(record.start_time, UTC) if record and record.start_time else None
+    parent_run_id = record.dagster_run.parent_run_id if record else None
+    DeletionRunLog.record(run_id, job, parent_run_id, started_at=started_at, **fields)
 
 
 def record_run(context: dagster.OpExecutionContext, job: DeletionRunJob, **fields: Any) -> None:
-    DeletionRunLog.record(context.run_id, job, context.run.parent_run_id, **fields)
+    _record(context.instance, context.run_id, job, **fields)
 
 
 def record_run_succeeded(context: dagster.OpExecutionContext, job: DeletionRunJob) -> None:
@@ -28,10 +32,10 @@ def record_run_succeeded(context: dagster.OpExecutionContext, job: DeletionRunJo
 
 
 def record_run_failed(context: dagster.HookContext, job: DeletionRunJob) -> None:
-    DeletionRunLog.record(
+    _record(
+        context.instance,
         context.run_id,
         job,
-        _parent_run_id(context.instance, context.run_id),
         status=DeletionRunStatus.FAILED,
         finished_at=timezone.now(),
         error=f"{context.op.name}: {context.op_exception}",

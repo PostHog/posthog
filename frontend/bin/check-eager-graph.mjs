@@ -117,6 +117,13 @@ const ROOTS = [
             'src/scenes/session-recordings/player/sessionRecordingPlayerLogic.ts',
             // The wizard run card opens this drawer on click, and the drawer pulls in quill primitives.
             'products/wizard/frontend/runs/WizardRunDetailsDrawer.tsx',
+            // The Today layout renders only behind the today-rail-nav flag, and it pulls in quill primitives.
+            'src/layout/today/TodayShell.tsx',
+            'src/layout/today/TodayContextPanelFloating.tsx',
+            'src/layout/today/TodaySidePanel.tsx',
+            'src/layout/today/TodayTopBar.tsx',
+            // The rail's pane actions pull in the new-analytics menu and the canvas block library.
+            'src/layout/today/todayRailItems.tsx',
             // The zod-en-locale-only plugin in common/esbuilder/utils.mjs keeps every locale except
             // `en` out of the build. A hit on another locale means zod moved its locales barrel and
             // the plugin no longer matches it.
@@ -165,6 +172,9 @@ const ROOTS = [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
             'src/scenes/project-homepage/today/TodayReportPage.tsx',
             'src/queries/Query/Query.tsx',
+            // esbuild splits chunks by what can reach a file, so one static import through the quill-charts
+            // barrel puts every chart type on the home load. The home sparklines load lazily instead.
+            'packages/quill/packages/charts/',
         ],
     },
     {
@@ -174,7 +184,8 @@ const ROOTS = [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
         ],
         label: 'AI-first home path',
-        budgetBytes: 9_400_000,
+        // 2026-10-23: 7.53 MiB (2616 files), stable CSS included. ~5% headroom.
+        budgetBytes: 8_290_000,
         forbidden: [
             'products/posthog_ai/frontend/components/tool/widgets/VisualizationWidget.tsx',
             'products/posthog_ai/frontend/components/tool/widgets/RecordingsWidget.tsx',

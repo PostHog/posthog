@@ -1,24 +1,23 @@
 import clsx from 'clsx'
-import { useEffect, useMemo, useState } from 'react'
+import posthog from 'posthog-js'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import React from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import { LemonDropdown, Link, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
 
+import { getSeriesColor } from 'lib/colors'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { SpanTreeNode } from '~/queries/schema/schema-general'
 
-import { CHANGE_THRESHOLD, MIN_BASELINE_COUNT } from './compareUtils'
+import { CHANGE_THRESHOLD, compareRowKey, MIN_BASELINE_COUNT } from './compareUtils'
+import type { TraceViewSurface } from './components/TraceView/traceViewLogic'
+import { countFlameNodes, findFlamePath, type FlameTreeNode } from './flameTree'
 import { formatDuration } from './TraceWaterfallView'
 
-interface TreeNode {
-    serviceName: string
-    name: string
-    node: SpanTreeNode | null
-    previousNode: SpanTreeNode | null
-    children: TreeNode[]
-}
+/** Where the flame sits. Pinned: sent as the `surface` property of analytics events, so keep the values stable. */
+export type TraceFlameSurface = TraceViewSurface | 'compare_modal'
 
 const ROW_HEIGHT_PX = 28
 const ROOT_KEY = '\u0000<ROOT>'
@@ -28,23 +27,27 @@ const MIN_VISIBLE_FRACTION = 0.01
 const MIN_GROUPED_COUNT = 2
 /** Floor for the bundled cell so it's always clickable regardless of how small the bundle is. */
 const GROUPED_CELL_MIN_WIDTH_PX = 48
+const NEUTRAL_BAR_COLOR = 'rgba(168, 168, 168, 0.6)'
 
+type FlameSizeBy = 'p50' | 'total'
+
+interface FlameDisplay {
+    sizeBy: FlameSizeBy
+    /** False for a single trace, which has no previous window to compare against. */
+    hasBaseline: boolean
+    serviceColorMap: Map<string, number> | undefined
+}
+
+// The same key as the operation rows of the tables, so that a caller can name a node by an operation's key.
 function nodeKey(serviceName: string, name: string): string {
-    return `${serviceName}\u0000${name}`
+    return compareRowKey({ service_name: serviceName, name })
 }
 
-function nodeSize(n: TreeNode): number {
-    // Layout metric: max of current p50 and previous p50, so vanished and new nodes both
+function nodeSize(n: FlameTreeNode, sizeBy: FlameSizeBy): number {
+    const field = sizeBy === 'total' ? 'total_duration_nano' : 'p50_duration_nano'
+    // Layout metric: max of the current and previous value, so vanished and new nodes both
     // claim non-zero space proportional to whichever window they appeared in.
-    return Math.max(n.node?.p50_duration_nano ?? 0, n.previousNode?.p50_duration_nano ?? 0)
-}
-
-function countDescendants(node: TreeNode): number {
-    let n = 1
-    for (const child of node.children) {
-        n += countDescendants(child)
-    }
-    return n
+    return Math.max(n.node?.[field] ?? 0, n.previousNode?.[field] ?? 0)
 }
 
 /**
@@ -115,7 +118,7 @@ function mergeRows(rows: SpanTreeNode[]): SpanTreeNode {
  * Both windows contribute nodes; previous-only nodes still appear so vanished call sites
  * are visible in the diff.
  */
-function buildTree(current: SpanTreeNode[], previous: SpanTreeNode[] | null): TreeNode {
+function buildTree(current: SpanTreeNode[], previous: SpanTreeNode[] | null): FlameTreeNode {
     const allNodes = new Map<string, { currentRows: SpanTreeNode[]; previousRows: SpanTreeNode[] }>()
     const childrenByParent = new Map<string, Set<string>>()
 
@@ -149,7 +152,7 @@ function buildTree(current: SpanTreeNode[], previous: SpanTreeNode[] | null): Tr
     // (e.g. <ROOT> → A → B → A when traces are crafted recursively). Without this,
     // `build` would recurse indefinitely and freeze the browser tab. We skip any
     // child key that already appears on the current build path.
-    function build(key: string, serviceName: string, name: string, ancestors: Set<string>): TreeNode {
+    function build(key: string, serviceName: string, name: string, ancestors: Set<string>): FlameTreeNode {
         const entry = allNodes.get(key) ?? { currentRows: [], previousRows: [] }
         const nextAncestors = new Set(ancestors)
         nextAncestors.add(key)
@@ -211,10 +214,10 @@ function DeltaPct({ current, previous, higherIsWorse }: DeltaPctProps): JSX.Elem
 function deltaColor(current: SpanTreeNode | null, previous: SpanTreeNode | null): string {
     if (!current || !previous) {
         // New or vanished — neutral neon.
-        return 'rgba(168, 168, 168, 0.6)'
+        return NEUTRAL_BAR_COLOR
     }
     if (previous.p50_duration_nano === 0) {
-        return 'rgba(168, 168, 168, 0.6)'
+        return NEUTRAL_BAR_COLOR
     }
     // Same low-sample noise guard as the compare table's classification, so a node the table
     // calls unchanged can't render as a deep-red regression here.
@@ -234,8 +237,36 @@ function deltaColor(current: SpanTreeNode | null, previous: SpanTreeNode | null)
     return 'rgba(120, 150, 200, 0.45)'
 }
 
+function compareBarStyle(node: FlameTreeNode): React.CSSProperties {
+    const current = node.node
+    const previous = node.previousNode
+    return {
+        backgroundColor: deltaColor(current, previous),
+        // Marker for "new in current window" (no previous data).
+        outline: !previous && current ? '1px dashed rgba(80, 180, 100, 0.85)' : undefined,
+        // Marker for "vanished" (no current data).
+        opacity: !current && previous ? 0.5 : 1,
+    }
+}
+
+function singleTraceBarStyle(
+    node: FlameTreeNode,
+    serviceColorMap: Map<string, number> | undefined
+): React.CSSProperties {
+    if (!serviceColorMap) {
+        return { backgroundColor: NEUTRAL_BAR_COLOR }
+    }
+    // The waterfall uses the same map and the same error color, so a service keeps its color when the view changes.
+    const color =
+        (node.node?.error_count ?? 0) > 0 ? 'var(--danger)' : getSeriesColor(serviceColorMap.get(node.serviceName) ?? 0)
+    return {
+        backgroundColor: `color-mix(in srgb, ${color} 35%, transparent)`,
+        borderLeft: `1px solid ${color}`,
+    }
+}
+
 interface FlameRowProps {
-    node: TreeNode
+    node: FlameTreeNode
     depth: number
     /** This node's width as a fraction (0..1) of the row it lives in. */
     fraction: number
@@ -243,14 +274,20 @@ interface FlameRowProps {
     selfPath: string[]
     /** Sets the active focus to a given path. */
     onFocus: (path: string[]) => void
+    display: FlameDisplay
 }
 
-function FlameRow({ node, fraction, selfPath, onFocus }: FlameRowProps): JSX.Element {
-    const own = nodeSize(node)
-    const color = deltaColor(node.node, node.previousNode)
+function FlameRow({ node, fraction, selfPath, onFocus, display }: FlameRowProps): JSX.Element {
+    const own = nodeSize(node, display.sizeBy)
 
     const current = node.node
     const previous = node.previousNode
+    // In a single trace a bar stands for the spans of one operation under one path of callers, so the count says
+    // how many spans that is.
+    const label =
+        !display.hasBaseline && current && current.count > 1
+            ? `${node.name} ×${humanFriendlyNumber(current.count)}`
+            : node.name
 
     const fmtCount = (n: SpanTreeNode | null): string => (n ? humanFriendlyNumber(n.count) : '—')
     const fmtDur = (v: number | undefined): string => (v === undefined ? '—' : formatDuration(v))
@@ -305,29 +342,34 @@ function FlameRow({ node, fraction, selfPath, onFocus }: FlameRowProps): JSX.Ele
                     className="flex items-center px-2 overflow-hidden min-w-0 text-xs font-mono cursor-pointer border-r border-b border-bg-bg transition-[filter] hover:brightness-125"
                     style={{
                         height: ROW_HEIGHT_PX,
-                        backgroundColor: color,
-                        // Marker for "new in current window" (no previous data).
-                        outline: !previous && current ? '1px dashed rgba(80, 180, 100, 0.85)' : undefined,
-                        // Marker for "vanished" (no current data).
-                        opacity: !current && previous ? 0.5 : 1,
+                        ...(display.hasBaseline
+                            ? compareBarStyle(node)
+                            : singleTraceBarStyle(node, display.serviceColorMap)),
                     }}
                 >
-                    <span className="truncate">{node.name}</span>
+                    <span className="truncate">{label}</span>
                 </div>
             </Tooltip>
             {node.children.length > 0 && (
-                <ChildrenRow parent={node} parentTotal={own} ancestorPath={selfPath} onFocus={onFocus} />
+                <ChildrenRow
+                    parent={node}
+                    parentTotal={own}
+                    ancestorPath={selfPath}
+                    onFocus={onFocus}
+                    display={display}
+                />
             )}
         </div>
     )
 }
 
 interface ChildrenRowProps {
-    parent: TreeNode
+    parent: FlameTreeNode
     parentTotal: number
     /** Path from the synthetic root to the parent of these children. */
     ancestorPath: string[]
     onFocus: (path: string[]) => void
+    display: FlameDisplay
 }
 
 /**
@@ -337,18 +379,18 @@ interface ChildrenRowProps {
  * (< 1% of the visible row) are bundled into a "+N more" cell that opens a popover
  * with that subset rendered at full width.
  */
-function ChildrenRow({ parent, parentTotal, ancestorPath, onFocus }: ChildrenRowProps): JSX.Element {
+function ChildrenRow({ parent, parentTotal, ancestorPath, onFocus, display }: ChildrenRowProps): JSX.Element {
     const childrenWithSize = parent.children.map((child) => ({
         child,
-        size: nodeSize(child),
+        size: nodeSize(child, display.sizeBy),
     }))
     const totalSize = childrenWithSize.reduce((acc, c) => acc + c.size, 0)
     // Normalization base: use the larger of parent's own total and the summed children
     // total — the latter wins under concurrency so siblings always fit inside 100%.
     const base = Math.max(parentTotal, totalSize, 1)
 
-    const visible: { child: TreeNode; fraction: number }[] = []
-    const grouped: { child: TreeNode; fraction: number }[] = []
+    const visible: { child: FlameTreeNode; fraction: number }[] = []
+    const grouped: { child: FlameTreeNode; fraction: number }[] = []
     for (const { child, size } of childrenWithSize) {
         const fraction = size / base
         if (fraction >= MIN_VISIBLE_FRACTION) {
@@ -377,6 +419,7 @@ function ChildrenRow({ parent, parentTotal, ancestorPath, onFocus }: ChildrenRow
                     fraction={fraction}
                     selfPath={[...ancestorPath, nodeKey(child.serviceName, child.name)]}
                     onFocus={onFocus}
+                    display={display}
                 />
             ))}
             {grouped.length > 0 && (
@@ -385,6 +428,7 @@ function ChildrenRow({ parent, parentTotal, ancestorPath, onFocus }: ChildrenRow
                     fraction={groupedSum + remainder}
                     ancestorPath={ancestorPath}
                     onFocus={onFocus}
+                    display={display}
                 />
             )}
         </div>
@@ -392,20 +436,21 @@ function ChildrenRow({ parent, parentTotal, ancestorPath, onFocus }: ChildrenRow
 }
 
 interface GroupedCellProps {
-    items: { child: TreeNode; fraction: number }[]
+    items: { child: FlameTreeNode; fraction: number }[]
     /** Combined width fraction of the bundle inside the row. */
     fraction: number
     ancestorPath: string[]
     onFocus: (path: string[]) => void
+    display: FlameDisplay
 }
 
-function GroupedCell({ items, fraction, ancestorPath, onFocus }: GroupedCellProps): JSX.Element {
+function GroupedCell({ items, fraction, ancestorPath, onFocus, display }: GroupedCellProps): JSX.Element {
     const [open, setOpen] = useState(false)
     // Count every span in the bundled subtrees, not just the top-level grouped children —
     // a single grouped child can hide a deep subtree of small spans.
-    const totalSpanCount = items.reduce((acc, i) => acc + countDescendants(i.child), 0)
+    const totalSpanCount = items.reduce((acc, i) => acc + countFlameNodes(i.child), 0)
     // Inside the popover, redistribute the bundle's items to fill the full width.
-    const bundleTotal = items.reduce((acc, i) => acc + nodeSize(i.child), 0) || 1
+    const bundleTotal = items.reduce((acc, i) => acc + nodeSize(i.child, display.sizeBy), 0) || 1
     return (
         <LemonDropdown
             visible={open}
@@ -416,18 +461,19 @@ function GroupedCell({ items, fraction, ancestorPath, onFocus }: GroupedCellProp
                     <div className="flex w-full" style={{ minWidth: 480 }}>
                         {items
                             .slice()
-                            .sort((a, b) => nodeSize(b.child) - nodeSize(a.child))
+                            .sort((a, b) => nodeSize(b.child, display.sizeBy) - nodeSize(a.child, display.sizeBy))
                             .map((item) => (
                                 <FlameRow
                                     key={nodeKey(item.child.serviceName, item.child.name)}
                                     node={item.child}
                                     depth={0}
-                                    fraction={nodeSize(item.child) / bundleTotal}
+                                    fraction={nodeSize(item.child, display.sizeBy) / bundleTotal}
                                     selfPath={[...ancestorPath, nodeKey(item.child.serviceName, item.child.name)]}
                                     onFocus={(p) => {
                                         setOpen(false)
                                         onFocus(p)
                                     }}
+                                    display={display}
                                 />
                             ))}
                     </div>
@@ -452,52 +498,93 @@ function GroupedCell({ items, fraction, ancestorPath, onFocus }: GroupedCellProp
 }
 
 interface TraceCompareFlameProps {
+    /**
+     * A tree to draw instead of the one built from `current` and `previous`. A single trace passes the tree of its
+     * spans, which keeps an operation's calls apart under each caller. The name-merged rows cannot do that. A given tree
+     * draws without the compare legend, colors bars by service and labels a bar with its span count.
+     */
+    tree?: FlameTreeNode
     current: SpanTreeNode[]
     previous: SpanTreeNode[] | null
     loading: boolean
     /** Span name the modal was opened for — the flame initially focuses on this node. */
     initialSpanName?: string | null
-}
-
-/** DFS the tree for the first node matching `name`. Returns the path of node keys to it (excluding root). */
-function findPathByName(root: TreeNode, name: string): string[] | null {
-    for (const child of root.children) {
-        if (child.name === name) {
-            return [nodeKey(child.serviceName, child.name)]
-        }
-        const sub = findPathByName(child, name)
-        if (sub) {
-            return [nodeKey(child.serviceName, child.name), ...sub]
-        }
-    }
-    return null
+    /**
+     * The `compareRowKey` of the operation to focus first. It takes the place of `initialSpanName`, because two services
+     * can each run an operation of the same name.
+     */
+    initialFocusKey?: string | null
+    /** Which metric sets each bar's width. 'p50' is the per-call cost (the compare view); 'total' is wall-clock time summed over the calls (a single trace). */
+    sizeBy?: FlameSizeBy
+    /** Colors a single trace's bars by service. Pass the waterfall's map so both views use the same color for a service. */
+    serviceColorMap?: Map<string, number>
+    /** Where the flame sits, for analytics. */
+    surface: TraceFlameSurface
 }
 
 export function TraceCompareFlame({
+    tree: givenTree,
     current,
     previous,
     loading,
     initialSpanName,
+    initialFocusKey,
+    sizeBy = 'p50',
+    serviceColorMap,
+    surface,
 }: TraceCompareFlameProps): JSX.Element {
-    const tree = useMemo(() => buildTree(current, previous), [current, previous])
+    const tree = useMemo(() => givenTree ?? buildTree(current, previous), [givenTree, current, previous])
+    // A given tree is the call tree of one trace, which has no previous window, so the compare legend and the new and
+    // vanished markers would describe a comparison that does not exist. The compare modal always builds its tree from
+    // rows and keeps them, also when its `previous` is null: before the first tree fetch ends, or when the response has
+    // no comparison rows.
+    const hasBaseline = givenTree === undefined
+    const display = useMemo(
+        (): FlameDisplay => ({ sizeBy, hasBaseline, serviceColorMap }),
+        [sizeBy, hasBaseline, serviceColorMap]
+    )
     // Focus path: keys of nodes from the synthetic root down to the currently focused span.
     // Each click on a flame bar appends; breadcrumb clicks truncate.
     const [focusPath, setFocusPath] = useState<string[]>([])
 
-    // Whenever the tree (or the initial span we were opened with) changes, reset focus to
-    // that span. The user may then drill in/out via flame clicks and breadcrumb segments.
+    // Whenever the tree (or the initial operation we were opened with) changes, reset focus to
+    // that operation. The user may then drill in/out via flame clicks and breadcrumb segments.
+    // An initial operation that clears on the same tree keeps the drill-down. The trace view clears its
+    // highlight when the person switches to another inspector tab, which is no request to leave the bar.
+    const lastResetRef = useRef<FlameTreeNode | null>(null)
     useEffect(() => {
-        if (!initialSpanName) {
-            setFocusPath([])
+        const sameTree = lastResetRef.current === tree
+        lastResetRef.current = tree
+        if (sameTree && !initialFocusKey && !initialSpanName) {
             return
         }
-        const path = findPathByName(tree, initialSpanName)
-        setFocusPath(path ?? [])
-    }, [tree, initialSpanName])
+        const matches = initialFocusKey
+            ? (node: FlameTreeNode): boolean => nodeKey(node.serviceName, node.name) === initialFocusKey
+            : initialSpanName
+              ? (node: FlameTreeNode): boolean => node.name === initialSpanName
+              : null
+        const path = matches ? findFlamePath(tree, matches) : null
+        setFocusPath(path ? path.map((node) => nodeKey(node.serviceName, node.name)) : [])
+    }, [tree, initialSpanName, initialFocusKey])
+
+    // Only bar and breadcrumb clicks come through here, so the event counts the person's own drill and not a focus
+    // that the flame sets for itself, such as the initial operation or a reset when the tree changes. A click on the
+    // bar that already has the focus changes nothing, so it sends nothing.
+    const focusByClick = (path: string[]): void => {
+        if (path.length !== focusPath.length) {
+            // pinned: analytics event and property names, so renaming them breaks the insights built on them
+            posthog.capture('tracing trace call tree focused', {
+                direction: path.length > focusPath.length ? 'in' : 'out',
+                depth: path.length,
+                surface,
+            })
+        }
+        setFocusPath(path)
+    }
 
     // Walk the tree to resolve the focused node + its ancestor chain.
-    const breadcrumb: TreeNode[] = []
-    let focused: TreeNode = tree
+    const breadcrumb: FlameTreeNode[] = []
+    let focused: FlameTreeNode = tree
     for (const key of focusPath) {
         const next = focused.children.find((c) => nodeKey(c.serviceName, c.name) === key)
         if (!next) {
@@ -521,69 +608,79 @@ export function TraceCompareFlame({
 
     return (
         <div className="flex flex-col gap-2">
-            <FocusBreadcrumb breadcrumb={breadcrumb} onSelect={(depth) => setFocusPath(focusPath.slice(0, depth))} />
+            <FocusBreadcrumb breadcrumb={breadcrumb} onSelect={(depth) => focusByClick(focusPath.slice(0, depth))} />
             <div className="overflow-x-auto">
                 {focusPath.length === 0 ? (
                     // No focus → render top-level children directly (the synthetic root has no real bar).
                     <ChildrenRow
                         parent={focused}
-                        parentTotal={focused.children.reduce((sum, c) => sum + nodeSize(c), 0)}
+                        parentTotal={focused.children.reduce((sum, c) => sum + nodeSize(c, sizeBy), 0)}
                         ancestorPath={focusPath}
-                        onFocus={setFocusPath}
+                        onFocus={focusByClick}
+                        display={display}
                     />
                 ) : (
                     // Focused span sits at the top as a full-width bar; its children stack below.
                     <div className="flex">
-                        <FlameRow node={focused} depth={0} fraction={1} selfPath={focusPath} onFocus={setFocusPath} />
+                        <FlameRow
+                            node={focused}
+                            depth={0}
+                            fraction={1}
+                            selfPath={focusPath}
+                            onFocus={focusByClick}
+                            display={display}
+                        />
                     </div>
                 )}
             </div>
-            <div className="flex gap-3 text-xs text-muted">
-                <span className="flex items-center gap-1">
-                    <span
-                        className="inline-block w-3 h-3 rounded"
-                        style={{ backgroundColor: 'rgba(220, 80, 80, 0.7)' }}
-                    />
-                    slower
-                </span>
-                <span className="flex items-center gap-1">
-                    <span
-                        className="inline-block w-3 h-3 rounded"
-                        style={{ backgroundColor: 'rgba(80, 180, 100, 0.7)' }}
-                    />
-                    faster
-                </span>
-                <span className="flex items-center gap-1">
-                    <span
-                        className="inline-block w-3 h-3 rounded"
-                        style={{ backgroundColor: 'rgba(120, 150, 200, 0.45)' }}
-                    />
-                    similar
-                </span>
-                <span className="flex items-center gap-1">
-                    <span
-                        className="inline-block w-3 h-3 rounded"
-                        style={{
-                            backgroundColor: 'rgba(168, 168, 168, 0.6)',
-                            outline: '1px dashed rgba(80, 180, 100, 0.85)',
-                        }}
-                    />
-                    new
-                </span>
-                <span className="flex items-center gap-1">
-                    <span
-                        className="inline-block w-3 h-3 rounded"
-                        style={{ backgroundColor: 'rgba(168, 168, 168, 0.3)' }}
-                    />
-                    vanished
-                </span>
-            </div>
+            {hasBaseline && (
+                <div className="flex gap-3 text-xs text-muted">
+                    <span className="flex items-center gap-1">
+                        <span
+                            className="inline-block w-3 h-3 rounded"
+                            style={{ backgroundColor: 'rgba(220, 80, 80, 0.7)' }}
+                        />
+                        slower
+                    </span>
+                    <span className="flex items-center gap-1">
+                        <span
+                            className="inline-block w-3 h-3 rounded"
+                            style={{ backgroundColor: 'rgba(80, 180, 100, 0.7)' }}
+                        />
+                        faster
+                    </span>
+                    <span className="flex items-center gap-1">
+                        <span
+                            className="inline-block w-3 h-3 rounded"
+                            style={{ backgroundColor: 'rgba(120, 150, 200, 0.45)' }}
+                        />
+                        similar
+                    </span>
+                    <span className="flex items-center gap-1">
+                        <span
+                            className="inline-block w-3 h-3 rounded"
+                            style={{
+                                backgroundColor: NEUTRAL_BAR_COLOR,
+                                outline: '1px dashed rgba(80, 180, 100, 0.85)',
+                            }}
+                        />
+                        new
+                    </span>
+                    <span className="flex items-center gap-1">
+                        <span
+                            className="inline-block w-3 h-3 rounded"
+                            style={{ backgroundColor: 'rgba(168, 168, 168, 0.3)' }}
+                        />
+                        vanished
+                    </span>
+                </div>
+            )}
         </div>
     )
 }
 
 interface FocusBreadcrumbProps {
-    breadcrumb: TreeNode[]
+    breadcrumb: FlameTreeNode[]
     /** Called with the new desired depth (0 = top). */
     onSelect: (depth: number) => void
 }

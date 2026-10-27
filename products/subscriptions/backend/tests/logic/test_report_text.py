@@ -6,10 +6,10 @@ from products.subscriptions.backend.logic.report_text import (
     ReportDocument,
     ReportSection,
     ReportSubsection,
+    ReportSummary,
     ReportText,
     ReportTextItem,
 )
-from products.subscriptions.backend.temporal.llm_change_summary import SlackSummaryContent
 
 
 @pytest.mark.parametrize("prefix", ["", "- ", "* ", "• ", "1. ", "- - "])
@@ -35,4 +35,23 @@ def test_findings_have_one_bullet(prefix: str) -> None:
     assert rendered == "## Traffic\n\n- **12 requests**\n\n### Requests\n\n- **12 requests**"
     tokens = MarkdownIt("commonmark").parse(rendered)
     assert len([token for token in tokens if token.type == "list_item_open"]) == 2
-    assert SlackSummaryContent(findings=[finding]).render() == "• *12 requests*"
+    assert ReportSummary(findings=[finding]).render(slack_formatting=True) == "• *12 requests*"
+
+    assert ReportSummary(findings=[finding]).render() == "- **12 requests**"
+
+
+@pytest.mark.parametrize(("direction", "triangle"), [("increase", "▲"), ("decrease", "▼")])
+def test_measured_changes_keep_their_direction_in_each_format(direction: str, triangle: str) -> None:
+    finding = ReportText.model_validate(
+        {
+            "items": [
+                {"kind": "name", "text": "Requests"},
+                {"kind": "text", "text": " changed by "},
+                {"kind": "change", "text": "12%", "direction": direction},
+            ]
+        }
+    )
+    summary = ReportSummary(findings=[finding])
+
+    assert summary.render() == f"- **Requests** changed by **{triangle} 12%**"
+    assert summary.render(slack_formatting=True) == f"• *Requests* changed by *{triangle} 12%*"

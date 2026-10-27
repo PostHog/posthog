@@ -37,6 +37,7 @@ import {
 } from './aiObservabilityScoreDefinitionsLogic'
 import { ScoreDefinitionActions } from './ScoreDefinitionActions'
 import { formatKindLabel } from './scoreDefinitionModalUtils'
+import { ScorersEmptyState } from './ScorersEmptyState'
 
 const KIND_OPTIONS: { label: string; value: ScoreDefinitionKind | '' }[] = [
     { label: 'All kinds', value: '' },
@@ -61,13 +62,19 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
     const {
         scoreDefinitions,
         scoreDefinitionsLoading,
+        scoreDefinitionsLoaded,
         scoreDefinitionsError,
+        showEmptyState,
         sorting,
         pagination,
         filters,
         scoreDefinitionCountLabel,
         isArchivingDefinition,
     } = useValues(logic)
+    if (showEmptyState) {
+        return <ScorersEmptyState />
+    }
+
     const columns: LemonTableColumns<ScoreDefinition> = [
         {
             title: 'Name',
@@ -255,7 +262,7 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
                 <LemonTable
                     className="@max-[50rem]/scorers:[&_colgroup]:hidden"
                     size="small"
-                    loading={scoreDefinitionsLoading}
+                    loading={scoreDefinitionsLoading || !scoreDefinitionsLoaded}
                     columns={columns}
                     dataSource={scoreDefinitions.results}
                     pagination={pagination}

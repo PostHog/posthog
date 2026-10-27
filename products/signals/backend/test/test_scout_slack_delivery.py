@@ -330,6 +330,8 @@ class TestScoutSlackDelivery(BaseTest):
             ("inbox_row_in_channel", "CSCOUTS|#scout-findings", "CSCOUTS", True, None, False),
             # The first message was deleted in Slack, so the report posts again.
             ("message_deleted", "CSCOUTS|#scout-findings", "CSCOUTS", False, "message_not_found", False),
+            # Slack cannot edit a message in an archived or inactive channel, so the report posts again.
+            ("channel_inactive", "CSCOUTS|#scout-findings", "CSCOUTS", False, "is_inactive", False),
         ]
     )
     def test_redelivered_report_updates_its_message_in_place(

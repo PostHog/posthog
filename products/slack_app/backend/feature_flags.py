@@ -46,11 +46,8 @@ logger = structlog.get_logger(__name__)
 
 
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
-SLACK_APP_CHART_LINKS_FLAG = "slack-app-chart-links"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
-SLACK_APP_MULTIPLAYER_APPROVALS_FLAG = "slack-app-multiplayer-approvals"
 SLACK_APP_BYOS_FLAG = "slack-app-byos"
-SLACK_APP_UNPROMPTED_ANSWERS_FLAG = "slack-app-unprompted-answers"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -129,31 +126,6 @@ def is_slack_app_agent_design_enabled(integration: Integration, distinct_id: str
     )
 
 
-def is_slack_app_chart_links_enabled(integration: Integration) -> bool:
-    """Gate for charts as insight links: a Slack task run shares a PostHog insight link
-    instead of rendering a chart image, and the link unfurl draws the chart. Resolved once,
-    when the run starts, and stored on the run for the unfurl webhook to read."""
-    return _workspace_flag_enabled(
-        SLACK_APP_CHART_LINKS_FLAG,
-        integration,
-        failure_log_key="slack_app_chart_links_feature_flag_check_failed",
-    )
-
-
-def is_slack_app_multiplayer_approvals_enabled(integration: Integration, distinct_id: str | None) -> bool:
-    """Gate for the thread creator's choice of who may join their threads.
-
-    ``distinct_id`` is the thread creator's PostHog user. With the gate closed, anyone with
-    project access can join, and the Home tab hides the setting.
-    """
-    return _workspace_flag_enabled(
-        SLACK_APP_MULTIPLAYER_APPROVALS_FLAG,
-        integration,
-        failure_log_key="slack_app_multiplayer_approvals_feature_flag_check_failed",
-        distinct_id=distinct_id,
-    )
-
-
 def is_slack_app_byos_enabled(integration: Integration, distinct_id: str | None, *, adapter: str = "codex") -> bool:
     """Gate for Slack runs that bill to the user's own plan.
 
@@ -172,19 +144,6 @@ def is_slack_app_byos_enabled(integration: Integration, distinct_id: str | None,
         integration,
         failure_log_key="slack_app_byos_feature_flag_check_failed",
         distinct_id=distinct_id,
-    )
-
-
-def is_slack_app_unprompted_answers_enabled(integration: Integration) -> bool:
-    """Gate for answering top-level channel messages nobody tagged the app in.
-
-    Keyed on the workspace, not the author, because the webhook checks it before it resolves
-    who wrote the message. Roll it out with an organization condition.
-    """
-    return _workspace_flag_enabled(
-        SLACK_APP_UNPROMPTED_ANSWERS_FLAG,
-        integration,
-        failure_log_key="slack_app_unprompted_answers_feature_flag_check_failed",
     )
 
 

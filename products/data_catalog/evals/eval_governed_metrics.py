@@ -104,7 +104,7 @@ from products.data_catalog.evals.seeders import (
     seed_web_sessions_daily_metric,
     seed_website_404_hits_daily_metric,
 )
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import NoToolCall
@@ -753,7 +753,7 @@ async def eval_governed_metrics(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-governed-metrics-cli",
         offline_suite=offline_suite(
             "data_catalog/eval_governed_metrics::eval_governed_metrics",

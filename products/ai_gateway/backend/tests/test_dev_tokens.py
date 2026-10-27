@@ -4,7 +4,7 @@ import hashlib
 from datetime import timedelta
 from decimal import Decimal
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
@@ -23,6 +23,7 @@ from urllib3 import HTTPConnectionPool
 from urllib3.exceptions import MaxRetryError, NewConnectionError, ProtocolError
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.organization import Organization
 from posthog.models.user import User
 
 from products.ai_gateway.backend.models import DevGatewayToken
@@ -44,7 +45,7 @@ def _minted(token: str = "phe_new") -> MagicMock:
     return _response(201, {"token": token, "expires_at": "2099-01-01T00:00:00Z", "cap_usd": "25"})
 
 
-class TestDevTokens(APIBaseTest):
+class _DevGatewaySettings(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         override = override_settings(
@@ -59,6 +60,8 @@ class TestDevTokens(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
 
+
+class TestDevTokens(_DevGatewaySettings):
     def _rows(self, **filters):
         return DevGatewayToken.objects.unscoped().filter(**filters)
 
@@ -113,6 +116,7 @@ class TestDevTokens(APIBaseTest):
     @parameterized.expand(
         [
             ("usage", "get", "usage/", {}),
+            ("team_usage", "get", "team_usage/", {}),
             ("create", "post", "", {}),
             ("revoke", "post", "revoke/", {}),
             ("cli_authorize", "post", "cli_authorize/", {"code_challenge": CHALLENGE}),
@@ -131,6 +135,7 @@ class TestDevTokens(APIBaseTest):
         [
             # GET passes the middleware, so the view guard is the only refusal.
             ("usage", "get", "usage/", {}, "impersonated"),
+            ("team_usage", "get", "team_usage/", {}, "impersonated"),
             ("create", "post", "", {}, "impersonation_path_blocked"),
             ("revoke", "post", "revoke/", {}, "impersonation_path_blocked"),
             (
@@ -174,9 +179,16 @@ class TestDevTokens(APIBaseTest):
         assert "$50.00 limit" in response.json()["detail"]
         post.assert_not_called()
 
-        usage = self.client.get(f"{URL}usage/").json()
+        status = _response(
+            200, {"tokens": [{"token_hash": hashlib.sha256(b"phe_1").hexdigest(), "remaining_usd": "21.5"}]}
+        )
+        with patch(_POST, return_value=status) as post:
+            usage = self.client.get(f"{URL}usage/").json()
+        assert post.call_args.args[0] == "https://ai-gateway.test/v1/tokens/status"
         assert Decimal(usage["used_usd"]) == Decimal("50")
         assert [t["status"] for t in usage["tokens"]] == ["live", "live"]
+        # Newest first; the gateway omitted phe_0, so its remaining is unknown.
+        assert [t["remaining_usd"] for t in usage["tokens"]] == ["21.500000", None]
 
     def test_reserve_locks_the_user_row_before_summing_the_window(self):
         with patch(_POST, return_value=_minted()), CaptureQueriesContext(connection) as queries:
@@ -238,6 +250,48 @@ class TestDevTokens(APIBaseTest):
         assert response.json()["code"] == "sensitive_action_required_reauth"
         post.assert_not_called()
         assert self.client.post(f"{URL}revoke/", {}).status_code == 200
+
+    @parameterized.expand(
+        [
+            ("endpoint_not_deployed", {"return_value": _response(404)}),
+            ("unreachable", {"side_effect": requests.ConnectionError("refused")}),
+            ("unreadable", {"return_value": _response(200, {"tokens": [{"token_hash": "a"}]})}),
+        ]
+    )
+    def test_usage_renders_without_remaining_when_status_fails(self, _name, post_kwargs):
+        with patch(_POST, return_value=_minted()):
+            self.client.post(URL)
+        with patch(_POST, **post_kwargs):
+            response = self.client.get(f"{URL}usage/")
+        assert response.status_code == 200
+        assert response.json()["tokens"][0]["remaining_usd"] is None
+
+    def test_token_status_is_authenticated_by_the_bearer_alone(self):
+        with patch(_POST, return_value=_minted("phe_held")):
+            self.client.post(URL)
+        self.client.logout()
+
+        status = _response(
+            200, {"tokens": [{"token_hash": hashlib.sha256(b"phe_held").hexdigest(), "remaining_usd": "3"}]}
+        )
+        with patch(_POST, return_value=status):
+            held = self.client.post(f"{URL}token_status/", {"token": "phe_held"})
+        assert held.status_code == 200, held.json()
+        assert (held.json()["status"], held.json()["remaining_usd"]) == ("live", "3.000000")
+
+        with patch(_POST) as post:
+            unknown = self.client.post(f"{URL}token_status/", {"token": "phe_guessed"})
+        assert unknown.status_code == 404
+        post.assert_not_called()
+
+    def test_team_usage_refuses_staff_outside_the_paying_organization(self):
+        outsider = User.objects.create_and_join(
+            Organization.objects.create(name="Elsewhere"), "outsider@posthog.com", None, is_staff=True
+        )
+        self.client.force_login(outsider)
+        response = self.client.get(f"{URL}team_usage/")
+        assert response.status_code == 403
+        assert response.json()["code"] == "not_member"
 
     def test_revoke_sends_only_the_callers_hashes(self):
         other = User.objects.create_and_join(self.organization, "other@posthog.com", None, is_staff=True)
@@ -322,3 +376,74 @@ class TestDevTokens(APIBaseTest):
         code = self.client.post(f"{URL}cli_authorize/", {"code_challenge": CHALLENGE}).json()["code"]
         self.client.logout()
         return code
+
+
+class TestDevTeamUsage(ClickhouseTestMixin, _DevGatewaySettings):
+    def _generation(self, distinct_id: str | None, cost: str, days_ago: float, source: str = "pinned") -> None:
+        assert distinct_id is not None
+        _create_event(
+            team=self.team,
+            event="$ai_generation",
+            distinct_id=distinct_id,
+            timestamp=timezone.now() - timedelta(days=days_ago),
+            properties={
+                "$ai_product": "dev",
+                "$ai_product_source": source,
+                "$ai_user": distinct_id,
+                "$ai_total_cost_usd": cost,
+            },
+        )
+
+    def test_team_usage_sums_pinned_spend_per_user_by_window(self):
+        other = User.objects.create_and_join(self.organization, "other@posthog.com", None, is_staff=True)
+        DevGatewayToken.objects.unscoped().create(
+            team=self.team,
+            user=self.user,
+            client="web",
+            cap_usd=Decimal("25"),
+            token_hash="a" * 64,
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+        self._generation(self.user.distinct_id, "1.5", days_ago=0.1)
+        self._generation(self.user.distinct_id, "2", days_ago=3)
+        self._generation(self.user.distinct_id, "4", days_ago=10)
+        # A phs_ caller can claim the product by header; only pinned spend counts.
+        self._generation(self.user.distinct_id, "100", days_ago=0.1, source="header")
+        self._generation(other.distinct_id, "0.25", days_ago=0.1)
+        self._generation("orphan-distinct-id", "0.5", days_ago=0.1)
+        flush_persons_and_events()
+
+        response = self.client.get(f"{URL}team_usage/")
+
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert body["paying_team_id"] == self.team.id
+        rows = {row["distinct_id"]: row for row in body["users"]}
+        mine = rows[self.user.distinct_id]
+        assert [Decimal(mine[k]) for k in ("spend_usd_24h", "spend_usd_7d", "spend_usd_30d")] == [
+            Decimal("1.5"),
+            Decimal("3.5"),
+            Decimal("7.5"),
+        ]
+        assert (mine["tokens_minted_24h"], mine["live_tokens"], Decimal(mine["reserved_usd_24h"])) == (
+            1,
+            1,
+            Decimal("25"),
+        )
+        assert rows[other.distinct_id]["email"] == "other@posthog.com"
+        assert rows[other.distinct_id]["tokens_minted_30d"] == 0
+        assert rows["orphan-distinct-id"]["user_id"] is None
+        assert body["users"][0]["distinct_id"] == self.user.distinct_id
+
+    def test_team_usage_lists_mint_and_revoke_activity_newest_first(self):
+        with patch(_POST, return_value=_minted("phe_audit")):
+            self.client.post(URL)
+        with patch(_POST, return_value=_response(200, {"revoked": True, "revoked_count": 1})):
+            self.client.post(f"{URL}revoke/", {})
+
+        activity = self.client.get(f"{URL}team_usage/").json()["activity"]
+
+        assert [(a["activity"], a["actor_email"], a["owner_email"], a["client"], a["cap_usd"]) for a in activity] == [
+            ("revoked", self.user.email, self.user.email, "web", "25.00"),
+            ("minted", self.user.email, self.user.email, "web", "25.00"),
+        ]
