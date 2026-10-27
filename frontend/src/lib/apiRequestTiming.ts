@@ -27,6 +27,15 @@ export interface ApiRequestTiming {
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const MAX_PENDING_RESOURCES = 32
 
+type ResourceTiming = Pick<
+    ApiRequestTiming,
+    | 'resource_timing_status'
+    | 'resource_pre_request_ms'
+    | 'resource_ttfb_ms'
+    | 'resource_download_ms'
+    | 'resource_callback_ms'
+>
+
 /** One API request, with resource phases attributed only by a server-provided request ID. */
 export class ApiRequestTimingRecorder {
     private readonly startedAt: number
@@ -116,16 +125,7 @@ export class ApiRequestTimingRecorder {
                 if (this.resourceEntries.length < 2 && this.isResponseEntry(entry)) {
                     this.resourceEntries.push(entry)
                 }
-            } else {
-                if (
-                    entry.name !== this.requestUrl ||
-                    entry.startTime < this.fetchStartedAt - 1 ||
-                    !entry.serverTiming?.some(
-                        (metric) => metric.name === 'request_id' && UUID_PATTERN.test(metric.description)
-                    )
-                ) {
-                    continue
-                }
+            } else if (this.isPendingRequestEntry(entry)) {
                 if (this.resourceEntries.length === MAX_PENDING_RESOURCES) {
                     this.resourceCollectionOverflowed = true
                     this.resourceEntries.shift()
@@ -133,6 +133,17 @@ export class ApiRequestTimingRecorder {
                 this.resourceEntries.push(entry)
             }
         }
+    }
+
+    private isPendingRequestEntry(entry: PerformanceResourceTiming): boolean {
+        if (entry.name !== this.requestUrl || entry.startTime < this.fetchStartedAt - 1) {
+            return false
+        }
+        return (
+            entry.serverTiming?.some(
+                (metric) => metric.name === 'request_id' && UUID_PATTERN.test(metric.description)
+            ) ?? false
+        )
     }
 
     async readBody(response: Response): Promise<string> {
@@ -163,58 +174,68 @@ export class ApiRequestTimingRecorder {
         try {
             // Fetch/body promises can resolve before the observer callback is delivered.
             this.collectResources(this.observer?.takeRecords() ?? [])
-            if (!timing.http_request_id) {
-                return timing
+            if (timing.http_request_id) {
+                Object.assign(timing, this.resourceTiming(timing.http_request_id, finishedAt))
             }
-            if (this.resourceCollectionOverflowed) {
-                // Truncation may have hidden a duplicate identity; retained entries cannot prove ownership.
-                timing.resource_timing_status = 'overflow'
-                return timing
-            }
-            const entries = this.observer
-                ? this.resourceEntries
-                : this.responseUrl
-                  ? this.clock.getEntriesByName(this.responseUrl, 'resource')
-                  : []
-            const matches = (entries as PerformanceResourceTiming[]).filter((entry) =>
-                entry.serverTiming?.some(
-                    (serverTiming) =>
-                        serverTiming.name === 'request_id' &&
-                        serverTiming.description.toLowerCase() === timing.http_request_id
-                )
-            )
-            timing.resource_timing_status = matches.length > 1 ? 'ambiguous' : 'not_found'
-            if (matches.length !== 1) {
-                return timing
-            }
-            const entry = matches[0]
-            const identities = entry.serverTiming.filter((metric) => metric.name === 'request_id')
-            if (identities.length !== 1 || !UUID_PATTERN.test(identities[0].description)) {
-                timing.resource_timing_status = 'ambiguous'
-                return timing
-            }
-            if (entry.requestStart === 0 || entry.responseStart === 0) {
-                timing.resource_timing_status = 'restricted'
-                return timing
-            }
-            const phases = [entry.startTime, entry.requestStart, entry.responseStart, entry.responseEnd, finishedAt]
-            if (
-                entry.startTime < this.fetchStartedAt - 1 ||
-                phases.some((phase, index) => !Number.isFinite(phase) || (index > 0 && phase < phases[index - 1]))
-            ) {
-                timing.resource_timing_status = 'invalid'
-                return timing
-            }
-            timing.resource_timing_status = 'matched'
-            timing.resource_pre_request_ms = entry.requestStart - entry.startTime
-            timing.resource_ttfb_ms = entry.responseStart - entry.requestStart
-            timing.resource_download_ms = entry.responseEnd - entry.responseStart
-            timing.resource_callback_ms = finishedAt - entry.responseEnd
         } catch {
             timing.resource_timing_status = 'unavailable'
         } finally {
             this.observer?.disconnect()
         }
         return timing
+    }
+
+    private resourceTiming(requestId: string, finishedAt: number): ResourceTiming {
+        if (this.resourceCollectionOverflowed) {
+            // Truncation may have hidden a duplicate identity; retained entries cannot prove ownership.
+            return { resource_timing_status: 'overflow' }
+        }
+        const entries = this.observer
+            ? this.resourceEntries
+            : this.responseUrl
+              ? this.clock.getEntriesByName(this.responseUrl, 'resource')
+              : []
+        const matches = (entries as PerformanceResourceTiming[]).filter((entry) =>
+            entry.serverTiming?.some(
+                (serverTiming) =>
+                    serverTiming.name === 'request_id' && serverTiming.description.toLowerCase() === requestId
+            )
+        )
+        if (matches.length !== 1) {
+            return { resource_timing_status: matches.length > 1 ? 'ambiguous' : 'not_found' }
+        }
+        const entry = matches[0]
+        const status = this.matchedEntryStatus(entry, finishedAt)
+        if (status !== 'matched') {
+            return { resource_timing_status: status }
+        }
+        return {
+            resource_timing_status: 'matched',
+            resource_pre_request_ms: entry.requestStart - entry.startTime,
+            resource_ttfb_ms: entry.responseStart - entry.requestStart,
+            resource_download_ms: entry.responseEnd - entry.responseStart,
+            resource_callback_ms: finishedAt - entry.responseEnd,
+        }
+    }
+
+    private matchedEntryStatus(
+        entry: PerformanceResourceTiming,
+        finishedAt: number
+    ): ApiRequestTiming['resource_timing_status'] {
+        const identities = entry.serverTiming.filter((metric) => metric.name === 'request_id')
+        if (identities.length !== 1 || !UUID_PATTERN.test(identities[0].description)) {
+            return 'ambiguous'
+        }
+        if (entry.requestStart === 0 || entry.responseStart === 0) {
+            return 'restricted'
+        }
+        const phases = [entry.startTime, entry.requestStart, entry.responseStart, entry.responseEnd, finishedAt]
+        if (
+            entry.startTime < this.fetchStartedAt - 1 ||
+            phases.some((phase, index) => !Number.isFinite(phase) || (index > 0 && phase < phases[index - 1]))
+        ) {
+            return 'invalid'
+        }
+        return 'matched'
     }
 }
