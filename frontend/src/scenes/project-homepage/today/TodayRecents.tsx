@@ -42,9 +42,7 @@ function RecentObjectRow({
                     {preview.name}
                 </LinkPrimitive>
                 {preview.typeLabel && (
-                    <span className="TodayJumpRow__meta">
-                        {frequent ? 'Opened often' : capitalizeFirstLetter(preview.typeLabel)}
-                    </span>
+                    <span className="TodayJumpRow__meta">{capitalizeFirstLetter(preview.typeLabel)}</span>
                 )}
             </TodayPreviewTrigger>
         </li>
@@ -76,7 +74,7 @@ export function TodayRecents(): JSX.Element {
                 )}
             </div>
             {!recentsHasLoaded || frequentObjectsLoading ? (
-                <p className="TodayHome__note">Finding your recent and frequent items…</p>
+                <p className="TodayHome__note">Finding your items…</p>
             ) : recentObjects.length === 0 ? (
                 <p className="TodayHome__note">
                     <span>
