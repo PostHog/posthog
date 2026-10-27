@@ -343,6 +343,8 @@ export const canvasToHostMessageSchema = z.discriminatedUnion("type", [
       "stateSet",
       "stateList",
       "actionInvoke",
+      "toolRead",
+      "toolCall",
       "agentRequest",
       "connectorCall",
     ]),

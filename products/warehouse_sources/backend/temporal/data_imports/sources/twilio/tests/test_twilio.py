@@ -152,6 +152,7 @@ class TestValidateCredentials:
         "schema_name, expected_message",
         [
             ("keys", TWILIO_MAIN_KEY_REQUIRED_MESSAGE),
+            ("accounts", TWILIO_MAIN_KEY_REQUIRED_MESSAGE),
             (
                 "messages",
                 "Twilio rejected these credentials for messages. Check that the Account SID and secret are "
@@ -242,6 +243,45 @@ class TestPagination:
         assert result.requests[0].origin + result.requests[0].path == "https://verify.twilio.com/v2/Services"
         assert result.requests[1].url == next_url
         assert result.saved_states == [TwilioResumeConfig(next_url=next_url)]
+
+    def test_accounts_reads_the_accounts_root_and_drops_auth_tokens(self):
+        # Each subaccount row carries its live Auth Token. The list also sits outside the
+        # /Accounts/{SID}/ prefix that every other legacy table uses.
+        result = _run(
+            "accounts",
+            [
+                _response(
+                    {
+                        "accounts": [
+                            {"sid": ACCOUNT_SID, "owner_account_sid": ACCOUNT_SID, "auth_token": "fake-token-1"},
+                            {"sid": "AC11111111111111111111111111111111", "owner_account_sid": ACCOUNT_SID},
+                        ],
+                        "next_page_uri": "/2010-04-01/Accounts.json?PageSize=1000&Page=1&PageToken=PAfake",
+                    }
+                ),
+                _response(
+                    {
+                        "accounts": [
+                            {
+                                "sid": "AC22222222222222222222222222222222",
+                                "owner_account_sid": ACCOUNT_SID,
+                                "auth_token": "fake-token-2",
+                            }
+                        ],
+                        "next_page_uri": None,
+                    }
+                ),
+            ],
+        )
+
+        assert result.rows == [
+            {"sid": ACCOUNT_SID, "owner_account_sid": ACCOUNT_SID},
+            {"sid": "AC11111111111111111111111111111111", "owner_account_sid": ACCOUNT_SID},
+            {"sid": "AC22222222222222222222222222222222", "owner_account_sid": ACCOUNT_SID},
+        ]
+        first, second = result.requests
+        assert first.origin + first.path == "https://api.twilio.com/2010-04-01/Accounts.json"
+        assert second.url == "https://api.twilio.com/2010-04-01/Accounts.json?PageSize=1000&Page=1&PageToken=PAfake"
 
     def test_resumes_from_saved_state(self):
         resume_url = "https://api.twilio.com/2010-04-01/Accounts/x/Messages.json?Page=5"

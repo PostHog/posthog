@@ -50,7 +50,7 @@ import {
     visibleDurationRange,
 } from './durationBuckets'
 import { type HeatmapBrushSelection, heatmapBrushToFilters } from './heatmapBrush'
-import { traceLookupDateRange } from './traceLinks'
+import { resolveTraceLookupRange } from './traceLinks'
 import { traceRows } from './traceRows'
 import {
     type TracingFilters,
@@ -96,19 +96,17 @@ const DEFAULT_PAGE_SIZE = 100
 const OPERATIONS_AGGREGATION_LIMIT = 5000
 export const PREFETCH_SPANS = 20
 
-// A ts hint (from a shared/cold link) bounds the lookup tightly around the trace. Without one, the
-// lookup sends no date range, so the backend finds the trace by id in all retained spans instead of
-// only in the scene's current window. Guard validity: a hand-edited/corrupted ts would otherwise make
-// dayjs throw on toISOString().
-function resolveTraceLookupRange(ts: string | null | undefined): { date_from: string; date_to: string } | undefined {
-    return ts && dayjs(ts).isValid() ? traceLookupDateRange(ts) : undefined
-}
-
 function captureTracingResults(count: number, queryType: 'spans' | 'aggregation'): void {
     if (count === 0) {
         posthog.capture('tracing no results returned', { query_type: queryType })
     } else {
         posthog.capture('tracing results returned', { count, query_type: queryType })
+        // $set_once keeps the first value, so one send per browser is enough for survey targeting.
+        const stampKey = `ph_first_used_tracing_stamp_${posthog.get_distinct_id()}`
+        if (!localStorage.getItem(stampKey)) {
+            posthog.setPersonProperties(undefined, { first_used_tracing_at: new Date().toISOString() })
+            localStorage.setItem(stampKey, Date.now().toString())
+        }
     }
 }
 

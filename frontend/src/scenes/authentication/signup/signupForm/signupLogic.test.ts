@@ -347,6 +347,80 @@ describe('signupLogic — name handling', () => {
         expect(logic.values.signupPanelOnboardingErrors.name).toBe('This field may not be blank.')
         expect(logic.values.panel).toBe(2)
     })
+
+    it('sends a password API error back to the password step and lets the next submit through', async () => {
+        useMocks({
+            post: {
+                '/api/signup/': () => [
+                    400,
+                    {
+                        type: 'validation_error',
+                        code: 'password_too_weak',
+                        detail: 'Add another word or two. Uncommon words are better.',
+                        attr: 'password',
+                    },
+                ],
+            },
+        })
+        await advanceToOnboardingPanel()
+        logic.actions.setSignupPanelOnboardingValues({
+            name: 'John Smith',
+            organization_name: 'Hogflix',
+            role_at_organization: 'engineer',
+            referral_source: '',
+            referral_source_ai_prompt: '',
+        })
+        logic.actions.submitSignupPanelOnboarding()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.panel).toBe(1)
+        expect(logic.values.signupPanelAuthManualErrors.password).toBe(
+            'Add another word or two. Uncommon words are better.'
+        )
+        expect(logic.values.signupPanelOnboardingManualErrors.generic).toBeUndefined()
+
+        logic.actions.setSignupPanelAuthValue('password', 'An0ther-Str0ng-Pass!')
+        logic.actions.submitSignupPanelAuth()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.panel).toBe(2)
+        expect(logic.values.signupPanelAuthManualErrors.password).toBeUndefined()
+    })
+
+    it('drops a stale password error when a different email is submitted', async () => {
+        useMocks({
+            post: {
+                '/api/signup/': () => [
+                    400,
+                    {
+                        type: 'validation_error',
+                        code: 'password_too_weak',
+                        detail: 'Add another word or two. Uncommon words are better.',
+                        attr: 'password',
+                    },
+                ],
+            },
+        })
+        await advanceToOnboardingPanel()
+        logic.actions.setSignupPanelOnboardingValues({
+            name: 'John Smith',
+            organization_name: 'Hogflix',
+            role_at_organization: 'engineer',
+            referral_source: '',
+            referral_source_ai_prompt: '',
+        })
+        logic.actions.submitSignupPanelOnboarding()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.signupPanelAuthManualErrors.password).toBeTruthy()
+
+        logic.actions.setPanel(0)
+        logic.actions.setSignupPanelEmailValue('email', 'other@example.com')
+        logic.actions.submitSignupPanelEmail()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.panel).toBe(1)
+        expect(logic.values.signupPanelAuthManualErrors.password).toBeUndefined()
+    })
 })
 
 describe('signupLogic - pending OAuth connection', () => {

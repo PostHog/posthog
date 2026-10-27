@@ -176,18 +176,6 @@ def _recreate_database(target_db: str) -> None:
     _psql_admin(f"CREATE DATABASE {target_db};")
 
 
-def _manage(target_db: str, *args: str) -> None:
-    """Run a management command against target_db."""
-    _run(
-        ["python", "manage.py", *args],
-        env={"DATABASE_URL": f"postgres://posthog:posthog@localhost:5432/{target_db}"},
-    )
-
-
-def _ensure_migration_defaults(target_db: str) -> None:
-    _manage(target_db, "ensure_migration_defaults")
-
-
 def _psql_write(target_db: str, sql: str) -> None:
     """Run a one-shot statement against target_db."""
     _run(
@@ -247,8 +235,12 @@ def restore_schema_dump(
     target_db: str,
     recreate: bool,
     schema_path: Path = LOCAL_SCHEMA_PATH,
-    ensure_defaults: bool = True,
 ) -> None:
+    """Load a schema dump. The caller must run `migrate` next, which seeds the rows the dump lacks.
+
+    Do not seed here: the seed writes through the checkout's models, so a dump that predates a
+    model column fails the restore with `UndefinedColumn` and forces a full migrate.
+    """
     target_db = _validate_db_identifier(target_db)
     resolved_schema_path = _resolve_repo_path(schema_path)
     if not resolved_schema_path.is_file():
@@ -262,9 +254,6 @@ def restore_schema_dump(
     try:
         _run_psql_with_gzip_input(resolved_schema_path, target_db)
         _forget_product_app_migrations(target_db)
-
-        if ensure_defaults:
-            _ensure_migration_defaults(target_db)
     except Exception as exc:
         if recreate:
             try:
@@ -283,6 +272,13 @@ def _artifact_from_api(raw: Mapping[str, object]) -> SchemaArtifact | None:
     if not isinstance(workflow_run, Mapping):
         return None
     try:
+        # A pull request run from a fork uploads its artifacts to this repository, and the
+        # fork's branch can also be named master. Only a run on this repository's own
+        # branch can supply the schema that is loaded into the database.
+        if _require_type(workflow_run.get("head_repository_id"), int) != _require_type(
+            workflow_run.get("repository_id"), int
+        ):
+            return None
         return SchemaArtifact(
             id=_require_type(raw.get("id"), int),
             name=_require_type(raw.get("name"), str),
@@ -525,7 +521,7 @@ def restore_schema_if_fresh(*, target_db: str, mode: ArtifactMode) -> bool:
         click.echo(f"Database {target_db} is no longer empty; running migrations normally")
         return False
 
-    restore_schema_dump(target_db=target_db, recreate=True, ensure_defaults=True)
+    restore_schema_dump(target_db=target_db, recreate=True)
     return True
 
 
@@ -626,7 +622,7 @@ def db_download_schema(base_branch: str | None) -> None:
 
 def _recreate_test_db() -> None:
     try:
-        restore_schema_dump(target_db=os.environ.get("TARGET_DB", "test_posthog"), recreate=True, ensure_defaults=True)
+        restore_schema_dump(target_db=os.environ.get("TARGET_DB", "test_posthog"), recreate=True)
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc
 
@@ -675,8 +671,7 @@ def db_restore_schema(yes: bool) -> None:
     try:
         download_latest_compatible_schema(base_branch=_effective_base_branch(None))
         _create_postgres_backup()
-        restore_schema_dump(target_db="posthog", recreate=False, ensure_defaults=False)
+        restore_schema_dump(target_db="posthog", recreate=False)
         _run([str(REPO_ROOT / "bin" / "migrate")])
-        _ensure_migration_defaults("posthog")
     except Exception as exc:
         raise click.ClickException(str(exc)) from exc

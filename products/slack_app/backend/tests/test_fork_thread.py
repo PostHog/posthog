@@ -12,13 +12,13 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.temporal.ai.slack_app.activities.fork import process_slack_app_fork_thread_payload
 
 from products.slack_app.backend.feature_flags import ASSISTANT_REQUIRED_SCOPES
 from products.slack_app.backend.services.slack_fork_context import PendingFork, get_pending_fork, store_pending_fork
+from products.slack_app.backend.temporal.activities.fork import process_slack_app_fork_thread_payload
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
-_FORK_MODULE = "posthog.temporal.ai.slack_app.activities.fork"
+_FORK_MODULE = "products.slack_app.backend.temporal.activities.fork"
 
 
 class TestForkThreadPayload(TestCase):

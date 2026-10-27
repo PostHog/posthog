@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any
 
 from requests import HTTPError
@@ -14,6 +15,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.frontegg.settings import (
     ENDPOINTS,
+    PARTITION_KEYS,
+    PRIMARY_KEYS,
     REGION_ERROR,
     REGIONS,
 )
@@ -24,7 +27,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 
 @frozen
 class FronteggResumeConfig:
-    page: int
+    page: int | None = None
+    offset: int | None = None
+    created_from: str | None = None
 
 
 class FronteggAuth(OAuth2Auth):
@@ -58,6 +63,12 @@ class FronteggAuth(OAuth2Auth):
             self._apply_token_response(payload if isinstance(payload, dict) else None)
 
 
+def _created_from(value: Any) -> str:
+    if isinstance(value, datetime):
+        return (value if value.tzinfo else value.replace(tzinfo=UTC)).isoformat()
+    return str(value)
+
+
 def frontegg_source(
     config: FronteggSourceConfig,
     manager: ResumableSourceManager[FronteggResumeConfig],
@@ -72,15 +83,35 @@ def frontegg_source(
     if path is None:
         raise ValueError(f"Frontegg table has no endpoint path: {inputs.schema_name}")
     endpoint["path"] = path.format(api_version=api_version)
+    resume = manager.load_state() if manager.can_resume() else None
+    if resume is not None and resume.offset is not None:
+        # The offset counts rows within the window of the attempt that saved it.
+        created_from = resume.created_from
+    elif inputs.should_use_incremental_field and inputs.db_incremental_field_last_value is not None:
+        created_from = _created_from(inputs.db_incremental_field_last_value)
+    else:
+        created_from = None
+    if created_from is not None:
+        endpoint["params"] = {**(endpoint.get("params") or {}), "created_from": created_from}
     rest_config: RESTAPIConfig = {
         "client": {"base_url": REGIONS[config.region], "auth": auth, "request_timeout": (10, 60)},
         "resources": [{"name": inputs.schema_name, "endpoint": endpoint}],
     }
-    resume = manager.load_state() if manager.can_resume() else None
+    initial_state = (
+        {key: value for key, value in (("page", resume.page), ("offset", resume.offset)) if value is not None}
+        if resume
+        else None
+    )
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:
         if state is not None:
-            manager.save_state(FronteggResumeConfig(page=int(state["page"])))
+            manager.save_state(
+                FronteggResumeConfig(
+                    page=int(state["page"]) if "page" in state else None,
+                    offset=int(state["offset"]) if "offset" in state else None,
+                    created_from=created_from,
+                )
+            )
 
     resource = rest_api_resource(
         rest_config,
@@ -88,6 +119,13 @@ def frontegg_source(
         inputs.job_id,
         None,
         resume_hook=save_checkpoint,
-        initial_paginator_state={"page": resume.page} if resume else None,
+        initial_paginator_state=initial_state or None,
     )
-    return SourceResponse(name=inputs.schema_name, items=lambda: resource, primary_keys=["id"])
+    partition_key = PARTITION_KEYS.get(inputs.schema_name)
+    return SourceResponse(
+        name=inputs.schema_name,
+        items=lambda: resource,
+        primary_keys=PRIMARY_KEYS.get(inputs.schema_name, ["id"]),
+        partition_mode="datetime" if partition_key else None,
+        partition_keys=[partition_key] if partition_key else None,
+    )

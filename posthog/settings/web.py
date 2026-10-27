@@ -1,7 +1,7 @@
 # Web app specific settings/middleware/apps setup
 import os
 import json
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -10,9 +10,16 @@ from corsheaders.defaults import default_headers
 from whitenoise.compress import Compressor
 
 from posthog.openapi.enum_names import ChoicesEnumNameOverrides
+from posthog.run_mode import derive_run_mode
 from posthog.scopes import get_scope_descriptions
 from posthog.settings.base_variables import BASE_DIR, CLOUD_DEPLOYMENT, DEBUG, TEST
-from posthog.settings.utils import generate_rsa_private_key_pem, get_from_env, get_list, str_to_bool
+from posthog.settings.utils import (
+    generate_rsa_private_key_pem,
+    get_from_env,
+    get_list,
+    str_to_bool,
+    str_to_utc_datetime,
+)
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
 logger = structlog.get_logger(__name__)
@@ -58,6 +65,7 @@ PRODUCTS_APPS = [
     "products.revenue_analytics.backend.apps.RevenueAnalyticsConfig",
     "products.user_interviews.backend.apps.UserInterviewsConfig",
     "products.ai_observability.backend.apps.AIObservabilityConfig",
+    "products.ai_gateway.backend.apps.AiGatewayConfig",
     "products.llm_analytics.backend.apps.LlmAnalyticsConfig",
     "products.skills.backend.apps.SkillsConfig",
     "products.endpoints.backend.apps.EndpointsConfig",
@@ -129,6 +137,9 @@ PRODUCTS_APPS = [
     "products.webmcp.backend.apps.WebmcpConfig",
     "products.warehouse_suggestions.backend.apps.WarehouseSuggestionsConfig",
     "products.groups.backend.apps.GroupsConfig",
+    "products.subscriptions.backend.apps.SubscriptionsConfig",
+    "products.uptime_monitoring.backend.apps.UptimeMonitoringConfig",
+    "products.authorization.backend.apps.AuthorizationConfig",
 ]
 
 INSTALLED_APPS = [
@@ -170,6 +181,10 @@ INSTALLED_APPS = [
     "django_admin_inline_paginator",
 ]
 
+_UNVERSIONED_STATIC_MIDDLEWARE = (
+    ["posthog.middleware.UnversionedStaticPathMiddleware"] if derive_run_mode(CLOUD_DEPLOYMENT, DEBUG).is_hobby else []
+)
+
 MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
@@ -187,6 +202,7 @@ MIDDLEWARE = [
     "posthog.health.healthcheck_middleware",
     "posthog.middleware.ShortCircuitMiddleware",
     "posthog.middleware.AllowIPMiddleware",
+    *_UNVERSIONED_STATIC_MIDDLEWARE,  # Must precede WhiteNoise — it reads the path this rewrites
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "posthog.middleware.OAuthCorsPreflightMiddleware",  # Must precede CorsMiddleware — echoes custom headers on OAuth preflights
@@ -215,6 +231,7 @@ MIDDLEWARE = [
     "posthog.middleware.AutoLogoutImpersonateMiddleware",
     "posthog.middleware.ImpersonationReadOnlyMiddleware",
     "posthog.middleware.ImpersonationBlockedPathsMiddleware",
+    "posthog.middleware.NewEventsSchemaCookieMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
     "axes.middleware.AxesMiddleware",
@@ -668,10 +685,6 @@ SPECTACULAR_SETTINGS = {
             "ErrorTrackingIssueWritableStatusEnum": ["active", "resolved", "suppressed"],
             # ResolvedAccess types source and source_subject as literals on a dataclass, so no Choices
             # class carries them. The lists are derived from those literals.
-            # today facade enums are StrEnums on generic field names (`group`, `source`, `reason`).
-            "TodayItemGroupEnum": "products.today.backend.facade.enums.ItemGroup",
-            "TodayItemSourceEnum": "products.today.backend.facade.enums.ItemSource",
-            "TodayItemReasonEnum": "products.today.backend.facade.enums.ItemReason",
             "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
             "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "RuleResourceEnum": "products.access_control.backend.facade.user_access_control.RULE_RESOURCE_CHOICES",
@@ -698,6 +711,8 @@ SPECTACULAR_SETTINGS = {
             "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
             "NotificationDestinationTypeEnum": ["slack", "webhook", "teams"],
             "LogsAlertDestinationTypeEnum": ["slack", "webhook", "teams", "pagerduty"],
+            "WarehouseAlertDestinationTypeEnum": ["slack", "webhook", "teams", "discord", "pagerduty"],
+            "WarehouseAlertGroupByEnum": ["schema", "source"],
             "PagerDutySeverityEnum": ["critical", "error", "warning", "info"],
             "PagerDutyRegionEnum": ["us", "eu"],
             # growth's identity-matching tier and the signals scout suggestion confidence.
@@ -837,6 +852,7 @@ SPECTACULAR_SETTINGS = {
             "NotebookWidgetTypeEnum": ["notebook_widget"],
             "ConversationsRecentTicketsWidgetTypeEnum": ["conversations_recent_tickets"],
             "CanvasAppWidgetTypeEnum": ["canvas_app"],
+            "MetricsTableWidgetTypeEnum": ["metrics_table"],
         }
     ),
 }
@@ -890,6 +906,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/api/organizations/@current/plugins/?$",
                 "^api/(environments|projects)/@current/feature_flags/my_flags/?$",
                 "^/?api/(environments|projects)/\\d+/query/?$",
+                "^/?api/(environments|projects)/\\d+/tasks/[0-9a-fA-F-]+/runs/[^/]+/(logs|session_logs)/?$",
                 # Deploy-static source catalog (no user input or secrets reflected): several
                 # hundred KB of JSON that compresses ~7x.
                 "^/?api/(environments|projects)/(\\d+|@current)/external_data_sources/wizard/?$",
@@ -1069,6 +1086,9 @@ ALLOW_DEV_LOGIN = get_from_env("ALLOW_DEV_LOGIN", False, type_cast=str_to_bool)
 
 # shows the full value of the seeded dev personal API key in the UI (also requires DEBUG)
 ALLOW_DEV_API_KEY_REVEAL = get_from_env("ALLOW_DEV_API_KEY_REVEAL", False, type_cast=str_to_bool)
+
+# admits the click-to-source server of frontend/vite.config.mts in the dev CSP (also requires DEBUG)
+DEV_CODE_INSPECTOR = get_from_env("DEV_CODE_INSPECTOR", False, type_cast=str_to_bool)
 
 ####
 # Random/temporary
@@ -1273,6 +1293,14 @@ OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = "posthog.OAuthRefreshToken"
 OAUTH2_PROVIDER_ID_TOKEN_MODEL = "posthog.OAuthIDToken"
 OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
 
+# A provisioning partner whose app predates the signing requirement may call unsigned until the grace period ends.
+PROVISIONING_SIGNING_REQUIRED_SINCE: datetime = get_from_env(
+    "PROVISIONING_SIGNING_REQUIRED_SINCE", datetime(2026, 10, 16, tzinfo=UTC), type_cast=str_to_utc_datetime
+)
+PROVISIONING_UNSIGNED_GRACE_UNTIL: datetime = get_from_env(
+    "PROVISIONING_UNSIGNED_GRACE_UNTIL", datetime(2026, 10, 23, 16, tzinfo=UTC), type_cast=str_to_utc_datetime
+)
+
 ID_JAG_ACCESS_TOKEN_TTL_SECONDS: int = get_from_env("ID_JAG_ACCESS_TOKEN_TTL_SECONDS", 60 * 60 * 2, type_cast=int)
 ID_JAG_CLOCK_SKEW_SECONDS: int = get_from_env("ID_JAG_CLOCK_SKEW_SECONDS", 30, type_cast=int)
 # IdPs issue ID-JAGs for immediate use (5 minutes is typical); the cap leaves headroom above that.
@@ -1283,6 +1311,7 @@ ID_JAG_JWKS_CACHE_TTL_SECONDS: int = get_from_env("ID_JAG_JWKS_CACHE_TTL_SECONDS
 
 # Extra accepted ID-JAG `aud` values (the advertised authorization-server issuer) beyond SITE_URL —
 # e.g. the OAuth proxy "https://oauth.posthog.com" on Cloud. SITE_URL is always accepted.
+# private_key_jwt client assertions accept these issuers and their token endpoints too.
 ID_JAG_ALLOWED_AUDIENCES: list[str] = get_list(get_from_env("ID_JAG_ALLOWED_AUDIENCES", ""))
 # Extra accepted ID-JAG `resource` values (the advertised resource-server identifier) beyond SITE_URL —
 # e.g. "https://mcp.posthog.com,https://mcp.us.posthog.com" on Cloud. SITE_URL is always accepted.
@@ -1329,6 +1358,9 @@ HOGQL_PROMPT_JEV_MODEL = get_from_env("HOGQL_PROMPT_JEV_MODEL", "posthog/hogfere
 # Each decision is a billed gateway call, so these bound the cost of one query.
 HOGQL_JEV_MAX_ROWS = get_from_env("HOGQL_JEV_MAX_ROWS", 1000, type_cast=int)
 HOGQL_JEV_MAX_DECISIONS = get_from_env("HOGQL_JEV_MAX_DECISIONS", 1000, type_cast=int)
+# Gateway requests one `jev` column keeps in flight. The model servers refuse prompt tokens past a
+# per-pod limit, so raise this only together with model capacity.
+HOGQL_JEV_CONCURRENCY = get_from_env("HOGQL_JEV_CONCURRENCY", 4, type_cast=int)
 
 # Projected into gateway_credential.json: a JSON team_id -> tier map
 # ("free"/"pro"/"enterprise") for the gateway's rate-limit bucket.
@@ -1391,13 +1423,24 @@ DESKTOP_GATEWAY_TOKEN_CAP_USD = get_from_env("DESKTOP_GATEWAY_TOKEN_CAP_USD", "2
 DESKTOP_GATEWAY_TOKEN_CAP_USD_OVERRIDES = get_from_env("DESKTOP_GATEWAY_TOKEN_CAP_USD_OVERRIDES", "")
 # A plan, access or membership change outlives a token by at most this long. All mints share the
 # gateway's relay-key mint ceiling, so a shorter TTL supports fewer concurrent sessions; past it the
-# gateway answers 429 and the app stays on the legacy gateway.
+# gateway answers 429 and the mint fails.
 DESKTOP_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("DESKTOP_GATEWAY_TOKEN_TTL_SECONDS", 300, type_cast=int)
-# Org-targeted; gates the desktop mint and the sandbox worker's posthog_code mint alike.
-DESKTOP_GATEWAY_ROLLOUT_FLAG = get_from_env("DESKTOP_GATEWAY_ROLLOUT_FLAG", "posthog-desktop-ai-gateway")
 # Per-user mint ceiling because OAuth callers skip DRF's default throttles. At the default TTL each
 # open project on each device mints about 13 times an hour.
 DESKTOP_GATEWAY_MINTS_PER_HOUR = get_from_env("DESKTOP_GATEWAY_MINTS_PER_HOUR", 120, type_cast=int)
+
+# AI gateway developer mode. DEV_GATEWAY_MINT_KEY is a phs_ key with llm_gateway:read on
+# DEV_GATEWAY_TEAM_ID, whose wallet pays.
+DEV_GATEWAY_URL = get_from_env("DEV_GATEWAY_URL", "")
+DEV_GATEWAY_MINT_KEY = get_from_env("DEV_GATEWAY_MINT_KEY", "")
+DEV_GATEWAY_TEAM_ID = get_from_env("DEV_GATEWAY_TEAM_ID", 0, type_cast=int)
+DEV_GATEWAY_TOKEN_CAP_USD = get_from_env("DEV_GATEWAY_TOKEN_CAP_USD", "25")
+DEV_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("DEV_GATEWAY_TOKEN_TTL_SECONDS", 8 * 60 * 60, type_cast=int)
+# Caps minted in the trailing 24 hours count against this, so the gateway's reserved cap per token
+# makes it a hard ceiling on what one user can spend in a day.
+DEV_GATEWAY_DAILY_CAP_USD = get_from_env("DEV_GATEWAY_DAILY_CAP_USD", "50")
+DEV_GATEWAY_MINTS_PER_HOUR = get_from_env("DEV_GATEWAY_MINTS_PER_HOUR", 20, type_cast=int)
+
 # Users who joined PostHog at or after this ISO 8601 instant cannot use Desktop while the
 # posthog-desktop-signup-gate flag is on for them, unless posthog-desktop-access-override matches
 # them. An empty value turns the signup gate off.
@@ -1556,3 +1599,5 @@ WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS: list[int] = [
 # header, so those consumers must reconnect from their onerror handler.
 # 0 rejects every stream (emergency lever).
 SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS = get_from_env("SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS", 500, type_cast=int)
+
+CONTEXT_SELECTION_TIMEOUT_SECONDS = 3.0

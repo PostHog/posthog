@@ -11,6 +11,7 @@ import { createHogExecutionGlobals, createHogFunction, insertIntegration } from 
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { classifyHogError } from '../utils/hog-error-classification'
+import { NATIVE_PUSH_TEMPLATE_ID } from '../utils/push-subscription-utils'
 import { HogInputsService, formatHogInput, formatLiquidInput, getAppIdentifierForPush } from './hog-inputs.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
@@ -278,18 +279,22 @@ describe('Hog Inputs', () => {
 
             expect(inputs.oauth).toEqual({
                 $integration_id: integrationId1,
-                access_token: `$$_access_token_placeholder_${integrationId1}`,
+                access_token: expect.any(String),
                 access_token_raw: 'token',
                 not_encrypted: 'not-encrypted',
                 team: 'foobar',
             })
             expect(inputs.auth).toEqual({
                 $integration_id: integrationId2,
-                access_token: `$$_access_token_placeholder_${integrationId2}`,
+                access_token: expect.any(String),
                 access_token_raw: 'token',
                 not_encrypted: 'not-encrypted',
                 team: 'foobar',
             })
+            expect(hogInputsService.acceptedAccessTokenPlaceholders(integrationId1)).toContain(
+                inputs.oauth.access_token
+            )
+            expect(hogInputsService.acceptedAccessTokenPlaceholders(integrationId2)).toContain(inputs.auth.access_token)
         })
 
         it('should coerce string results to booleans for boolean schema fields', async () => {
@@ -357,7 +362,10 @@ describe('Hog Inputs', () => {
             expect(inputs.connection).toBeNull()
         })
 
-        it('should add unsubscribe url if email input is present', async () => {
+        it.each([
+            { name: 'a hog function', source: undefined },
+            { name: 'a workflow email step', source: { appSourceId: 'flow-1', instanceId: 'action-1' } },
+        ])('should add unsubscribe url if email input is present for $name', async ({ source }) => {
             hogFunction.inputs = {
                 email: {
                     templating: 'liquid',
@@ -370,12 +378,62 @@ describe('Hog Inputs', () => {
 
             hogFunction.inputs_schema = [{ key: 'email', type: 'native_email', required: true, templating: true }]
 
-            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals, undefined, source)
             expect(inputs.email.to.email).toEqual('test@posthog.com')
             const recipient = { team_id: team.id, identifier: 'test@posthog.com' }
             expect(inputs.email.html).toEqual(
-                `<div>Manage subscription preferences here <a href="${recipientTokensService.generatePreferencesUrl(recipient)}">here</a>Or, click <a href="${recipientTokensService.generateOneClickUnsubscribeUrl(recipient)}">here</a> to immediately unsubscribe from all marketing emails</div>`
+                `<div>Manage subscription preferences here <a href="${recipientTokensService.generatePreferencesUrl(recipient, source)}">here</a>Or, click <a href="${recipientTokensService.generateOneClickUnsubscribeUrl(recipient, source)}">here</a> to immediately unsubscribe from all marketing emails</div>`
             )
+        })
+
+        it('escapes liquid output only in the email fields that are written into html', async () => {
+            const value = '{{ event.properties.feature }}'
+            globals.event.properties.feature = `Logs & "Traces" <beta>`
+            hogFunction.inputs = {
+                email: {
+                    templating: 'liquid',
+                    value: {
+                        to: { email: '{{person.properties.email}}', name: value },
+                        from: { email: 'hey@example.com', name: value },
+                        subject: `Welcome to ${value}`,
+                        text: `Welcome to ${value}`,
+                        preheader: value,
+                        html: `<p>${value}</p>`,
+                    },
+                },
+            }
+            hogFunction.inputs_schema = [{ key: 'email', type: 'native_email', required: true, templating: true }]
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+            const raw = `Logs & "Traces" <beta>`
+            const escaped = 'Logs &amp; &#34;Traces&#34; &lt;beta&gt;'
+            expect(inputs.email).toMatchObject({
+                to: { name: raw },
+                from: { name: raw },
+                subject: `Welcome to ${raw}`,
+                text: `Welcome to ${raw}`,
+                preheader: escaped,
+                html: `<p>${escaped}</p>`,
+            })
+        })
+
+        it('renders liquid in push notification inputs without html escaping', async () => {
+            globals.event.properties.feature = `Logs & "Traces" <beta>`
+            hogFunction.template_id = NATIVE_PUSH_TEMPLATE_ID
+            hogFunction.inputs = {
+                title: { templating: 'liquid', value: 'Try {{ event.properties.feature }}' },
+                body: { templating: 'liquid', value: '{{ event.properties.feature }}' },
+                data: { templating: 'liquid', value: { url: 'myapp://{{ event.properties.feature }}' } },
+            }
+            hogFunction.inputs_schema = [
+                { key: 'title', type: 'string', required: true },
+                { key: 'body', type: 'string', templating: 'liquid' },
+                { key: 'data', type: 'dictionary' },
+            ]
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+            const raw = `Logs & "Traces" <beta>`
+            expect(inputs).toMatchObject({ title: `Try ${raw}`, body: raw, data: { url: `myapp://${raw}` } })
         })
 
         it('drops the editor design from a liquid email instead of rendering it', async () => {

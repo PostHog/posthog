@@ -1,6 +1,6 @@
 import enum
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urlparse
 
@@ -69,6 +69,21 @@ class TokenEndpointAuthMethod(enum.Enum):
     NONE = "none"
     CLIENT_SECRET_POST = "client_secret_post"
     PRIVATE_KEY_JWT = "private_key_jwt"
+
+
+class ProvisioningSigning(enum.Enum):
+    NOT_REQUIRED = "not_required"
+    GRACE = "grace"
+    REQUIRED = "required"
+
+    def request_tag(self, *, signed: bool) -> str:
+        if signed:
+            return "signed"
+        return {
+            ProvisioningSigning.NOT_REQUIRED: "unsigned_exempt",
+            ProvisioningSigning.GRACE: "unsigned_grace",
+            ProvisioningSigning.REQUIRED: "refused",
+        }[self]
 
 
 def is_loopback_host(hostname: str | None) -> bool:
@@ -341,6 +356,42 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
     @property
     def uses_private_key_jwt_auth(self) -> bool:
         return self.token_endpoint_auth_method is TokenEndpointAuthMethod.PRIVATE_KEY_JWT
+
+    @property
+    def provisioning_unsigned_allowed_until(self) -> datetime | None:
+        provisioning = self.provisioning
+        if provisioning.unsigned_allowed_until is not None:
+            return provisioning.unsigned_allowed_until
+        # Rows promoted before partner_since was recorded fall back to their creation date.
+        became_partner = provisioning.partner_since or self.created or timezone.now()
+        if became_partner < settings.PROVISIONING_SIGNING_REQUIRED_SINCE:
+            return settings.PROVISIONING_UNSIGNED_GRACE_UNTIL
+        return None
+
+    @property
+    def provisioning_signing(self) -> ProvisioningSigning:
+        provisioning = self.provisioning
+        if not self.is_provisioning_partner or not (
+            provisioning.can_create_accounts or provisioning.pays_for_customers
+        ):
+            return ProvisioningSigning.NOT_REQUIRED
+        # Grace covers partners that have not switched yet. Once a partner publishes a key it signs from then on.
+        if self.uses_private_key_jwt_auth:
+            return ProvisioningSigning.REQUIRED
+        allowed_until = self.provisioning_unsigned_allowed_until
+        if allowed_until is not None and timezone.now() < allowed_until:
+            return ProvisioningSigning.GRACE
+        return ProvisioningSigning.REQUIRED
+
+    @property
+    def requires_provisioning_signature(self) -> bool:
+        return self.provisioning_signing is ProvisioningSigning.REQUIRED
+
+    @property
+    def cannot_meet_provisioning_signature(self) -> bool:
+        # Checked per request rather than stored, because a CIMD refresh demotes a partner to public once its
+        # metadata drops its key.
+        return self.requires_provisioning_signature and not self.uses_private_key_jwt_auth
 
     class Meta(AbstractApplication.Meta):
         verbose_name = "OAuth Application"

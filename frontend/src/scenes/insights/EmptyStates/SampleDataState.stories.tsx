@@ -32,6 +32,18 @@ export const AllVariants: Story = {
     ),
 }
 
+/** Uses the real `.InsightVizDisplay > .TrendsInsight` container instead of a fixed-height div, so it can catch height regressions the other stories can't. */
+export const InTrendsInsightContainer: Story = {
+    loaders: [async () => void (await import('~/queries/nodes/InsightViz/InsightViz.scss'))],
+    render: () => (
+        <div className="InsightVizDisplay border rounded w-160">
+            <div className="TrendsInsight TrendsInsight--ActionsLineGraph">
+                <SampleDataState variant="line" />
+            </div>
+        </div>
+    ),
+}
+
 /** The wizard's cloud run is still working - no PR yet, so an "Installing PostHog..." tag shows. */
 export const WizardInstalling: Story = {
     decorators: [

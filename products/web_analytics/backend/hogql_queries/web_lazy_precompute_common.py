@@ -25,7 +25,7 @@ import structlog
 import posthoganalytics
 from prometheus_client import Counter
 
-from posthog.schema import SessionsV2JoinMode, WebAnalyticsPreComputeStrategy
+from posthog.schema import HogQLQueryModifiers, SessionsV2JoinMode, WebAnalyticsPreComputeStrategy
 
 from posthog.hogql import ast
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -36,6 +36,7 @@ from posthog import redis
 from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value, tag_queries
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
+from posthog.models.event.new_events_schema import use_new_events_schema
 
 from products.access_control.backend.facade.api import team_has_property_access_rules
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -528,12 +529,17 @@ def enqueue_stale_revalidation(*, team: Team, query: Any, family: str, debounce_
         revalidate_web_analytics_precompute,
     )
 
+    modifiers = (query.modifiers or HogQLQueryModifiers()).model_copy()
+    modifiers.useNewEventsSchema = use_new_events_schema(team.pk, modifiers)
+    query = query.model_copy(update={"modifiers": modifiers})
     try:
         client = redis.get_client()
         shape_part = compute_filters_eligibility_hash(query, team.timezone)[:16]
         if debounce_extra:
             shape_part = hashlib.sha256(f"{shape_part}:{debounce_extra}".encode()).hexdigest()[:16]
         debounce_key = f"web_swr_reval:{team.id}:{family}:{shape_part}"
+        if modifiers.useNewEventsSchema:
+            debounce_key += ":events_json"
         if not client.set(debounce_key, "1", ex=REVALIDATION_DEBOUNCE_SECONDS, nx=True):
             return
         budget_key = f"web_swr_reval_budget:{team.id}"
@@ -713,6 +719,8 @@ def web_ensure_precomputed(
             schedule = replace(schedule, rules=[(forced_cutoff, 1), *schedule.rules])
         kwargs["ttl_seconds"] = schedule
     result = ensure_precomputed(team=team, **kwargs)
+    if result.ready and result.computed_at is not None and runner is not None:
+        runner.record_lazy_precompute_computed_at(result.computed_at)
     if not result.ready and not background and runner is not None and family is not None:
         # Check-only miss: warm in the background (debounced per team/family/shape)
         # so the next visit is served from precompute while this one goes live.
@@ -1008,7 +1016,7 @@ def check_common_eligibility(
     # cache key, bounded by the per-team shape ceiling in `web_ensure_precomputed`.
     # Session and cohort filters are refused: the precompute INSERT applies the whole
     # list userlessly, but the live runners handle those types differently per family
-    # (web vitals drops them entirely), so precomputing them would serve a different
+    # (web vitals drops session filters), so precomputing them would serve a different
     # population than the live fallback. Those queries fall through to the live path,
     # which applies them correctly.
     for prop in properties:

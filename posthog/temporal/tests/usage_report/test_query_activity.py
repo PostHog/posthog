@@ -22,6 +22,7 @@ from temporalio.testing import ActivityEnvironment
 
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.tests.usage_report.test_aggregator import _ctx
 from posthog.temporal.tests.usage_report.test_parity import _install_in_memory_object_storage
 from posthog.temporal.usage_report import storage
 from posthog.temporal.usage_report.activities import (
@@ -396,6 +397,43 @@ async def test_counter_activity_reuses_successful_queries_on_retry(
         UsageCounter.EXCEPTIONS.value: [[1, 3]],
         "teams_with_web_exceptions_captured_in_period": [[1, 3]],
     }
+
+
+@pytest.mark.asyncio
+async def test_query_persists_while_thread_sensitive_executor_is_busy(
+    activity_environment: ActivityEnvironment,
+) -> None:
+    started = asyncio.Event()
+    release = Event()
+    loop = asyncio.get_running_loop()
+
+    def occupy_shared_thread() -> None:
+        loop.call_soon_threadsafe(started.set)
+        release.wait()
+
+    def query(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+        return [(1, 17)]
+
+    blocker = asyncio.create_task(sync_to_async(occupy_shared_thread)())
+    try:
+        await asyncio.wait_for(started.wait(), timeout=10)
+        with (
+            patch.dict(
+                "posthog.temporal.usage_report.activities.QUERY_INDEX",
+                {"test_query": QuerySpec(name="test_query", fn=query)},
+            ),
+            patch("posthog.storage.object_storage.write") as write,
+        ):
+            result = await asyncio.wait_for(
+                activity_environment.run(run_query_to_s3, RunQueryToS3Inputs(ctx=_ctx(), query_name="test_query")),
+                timeout=10,
+            )
+        assert result.query_name == "test_query"
+        assert write.call_args.args[0] == result.s3_key
+        assert json.loads(write.call_args.args[1]) == [[1, 17]]
+    finally:
+        release.set()
+        await blocker
 
 
 @pytest.mark.asyncio

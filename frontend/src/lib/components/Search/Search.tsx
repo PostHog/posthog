@@ -430,6 +430,7 @@ function SearchRoot({
                 posthog.capture('command menu item selected', {
                     category: item.category,
                     item_type: item.itemType ?? null,
+                    matched_search_keyword: item.matchedSearchKeyword ?? null,
                     result_position: position >= 0 ? position : null,
                     opened_in_new_tab: openInNewTab,
                 })

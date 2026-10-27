@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
 
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
@@ -8,6 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
 
 import { OrganizationPersonalAPIKeysTable } from './OrganizationPersonalAPIKeysTable'
+import { OrganizationSecuritySettingGate } from './OrganizationSecuritySettingGate'
 
 export function OrganizationPersonalAPIKeys(): JSX.Element {
     const { hasAvailableFeature } = useValues(userLogic)
@@ -23,11 +23,8 @@ export function OrganizationPersonalAPIKeys(): JSX.Element {
     }
 
     return (
-        <PayGateMini
-            feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}
-            featureDetail="organization-personal-api-keys"
-        >
+        <OrganizationSecuritySettingGate featureDetail="organization-personal-api-keys">
             {entitled ? <OrganizationPersonalAPIKeysTable /> : null}
-        </PayGateMini>
+        </OrganizationSecuritySettingGate>
     )
 }

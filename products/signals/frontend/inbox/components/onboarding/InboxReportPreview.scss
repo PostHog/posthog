@@ -1,0 +1,877 @@
+@import '../../../../../../frontend/src/lib/components/ProductEmptyState/previewMixins';
+
+.InboxReportPreview {
+    --inbox-preview-accent: var(--empty-state-accent, var(--color-primary-500));
+    --purple: var(--color-purple-700);
+    --preview-cycle-duration: 20s;
+    --preview-stage-duration: 250ms;
+    --preview-report-delay: 350ms;
+    --preview-patch-delay: 600ms;
+    --preview-pr-delay: 1200ms;
+
+    position: relative;
+
+    [theme='dark'] & {
+        --purple: var(--color-purple-300);
+    }
+
+    &__checkbox,
+    &__impact-checkbox {
+        position: absolute;
+        width: 0;
+        height: 0;
+        pointer-events: none;
+        opacity: 0;
+    }
+
+    &__impact-checkbox {
+        visibility: hidden;
+    }
+
+    &__card {
+        display: flex;
+        flex-direction: column;
+        gap: 0.625rem;
+        padding: 0.875rem 1rem;
+        background: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+    }
+
+    &__title {
+        min-width: 0;
+        font-size: 0.9375rem;
+        font-weight: 600;
+        line-height: 1.3;
+    }
+
+    &__section {
+        padding-top: 0.625rem;
+        border-top: 1px solid var(--color-border-primary);
+    }
+
+    &__heading {
+        margin: 0 0 0.25rem;
+        font-size: 0.6875rem;
+        font-weight: 600;
+        color: var(--color-text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    &__text {
+        margin: 0;
+        font-size: 0.75rem;
+        line-height: 1.45;
+    }
+
+    &__metrics {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.75rem;
+    }
+
+    &__metric {
+        display: flex;
+        flex-direction: column;
+        gap: 0.125rem;
+        min-width: 0;
+    }
+
+    &__metric-value {
+        font-size: 1.125rem;
+        font-weight: 700;
+        font-variant-numeric: tabular-nums;
+        line-height: 1.1;
+    }
+
+    &__metric-label {
+        font-size: 0.6875rem;
+        line-height: 1.3;
+        color: var(--color-text-secondary);
+    }
+
+    &__tags {
+        display: flex;
+
+        // Five tags are more than the narrowest scene fits on one line, and the preview
+        // must not scroll, so the row wraps.
+        flex-wrap: wrap;
+        gap: 0.375rem;
+    }
+
+    &__tag {
+        @for $i from 1 through 4 {
+            &:nth-child(#{$i}) {
+                animation: InboxReportPreview__tag-#{$i} var(--preview-cycle-duration) ease-in-out infinite;
+            }
+        }
+    }
+
+    &__stages,
+    &__actions,
+    &__impact-values,
+    &__outcome-status,
+    &__pr-state {
+        display: grid;
+
+        > * {
+            grid-area: 1 / 1;
+            min-width: 0;
+        }
+    }
+
+    &__pr-state {
+        justify-items: start;
+    }
+
+    &__stages {
+        position: relative;
+    }
+
+    &__monitoring {
+        position: absolute;
+        inset: 0;
+    }
+
+    &__pr-merged {
+        @include preview-swap-hidden(0ms);
+    }
+
+    &__report,
+    &__fix,
+    &__monitoring {
+        display: flex;
+        flex-direction: column;
+        gap: 0.625rem;
+    }
+
+    &__report {
+        @include preview-swap-visible(var(--preview-stage-duration));
+    }
+
+    &__fix,
+    &__patch,
+    &__pull-request,
+    &__manual-actions,
+    &__monitoring,
+    &__monitoring-details,
+    &__impact-chart,
+    &__chart-zero,
+    &__impact-frame--baseline,
+    &__watching,
+    &__impact-frame--resolved,
+    &__resolved {
+        @include preview-swap-hidden(var(--preview-stage-duration));
+    }
+
+    &__context {
+        transition: opacity var(--preview-stage-duration) ease;
+    }
+
+    &__solution {
+        transition: border-color var(--preview-stage-duration) ease;
+    }
+
+    &__patch {
+        overflow: hidden;
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+        transform: translateY(0.375rem);
+    }
+
+    &__patch-header {
+        padding: 0.5rem 0.625rem;
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+        background: var(--color-bg-fill-primary);
+        border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__diff {
+        padding: 0.375rem 0;
+        margin: 0;
+        font-size: 0.6875rem;
+        line-height: 1.65;
+        overflow-wrap: anywhere;
+        white-space: pre-wrap;
+
+        code {
+            display: block;
+            font: inherit;
+        }
+
+        span,
+        del,
+        ins {
+            display: block;
+            padding: 0 0.5rem;
+            text-decoration: none;
+        }
+
+        del {
+            color: var(--color-text-error);
+            background: color-mix(in oklab, var(--color-text-error) 8%, transparent);
+        }
+
+        ins {
+            color: var(--color-text-success);
+            background: color-mix(in oklab, var(--color-text-success) 8%, transparent);
+        }
+    }
+
+    &__pull-request {
+        padding: 0.625rem;
+        background: var(--color-bg-fill-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+        transform: translateY(0.375rem);
+    }
+
+    &__pr-title {
+        margin: 0.5rem 0 0.25rem;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        line-height: 1.4;
+        overflow-wrap: anywhere;
+    }
+
+    &__implement,
+    &__back,
+    &__see-impact {
+        display: inline-flex;
+        gap: 0.375rem;
+        align-items: center;
+        justify-self: start;
+        padding: 0.25rem 0.625rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--color-text-primary);
+        cursor: pointer;
+        user-select: none;
+        background: var(--color-bg-fill-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
+
+        &:hover {
+            background: var(--color-bg-fill-highlight-100);
+        }
+    }
+
+    &__monitoring-details,
+    &__impact-chart {
+        transform: translateY(0.375rem);
+    }
+
+    &__impact-chart {
+        margin: 0;
+
+        svg {
+            display: block;
+            width: 100%;
+            height: auto;
+            max-height: 7rem;
+            overflow: visible;
+        }
+
+        text {
+            font-size: 10px;
+            fill: var(--color-text-secondary);
+        }
+
+        .InboxReportPreview__merge-label {
+            font-weight: 600;
+            fill: var(--purple);
+        }
+    }
+
+    &__chart-caption {
+        margin-bottom: 0.25rem;
+        font-size: 0.6875rem;
+        color: var(--color-text-secondary);
+    }
+
+    &__chart-grid {
+        stroke: var(--color-border-primary);
+        stroke-width: 1;
+    }
+
+    &__merge-marker {
+        stroke: var(--purple);
+        stroke-dasharray: 3 3;
+        stroke-width: 1;
+    }
+
+    &__chart-before,
+    &__chart-after {
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 2.5;
+    }
+
+    &__chart-before {
+        stroke: var(--color-text-error);
+    }
+
+    &__chart-after {
+        stroke: var(--color-text-success);
+        stroke-dasharray: 1;
+        stroke-dashoffset: 1;
+    }
+
+    &__chart-zero {
+        fill: var(--color-text-success);
+    }
+
+    &__manual-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        justify-content: space-between;
+    }
+
+    &__see-impact {
+        display: grid;
+
+        > span {
+            grid-area: 1 / 1;
+        }
+    }
+
+    &__back-to-fix-label {
+        visibility: hidden;
+    }
+
+    &__impact-values {
+        margin-top: 1rem;
+    }
+
+    &__watching,
+    &__resolved {
+        display: flex;
+        gap: 0.375rem;
+        align-items: center;
+        margin: 0;
+        font-size: 0.75rem;
+    }
+
+    &__implement {
+        animation: InboxReportPreview__nudge 2.4s ease-in-out infinite;
+
+        @include preview-swap-visible(var(--preview-stage-duration));
+    }
+}
+
+.InboxReportPreview__checkbox:checked ~ .InboxReportPreview__card {
+    .InboxReportPreview__context {
+        opacity: 0.5;
+    }
+
+    .InboxReportPreview__solution {
+        border-color: var(--inbox-preview-accent);
+    }
+
+    .InboxReportPreview__report,
+    .InboxReportPreview__implement {
+        transition-delay:
+            var(--preview-report-delay), calc(var(--preview-report-delay) + var(--preview-stage-duration));
+        animation: none;
+
+        @include preview-swap-hidden(var(--preview-stage-duration));
+    }
+
+    .InboxReportPreview__fix,
+    .InboxReportPreview__manual-actions {
+        transition-delay: var(--preview-report-delay);
+
+        @include preview-swap-visible(var(--preview-stage-duration));
+    }
+
+    .InboxReportPreview__patch,
+    .InboxReportPreview__pull-request {
+        transition:
+            opacity var(--preview-stage-duration) ease var(--preview-patch-delay),
+            transform var(--preview-stage-duration) ease var(--preview-patch-delay),
+            visibility 0s linear var(--preview-patch-delay);
+        transform: translateY(0);
+
+        @include preview-swap-visible(var(--preview-stage-duration));
+    }
+
+    .InboxReportPreview__pull-request {
+        transition-delay: var(--preview-pr-delay);
+    }
+}
+
+.InboxReportPreview__checkbox:checked ~ .InboxReportPreview__impact-checkbox {
+    visibility: visible;
+}
+
+.InboxReportPreview__checkbox:checked ~ .InboxReportPreview__impact-checkbox:checked ~ .InboxReportPreview__card {
+    .InboxReportPreview__fix,
+    .InboxReportPreview__patch,
+    .InboxReportPreview__pull-request,
+    .InboxReportPreview__impact-frame--baseline,
+    .InboxReportPreview__watching,
+    .InboxReportPreview__see-impact-label {
+        @include preview-swap-hidden(0ms);
+    }
+
+    .InboxReportPreview__monitoring,
+    .InboxReportPreview__monitoring-details,
+    .InboxReportPreview__impact-chart,
+    .InboxReportPreview__chart-zero,
+    .InboxReportPreview__impact-frame--resolved,
+    .InboxReportPreview__resolved,
+    .InboxReportPreview__back-to-fix-label {
+        transform: translateY(0);
+
+        @include preview-swap-visible(0ms);
+    }
+
+    .InboxReportPreview__chart-after {
+        stroke-dashoffset: 0;
+    }
+}
+
+.InboxReportPreview__impact-checkbox:focus-visible ~ .InboxReportPreview__card .InboxReportPreview__see-impact {
+    outline: 2px solid var(--inbox-preview-accent);
+    outline-offset: 1px;
+}
+
+.InboxReportPreview__checkbox:focus-visible ~ .InboxReportPreview__card {
+    .InboxReportPreview__implement,
+    .InboxReportPreview__back {
+        outline: 2px solid var(--inbox-preview-accent);
+        outline-offset: 1px;
+    }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .InboxReportPreview__checkbox:not(:checked) ~ .InboxReportPreview__card {
+        .InboxReportPreview__report {
+            animation: InboxReportPreview__report-cycle var(--preview-cycle-duration) ease infinite;
+        }
+
+        .InboxReportPreview__implement {
+            animation:
+                InboxReportPreview__report-cycle var(--preview-cycle-duration) ease infinite,
+                InboxReportPreview__press var(--preview-cycle-duration) ease infinite;
+        }
+
+        .InboxReportPreview__context {
+            animation: InboxReportPreview__context-cycle var(--preview-cycle-duration) ease infinite;
+        }
+
+        .InboxReportPreview__solution {
+            animation: InboxReportPreview__solution-cycle var(--preview-cycle-duration) ease infinite;
+        }
+
+        .InboxReportPreview__fix {
+            animation: InboxReportPreview__fix-cycle var(--preview-cycle-duration) ease infinite;
+        }
+
+        .InboxReportPreview__patch {
+            animation: InboxReportPreview__patch-cycle var(--preview-cycle-duration) ease infinite;
+        }
+
+        .InboxReportPreview__pull-request {
+            animation: InboxReportPreview__pr-cycle var(--preview-cycle-duration) ease infinite;
+        }
+
+        .InboxReportPreview__monitoring {
+            animation: InboxReportPreview__monitoring-cycle var(--preview-cycle-duration) ease infinite;
+        }
+
+        .InboxReportPreview__pr-open {
+            animation: InboxReportPreview__pr-open-cycle var(--preview-cycle-duration) ease infinite;
+        }
+
+        .InboxReportPreview__pr-merged {
+            animation: InboxReportPreview__pr-merged-cycle var(--preview-cycle-duration) ease infinite;
+        }
+
+        .InboxReportPreview__monitoring-details {
+            animation: InboxReportPreview__details-entry var(--preview-cycle-duration) ease infinite;
+        }
+
+        .InboxReportPreview__impact-chart {
+            animation: InboxReportPreview__chart-entry var(--preview-cycle-duration) ease infinite;
+        }
+
+        .InboxReportPreview__merge-event {
+            animation: InboxReportPreview__merge-entry var(--preview-cycle-duration) ease infinite;
+        }
+
+        .InboxReportPreview__chart-after {
+            animation: InboxReportPreview__chart-drop var(--preview-cycle-duration) linear infinite;
+        }
+
+        .InboxReportPreview__chart-zero {
+            animation: InboxReportPreview__chart-zero-entry var(--preview-cycle-duration) ease infinite;
+        }
+
+        .InboxReportPreview__impact-frame--baseline {
+            animation: InboxReportPreview__baseline-cycle var(--preview-cycle-duration) ease infinite;
+        }
+
+        .InboxReportPreview__watching {
+            animation: InboxReportPreview__watching-cycle var(--preview-cycle-duration) ease infinite;
+        }
+
+        .InboxReportPreview__impact-frame--resolved,
+        .InboxReportPreview__resolved {
+            animation: InboxReportPreview__resolved-cycle var(--preview-cycle-duration) ease infinite;
+        }
+    }
+}
+
+// Keyboard navigation switches to the manual controls instead of focusing a moving target.
+.InboxReportPreview__checkbox:focus-visible ~ .InboxReportPreview__card * {
+    animation: none !important;
+}
+
+.InboxReportPreview--static {
+    --preview-stage-duration: 0ms;
+    --preview-report-delay: 0ms;
+    --preview-patch-delay: 0ms;
+    --preview-pr-delay: 0ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .InboxReportPreview {
+        --preview-stage-duration: 0ms;
+        --preview-report-delay: 0ms;
+        --preview-patch-delay: 0ms;
+        --preview-pr-delay: 0ms;
+    }
+}
+
+@keyframes InboxReportPreview__report-cycle {
+    0%,
+    27%,
+    98%,
+    100% {
+        visibility: visible;
+        opacity: 1;
+    }
+
+    29%,
+    95% {
+        visibility: hidden;
+        opacity: 0;
+    }
+}
+
+@keyframes InboxReportPreview__fix-cycle {
+    0%,
+    27%,
+    61%,
+    100% {
+        visibility: hidden;
+        opacity: 0;
+    }
+
+    29%,
+    59% {
+        visibility: visible;
+        opacity: 1;
+    }
+}
+
+@keyframes InboxReportPreview__patch-cycle {
+    0%,
+    29%,
+    61%,
+    100% {
+        visibility: hidden;
+        opacity: 0;
+        transform: translateY(0.375rem);
+    }
+
+    32%,
+    59% {
+        visibility: visible;
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes InboxReportPreview__pr-cycle {
+    0%,
+    35%,
+    61%,
+    100% {
+        visibility: hidden;
+        opacity: 0;
+        transform: translateY(0.375rem);
+    }
+
+    38%,
+    59% {
+        visibility: visible;
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes InboxReportPreview__monitoring-cycle {
+    0%,
+    59%,
+    98%,
+    100% {
+        visibility: hidden;
+        opacity: 0;
+    }
+
+    61%,
+    95% {
+        visibility: visible;
+        opacity: 1;
+    }
+}
+
+@keyframes InboxReportPreview__pr-open-cycle {
+    0%,
+    35%,
+    47%,
+    100% {
+        visibility: hidden;
+        opacity: 0;
+    }
+
+    38%,
+    45% {
+        visibility: visible;
+        opacity: 1;
+    }
+}
+
+@keyframes InboxReportPreview__pr-merged-cycle {
+    0%,
+    45%,
+    61%,
+    100% {
+        visibility: hidden;
+        opacity: 0;
+    }
+
+    47%,
+    59% {
+        visibility: visible;
+        opacity: 1;
+    }
+}
+
+@keyframes InboxReportPreview__details-entry {
+    0%,
+    59%,
+    98%,
+    100% {
+        visibility: hidden;
+        opacity: 0;
+        transform: translateY(0.375rem);
+    }
+
+    61%,
+    95% {
+        visibility: visible;
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes InboxReportPreview__chart-entry {
+    0%,
+    59%,
+    98%,
+    100% {
+        visibility: hidden;
+        opacity: 0;
+        transform: translateY(0.375rem);
+    }
+
+    61%,
+    95% {
+        visibility: visible;
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes InboxReportPreview__merge-entry {
+    0%,
+    61%,
+    99%,
+    100% {
+        clip-path: inset(0 0 100% 0);
+        opacity: 0;
+    }
+
+    64%,
+    98% {
+        clip-path: inset(0);
+        opacity: 1;
+    }
+}
+
+@keyframes InboxReportPreview__chart-drop {
+    0%,
+    65%,
+    100% {
+        stroke-dashoffset: 1;
+    }
+
+    66% {
+        stroke-dashoffset: 0.915;
+    }
+
+    67.5% {
+        stroke-dashoffset: 0.658;
+    }
+
+    70%,
+    99% {
+        stroke-dashoffset: 0;
+    }
+}
+
+@keyframes InboxReportPreview__chart-zero-entry {
+    0%,
+    69%,
+    99%,
+    100% {
+        visibility: hidden;
+        opacity: 0;
+    }
+
+    70%,
+    98% {
+        visibility: visible;
+        opacity: 1;
+    }
+}
+
+@keyframes InboxReportPreview__baseline-cycle {
+    0%,
+    58%,
+    67.5%,
+    100% {
+        visibility: hidden;
+        opacity: 0;
+    }
+
+    59%,
+    66.5% {
+        visibility: visible;
+        opacity: 1;
+    }
+}
+
+@keyframes InboxReportPreview__resolved-cycle {
+    0%,
+    66.5%,
+    99%,
+    100% {
+        visibility: hidden;
+        opacity: 0;
+    }
+
+    67.5%,
+    98% {
+        visibility: visible;
+        opacity: 1;
+    }
+}
+
+@keyframes InboxReportPreview__watching-cycle {
+    0%,
+    58%,
+    67.5%,
+    100% {
+        visibility: hidden;
+        opacity: 0;
+    }
+
+    59%,
+    66.5% {
+        visibility: visible;
+        opacity: 1;
+    }
+}
+
+@keyframes InboxReportPreview__press {
+    0%,
+    24.5%,
+    26.5%,
+    100% {
+        background: var(--color-bg-fill-primary);
+        transform: scale(1);
+    }
+
+    26% {
+        background: color-mix(in oklab, var(--inbox-preview-accent) 20%, var(--color-bg-fill-primary));
+        transform: scale(0.96);
+    }
+}
+
+@keyframes InboxReportPreview__context-cycle {
+    0%,
+    17%,
+    98%,
+    100% {
+        opacity: 1;
+    }
+
+    18%,
+    95% {
+        opacity: 0.5;
+    }
+}
+
+@keyframes InboxReportPreview__solution-cycle {
+    0%,
+    17%,
+    98%,
+    100% {
+        border-color: var(--color-border-primary);
+    }
+
+    18%,
+    95% {
+        border-color: var(--inbox-preview-accent);
+    }
+}
+
+@for $i from 1 through 4 {
+    $start: 0.5% + ($i - 1) * 4.25%;
+
+    @keyframes InboxReportPreview__tag-#{$i} {
+        0%,
+        #{$start},
+        #{$start + 4%},
+        100% {
+            background-color: transparent;
+            border-color: var(--color-border-primary);
+        }
+        #{$start + 0.75%},
+        #{$start + 3.25%} {
+            background-color: color-mix(in oklab, var(--inbox-preview-accent) 15%, transparent);
+            border-color: var(--inbox-preview-accent);
+        }
+    }
+}
+
+@keyframes InboxReportPreview__nudge {
+    0%,
+    100% {
+        box-shadow: 0 0 0 0 color-mix(in oklab, var(--inbox-preview-accent) 35%, transparent);
+    }
+
+    50% {
+        box-shadow: 0 0 0 4px color-mix(in oklab, var(--inbox-preview-accent) 0%, transparent);
+    }
+}
+
+@include preview-motion-guards('InboxReportPreview');

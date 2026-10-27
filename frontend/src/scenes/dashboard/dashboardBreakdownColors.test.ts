@@ -33,7 +33,6 @@ describe('dashboardBreakdownColors', () => {
             created_at: '2023-01-01T00:00:00Z',
             created_by: null,
             is_sample: false,
-            dashboards: null,
             dashboard_tiles: null,
             updated_at: '2023-01-01T00:00:00Z',
             last_modified_at: '2023-01-01T00:00:00Z',

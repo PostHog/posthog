@@ -9,6 +9,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from posthog.api.utils import validate_authorized_url_wildcards
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 
@@ -169,3 +170,131 @@ def handle_conversations_token_on_update(
         validated_data["conversations_settings"] = conv_settings
 
     return validated_data
+
+
+VALID_CONVERSATIONS_CHANNELS = {"widget", "email", "slack", "teams", "github"}
+VALID_AI_REPLY_MODES = {"private_note", "bot_reply"}
+VALID_AI_REPLY_TICKET_TYPES = {"how_to", "diagnostic", "account_billing"}
+# Only how_to replies may be published to the ticket author. diagnostic/account_billing
+# draw on project data (events, persons, recordings, logs) and must stay private notes —
+# there's no per-author authorization that the customer is entitled to that data.
+BOT_REPLY_TICKET_TYPES = {"how_to"}
+
+
+def validate_conversations_settings(
+    value: dict[str, Any], existing: dict[str, Any] | None, team_id: int | None
+) -> dict[str, Any]:
+    """Run every check a conversations_settings write must pass, shared by the team and project serializers.
+
+    `existing` is the team's currently stored conversations_settings (or None), used to skip
+    unchanged values and for merge-aware playbook validation. `team_id` is the team whose AI context gets validated.
+    """
+    strip_managed_conversations_settings(value)
+    # The web app sends back every stored setting on each save. A value stored before a check
+    # existed must not block an unrelated save or get cut down, so only changed values get checked.
+    stored = existing or {}
+    unchanged = {key: item for key, item in value.items() if key in stored and stored[key] == item}
+    for key in unchanged:
+        del value[key]
+    # Filter out None values from widget_domains if present
+    if "widget_domains" in value and value["widget_domains"] is not None:
+        value["widget_domains"] = [domain for domain in value["widget_domains"] if domain]
+        validate_authorized_url_wildcards(value["widget_domains"])
+    # Normalize multi-channel list: must be a list of non-empty strings, deduped, capped at 50
+    if "slack_channel_ids" in value:
+        raw = value.get("slack_channel_ids")
+        if isinstance(raw, list):
+            cleaned: list[str] = []
+            seen: set[str] = set()
+            for item in raw:
+                if isinstance(item, str) and item and item not in seen:
+                    seen.add(item)
+                    cleaned.append(item)
+            value["slack_channel_ids"] = cleaned[:50]
+        elif raw is not None:
+            # Drop a malformed value instead of rejecting the save, but keep an explicit
+            # null so a clearing PATCH still overwrites the stored list (see
+            # merge_conversations_settings, which only replaces keys present here).
+            value.pop("slack_channel_ids", None)
+    icon_url = value.get("slack_bot_icon_url")
+    if icon_url is not None:
+        if not isinstance(icon_url, str):
+            raise serializers.ValidationError({"slack_bot_icon_url": "Must be a string."})
+        icon_url = icon_url.strip()
+        value["slack_bot_icon_url"] = icon_url or None
+        if icon_url and not icon_url.startswith("https://"):
+            raise serializers.ValidationError({"slack_bot_icon_url": "Must be an HTTPS URL."})
+    display_name = value.get("slack_bot_display_name")
+    if display_name is not None:
+        if not isinstance(display_name, str):
+            raise serializers.ValidationError({"slack_bot_display_name": "Must be a string."})
+        display_name = display_name.strip()
+        value["slack_bot_display_name"] = display_name or None
+        if display_name and (len(display_name) > 200 or any(ord(c) < 32 for c in display_name)):
+            raise serializers.ValidationError(
+                {"slack_bot_display_name": "Must be 200 characters or fewer with no control characters."}
+            )
+    for toggle_key in ("slack_notify_on_join", "slack_notify_on_leave", "slack_nudge_enabled"):
+        if toggle_key in value:
+            value[toggle_key] = bool(value[toggle_key])
+    if "slack_alert_channel_id" in value:
+        alert_channel = value.get("slack_alert_channel_id")
+        if alert_channel is None:
+            value["slack_alert_channel_id"] = None
+        elif isinstance(alert_channel, str):
+            value["slack_alert_channel_id"] = alert_channel.strip() or None
+        else:
+            raise serializers.ValidationError({"slack_alert_channel_id": "Must be a string."})
+    # AI resolution channels: list of valid channel strings or null
+    if "ai_resolution_channels" in value:
+        channels = value.get("ai_resolution_channels")
+        if channels is None:
+            pass
+        elif isinstance(channels, list):
+            invalid = [c for c in channels if not isinstance(c, str) or c not in VALID_CONVERSATIONS_CHANNELS]
+            if invalid:
+                raise serializers.ValidationError(
+                    {
+                        "ai_resolution_channels": f"Invalid channel(s): {', '.join(str(c) for c in invalid)}. "
+                        f"Valid options: {', '.join(sorted(VALID_CONVERSATIONS_CHANNELS))}."
+                    }
+                )
+            value["ai_resolution_channels"] = channels
+        else:
+            raise serializers.ValidationError({"ai_resolution_channels": "Must be a list of channel names or null."})
+    # AI reply modes: { channel: { ticket_type: mode } } or null
+    if "ai_reply_modes" in value:
+        modes = value.get("ai_reply_modes")
+        if modes is None:
+            pass
+        elif isinstance(modes, dict):
+            cleaned_modes: dict[str, dict[str, str]] = {}
+            for ch, type_map in modes.items():
+                if ch not in VALID_CONVERSATIONS_CHANNELS or not isinstance(type_map, dict):
+                    continue
+                cleaned_map: dict[str, str] = {}
+                for tt, mode in type_map.items():
+                    if (
+                        tt not in VALID_AI_REPLY_TICKET_TYPES
+                        or not isinstance(mode, str)
+                        or mode not in VALID_AI_REPLY_MODES
+                    ):
+                        continue
+                    # Demote bot_reply to private_note for ticket types that may never be
+                    # published (diagnostic/account_billing). Coerce rather than reject so a
+                    # stale value doesn't block unrelated settings saves.
+                    if mode == "bot_reply" and tt not in BOT_REPLY_TICKET_TYPES:
+                        mode = "private_note"
+                    cleaned_map[tt] = mode
+                if cleaned_map:
+                    cleaned_modes[ch] = cleaned_map
+            value["ai_reply_modes"] = cleaned_modes
+        else:
+            raise serializers.ValidationError({"ai_reply_modes": "Must be an object or null."})
+    from products.conversations.backend.api.ai_context import validate_ai_context_conversations_settings
+    from products.conversations.backend.api.ai_reply_playbook import validate_playbook_conversations_settings
+
+    validate_playbook_conversations_settings(value, existing=existing)
+    validate_ai_context_conversations_settings(value, team_id=team_id)
+    value.update(unchanged)
+    return value

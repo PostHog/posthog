@@ -3,10 +3,10 @@ from contextlib import contextmanager
 from datetime import timedelta
 from typing import Any
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import Mock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import dagster
@@ -15,6 +15,8 @@ from structlog.testing import capture_logs
 
 from posthog.schema import WebAnalyticsPreComputeStrategy, WebStatsBreakdown
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_log_archive import SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Organization, Team
 
@@ -22,6 +24,7 @@ from products.analytics_platform.backend.models.preaggregation_job import Preagg
 from products.web_analytics.dags.eager_web_analytics_precompute import (
     BASELINE_BREAKDOWNS,
     BASELINE_WINDOW_DAYS,
+    _fetch_active_wa_team_ids,
     _resolve_eager_audience,
     _warm_baseline_for_team,
     warm_eager_baseline_op,
@@ -115,6 +118,60 @@ class TestResolveEagerAudience:
         assert team_ids == expected
         assert reason == "ok"
         assert diag == {"teams_configured": len(expected), "active_teams_pct": pct, "active_teams": expected_active}
+
+
+class TestFetchActiveWaTeamIds(ClickhouseTestMixin, SimpleTestCase):
+    _DASHBOARD_READ: dict[str, str | int] = {
+        "lc_query_type": "stats_table_paths",
+        "lc_kind": "request",
+        "lc_id": "",
+        "lc_feature": "query",
+        "lc_access_method": "",
+        "type": "QueryFinish",
+        "is_initial_query": 1,
+        "hours_ago": 1,
+    }
+
+    def setUp(self) -> None:
+        super().setUp()
+        sync_execute(f"TRUNCATE TABLE {SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE}")
+
+    def _archive_reads(self, team_id: int, count: int, **overrides: str | int) -> None:
+        row = {**self._DASHBOARD_READ, **overrides}
+        sync_execute(
+            f"""
+            INSERT INTO {SHARDED_QUERY_LOG_ARCHIVE_V3_TABLE}
+                (initial_query_start_time, event_time_microseconds, team_id, initial_query_id, is_initial_query,
+                 type, lc_query_type, lc_kind, lc_id, lc_feature, lc_access_method)
+            SELECT
+                now() - INTERVAL %(hours_ago)s HOUR, now() - INTERVAL %(hours_ago)s HOUR, %(team_id)s,
+                toString(generateUUIDv4()), %(is_initial_query)s, %(type)s, %(lc_query_type)s, %(lc_kind)s,
+                %(lc_id)s, %(lc_feature)s, %(lc_access_method)s
+            FROM numbers(%(count)s)
+            """,
+            {**row, "team_id": team_id, "count": count},
+        )
+
+    @parameterized.expand(
+        [
+            ("cache_warming_task", {"lc_kind": "celery", "lc_id": "posthog.caching.warming.warm_insight_cache_task"}),
+            ("dagster_warmer_without_kind", {"lc_kind": ""}),
+            ("not_a_stats_table_tile", {"lc_query_type": "web_overview_query"}),
+            ("cache_warmup_feature", {"lc_feature": "cache_warmup"}),
+            ("personal_api_key", {"lc_access_method": "personal_api_key"}),
+            ("failed_query", {"type": "ExceptionWhileProcessing"}),
+            ("non_initial_query", {"is_initial_query": 0}),
+            ("outside_lookback", {"hours_ago": 30}),
+        ]
+    )
+    def test_ranks_dashboard_reads_and_drops_other_traffic(self, _name: str, excluded: dict[str, str | int]) -> None:
+        self._archive_reads(team_id=101, count=3, lc_kind="celery", lc_id="posthog.tasks.tasks.process_query_task")
+        self._archive_reads(team_id=102, count=5)
+        self._archive_reads(team_id=0, count=10)
+        self._archive_reads(team_id=103, count=10, **excluded)
+
+        assert _fetch_active_wa_team_ids(limit=10, lookback_hours=24) == [102, 101]
+        assert _fetch_active_wa_team_ids(limit=1, lookback_hours=24) == [102]
 
 
 @patch("products.web_analytics.dags.eager_web_analytics_precompute.is_cloud", return_value=True)

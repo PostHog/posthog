@@ -30,6 +30,8 @@ _SUCCESSFUL_SCRAPE = {
         "markdown": "# Example",
         "summary": "Example builds widgets.",
         "metadata": {
+            "sourceURL": "https://example.com",
+            "url": "https://www.example.com/",
             "title": "Example",
             "description": "Widgets for everyone.",
             "statusCode": 200,
@@ -90,6 +92,8 @@ class TestFirecrawlEgress(SimpleTestCase):
         with _firecrawl_answers(_response(200, json.dumps(_SUCCESSFUL_SCRAPE))):
             result = scrape("https://example.com", source="test")
 
+        assert result.url == "https://example.com"
+        assert result.final_url == "https://www.example.com/"
         assert result.markdown == "# Example"
         assert result.summary == "Example builds widgets."
         assert result.title == "Example"

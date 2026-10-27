@@ -3,14 +3,14 @@ from dataclasses import dataclass
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 
-@dataclass
+@dataclass(frozen=True)
 class GustoEndpointConfig:
     name: str
     # Path under the API host. `{company_uuid}` / `{employee_uuid}` are filled in per parent row.
     path: str
     primary_keys: list[str]
-    # Company-scoped collections paginate with `page`/`per`; the derived `companies` table and the
-    # per-employee child lists come back whole in a single response.
+    # Most company-scoped collections paginate with `page`/`per`; the derived `companies` table, a
+    # few small company lists, and the per-employee child lists come back whole in a single response.
     paginated: bool = True
     # Money-movement endpoints take a `start_date`/`end_date` check-date window instead of being
     # walked in full. The value is the row field the window filters on, which is also the only
@@ -85,6 +85,40 @@ GUSTO_ENDPOINTS: dict[str, GustoEndpointConfig] = {
         # The body groups payments per contractor: {"total": {...}, "contractor_payments": [
         # {"contractor_uuid": ..., "payments": [...]}]}.
         data_key="contractor_payments",
+    ),
+    # The date filters here (due date, period, sent-on) don't track `amount_paid` and
+    # `payment_sent_on` changing after a payment is scheduled, so a date watermark would leave
+    # earlier unpaid payments stale. Full refresh keeps payment status current.
+    "tax_payments": GustoEndpointConfig(
+        name="tax_payments",
+        path="/v1/companies/{company_uuid}/tax_payments",
+        primary_keys=["uuid"],
+    ),
+    "departments": GustoEndpointConfig(
+        name="departments",
+        path="/v1/companies/{company_uuid}/departments",
+        primary_keys=["uuid"],
+        paginated=False,
+    ),
+    "company_benefits": GustoEndpointConfig(
+        name="company_benefits",
+        path="/v1/companies/{company_uuid}/company_benefits",
+        primary_keys=["uuid"],
+        paginated=False,
+    ),
+    # ACH transactions take no date filter, and `payment_status` / `error_code` change after a
+    # transaction is created, so full refresh keeps failures and settlements current.
+    "ach_transactions": GustoEndpointConfig(
+        name="ach_transactions",
+        path="/v1/companies/{company_uuid}/ach_transactions",
+        primary_keys=["uuid"],
+    ),
+    "recurring_reimbursements": GustoEndpointConfig(
+        name="recurring_reimbursements",
+        path="/v1/employees/{employee_uuid}/recurring_reimbursements",
+        primary_keys=["_employee_uuid", "uuid"],
+        paginated=False,
+        fans_out_over_employees=True,
     ),
 }
 

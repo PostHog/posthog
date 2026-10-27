@@ -1,9 +1,13 @@
 from django.db import models
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDTModel
 
 
-class AccessControl(UUIDTModel):
+# nosemgrep: no-new-uuidt-models -- an existing model, and a new primary key default would need a migration.
+class AccessControl(ModelActivityMixin, UUIDTModel):
+    activity_logging_on_delete = True
+
     class Meta:
         app_label = "ee"
         constraints = [

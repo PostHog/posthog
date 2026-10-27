@@ -1,4 +1,5 @@
 import re
+import dataclasses
 from collections import deque
 from typing import Any
 
@@ -7,10 +8,12 @@ import structlog
 from posthog.dataclasses import frozen
 
 from products.messaging.backend.facade.api import EmailTemplateContent
-from products.workflows.backend.services.data_suggestions.email_design import EmailCopy, render_email
+from products.workflows.backend.facade.contracts import MissingInput
+from products.workflows.backend.services.data_suggestions.email_design import EmailCopy, render_email, with_variables
 from products.workflows.backend.services.data_suggestions.planner import (
     MAX_PLANNED_STEPS,
     Channel,
+    PlannedBranch,
     PlannedStep,
     PlannedWorkflow,
     WorkflowIdea,
@@ -22,6 +25,13 @@ logger = structlog.get_logger(__name__)
 _TEMPLATE_TAGS = re.compile(r"\{\{.*?\}\}|\{%.*?%\}|\{[^{}]*\}", re.DOTALL)
 _EXIT_ID = "exit_node"
 _DEFAULT_MAX_WAIT = "3d"
+_REPEAT_ENTRY_SECONDS = 7 * 24 * 60 * 60
+# Above this many trigger events a week, a first send would hit the team's email limits and its sender reputation,
+# so the draft starts on a random sample that brings the volume down to about this level.
+_SAMPLE_ABOVE_WEEKLY_EVENTS = 50_000
+_SAMPLE_ID = "action_sample"
+_PUSH_TITLE_LIMIT = 65
+PUSH_SETUP_NOTE = "Connect APNs or Firebase, and register device tokens in your app, before you turn this on."
 
 
 @frozen
@@ -40,6 +50,11 @@ class BuildContext:
     sender: EmailSender | None
     slack_integration_id: int | None
     once_per_person: bool = False
+    event_properties: frozenset[str] = frozenset()
+    weekly_count: int = 0
+    # Person property name to the values seen for it, the only ones a branch condition may use.
+    person_properties: dict[str, tuple[str, ...]] = dataclasses.field(default_factory=dict)
+    push_integration_ids: tuple[int, ...] = ()
 
 
 @frozen
@@ -77,8 +92,11 @@ def build_workflow(idea: WorkflowIdea, plan: PlannedWorkflow, context: BuildCont
     links: dict[str, list[_Link]] = {}
     for step in steps:
         step_links = _links(step)
-        if step_links is None or any(link.target is not None and link.target not in steps_by_id for link in step_links):
-            _log_rejection("step links to an unknown step", step_id=step.id, step_type=step.type)
+        unknown = [
+            link.target for link in step_links or [] if link.target is not None and link.target not in steps_by_id
+        ]
+        if step_links is None or unknown:
+            _log_rejection("step links to an unknown step", step_id=step.id, step_type=step.type, targets=unknown)
             return None
         links[step.id] = step_links
     if not _is_acyclic_and_connected(plan.first_step, links):
@@ -93,6 +111,14 @@ def build_workflow(idea: WorkflowIdea, plan: PlannedWorkflow, context: BuildCont
         {"id": "trigger_node", "name": "Trigger", "description": "", "type": "trigger", "config": trigger_config}
     ]
     edges: list[dict[str, Any]] = [{"from": "trigger_node", "to": action_ids[plan.first_step], "type": "continue"}]
+    if context.weekly_count > _SAMPLE_ABOVE_WEEKLY_EVENTS:
+        actions.append(_sample_action(context.weekly_count))
+        edges = [
+            {"from": "trigger_node", "to": _SAMPLE_ID, "type": "continue"},
+            {"from": _SAMPLE_ID, "to": action_ids[plan.first_step], "type": "branch", "index": 0},
+            {"from": _SAMPLE_ID, "to": _EXIT_ID, "type": "branch", "index": 1},
+            {"from": _SAMPLE_ID, "to": _EXIT_ID, "type": "continue"},
+        ]
     uses_saved_template = False
     for step in steps:
         action = _build_step(step, action_ids[step.id], context)
@@ -126,14 +152,30 @@ def build_workflow(idea: WorkflowIdea, plan: PlannedWorkflow, context: BuildCont
             "edges": edges,
             "conversion": {"filters": [], "window_minutes": None},
             "exit_condition": "exit_only_at_end",
-            # A person who repeats a welcome or onboarding event would otherwise start the whole sequence again.
-            **(
-                {"trigger_masking": {"hash": "{person.id}", "ttl": None, "threshold": None}}
-                if context.once_per_person
-                else {}
-            ),
+            # A person who repeats the trigger event would otherwise start the sequence again and get every email again.
+            "trigger_masking": {
+                "hash": "{person.id}",
+                "ttl": None if context.once_per_person else _REPEAT_ENTRY_SECONDS,
+                "threshold": None,
+            },
         },
     )
+
+
+def _sample_action(weekly_count: int) -> dict[str, Any]:
+    share = max(1, _SAMPLE_ABOVE_WEEKLY_EVENTS * 100 // weekly_count)
+    return {
+        "id": _SAMPLE_ID,
+        "name": "Start with a sample",
+        "description": f"Sends to {share}% of people first. Raise it once the first emails land well.",
+        "type": "random_cohort_branch",
+        "config": {
+            "cohorts": [
+                {"percentage": share, "name": "Gets the workflow"},
+                {"percentage": 100 - share, "name": "Skipped for now"},
+            ]
+        },
+    }
 
 
 def _log_rejection(reason: str, **details: Any) -> None:
@@ -213,6 +255,8 @@ def _wait_step(step_id: str, next_id: str) -> PlannedStep:
         email_subject=None,
         email_heading=None,
         email_paragraphs=None,
+        push_title=None,
+        push_body=None,
         slack_message=None,
     )
 
@@ -240,7 +284,7 @@ def _build_step(step: PlannedStep, action_id: str, context: BuildContext) -> dic
         case "sms":
             return _action(step, action_id, "function_sms", {"template_id": "template-twilio", "inputs": {}})
         case "push":
-            return _action(step, action_id, "function_push", {"template_id": "template-native-push", "inputs": {}})
+            return _build_push_step(step, action_id, context)
         case "slack":
             return _action(step, action_id, "function", _slack_config(step, context))
         case "function":
@@ -266,9 +310,10 @@ def _build_step(step: PlannedStep, action_id: str, context: BuildContext) -> dic
                 return None
             return _action(step, action_id, "wait_until_condition", _wait_config(step))
         case "conditional_branch":
-            # Empty filters, like a branch added in the editor, which rejects null filters. The step's note asks the
-            # team to set each condition.
-            conditions = [{"filters": {}, "name": clean_copy(branch.label)[:60]} for branch in step.branches or []]
+            conditions = [
+                {"filters": _branch_filters(branch, context), "name": clean_copy(branch.label)[:60]}
+                for branch in step.branches or []
+            ]
             return _action(step, action_id, "conditional_branch", {"conditions": conditions})
         case "random_split":
             branches = step.branches or []
@@ -282,6 +327,19 @@ def _build_step(step: PlannedStep, action_id: str, context: BuildContext) -> dic
             return _action(step, action_id, "random_cohort_branch", {"cohorts": cohorts})
         case "exit":
             return _action(step, action_id, "exit", {"reason": clean_copy(step.name)[:100] or "Exit"})
+
+
+def _branch_filters(branch: PlannedBranch, context: BuildContext) -> dict[str, Any]:
+    # A property or value the project does not send leaves the filters empty, like a branch added in the editor,
+    # which rejects null filters. The step's note then asks the team to set the condition.
+    values = context.person_properties.get(branch.person_property or "", ())
+    if branch.property_value not in values:
+        return {}
+    return {
+        "properties": [
+            {"key": branch.person_property, "value": [branch.property_value], "operator": "exact", "type": "person"}
+        ]
+    }
 
 
 def _slack_config(step: PlannedStep, context: BuildContext) -> dict[str, Any]:
@@ -300,6 +358,31 @@ def _wait_config(step: PlannedStep) -> dict[str, Any]:
         "events": [{"name": step.wait_event, "filters": {"events": [event]}}],
         "max_wait_duration": step.duration or _DEFAULT_MAX_WAIT,
     }
+
+
+def _build_push_step(step: PlannedStep, action_id: str, context: BuildContext) -> dict[str, Any] | None:
+    title = with_variables(clean_copy(step.push_title or ""), frozenset())[:_PUSH_TITLE_LIMIT]
+    if not title:
+        return None
+    body = with_variables(clean_copy(step.push_body or ""), context.event_properties, raw=True)
+    action = _action(
+        step,
+        action_id,
+        "function_push",
+        {
+            "template_id": "template-native-push",
+            "inputs": {
+                "distinctId": {"value": "{event.distinct_id}", "templating": "hog"},
+                # Every connected app gets the send, and each person only has a device token on the apps they use.
+                "channels": {"value": list(context.push_integration_ids)},
+                "title": {"value": title, "templating": "hog"},
+                "body": {"value": body, "templating": "liquid"},
+            },
+        },
+    )
+    if not context.push_integration_ids:
+        action["description"] = " ".join(filter(None, [PUSH_SETUP_NOTE, action["description"]]))
+    return action
 
 
 def _build_email_step(step: PlannedStep, action_id: str, context: BuildContext) -> dict[str, Any] | None:
@@ -322,10 +405,12 @@ def _build_email_step(step: PlannedStep, action_id: str, context: BuildContext) 
                 subject=clean_copy(step.email_subject),
                 heading=clean_copy(step.email_heading),
                 paragraphs=tuple(clean_copy(paragraph) for paragraph in step.email_paragraphs[:3]),
+                variables=context.event_properties,
             )
         )
         body = {"subject": rendered.subject, "html": rendered.html, "text": rendered.text, "design": rendered.design}
-        name = rendered.subject
+        # The step name is cut to fit the canvas, so it takes the fallback words rather than a Liquid tag.
+        name = with_variables(clean_copy(step.email_subject), frozenset())
 
     sender = context.sender
     return {
@@ -361,3 +446,43 @@ def clean_copy(text: str) -> str:
     cleaned = cleaned.replace("{", "").replace("}", "").strip()
     # Sentence case starts with a capital, which the model does not always write.
     return cleaned[:1].upper() + cleaned[1:]
+
+
+def missing_inputs(
+    workflow: dict[str, Any], input_schemas: dict[str, list[dict[str, Any]]], *, sender_field: str = "Email sender"
+) -> tuple[MissingInput, ...]:
+    """The settings a draft leaves blank: required template inputs, the email sender and unset branch conditions.
+    `input_schemas` maps a template id to its inputs schema."""
+    missing: list[MissingInput] = []
+    for action in workflow["actions"]:
+        config = action.get("config") or {}
+        fields: list[str] = []
+        if action["type"] == "conditional_branch":
+            fields += [
+                f"Condition: {condition.get('name') or 'unnamed'}"
+                for condition in config.get("conditions") or []
+                if not _has_conditions(condition.get("filters"))
+            ]
+        if action["type"] == "function_email":
+            sender = (((config.get("inputs") or {}).get("email") or {}).get("value") or {}).get("from") or {}
+            if not sender.get("email"):
+                fields.append(sender_field)
+        else:
+            inputs = config.get("inputs") or {}
+            fields += [
+                item.get("label") or item.get("key") or "input"
+                for item in input_schemas.get(config.get("template_id") or "", [])
+                if item.get("required") and _is_blank((inputs.get(item.get("key")) or {}).get("value"))
+            ]
+        step_name = action.get("name") or action["id"]
+        missing += [MissingInput(step_id=action["id"], step_name=step_name, field=field) for field in fields]
+    return tuple(missing)
+
+
+def _has_conditions(filters: Any) -> bool:
+    # The draft check compiles every condition, so an unset one still carries source and bytecode keys.
+    return isinstance(filters, dict) and any(filters.get(key) for key in ("properties", "events", "actions"))
+
+
+def _is_blank(value: Any) -> bool:
+    return value is None or value == "" or value == [] or value == {}

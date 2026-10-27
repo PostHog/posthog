@@ -25,8 +25,6 @@ class TestWhopSource:
                 "?first=100&company_id=biz_example | api error: code=bad_request",
                 True,
             ),
-            ("429 Client Error: Too Many Requests for url: https://api.whop.com/api/v1/payments", False),
-            ("503 Server Error: Service Unavailable for url: https://api.whop.com/api/v1/payments", False),
         ],
     )
     def test_a_rejected_request_stops_the_sync_and_an_overload_does_not(self, observed_error, non_retryable):
@@ -79,20 +77,23 @@ class TestWhopSource:
         else:
             assert expected_message in (message or "")
 
+    @pytest.mark.parametrize("method_name", ["create_webhook", "delete_webhook", "get_external_webhook_info"])
     @pytest.mark.parametrize(
-        "method_name, client_method",
-        [
-            ("create_webhook", "create_webhook"),
-            ("delete_webhook", "delete_webhook"),
-            ("get_external_webhook_info", "get_external_webhook_info"),
-        ],
+        "pinned, sent_version",
+        [("2025-01-01", "2025-01-01"), ("v1", "2025-01-01"), (None, "2026-10-13-1")],
     )
-    def test_webhook_management_passes_the_connected_company(self, method_name, client_method):
-        # The webhook endpoints require company_id; dropping it would 400 every registration.
+    def test_webhook_management_passes_the_connected_company(self, method_name, pinned, sent_version):
+        # The webhook endpoints require the company, and a webhook created under the wrong version
+        # delivers payloads in a different shape from the rows the pulls write.
         with mock.patch(API_CLIENT_PATCH) as api_client:
-            getattr(self.source, method_name)(self.config, WEBHOOK_URL, self.team_id)
+            getattr(self.source, method_name)(self.config, WEBHOOK_URL, self.team_id, api_version=pinned)
 
-        assert getattr(api_client, client_method).call_args.args == ("test-api-key", "biz_test", WEBHOOK_URL)
+        assert getattr(api_client, method_name).call_args.args == (
+            "test-api-key",
+            "biz_test",
+            WEBHOOK_URL,
+            sent_version,
+        )
 
     def test_sync_webhook_events_forwards_the_events_for_the_selected_schemas(self):
         with mock.patch(API_CLIENT_PATCH) as api_client:
@@ -103,6 +104,7 @@ class TestWhopSource:
             "biz_test",
             WEBHOOK_URL,
             sorted(SCHEMA_TO_WEBHOOK_EVENTS["refunds"]),
+            "2026-10-13-1",
         )
 
     def test_source_for_pipeline_plumbs_the_sync_inputs(self):

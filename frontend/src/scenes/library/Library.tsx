@@ -121,7 +121,7 @@ function LibraryContent(): JSX.Element {
                               ? 'Nothing matches that search.'
                               : selectedType
                                 ? `No ${selectedType.pluralLabel.toLowerCase()} yet. Create one to see it here.`
-                                : 'Insights, dashboards, flags and everything else you save show up here.'
+                                : 'Flags, experiments, cohorts and everything else you save show up here.'
                     }
                 />
             )}

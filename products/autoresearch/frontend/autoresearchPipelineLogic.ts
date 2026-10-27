@@ -64,14 +64,15 @@ import {
 import type { ConfusionByCutoffApi } from './generated/api.schemas'
 import {
     type AccuracyCutoff,
+    type AccuracyTrend,
+    type AccuracyTrendMetric,
     type PooledConfusion,
-    RealizedAucPoint,
     SegmentCalibration,
+    accuracyTrend,
     calibrationBySegment,
     firstCheckDate,
     latestChampionRow,
     pooledConfusion,
-    realizedAucSeries,
     validatedPredictionDates,
 } from './onlinePerformance'
 import { LifecycleStep, pipelineLifecycle } from './pipelineLifecycle'
@@ -89,6 +90,9 @@ import type { PredictionsPeopleView } from './predictionsPeopleQuery'
 
 /** Where a person opened an experiment from. */
 export type ExperimentOpenSource = 'chart' | 'log'
+
+/** The card whose cutoff picker changed the shared cutoff. */
+export type AccuracyCutoffSource = 'flagged' | 'trend'
 
 export interface AutoresearchPipelineLogicProps {
     id: string
@@ -288,6 +292,8 @@ export interface autoresearchPipelineLogicValues {
     currentProjectId: number | null // projectLogic
     currentTeamId: number | null // teamLogic
     accuracyCutoff: AccuracyCutoff
+    accuracyTrend: AccuracyTrend
+    accuracyTrendMetric: AccuracyTrendMetric
     activeScoreRun: AutoresearchRunApi | null
     activeTab: AutoresearchPipelineTab
     agentSearch: AgentSearch
@@ -308,7 +314,9 @@ export interface autoresearchPipelineLogicValues {
     experimentLogFilter: ExperimentLogFilter
     experimentLogGroups: ExperimentLogGroup[]
     firstCheck: dayjs.Dayjs | null
+    hasChallengerPerformance: boolean
     hasLiveTrainingRun: boolean
+    hoveredAccuracyDate: string | null
     hoveredSearchPoint: SearchPoint | null
     latestChampionPerformance: OnlinePerformanceRowApi | null
     latestPropertyCleanupRun: AutoresearchRunApi | null
@@ -335,7 +343,6 @@ export interface autoresearchPipelineLogicValues {
     probabilityDistributionLoading: boolean
     probabilityHistogram: ProbabilityBucket[] | null
     queuedSuggestionCount: number
-    realizedAucPoints: RealizedAucPoint[]
     reportByRun: Record<string, string | null>
     reportByRunLoading: boolean
     runRoles: Record<string, RunRole>
@@ -353,6 +360,7 @@ export interface autoresearchPipelineLogicValues {
     segmentDefinitions: PredictionSegmentDefinition[] | null
     segmentThresholds: PredictionSegmentThresholdsApi | null
     selectedTab: AutoresearchPipelineTab | null
+    showChallengersInTrend: boolean
     startTrainingResult: AutoresearchTrainingRunApi | null
     startTrainingResultLoading: boolean
     statusBrief: StatusBrief | null
@@ -680,8 +688,15 @@ export interface autoresearchPipelineLogicActions {
     searchPointClicked: (point: SearchPoint) => {
         point: SearchPoint
     }
-    setAccuracyCutoff: (cutoff: AccuracyCutoff) => {
+    setAccuracyCutoff: (
+        cutoff: AccuracyCutoff,
+        source: AccuracyCutoffSource
+    ) => {
         cutoff: keyof ConfusionByCutoffApi
+        source: AccuracyCutoffSource
+    }
+    setAccuracyTrendMetric: (metric: AccuracyTrendMetric) => {
+        metric: AccuracyTrendMetric
     }
     setActiveScoreRun: (run: AutoresearchRunApi | null) => {
         run: AutoresearchRunApi | null
@@ -692,6 +707,9 @@ export interface autoresearchPipelineLogicActions {
     setExperimentLogFilter: (filter: ExperimentLogFilter) => {
         filter: ExperimentLogFilter
     }
+    setHoveredAccuracyDate: (date: string | null) => {
+        date: string | null
+    }
     setHoveredSearchPoint: (point: SearchPoint | null) => {
         point: SearchPoint | null
     }
@@ -700,6 +718,9 @@ export interface autoresearchPipelineLogicActions {
     }
     setSegmentThresholds: (thresholds: PredictionSegmentThresholdsApi) => {
         thresholds: PredictionSegmentThresholdsApi
+    }
+    setShowChallengersInTrend: (show: boolean) => {
+        show: boolean
     }
     setSuggestionDraft: (draft: string) => {
         draft: string
@@ -819,7 +840,13 @@ export interface autoresearchPipelineLogicMeta {
         ) => CoverageSummary | null
         coverageHistory: (runs: AutoresearchRunApi[]) => CoveragePoint[]
         latestChampionPerformance: (onlinePerformance: OnlinePerformanceRowApi[]) => OnlinePerformanceRowApi | null
-        realizedAucPoints: (onlinePerformance: OnlinePerformanceRowApi[]) => RealizedAucPoint[]
+        accuracyTrend: (
+            onlinePerformance: OnlinePerformanceRowApi[],
+            accuracyTrendMetric: AccuracyTrendMetric,
+            accuracyCutoff: keyof ConfusionByCutoffApi,
+            showChallengersInTrend: boolean
+        ) => AccuracyTrend
+        hasChallengerPerformance: (onlinePerformance: OnlinePerformanceRowApi[]) => boolean
         segmentDefinitions: (
             segmentThresholds: PredictionSegmentThresholdsApi | null
         ) => PredictionSegmentDefinition[] | null
@@ -893,7 +920,10 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
     actions({
         setActiveTab: (tab: AutoresearchPipelineTab) => ({ tab }),
         setPredictionsPeopleView: (view: PredictionsPeopleView) => ({ view }),
-        setAccuracyCutoff: (cutoff: AccuracyCutoff) => ({ cutoff }),
+        setAccuracyCutoff: (cutoff: AccuracyCutoff, source: AccuracyCutoffSource) => ({ cutoff, source }),
+        setAccuracyTrendMetric: (metric: AccuracyTrendMetric) => ({ metric }),
+        setShowChallengersInTrend: (show: boolean) => ({ show }),
+        setHoveredAccuracyDate: (date: string | null) => ({ date }),
         setTabFromUrl: (tab: AutoresearchPipelineTab | null) => ({ tab }),
         loadDetail: true,
         toggleRunArtifacts: (runId: string) => ({ runId }),
@@ -946,6 +976,24 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             'top_10' as AccuracyCutoff,
             {
                 setAccuracyCutoff: (_, { cutoff }) => cutoff,
+            },
+        ],
+        accuracyTrendMetric: [
+            'ranking' as AccuracyTrendMetric,
+            {
+                setAccuracyTrendMetric: (_, { metric }) => metric,
+            },
+        ],
+        showChallengersInTrend: [
+            false,
+            {
+                setShowChallengersInTrend: (_, { show }) => show,
+            },
+        ],
+        hoveredAccuracyDate: [
+            null as string | null,
+            {
+                setHoveredAccuracyDate: (_, { date }) => date,
             },
         ],
         activeScoreRun: [
@@ -1456,9 +1504,20 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             (onlinePerformance: OnlinePerformanceRowApi[]): OnlinePerformanceRowApi | null =>
                 latestChampionRow(onlinePerformance),
         ],
-        realizedAucPoints: [
+        accuracyTrend: [
+            (s) => [s.onlinePerformance, s.accuracyTrendMetric, s.accuracyCutoff, s.showChallengersInTrend],
+            (
+                onlinePerformance: OnlinePerformanceRowApi[],
+                accuracyTrendMetric: AccuracyTrendMetric,
+                accuracyCutoff: AccuracyCutoff,
+                showChallengersInTrend: boolean
+            ): AccuracyTrend =>
+                accuracyTrend(onlinePerformance, accuracyTrendMetric, accuracyCutoff, showChallengersInTrend),
+        ],
+        hasChallengerPerformance: [
             (s) => [s.onlinePerformance],
-            (onlinePerformance: OnlinePerformanceRowApi[]): RealizedAucPoint[] => realizedAucSeries(onlinePerformance),
+            (onlinePerformance: OnlinePerformanceRowApi[]): boolean =>
+                onlinePerformance.some((row) => row.emitted_role !== 'champion'),
         ],
         segmentDefinitions: [
             (s) => [s.segmentThresholds],
@@ -1859,8 +1918,20 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 actions.loadPredictionSegments()
             }
         },
-        setAccuracyCutoff: ({ cutoff }) => {
-            posthog.capture('autoresearch model accuracy cutoff changed', { pipeline_id: props.id, cutoff })
+        setAccuracyCutoff: ({ cutoff, source }) => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch model accuracy cutoff changed', { pipeline_id: props.id, cutoff, source })
+        },
+        setAccuracyTrendMetric: ({ metric }) => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch model accuracy trend metric changed', { pipeline_id: props.id, metric })
+        },
+        setShowChallengersInTrend: ({ show }) => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch model accuracy trend challengers toggled', {
+                pipeline_id: props.id,
+                shown: show,
+            })
         },
         setWritePersonProperty: async ({ enabled, source }) => {
             if (!values.currentTeamId) {

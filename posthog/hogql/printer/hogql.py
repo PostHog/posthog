@@ -120,6 +120,13 @@ class HogQLPrinter(BasePrinter):
     def _expands_placeholder_macros(self) -> bool:
         return False
 
+    def visit_call(self, node: ast.Call):
+        if node.name.lower() == "sha1":
+            connection_function = self._render_connection_supported_function(node)
+            if connection_function is not None:
+                return connection_function
+        return super().visit_call(node)
+
     def _render_connection_supported_function(self, node: ast.Call) -> str | None:
         if node.name.lower() in self._get_connection_supported_functions():
             return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"

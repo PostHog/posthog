@@ -13,9 +13,11 @@ import {
     canvasesRequestAgentCreate,
     canvasesStateRetrieve,
     canvasesStateSet,
+    canvasesToolsInvoke,
 } from '../generated/api'
 import type {
     CanvasActionDefinitionApi,
+    CanvasToolDefinitionApi,
     CanvasConnectorCallResultApi,
     CanvasStateEntryApi,
 } from '../generated/api.schemas'
@@ -33,6 +35,7 @@ const DEFAULT_READ_TTL_SECONDS = 5 * 60
 const CONNECTOR_READ_TTL_SECONDS = 60
 const MAX_STATE_PAGES = 20
 const canvasQuerySchema = z.object({ kind: z.nativeEnum(NodeKind) }).passthrough()
+const CANVAS_QUERY_TAGS = { productKey: 'canvas', scene: 'Canvas' }
 // pinned: `$lib` value on events a canvas captures, shared with PostHog Desktop
 const CANVAS_CAPTURE_LIB = 'posthog-canvas'
 
@@ -73,7 +76,31 @@ interface CanvasDataResult {
     insight?: { name: string | null; kind: string | null; display: string | null }
 }
 
-type QueryNode = { kind?: string; source?: QueryNode | null; variables?: Record<string, unknown> | null }
+type QueryNode = {
+    kind?: string
+    source?: QueryNode | null
+    variables?: Record<string, unknown> | null
+    tags?: Record<string, unknown> | null
+}
+
+// The backend schemas of these kinds have no `tags` field and forbid extra fields, so a tag fails validation.
+const UNTAGGABLE_QUERY_KINDS = new Set<string>([
+    NodeKind.InsightVizNode,
+    NodeKind.DataVisualizationNode,
+    NodeKind.BIVisualizationNode,
+    NodeKind.InsightActorsQueryOptions,
+    NodeKind.WebAnalyticsExternalSummaryQuery,
+])
+
+// Tag every node in the source chain, because a runner like InsightActorsQuery reads its own tags
+// and does not run its source. The canvas cannot override attribution, so its own tags lose to ours.
+function withCanvasQueryTags<T extends QueryNode>(node: T): T {
+    const tagged =
+        node.kind && UNTAGGABLE_QUERY_KINDS.has(node.kind)
+            ? node
+            : { ...node, tags: { ...node.tags, ...CANVAS_QUERY_TAGS } }
+    return tagged.source?.kind ? { ...tagged, source: withCanvasQueryTags(tagged.source) } : tagged
+}
 
 function refreshSeconds(value: unknown): number | undefined {
     if (value === undefined) {
@@ -138,6 +165,7 @@ function assertVariablesApplied(
 export class CanvasDataBridge {
     private readonly cache = new CanvasReadCache()
     private readonly connectorConsent = new Map<string, boolean>()
+    private toolRegistry: Promise<CanvasToolDefinitionApi[]> | null = null
 
     constructor(
         private readonly context: () => CanvasDataBridgeContext,
@@ -161,6 +189,10 @@ export class CanvasDataBridge {
                 return this.stateList(input)
             case 'actionInvoke':
                 return this.actionInvoke(input)
+            case 'toolRead':
+                return this.toolInvoke(input, false)
+            case 'toolCall':
+                return this.toolInvoke(input, true)
             case 'agentRequest':
                 return this.agentRequest(payload)
             case 'connectorCall':
@@ -182,7 +214,9 @@ export class CanvasDataBridge {
             throw new Error('ph.query parameters are not supported. Use a typed query with variables instead.')
         }
         const refresh = refreshSeconds(input.refresh)
-        const node = canvasQuerySchema.parse(typed ? input.query : { kind: NodeKind.HogQLQuery, query: hogql })
+        const node = withCanvasQueryTags(
+            canvasQuerySchema.parse(typed ? input.query : { kind: NodeKind.HogQLQuery, query: hogql })
+        )
         return this.cache.read(
             'query',
             { node, params: input.params },
@@ -342,6 +376,49 @@ export class CanvasDataBridge {
             verb,
             payload,
         })
+    }
+
+    // ph.tools.read runs without a click, so it takes read-only tools only. ph.tools.call
+    // comes from a click, and the viewer confirms every tool that is not read-only.
+    private async toolInvoke(input: Record<string, unknown>, fromGesture: boolean): Promise<unknown> {
+        const name = input.tool
+        if (typeof name !== 'string' || !name) {
+            throw new Error('ph.tools requires a tool name')
+        }
+        const { projectId, canvasId } = this.context()
+        const tool = (await this.tools(projectId)).find((entry) => entry.name === name)
+        if (!tool) {
+            throw new Error(`Canvases cannot run the tool "${name}"`)
+        }
+        if (!fromGesture && !tool.read_only) {
+            throw new Error(`"${name}" changes data. Run it with ph.tools.call from a click.`)
+        }
+        const args = (input.arguments as Record<string, unknown> | undefined) ?? {}
+        if (
+            !tool.read_only &&
+            !(await this.prompts.confirmAction({
+                action: { verb: tool.name, summary: tool.summary, destructive: tool.destructive, usage: '' },
+                payload: args,
+            }))
+        ) {
+            throw new Error('Canvas tool call canceled')
+        }
+        const { result } = await canvasesToolsInvoke(projectId, canvasId, { tool: name, arguments: args })
+        return result
+    }
+
+    // The allowlist changes only with a deploy, so a board that reads many flags on load fetches it once.
+    private tools(projectId: string): Promise<CanvasToolDefinitionApi[]> {
+        if (!this.toolRegistry) {
+            this.toolRegistry = canvasesActionsRetrieve(projectId).then(
+                ({ tools }) => tools,
+                (error) => {
+                    this.toolRegistry = null
+                    throw error
+                }
+            )
+        }
+        return this.toolRegistry
     }
 
     private async agentRequest(payload: unknown): Promise<{ requestOutcome: string; taskId: string }> {

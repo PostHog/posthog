@@ -8,6 +8,7 @@ import {
     IconClock,
     IconDay,
     IconDecisionTree,
+    IconEye,
     IconFilter,
     IconHourglass,
     IconLeave,
@@ -242,6 +243,10 @@ const HogFlowStepConfigs: Partial<{
 
             if (action.config.template_id === 'template-native-push') {
                 return <IconNotification />
+            }
+
+            if (action.config.template_id === 'template-posthog-replay-vision') {
+                return <IconEye />
             }
 
             const template = hogFunctionTemplatesById[action.config.template_id]

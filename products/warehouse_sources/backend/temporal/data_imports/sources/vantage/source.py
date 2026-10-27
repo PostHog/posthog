@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.vantage.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    SHOULD_SYNC_DEFAULT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.vantage.vantage import (
     VantageResumeConfig,
@@ -55,7 +56,7 @@ class VantageSource(ResumableSource[VantageSourceConfig, VantageResumeConfig]):
             name=ExternalDataSourceType.VANTAGE,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Vantage",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Vantage API access token to pull your Vantage FinOps data into the PostHog Data warehouse.
 
 Create a read-scoped access token or a service token from your [Vantage settings](https://console.vantage.sh/settings/access_tokens). Only the `read` scope is required for imports.""",
@@ -100,7 +101,7 @@ Create a read-scoped access token or a service token from your [Vantage settings
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, should_sync_default=SHOULD_SYNC_DEFAULT)
 
     def validate_credentials(
         self,

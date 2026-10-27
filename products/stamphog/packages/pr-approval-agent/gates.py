@@ -17,7 +17,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
-from policy import DenyException, OwnershipSource, load_policy
+from policy import DenyException, OwnershipSource, load_effective_policy
 
 if TYPE_CHECKING:
     from owners_yaml.resolver import OwnersResolver
@@ -339,7 +339,7 @@ def detect_ownership(files: list[str], resolvers: list[OwnershipResolver]) -> di
 # deny paths and validates the declared ownership formats against
 # OWNERSHIP_FORMATS. A malformed policy raises at import. The tool fails
 # closed, and crashes rather than gating on a half-loaded policy.
-POLICY = load_policy(lockfile_names=_ALL_LOCKFILE_NAMES, ownership_formats=OWNERSHIP_FORMAT_LOCATORS)
+POLICY = load_effective_policy(lockfile_names=_ALL_LOCKFILE_NAMES, ownership_formats=OWNERSHIP_FORMAT_LOCATORS)
 
 _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = POLICY.deny_pattern_defs()
 
@@ -503,20 +503,21 @@ def test_only(categories: dict[str, int]) -> bool:
 
 # ── Deny / allow detection ───────────────────────────────────────
 
-# Per-category path prefixes exempt from deny matching, sourced from each deny
-# category's `exempt_path_prefixes` in the policy file. Categories without an
-# entry (crypto_secrets, migrations, infra_cicd, …) apply everywhere - connector
-# code that stores customer API keys still deserves the crypto gate. Code under
-# the warehouse-connector trees performs auth/OAuth/billing-API handshakes as
-# part of its normal job, so it legitimately mentions auth, oauth, stripe,
-# api_key, etc. without touching the auth *system* or PostHog's own billing.
-DENY_EXEMPT_PATH_PREFIXES: dict[str, tuple[str, ...]] = {
-    category: cat.exempt_path_prefixes for category, cat in POLICY.deny.items() if cat.exempt_path_prefixes
+# A deny exception with no keyword lifts every pattern of its category, so a file it covers is
+# exempt from that category as a whole.
+DENY_CATEGORY_EXCEPTIONS: dict[str, tuple[DenyException, ...]] = {
+    category: keywordless
+    for category, rules in POLICY.deny_exceptions.items()
+    if (keywordless := tuple(rule for rule in rules if rule.keyword is None))
 }
 
 
 def _is_exempt_path(category: str, path: str) -> bool:
-    return path.lower().startswith(DENY_EXEMPT_PATH_PREFIXES.get(category, ()))
+    path_lower = path.lower()
+    return any(
+        path_lower.startswith(rule.path_prefixes) and (not rule.extensions or path_lower.endswith(rule.extensions))
+        for rule in DENY_CATEGORY_EXCEPTIONS.get(category, ())
+    )
 
 
 DENY_EXEMPT_AUTHOR_TEAMS: dict[str, tuple[str, ...]] = {
@@ -525,11 +526,11 @@ DENY_EXEMPT_AUTHOR_TEAMS: dict[str, tuple[str, ...]] = {
 
 
 def category_fully_exempt(category: str, files: list[str]) -> bool:
-    """True when every changed file is exempt for this category.
+    """True when a keyword-free deny exception of this category covers every changed file.
 
     Used to suppress title scrutiny flags on connector-only PRs: a Stripe
     source fix legitimately says "stripe"/"oauth" in its title, and flagging
-    it re-creates the friction the path exemption exists to remove.
+    it re-creates the friction the exception exists to remove.
     """
     return bool(files) and all(_is_exempt_path(category, f) for f in files)
 
@@ -543,7 +544,6 @@ def detect_deny_categories(
     paths_lower = [fl for f in files if (fl := f.lower()) not in ignored_files_lower]
 
     for category, scopes in DENY_PATTERNS.items():
-        category_paths = [p for p in paths_lower if not _is_exempt_path(category, p)]
         path_regexes = scopes.get("paths", []) + [path_rx for path_rx, _title_rx in scopes.get("any", [])]
         exceptions = DENY_EXCEPTIONS.get(category, {}) if apply_exceptions else {}
         if any(
@@ -553,7 +553,7 @@ def detect_deny_categories(
                 for rule in exceptions.get(rx, ())
             )
             for rx in path_regexes
-            for p in category_paths
+            for p in paths_lower
         ):
             hits.add(category)
     return sorted(hits)

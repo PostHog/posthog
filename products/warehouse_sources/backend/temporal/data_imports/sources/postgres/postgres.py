@@ -4,6 +4,7 @@ import re
 import math
 import time
 import errno
+import weakref
 import collections
 import dataclasses
 from collections.abc import Callable, Iterator
@@ -60,6 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    SSH_HANDSHAKE_EOF_ERROR as _SSH_HANDSHAKE_EOF_ERROR,
     open_ssh_tunnel,
     pinned_host_kwargs,
 )
@@ -93,6 +95,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates_psycopg import (
     and_join,
     render_psycopg_row_filter_conditions,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import (
+    CERTIFICATE_ERRORS,
+    TLSOptions,
+    libpq_tls_kwargs,
+    tls_options,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
@@ -382,6 +390,15 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # "no error details available" suffix is the signal — libpq only omits the message in this local,
     # pre-handshake case, so it never matches a genuine (and permanent) server-reported rejection.
     "connection is bad: no error details available",
+    # A TCP proxy/load balancer fronting the actual Postgres backend (common on providers that put
+    # a public endpoint in front of a private-network database) reports a failed connect to its own
+    # upstream as a bare FATAL error: "FATAL:  failed to connect to upstream <ip>:<port>". The proxy
+    # itself answered fine; the backend behind it was momentarily unreachable (a restart, failover,
+    # or scaling event on the provider's private network) — the same transient class as Supavisor's
+    # "{:error, :econnrefused}"/"{:error, :etimedout}" above, just worded by a different proxy. A
+    # fresh reconnect recovers once the backend is reachable again. Match the stable phrase and
+    # exclude the volatile upstream ip:port.
+    "failed to connect to upstream",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
@@ -928,6 +945,11 @@ def _is_options_startup_param_unsupported(error: BaseException) -> bool:
 # reach a PostgreSQL server speaking the SSL protocol — a wrong port, an HTTP/proxy/edge endpoint,
 # or a TCP proxy fronting a paused/deleted database. Don't mislabel it "SSL not supported": let the
 # raw message reach `get_non_retryable_errors` for an accurate, non-retryable diagnosis.
+# The source type the managed-warehouse host exemption is keyed on. Kept next to the one
+# connect this module opens so a managed warehouse host is treated the same at connect time
+# as it is at validation time.
+_HOST_CHECK_SOURCE_TYPE = "postgres"
+
 _INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING = "received invalid response to ssl negotiation"
 
 
@@ -935,7 +957,16 @@ def _is_invalid_ssl_negotiation_response(error: BaseException) -> bool:
     return _INVALID_SSL_NEGOTIATION_RESPONSE_SUBSTRING in " ".join(str(arg) for arg in error.args).lower()
 
 
-def _open_connection(*, team_id: int | None = None, **connect_kwargs: Any) -> psycopg.Connection:
+# libpq mentions SSL when it refuses the server certificate or the server refuses ours. The server
+# does speak TLS there, so the "enable SSL" advice of `SSLRequiredError` would mislead.
+def _is_certificate_rejection(error: BaseException) -> bool:
+    message = " ".join(str(arg) for arg in error.args).lower()
+    return any(marker in message for marker in CERTIFICATE_ERRORS)
+
+
+def _open_connection(
+    *, team_id: int | None = None, tls: TLSOptions | None = None, **connect_kwargs: Any
+) -> psycopg.Connection:
     """The one `psycopg.connect` in this module. Every connection to a source database opens
     here so that `pinned_host_kwargs` decides what gets dialed.
 
@@ -943,12 +974,25 @@ def _open_connection(*, team_id: int | None = None, **connect_kwargs: Any) -> ps
     `_OPTIONS_STARTUP_PARAM_UNSUPPORTED_SUBSTRINGS` for why transaction-mode poolers reject
     `options` and why dropping it is safe.
     """
+    if tls is not None:
+        tls_files = ExitStack()
+        tls_kwargs = tls_files.enter_context(libpq_tls_kwargs(tls))
+        try:
+            connection = _open_connection(team_id=team_id, **{**connect_kwargs, **tls_kwargs})
+        except BaseException:
+            tls_files.close()
+            raise
+        # libpq 17 reads the certificate files again for every `cancel_safe` request, so they must
+        # last as long as the connection.
+        weakref.finalize(connection, tls_files.close)
+        return connection
     connect_kwargs.update(
         pinned_host_kwargs(
             connect_kwargs["host"],
             port=connect_kwargs.get("port", 5432),
             connect_timeout=connect_kwargs.get("connect_timeout", 15),
             team_id=team_id,
+            source_type=_HOST_CHECK_SOURCE_TYPE,
         )
     )
     try:
@@ -972,6 +1016,7 @@ def _connect_to_postgres(
     require_ssl: bool = False,
     connect_timeout: int = 15,
     team_id: int | None = None,
+    tls: TLSOptions | None = None,
     **kwargs: Any,
 ) -> psycopg.Connection:
     sslmode = _get_sslmode(require_ssl)
@@ -985,6 +1030,7 @@ def _connect_to_postgres(
     try:
         return _open_connection(
             team_id=team_id,
+            tls=tls,
             host=host,
             port=port,
             dbname=database,
@@ -1004,6 +1050,7 @@ def _connect_to_postgres(
             require_ssl
             and "SSL" in str(e)
             and not _is_invalid_ssl_negotiation_response(e)
+            and not _is_certificate_rejection(e)
             and not _is_connection_dropped_error(e)
         ):
             raise SSLRequiredError(
@@ -1023,6 +1070,7 @@ def pg_connection(
     password: str,
     require_ssl: bool = False,
     team_id: int | None = None,
+    tls: TLSOptions | None = None,
 ) -> Iterator[psycopg.Connection]:
     """Context manager that opens a postgres connection and ensures it is closed on exit."""
     conn = _connect_to_postgres(
@@ -1033,6 +1081,7 @@ def pg_connection(
         password=password,
         require_ssl=require_ssl,
         team_id=team_id,
+        tls=tls,
     )
     try:
         yield conn
@@ -1418,6 +1467,18 @@ def _is_pooler_login_cooldown_error(error: BaseException) -> bool:
     return "server login has been failing" in message and "server_login_retry" in message
 
 
+def _is_activity_cancelled(error: BaseException) -> bool:
+    """True when `error` is Temporal cancelling the activity, not a genuine query failure.
+
+    Temporal can inject a `temporalio.exceptions.CancelledError` (an `Exception` subclass) into
+    whatever statement is running when the activity is cancelled or hits its
+    `start_to_close_timeout` — here, typically the catalog query inside a best-effort metadata
+    probe. Match on the type name rather than importing temporalio into this module, mirroring
+    `sync_lock._is_cancellation`.
+    """
+    return type(error).__name__ == "CancelledError"
+
+
 def _rls_active_from_conn(
     connection: psycopg.Connection,
     schema: str | None,
@@ -1501,6 +1562,9 @@ def _rls_active_from_conn(
         # `_xmin_capable_tables_from_conn`, which already degrades quietly for it). A pooler
         # login-retry cooldown (e.g. a duckgres-backed source's own metadata store momentarily
         # can't log in) is the same self-healing shape — see `_is_pooler_login_cooldown_error`.
+        # Temporal cancelling the activity mid-probe (user cancelled the sync, or the activity hit
+        # its `start_to_close_timeout`) is the same shape too: the sync is ending regardless of
+        # what this best-effort lookup returns, so there's nothing to fix here.
         # Still capture genuinely unexpected failures.
         if (
             not connection.closed
@@ -1510,6 +1574,7 @@ def _rls_active_from_conn(
             and not _is_unsupported_statement_timeout_error(e)
             and not _is_statement_timeout_error(e)
             and not _is_pooler_login_cooldown_error(e)
+            and not _is_activity_cancelled(e)
         ):
             capture_exception(e)
         return {}
@@ -1585,6 +1650,7 @@ def get_postgres_row_count(
     schema: str | None,
     require_ssl: bool = False,
     team_id: int | None = None,
+    tls: TLSOptions | None = None,
     names: list[str] | None = None,
 ) -> dict[str, int]:
     if _normalize_selected_schema(schema) is None and not names:
@@ -1598,6 +1664,7 @@ def get_postgres_row_count(
             password=password,
             require_ssl=require_ssl,
             team_id=team_id,
+            tls=tls,
         ) as connection:
             return _row_counts_from_conn(connection, schema, names)
     except:
@@ -1716,6 +1783,7 @@ def get_schemas(
     port: int,
     require_ssl: bool = False,
     team_id: int | None = None,
+    tls: TLSOptions | None = None,
     names: list[str] | None = None,
 ) -> dict[str, PostgresDiscoveredSchema]:
     """Get all tables from PostgreSQL source schemas to sync."""
@@ -1746,6 +1814,7 @@ def get_schemas(
             password=password,
             require_ssl=require_ssl,
             team_id=team_id,
+            tls=tls,
         )
         try:
             return _schemas_from_conn(connection, schema, names)
@@ -1770,6 +1839,7 @@ def get_primary_keys_for_schemas(
     table_names: list[str],
     require_ssl: bool = False,
     team_id: int | None = None,
+    tls: TLSOptions | None = None,
 ) -> dict[str, list[str] | None]:
     """Detect primary keys for all tables in a single query."""
     result: dict[str, list[str] | None] = dict.fromkeys(table_names)
@@ -1783,6 +1853,7 @@ def get_primary_keys_for_schemas(
             password=password,
             require_ssl=require_ssl,
             team_id=team_id,
+            tls=tls,
         ) as connection:
             pks = get_primary_key_columns(connection, schema, table_names)
             for table_name, pk_cols in pks.items():
@@ -1870,6 +1941,7 @@ def get_foreign_keys(
     port: int,
     require_ssl: bool = False,
     team_id: int | None = None,
+    tls: TLSOptions | None = None,
     names: list[str] | None = None,
 ) -> dict[str, list[tuple[str, str, str]]]:
     """Get foreign keys for tables in the selected PostgreSQL schema."""
@@ -1881,8 +1953,21 @@ def get_foreign_keys(
         password=password,
         require_ssl=require_ssl,
         team_id=team_id,
+        tls=tls,
     ) as connection:
         return _foreign_keys_from_conn(connection, schema, names)
+
+
+def _get_connection_functions(cursor: psycopg.Cursor, query: str) -> list[str]:
+    try:
+        cursor.execute(query)
+        functions = _normalize_function_names([row[0] for row in cursor.fetchall()])
+        return [fn for fn in functions if not is_dangerous_table_function(fn)]
+    except Exception as error:
+        # Even a failed SELECT aborts PostgreSQL's transaction; reset it before the next catalog query.
+        cursor.connection.rollback()
+        capture_exception(error)
+        return []
 
 
 def get_connection_metadata(
@@ -1893,6 +1978,7 @@ def get_connection_metadata(
     port: int,
     require_ssl: bool = False,
     team_id: int | None = None,
+    tls: TLSOptions | None = None,
 ) -> dict[str, Any]:
     with pg_connection(
         host=host,
@@ -1902,6 +1988,7 @@ def get_connection_metadata(
         password=password,
         require_ssl=require_ssl,
         team_id=team_id,
+        tls=tls,
     ) as connection:
         with connection.cursor() as cursor:
             cursor.execute("SELECT current_database(), version()")
@@ -1911,42 +1998,42 @@ def get_connection_metadata(
             is_duckdb = "duckdb" in version.lower() or "duckgres" in version.lower()
 
             function_source = "duckdb_functions" if is_duckdb else "pg_proc"
-            available_functions: list[str] = []
-            available_table_functions: list[str] = []
-
-            try:
-                if is_duckdb:
-                    cursor.execute("SELECT DISTINCT function_name FROM duckdb_functions()")
-                else:
-                    cursor.execute("SELECT DISTINCT proname FROM pg_proc WHERE pg_function_is_visible(oid)")
-                available_functions = _normalize_function_names([row[0] for row in cursor.fetchall()])
-            except Exception as error:
-                capture_exception(error)
-
-            try:
-                if is_duckdb:
-                    cursor.execute(
-                        "SELECT DISTINCT function_name FROM duckdb_functions() WHERE function_type = 'table'"
-                    )
-                else:
-                    # prokind='f' excludes aggregates/windows/procedures; proretset=true selects set-returning fns,
-                    # which is how Postgres exposes table functions in pg_proc.
-                    cursor.execute(
-                        "SELECT DISTINCT proname FROM pg_proc "
-                        "WHERE pg_function_is_visible(oid) AND proretset = true AND prokind = 'f'"
-                    )
-                available_table_functions = _normalize_function_names([row[0] for row in cursor.fetchall()])
-            except Exception as error:
-                capture_exception(error)
-
-            available_functions = [fn for fn in available_functions if not is_dangerous_table_function(fn)]
-            available_table_functions = [fn for fn in available_table_functions if not is_dangerous_table_function(fn)]
-
-            return {
+            metadata: dict[str, Any] = {
                 "database": current_database,
                 "version": version,
                 "engine": "duckdb" if is_duckdb else "postgres",
                 "function_source": function_source,
+            }
+            if is_duckdb:
+                available_functions = _get_connection_functions(
+                    cursor, "SELECT DISTINCT function_name FROM duckdb_functions()"
+                )
+                available_table_functions = _get_connection_functions(
+                    cursor, "SELECT DISTINCT function_name FROM duckdb_functions() WHERE function_type = 'table'"
+                )
+            else:
+                available_functions = _get_connection_functions(
+                    cursor, "SELECT DISTINCT proname FROM pg_proc WHERE pg_function_is_visible(oid)"
+                )
+                # prokind='f' excludes aggregates/windows/procedures; proretset=true selects set-returning fns,
+                # which is how Postgres exposes table functions in pg_proc.
+                available_table_functions = _get_connection_functions(
+                    cursor,
+                    "SELECT DISTINCT proname FROM pg_proc "
+                    "WHERE pg_function_is_visible(oid) AND proretset = true AND prokind = 'f'",
+                )
+                try:
+                    cursor.execute(
+                        "SELECT n.nspname FROM pg_extension e "
+                        "JOIN pg_namespace n ON n.oid = e.extnamespace WHERE e.extname = 'pgcrypto'"
+                    )
+                    extension = cursor.fetchone()
+                    metadata["pgcrypto_schema"] = extension[0] if extension else None
+                except Exception as error:
+                    capture_exception(error)
+
+            return {
+                **metadata,
                 "available_functions": available_functions,
                 "available_table_functions": available_table_functions,
             }
@@ -2815,6 +2902,15 @@ def _has_duplicate_primary_keys(
         # follows fails on the same denial — already surfaced as non-retryable with an actionable
         # message via `get_non_retryable_errors`. Propagate rather than capture it as noise.
         raise
+    except psycopg.errors.RaiseException:
+        # SQLSTATE P0001, raised only by a plain `RAISE EXCEPTION` inside a PL/pgSQL function —
+        # never by Postgres itself. Since this source only reads, it's almost always a row-level
+        # security policy or computed-column function blocking the SELECT, and the extraction
+        # that follows hits the same raise. Swallowing it as "no duplicate keys" would be a false
+        # negative and double the error-tracking noise. Propagate so it surfaces once, through
+        # the same non-retryable classification (where the message names an access denial) as the
+        # extraction failure; a transient custom raise stays retryable either way.
+        raise
     except psycopg.OperationalError:
         # A connection-level failure here (e.g. a foreign-data-wrapper server refusing a new
         # connection with "too many connections") means the probe never ran — swallowing it as
@@ -2859,7 +2955,8 @@ def resolve_postgres_keyset(
 ) -> PostgresKeyset:
     """Decide how far this run can go: no seek, seek only, or seek plus a durable checkpoint."""
     if should_use_incremental_field:
-        # Already resumable from its persisted watermark, and seeking would double the work.
+        # v3 moves the watermark only when the run's load completes, so a cut-off attempt restarts from the old
+        # watermark unless the handoff checkpoint applies. A keyset seek on top of that would double the work.
         return PostgresKeyset(reason="incremental_sync")
     if is_xmin:
         # An xmin read appends deltas, so restarting it from key 0 would duplicate what it wrote.
@@ -3522,6 +3619,16 @@ def _get_table(
                 table=table_name,
                 error=str(e),
             )
+            # `cursor.connection.transaction()` rolls back the BEGIN it opened when the probe
+            # raises, but psycopg only logs and swallows a rollback that itself fails (e.g. the
+            # client-side deadline above canceled the probe mid-flight) instead of raising —
+            # silently leaving the session `InFailedSqlTransaction`. Clear it defensively so every
+            # later statement on this connection (the read-replica check, primary key lookup, the
+            # actual read) doesn't fail as a downstream symptom of this best-effort probe.
+            try:
+                cursor.connection.rollback()
+            except Exception:
+                pass
 
     columns = []
     for name, data_type, nullable, numeric_precision_candidate, numeric_scale_candidate in metadata_rows:
@@ -3594,16 +3701,6 @@ def _get_table(
     return Table(name=table_name, parents=(schema,), columns=columns, type=table_type)
 
 
-# paramiko raises a bare, message-less EOFError from `start_client` when the SSH gateway accepts
-# the TCP connection but closes it during the SSH handshake — a non-SSH service on the port, a
-# bastion refusing PostHog's IPs, or a proxy that resets the stream. sshtunnel doesn't wrap it (it
-# only translates *auth* failures into BaseSSHTunnelForwarderError), so it escapes with an empty
-# `str()`, matching no non-retryable rule and retrying forever. `_tunnel_with_handshake_translation`
-# turns it into this stable, classifiable message (see `PostgresSource.get_non_retryable_errors`) —
-# same gateway-configuration class as a wrapped "Could not establish session to SSH gateway".
-_SSH_HANDSHAKE_EOF_ERROR = "SSH gateway closed the connection during the SSH handshake"
-
-
 @contextmanager
 def _tunnel_with_handshake_translation(
     tunnel: Callable[[], _GeneratorContextManager[tuple[str, int]]],
@@ -3637,6 +3734,7 @@ def postgres_source(
     incremental_field: Optional[str] = None,
     incremental_field_type: Optional[IncrementalFieldType] = None,
     require_ssl: bool = False,
+    tls: TLSOptions | None = None,
     is_initial_sync: bool = False,
     enabled_columns: Optional[list[str]] = None,
     row_filters: Optional[list[ValidatedRowFilter]] = None,
@@ -3668,6 +3766,7 @@ def postgres_source(
             try:
                 conn = _open_connection(
                     team_id=team_id,
+                    tls=tls,
                     host=host,
                     port=port,
                     dbname=database,
@@ -3686,6 +3785,7 @@ def postgres_source(
                     require_ssl
                     and "SSL" in str(e)
                     and not _is_invalid_ssl_negotiation_response(e)
+                    and not _is_certificate_rejection(e)
                     and not _is_connection_dropped_error(e)
                 ):
                     raise SSLRequiredError(
@@ -4064,6 +4164,7 @@ def postgres_source(
                 try:
                     connection = _open_connection(
                         team_id=team_id,
+                        tls=tls,
                         host=host,
                         port=port,
                         dbname=database,
@@ -4083,6 +4184,7 @@ def postgres_source(
                         require_ssl
                         and "SSL" in str(e)
                         and not _is_invalid_ssl_negotiation_response(e)
+                        and not _is_certificate_rejection(e)
                         and not _is_connection_dropped_error(e)
                     ):
                         raise SSLRequiredError(
@@ -4743,6 +4845,17 @@ def postgres_source(
             )
         )
 
+    # One statement with `ORDER BY <incremental field>` proves the order for the whole run. A read
+    # per partition, per window or per LIMIT/OFFSET page issues several statements, so it does not.
+    reads_one_ordered_statement = (
+        should_use_incremental_field
+        and incremental_field is not None
+        and xmin_bounds is None
+        and not is_duckdb
+        and not use_window_chunking
+        and not use_per_partition_chunking
+    )
+
     return SourceResponse(
         name=name,
         items=lambda: get_rows(chunk_size),
@@ -4755,6 +4868,7 @@ def postgres_source(
         # position to another pod, and one that could checkpoint but reads through a server cursor
         # has no position to hand over. `supports_resume` defaults to True, so this must be explicit.
         supports_resume=can_checkpoint and takes_keyset_path,
+        sort_mode="asc" if reads_one_ordered_statement else None,
     )
 
 
@@ -4791,6 +4905,7 @@ class PostgresImplementation(SQLSourceImplementation[PostgresSourceConfig, psyco
                 password=config.password,
                 require_ssl=require_ssl,
                 team_id=team_id,
+                tls=tls_options(config),
             ) as conn:
                 yield conn
 

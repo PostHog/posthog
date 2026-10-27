@@ -116,6 +116,7 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                 option={primaryChart}
                 size="primary"
                 source="Pageviews and screen views"
+                loadPriority={0}
             />
 
             <section className="flex flex-col gap-3" aria-label="What people do">
@@ -128,6 +129,7 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                         key={contentChart.key}
                         option={contentChart}
                         size="ranking"
+                        loadPriority={2}
                         source={selectedContentKey === 'top_pages' ? 'Pageviews' : 'Screen views'}
                         control={
                             <LemonSelect
@@ -143,7 +145,7 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                             />
                         }
                     />
-                    <HomeTabChartCard option={eventsChart} size="ranking" source="Captured events" />
+                    <HomeTabChartCard option={eventsChart} size="ranking" source="Captured events" loadPriority={2} />
                 </div>
             </section>
 
@@ -156,13 +158,14 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                             option={option}
                             size="supporting"
                             source="Pageviews and screen views"
+                            loadPriority={3}
                         />
                     ))}
                 </div>
             </section>
 
             <div className="grid min-w-0 grid-cols-1 gap-3 @min-[44rem]/home-overview:grid-cols-2">
-                <HomeTabChartCard option={retentionChart} size="supporting" source="Pageviews" />
+                <HomeTabChartCard option={retentionChart} size="supporting" source="Pageviews" loadPriority={4} />
                 <HomeTabExplore />
             </div>
         </div>

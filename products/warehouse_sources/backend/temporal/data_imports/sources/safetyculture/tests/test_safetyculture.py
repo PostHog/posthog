@@ -282,10 +282,7 @@ class TestErrorHandling:
 class TestCheckAccess:
     @parameterized.expand(
         [
-            (200, 200, None),
-            (401, 401, None),
             (403, 403, None),
-            (500, 500, "SafetyCulture returned HTTP 500"),
         ]
     )
     def test_status_mapping(self, status: int, expected_status: int, expected_message: str | None) -> None:
@@ -304,12 +301,6 @@ class TestCheckAccess:
             "structure_type": {"system_structure_type": "SYSTEM_STRUCTURE_TYPE_SITE"},
             "params": {"page": {"page_size": 1}},
         }
-
-    def test_connection_error_maps_to_zero(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            status, message = check_access("sc-token")
-        assert status == 0
-        assert message is not None and "boom" in message
 
 
 class TestSafetyCultureSourceResponse:

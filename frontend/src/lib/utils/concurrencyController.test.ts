@@ -5,12 +5,14 @@ import { delay } from 'lib/utils/async'
 import { ConcurrencyController } from './concurrencyController'
 
 describe('concurrencyController', () => {
-    const setup = (): {
+    const setup = (
+        options?: ConstructorParameters<typeof ConcurrencyController>[1]
+    ): {
         concurrencyController: ConcurrencyController
         results: string[]
         run: (n: number, priority: number, abortController?: AbortController) => Promise<number>
     } => {
-        const concurrencyController = new ConcurrencyController(1)
+        const concurrencyController = new ConcurrencyController(1, options)
         const results: string[] = []
         const run = async (n: number, priority: number, abortController?: AbortController): Promise<number> => {
             return concurrencyController.run({
@@ -35,12 +37,15 @@ describe('concurrencyController', () => {
         expect(results).toEqual(['enter 1', 'exit 1', 'enter 2', 'exit 2', 'enter 3', 'exit 3', 'enter 4', 'exit 4'])
     })
 
-    it('should eagerly execute the first item regardless of priority', async () => {
-        const { run, results } = setup()
+    it.each([
+        ['eagerly executes the first item regardless of priority', false, [4, 1, 2, 3]],
+        ['starts items added in the same task by priority when batched', true, [1, 2, 3, 4]],
+    ])('%s', async (_, batchStart, expectedOrder) => {
+        const { run, results } = setup({ batchStart })
 
         await Promise.allSettled([run(4, 4), run(1, 1), run(3, 3), run(2, 2)])
 
-        expect(results).toEqual(['enter 4', 'exit 4', 'enter 1', 'exit 1', 'enter 2', 'exit 2', 'enter 3', 'exit 3'])
+        expect(results).toEqual(expectedOrder.flatMap((n) => [`enter ${n}`, `exit ${n}`]))
     })
 
     it('should not start a new item if the item has been aborted', async () => {

@@ -7,6 +7,7 @@ from unittest.mock import MagicMock
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.companycam.companycam import (
@@ -151,6 +152,65 @@ class TestCompanycamSourceResumeBehavior:
 
         assert result.raised is None
         assert result.params("modified_since") == ["2023-11-14T22:13:20+00:00"]
+
+
+class TestCompanycamFanout:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(CompanycamSource(), CompanycamSourceConfig(api_key="test-key"))
+
+    @pytest.mark.parametrize(
+        ("endpoint", "parent_path", "parent_pages", "child_template", "parent_key"),
+        [
+            (
+                "ProjectLabels",
+                "/projects",
+                [ScriptedResponse(json=[{"id": "a"}]), ScriptedResponse(json=[{"id": "b"}]), ScriptedResponse(json=[])],
+                "/projects/{}/labels",
+                "project_id",
+            ),
+            (
+                "PhotoTags",
+                "/photos",
+                [
+                    ScriptedResponse(json=[{"id": "a"}], headers={"X-Has-Next": "true", "X-Next-Cursor": "c1"}),
+                    ScriptedResponse(json=[{"id": "b"}], headers={"X-Has-Next": "false", "X-Next-Cursor": ""}),
+                ],
+                "/photos/{}/tags",
+                "photo_id",
+            ),
+        ],
+    )
+    def test_walks_every_parent_and_tags_child_rows_with_parent_id(
+        self,
+        endpoint: str,
+        parent_path: str,
+        parent_pages: list[ScriptedResponse],
+        child_template: str,
+        parent_key: str,
+    ) -> None:
+        result = self._driver().run(
+            endpoint,
+            route(
+                {
+                    parent_path: parent_pages,
+                    child_template.format("a"): [
+                        ScriptedResponse(json=[{"id": "t1"}]),
+                        ScriptedResponse(json=[{"id": "t2"}]),
+                        ScriptedResponse(json=[]),
+                    ],
+                    child_template.format("b"): [ScriptedResponse(json=[{"id": "t1"}]), ScriptedResponse(json=[])],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert sorted((row[parent_key], row["id"]) for row in result.rows) == [("a", "t1"), ("a", "t2"), ("b", "t1")]
+        child_pages = [
+            request.param("page") for request in result.requests if request.path.endswith(child_template.format("a"))
+        ]
+        assert child_pages == ["1", "2", "3"]
+        assert result.saved_states == []
 
 
 class TestValidateCredentials:

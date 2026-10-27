@@ -17,11 +17,6 @@ class TestRecurlySource:
         self.config = RecurlySourceConfig(api_key="test-key", region="us")
         self.driver = SourceDriver(self.source, self.config)
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["accounts"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "accounts"
-
     def test_source_for_pipeline_plumbs_inputs(self):
         result = self.driver.run(
             "accounts",

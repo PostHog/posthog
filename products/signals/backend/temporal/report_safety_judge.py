@@ -9,6 +9,7 @@ import temporalio
 from pydantic import BaseModel, Field, model_validator
 from temporalio.exceptions import ApplicationError
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
@@ -17,6 +18,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.ml_inference.backend.facade.contracts import JsonValue
 from products.signals.backend.artefact_schemas import SafetyJudgment
 from products.signals.backend.models import ArtefactAttribution, SignalReportArtefact
+from products.signals.backend.spend import report_triggering_signal
 from products.signals.backend.system_one_decision import SAFETY_CATEGORIES, ModelMode, model_mode, run_model_decision
 from products.signals.backend.system_one_prompts import bundled_prompt, current_prompt
 from products.signals.backend.temporal.llm import SAFETY_MODEL, call_llm
@@ -146,6 +148,7 @@ async def judge_report_safety(
     team_id: int,
     signals: list[SignalData],
     report_id: str | None = None,
+    signal_id: str | None = None,
 ) -> SafetyJudgeResponse:
     """
     Assess whether a signal report contains prompt injection or manipulation attempts.
@@ -169,6 +172,7 @@ async def judge_report_safety(
         async def sonnet_verdict(trace_id: str | None) -> SafetyJudgeResponse:
             return await call_llm(
                 team_id=team_id,
+                signal_id=signal_id,
                 system_prompt=system_one_prompt.policy,
                 user_prompt=user_prompt,
                 validate=validate,
@@ -254,10 +258,23 @@ class SafetyJudgeOutput:
 async def report_safety_judge_activity(input: SafetyJudgeInput) -> SafetyJudgeOutput:
     """Assess report for prompt injection attacks and store result as artefact."""
     try:
+        signal_id = await database_sync_to_async(report_triggering_signal)(
+            team_id=input.team_id, report_id=input.report_id, ch_user=ClickHouseUser.SIGNALS
+        )
+    except Exception:
+        logger.exception(
+            "signals.spend.accounting_failed",
+            stage="report_safety_judge",
+            team_id=input.team_id,
+            report_id=input.report_id,
+        )
+        signal_id = None
+    try:
         result = await judge_report_safety(
             team_id=input.team_id,
             signals=input.signals,
             report_id=input.report_id,
+            signal_id=signal_id,
         )
 
         # Append-only: each safety assessment is a point-in-time entry in the report log. The

@@ -9,7 +9,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from products.aeo.backend.facade.api import list_citation_gaps
+from products.aeo.backend.facade.api import import_prompts, list_citation_gaps, update_prompt
+from products.aeo.backend.facade.contracts import PromptImport, PromptUpdate
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 
 
@@ -28,6 +29,7 @@ class TestListCitationGaps(BaseTest):
         failed: bool = False,
         answer_text: str | None = None,
         queries: list[str] | None = None,
+        version: int | None = None,
     ) -> None:
         target_urls = [url for url in cited_urls if "posthog.com" in url]
         AEOCitationCheck.objects.for_team(self.team.id).create(
@@ -37,6 +39,7 @@ class TestListCitationGaps(BaseTest):
             prompt_text=prompt.prompt,
             prompt_source=prompt.prompt_source,
             prompt_hash=prompt.prompt_hash,
+            prompt_version=version,
             engine=engine,
             model=engine,
             check_failed=failed,
@@ -114,3 +117,35 @@ class TestListCitationGaps(BaseTest):
             self._check(prompt, "claude-web-search", cited_urls=["https://rival.example/x"])
 
         assert list_citation_gaps(self.team.id, since=timezone.now() - dt.timedelta(days=14)) == []
+
+    def test_text_edit_keeps_the_gap_key_and_counts_only_the_current_version(self) -> None:
+        import_prompts(self.team.id, [PromptImport(prompt="Best replay tool?")])
+        prompt = AEOPrompt.objects.for_team(self.team.id).get()
+        first_key = prompt.prompt_hash
+        self._check(prompt, "claude-web-search", cited_urls=["https://rival.example/old"])
+
+        update_prompt(self.team.id, str(prompt.id), PromptUpdate(prompt="Best session replay tool?"), user_id=None)
+        prompt.refresh_from_db()
+        self._check(prompt, "claude-web-search", cited_urls=["https://rival.example/new"], version=2)
+
+        [gap] = list_citation_gaps(self.team.id, since=timezone.now() - dt.timedelta(days=14))
+
+        assert (gap.prompt_hash, gap.prompt_text, gap.checks) == (first_key, "Best session replay tool?", 1)
+        assert gap.competitor_urls == ("https://rival.example/new",)
+
+    def test_reimporting_an_edited_prompts_old_text_keeps_gap_keys_unique(self) -> None:
+        import_prompts(self.team.id, [PromptImport(prompt="Best replay tool?")])
+        edited = AEOPrompt.objects.for_team(self.team.id).get()
+        update_prompt(self.team.id, str(edited.id), PromptUpdate(prompt="Best session replay tool?"), user_id=None)
+        import_prompts(self.team.id, [PromptImport(prompt="Best replay tool?")])
+        edited.refresh_from_db()
+        reimported = AEOPrompt.objects.for_team(self.team.id).exclude(id=edited.id).get()
+        self._check(edited, "claude-web-search", cited_urls=["https://rival.example/a"], version=2)
+        self._check(reimported, "claude-web-search", cited_urls=["https://rival.example/b"])
+
+        gaps = list_citation_gaps(self.team.id, since=timezone.now() - dt.timedelta(days=14))
+
+        assert {gap.prompt_id: gap.prompt_hash for gap in gaps} == {
+            str(edited.id): edited.prompt_hash,
+            str(reimported.id): reimported.prompt_hash,
+        }

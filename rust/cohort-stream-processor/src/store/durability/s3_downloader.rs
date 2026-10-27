@@ -7,9 +7,9 @@ use tokio_util::bytes::Bytes;
 use super::config::DurabilityConfig;
 use super::downloader::CheckpointDownloader;
 use super::error::DownloadCancelledError;
-use super::metadata::{store_hash_prefix, DATE_PLUS_HOURS_ONLY_FORMAT, METADATA_FILENAME};
-use super::s3_client::create_s3_client;
-use super::{STORE_PARTITION, STORE_TOPIC};
+use super::lineage::CheckpointLineage;
+use super::metadata::{CheckpointMetadata, METADATA_FILENAME};
+use super::s3_client::{create_s3_client, retry_file};
 use crate::observability::metrics::{
     CHECKPOINT_FILES_DOWNLOADED_TOTAL, CHECKPOINT_FILES_FETCH_DURATION_SECONDS,
     CHECKPOINT_FILE_FETCH_DURATION_SECONDS, CHECKPOINT_FILE_FETCH_STORE_DURATION_SECONDS,
@@ -18,10 +18,9 @@ use crate::observability::metrics::{
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use futures::stream;
 use futures::{StreamExt, TryStreamExt};
-use object_store::limit::LimitStore;
 use object_store::path::Path as ObjectPath;
 use object_store::{ObjectStore, ObjectStoreExt};
 use tokio::io::AsyncWriteExt;
@@ -65,14 +64,27 @@ where
     }
 }
 
-/// Build the S3 key prefix for listing checkpoints. Includes the deterministic hash prefix so
-/// metadata and object files share a path. The trailing slash makes it a clean folder boundary, so a
-/// sibling namespace under the same hash can never prefix-match.
-fn format_checkpoint_list_prefix(s3_key_prefix: &str) -> String {
-    format!(
-        "{}/{s3_key_prefix}/{STORE_TOPIC}/{STORE_PARTITION}/",
-        store_hash_prefix()
-    )
+/// The metadata keys of the attempt folders at or after `now - window`, newest first. Ids are parsed
+/// and compared as instants. A folder whose name is not an attempt id is skipped.
+fn recent_metadata_keys<'a>(
+    folders: impl IntoIterator<Item = &'a str>,
+    now: DateTime<Utc>,
+    window: Duration,
+) -> Vec<String> {
+    let cutoff = now - window;
+    let mut attempts: Vec<(DateTime<Utc>, &str)> = folders
+        .into_iter()
+        .filter_map(|folder| {
+            let id = folder.rsplit('/').find(|segment| !segment.is_empty())?;
+            let attempted_at = CheckpointMetadata::parse_id(id)?;
+            (attempted_at >= cutoff).then_some((attempted_at, folder.trim_end_matches('/')))
+        })
+        .collect();
+    attempts.sort_by(|a, b| b.0.cmp(&a.0));
+    attempts
+        .into_iter()
+        .map(|(_, folder)| format!("{folder}/{METADATA_FILENAME}"))
+        .collect()
 }
 
 /// Classify an object_store error into a short, searchable label for structured logging.
@@ -91,17 +103,23 @@ fn s3_error_kind(e: &object_store::Error) -> &'static str {
 /// memory.
 #[derive(Debug)]
 pub struct S3Downloader {
-    store: Arc<LimitStore<object_store::aws::AmazonS3>>,
+    store: Arc<dyn ObjectStore>,
     s3_bucket: String,
-    s3_key_prefix: String,
+    /// The lineage's remote directory: every attempt this downloader lists lives under it.
+    remote_dir: String,
     checkpoint_import_window_hours: u32,
     max_concurrent_file_downloads: usize,
 }
 
 impl S3Downloader {
-    pub async fn new(config: &DurabilityConfig) -> Result<Self> {
-        let store =
-            create_s3_client(config, config.max_concurrent_checkpoint_file_downloads).await?;
+    pub async fn new(config: &DurabilityConfig, lineage: CheckpointLineage) -> Result<Self> {
+        let remote_dir = lineage.remote_dir(&config.s3_key_prefix);
+        let store = create_s3_client(
+            config,
+            config.max_concurrent_checkpoint_file_downloads,
+            &remote_dir,
+        )
+        .await?;
 
         info!(
             "S3 downloader initialized for bucket '{}' with max {} concurrent downloads",
@@ -111,7 +129,7 @@ impl S3Downloader {
         Ok(Self {
             store,
             s3_bucket: config.s3_bucket.clone(),
-            s3_key_prefix: config.s3_key_prefix.clone(),
+            remote_dir,
             checkpoint_import_window_hours: config.checkpoint_import_window_hours,
             max_concurrent_file_downloads: config.max_concurrent_checkpoint_file_downloads,
         })
@@ -131,15 +149,22 @@ impl CheckpointDownloader for S3Downloader {
                 result
             }
             Err(e) => {
-                let error_kind = s3_error_kind(&e);
-                error!(
-                    remote_key,
-                    bucket = %self.s3_bucket,
-                    error_kind,
-                    error = %e,
-                    "S3 object download failed"
-                );
-                metrics::counter!(CHECKPOINT_FILES_DOWNLOADED_TOTAL, "status" => "error")
+                // An attempt whose upload never finished has no metadata.json, and a restore
+                // expects to meet some, so a missing object is not a download error.
+                let status = if matches!(e, object_store::Error::NotFound { .. }) {
+                    info!(remote_key, bucket = %self.s3_bucket, "S3 object not found");
+                    "not_found"
+                } else {
+                    error!(
+                        remote_key,
+                        bucket = %self.s3_bucket,
+                        error_kind = s3_error_kind(&e),
+                        error = %e,
+                        "S3 object download failed"
+                    );
+                    "error"
+                };
+                metrics::counter!(CHECKPOINT_FILES_DOWNLOADED_TOTAL, "status" => status)
                     .increment(1);
                 return Err(anyhow::anyhow!(e)).with_context(|| {
                     format!(
@@ -292,11 +317,22 @@ impl CheckpointDownloader for S3Downloader {
             })
             .collect();
 
+        // Stops the siblings of a failed file even without a caller token.
+        let siblings = cancel_token.cloned().unwrap_or_default();
         let mut stream = stream::iter(download_tasks)
-            .map(|(remote_key, local_filepath)| async move {
-                self.download_and_store_file_cancellable(&remote_key, &local_filepath, cancel_token)
+            .map(|(remote_key, local_filepath)| {
+                let siblings = &siblings;
+                async move {
+                    retry_file(&remote_key, siblings, || {
+                        self.download_and_store_file_cancellable(
+                            &remote_key,
+                            &local_filepath,
+                            Some(siblings),
+                        )
+                    })
                     .await
                     .with_context(|| format!("Failed to download: {remote_key}"))
+                }
             })
             .buffer_unordered(self.max_concurrent_file_downloads);
 
@@ -305,9 +341,7 @@ impl CheckpointDownloader for S3Downloader {
         while let Some(result) = stream.next().await {
             if let Err(e) = result {
                 first_error = Some(e);
-                if let Some(token) = cancel_token {
-                    token.cancel();
-                }
+                siblings.cancel();
                 break;
             }
         }
@@ -327,95 +361,112 @@ impl CheckpointDownloader for S3Downloader {
         Ok(())
     }
 
-    async fn list_recent_checkpoints(&self) -> Result<Vec<String>> {
+    async fn list_recent_checkpoints(&self, now: DateTime<Utc>) -> Result<Vec<String>> {
         let start_time = Instant::now();
-        let import_window_hours = Duration::hours(i64::from(self.checkpoint_import_window_hours));
-        let remote_key_prefix = format_checkpoint_list_prefix(&self.s3_key_prefix);
-        let cutoff = Utc::now() - import_window_hours;
-        let cutoff_id = cutoff.format(DATE_PLUS_HOURS_ONLY_FORMAT).to_string();
-
-        info!(
-            "Listing checkpoint folders newer than {cutoff_id} from S3 bucket: {}",
-            self.s3_bucket
-        );
+        let window = Duration::hours(i64::from(self.checkpoint_import_window_hours));
 
         // Shallow list (delimiter="/"): returns only the common prefixes (checkpoint folders).
-        let prefix = ObjectPath::from(remote_key_prefix.as_str());
+        let prefix = ObjectPath::from(self.remote_dir.as_str());
         let result = self
             .store
             .list_with_delimiter(Some(&prefix))
             .await
             .context("listing checkpoint folders from S3")?;
+        let metadata_keys = recent_metadata_keys(
+            result.common_prefixes.iter().map(|folder| folder.as_ref()),
+            now,
+            window,
+        );
 
-        // Keep folders at or after the cutoff and map them to their metadata.json keys.
-        let mut metadata_keys: Vec<String> = result
-            .common_prefixes
-            .into_iter()
-            .filter(|cp| {
-                let path_str = cp.as_ref();
-                let checkpoint_id = path_str.rsplit('/').find(|s| !s.is_empty()).unwrap_or("");
-                checkpoint_id >= cutoff_id.as_str()
-            })
-            .map(|cp| format!("{}/{}", cp.as_ref(), METADATA_FILENAME))
-            .collect();
-
-        // Checkpoint IDs are timestamps, so reverse lexicographic order = newest first.
-        metadata_keys.sort_unstable();
-        metadata_keys.reverse();
-
-        let elapsed = start_time.elapsed();
-        metrics::histogram!(CHECKPOINT_LIST_DURATION_SECONDS).record(elapsed.as_secs_f64());
+        metrics::histogram!(CHECKPOINT_LIST_DURATION_SECONDS)
+            .record(start_time.elapsed().as_secs_f64());
         info!(
-            "Found {} checkpoint folders at or after {cutoff_id}",
-            metadata_keys.len(),
+            bucket = %self.s3_bucket,
+            prefix = %self.remote_dir,
+            window_hours = self.checkpoint_import_window_hours,
+            candidates = metadata_keys.len(),
+            "listed checkpoint attempts",
         );
 
         Ok(metadata_keys)
-    }
-
-    async fn is_available(&self) -> bool {
-        !self.s3_bucket.is_empty()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::TimeZone;
+    use object_store::memory::InMemory;
+    use tempfile::TempDir;
 
-    #[test]
-    fn format_checkpoint_list_prefix_uses_the_single_db_identity() {
-        let hash = store_hash_prefix();
-        let prefix = format_checkpoint_list_prefix("checkpoints");
-        assert_eq!(
-            prefix,
-            format!("{hash}/checkpoints/{STORE_TOPIC}/{STORE_PARTITION}/")
-        );
+    use crate::store::durability::flaky_store::FlakyStore;
+
+    #[tokio::test(start_paused = true)]
+    async fn a_file_that_fails_mid_stream_downloads_again_without_its_siblings() {
+        let dir = "819f7b67/checkpoints/cohort_stream_state/0";
+        let attempt = format!("{dir}/2026-10-25T10-49-00-000Z");
+        let objects: [(&str, &[u8]); 3] = [
+            ("000007.sst", b"first sst"),
+            ("000008.sst", b"second sst"),
+            ("MANIFEST-000005", b"manifest"),
+        ];
+        let inner = InMemory::new();
+        let mut keys = Vec::new();
+        for (name, body) in objects {
+            let key = format!("{attempt}/{name}");
+            inner
+                .put(&ObjectPath::from(key.as_str()), body.to_vec().into())
+                .await
+                .unwrap();
+            keys.push(key);
+        }
+        let store = Arc::new(FlakyStore::new(inner, &keys[0]));
+        let downloader = S3Downloader {
+            store: store.clone(),
+            s3_bucket: String::new(),
+            remote_dir: dir.to_owned(),
+            checkpoint_import_window_hours: 20,
+            max_concurrent_file_downloads: 3,
+        };
+        let stage = TempDir::new().unwrap();
+
+        downloader
+            .download_files_cancellable(&keys, stage.path(), Some(&CancellationToken::new()))
+            .await
+            .unwrap();
+
+        for (name, body) in objects {
+            assert_eq!(
+                std::fs::read(stage.path().join(name)).unwrap(),
+                body,
+                "{name}"
+            );
+        }
+        let gets: Vec<usize> = keys.iter().map(|key| store.gets(key)).collect();
+        assert_eq!(gets, [2, 1, 1]);
     }
 
     #[test]
-    fn format_checkpoint_list_prefix_has_a_trailing_slash_folder_boundary() {
-        let prefix = format_checkpoint_list_prefix("checkpoints");
-        assert!(prefix.ends_with('/'));
+    fn the_listing_keeps_attempts_inside_the_window_newest_first() {
+        let dir = "819f7b67/checkpoints/cohort_stream_state/0";
+        let folders = [
+            format!("{dir}/2026-10-09T01-00-00-000Z"),
+            format!("{dir}/2026-10-09T05-00-00-000Z"),
+            format!("{dir}/2026-10-09T03-00-00-000Z"),
+            format!("{dir}/2026-10-09T15-30-00-250Z"),
+            format!("{dir}/scratch"),
+        ];
+        let now = Utc.with_ymd_and_hms(2026, 10, 9, 16, 0, 0).unwrap();
 
-        let hash = store_hash_prefix();
-        // A real key under this prefix matches; a key with a longer trailing namespace does not.
-        let key = format!(
-            "{hash}/checkpoints/{STORE_TOPIC}/{STORE_PARTITION}/2026-01-22T12-00-00Z/metadata.json"
-        );
-        let sibling = format!(
-            "{hash}/checkpoints-other/{STORE_TOPIC}/{STORE_PARTITION}/2026-01-22T12-00-00Z/metadata.json"
-        );
-        assert!(key.starts_with(&prefix));
-        assert!(!sibling.starts_with(&prefix));
-    }
+        let keys =
+            recent_metadata_keys(folders.iter().map(String::as_str), now, Duration::hours(12));
 
-    #[test]
-    fn format_checkpoint_list_prefix_with_namespaced_key_prefix() {
-        let hash = store_hash_prefix();
-        let prefix = format_checkpoint_list_prefix("env/prod/checkpoints");
         assert_eq!(
-            prefix,
-            format!("{hash}/env/prod/checkpoints/{STORE_TOPIC}/{STORE_PARTITION}/")
+            keys,
+            [
+                format!("{dir}/2026-10-09T15-30-00-250Z/metadata.json"),
+                format!("{dir}/2026-10-09T05-00-00-000Z/metadata.json"),
+            ],
         );
     }
 }

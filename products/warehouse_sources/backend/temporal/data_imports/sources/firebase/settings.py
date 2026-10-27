@@ -9,6 +9,9 @@ API_VERSION: Final[str] = "v1"
 
 FIRESTORE_API_ROOT: Final[str] = f"https://firestore.googleapis.com/{API_VERSION}"
 IDENTITY_TOOLKIT_API_ROOT: Final[str] = f"https://identitytoolkit.googleapis.com/{API_VERSION}"
+# Identity Platform lists tenants only on its `v2` admin surface. The users in each tenant are still
+# read on `v1`, the same as the project's own users.
+IDENTITY_TOOLKIT_ADMIN_API_ROOT: Final[str] = "https://identitytoolkit.googleapis.com/v2"
 GOOGLE_TOKEN_URI: Final[str] = "https://oauth2.googleapis.com/token"
 
 # Scopes requested in the service-account assertion. Google mints a token for whatever a service
@@ -24,6 +27,7 @@ OAUTH_SCOPES: Final[str] = (
 DEFAULT_DATABASE_ID: Final[str] = "(default)"
 
 AUTH_USERS_TABLE: Final[str] = "auth_users"
+AUTH_TENANT_USERS_TABLE: Final[str] = "auth_tenant_users"
 FIRESTORE_TABLE_PREFIX: Final[str] = "firestore_"
 # A subcollection reads as a collection group (every collection with the id, under any parent). The
 # `/` in the prefix states that scope and cannot appear in a Firestore collection id, so no root
@@ -36,6 +40,7 @@ REALTIME_DATABASE_TABLE_PREFIX: Final[str] = "realtime_database_"
 FIRESTORE_PAGE_SIZE: Final[int] = 300
 FIRESTORE_COLLECTION_IDS_PAGE_SIZE: Final[int] = 300
 AUTH_USERS_PAGE_SIZE: Final[int] = 1000
+TENANTS_PAGE_SIZE: Final[int] = 1000
 REALTIME_DATABASE_PAGE_SIZE: Final[int] = 500
 
 # Firestore has no API to list a collection's subcollections, only a single document's. So table
@@ -102,6 +107,8 @@ REALTIME_DATABASE_PATH_COLUMN: Final[str] = "_realtime_database_path"
 REALTIME_DATABASE_VALUE_COLUMN: Final[str] = "value"
 
 AUTH_USERS_PRIMARY_KEY: Final[list[str]] = ["localId"]
+# A user id is unique only inside its tenant.
+AUTH_TENANT_USERS_PRIMARY_KEY: Final[list[str]] = ["tenantId", "localId"]
 
 # Firestore stores no schema, so the cursor fields a collection can offer are read off a sample of
 # real documents. Ten is enough to reject a field that only some documents carry, while keeping

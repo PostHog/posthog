@@ -14,6 +14,7 @@ from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.replay_vision.backend.temporal.constants import (
+    COMPLETE_OBSERVATION_REQUESTS_TIMEOUT,
     LIST_ENABLED_SCANNERS_TIMEOUT,
     LIST_SCANNER_SCHEDULES_TIMEOUT,
     REAP_BACKFILL_SCHEDULES_HEARTBEAT_TIMEOUT,
@@ -108,7 +109,9 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
             workflow.logger.exception("replay_vision.start_launched_scanners_failed")
 
         try:
-            await self._run_reaper(complete_observation_requests_activity)
+            await self._run_reaper(
+                complete_observation_requests_activity, start_to_close_timeout=COMPLETE_OBSERVATION_REQUESTS_TIMEOUT
+            )
         except Exception:
             workflow.logger.exception("replay_vision.complete_observation_requests_failed")
 

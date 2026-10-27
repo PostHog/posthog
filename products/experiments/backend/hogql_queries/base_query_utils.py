@@ -29,6 +29,7 @@ from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action
+from products.ai_observability.backend.facade.api import resolve_evaluation_pass_markers
 from products.experiments.backend.hogql_queries.hogql_aggregation_utils import (
     contains_aggregation,
     extract_aggregation_and_inner_expr,
@@ -186,7 +187,8 @@ def event_or_action_to_filter(
             )
 
     if entity_node.properties:
-        event_properties = ast.And(exprs=[property_to_expr(property, team) for property in entity_node.properties])
+        properties = resolve_evaluation_pass_markers(entity_node.properties, team.pk)
+        event_properties = ast.And(exprs=[property_to_expr(property, team) for property in properties])
         event_filter = ast.And(exprs=[event_filter, event_properties])
 
     return event_filter

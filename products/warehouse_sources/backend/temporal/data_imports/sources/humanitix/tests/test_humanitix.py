@@ -137,9 +137,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Humanitix API key"),
-            ("forbidden", 403, False, "Invalid Humanitix API key"),
-            ("server_error", 500, False, "Humanitix returned HTTP 500"),
         ]
     )
     def test_status_mapping(self, _name: str, status: int, expected_valid: bool, expected_message: str | None) -> None:

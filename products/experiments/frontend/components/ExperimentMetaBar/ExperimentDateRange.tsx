@@ -66,10 +66,10 @@ function DateTrigger({ date, boundary, onApply }: DateTriggerProps): JSX.Element
                         title={boundary === 'start' ? 'Start date' : 'End date'}
                         visible={isOpen ? false : undefined}
                     >
-                        <span>{label}</span>
+                        <span className="font-normal">{label}</span>
                     </TZLabel>
                 ) : (
-                    label
+                    <span className="font-normal">{label}</span>
                 )}
             </LemonButton>
         </Popover>

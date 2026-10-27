@@ -109,10 +109,10 @@ export const defaultMocks: Mocks = {
         '/api/environments/:team_id/dashboards/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/alerts/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/hog_functions/': EMPTY_PAGINATED_RESPONSE,
-        '/api/environments/:team_id/user_product_list/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/dashboard_templates': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/dashboard_templates/repository/': [],
         '/api/environments/:team_id/external_data_sources/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/external_data_sources/exists/': { exists: false },
         '/api/projects/:team_id/notebooks': () => {
             // this was matching on `?contains=query` but that made MSW unhappy and seems unnecessary
             return [

@@ -113,7 +113,7 @@ class DashboardTile(models.Model):
 
     transparent_background = models.BooleanField(null=True, blank=True)
 
-    # Tiles that share a group key belong together. The dashboard's `customization.group_titles` names each group.
+    # Tiles that share a group key belong together. The dashboard's `customization.groups` holds each group's title and style.
     group_key = models.CharField(max_length=MAX_GROUP_KEY_LENGTH, null=True, blank=True)
     badge = models.CharField(max_length=20, choices=DashboardTileBadge.choices, null=True)
 
@@ -235,6 +235,18 @@ class DashboardTile(models.Model):
         The ``copy_tile`` API still only exposes insight and text tiles; dashboard duplication uses this
         method for all tile types including buttons.
         """
+        # An edit can replace the content reference while this copy waits for the lock.
+        if self.text_id is not None or self.button_tile_id is not None:
+            try:
+                self.refresh_from_db(
+                    from_queryset=DashboardTile.objects_including_soft_deleted.filter(
+                        dashboard_id=self.dashboard_id
+                    ).select_for_update(of=("self",))
+                )
+            except DashboardTile.DoesNotExist:
+                raise ValidationError(
+                    "The tile is no longer on the source dashboard. Refresh the dashboard and try again."
+                )
         if self.insight is not None:
             existing = DashboardTile.objects_including_soft_deleted.filter(
                 dashboard=dashboard, insight=self.insight

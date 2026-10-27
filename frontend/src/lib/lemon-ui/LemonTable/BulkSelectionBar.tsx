@@ -16,9 +16,7 @@ export function BulkSelectionBar<T extends Record<string, any>, K extends BulkSe
     config,
     noun,
 }: BulkSelectionBarProps<T, K>): JSX.Element | null {
-    if (context.selectedCount === 0) {
-        return null
-    }
+    const isOpen = context.selectedCount > 0
     const [singular, plural] = noun
     const word = context.selectedCount === 1 ? singular : plural
 
@@ -39,5 +37,16 @@ export function BulkSelectionBar<T extends Record<string, any>, K extends BulkSe
         </div>
     )
 
-    return config.barPortalTarget ? createPortal(bar, config.barPortalTarget) : bar
+    if (config.barPortalTarget) {
+        return isOpen ? createPortal(bar, config.barPortalTarget) : null
+    }
+
+    return (
+        <div
+            className={clsx('LemonTable__bulk-selection-reveal', isOpen && 'LemonTable__bulk-selection-reveal--open')}
+            aria-hidden={!isOpen}
+        >
+            <div className="min-h-0 overflow-hidden">{bar}</div>
+        </div>
+    )
 }

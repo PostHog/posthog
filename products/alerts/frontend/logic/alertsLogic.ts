@@ -1,11 +1,13 @@
 import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { PaginationManual } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { objectClean } from 'lib/utils/objects'
+import { urls } from 'scenes/urls'
 
 import { AlertState } from '~/queries/schema/schema-general'
 
@@ -347,7 +349,42 @@ export const alertsLogic = kea<alertsLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => actions.loadAlerts()),
+    actionToUrl(({ values }) => ({
+        setFilters: ({ filters }) => {
+            if (!('createdBy' in filters)) {
+                return
+            }
+            const { pathname, searchParams, hashParams } = router.values.currentLocation
+            if (!pathname.endsWith(urls.alerts())) {
+                return
+            }
+            return [
+                pathname,
+                {
+                    ...searchParams,
+                    created_by:
+                        values.filters.createdBy === DEFAULT_ALERTS_FILTERS.createdBy
+                            ? undefined
+                            : values.filters.createdBy,
+                },
+                hashParams,
+                { replace: true },
+            ]
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
+        [urls.alerts()]: (_, searchParams) => {
+            const createdBy = searchParams.created_by || DEFAULT_ALERTS_FILTERS.createdBy
+            if (createdBy !== values.filters.createdBy) {
+                actions.setFilters({ createdBy })
+            }
+        },
+    })),
+    afterMount(({ actions, values }) => {
+        if (!values.alertsResponseLoading) {
+            actions.loadAlerts()
+        }
+    }),
 ])
 
 const alertComparatorKey = (alert: AlertType): number => {

@@ -6,7 +6,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { taxonomicSearchIntentMatchEventsCreate } from '~/generated/core/api'
-import type { EventMatchApi } from '~/generated/core/api.schemas'
+import type { EventMatchApi, EventMatchOutcomeEnumApi } from '~/generated/core/api.schemas'
 
 import type { FeatureFlagsSet } from '../../logic/featureFlagLogic'
 import { SelectItemMeta, taxonomicFilterLogic } from './taxonomicFilterLogic'
@@ -30,24 +30,75 @@ const EVENT_MATCH_DEBOUNCE_MS = 350
 const UNREPORTED_FAILURE_STATUSES = [429, 503]
 // The picker keeps every tab's list mounted and hides the inactive ones, so only the open tab may ask the model.
 const TABS_WITH_SUGGESTIONS = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.SuggestedFilters]
+// The flag is an experiment. Only the test arm asks the model; both arms report that they reached the dead end.
+const EXPERIMENT_VARIANTS = ['control', 'test']
+const TEST_VARIANT = 'test'
 
-export interface EventMatches {
+export interface EventMatchAnswer {
+    matches: EventMatchApi[]
+    outcome: EventMatchOutcomeEnumApi
+    unsent: EventMatchApi[]
+}
+
+export interface EventMatches extends EventMatchAnswer {
     projectId: number
     query: string
-    matches: EventMatchApi[]
 }
+
+/** What the empty state can say when the model has no event to suggest. */
+export type EventMatchHint = { kind: 'unsent'; events: EventMatchApi[] } | { kind: 'value' }
 
 // A 404 means the person is not in the flag for this project, so the rest of the page load does not ask again.
 const unavailableProjectIds = new Set<number>()
 // Switching between the All and Events tabs remounts the empty state and this logic with it, so each answer is
 // kept for the page load and shown again without another model call. The backend caches the same key.
-const answeredMatches = new Map<string, EventMatchApi[]>()
+const answeredMatches = new Map<string, EventMatchAnswer>()
+// Exposure for the experiment: one report per search per page load, so retyping or remounting does not count twice.
+const reportedEligible = new Set<string>()
 
 const matchKey = (projectId: number, query: string): string => `${projectId}:${query}`
+
+// A value belongs to a property, so the value hint only helps in a picker where the person can pick one.
+const PROPERTY_GROUP_TYPES = [
+    TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.PersonProperties,
+    TaxonomicFilterGroupType.SessionProperties,
+]
+
+function offersProperties(taxonomicGroupTypes: TaxonomicFilterGroupType[]): boolean {
+    return PROPERTY_GROUP_TYPES.some((groupType) => taxonomicGroupTypes.includes(groupType))
+}
 
 export function resetEventMatchMemoryForTests(): void {
     unavailableProjectIds.clear()
     answeredMatches.clear()
+    reportedEligible.clear()
+}
+
+function reportEligible(projectId: number, query: string, tab: TaxonomicFilterGroupType, variant: string): void {
+    const key = matchKey(projectId, query)
+    if (reportedEligible.has(key)) {
+        return
+    }
+    reportedEligible.add(key)
+    // pinned: analytics event name and properties, the experiment's exposure reads them
+    posthog.capture('taxonomic filter event match eligible', {
+        surface: legacyTaxonomicSurface(),
+        tab,
+        variant,
+    })
+}
+
+function reportHint(hint: EventMatchHint | null, tab: TaxonomicFilterGroupType): void {
+    if (!hint) {
+        return
+    }
+    posthog.capture('taxonomic filter event match hint shown', {
+        surface: legacyTaxonomicSurface(),
+        tab,
+        hint: hint.kind,
+        unsentEvents: hint.kind === 'unsent' ? hint.events.map((event) => event.name) : undefined,
+    })
 }
 
 function reportSuggested(shown: EventMatchApi[], tab: TaxonomicFilterGroupType): void {
@@ -71,7 +122,9 @@ export interface taxonomicEventMatchLogicValues {
     searchQuery: string // taxonomicFilterLogic
     taxonomicGroupTypes: TaxonomicFilterGroupType[] // taxonomicFilterLogic
     taxonomicGroups: TaxonomicFilterGroup[] // taxonomicFilterLogic
+    currentAnswer: EventMatches | null
     eventMatches: EventMatches | null
+    hint: EventMatchHint | null
     isMatching: boolean
     pendingQuery: string | null
     suggestedEvents: EventMatchApi[]
@@ -112,11 +165,20 @@ export interface taxonomicEventMatchLogicActions {
 export interface taxonomicEventMatchLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        suggestedEvents: (
+        currentAnswer: (
             eventMatches: EventMatches | null,
             searchQuery: string,
-            taxonomicGroups: TaxonomicFilterGroup[],
             currentProjectId: number | null
+        ) => EventMatches | null
+        hint: (
+            currentAnswer: EventMatches | null,
+            suggestedEvents: EventMatchApi[],
+            taxonomicGroups: TaxonomicFilterGroup[],
+            taxonomicGroupTypes: TaxonomicFilterGroupType[]
+        ) => EventMatchHint | null
+        suggestedEvents: (
+            currentAnswer: EventMatches | null,
+            taxonomicGroups: TaxonomicFilterGroup[]
         ) => EventMatchApi[]
         isMatching: (pendingQuery: string | null, searchQuery: string) => boolean
         tabShowsSuggestions: (activeTab: TaxonomicFilterGroupType) => boolean
@@ -130,9 +192,18 @@ export type taxonomicEventMatchLogicType = MakeLogicType<
     taxonomicEventMatchLogicMeta
 >
 
+// A picker that excludes an event from its list must not offer or name it either.
+function withoutExcluded(events: EventMatchApi[], taxonomicGroups: TaxonomicFilterGroup[]): EventMatchApi[] {
+    const excluded =
+        taxonomicGroups.find((group) => group.type === TaxonomicFilterGroupType.Events)?.excludedProperties ?? []
+    return events.filter((event) => !excluded.includes(event.name)).slice(0, MAX_SUGGESTIONS)
+}
+
 /**
  * Asks the decision model which PostHog core events a search that matched no event name describes, for the
- * `taxonomic-filter-event-match` flag. Mounted by the empty state of the events list and of the "All" list.
+ * `taxonomic-filter-event-match` experiment. Mounted by the empty state of the events list and of the "All" list.
+ * The test arm suggests the matched events, or says why there are none: the likely event was never sent, or the
+ * search is only values. The control arm asks nothing and only reports that it reached the dead end.
  * Legacy surface only.
  */
 export const taxonomicEventMatchLogic = kea<taxonomicEventMatchLogicType>([
@@ -172,24 +243,43 @@ export const taxonomicEventMatchLogic = kea<taxonomicEventMatchLogicType>([
         ],
     }),
     selectors({
-        suggestedEvents: [
-            (s) => [s.eventMatches, s.searchQuery, s.taxonomicGroups, s.currentProjectId],
+        currentAnswer: [
+            (s) => [s.eventMatches, s.searchQuery, s.currentProjectId],
             (
                 eventMatches: EventMatches | null,
                 searchQuery: string,
-                taxonomicGroups: TaxonomicFilterGroup[],
                 currentProjectId: number | null
-            ): EventMatchApi[] => {
+            ): EventMatches | null =>
                 // An answer for an older search or another project stays hidden, so a suggestion never names the wrong one.
-                if (eventMatches?.query !== searchQuery.trim() || eventMatches.projectId !== currentProjectId) {
-                    return []
+                eventMatches?.query === searchQuery.trim() && eventMatches.projectId === currentProjectId
+                    ? eventMatches
+                    : null,
+        ],
+        hint: [
+            (s) => [s.currentAnswer, s.suggestedEvents, s.taxonomicGroups, s.taxonomicGroupTypes],
+            (
+                currentAnswer: EventMatches | null,
+                suggestedEvents: EventMatchApi[],
+                taxonomicGroups: TaxonomicFilterGroup[],
+                taxonomicGroupTypes: TaxonomicFilterGroupType[]
+            ): EventMatchHint | null => {
+                if (!currentAnswer || suggestedEvents.length > 0) {
+                    return null
                 }
-                // A picker that excludes an event from its list must not offer it as a suggestion either.
-                const excluded =
-                    taxonomicGroups.find((group) => group.type === TaxonomicFilterGroupType.Events)
-                        ?.excludedProperties ?? []
-                return eventMatches.matches.filter((match) => !excluded.includes(match.name)).slice(0, MAX_SUGGESTIONS)
+                if (currentAnswer.outcome === 'only_values') {
+                    return offersProperties(taxonomicGroupTypes) ? { kind: 'value' } : null
+                }
+                if (currentAnswer.outcome === 'not_ingested') {
+                    const events = withoutExcluded(currentAnswer.unsent, taxonomicGroups)
+                    return events.length > 0 ? { kind: 'unsent', events } : null
+                }
+                return null
             },
+        ],
+        suggestedEvents: [
+            (s) => [s.currentAnswer, s.taxonomicGroups],
+            (currentAnswer: EventMatches | null, taxonomicGroups: TaxonomicFilterGroup[]): EventMatchApi[] =>
+                currentAnswer ? withoutExcluded(currentAnswer.matches, taxonomicGroups) : [],
         ],
         isMatching: [
             (s) => [s.pendingQuery, s.searchQuery],
@@ -208,34 +298,46 @@ export const taxonomicEventMatchLogic = kea<taxonomicEventMatchLogicType>([
         findEventMatches: async ({ searchQuery }, breakpoint) => {
             const query = searchQuery.trim()
             const projectId = values.currentProjectId
+            const variant = values.featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_EVENT_MATCH]
             if (
                 query.length < MIN_QUERY_LENGTH ||
                 query.length > MAX_QUERY_LENGTH ||
                 projectId === null ||
-                unavailableProjectIds.has(projectId) ||
-                !values.featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_EVENT_MATCH] ||
+                !EXPERIMENT_VARIANTS.includes(String(variant)) ||
                 !values.tabShowsSuggestions ||
                 !values.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Events)
             ) {
                 return
             }
-            const remembered = answeredMatches.get(matchKey(projectId, query))
+            // A 404 blocks only the model call. Both arms still count as exposed, so the arms stay comparable.
+            const asksTheModel = variant === TEST_VARIANT && !unavailableProjectIds.has(projectId)
+            const remembered = asksTheModel ? answeredMatches.get(matchKey(projectId, query)) : undefined
             if (remembered) {
-                actions.setEventMatches({ projectId, query, matches: remembered })
+                reportEligible(projectId, query, values.activeTab, String(variant))
+                actions.setEventMatches({ projectId, query, ...remembered })
                 reportSuggested(values.suggestedEvents, values.activeTab)
+                reportHint(values.hint, values.activeTab)
                 return
             }
-            actions.startEventMatch(query)
+            if (asksTheModel) {
+                actions.startEventMatch(query)
+            }
             await breakpoint(EVENT_MATCH_DEBOUNCE_MS)
             // A tab opened during the pause hides this list, so the ask is dropped before it costs a model call.
             if (!values.tabShowsSuggestions) {
                 actions.setEventMatches(null)
                 return
             }
+            // Both arms count as exposed once a settled search reaches the dead end the model would answer.
+            reportEligible(projectId, query, values.activeTab, String(variant))
+            if (!asksTheModel) {
+                return
+            }
 
-            let matches: EventMatchApi[]
+            let answer: EventMatchAnswer
             try {
-                matches = (await taxonomicSearchIntentMatchEventsCreate(String(projectId), { query })).matches
+                const response = await taxonomicSearchIntentMatchEventsCreate(String(projectId), { query })
+                answer = { matches: response.matches, outcome: response.outcome, unsent: response.unsent ?? [] }
             } catch (error: any) {
                 if (error?.status === 404) {
                     unavailableProjectIds.add(projectId)
@@ -256,9 +358,10 @@ export const taxonomicEventMatchLogic = kea<taxonomicEventMatchLogicType>([
                 actions.setEventMatches(null)
                 return
             }
-            answeredMatches.set(matchKey(projectId, query), matches)
-            actions.setEventMatches({ projectId, query, matches })
+            answeredMatches.set(matchKey(projectId, query), answer)
+            actions.setEventMatches({ projectId, query, ...answer })
             reportSuggested(values.suggestedEvents, values.activeTab)
+            reportHint(values.hint, values.activeTab)
         },
         selectEventMatch: ({ match }) => {
             const eventsGroup = values.taxonomicGroups.find((group) => group.type === TaxonomicFilterGroupType.Events)

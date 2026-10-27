@@ -69,4 +69,26 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "who": "User who saved the query.",
         },
     },
+    "users": {
+        "description": "Members of the Axiom organization and their roles.",
+        "docs_url": "https://axiom.co/docs/restapi/endpoints/getUsers",
+        "columns": {
+            "id": "Unique user identifier. Matches createdBy on monitors.",
+            "name": "User's full name.",
+            "email": "User's email address.",
+            "role": "Role assigned to the user, with its ID and name.",
+        },
+    },
+    "groups": {
+        "description": "Groups in the Axiom organization, with their members and assigned roles.",
+        "docs_url": "https://axiom.co/docs/restapi/endpoints/listGroups",
+        "columns": {
+            "id": "Unique group identifier.",
+            "name": "Unique group name.",
+            "description": "Purpose and scope of the group.",
+            "members": "IDs of the users in the group.",
+            "roles": "IDs of the roles assigned to the group.",
+            "isManaged": "Whether the group is synced from the identity provider.",
+        },
+    },
 }

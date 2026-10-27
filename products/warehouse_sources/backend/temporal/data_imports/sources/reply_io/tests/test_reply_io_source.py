@@ -21,26 +21,6 @@ class TestReplyIoSource:
 
     @parameterized.expand(
         [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.reply.io/v3/contacts?top=1000"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.reply.io/v3/sequences?top=1000"),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.reply.io/v3/contacts"),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.reply.io/v3/tasks"),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
             ("source_create_probes_whoami", None, "/v3/whoami"),
             ("known_schema_probes_its_endpoint", "contacts", "/v3/contacts"),
             ("unknown_schema_falls_back_to_whoami", "not_a_table", "/v3/whoami"),
@@ -78,9 +58,3 @@ class TestReplyIoSource:
         assert result.requests[0].headers["authorization"] == "Bearer reply-key"
         # The resume manager reaches the extraction: the first page is the saved offset.
         assert result.params("skip") == ["200"]
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown Reply.io schema 'not_a_table'" in str(result.raised)

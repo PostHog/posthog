@@ -53,7 +53,7 @@ class DataForSEOSource(ResumableSource[DataForSEOSourceConfig, DataForSEOResumeC
             name=ExternalDataSourceType.DATAFORSEO,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="DataForSEO",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["seo", "serp", "keyword research", "backlinks", "rank tracking"],
             caption="""Enter your DataForSEO API credentials and the domains you want to track to pull SEO metrics like Google rankings, keywords, competitors, and backlinks into the PostHog Data warehouse.
 
@@ -101,6 +101,7 @@ Note: DataForSEO bills per API request, so syncing these tables consumes account
                     ),
                     SourceFieldInputConfig(
                         name="location_name",
+                        sync_setting=True,
                         label="Location",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -109,6 +110,7 @@ Note: DataForSEO bills per API request, so syncing these tables consumes account
                     ),
                     SourceFieldInputConfig(
                         name="language_name",
+                        sync_setting=True,
                         label="Language",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -146,6 +148,11 @@ Note: DataForSEO bills per API request, so syncing these tables consumes account
             "DataForSEO API error [40203]": "Your DataForSEO daily spending limit was exceeded. Raise the limit in your DataForSEO account settings or wait for it to reset, then resync.",
             # Raised by `source_for_pipeline`; the raw message already names the table and the fix.
             "table is keyword-scoped. Add at least one keyword to the DataForSEO source": None,
+            "Invalid Field: 'language_name'": (
+                "DataForSEO did not recognize the language set on this source. Sync the free "
+                "locations_and_languages table to find a language name DataForSEO accepts, fix the "
+                "Language field, then resync."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:

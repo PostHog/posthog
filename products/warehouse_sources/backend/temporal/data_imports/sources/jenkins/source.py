@@ -60,7 +60,7 @@ class JenkinsSource(ResumableSource[JenkinsSourceConfig, JenkinsResumeConfig], V
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             keywords=["ci", "cd", "continuous integration"],
             label="Jenkins",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             docsUrl="https://posthog.com/docs/cdp/sources/jenkins",
             caption="""Enter your Jenkins URL, username, and API token to sync your CI/CD data into the PostHog Data warehouse.
 

@@ -54,6 +54,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
 from products.signals.backend.quota import SelfDrivingQuotaGate
+from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import (
     HARNESS_SEEDED_BY,
@@ -202,6 +203,32 @@ def _make_run(team: Team, *, task_run_status: str | None = None, **overrides) ->
 
 
 class TestScoutHarnessRunsAPI(APIBaseTest):
+    @parameterized.expand([(False,), (True,)])
+    def test_first_report_runs_are_available_through_the_api(self, is_staff: bool) -> None:
+        self.user.is_staff = is_staff
+        self.user.save()
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-first-report", enabled=False
+        )
+        run = _make_run(self.team, skill_name=config.skill_name, scout_config=config)
+        run.task_run.task.internal = True
+        run.task_run.task.save(update_fields=["internal"])
+        ordinary = _make_run(self.team)
+        response = self.client.get(self._list_url())
+        assert response.status_code == 200
+        assert {row["run_id"] for row in response.json()} == {str(run.id), str(ordinary.id)}
+        assert self.client.get(self._detail_url(str(run.id))).status_code == 200
+        assert (
+            self.client.get(
+                f"/api/projects/{self.team.id}/tasks/{run.task_run.task_id}/runs/{run.task_run_id}/"
+            ).status_code
+            == 200
+        )
+        response = self.client.get(self._list_url() + "recent-per-scout/")
+        assert {row["run_id"] for row in response.json()} == {str(run.id), str(ordinary.id)}
+        response = self.client.post(self._list_url() + "emissions/batch/", {"run_ids": [str(run.id)]}, format="json")
+        assert response.status_code == 200
+
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/runs/"
 
@@ -763,9 +790,59 @@ class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert {row["run_id"] for row in response.json()} == {str(busy[-1].id), str(quiet.id)}
 
+    def test_skill_name_returns_only_that_scouts_runs(self) -> None:
+        for skill_name in ("signals-scout-errors", "signals-scout-surveys"):
+            SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name)
+        wanted = _make_run(self.team, skill_name="signals-scout-errors")
+        _make_run(self.team, skill_name="signals-scout-surveys")
+        response = self.client.get(self._url(), data={"skill_name": "signals-scout-errors"})
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["run_id"] for row in response.json()] == [str(wanted.id)]
+
     def test_rejects_a_per_scout_limit_over_the_cap(self) -> None:
         response = self.client.get(self._url(), data={"per_scout_limit": 5000})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_an_unchanged_fleet_revalidates_without_hydrating_the_runs(self) -> None:
+        _make_run(self.team)
+        first = self.client.get(self._url())
+        assert first.status_code == status.HTTP_200_OK
+        with patch("products.signals.backend.scout_harness.views.runs_by_id") as runs_by_id:
+            second = self.client.get(self._url(), HTTP_IF_NONE_MATCH=first["ETag"])
+        assert second.status_code == status.HTTP_304_NOT_MODIFIED
+        runs_by_id.assert_not_called()
+
+    def test_a_failed_if_match_is_a_failed_precondition_not_a_cache_hit(self) -> None:
+        _make_run(self.team)
+        response = self.client.get(self._url(), HTTP_IF_MATCH='"stale"')
+        assert response.status_code == status.HTTP_412_PRECONDITION_FAILED
+
+    @parameterized.expand(["emit_tally", "task_run_settles", "total_spend", "report_deleted", "new_run"])
+    def test_a_change_the_summary_shows_moves_the_etag(self, change: str) -> None:
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+        run = _make_run(self.team, emitted_report_ids=[str(report.id)])
+        first = self.client.get(self._url())
+
+        if change == "emit_tally":
+            run.emitted_finding_ids = ["finding-1"]
+            run.emitted_count = 1
+            run.save(update_fields=["emitted_finding_ids", "emitted_count"])
+        elif change == "task_run_settles":
+            run.task_run.status = run.task_run.Status.COMPLETED
+            run.task_run.save(update_fields=["status"])
+        elif change == "total_spend":
+            run.total_spend = Decimal("16.3456")
+            run.save(update_fields=["total_spend"])
+        elif change == "report_deleted":
+            SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.DELETED)
+        else:
+            _make_run(self.team)
+
+        second = self.client.get(self._url(), HTTP_IF_NONE_MATCH=first["ETag"])
+        assert second.status_code == status.HTTP_200_OK
+        assert second["ETag"] != first["ETag"]
+        if change == "total_spend":
+            assert second.json()[0]["total_spend"] == 16.3456
 
 
 class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
@@ -823,6 +900,24 @@ class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
         # The errors scout's only touched report fell outside the cap — it must not count either,
         # or the callout advertises a scout the findings page's filter won't show.
         assert body["scout_count"] == 1
+
+    def test_summary_caps_runs_by_completion_among_the_newest_candidates(self) -> None:
+        # The page keeps the most recently *completed* runs, so a run that completes after a newer
+        # one must win the cap. Runs older than the candidate set are never ranked.
+        now = timezone.now()
+        timings = {"outside": (3, 0), "late": (2, 1), "newest": (1, 50)}
+        for emitted_count, (name, (created_hours_ago, completed_minutes_ago)) in zip((4, 2, 1), timings.items()):
+            run = _make_run(self.team, skill_name=f"signals-scout-{name}", emitted_count=emitted_count)
+            SignalScoutRun.objects.filter(id=run.id).update(created_at=now - timedelta(hours=created_hours_ago))
+            run.task_run.completed_at = now - timedelta(minutes=completed_minutes_ago)
+            run.task_run.save(update_fields=["completed_at"])
+        with (
+            patch("products.signals.backend.scout_harness.tools.runs.FLEET_FINDINGS_SUMMARY_RUN_CAP", 1),
+            patch("products.signals.backend.scout_harness.tools.runs.FLEET_FINDINGS_SUMMARY_CANDIDATE_RUNS", 2),
+        ):
+            response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 2
 
     def test_summary_excludes_runs_outside_the_window(self) -> None:
         # Guards the `created_at` window filter: a finding emitted before the lookback must not count,
@@ -2128,10 +2223,9 @@ class TestWriteScopesValidation(SimpleTestCase):
         assert not serializer.is_valid()
         assert "not both" in str(serializer.errors)
 
-    def test_support_notes_preset_is_rejected_until_its_write_scope_is_grantable(self) -> None:
+    def test_support_notes_preset_is_accepted_once_its_write_scope_is_grantable(self) -> None:
         serializer = SignalScoutConfigUpdateSerializer(data={"tool_preset": "support_notes"}, partial=True)
-        assert not serializer.is_valid()
-        assert "conversations-tickets-notes-create" in str(serializer.errors)
+        assert serializer.is_valid(), serializer.errors
 
 
 class TestScoutHarnessConfigModelAPI(APIBaseTest):
@@ -2259,6 +2353,17 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert second.status_code == status.HTTP_200_OK
         assert SignalScratchpad.objects.filter(team=self.team, key="k1").count() == 1
         assert SignalScratchpad.objects.get(team=self.team, key="k1").content == "v2"
+
+    def test_search_filters_by_creating_skill(self) -> None:
+        errors_run = _make_run(self.team, skill_name="signals-scout-errors")
+        flags_run = _make_run(self.team, skill_name="signals-scout-flags")
+        SignalScratchpad.objects.create(team=self.team, key="errors", content="v", created_by_run=errors_run)
+        SignalScratchpad.objects.create(team=self.team, key="flags", content="v", created_by_run=flags_run)
+
+        response = self.client.get(self._list_url(), {"skill_name": "signals-scout-errors"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["key"] for row in response.json()] == ["errors"]
 
     def test_search_returns_team_entries(self) -> None:
         SignalScratchpad.objects.create(team=self.team, key="active", content="still relevant")
@@ -2865,25 +2970,36 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
 
     # --- untrusted (session) callers: read-only, never build ---
 
-    def test_session_read_returns_404_when_no_profile_exists(self) -> None:
+    @patch("products.signals.backend.tasks.build_signal_project_profile.delay")
+    def test_session_read_returns_404_and_queues_one_build_when_no_profile_exists(self, mock_delay: MagicMock) -> None:
         # A session GET bypasses CSRF, so it must not trigger an inline build. With no
-        # cached row the read-only caller gets a 404 rather than a freshly-built profile.
+        # cached row the read-only caller gets a 404 and a deduped background build.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 0
-        response = self.client.get(self._list_url())
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        first = self.client.get(self._list_url())
+        second = self.client.get(self._list_url())
+        assert first.status_code == second.status_code == status.HTTP_404_NOT_FOUND
+        assert "retry" in first.json()["detail"]
+        mock_delay.assert_called_once_with(self.team.id)
         # No row written as a side effect of the GET.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 0
 
-    def test_session_read_returns_cached_profile(self) -> None:
+    @parameterized.expand([("fresh", timedelta(minutes=30), False), ("a_day_old", -timedelta(days=1), True)])
+    @patch("products.signals.backend.tasks.build_signal_project_profile.delay")
+    def test_session_read_returns_stored_profile(
+        self, _name: str, expires_in: timedelta, stale: bool, mock_delay: MagicMock
+    ) -> None:
         seeded_id = self._seed_profile()
+        SignalProjectProfile.objects.filter(id=seeded_id).update(expires_at=timezone.now() + expires_in)
         response = self.client.get(self._list_url())
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert body["profile_id"] == seeded_id
+        assert body["stale"] is stale
         assert {"summary", "profile_id", "computed_at", "expires_at", "source_version"} <= set(body.keys())
         assert "inventory" in body["payload"]
-        # Read-only: no new row written.
+        # Read-only: no new row written, no build queued.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
+        mock_delay.assert_not_called()
 
     def test_session_read_ignores_force_refresh(self) -> None:
         # `force_refresh` is honored only for the internal scout token. A session caller
@@ -3087,6 +3203,19 @@ class TestPrecheckQueryValidation(SimpleTestCase):
 
 
 class TestScoutHarnessConfigAPI(APIBaseTest):
+    @parameterized.expand([(False,), (True,)])
+    def test_first_report_config_is_available_but_cannot_be_rerun(self, is_staff: bool) -> None:
+        self.user.is_staff = is_staff
+        self.user.save()
+        self._make_skill("signals-scout-first-report")
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-first-report", enabled=False
+        )
+        response = self.client.get(self._list_url())
+        assert response.status_code == 200
+        assert [row["skill_name"] for row in response.json()] == [config.skill_name]
+        assert self.client.post(f"{self._detail_url(str(config.id))}run/").status_code == 400
+
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/"
 
@@ -3816,6 +3945,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.json()["output_destinations"] == {
             "slack": {**destination["slack"], "users": None, "thread_reports": True},
             "webhook": None,
+            "inbox": True,
         }
         config.refresh_from_db()
         assert config.output_destinations == destination
@@ -3836,6 +3966,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.json()["output_destinations"] == {
             "slack": {**destination["slack"], "channel": None, "thread_reports": True},
             "webhook": None,
+            "inbox": True,
         }
         config.refresh_from_db()
         assert config.output_destinations == destination
@@ -3863,6 +3994,29 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         config.refresh_from_db()
         assert config.output_destinations["slack"]["thread_reports"] is False
+
+    def test_partial_update_inbox_opt_out_survives_a_write_that_omits_it(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"output_destinations": {"inbox": False}}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["output_destinations"]["inbox"] is False
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"output_destinations": {"webhook": None}}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.output_destinations == {"inbox": False}
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"output_destinations": {"inbox": True}}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.output_destinations == {"inbox": True}
 
     @parameterized.expand(
         [
@@ -4220,15 +4374,18 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
     def _sync_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/sync/"
 
-    def test_sync_materializes_fleet_for_fresh_team(self) -> None:
+    @parameterized.expand([(None, True), ("onboarding", False)])
+    def test_sync_materializes_fleet_for_fresh_team(self, surface: str | None, enabled: bool) -> None:
         canonical_names = {c.name for c in discover_canonical_skills()}
-        scout_names = {n for n in canonical_names if n.startswith("signals-scout-")}
+        scout_names = {
+            n for n in canonical_names if n.startswith("signals-scout-") and n != "signals-scout-first-report"
+        }
         companion_names = canonical_names - scout_names
         assert scout_names, "expected canonical signals-scout-* skills on disk"
         assert "authoring-scouts" in companion_names
         assert SignalScoutConfig.objects.filter(team=self.team).count() == 0
 
-        response = self.client.post(self._sync_url())
+        response = self.client.post(self._sync_url() + (f"?surface={surface}" if surface else ""))
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
@@ -4236,10 +4393,12 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         # into the team's LLMSkill namespace below but never materialize a scout config.
         assert {c["skill_name"] for c in body} == scout_names
         assert [c["skill_name"] for c in body] == sorted(scout_names)
-        assert all(c["enabled"] is True for c in body)
+        assert all(c["enabled"] is enabled for c in body)
         assert all(c["emit"] is True for c in body)
         assert all(c["run_interval_minutes"] == 1440 for c in body)
         assert SignalScoutConfig.objects.filter(team=self.team).count() == len(scout_names)
+        register_missing_configs(self.team.id)
+        assert not SignalScoutConfig.objects.filter(team=self.team).exclude(enabled=enabled).exists()
         # Every canonical skill — fleet and companions — was seeded into the team's
         # LLMSkill namespace.
         assert (
@@ -4398,7 +4557,8 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert SignalScoutConfig.objects.filter(team=self.team).count() == 0
 
-    def test_sync_is_idempotent_and_preserves_tuned_configs(self) -> None:
+    @parameterized.expand([(None,), ("onboarding",)])
+    def test_sync_is_idempotent_and_preserves_tuned_configs(self, surface: str | None) -> None:
         first = self.client.post(self._sync_url())
         assert first.status_code == status.HTTP_200_OK
         fleet_size = len(first.json())
@@ -4409,13 +4569,14 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         tuned.enabled = False
         tuned.save(update_fields=["enabled"])
 
-        second = self.client.post(self._sync_url())
+        second = self.client.post(self._sync_url() + (f"?surface={surface}" if surface else ""))
 
         assert second.status_code == status.HTTP_200_OK
         assert len(second.json()) == fleet_size
         assert SignalScoutConfig.objects.filter(team=self.team).count() == fleet_size
         tuned.refresh_from_db()
         assert tuned.enabled is False, "sync must not reset existing configs"
+        assert sum(config["enabled"] for config in second.json()) == fleet_size - 1
 
     def test_list_is_side_effect_free_for_unregistered_scout_skills(self) -> None:
         # The list MCP tool is annotated readOnly — a scout skill without a config must not
@@ -4806,6 +4967,17 @@ class TestScoutHarnessToolCatalogueAPI(APIBaseTest):
         assert superseded, "expected the catalogue to hold at least one superseded tool"
 
         assert not superseded & set(self._tools())
+
+    def test_catalogue_context_tools_can_be_removed_from_a_saved_selection_before_editing(self) -> None:
+        body = self.client.get(self._url()).json()
+        selected = ["skill-get", "skill-file-get", "dashboard-update"]
+        serializer = SignalScoutConfigUpdateSerializer(
+            data={"allowed_mcp_tools": [name for name in selected if name not in body["run_context_tools"]]},
+            partial=True,
+        )
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["allowed_mcp_tools"] == ["dashboard-update"]
 
     def test_reports_what_a_scout_would_have_to_be_granted(self) -> None:
         # `holdable` has to be measured against the scout postures, not against the full MCP scope

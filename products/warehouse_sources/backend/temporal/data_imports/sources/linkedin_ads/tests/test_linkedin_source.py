@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_a
     LINKEDIN_ADS_VERSION_202607,
     LINKEDIN_ADS_VERSION_202608,
     LINKEDIN_ADS_VERSION_202609,
+    LINKEDIN_ADS_VERSION_202610,
     LinkedInAdsSource,
 )
 
@@ -89,20 +90,21 @@ class TestLinkedInAdsSource:
         retryable_errors = self.source.get_retryable_errors()
         assert not any(pattern in other_error for pattern in retryable_errors)
 
-    def test_defaults_new_sources_to_202609(self):
-        assert self.source.default_version == LINKEDIN_ADS_VERSION_202609
+    def test_defaults_new_sources_to_202610(self):
+        assert self.source.default_version == LINKEDIN_ADS_VERSION_202610
         assert set(self.source.supported_versions) == {
             "v1",
             LINKEDIN_ADS_VERSION_202606,
             LINKEDIN_ADS_VERSION_202607,
             LINKEDIN_ADS_VERSION_202608,
             LINKEDIN_ADS_VERSION_202609,
+            LINKEDIN_ADS_VERSION_202610,
         }
 
     def test_deprecated_versions_carry_sunset_dates(self):
         # "v1" backs the sunset 202508 header (see client.API_VERSION); 202606 sunsets 2027-06-15.
         # The in-product deprecation banner depends on this metadata staying declared, and the default
-        # (202609) must never appear here.
+        # (202610) must never appear here.
         assert self.source.deprecated_versions == (
             VersionDeprecation(version="v1", sunset_at=date(2026, 8, 1)),
             VersionDeprecation(version=LINKEDIN_ADS_VERSION_202606, sunset_at=date(2027, 6, 15)),
@@ -119,8 +121,9 @@ class TestLinkedInAdsSource:
             (LINKEDIN_ADS_VERSION_202607, "202607"),
             (LINKEDIN_ADS_VERSION_202608, "202608"),
             (LINKEDIN_ADS_VERSION_202609, "202609"),
+            (LINKEDIN_ADS_VERSION_202610, "202610"),
             # No pin resolves to the new default.
-            (None, "202609"),
+            (None, "202610"),
             # An undeclared pin is honored verbatim and passed straight through for LinkedIn to validate.
             ("209901", "209901"),
         ],
@@ -149,7 +152,7 @@ class TestLinkedInAdsSource:
 
         self.source.get_oauth_accounts(integration_id=456, team_id=self.team_id)
 
-        assert mock_client_for_integration.call_args.kwargs["api_version"] == "202609"
+        assert mock_client_for_integration.call_args.kwargs["api_version"] == "202610"
 
     def test_demographic_breakdowns_are_offered_but_not_enabled_by_default(self):
         # These fan out to one row per day per demographic value on top of the performance tables,

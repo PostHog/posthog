@@ -19,6 +19,7 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.workflow import ParentClosePolicy
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.kafka_client.routing import get_producer
@@ -51,9 +52,11 @@ from products.signals.backend.report_generation.research import ActionabilityCho
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_metric_query_access import query_filter_shape_allows_read
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS
+from products.signals.backend.spend import publish_report_spend
 from products.signals.backend.stack_plan import create_layer_reports, start_unblocked_layers_of_plan
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.agentic.report import (
+    RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE,
     RunAgenticReportInput,
     RunAgenticReportOutput,
     run_agentic_report_activity,
@@ -167,6 +170,7 @@ class ReportDecision:
     reconcile_checks: bool = False
     checks_summary: str | None = None
     checks_snapshot: dict[str, str] | None = None
+    checks_monitoring_enabled: bool = False
     layers: list[dict[str, Any]] = field(default_factory=list)
     research_task_id: str | None = None
     # The chart rollout state the research run saw (see `RunAgenticReportOutput.charts_enabled`).
@@ -190,6 +194,18 @@ class ReportDecision:
     # broken repo-selection integration apart from the agent legitimately asking for human input.
     # Irrelevant (left `None`) unless `choice == ActionabilityChoice.REQUIRES_HUMAN_INPUT`.
     pending_reason: str | None = None
+
+
+RESEARCH_SANDBOX_RETRY_DELAYS = (timedelta(minutes=10), timedelta(minutes=20), timedelta(minutes=40))
+RESEARCH_SANDBOX_RETRY_BUDGET = sum(RESEARCH_SANDBOX_RETRY_DELAYS, timedelta())
+
+
+def _is_research_sandbox_unavailable(error: BaseException) -> bool:
+    cause = error.cause if isinstance(error, temporalio.exceptions.ActivityError) else error
+    return (
+        isinstance(cause, temporalio.exceptions.ApplicationError)
+        and cause.type == RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
+    )
 
 
 @temporalio.workflow.defn(name="signal-report-summary")
@@ -222,7 +238,19 @@ class SignalReportSummaryWorkflow:
             posthoganalytics.tag("team_id", inputs.team_id)
             posthoganalytics.tag("report_id", inputs.report_id)
             posthoganalytics.tag("product", "signals")
-            await self._run_impl(inputs)
+            try:
+                await self._run_impl(inputs)
+            finally:
+                if workflow.patched("signals-publish-spend-on-completion"):
+                    try:
+                        await workflow.execute_activity(
+                            publish_report_spend_activity,
+                            inputs,
+                            start_to_close_timeout=timedelta(minutes=20),
+                            retry_policy=RetryPolicy(maximum_attempts=1),
+                        )
+                    except Exception:
+                        workflow.logger.exception("Failed to publish completed report spend")
 
     async def _run_impl(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
         # Bind team_id + report_id so all logs flow to the log_entries sink (the Temporal
@@ -255,6 +283,36 @@ class SignalReportSummaryWorkflow:
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+
+    async def _run_research(
+        self, log: FilteringBoundLogger, research_input: RunAgenticReportInput
+    ) -> RunAgenticReportOutput:
+        retries = 0
+        while True:
+            try:
+                return await workflow.execute_activity(
+                    run_agentic_report_activity,
+                    research_input,
+                    start_to_close_timeout=timedelta(hours=4),
+                    heartbeat_timeout=timedelta(minutes=5),
+                    # Retry once: the sandbox agent turn can time out (poll_for_turn) or hit a transient LLM 429.
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+            except temporalio.exceptions.ActivityError as error:
+                if (
+                    not workflow.patched("signals-research-sandbox-retry")
+                    or not _is_research_sandbox_unavailable(error)
+                    or retries >= len(RESEARCH_SANDBOX_RETRY_DELAYS)
+                ):
+                    raise
+            delay = RESEARCH_SANDBOX_RETRY_DELAYS[retries]
+            retries += 1
+            log.warning(
+                "Research sandbox unavailable, retrying after delay",
+                attempt=retries,
+                delay_seconds=int(delay.total_seconds()),
+            )
+            await workflow.sleep(delay)
 
     async def _revert_report_to_candidate(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
         await workflow.execute_activity(
@@ -465,8 +523,8 @@ class SignalReportSummaryWorkflow:
                     await self._revert_report_to_candidate(inputs)
                     return False
                 # 5. Run the agentic report research flow with the selected repository to use code/MCP data to assess signals
-                agentic_result: RunAgenticReportOutput = await workflow.execute_activity(
-                    run_agentic_report_activity,
+                agentic_result = await self._run_research(
+                    log,
                     RunAgenticReportInput(
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,
@@ -474,10 +532,6 @@ class SignalReportSummaryWorkflow:
                         repo_selection=repo_result,
                         repo_selection_as_of=repo_selection_as_of,
                     ),
-                    start_to_close_timeout=timedelta(hours=4),
-                    heartbeat_timeout=timedelta(minutes=5),
-                    # Retry once: the sandbox agent turn can time out (poll_for_turn) or hit a transient LLM 429.
-                    retry_policy=RetryPolicy(maximum_attempts=2),
                 )
                 decision = ReportDecision(
                     title=agentic_result.title,
@@ -490,6 +544,7 @@ class SignalReportSummaryWorkflow:
                     reconcile_checks=agentic_result.reconcile_checks,
                     checks_summary=agentic_result.checks_summary,
                     checks_snapshot=agentic_result.checks_snapshot,
+                    checks_monitoring_enabled=agentic_result.checks_monitoring_enabled,
                     layers=agentic_result.layers or [],
                     research_task_id=agentic_result.research_task_id,
                     charts_enabled=agentic_result.charts_enabled,
@@ -533,6 +588,7 @@ class SignalReportSummaryWorkflow:
                         metrics=decision.metrics,
                         checks=decision.checks,
                         checks_snapshot=decision.checks_snapshot,
+                        checks_monitoring_enabled=decision.checks_monitoring_enabled,
                         reconcile_checks=decision.reconcile_checks,
                         checks_summary=decision.checks_summary,
                         checks_task_id=decision.research_task_id,
@@ -562,6 +618,7 @@ class SignalReportSummaryWorkflow:
                     metrics=decision.metrics,
                     checks=decision.checks,
                     checks_snapshot=decision.checks_snapshot,
+                    checks_monitoring_enabled=decision.checks_monitoring_enabled,
                     reconcile_checks=decision.reconcile_checks,
                     checks_summary=decision.checks_summary,
                     checks_task_id=decision.research_task_id,
@@ -681,7 +738,11 @@ class SignalReportSummaryWorkflow:
                     team_id=inputs.team_id,
                     report_id=inputs.report_id,
                     error=str(e),
-                    failure_reason="agentic_activity_error",
+                    failure_reason=(
+                        "research_sandbox_unavailable"
+                        if _is_research_sandbox_unavailable(e)
+                        else "agentic_activity_error"
+                    ),
                     signal_count=signal_count,
                     source_products=source_products,
                 ),
@@ -809,7 +870,9 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
             updated_fields = report.transition_to(
                 SignalReport.Status.IN_PROGRESS, signals_at_run_increment=SIGNALS_AT_RUN_INCREMENT
             )
-            report.save(update_fields=updated_fields)
+            report.pending_triggering_signal_id = None
+            report.researching_signal_count = input.signal_count
+            report.save(update_fields=[*updated_fields, "pending_triggering_signal_id", "researching_signal_count"])
             return report.run_count, False
 
         run_count, was_already_in_progress = await database_sync_to_async(do_update, thread_sensitive=False)()
@@ -881,6 +944,7 @@ class MarkReportReadyInput:
     # that meant "write none", so only a new result marked for reconciliation can clear rows.
     checks: list[dict[str, Any]] | None = None
     checks_snapshot: dict[str, str] | None = None
+    checks_monitoring_enabled: bool = False
 
     reconcile_checks: bool = False
     checks_summary: str | None = None
@@ -939,6 +1003,7 @@ def _write_research_checks(report: SignalReport, input: "MarkReportReadyInput | 
         reconcile=input.reconcile_checks,
         specs=specs,
         checks_snapshot=input.checks_snapshot,
+        monitoring_definitions_visible=input.checks_monitoring_enabled,
         attribution=(
             ArtefactAttribution.from_task(input.checks_task_id)
             if input.checks_task_id
@@ -1013,7 +1078,9 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 # If more signals arrived while the report was being processed, we want to
                 # re-promote it back to candidate and loop to also process new signals
                 candidate_fields = report.transition_to(SignalReport.Status.CANDIDATE)
-                report.save(update_fields=candidate_fields)
+                if report.pending_triggering_signal_id is not None:
+                    report.triggering_signal_id = report.pending_triggering_signal_id
+                report.save(update_fields=[*candidate_fields, "triggering_signal_id"])
             else:
                 # Only a pass that settles writes its checks. A pass about to be re-researched is
                 # an intermediate one, and its checks would describe prose the next pass replaces.
@@ -1147,13 +1214,16 @@ async def maybe_autostart_implementation_activity(input: MaybeAutostartImplement
                 user_id=input.requested_user_id,
                 task_id=input.requested_task_id,
                 after_run_count=input.requested_after_run_count,
-            )
+            ),
+            ch_user=ClickHouseUser.SIGNALS,
         )
     else:
-        await maybe_autostart_from_report_artefacts(team_id=input.team_id, report_id=input.report_id)
+        await maybe_autostart_from_report_artefacts(
+            team_id=input.team_id, report_id=input.report_id, ch_user=ClickHouseUser.SIGNALS
+        )
         # A plan never starts its own run, so its first layers start here, at the same settle point.
         await database_sync_to_async(start_unblocked_layers_of_plan, thread_sensitive=False)(
-            team_id=input.team_id, parent_report_id=input.report_id
+            team_id=input.team_id, parent_report_id=input.report_id, ch_user=ClickHouseUser.SIGNALS
         )
 
 
@@ -1238,6 +1308,7 @@ class MarkReportPendingInput:
     # See MarkReportReadyInput.checks: same transaction, same replay-safe defaults.
     checks: list[dict[str, Any]] | None = None
     checks_snapshot: dict[str, str] | None = None
+    checks_monitoring_enabled: bool = False
     reconcile_checks: bool = False
     checks_summary: str | None = None
     checks_task_id: str | None = None
@@ -1458,3 +1529,9 @@ async def publish_report_completed_activity(input: PublishReportCompletedInput) 
             team_id=input.team_id,
         )
         raise
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+async def publish_report_spend_activity(input: SignalReportSummaryWorkflowInputs) -> None:
+    await publish_report_spend(team_id=input.team_id, report_id=input.report_id)

@@ -211,6 +211,21 @@ const sesUnattributedEventsCounter = new Counter({
 // cheap enough to carry here.
 export const SES_LINK_INDEX_TAG = 'phl'
 
+// SES message tag set at send time on emails whose template is marked sensitive, and echoed back on
+// every event for that message. Such an email's subject and link paths can carry a login code or a
+// reset token, so its events keep no subject and only each clicked link's origin. `$link_index` still
+// tells the links apart.
+export const SES_SENSITIVE_TAG = 'ph_sensitive'
+
+const sensitiveLinkOrigin = (link: string): string => {
+    try {
+        const url = new URL(link)
+        return url.host ? `${url.protocol}//${url.host}` : url.protocol
+    } catch {
+        return ''
+    }
+}
+
 // Path of our own click-tracking redirect, which used to wrap every anchor before SES saw it.
 const TRACKING_REDIRECT_PATH = '/public/m/redirect'
 
@@ -598,10 +613,10 @@ export class SesWebhookHandler {
             timestamp?: string
         }[]
     }> {
-        logger.info('[SesWebhookHandler] handleWebhook', { body: opts.body, headers: opts.headers })
+        // Payloads carry recipients and clicked links, including reset links from sensitive emails,
+        // so the logs keep identifiers only.
         const parsed = this.parseIncomingBody(opts.body)
-
-        logger.info('[SesWebhookHandler] parsed', { parsed })
+        logger.info('[SesWebhookHandler] handleWebhook', { mode: parsed.mode })
 
         // When verification is required the message must be a signed SNS envelope. Raw deliveries
         // carry no signature, and prod uses envelope delivery, so reject them to block forged events.
@@ -609,7 +624,10 @@ export class SesWebhookHandler {
             if (!('envelope' in parsed)) {
                 return { status: 403, body: { error: 'Unsigned raw delivery not allowed' } }
             }
-            logger.info('[SesWebhookHandler] verifying signature', { envelope: parsed.envelope })
+            logger.info('[SesWebhookHandler] verifying signature', {
+                type: parsed.envelope.Type,
+                messageId: parsed.envelope.MessageId,
+            })
             const ok = await this.verifySnsSignature(parsed.envelope)
             logger.info('[SesWebhookHandler] signature verified', { ok })
             if (!ok) {
@@ -698,7 +716,10 @@ export class SesWebhookHandler {
         }[] = []
 
         for (const rec of records) {
-            logger.info('[SesWebhookHandler] processing record', { rec })
+            logger.info('[SesWebhookHandler] processing record', {
+                eventType: rec.eventType,
+                messageId: rec.mail.messageId,
+            })
             // Prefer the custom MIME header (carries the full signed code including distinct_id,
             // unbounded). Fall back to the SES EmailTag for messages sent before the header carrier
             // was added, or where the configuration set hasn't enabled `IncludeOriginalHeaders`.
@@ -719,7 +740,11 @@ export class SesWebhookHandler {
                 // record which occurred. An empty `rawCode` means neither carrier held a value.
                 const reason = rawCode === '' ? 'missing' : 'invalid'
                 sesUnattributedEventsCounter.inc({ event_type: rec.eventType, reason })
-                logger.error('[SesWebhookHandler] handleWebhook: No functionId or invocationId found', { rec })
+                logger.error('[SesWebhookHandler] handleWebhook: No functionId or invocationId found', {
+                    eventType: rec.eventType,
+                    messageId: rec.mail.messageId,
+                    reason,
+                })
                 continue
             }
 
@@ -728,9 +753,10 @@ export class SesWebhookHandler {
             // their delivery/open/click metrics — otherwise a draft/never-enabled workflow shows
             // email activity in its Metrics tab. Bounce-driven opt-outs below still apply.
             if (metricName && !isTest) {
+                const isSensitive = rec.mail.tags?.[SES_SENSITIVE_TAG]?.[0] === 'true'
                 const properties: Record<string, any> = {
                     $email_to: rec.mail.destination?.[0],
-                    $email_subject: rec.mail.commonHeaders?.subject,
+                    ...(isSensitive ? {} : { $email_subject: rec.mail.commonHeaders?.subject }),
                 }
 
                 // Each SES event detail carries its own timestamp (open.timestamp, click.timestamp, etc.)
@@ -741,7 +767,8 @@ export class SesWebhookHandler {
                     timestamp = rec.open.timestamp
                 } else if ('click' in rec && rec.click) {
                     timestamp = rec.click.timestamp
-                    properties.$link_url = resolveClickDestination(rec.click.link)
+                    const destination = resolveClickDestination(rec.click.link)
+                    properties.$link_url = isSensitive ? sensitiveLinkOrigin(destination) : destination
                     const linkIndex = rec.click.linkTags?.[SES_LINK_INDEX_TAG]?.[0]
                     if (linkIndex !== undefined) {
                         properties.$link_index = linkIndex
@@ -797,7 +824,9 @@ export class SesWebhookHandler {
                         instanceIdOverride: buildLinkInstanceId(
                             actionId,
                             rec.click.linkTags?.[SES_LINK_INDEX_TAG]?.[0] ?? '',
-                            normalizeClickUrl(resolveClickDestination(rec.click.link))
+                            isSensitive
+                                ? sensitiveLinkOrigin(resolveClickDestination(rec.click.link))
+                                : normalizeClickUrl(resolveClickDestination(rec.click.link))
                         ),
                         timestamp,
                         workflowVersion,

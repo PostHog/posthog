@@ -23,13 +23,6 @@ from products.tasks.backend.temporal.observability import emit_agent_log
 
 logger = structlog.get_logger(__name__)
 
-PENDING_USER_STATE_KEYS = [
-    "pending_user_message",
-    "pending_user_artifact_ids",
-    "pending_user_message_id",
-    "pending_user_message_ts",
-]
-
 
 @dataclass(frozen=True)
 class CreateResumeSnapshotInput:
@@ -121,39 +114,10 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
     try:
         external_id = sandbox.create_directory_snapshot(snapshot_mount_path)
     except SnapshotFileLimitExceededError as e:
-        if not input.allow_pruning:
-            outcome = "file_limit_exceeded"
-            duration_ms = int((time.perf_counter() - started_at) * 1000)
-            logger.warning(
-                "create_resume_snapshot_file_limit_exceeded",
-                sandbox_id=input.sandbox_id,
-                run_id=input.run_id,
-                reason=input.reason,
-                snapshot_kind=snapshot_kind,
-                duration_ms=duration_ms,
-                error=str(e),
-            )
-            increment_snapshot_create(snapshot_kind, outcome)
-            record_snapshot_create_latency_ms(snapshot_kind, outcome, duration_ms)
-            emit_agent_log(input.run_id, "debug", f"Resume snapshot failed ({input.reason}): file limit exceeded")
-            return CreateResumeSnapshotOutput(
-                external_id=None,
-                snapshot_kind=snapshot_kind,
-                error=str(e),
-                duration_ms=duration_ms,
-            )
-
-        # Prune the reproducible trees (node_modules, virtualenvs, caches) in the live sandbox,
-        # then let Temporal retry the whole activity: the next attempt snapshots the now-smaller
-        # tree in a fresh 5-minute budget. Doing the prune here and re-raising a transient error —
-        # rather than snapshotting again inline — keeps each attempt to a single snapshot, so the
-        # activity's timeout can't pre-empt the recovery. If pruning does not bring the tree under
-        # the cap, retries exhaust and both callers treat the failed snapshot as non-fatal (the run
-        # starts fresh). The resume sandbox reinstalls the pruned trees, so this costs a reinstall.
-        outcome = "file_limit_exceeded_pruned"
+        outcome = "file_limit_exceeded"
         duration_ms = int((time.perf_counter() - started_at) * 1000)
         logger.warning(
-            "create_resume_snapshot_file_limit_exceeded_pruning",
+            "create_resume_snapshot_file_limit_exceeded",
             sandbox_id=input.sandbox_id,
             run_id=input.run_id,
             reason=input.reason,
@@ -161,16 +125,14 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
             duration_ms=duration_ms,
             error=str(e),
         )
-        sandbox.prune_snapshot_heavy_dirs(snapshot_mount_path)
         increment_snapshot_create(snapshot_kind, outcome)
         record_snapshot_create_latency_ms(snapshot_kind, outcome, duration_ms)
-        # capture=False: the original SnapshotFileLimitExceededError already carried the signal;
-        # this transient wrapper only drives the Temporal retry.
-        raise SnapshotTimeoutError(
-            f"Pruned workspace over Modal's file-count cap; retrying snapshot: {e}",
-            {"sandbox_id": input.sandbox_id, "snapshot_mount_path": snapshot_mount_path},
-            cause=e,
-            capture=False,
+        emit_agent_log(input.run_id, "debug", f"Resume snapshot failed ({input.reason}): file limit exceeded")
+        return CreateResumeSnapshotOutput(
+            external_id=None,
+            snapshot_kind=snapshot_kind,
+            error=str(e),
+            duration_ms=duration_ms,
         )
     except SnapshotTimeoutError as e:
         outcome = "transient_error"
@@ -236,7 +198,7 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
             "snapshot_kind": snapshot_kind,
             "snapshot_mount_path": snapshot_mount_path,
         }
-        TaskRun.update_state_atomic(input.run_id, updates=updates, remove_keys=PENDING_USER_STATE_KEYS)
+        TaskRun.update_state_atomic(input.run_id, updates=updates)
     except Exception as e:
         outcome = "persist_failed"
         duration_ms = int((time.perf_counter() - started_at) * 1000)

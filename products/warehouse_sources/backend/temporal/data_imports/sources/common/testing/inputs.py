@@ -1,6 +1,10 @@
+import datetime
+from typing import Any
+
 import structlog
 from structlog.types import FilteringBoundLogger
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
@@ -17,9 +21,12 @@ def source_inputs(
     incremental_field_type: IncrementalFieldType | None = None,
     db_incremental_field_last_value: object | None = None,
     db_incremental_field_earliest_value: object | None = None,
+    db_incremental_field_last_value_before_lookback: object | None = None,
     reset_pipeline: bool = False,
     api_version: str | None = None,
+    history_start: datetime.datetime | None = None,
     logger: FilteringBoundLogger | None = None,
+    source_cursor: SourceCursorManager[Any] | None = None,
 ) -> SourceInputs:
     """The `SourceInputs` the pipeline hands a source, with the fields a test varies.
 
@@ -37,10 +44,13 @@ def source_inputs(
         ),
         db_incremental_field_last_value=db_incremental_field_last_value,
         db_incremental_field_earliest_value=db_incremental_field_earliest_value,
+        db_incremental_field_last_value_before_lookback=db_incremental_field_last_value_before_lookback,
         incremental_field=incremental_field,
         incremental_field_type=incremental_field_type,
         job_id=job_id,
         logger=logger if logger is not None else structlog.get_logger(_LOGGER_NAME),
         reset_pipeline=reset_pipeline,
         api_version=api_version,
+        source_cursor=source_cursor,
+        history_start=history_start,
     )

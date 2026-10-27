@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import {
     SqlScatterGraph,
@@ -18,6 +18,7 @@ export interface BIScatterGraphProps extends SqlScatterGraphProps {
     rows: unknown[][]
     chartKey: string
     onKeepOnly?: (records: Record<string, unknown>[]) => void
+    onInspect?: (record: Record<string, unknown>) => void
 }
 
 export function BIScatterGraph({
@@ -26,6 +27,7 @@ export function BIScatterGraph({
     rows,
     chartKey,
     onKeepOnly,
+    onInspect,
     ...chartProps
 }: BIScatterGraphProps): JSX.Element {
     const logic = biScatterLogic({
@@ -116,7 +118,10 @@ export function BIScatterGraph({
     return (
         <div className="flex h-full w-full flex-1 min-h-0 min-w-0 flex-col">
             {onKeepOnly && (
-                <div className="flex flex-wrap items-center gap-2 px-3 py-1 text-xs" data-attr="bi-scatter-selection">
+                <div
+                    className="flex shrink-0 flex-wrap items-center gap-2 border-b bg-surface-primary px-3 py-2 text-xs"
+                    data-attr="bi-scatter-selection"
+                >
                     <LemonSelect
                         size="xsmall"
                         value={mode}
@@ -126,11 +131,17 @@ export function BIScatterGraph({
                             { value: 'zoom', label: 'Zoom area' },
                         ]}
                     />
-                    <span data-attr="bi-scatter-selection-count">
-                        <span translate="no">{selectedCount}</span> selected
-                    </span>
+                    <LemonTag
+                        type={selectedCount ? 'highlight' : 'default'}
+                        data-attr="bi-scatter-selection-count"
+                        role="status"
+                        aria-live="polite"
+                    >
+                        <span>{`${selectedCount} selected`}</span>
+                    </LemonTag>
                     <LemonButton
-                        size="xsmall"
+                        size="small"
+                        type="primary"
                         onClick={() => {
                             onKeepOnly(selectedRecords)
                             clear()
@@ -151,9 +162,11 @@ export function BIScatterGraph({
                         Keep only
                     </LemonButton>
                     <LemonButton
-                        size="xsmall"
+                        size="small"
+                        type="secondary"
                         onClick={clear}
                         disabledReason={!selected.length ? 'No points selected' : undefined}
+                        data-attr="bi-scatter-clear-selection"
                     >
                         Clear selection
                     </LemonButton>
@@ -164,7 +177,7 @@ export function BIScatterGraph({
                     >
                         Reset zoom
                     </LemonButton>
-                    <span className="text-secondary">
+                    <span className="w-full text-secondary">
                         Click to toggle points or drag an area. Keep only changes worksheet filters; Undo restores them.
                         Missing coordinates are omitted; log axes require positive values.
                     </span>
@@ -188,7 +201,17 @@ export function BIScatterGraph({
                                   toggle(point.meta.rowKey)
                               }
                           }
-                        : undefined
+                        : onInspect
+                          ? (point) => {
+                                if (point.meta?.rowIndex !== undefined) {
+                                    onInspect(
+                                        Object.fromEntries(
+                                            columns.map((column, index) => [column, rows[point.meta!.rowIndex!][index]])
+                                        )
+                                    )
+                                }
+                            }
+                          : undefined
                 }
                 onAreaSelect={
                     onKeepOnly

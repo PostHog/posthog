@@ -23,6 +23,9 @@ BASE_URL = "https://api.waydev.co/v2"
 # The public reference documents a `limit` param (default 25) with no stated maximum;
 # 100 keeps page count down without a documented ceiling to test against.
 INCIDENTS_PAGE_SIZE = 100
+REPOSITORIES_PAGE_SIZE = 500
+# Teams documents a default of 10 per page and no maximum.
+TEAMS_PAGE_SIZE = 100
 
 
 @frozen
@@ -65,6 +68,46 @@ def get_resource(name: str) -> EndpointResource:
                 "params": {"limit": INCIDENTS_PAGE_SIZE},
                 "data_selector": "data",
                 "paginator": PageNumberPaginator(base_page=1, page_param="page", stop_after_empty_page=True),
+            },
+            "table_format": "delta",
+        },
+        "Repositories": {
+            "name": "Repositories",
+            "table_name": "repositories",
+            "write_disposition": "replace",
+            "endpoint": {
+                "path": "/repositories",
+                # `state=all` includes repositories that are not selected for processing, so
+                # repository IDs on other tables still resolve.
+                "params": {"state": "all", "limit": REPOSITORIES_PAGE_SIZE},
+                "data_selector": "values",
+                "paginator": PageNumberPaginator(base_page=1, page_param="page", stop_after_empty_page=True),
+            },
+            "table_format": "delta",
+        },
+        "Contributors": {
+            "name": "Contributors",
+            "table_name": "contributors",
+            "write_disposition": "replace",
+            "endpoint": {
+                "path": "/contributors",
+                # No pagination is documented; the response carries every contributor.
+                "data_selector": "contributors",
+                "paginator": SinglePagePaginator(),
+            },
+            "table_format": "delta",
+        },
+        "Teams": {
+            "name": "Teams",
+            "table_name": "teams",
+            "write_disposition": "replace",
+            "endpoint": {
+                "path": "/teams",
+                "params": {"limit": TEAMS_PAGE_SIZE},
+                "data_selector": "data",
+                "paginator": PageNumberPaginator(
+                    base_page=1, page_param="page", total_path="last_page", stop_after_empty_page=True
+                ),
             },
             "table_format": "delta",
         },

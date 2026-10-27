@@ -29,6 +29,7 @@ import type { ValueLabelsConfig } from '../utils/use-value-labels'
 export type { ConfidenceIntervalConfig, MovingAverageConfig, TrendLineConfig }
 
 export interface TimeSeriesLineChartConfig {
+    valueDomain?: LineChartConfig['valueDomain']
     /** Reserve space for custom overlays; unspecified sides keep their computed margins. */
     margins?: LineChartConfig['margins']
     xAxis?: XAxisConfig
@@ -74,6 +75,8 @@ export interface TimeSeriesLineChartProps<Meta = unknown> {
     config?: TimeSeriesLineChartConfig
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Right-click counterpart of `onPointClick`. See `ChartProps.onPointContextMenu`. */
+    onPointContextMenu?: (data: PointClickData<Meta>) => void
     onDateRangeZoom?: (data: DateRangeZoomData) => void
     dataAttr?: string
     className?: string
@@ -88,6 +91,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
     config,
     tooltip,
     onPointClick,
+    onPointContextMenu,
     onDateRangeZoom,
     dataAttr,
     className,
@@ -136,7 +140,10 @@ export function TimeSeriesLineChart<Meta = unknown>({
     const { referenceLines, valueDomain: goalLineDomain } = useGoalLines(goalLines, finalSeries)
     const boundsDomain = useValueBounds(primaryYAxis)
     // A capped axis still has to stretch to reach an off-scale goal line.
-    const valueDomain = useMemo(() => mergeValueDomains(goalLineDomain, boundsDomain), [goalLineDomain, boundsDomain])
+    const valueDomain = useMemo(
+        () => mergeValueDomains(config?.valueDomain, mergeValueDomains(goalLineDomain, boundsDomain)),
+        [config?.valueDomain, goalLineDomain, boundsDomain]
+    )
 
     // `startAtZero === false` floats the primary axis to its data range; the default (undefined/true)
     // keeps the baseline clamped to 0. A log scale has no zero baseline to clamp, so it's a no-op there.
@@ -174,13 +181,16 @@ export function TimeSeriesLineChart<Meta = unknown>({
                 theme={theme}
                 tooltip={tooltip}
                 onPointClick={onPointClick}
+                onPointContextMenu={onPointContextMenu}
                 onDateRangeZoom={onDateRangeZoom}
                 className={className}
                 dataAttr={dataAttr}
                 onError={onError}
             >
                 {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
-                {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
+                {valueLabelsConfig && (
+                    <ValueLabels {...valueLabelsConfig} position="end" valueFormatter={valueLabelFormatter} />
+                )}
                 {children}
             </LineChart>
         </ChartLegend>

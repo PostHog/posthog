@@ -69,12 +69,15 @@ from products.warehouse_sources.backend.facade.source_management import (
     fetch_docs_text,
     filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
+    history_column_collisions,
+    is_history_table_mode,
     is_team_allowlisted_for_internal_hosts,
     new_source_requires_ssl,
     sql_schema_metadata,
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.warehouse_sources.backend.presentation.history_tracking import report_history_toggled
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     EMPTY_SET_MESSAGE,
     set_source_destinations,
@@ -91,6 +94,14 @@ from products.warehouse_sources.backend.presentation.views.source_api_versions i
 )
 
 from . import base, connection_options, credential_store, helpers, webhook_setup
+
+
+def _payload_enabled_columns(schema: dict[str, Any]) -> list[str] | None:
+    """`None` syncs every column. `[]` syncs only the always-retained key and incremental field."""
+    payload_enabled_columns = schema.get("enabled_columns")
+    if not isinstance(payload_enabled_columns, list):
+        return None
+    return [str(column) for column in payload_enabled_columns if isinstance(column, str)]
 
 
 class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializers.ModelSerializer):
@@ -1184,6 +1195,18 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 ).data,
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if source.syncs_on_demand is True:
+            return Response(
+                ExternalDataSourceErrorResponseSerializer(
+                    {"message": f"A {source_type_model.label} source can't be created here. Use its own setup flow."}
+                ).data,
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if helpers.source_feature_flag_missing(source, self.team):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": helpers._source_unavailable_message(source_type)},
+            )
         max_instances = source.max_instances_per_team
         if max_instances is not None and helpers.count_active_sources(self.team_id, source_type_model) >= max_instances:
             return Response(
@@ -1346,6 +1369,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 )
 
         active_schemas: list[ExternalDataSchema] = []
+        history_schemas: list[ExternalDataSchema] = []
 
         # Pre-fetch PK column names for CDC tables
         pk_columns_by_table: dict[str, list[str]] = {}
@@ -1439,6 +1463,37 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     },
                 )
 
+            # The history table stamps each row version with these columns, so a synced source column
+            # of the same name would fail every load into it.
+            tables_with_validity_column = sorted(
+                {
+                    schema["name"]
+                    for schema in payload_schemas
+                    if schema.get("sync_type") == "cdc"
+                    and schema.get("should_sync", False)
+                    and is_history_table_mode(schema.get("cdc_table_mode"))
+                    and isinstance(schema.get("name"), str)
+                    and history_column_collisions(
+                        [column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])],
+                        _payload_enabled_columns(schema),
+                        pk_columns_by_table.get(schema["name"]),
+                    )
+                }
+            )
+            if tables_with_validity_column:
+                new_source_model.delete()
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": (
+                            "A history table can't store a column that loads as valid_from or valid_to, because "
+                            "PostHog uses those names to record when each version was current. Rename the column on "
+                            "your database, or choose the consolidated table only for these tables: "
+                            f"{', '.join(tables_with_validity_column)}."
+                        )
+                    },
+                )
+
         # Engine-side CDC resource setup runs after PK validation so we don't leave
         # replication state on the source for a config we're about to refuse.
         if cdc_enabled:
@@ -1464,15 +1519,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             primary_key_columns = schema.get("primary_key_columns")
             sync_time_of_day = schema.get("sync_time_of_day")
             should_sync = schema.get("should_sync", False)
-            payload_enabled_columns = schema.get("enabled_columns")
-            if isinstance(payload_enabled_columns, list):
-                # `[]` and `None` are distinct: `None` means sync all columns, `[]` means
-                # sync only the always-retained PK + incremental field.
-                enabled_columns: list[str] | None = [
-                    str(column) for column in payload_enabled_columns if isinstance(column, str)
-                ]
-            else:
-                enabled_columns = None
+            enabled_columns = _payload_enabled_columns(schema)
 
             payload_row_filters = schema.get("row_filters")
             row_filters: list[dict[str, Any]] | None = (
@@ -1734,6 +1781,8 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
             if should_sync and new_source_model.supports_scheduled_sync:
                 active_schemas.append(schema_model)
+            if schema_model.keeps_history:
+                history_schemas.append(schema_model)
 
         # Attach destinations before any schedule starts. Extraction snapshots the set onto the
         # run, so a source whose destinations arrive after its first sync began writes that run
@@ -1821,6 +1870,15 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             team=self.team,
             request=request,
         )
+
+        for schema_model in history_schemas:
+            report_history_toggled(
+                cast(User, request.user),
+                schema_model,
+                enabled=True,
+                table_mode=schema_model.cdc_table_mode,
+                request=request,
+            )
 
         return Response(
             status=status.HTTP_201_CREATED,
@@ -2018,6 +2076,11 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
         source_type_model = ExternalDataSourceType(source_type)
         source = base.SourceRegistry.get_source(source_type_model)
+        if helpers.source_feature_flag_missing(source, self.team):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": helpers._source_unavailable_message(source_type)},
+            )
 
         error_response, source_config = self._validate_source_config_and_credentials(source, source_type_model, payload)
         if error_response is not None or source_config is None:

@@ -3,6 +3,7 @@ import contextlib
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -28,6 +29,7 @@ from products.stamphog.backend.models import (
 )
 from products.stamphog.backend.tasks.tasks import (
     _INBOX_OPT_OUT_DISMISS_MESSAGE,
+    STAMPHOG_PR_EVENT_IDEMPOTENCY_KEY_PREFIX,
     _parse_pr_url,
     _upsert_pull_request,
     process_inbox_pr_review,
@@ -390,21 +392,48 @@ def test_review_mode_gates_events(team, repo_config, review_mode, payload_kwargs
         mock_execute.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "retrigger_updated_at,redeliver,expect_label_removed",
+    [
+        ("2026-10-15T14:03:30Z", False, True),
+        ("2026-10-15T14:00:20Z", False, True),
+        ("2026-10-15T14:00:10Z", False, False),
+        ("2026-10-15T14:00:20Z", True, False),
+    ],
+    ids=["fresh_relabel", "same_second_relabel", "stale_delivery", "late_redelivery"],
+)
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_labeled_rereview_cooldown_skips_rapid_retrigger(team, repo_config):
+def test_labeled_rereview_cooldown_skips_rapid_retrigger(
+    team, repo_config, retrigger_updated_at: str, redeliver: bool, expect_label_removed: bool
+):
     # Removing and re-adding the trigger label within the cooldown must not queue a second sandbox +
     # LLM run — the cheap re-review spam the cooldown exists for.
     with team_scope(team.id):
         repo_config.review_mode = ReviewMode.LABEL
         repo_config.save()
 
-    payload = _pr_payload(action="labeled", labels=["stamphog"], added_label="stamphog")
-    _run_task(payload, "delivery-label-1", team.id)
-    mock_execute = _run_task(payload, "delivery-label-2", team.id)
+    def labeled(updated_at: str) -> dict:
+        return _pr_payload(action="labeled", labels=["stamphog"], added_label="stamphog", updated_at=updated_at)
+
+    first_delivery = f"delivery-label-1-{uuid.uuid4()}"
+    with time_machine.travel("2026-10-15T14:00:20Z", tick=False):
+        first = _run_task(labeled("2026-10-15T14:00:20Z"), first_delivery, team.id)
+    retrigger_delivery = first_delivery if redeliver else f"delivery-label-2-{uuid.uuid4()}"
+    cache.delete(f"{STAMPHOG_PR_EVENT_IDEMPOTENCY_KEY_PREFIX}{retrigger_delivery}")
+    with time_machine.travel("2026-10-15T14:03:30Z", tick=False):
+        mock_execute = _run_task(labeled(retrigger_updated_at), retrigger_delivery, team.id)
 
     with team_scope(team.id):
         assert ReviewRun.objects.count() == 1
     mock_execute.assert_not_called()
+    first.github.remove_pr_label.assert_not_called()
+    if not expect_label_removed:
+        mock_execute.github.remove_pr_label.assert_not_called()
+        mock_execute.github.upsert_sticky_comment.assert_not_called()
+        return
+    mock_execute.github.remove_pr_label.assert_called_once_with(REPO, 42, "stamphog")
+    _, _, body = mock_execute.github.upsert_sticky_comment.call_args.args
+    assert "14:11 UTC (in about 8 minutes)" in body
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

@@ -78,7 +78,7 @@ class MollieSource(ResumableSource[MollieSourceConfig, MollieResumeConfig]):
 
 You can find your API key in the [Mollie dashboard](https://my.mollie.com/dashboard/developers/api-keys) under Developers > API keys. Use a live key (`live_...`) for production data — test keys only return test-mode data.
 
-The balances, balance transactions, settlements and profiles tables are organization-level data that Mollie only shares with an [organization access token](https://docs.mollie.com/docs/authentication). To sync them, connect an access token (`access_...`) that is scoped to your payment profile and has read permissions for those resources.""",
+The balances, balance transactions, settlements, settlement payments, invoices and profiles tables are organization-level data that Mollie only shares with an [organization access token](https://docs.mollie.com/docs/authentication). To sync them, connect an access token (`access_...`) that is scoped to your payment profile and has read permissions for those resources.""",
             iconPath="/static/services/mollie.png",
             docsUrl="https://posthog.com/docs/cdp/sources/mollie",
             releaseStatus=ReleaseStatus.GA,

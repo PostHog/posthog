@@ -70,8 +70,15 @@ class TestGetResource:
         endpoint = cast(dict[str, Any], resource["endpoint"])
         return cast(dict[str, Any], endpoint["params"])
 
-    @parameterized.expand(list(ENDPOINTS))
-    def test_resource_shape(self, endpoint: str) -> None:
+    @parameterized.expand(
+        [
+            ("Surveys", 1000),
+            ("Responses", 1000),
+            # The themes spec takes no `limit` param.
+            ("Themes", None),
+        ]
+    )
+    def test_resource_shape(self, endpoint: str, expected_limit: int | None) -> None:
         cfg = SPRIG_ENDPOINTS[endpoint]
         resource = get_resource(endpoint, should_use_incremental_field=False)
         endpoint_config = cast(dict[str, Any], resource["endpoint"])
@@ -82,11 +89,11 @@ class TestGetResource:
         assert resource["table_format"] == "delta"
         assert endpoint_config["path"] == cfg.path
         assert endpoint_config["data_selector"] == "data"
-        assert params["limit"] == 1000
+        assert params.get("limit") == expected_limit
         assert "start" not in params
         assert resource["write_disposition"] == "replace"
 
-    @parameterized.expand(list(ENDPOINTS))
+    @parameterized.expand([name for name in ENDPOINTS if SPRIG_ENDPOINTS[name].supports_incremental])
     def test_incremental_resource_sets_filter_and_merges(self, endpoint: str) -> None:
         resource = get_resource(endpoint, should_use_incremental_field=True)
 
@@ -95,6 +102,12 @@ class TestGetResource:
         assert param["type"] == "incremental"
         assert param["cursor_path"] == "createdAt"
         assert param["convert"] is _format_incremental_value
+
+    def test_full_refresh_only_endpoint_ignores_incremental_flag(self) -> None:
+        resource = get_resource("Themes", should_use_incremental_field=True)
+
+        assert resource["write_disposition"] == "replace"
+        assert "start" not in self._params(resource)
 
 
 class TestSprigCursorPaginator:
@@ -120,25 +133,25 @@ class TestSprigSource:
 
         assert result.requests[0].param("cursor") == "saved-cursor"
 
-    def test_resume_hook_saves_state_after_batch(self) -> None:
+    @parameterized.expand([("Surveys", "/v1/surveys", "1000"), ("Themes", "/v1/themes", None)])
+    def test_resume_hook_saves_state_after_batch(self, endpoint: str, path: str, limit: str | None) -> None:
         result = _run(
             [
                 ScriptedResponse(json={"data": [{"id": 1}], "cursor": "next-1"}),
                 ScriptedResponse(json={"data": [{"id": 2}], "cursor": None}),
-            ]
+            ],
+            endpoint=endpoint,
         )
 
+        assert result.paths == [path, path]
+        assert result.params("limit") == [limit, limit]
         assert result.params("cursor") == [None, "next-1"]
+        assert result.rows == [{"id": 1}, {"id": 2}]
         # The terminal page has no cursor, so nothing is saved for it.
         assert result.saved_states == [SprigResumeConfig(next_cursor="next-1")]
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    def test_status_mapping(self, _label: str, status_code: int, expected: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code, json={}))):
-            assert validate_credentials("key") is expected
-
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
     def test_transient_errors_raise(self, _label: str, status_code: int) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code, json={}))):

@@ -53,7 +53,11 @@ from products.review_hog.backend.reviewer.artefact_content import (
     RunOutcomeNote,
     ValidationVerdict,
 )
-from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER, effective_priority
+from products.review_hog.backend.reviewer.constants import (
+    BLIND_SPOT_PASS_NUMBER,
+    effective_priority,
+    is_single_agent_pass,
+)
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.models.perspective_selection import ChunkPerspectiveSelection
@@ -98,12 +102,11 @@ class TurnStats:
     blind_spot_issue_count: int | None = None
     # (pass, chunk) review units completed this turn — the in-flight "reviewing" progress counter.
     perspective_reads: int | None = None
+    single_agent_reads: int | None = None
     # The selector's persisted plan for the turn: the full menu + the normalized per-chunk picks.
     # None when the turn ran without a selection (failed, skipped, or predates the feature).
     selection_roster: list[str] | None = None
     selection_chunks: list[ChunkPerspectiveSelection] | None = None
-    # The turn marker is written right before the review sessions start, so it ends the preparing step.
-    has_turn_marker: bool = False
 
 
 def finding_counts(
@@ -219,15 +222,6 @@ def turn_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, TurnStat
     for row in chunk_rows:  # oldest-first, so the turn's latest chunking wins
         stats[str(row["report_id"])].chunk_count = row["chunk_count"]
 
-    marker_report_ids = (
-        ReviewReportArtefact.objects.for_team(team_id)
-        .filter(head_q, type=ReviewReportArtefact.ArtefactType.TURN_MARKER)
-        .values_list("report_id", flat=True)
-        .distinct()
-    )
-    for report_id in marker_report_ids:
-        stats[str(report_id)].has_turn_marker = True
-
     result_rows = (
         ReviewReportArtefact.objects.for_team(team_id)
         .filter(head_q, type=ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT)
@@ -267,8 +261,11 @@ def turn_stats(team_id: int, heads: dict[str, str | None]) -> dict[str, TurnStat
     for report_id, units in issues_by_unit.items():
         wave_units = {unit: count for unit, count in units.items() if unit[0] != BLIND_SPOT_PASS_NUMBER}
         blind_units = {unit: count for unit, count in units.items() if unit[0] == BLIND_SPOT_PASS_NUMBER}
-        if units:
-            stats[report_id].perspective_reads = len(units)
+        single_agent_units = [unit for unit in units if is_single_agent_pass(unit[0])]
+        if len(units) > len(single_agent_units):
+            stats[report_id].perspective_reads = len(units) - len(single_agent_units)
+        if single_agent_units:
+            stats[report_id].single_agent_reads = len(single_agent_units)
         if wave_units:
             stats[report_id].perspective_count = len({pass_number for pass_number, _ in wave_units})
             stats[report_id].perspective_issue_count = sum(wave_units.values())
@@ -415,6 +412,37 @@ def run_outcome_markers(
             )
         )
     return markers
+
+
+def live_turn_markers(
+    team_id: int, reports: Sequence[ReviewReport], markers: dict[tuple[str, int], TurnMarker]
+) -> dict[str, TurnMarker]:
+    """The marker of each report's running turn `run_count + 1`, keyed by report id.
+
+    An attempt that fails or is skipped leaves its marker at that index, and the next attempt
+    reuses the index. So a marker counts only on the report's current head, and only when no
+    outcome note of its turn came after it.
+    """
+    candidates: dict[str, tuple[int, TurnMarker]] = {}
+    for report in reports:
+        report_id = str(report.id)
+        marker = markers.get((report_id, report.run_count + 1))
+        if marker is not None and marker.head_sha == report.head_sha:
+            candidates[report_id] = (report.run_count + 1, marker)
+    if not candidates:
+        return {}
+    since = min(marker.started_at for _, marker in candidates.values())
+    outcomes = run_outcome_markers(team_id, list(candidates), since=since)
+    return {
+        report_id: marker
+        for report_id, (run_index, marker) in candidates.items()
+        if not any(
+            outcome.stage == RUN_STAGE_REVIEW
+            and outcome.run_index == run_index
+            and outcome.created_at >= marker.started_at
+            for outcome in outcomes.get(report_id, [])
+        )
+    }
 
 
 @frozen
@@ -729,22 +757,30 @@ def _expected_reads(team_id: int, report: ReviewReport, turn: TurnStats) -> int 
     return chunk_count * (perspectives + 1)
 
 
-def in_publish_window(report: ReviewReport) -> bool:
+def in_publish_window(report: ReviewReport, live_marker: TurnMarker | None) -> bool:
     """Whether the turn finished but has not published yet.
 
     On publishing runs finalize defers the idle write to the publish stage, so the report is still
     ACTIVE with `run_count` already bumped and no in-flight findings. Scoped to the not-yet-published
     head so a resolution run's ACTIVE window (published head) keeps its current label.
+
+    `live_marker` is the marker of turn `run_count + 1`. When it exists, a new turn started after the
+    finished one. A finished turn that published nothing, such as a clean Standard review, leaves the
+    head unpublished, so the head check alone would put the next turn on that head in this window.
     """
     return bool(
-        report.completed_head_sha
+        live_marker is None
+        and report.completed_head_sha
         and report.completed_head_sha == report.head_sha
         and report.published_head_sha != report.head_sha
     )
 
 
 def _single_agent_progress(
-    turn: TurnStats, current_pairs: list[tuple[ReviewIssueFinding, ValidationVerdict | None]], in_publish_window: bool
+    turn: TurnStats,
+    current_pairs: list[tuple[ReviewIssueFinding, ValidationVerdict | None]],
+    in_publish_window: bool,
+    started: bool,
 ) -> dict[str, Any]:
     """Stage for a single-agent turn: preparing → reviewing (main and lens sessions) → finalizing.
 
@@ -754,28 +790,30 @@ def _single_agent_progress(
     """
     if current_pairs or in_publish_window:
         stage = "single_agent_finalizing"
-    elif turn.has_turn_marker or turn.perspective_reads:
+    elif started or turn.single_agent_reads:
         stage = "single_agent_reviewing"
     else:
         stage = "single_agent_preparing"
     return {"review_stage": stage, "done": None, "total": None}
 
 
-def progress_payload(
+def _stage_payload(
     team_id: int,
     report: ReviewReport,
     snapshot: SnapshotStats,
     turn: TurnStats,
     current_pairs: list[tuple[ReviewIssueFinding, ValidationVerdict | None]],
+    live_marker: TurnMarker | None,
 ) -> dict[str, Any]:
-    """Stage + counters for the in-flight turn, inferred from which working state exists at the head.
-
-    Covers the full pipeline: fetching → chunking → selecting → reviewing → deduplicating →
-    validating → finalizing (body build + publish, the moments before the turn completes).
-    A single-agent turn gets its own stages once its fetch has recorded the design.
-    """
-    if snapshot.head_matched and snapshot.review_design == REVIEW_DESIGN_SINGLE_AGENT:
-        return _single_agent_progress(turn, current_pairs, in_publish_window(report))
+    # The newest snapshot at the head can belong to an earlier turn of the other design on the same
+    # head, so the marker's design wins once the turn has one.
+    if live_marker is not None:
+        review_design: str | None = live_marker.review_design
+    else:
+        review_design = snapshot.review_design if snapshot.head_matched else None
+    publish_window = in_publish_window(report, live_marker)
+    if review_design == REVIEW_DESIGN_SINGLE_AGENT:
+        return _single_agent_progress(turn, current_pairs, publish_window, started=live_marker is not None)
     if current_pairs:
         judged = sum(1 for _, verdict in current_pairs if verdict is not None)
         if judged >= len(current_pairs):
@@ -783,9 +821,9 @@ def progress_payload(
         return {"review_stage": "validating", "done": judged, "total": len(current_pairs)}
     # Without this check the branches below would misread the finished turn's working state as
     # "deduplicating". Relabeling a resolution run's ACTIVE window properly is its own change.
-    # Trade-off: an unpublished same-head re-run reads "finalizing" until dedup persists its first
-    # findings, a brief stretch because such a turn resumes its chunk and perspective state.
-    if in_publish_window(report):
+    # Trade-off: a same-head re-run after an unpublished turn reads "finalizing" until its marker
+    # lands, a brief stretch before its review sessions start.
+    if publish_window:
         return {"review_stage": "finalizing", "done": None, "total": None}
     if turn.chunk_count is not None:
         done = turn.perspective_reads or 0
@@ -800,3 +838,31 @@ def progress_payload(
     if snapshot.head_matched:
         return {"review_stage": "chunking", "done": None, "total": None}
     return {"review_stage": "fetching", "done": None, "total": None}
+
+
+def progress_payload(
+    team_id: int,
+    report: ReviewReport,
+    snapshot: SnapshotStats,
+    turn: TurnStats,
+    current_pairs: list[tuple[ReviewIssueFinding, ValidationVerdict | None]],
+    live_marker: TurnMarker | None,
+    finished_marker: TurnMarker | None = None,
+) -> dict[str, Any]:
+    """Stage, counters and mode of the in-flight turn, inferred from which working state exists at the head.
+
+    Covers the full pipeline: fetching → chunking → selecting → reviewing → deduplicating →
+    validating → finalizing (body build + publish, the moments before the turn completes).
+    A single-agent turn gets its own stages once its fetch has recorded the design.
+
+    `live_marker` is the marker of turn `run_count + 1`, written right before the turn's review
+    sessions start. Until it exists, the mode is unknown and the design comes from the snapshot.
+    `finished_marker` is the marker of turn `run_count`. It gives the mode while that turn publishes.
+    """
+    if live_marker is not None:
+        review_mode = live_marker.review_mode
+    elif finished_marker is not None and in_publish_window(report, None):
+        review_mode = finished_marker.review_mode
+    else:
+        review_mode = None
+    return {**_stage_payload(team_id, report, snapshot, turn, current_pairs, live_marker), "review_mode": review_mode}

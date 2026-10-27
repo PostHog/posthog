@@ -32,11 +32,6 @@ from posthog.models.user_integration import UserIntegration
 from posthog.object_tags.kinds import OBJECT_URL_TEMPLATES, ObjectRef, object_ref_for_url
 from posthog.redis import get_client
 from posthog.slack.formatting import escape_slack_mrkdwn
-from posthog.temporal.ai.slack_app.slack_app_unfurl_charts import (
-    SLACK_APP_UNFURL_CHARTS_WORKFLOW_TIMEOUT,
-    SlackAppUnfurlChartsWorkflow,
-)
-from posthog.temporal.ai.slack_app.types import SlackAppUnfurlChartsWorkflowInputs, SlackUnfurlChartRequest
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import get_instance_region
 
@@ -51,6 +46,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.error_tracking.backend.facade import api as error_tracking_facade
 from products.experiments.backend.models.experiment import Experiment
+from products.exports.backend.facade import api as exports_facade
 from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.filters import condition_rollout_percentage
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -59,10 +55,25 @@ from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_access import may_read_reports
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.feature_flags import is_slack_app_insight_unfurl_charts_enabled
-from products.slack_app.backend.logic.link_unfurl_charts import chat_unfurl_kwargs
+from products.slack_app.backend.logic.feature_tips.features import SlackFeature
+from products.slack_app.backend.logic.feature_tips.state import record_feature_used
+from products.slack_app.backend.logic.link_unfurl_charts import (
+    UNFURL_IMAGE_ASSET_TTL,
+    UNFURL_IMAGE_URL_TTL,
+    chat_unfurl_kwargs,
+    has_project_access,
+    slack_fetchable_image_url,
+    with_chart_images,
+)
+from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.followup_invite import build_followup_invite
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
+from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id
+from products.slack_app.backend.temporal.slack_app_unfurl_charts import (
+    SLACK_APP_UNFURL_CHARTS_WORKFLOW_TIMEOUT,
+    SlackAppUnfurlChartsWorkflow,
+)
+from products.slack_app.backend.temporal.types import SlackAppUnfurlChartsWorkflowInputs, SlackUnfurlChartRequest
 from products.surveys.backend.models import Survey
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskSlackUnfurlDTO
@@ -82,6 +93,13 @@ _CHART_WIDTH = 20
 _CHART_LABEL_CHARS = 16
 
 ADHOC_INSIGHT_KIND = "adhoc_insight"
+TASK_ARTIFACT_KIND = "task_artifact"
+
+_SLACK_IMAGE_CONTENT_TYPES = frozenset({"image/png", "image/jpeg", "image/gif"})
+_MAX_ARTIFACT_IMAGE_BYTES = 5 * 1024 * 1024
+_TASK_ARTIFACT_PATH = re.compile(
+    r"/api/projects/(?P<project>[^/]+)/tasks/(?P<task>[^/]+)/runs/(?P<run>[^/]+)/artifacts/(?P<artifact>[^/]+)/"
+)
 
 _UNFURL_TEMPLATES: dict[str, tuple[str, ...]] = {
     "insight": (*OBJECT_URL_TEMPLATES["insight"], "/bi/{id}"),
@@ -103,6 +121,7 @@ _KIND_EMOJI: dict[str, str] = {
     "dashboard": "📊",
     "ticket": "🎫",
     "task": "🤖",
+    TASK_ARTIFACT_KIND: "📎",
     "canvas": "🎨",
     "notebook": "📓",
     "flag": "🚩",
@@ -110,8 +129,12 @@ _KIND_EMOJI: dict[str, str] = {
     "survey": "📝",
     "cohort": "👥",
     "error": "🐞",
-    "report": "📥",
     ADHOC_INSIGHT_KIND: "📈",
+}
+
+# A kind with a product logo shows it in the card summary instead of an emoji in the title.
+_KIND_ICON_PATH: dict[str, str] = {
+    "report": "/static/icons/self-driving.png",
 }
 
 _SkipReason = Literal["not_found", "no_access", "other_project", "not_found_or_no_access", "public_sharing_disabled"]
@@ -131,7 +154,6 @@ _INVITE_REDIS_TIMEOUT_SECONDS = 0.3
 _QUERY_KIND_TO_SHORT_NAME: dict[str, str] = {
     "TrendsQuery": "Trends",
     "FunnelsQuery": "Funnel",
-    "FunnelCorrelationQuery": "Funnel correlation",
     "RetentionQuery": "Retention",
     "PathsQuery": "Paths",
     "PathsV2Query": "Journeys",
@@ -216,6 +238,9 @@ def parse_posthog_resource_link(url: str) -> ObjectRef | None:
         return None
     if _is_adhoc_insight_url(url):
         return ObjectRef(kind=ADHOC_INSIGHT_KIND, id="new")
+    artifact_ref = _task_artifact_ref(url)
+    if artifact_ref is not None:
+        return ObjectRef(kind=TASK_ARTIFACT_KIND, id=artifact_ref.artifact_id or artifact_ref.name or "")
     return object_ref_for_url(url, _UNFURL_TEMPLATES)
 
 
@@ -341,6 +366,45 @@ class _CardButton:
 
 
 @frozen
+class _TaskArtifactRef:
+    project_id: int | None
+    task_id: UUID
+    run_id: UUID | None = None
+    artifact_id: str | None = None
+    name: str | None = None
+
+
+def _task_artifact_ref(url: str) -> _TaskArtifactRef | None:
+    """A task artifact named by its download link, or by its place in the task's Artifacts tab."""
+    parsed = urlparse(url)
+    match = _TASK_ARTIFACT_PATH.search(parsed.path)
+    if match:
+        task_id, run_id = _uuid(match["task"]), _uuid(match["run"])
+        if task_id is None or run_id is None:
+            return None
+        project = match["project"]
+        return _TaskArtifactRef(
+            project_id=int(project) if project.isdigit() else None,
+            task_id=task_id,
+            run_id=run_id,
+            artifact_id=match["artifact"],
+        )
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    params = parse_qs(parsed.query)
+    if (segments[2:] if segments[:1] == ["project"] else segments) != ["ai"] or "artifact" not in params:
+        return None
+    task_id = _uuid(params.get("task", [""])[0])
+    if task_id is None:
+        return None
+    return _TaskArtifactRef(
+        project_id=_url_team_id(url),
+        task_id=task_id,
+        artifact_id=params.get("artifact_version", [None])[0],
+        name=params["artifact"][0],
+    )
+
+
+@frozen
 class _UnfurlCard:
     label: str
     title: str
@@ -352,8 +416,13 @@ class _UnfurlCard:
     timestamp_label: str = "Updated"
     button: _CardButton | None = None
     chart_insight_id: int | None = None
+    # Set for a saved insight link with unsaved edits. The chart renders this query instead of the saved one.
+    chart_edited_query: dict | None = None
     # Set for an ad hoc insight. Its card goes out only together with its chart.
     chart_query: dict | None = None
+    artifact_image: bool = False
+    # Set when the shared link is not the page that shows the resource, such as a file download.
+    open_url: str | None = None
 
 
 def _tracked_url(url: str, kind: str) -> str:
@@ -378,11 +447,18 @@ def _card_summary(card: _UnfurlCard, *, compact: bool) -> str:
 
 
 def _card_blocks(card: _UnfurlCard, *, kind: str, url: str, compact: bool) -> list[dict]:
-    link = _tracked_url(url, kind)
-    title = f"{_KIND_EMOJI[kind]}  *<{link}|{escape_slack_mrkdwn(_truncate(card.title, _MAX_TITLE_CHARS))}>*"
+    link = _tracked_url(card.open_url or url, kind)
+    title = f"*<{link}|{escape_slack_mrkdwn(_truncate(card.title, _MAX_TITLE_CHARS))}>*"
+    summary: list[dict] = [{"type": "mrkdwn", "text": _card_summary(card, compact=compact)}]
+    icon_path = _KIND_ICON_PATH.get(kind)
+    if icon_path:
+        icon_url = slack_fetchable_image_url(f"{settings.SITE_URL}{icon_path}")
+        summary.insert(0, {"type": "image", "image_url": icon_url, "alt_text": card.label})
+    else:
+        title = f"{_KIND_EMOJI[kind]}  {title}"
     blocks: list[dict] = [
         {"type": "section", "text": {"type": "mrkdwn", "text": title}},
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": _card_summary(card, compact=compact)}]},
+        {"type": "context", "elements": summary},
     ]
     if compact:
         return blocks
@@ -449,7 +525,7 @@ def _build_unfurl_invite(integration: Integration, kind: str, channel: str) -> d
         integration,
         utm_tags=_INVITE_UTM_TAGS,
         ai_enabled=ai_enabled,
-        subject=f"this {kind}",
+        subject=f"this {kind.replace('_', ' ')}",
     )
 
 
@@ -678,13 +754,19 @@ def _insight_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Ski
     level = ctx.uac.get_user_access_level(insight)
     if not level or not access_level_satisfied_for_resource("insight", level, "viewer"):
         return "no_access"
+    # A link copied from the insight editor carries unsaved edits in `#q`, such as another date
+    # range or hidden series. The person who opens the link sees these edits, so the card shows them too.
+    edited_query = adhoc_insight_query(url)
+    if edited_query == insight.query:
+        edited_query = None
     return _UnfurlCard(
         label=_insight_resource_label(insight),
         title=insight.name or insight.derived_name or "Untitled",
-        details=(*filter(None, [_date_range(insight.query)]), *_by(insight.created_by)),
+        details=(*filter(None, [_date_range(edited_query or insight.query)]), *_by(insight.created_by)),
         body=insight.description,
         timestamp=insight.last_modified_at,
         chart_insight_id=insight.id,
+        chart_edited_query=edited_query,
     )
 
 
@@ -762,10 +844,16 @@ def _ticket_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Skip
     )
 
 
+def _may_read_tasks(uac: UserAccessControl) -> bool:
+    return uac.check_access_level_for_resource("task", "viewer")
+
+
 def _task_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
     url_team_id = _url_team_id(url)
     if url_team_id is not None and url_team_id != ctx.team.pk:
         return "other_project"
+    if not _may_read_tasks(ctx.uac):
+        return "no_access"
     task = tasks_facade.get_task_for_slack_unfurl(ref, ctx.team.pk, ctx.user.id) if _uuid(ref) else None
     if task is None:
         return "not_found_or_no_access"
@@ -790,6 +878,56 @@ def _task_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipRe
         details=(*((dto.repository,) if dto and dto.repository else ()), *_by(_user(task.created_by_id))),
         button=_CardButton(label="View pull request", url=pr_url) if pr_url else None,
         timestamp=dto.updated_at if dto else None,
+    )
+
+
+def _file_size(size: int) -> str:
+    if size < 1024:
+        return f"{size} B"
+    value = size / 1024
+    for unit in ("KB", "MB"):
+        if value < 1024:
+            return f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} GB"
+
+
+def _task_artifact_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
+    artifact_ref = _task_artifact_ref(url)
+    if artifact_ref is None:
+        return "not_found"
+    if artifact_ref.project_id is not None and artifact_ref.project_id != ctx.team.pk:
+        return "other_project"
+    if not _may_read_tasks(ctx.uac):
+        return "no_access"
+    artifact = tasks_facade.get_task_artifact_for_slack_unfurl(
+        task_id=artifact_ref.task_id,
+        team_id=ctx.team.pk,
+        user_id=ctx.user.id,
+        run_id=artifact_ref.run_id,
+        artifact_id=artifact_ref.artifact_id,
+        name=artifact_ref.name,
+    )
+    if artifact is None:
+        return "not_found_or_no_access"
+    origin = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
+    artifacts_tab = urlencode(
+        {"task": artifact.task_id, "artifact": artifact.name, "artifact_version": artifact.artifact_id}
+    )
+    size = _file_size(artifact.size) if artifact.size is not None else None
+    return _UnfurlCard(
+        label="Task artifact",
+        title=artifact.name,
+        details=(*filter(None, [size]), f"Task: {artifact.task_title}"),
+        timestamp=artifact.uploaded_at,
+        timestamp_label="Uploaded",
+        button=_CardButton(label="Download", url=f"{origin}{artifact.download_path}"),
+        open_url=f"{origin}/project/{ctx.team.pk}/ai?{artifacts_tab}",
+        artifact_image=(
+            artifact.content_type in _SLACK_IMAGE_CONTENT_TYPES
+            and artifact.size is not None
+            and artifact.size <= _MAX_ARTIFACT_IMAGE_BYTES
+        ),
     )
 
 
@@ -962,7 +1100,6 @@ def _report_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Skip
         title=report.title or "Untitled report",
         status=_humanize(report.status),
         details=(_count(report.signal_count, "signal"),),
-        body=report.summary,
         timestamp=report.updated_at,
     )
 
@@ -973,6 +1110,7 @@ _CARD_BUILDERS: dict[str, Callable[[_UnfurlContext, str, str], _UnfurlCard | _Sk
     "dashboard": _dashboard_card,
     "ticket": _ticket_card,
     "task": _task_card,
+    TASK_ARTIFACT_KIND: _task_artifact_card,
     "canvas": _canvas_card,
     "notebook": _notebook_card,
     "flag": _flag_card,
@@ -1028,8 +1166,6 @@ def start_unfurl_charts(
     sharing gets no charts.
     """
     if not integration.team.organization.allow_publicly_shared_resources:
-        return
-    if not is_slack_app_insight_unfurl_charts_enabled(integration, distinct_id=str(user.distinct_id)):
         return
     channel = event["channel"]
     message_ts = event["message_ts"]
@@ -1092,6 +1228,129 @@ def _queue_unfurl_charts(
     return True
 
 
+def _queue_unfurl_artifact_image(
+    *, integration: Integration, user: User, event: dict, unfurls: dict[str, dict], url: str, title: str
+) -> bool:
+    """Reading and storing the file is too slow for the webhook's ack budget, so it runs on Celery."""
+    # noqa reason: the task module imports api, which imports this module at load time.
+    from products.slack_app.backend.tasks import add_slack_unfurl_artifact_image  # noqa: PLC0415
+
+    try:
+        add_slack_unfurl_artifact_image.delay(
+            team_id=integration.team_id,
+            integration_id=integration.id,
+            user_id=user.pk,
+            event=event,
+            unfurls=unfurls,
+            url=url,
+            title=title,
+        )
+    except Exception:
+        logger.warning("slack_app_unfurl_artifact_image_queue_failed", team_id=integration.team_id, exc_info=True)
+        return False
+    return True
+
+
+_ImageFailure = Literal["public_sharing_disabled", "no_access", "unavailable", "not_an_image", "unfurl_failed"]
+
+
+@frozen
+class _ImageLink:
+    url: str | None = None
+    failure: _ImageFailure | None = None
+
+
+def _artifact_image_link(*, integration: Integration, user: User, url: str, title: str) -> _ImageLink:
+    # The link opens without a PostHog login, so it follows the public sharing setting like chart images do.
+    team = integration.team
+    if not team.organization.allow_publicly_shared_resources:
+        return _ImageLink(failure="public_sharing_disabled")
+    # Access can change while the job waits in the queue, and the link it publishes needs no login.
+    if not has_project_access(user, team) or not _may_read_tasks(UserAccessControl(user, team=team)):
+        return _ImageLink(failure="no_access")
+    artifact_ref = _task_artifact_ref(url)
+    content = (
+        tasks_facade.read_task_artifact_for_slack_unfurl(
+            task_id=artifact_ref.task_id,
+            team_id=integration.team_id,
+            user_id=user.pk,
+            max_bytes=_MAX_ARTIFACT_IMAGE_BYTES,
+            run_id=artifact_ref.run_id,
+            artifact_id=artifact_ref.artifact_id,
+            name=artifact_ref.name,
+        )
+        if artifact_ref
+        else None
+    )
+    if content is None:
+        return _ImageLink(failure="unavailable")
+    image_url = exports_facade.create_png_delivery_url(
+        team_id=integration.team_id,
+        created_by_id=user.pk,
+        content=content,
+        filename=title,
+        url_ttl=UNFURL_IMAGE_URL_TTL,
+        asset_ttl=UNFURL_IMAGE_ASSET_TTL,
+    )
+    if image_url is None:
+        return _ImageLink(failure="not_an_image")
+    return _ImageLink(url=slack_fetchable_image_url(image_url))
+
+
+def add_artifact_image_to_unfurl(
+    *, integration: Integration, user: User, event: dict, unfurls: dict[str, dict], url: str, title: str
+) -> None:
+    """Post a task artifact card again with its image. Best effort: a failure keeps the text card."""
+    link = _artifact_image_link(integration=integration, user=user, url=url, title=title)
+    failure = link.failure
+    error: str | None = None
+    if link.url is not None:
+        error = _post_unfurls(
+            SlackIntegration(integration), event, with_chart_images(unfurls, {url: link.url}, {url: title})
+        )
+        failure = "unfurl_failed" if error else None
+    logger.info(
+        "slack_app_unfurl_artifact_image_result",
+        team_id=integration.team_id,
+        channel=event.get("channel"),
+        failure=failure,
+        error=error,
+    )
+    capture_slack_event(
+        integration,
+        "slack app link unfurl artifact image",
+        slack_user_id=event["user"],
+        posthog_user=user,
+        shown=failure is None,
+        failure=failure,
+        error=error,
+    )
+
+
+def _bot_reply_actor(integration: Integration, event: dict) -> str | None:
+    """The Slack user steering the run in this thread, when that run was told to share chart links.
+
+    Slack credits a message our app posts to our bot user, and some bot-posted messages to the
+    placeholder author. Neither resolves to a PostHog user, so a thread whose run shares links is
+    the signal that such a message is our reply, written for that person with their PostHog
+    access. The run state holds the decision, so no flag call here."""
+    if not event.get("thread_ts"):
+        return None
+    actors = (
+        SlackThreadTaskMapping.objects.filter(
+            integration=integration,
+            channel=event["channel"],
+            thread_ts=event["thread_ts"],
+            task_run__state__slack_chart_links=True,
+        )
+        .values_list(
+            "task_run__state__slack_actor_slack_user_id", "latest_actor_slack_user_id", "mentioning_slack_user_id"
+        )
+        .first()
+    )
+    return next((actor for actor in actors or () if actor), None)
+
+
 def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     """
     Unfurl supported PostHog resource links with metadata.
@@ -1112,7 +1371,15 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         return
 
     # Imported here to avoid circular import with api (api imports this module at load time).
-    from products.slack_app.backend.api import resolve_slack_user
+    from products.slack_app.backend.api import SLACK_PLACEHOLDER_USER_ID, resolve_slack_user
+
+    bot_authors = {SLACK_PLACEHOLDER_USER_ID, get_cached_bot_user_id(slack, integration)}
+    shared_by_person = slack_user_id not in bot_authors
+    bot_reply_actor = None if shared_by_person else _bot_reply_actor(integration, event)
+    if bot_reply_actor:
+        slack_user_id = bot_reply_actor
+        # Everything downstream, the chart workflow included, reads the sharer from the event.
+        event = {**event, "user": bot_reply_actor}
 
     user_context = resolve_slack_user(
         slack,
@@ -1222,6 +1489,7 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             kinds=kinds,
             compact=compact,
             error=error,
+            bot_reply=bot_reply_actor is not None,
         )
         if error not in _REJECTED_PAYLOAD_ERRORS:
             return
@@ -1229,7 +1497,9 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         return
 
     chart_requests = [
-        SlackUnfurlChartRequest(url=url, insight_id=card.chart_insight_id, title=card.title)
+        SlackUnfurlChartRequest(url=url, query=card.chart_edited_query, title=card.title)
+        if card.chart_edited_query is not None
+        else SlackUnfurlChartRequest(url=url, insight_id=card.chart_insight_id, title=card.title)
         for url, (_, card) in cards.items()
         if card.chart_insight_id is not None and not compact
     ]
@@ -1240,6 +1510,17 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         unfurls=unfurls,
         charts=chart_requests,
     )
+    # A card is full size, and can carry an image, only when it is the only link.
+    first_url, (_, first_card) = next(iter(cards.items()))
+    artifact_image_queued = (
+        not compact
+        and first_card.artifact_image
+        and _queue_unfurl_artifact_image(
+            integration=integration, user=user, event=event, unfurls=unfurls, url=first_url, title=first_card.title
+        )
+    )
+    if shared_by_person:
+        record_feature_used(integration.integration_id, slack_user_id, SlackFeature.INSIGHT_UNFURL)
     capture_slack_event(
         integration,
         "slack app link unfurled",
@@ -1251,4 +1532,6 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         skipped_count=len(skipped),
         followup_invite_shown=invite is not None,
         charts_queued=charts_queued,
+        artifact_image_queued=artifact_image_queued,
+        bot_reply=bot_reply_actor is not None,
     )
