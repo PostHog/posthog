@@ -60,6 +60,7 @@ class MaterializePayload:
     unique_key: tuple[str, ...] = ()
     lookback_seconds: int = 0
     refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasis | None = None
+    recomputed_by_views: int = 0
 
 
 @frozen
@@ -99,6 +100,7 @@ class MaterializeSuggestionPayload:
     unique_key: tuple[str, ...] = ()
     lookback_seconds: int = 0
     refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasis | None = None
+    recomputed_by_views: int = 0
 
 
 SuggestionPayloadView = CertifyPayload | DeprecatePayload | MaterializeSuggestionPayload | UnmaterializePayload
@@ -153,6 +155,7 @@ class Suggestion:
     can_act: bool
     subject_source_id: UUID | None = None
     subject_schema_id: UUID | None = None
+    assignee: SuggestionReviewer | None = None
 
 
 @frozen
@@ -250,6 +253,14 @@ class AcceptOptionRefusedError(Exception):
 
 
 class SuggestionOutdatedError(Exception):
+    pass
+
+
+class AssigneeCannotActError(Exception):
+    pass
+
+
+class SuggestionNotOpenError(Exception):
     pass
 
 

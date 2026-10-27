@@ -524,6 +524,31 @@ _SERIALIZATION_CONFLICT_EXHAUSTED_MESSAGE = (
     "next schedule."
 )
 
+# psycopg raises this only while it opens a connection. A schema that synced an hour earlier often
+# times out once and then syncs again with no change to the source, so a timeout alone is not proof
+# that the host is unreachable for good.
+_CONNECT_TIMEOUT_ERROR = "connection timeout expired"
+_CONNECT_TIMEOUT_EXHAUSTED_MESSAGE = (
+    "PostHog couldn't connect to your database before the connection timed out, and it did so again "
+    "on every retry. Check that the database is running and reachable from the public internet, and "
+    "that PostHog's egress IP addresses are allowed through your firewall. For a database that can't "
+    "be exposed publicly, use the SSH tunnel option. This sync is still enabled and will run again on "
+    "its next schedule."
+)
+
+# Supavisor blocks new connections for a short time after too many failed sign-ins to a project.
+# The failures can come from any client of that project, so the block does not prove that PostHog's
+# credentials are wrong. When they are wrong, the next attempt after the block clears gets
+# "password authentication failed", which stops the sync.
+_POOLER_AUTH_CIRCUIT_BREAKER_ERROR = "too many authentication failures"
+_POOLER_AUTH_CIRCUIT_BREAKER_EXHAUSTED_MESSAGE = (
+    "Your database connection pooler temporarily blocked new connections after too many failed "
+    "sign-in attempts, and the block was still active after every retry. Another client with an old "
+    "username or password can cause this block. Check the credentials of each client that connects "
+    "to this database, including this source. This sync is still enabled and will run again on its "
+    "next schedule."
+)
+
 
 @SourceRegistry.register
 class PostgresSource(
@@ -771,6 +796,7 @@ class PostgresSource(
                     ),
                     SourceFieldInputConfig(
                         name="schema",
+                        sync_setting=True,
                         label="Schema",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -898,18 +924,6 @@ class PostgresSource(
                 "wrong. Some connection poolers (for example Supabase's transaction pooler) also "
                 "require a pooler-specific username such as postgres.<project-ref>. Check your "
                 "credentials, then re-enable the sync."
-            ),
-            # Supabase/Supavisor trips its circuit breaker after repeated bad credentials and refuses
-            # new connections with "FATAL: (ECIRCUITBREAKER) too many authentication failures, new
-            # connections are temporarily blocked". The block only clears once the failing attempts
-            # stop, so it's deterministic until the customer fixes the credentials — retrying just
-            # re-hits the block. Distinct from the transient credential-fetch variant of the same
-            # code, which postgres.py keeps retrying (see `_CONNECTION_DROPPED_ERROR_SUBSTRINGS`).
-            "too many authentication failures": (
-                "Your database connection pooler is blocking new connections after too many failed "
-                'sign-in attempts ("too many authentication failures"). This usually means the '
-                "username or password is wrong. Check your credentials, wait for the block to clear, "
-                "then re-enable the sync."
             ),
             # A Postgres server configured with `pam` auth in pg_hba.conf rejects bad credentials with
             # "FATAL: PAM authentication failed for user <user>" instead of PostgreSQL's
@@ -1192,18 +1206,6 @@ class PostgresSource(
             # retry until the customer fixes the network path.
             "Connection timed out": None,
             "password authentication failed connection": None,
-            # psycopg raises ConnectionTimeout ("connection timeout expired") only while establishing
-            # a connection. The read path retries it in-process first (see
-            # `_is_dropped_or_connect_timeout`); reaching here means every reconnect timed out, i.e. a
-            # persistently unreachable host — usually a firewall dropping PostHog's egress IPs, an
-            # IPv6-only host, or a wrong host/port. Stays non-retryable; give the actionable guidance
-            # the bare driver text lacks (mirrors the validate-path message for "timeout expired").
-            "connection timeout expired": (
-                "PostHog couldn't connect to your database before the connection timed out. Check that "
-                "the database is reachable from the public internet and that PostHog's egress IP "
-                "addresses are allowed through your firewall. For a database that can't be exposed "
-                "publicly, use the SSH tunnel option, then re-enable the sync."
-            ),
             # TLS ALPN alert (RFC 7301 "no_application_protocol", alert 120) sent by the server
             # during the TLS handshake. libpq (Postgres 17+) offers the "postgresql" ALPN protocol;
             # an endpoint that negotiates ALPN but doesn't accept it rejects the handshake outright.
@@ -1733,6 +1735,9 @@ class PostgresSource(
         # retry gives up opening the port forward to the database behind the bastion. See its
         # definition above for why that stays retryable rather than disabling the schema.
         #
+        # `_CONNECT_TIMEOUT_ERROR` and `_POOLER_AUTH_CIRCUIT_BREAKER_ERROR` are temporary refusals at
+        # connect time. See their definitions above for why neither one disables the schema.
+        #
         # "TransactionRetryWithProtoRefreshError" is CockroachDB's serialization-conflict wrapper
         # (its wire protocol is Postgres-compatible, so customers configure it as a plain Postgres
         # source — see the TABLESAMPLE workarounds in postgres.py). It covers every conflict reason
@@ -1753,6 +1758,8 @@ class PostgresSource(
             HOST_RESOLUTION_TIMEOUT_ERROR,
             TEMPORARY_HOST_RESOLUTION_ERROR,
             _SSH_FORWARD_FAILED_ERROR,
+            _CONNECT_TIMEOUT_ERROR,
+            _POOLER_AUTH_CIRCUIT_BREAKER_ERROR,
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
@@ -1777,6 +1784,8 @@ class PostgresSource(
             HOST_RESOLUTION_TIMEOUT_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
             TEMPORARY_HOST_RESOLUTION_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
             _SSH_FORWARD_FAILED_ERROR: _SSH_FORWARD_FAILED_EXHAUSTED_MESSAGE,
+            _CONNECT_TIMEOUT_ERROR: _CONNECT_TIMEOUT_EXHAUSTED_MESSAGE,
+            _POOLER_AUTH_CIRCUIT_BREAKER_ERROR: _POOLER_AUTH_CIRCUIT_BREAKER_EXHAUSTED_MESSAGE,
         }
 
     def reconcile_schema_metadata(

@@ -121,8 +121,8 @@ describe('TrendsBarChart (ActionsBar)', () => {
         )
     })
 
-    it.each([false, true])('opens the persons modal directly on a dashboard (compare=%s)', async (compare) => {
-        renderInsight({ query: trendsBar({ compareFilter: { compare } }), context: { dashboardResultMenu: true } })
+    it('opens the persons modal on click for a single series', async () => {
+        renderInsight({ query: trendsBar() })
         await screen.findByLabelText(/chart with/i, undefined, { timeout: 5000 })
 
         await chart.clickAtIndex(2)

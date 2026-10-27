@@ -3667,6 +3667,11 @@ export interface ExperimentHealthInputsApi {
      * @nullable
      */
     flag_called_during_run: boolean | null
+    /**
+     * Whether PostHog has recorded a call of the flag after the end. The flag state check reads it on an ended experiment whose flag is still active with multiple variants. False only after 3 days without a recorded call. Null before the end, before those 3 days are over, or when the organization's flag calls can't be read.
+     * @nullable
+     */
+    flag_called_after_end: boolean | null
     /** The events the exposure criteria count. Null when the stored exposure criteria don't parse. */
     exposure_events: ExperimentHealthInputsExposureEventsApi | null
     /** Whether the project has received each event that the metrics and the exposure criteria name, by event name. A name that ingestion keeps no record of is absent. */
@@ -3985,6 +3990,49 @@ export interface ExperimentMetricsRecalculationLatestApi {
      * * `recalculation` - recalculation
      * * `timeseries_fallback` - timeseries_fallback */
     readonly result_source: ResultSourceEnumApi
+}
+
+export interface DetectableEffectCheckpointApi {
+    /** The week mark, in whole weeks since launch. */
+    weeks_since_launch: number
+    /** The smallest relative change, as a percentage, that the exposures by this week mark can detect. */
+    detectable_effect: number
+}
+
+/**
+ * What the experiment can detect over time, at its exposure rate so far.
+ */
+export interface RunningTimeOutlookApi {
+    /** Days since the experiment launched, with fractions. */
+    days_since_launch: number
+    /** Exposures that count toward the target, per day from launch to the end of the window the current results cover. */
+    exposures_per_day: number
+    /** The smallest relative change, as a percentage, that the exposures so far can detect. */
+    detectable_effect_now: number
+    /** Up to three week marks after today, out of weeks 1, 2, 4, 6, 8, 12, 16, 26 and 52, with the change each can detect at the exposure rate so far. */
+    upcoming_checkpoints: DetectableEffectCheckpointApi[]
+    /** The smallest relative change, as a percentage, that the experiment can detect within four weeks from today. A target for a smaller change is out of reach. */
+    reachable_effect: number
+}
+
+/**
+ * The target sample of the experiment's running time estimate.
+ */
+export interface RunningTimeTargetApi {
+    /** The relative change, as a percentage, that the target sample is sized to detect. */
+    minimum_detectable_effect: number
+    /**
+     * Exposures needed across the analyzed variants, so that the comparison of each variant with the control can detect the minimum detectable effect at the analysis's confidence level and 80% power. In manual running time mode, the saved target. Otherwise sized from the first primary metric's current result, with the variance the analysis uses and the flag's traffic split. Null when no result can size it yet. The variances come from the result and don't depend on the effect, so the sample scales with 1 / effect²: the target for another effect is recommended_sample_size × (minimum_detectable_effect / effect)².
+     * @nullable
+     */
+    recommended_sample_size: number | null
+    /**
+     * Exposures so far that count toward the target: the control's and those of the variants that get traffic. A variant at 0% does not count. Null in manual mode, and when no result can size the target.
+     * @nullable
+     */
+    current_sample_size: number | null
+    /** What the experiment can detect over time, on the same curve the target is sized on. Null in manual mode, before launch, when the current results cover less than 0.1 days, and when no result can size the target. */
+    outlook: RunningTimeOutlookApi | null
 }
 
 /**
@@ -4352,7 +4400,7 @@ export interface RunningTimeBaselineStatsApi {
     number_of_samples: number
     /** Sum of the metric values across the control group (for funnels, the numerator/conversions). */
     sum: number
-    /** Sum of squared metric values. Required for ratio/retention variance. */
+    /** Sum of squared metric values. Mean metrics read their variance from it, and ratio/retention metrics need it. Without it, a mean metric's variance is approximated from the baseline value. */
     sum_squares?: number
     /**
      * Sum of the denominator values. Required for ratio/retention metrics.
@@ -4391,8 +4439,9 @@ export interface RunningTimeCalculationInputApi {
      */
     minimum_detectable_effect: number
     /**
-     * Total number of variants including control (default 2).
+     * Total number of variants including control (default 2, at most 100).
      * @minimum 2
+     * @maximum 100
      */
     number_of_variants?: number
     /**
@@ -4407,7 +4456,7 @@ export interface RunningTimeCalculationInputApi {
      */
     baseline_value?: number | null
     /**
-     * Pre-computed variance for ratio/retention metrics. Provide this or baseline_stats when metric_type is ratio/retention and baseline_value is given directly.
+     * Pre-computed variance per user. Provide this or baseline_stats when metric_type is ratio/retention and baseline_value is given directly. When given, it replaces the variance the calculator derives for any metric type, including p(1-p) for funnels.
      * @nullable
      */
     variance?: number | null
@@ -5242,6 +5291,25 @@ export type ExperimentsActivityRetrieveParams = {
      */
     page?: number
 }
+
+export type ExperimentsRunningTimeTargetRetrieveParams = {
+    /**
+     * The running time mode to size the target for. Defaults to the experiment's saved mode. 'automatic' sizes it from the results, also for an experiment saved in manual mode.
+     *
+     * * `automatic` - Sized from the results
+     * * `manual` - Saved from a baseline the user entered
+     * @minLength 1
+     */
+    mode?: ExperimentsRunningTimeTargetRetrieveMode
+}
+
+export type ExperimentsRunningTimeTargetRetrieveMode =
+    (typeof ExperimentsRunningTimeTargetRetrieveMode)[keyof typeof ExperimentsRunningTimeTargetRetrieveMode]
+
+export const ExperimentsRunningTimeTargetRetrieveMode = {
+    Automatic: 'automatic',
+    Manual: 'manual',
+} as const
 
 export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**

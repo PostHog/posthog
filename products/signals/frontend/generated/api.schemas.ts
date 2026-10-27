@@ -1924,6 +1924,8 @@ export interface SignalReportAssigneeApi {
     agent: string | null
     /** @nullable */
     claimed_at: string | null
+    /** The person who answers for the claim: the user for a user claim, the user an MCP agent acts for, or the user who started an internal task. Null when no person stands behind the claim. */
+    responsible_user: _UserApi | null
 }
 
 /**
@@ -2116,6 +2118,8 @@ export interface ReportPlanStepApi {
      * * `closed` - Closed
      * * `merged` - Merged */
     readonly implementation_pr_state: SignalReportAssignmentPrStateEnumApi | null
+    /** Who or what suppressed the step, with the same values as the report's `suppression_source`. Null unless the step is suppressed. */
+    readonly suppression_source: SignalReportSuppressionSourceEnumApi | null
 }
 
 export interface ReportPlanApi {
@@ -2215,6 +2219,8 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly repo_slug: string | null
+    /** Whether this is a scout self-improvement report. Most update a team-owned skill in the skills store, but reports with a selected repository can still produce a pull request. */
+    readonly is_self_improvement_report: boolean
     readonly is_suggested_reviewer: boolean
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
@@ -2270,7 +2276,7 @@ export interface SignalReportListApi {
     readonly channel_id: string | null
     /** The served ranking model's predictions from the latest ranking score artefact. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
     readonly ranking: ReportRankingApi
-    /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps scans the project's report links. */
+    /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps costs several queries per report. */
     readonly plan: ReportPlanApi | null
     /**
      * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's outcome (open, action or fix), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
@@ -2465,6 +2471,8 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly repo_slug: string | null
+    /** Whether this is a scout self-improvement report. Most update a team-owned skill in the skills store, but reports with a selected repository can still produce a pull request. */
+    readonly is_self_improvement_report: boolean
     readonly is_suggested_reviewer: boolean
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
@@ -2520,7 +2528,7 @@ export interface SignalReportApi {
     readonly channel_id: string | null
     /** The served ranking model's predictions from the latest ranking score artefact. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
     readonly ranking: ReportRankingApi
-    /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps scans the project's report links. */
+    /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps costs several queries per report. */
     readonly plan: ReportPlanApi | null
 }
 
@@ -10343,7 +10351,7 @@ export type SignalsReportsListParams = {
      */
     already_addressed?: boolean
     /**
-     * Use 'me' to return reports claimed by the current user, task, or MCP agent.
+     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, claims by MCP agents acting for them, and claims by internal tasks they started.
      */
     assignee?: SignalsReportsListAssignee
     /**
@@ -10469,6 +10477,7 @@ export type SignalsReportsListAssignee = (typeof SignalsReportsListAssignee)[key
 
 export const SignalsReportsListAssignee = {
     Me: 'me',
+    Mine: 'mine',
 } as const
 
 export type SignalsReportPrChecksParams = {

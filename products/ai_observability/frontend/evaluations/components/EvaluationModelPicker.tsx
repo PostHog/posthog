@@ -2,9 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ByokModelPickerNotice } from '../../ByokModelPickerNotice'
 import { getModelPickerFooterLink, ModelPicker } from '../../ModelPicker'
@@ -25,7 +23,6 @@ export function EvaluationModelPicker(): JSX.Element {
         judgeModelGroups: groups,
     } = useValues(llmEvaluationLogic)
     const { selectModelFromPicker, setJudgeMethod, patchOutputConfig } = useActions(llmEvaluationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     // Evals always run on the team's own provider key, so only BYOK models are offered.
     const selectedModelName = byokModels.find(
@@ -65,9 +62,6 @@ export function EvaluationModelPicker(): JSX.Element {
                                         Decision model
                                     </span>
                                 ),
-                                disabledReason: !featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SYSTEM_ONE_EVALUATIONS]
-                                    ? 'Decision model evaluations are not enabled for this project.'
-                                    : undefined,
                             },
                         ]}
                     />

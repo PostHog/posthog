@@ -4114,7 +4114,7 @@ Diffed against: <https://raw.githubusercontent.com/e2b-dev/infra/main/spec/opena
 - [ ] `GET /teams` — team lookup resolving the teamID stamped on sandboxes, templates and snapshots (medium)
 - [x] `GET /templates/{templateID}` (returns the template's build list) — template build history - durations, statuses and failure rates for the build pipeline (medium)
 - [ ] `GET /templates/{templateID}/builds/{buildID}/status` — per-build status and logs; see the reasons below (medium)
-- [ ] `GET /templates/{templateID}/tags` — template version/tag lookup, needed to attribute sandboxes to a template version (low)
+- [x] `GET /templates/{templateID}/tags` — template version/tag lookup, needed to attribute sandboxes to a template version (low)
 - [ ] `GET /volumes` — persistent volume inventory and their sandbox attachments (low)
 - [ ] `GET /v2/sandboxes/{sandboxID}/logs` — per-sandbox logs for failure analysis; high volume and per-ID fetch, so nice to have (low)
 
@@ -4125,6 +4125,7 @@ Not covered, with reasons:
 - `/teams` is the one endpoint in the spec that does not accept `ApiKeyAuth` — it is `AuthProviderBearerAuth` only, so the team-scoped API key this source stores cannot call it. Its `Team` schema also returns the team's live `apiKey`, which must not land in a warehouse table. The gap's rationale does not hold either: `ListedSandbox`, `Template` and `SnapshotInfo` carry no `teamID` to resolve.
 - `/teams/{teamID}/metrics/max` returns a single `{timestamp, value}` object per `metric` enum value, so it is one scalar per call rather than a table, and it is the max of the `team_metrics` series over the same window.
 - `/templates/{templateID}/builds/{buildID}/status` is a second fan-out hop costing one request per build. Its only non-log fields (`templateID`, `buildID`, `status`) already arrive in `template_builds`; the rest is build log entries.
+- `/templates/{templateID}/tags` is covered by `template_tags`, one request per template. A tag name is unique only within its template, so the key is `templateID` plus `tag`. The tag's `createdAt` changes when the tag moves to a new build, so the table has no partition key.
 - `/teams/{teamID}/metrics` and the sandbox metrics endpoints do take `start`/`end` filters, but the spec documents no ordering guarantee, and a fan-out child's global ascending watermark would advance past sandboxes a partial run has not reached. Both ship full refresh, like the rest of the source.
 
 ## Easybill — gaps
@@ -4937,7 +4938,7 @@ Today (4): `call_metrics`, `calls`, `teams`, `users`
 
 Diffed against: <https://developers.freshcaller.com/api/>
 
-- [ ] `/api/v1/user-statuses` — lookup resolving the custom agent status IDs on users and call legs (available/break/etc) (medium)
+- [x] `/api/v1/user-statuses` — lookup resolving the custom agent status IDs on users and call legs (available/break/etc) (medium)
 
 Note: Freshcaller's public API is genuinely small - calls, call_metrics (with include=life_cycle), teams, users, user-statuses, plus recording download/delete and an account export job. PostHog covers 4 of the 5 listable collections; call recordings are per-call binaries, not a queryable collection.
 
@@ -6557,10 +6558,10 @@ Diffed against: <https://developer.jamf.com/jamf-pro/reference/get_v1-buildings>
 - [x] `GET /api/v1/managed-software-updates/update-statuses (+ /computers/{id}, /computer-groups/{id})` — OS update enforcement status per device — core compliance metric (high)
 - [x] `GET /api/v2/patch-policies and /api/v2/patch-policies/{id}/logs` — per-device patch deployment outcomes for the packages we sync (medium). Added as `patch_policies` and `patch_policy_logs` (fan-out over `patch_policies`).
 - ~~`GET /api/v1/computers-inventory/filevault (and /{id}/filevault)`~~ — skipped: `computers` already syncs the `DISK_ENCRYPTION` section with the same compliance fields; the only extra field is the personal recovery key, a secret that does not belong in the warehouse (medium)
-- [ ] `GET /api/v1/computer-extension-attributes and /api/v1/mobile-device-extension-attributes` — lookup resolving the custom extension-attribute IDs embedded in inventory records (medium)
-- [ ] `GET /api/v1/volume-purchasing-locations/{id}/content and /api/v1/volume-purchasing-subscriptions` — VPP app license inventory and consumption (medium)
-- [ ] `GET /api/v1/device-enrollments and /{id}/devices` — ADE/DEP enrollment records and their device rosters (medium)
-- [ ] `GET /api/v1/{buildings,categories,departments,packages,scripts}/{id}/history` — object change history for the reference tables we already sync (low)
+- [x] `GET /api/v1/computer-extension-attributes and /api/v1/mobile-device-extension-attributes` — lookup resolving the custom extension-attribute IDs embedded in inventory records (medium). Added as `computer_extension_attributes` and `mobile_device_extension_attributes`.
+- [x] `GET /api/v1/volume-purchasing-locations/{id}/content and /api/v1/volume-purchasing-subscriptions` — VPP app license inventory and consumption (medium). Added as `volume_purchasing_content` (fan-out over the new `volume_purchasing_locations` table) and `volume_purchasing_subscriptions`.
+- [x] `GET /api/v1/device-enrollments and /{id}/devices` — ADE/DEP enrollment records and their device rosters (medium). Added as `device_enrollments` and `device_enrollment_devices`.
+- [x] `GET /api/v1/{buildings,categories,departments,packages,scripts}/{id}/history` — object change history for the reference tables we already sync (low). Added as `building_history`, `category_history`, `department_history`, `package_history` and `script_history` (full refresh).
 
 Note: Jamf publishes no downloadable OpenAPI on developer.jamf.com (ReadMe-hosted; /openapi.json 404s) — the resource list was extracted from the 408 get\_\* reference slugs embedded in the reference page HTML. The instance-hosted spec at https://<tenant>/api/schema requires auth. Source currently syncs /api/v1/computers-inventory and /api/v2/mobile-devices; note v4/computers-inventory and v2/mobile-devices/detail are the newest versions of those. Classic (XML) API resources such as policies and configuration profiles were not audited here.
 
@@ -8850,10 +8851,10 @@ Today (4): `air_pollution`, `air_pollution_forecast`, `current_weather`, `foreca
 
 Diffed against: <https://openweathermap.org/api>
 
-- [ ] `/data/2.5/air_pollution/history` — historical air quality back to Nov 2020 — the only way to trend AQI; today only current + forecast are synced (high)
-- [ ] `Geocoding API (/geo/1.0/direct, /geo/1.0/reverse, /geo/1.0/zip)` — lookup table resolving city/state/country/ZIP to the lat/lon that every synced row is keyed on (high)
-- [ ] `One Call API 3.0/4.0 (/data/3.0/onecall)` — unified current + minutely + hourly + daily + government weather alerts in one row set; the vendor's headline product (high)
-- [ ] `Weather History API (/data/3.0/onecall/timemachine, /data/2.5/history/city)` — hourly historical observations — required for any backward-looking weather correlation (high)
+- [x] `/data/2.5/air_pollution/history` — historical air quality back to Nov 2020 — the only way to trend AQI; today only current + forecast are synced (high)
+- [x] `Geocoding API (/geo/1.0/direct, /geo/1.0/reverse, /geo/1.0/zip)` — lookup table resolving city/state/country/ZIP to the lat/lon that every synced row is keyed on (high)
+- [x] `One Call API 3.0/4.0 (/data/3.0/onecall)` — unified current + minutely + hourly + daily + government weather alerts in one row set; the vendor's headline product (high)
+- [x] `Weather History API (/data/3.0/onecall/timemachine, /data/2.5/history/city)` — hourly historical observations — required for any backward-looking weather correlation (high)
 - [ ] `One Call day summary (/data/3.0/onecall/day_summary)` — pre-aggregated daily weather rollup, the natural grain for joining against daily business metrics (medium)
 - [ ] `Daily Forecast 16 days (/data/2.5/forecast/daily)` — extends forecast horizon past the 5-day/3-hour table already synced (medium)
 - [ ] `Hourly Forecast 4 days (/data/2.5/forecast/hourly)` — finer-grained forecast than the 3-hour table (medium)
@@ -8892,15 +8893,15 @@ Note: Parsed official resource references for schedules, occurrences, receipts, 
 
 ## Opsgenie — gaps
 
-Today (8): `alerts`, `escalations`, `incidents`, `integrations`, `schedules`, `services`, `teams`, `users`
+Today (12): `alerts`, `escalations`, `incident_timeline_entries`, `incidents`, `integrations`, `schedule_on_calls`, `schedule_rotations`, `schedules`, `services`, `team_members`, `teams`, `users`
 
 Diffed against: <https://docs.opsgenie.com/docs/api-overview>
 
 - [ ] `GET /v2/alerts/{identifier}/logs` — per-alert state transition history (created, acked, escalated, closed) — the basis of MTTA/MTTR (high)
-- [ ] `Team member API (GET /v2/teams/{id}/members)` — membership table joining the users and teams already synced (high)
-- [ ] `Schedule rotation API (GET /v2/schedules/{id}/rotations)` — lookup resolving the rotation structure behind each synced schedule; without it schedules are opaque (high)
-- [ ] `Who is on call API (GET /v2/schedules/{id}/on-calls, /v2/schedules/on-calls)` — resolves schedule + rotation into the actual on-call person, the headline operational fact (high)
-- [ ] `Incident timeline API (GET /v1/incidents/{id}/timeline)` — state/transition history for the incidents table already synced (high)
+- [x] `Team member API (GET /v2/teams/{id}/members)` — membership table joining the users and teams already synced (high) — shipped as `team_members`; Opsgenie has no member list GET, so members come from `GET /v2/teams/{id}`
+- [x] `Schedule rotation API (GET /v2/schedules/{id}/rotations)` — lookup resolving the rotation structure behind each synced schedule; without it schedules are opaque (high)
+- [x] `Who is on call API (GET /v2/schedules/{id}/on-calls, /v2/schedules/on-calls)` — resolves schedule + rotation into the actual on-call person, the headline operational fact (high) — shipped as `schedule_on_calls` from the per-schedule path; the all-schedules list is deprecated
+- [x] `Incident timeline API (GET /v1/incidents/{id}/timeline)` — state/transition history for the incidents table already synced (high) — shipped as `incident_timeline_entries` from `GET /v2/incident-timelines/{id}/entries`
 - [ ] `GET /v2/alerts/{identifier}/notes` — responder commentary attached to alerts, needed for incident review analysis (medium)
 - [ ] `GET /v2/alerts/{identifier}/recipients` — who was notified per alert and in what state — notification-reach analysis (medium)
 - [ ] `Schedule override API (GET /v2/schedules/{id}/overrides)` — explains gaps between rotation and actual on-call coverage (medium)
@@ -8917,10 +8918,10 @@ Today (6): `audiences`, `campaigns`, `events`, `experiments`, `pages`, `projects
 
 Diffed against: <https://api.optimizely.com/v2/swagger.json>
 
-- [ ] `GET /experiments/{experiment_id}/results` — the experiment results payload (variation conversions, lift, significance) — the product's headline metric, entirely absent today (high)
-- [ ] `GET /experiments/{experiment_id}/timeseries` — day-by-day results series, required to plot experiment progression rather than a single snapshot (high)
-- [ ] `GET /campaigns/{campaign_id}/results` — same headline metric for the campaigns table already synced (high)
-- [ ] `GET /attributes` — lookup resolving the visitor attribute IDs referenced by synced audiences and experiment targeting (high)
+- [x] `GET /experiments/{experiment_id}/results` — the experiment results payload (variation conversions, lift, significance) — the product's headline metric, entirely absent today (high)
+- [x] `GET /experiments/{experiment_id}/timeseries` — day-by-day results series, required to plot experiment progression rather than a single snapshot (high)
+- [x] `GET /campaigns/{campaign_id}/results` — same headline metric for the campaigns table already synced (high)
+- [x] `GET /attributes` — lookup resolving the visitor attribute IDs referenced by synced audiences and experiment targeting (high)
 - [ ] `GET /environments` — lookup resolving the environment IDs carried on experiments and features (medium)
 - [ ] `GET /features` — feature (flag) definitions are a first-class experimentation object here, not vendor plumbing — needed to join rollout results (medium)
 - [ ] `GET /changes` — change history across experiments and pages — audit/transition table for who changed what and when (medium)
@@ -8944,10 +8945,10 @@ Today (7): `Coupons`, `CreditNotes`, `Customers`, `Invoices`, `Items`, `Plans`, 
 
 Diffed against: <https://raw.githubusercontent.com/orbcorp/orb-node/main/api.md>
 
-- [ ] `GET /prices` — lookup resolving the price IDs carried on every synced plan, subscription and invoice line item (high)
-- [ ] `GET /metrics (billable metrics)` — lookup resolving the billable-metric IDs that prices reference; without it usage-based charges are unexplainable (high)
-- [ ] `GET /customers/{customer_id}/credits/ledger` — credit grant/decrement transaction log — the ledger a warehouse user needs for prepaid-balance analysis (high)
-- [ ] `GET /customers/{customer_id}/balance_transactions` — customer account balance movements over time, joined to synced customers and invoices (high)
+- [x] `GET /prices` — lookup resolving the price IDs carried on every synced plan, subscription and invoice line item (high)
+- [x] `GET /metrics (billable metrics)` — lookup resolving the billable-metric IDs that prices reference; without it usage-based charges are unexplainable (high)
+- [x] `GET /customers/{customer_id}/credits/ledger` — credit grant/decrement transaction log — the ledger a warehouse user needs for prepaid-balance analysis (high)
+- [x] `GET /customers/{customer_id}/balance_transactions` — customer account balance movements over time, joined to synced customers and invoices (high)
 - [ ] `GET /customers/{customer_id}/costs` — per-customer cost breakdown by price/metric over a timeframe — Orb's headline revenue metric (high)
 - [ ] `GET /subscriptions/{subscription_id}/usage` — usage quantities per billable metric per subscription, the raw driver of every invoice line (medium)
 - [ ] `GET /subscription_changes` — state-transition history for the subscriptions table already synced (upgrades, downgrades, cancellations) (medium)
@@ -8985,11 +8986,11 @@ Today (10): `daily_activity`, `daily_readiness`, `daily_sleep`, `daily_spo2`, `d
 
 Diffed against: <https://cloud.ouraring.com/v2/static/json/openapi-1.37.json>
 
-- [ ] `/v2/usercollection/daily_resilience` — daily resilience score — one of Oura's headline daily scores, alongside the readiness/sleep/activity scores already synced (high)
-- [ ] `/v2/usercollection/daily_cardiovascular_age` — daily cardiovascular age, a headline long-term health metric with no equivalent in the current tables (medium)
-- [ ] `/v2/usercollection/vO2_max` — VO2 max estimates over time, the standard cardio-fitness trend series (medium)
+- [x] `/v2/usercollection/daily_resilience` — daily resilience score — one of Oura's headline daily scores, alongside the readiness/sleep/activity scores already synced (high)
+- [x] `/v2/usercollection/daily_cardiovascular_age` — daily cardiovascular age, a headline long-term health metric with no equivalent in the current tables (medium)
+- [x] `/v2/usercollection/vO2_max` — VO2 max estimates over time, the standard cardio-fitness trend series (medium)
 - [ ] `/v2/usercollection/enhanced_tag` — user-annotated events (illness, alcohol, travel) — the dimension table for segmenting every daily metric (medium)
-- [ ] `/v2/usercollection/rest_mode_period` — rest-mode intervals that suppress scores; needed to exclude or explain anomalous daily rows (medium)
+- [x] `/v2/usercollection/rest_mode_period` — rest-mode intervals that suppress scores; needed to exclude or explain anomalous daily rows (medium)
 - [ ] `/v2/usercollection/sleep_time` — recommended bedtime windows, joins to the sleep table for adherence analysis (low)
 - [ ] `/v2/usercollection/tag` — legacy tag events; superseded by enhanced_tag but still the only history for older data (low)
 - [ ] `/v2/usercollection/ring_configuration` — lookup resolving the ring/device that produced each measurement (hardware, size, firmware) (low)
@@ -9003,10 +9004,10 @@ Today (6): `budgets`, `campaign_performance`, `campaigns`, `marketer_performance
 
 Diffed against: <https://jsapi.apiary.io/apis/amplifyv01/api-description-document>
 
-- [ ] `/reports/marketers/{id}/promotedContent` — per-ad (promoted link) performance - we sync promoted_links metadata but no spend/clicks/conversions against them (high)
-- [ ] `/reports/marketers/{id}/publishers` — publisher breakdown, the core Outbrain optimization dimension (high)
-- [ ] `/reports/marketers/{id}/sections` — section/placement breakdown - the finest-grained supply dimension advertisers block or bid on (high)
-- [ ] `/marketers/{id}/conversionEvents` — lookup table resolving the conversion event ids that appear in every report's conversion details (high)
+- [x] `/reports/marketers/{id}/promotedContent` — per-ad (promoted link) performance - we sync promoted_links metadata but no spend/clicks/conversions against them (high)
+- [x] `/reports/marketers/{id}/publishers` — publisher breakdown, the core Outbrain optimization dimension (high)
+- [x] `/reports/marketers/{id}/sections` — section/placement breakdown - the finest-grained supply dimension advertisers block or bid on (high)
+- [x] `/marketers/{id}/conversionEvents` — lookup table resolving the conversion event ids that appear in every report's conversion details (high)
 - [ ] `/reports/marketers/{id}/campaigns/periodic` — daily per-campaign time series; campaign_performance today is only a date-range rollup (high)
 - [ ] `/reports/marketers/{id}/geo` — geo breakdown with country/region granularity (medium)
 - [ ] `/reports/marketers/{id}/platforms` — device/platform breakdown (medium)
@@ -9024,10 +9025,10 @@ Today (9): `Bookings`, `Deposits`, `Fees`, `Guests`, `Payments`, `Properties`, `
 
 Diffed against: <https://api.ownerreservations.com/openapi/v2.json>
 
-- [ ] `Owners (GET /v2/owners)` — resolve owner_id values on properties and bookings for revenue analysis by owner (high)
-- [ ] `Listing Sites (GET /v2/listingsites)` — resolve listing_site_id values on bookings and quotes for acquisition channel analysis (high)
-- [ ] `Calendar (GET /v2/calendar)` — measure available nights, blocked nights, occupancy, and nightly rates by property (high)
-- [ ] `Inquiries (GET /v2/inquiries)` — measure inquiry conversion into quotes and bookings (medium)
+- [x] `Owners (GET /v2/owners)` — resolve owner_id values on properties and bookings for revenue analysis by owner (high)
+- [x] `Listing Sites (GET /v2/listingsites)` — resolve listing_site_id values on bookings and quotes for acquisition channel analysis (high)
+- [x] `Calendar (GET /v2/calendar)` — measure available nights, blocked nights, occupancy, and nightly rates by property (high)
+- [x] `Inquiries (GET /v2/inquiries)` — measure inquiry conversion into quotes and bookings (medium)
 - [ ] `Listings (GET /v2/listings)` — compare property amenities and room details with booking demand and revenue (medium)
 - [ ] `Messages (GET /v2/messages)` — analyze guest communication volume and response times by booking thread (medium)
 - [ ] `Fields (GET /v2/fields)` — add custom entity attributes to booking, guest, and property analysis (medium)
@@ -9041,10 +9042,10 @@ Today (13): `addon_list_category`, `addons`, `coupons`, `customers`, `invoices`,
 
 Diffed against: <https://apidocs.pabbly.com/pabbly/subscription-billing>
 
-- [ ] `/plans (and /plans/{product_id})` — lookup table for the plan ids carried on every subscription and invoice - currently unresolvable (high)
-- [ ] `/commissions` — affiliate commission records, the revenue-share ledger (high)
-- [ ] `/mrrsubscription/` — vendor's headline MRR metric endpoint (high)
-- [ ] `/revenuetransaction/` — net-revenue / ARPU report rows (high)
+- [x] `/plans (and /plans/{product_id})` — lookup table for the plan ids carried on every subscription and invoice - currently unresolvable (high). Added as `plans` (the global `/plans` list). `/plans/{product_id}` skipped: it returns the same rows filtered per product.
+- [x] `/commissions` — affiliate commission records, the revenue-share ledger (high). Added as `commissions`.
+- ~~`/mrrsubscription/` — vendor's headline MRR metric endpoint (high)~~ — skipped: it is a `POST` report over a relative interval such as `last_30_days` for one product, and its rows carry no subscription or customer id to key on
+- ~~`/revenuetransaction/` — net-revenue / ARPU report rows (high)~~ — skipped: it is a `POST` report over a relative interval for one product, and its rows repeat the invoices, refunds and transactions this source already syncs
 - [ ] `/commissions/clicks` — affiliate click events - the top of the partner funnel (medium)
 - [ ] `/affiliate/links` — lookup resolving affiliate link ids on commissions and clicks (medium)
 - [ ] `/scheduledchanges/{subscription_id}` — pending plan changes; needed for forward-looking churn/upgrade analysis (medium)
@@ -9085,10 +9086,10 @@ Diffed against: <https://raw.githubusercontent.com/PagerDuty/api-schema/main/ref
 - [x] `/incidents/{id}/alerts` — alert-level rows under each incident; the actual monitoring events, and where dedup/noise analysis happens (high)
 - [x] `/teams/{id}/members` — membership lookup joining users to the teams we already sync (high)
 - [x] `/change_events` — deploy/change events, the standard correlate-incidents-to-deploys join (high)
-- [ ] `/analytics/raw/incidents (POST)` — precomputed per-incident MTTA/MTTR, engaged seconds, and escalation counts (high)
-- [ ] `/incidents/{id}/notes` — responder notes attached to incidents, for postmortem/context analysis (medium)
-- [ ] `/schedules/{id}/users` — membership lookup resolving which users belong to each schedule we already sync (medium)
-- [ ] `/v3/schedules/{id}/rotations (and /overrides)` — rotation and override rows - the actual shift structure behind a schedule (medium)
+- [x] `/analytics/raw/incidents (POST)` — precomputed per-incident MTTA/MTTR, engaged seconds, and escalation counts (high). Added as `incident_analytics` (incremental on `updated_at`)
+- [x] `/incidents/{id}/notes` — responder notes attached to incidents, for postmortem/context analysis (medium). Added as `incident_notes` (fan-out over `incidents`)
+- [ ] `/schedules/{id}/users` — skipped: the endpoint lists the users on call in a time window, not schedule membership; membership is already in the `users` column of `schedules`, and who is on call is in `oncalls` (medium)
+- [ ] `/v3/schedules/{id}/rotations (and /overrides)` — skipped: these belong to the separate v3 shift-based schedules API, not the REST v2 API this source implements; v3 schedules need their own `/v3/schedules` parent, and overrides require a `since`/`until` shift window, so a synced table would silently drop history outside it (medium)
 - [ ] `/business_services` — business service layer plus /business_services/impacts, needed to roll incidents up to business impact (medium)
 - [ ] `/maintenance_windows` — suppression windows; without them uptime and alert-volume math is wrong (medium)
 - [ ] `/audit/records` — state/transition history across services, schedules, and policies (medium)
@@ -9103,10 +9104,10 @@ Today (7): `contacts`, `document_folders`, `documents`, `forms`, `members`, `tem
 
 Diffed against: <https://developers.pandadoc.com/llms.txt>
 
-- [ ] `/public/v2/documents/{document_id}/audit-trail` — full state/transition history per document (sent, viewed, signed, edited) with timestamps - the core e-signature funnel dataset (high)
-- [ ] `/public/v2/product-catalog/items/search` — lookup table resolving the catalog item / SKU ids referenced by quotes and pricing tables (high)
-- [ ] `/public/v1/documents/{id} (detail expansion)` — recipients, tokens, and pricing table line items only appear in document details, not in the list response we sync (high)
-- [ ] `/public/v1/documents/{id}/fields` — per-document field values, the structured data captured on each document (high)
+- [x] `/public/v2/documents/{document_id}/audit-trail` — full state/transition history per document (sent, viewed, signed, edited) with timestamps - the core e-signature funnel dataset (high)
+- [x] `/public/v2/product-catalog/items/search` — lookup table resolving the catalog item / SKU ids referenced by quotes and pricing tables (high)
+- [x] `/public/v1/documents/{id} (detail expansion)` — recipients, tokens, and pricing table line items only appear in document details, not in the list response we sync (high)
+- [x] `/public/v1/documents/{id}/fields` — per-document field values, the structured data captured on each document (high)
 - [ ] `/public/v1/documents/{id}/linked-objects` — CRM linkage (Salesforce/HubSpot object ids) - the join key back to deal data (medium)
 - [ ] `/public/v1/content-library-items` — content library blocks reused across documents and templates (medium)
 - [ ] `/public/v1/workspaces` — lookup resolving the workspace each document, template, and member belongs to (medium)
@@ -9794,10 +9795,10 @@ Today (6): `monitors`, `personas`, `prompts`, `responses`, `tags`, `topics`
 
 Diffed against: <https://promptwatch.com/docs/v2/openapi.json>
 
-- [ ] `Models (GET /api/v2/models)` — resolve response model identifiers into labels and search capabilities (high)
-- [ ] `Brands (GET /api/v2/brands)` — identify tracked brands and classify competitors for mention analysis (high)
-- [ ] `Grouped citations (GET /api/v2/citations/grouped)` — analyze cited URLs, citation share, position, and source authority beyond response citation counts (high)
-- [ ] `Visitor trends (GET /api/v2/analytics/visitors/trend)` — measure website traffic from AI referrers over time (high)
+- [x] `Models (GET /api/v2/models)` — resolve response model identifiers into labels and search capabilities (high)
+- [x] `Brands (GET /api/v2/brands)` — identify tracked brands and classify competitors for mention analysis (high)
+- [x] `Grouped citations (GET /api/v2/citations/grouped)` — analyze cited URLs, citation share, position, and source authority beyond response citation counts (high)
+- [x] `Visitor trends (GET /api/v2/analytics/visitors/trend)` — measure website traffic from AI referrers over time (high)
 - [ ] `Crawler activity events (GET /api/v2/analytics/crawlers/events)` — analyze AI crawler requests, failures, and requested pages (medium)
 - [ ] `Query fanouts (GET /api/v2/query-fanouts)` — analyze search queries generated by AI models when answering tracked prompts (medium)
 - [ ] `Tracked pages (GET /api/v2/page-tracker)` — measure citation performance for individual website pages (medium)
@@ -11816,10 +11817,10 @@ Today (13): `collector_sources`, `collectors`, `connections`, `dashboards`, `fie
 
 Diffed against: <https://api.sumologic.com/docs/sumologic-api.yaml>
 
-- [ ] `/v1/slos (and /v1/slos/sli)` — SLO definitions, SLIs and error budgets - the headline reliability objects, with no equivalent among the synced monitors (high)
-- [ ] `/v1/fields (plus /v1/fields/builtin, /v1/fields/dropped)` — field metadata lookup resolving the field names that appear across logs, partitions and extraction rules (high)
-- [ ] `/v1/mutingSchedules` — muting windows that explain gaps in monitor alerting - required to interpret the health_events already synced (medium)
-- [ ] `/v2/content/folders (with /v2/content/{id}/path)` — content folder tree, the lookup that resolves parentId on dashboards, searches and monitors (medium)
+- [x] `/v1/slos (and /v1/slos/sli)` — SLO definitions, SLIs and error budgets - the headline reliability objects, with no equivalent among the synced monitors (high)
+- [x] `/v1/fields (plus /v1/fields/builtin, /v1/fields/dropped)` — field metadata lookup resolving the field names that appear across logs, partitions and extraction rules (high)
+- [x] `/v1/mutingSchedules` — muting windows that explain gaps in monitor alerting - required to interpret the health_events already synced (medium)
+- [x] `/v2/content/folders (with /v2/content/{id}/path)` — content folder tree, the lookup that resolves parentId on dashboards, searches and monitors (medium)
 - [ ] `/v1/otCollectors` — OpenTelemetry collector inventory; the synced collectors table comes from the legacy Collector Management API and misses these entirely (medium)
 - [ ] `/v1/logSearches` — saved log searches, the reusable query definitions behind scheduled views and dashboards (medium)
 - [ ] `/v2/metricsSearches` — saved metrics searches, the metrics-side counterpart (medium)
@@ -12517,10 +12518,10 @@ Today (8): `balance_transactions`, `campaigns`, `funding_sources`, `invoices`, `
 Diffed against: <https://raw.githubusercontent.com/tremendous-rewards/tremendous-python/HEAD/tremendous/api/tremendous_api.py>
 
 - [x] `balance_transactions` — the account ledger; every debit/credit behind orders and funding sources (high)
-- [ ] `roles` — lookup table resolving the role ids on members (high)
-- [ ] `topups` — funding top-up transactions that explain balance movements (medium)
-- [ ] `fields` — custom field definitions that decode the custom_fields carried on orders and rewards (medium)
-- [ ] `organizations` — org roster for multi-org accounts; resolves the organization id on orders, members and invoices (medium)
+- [x] `roles` — lookup table resolving the role ids on members (high)
+- [x] `topups` — funding top-up transactions that explain balance movements (medium)
+- [x] `fields` — custom field definitions that decode the custom_fields carried on orders and rewards (medium)
+- [x] `organizations` — org roster for multi-org accounts; resolves the organization id on orders, members and invoices (medium)
 - [ ] `connected_organizations` — platform-partner child orgs, needed to attribute spend for resellers (medium)
 - [ ] `connected_organization_members` — member roster per connected org (low)
 - [ ] `fraud_reviews` — orders held for fraud review and their disposition (low)
@@ -13678,10 +13679,10 @@ Today (3): `meetings`, `users`, `webinars`
 
 Diffed against: <https://developers.zoom.us/api-hub/meetings/methods/endpoints.json>
 
-- [ ] `/report/meetings/{meetingId}/participants (and /past_meetings/{meetingId}/participants)` — per-attendee join/leave records - the core meeting-attendance fact table, and nothing in the current 3 tables carries attendance (high)
-- [ ] `/report/webinars/{webinarId}/participants (and /past_webinars/{webinarId}/participants)` — webinar attendance rows; webinars are synced but have zero attendance data (high)
-- [ ] `/webinars/{webinarId}/registrants` — registration records with approval status, the denominator for webinar show-up rate (high)
-- [ ] `/meetings/{meetingId}/registrants` — registration records for registration-enabled meetings we already sync (high)
+- [x] `/report/meetings/{meetingId}/participants (and /past_meetings/{meetingId}/participants)` — per-attendee join/leave records - the core meeting-attendance fact table, and nothing in the current 3 tables carries attendance (high)
+- [x] `/report/webinars/{webinarId}/participants (and /past_webinars/{webinarId}/participants)` — webinar attendance rows; webinars are synced but have zero attendance data (high)
+- [x] `/webinars/{webinarId}/registrants` — registration records with approval status, the denominator for webinar show-up rate (high)
+- [x] `/meetings/{meetingId}/registrants` — registration records for registration-enabled meetings we already sync (high)
 - [ ] `/past_meetings/{meetingId}/instances (and /past_webinars/{webinarId}/instances)` — lookup resolving each recurring meeting/webinar ID we sync to its per-occurrence UUIDs, which every report endpoint keys on (high)
 - [ ] `/groups and /groups/{groupId}/members` — lookup table resolving the group IDs carried on the users rows we already sync (high)
 - [ ] `/report/users` — active/inactive host report with per-user meeting counts, minutes and participant totals - Zoom's headline usage metric (high)

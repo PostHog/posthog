@@ -57,7 +57,6 @@ from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Cli
 from products.ai_observability.backend.llm.decisions import (
     DecisionClient,
     DecisionEndpointBlockedError,
-    decision_evaluations_enabled,
     is_decision_model,
 )
 from products.ai_observability.backend.llm.errors import (
@@ -81,7 +80,7 @@ from products.ai_observability.backend.llm.errors import (
 )
 from products.ai_observability.backend.llm.providers.openai import OPENAI_DECISIONS_BASE_URL
 from products.ai_observability.backend.llm.providers.openai_decisions import OpenAIDecisionAdapter
-from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_DECISIONS_BASE_URL, decision_model_ids
+from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_DECISIONS_BASE_URL
 from products.ai_observability.backend.llm.types import CompletionResponse
 from products.ai_observability.backend.models.evaluation_configs import (
     BooleanOutputConfig,
@@ -655,19 +654,14 @@ def call_llm_judge(
     probability: float | None = None
     decision_result = None
     try:
-        openrouter_enabled = provider == "openrouter" and decision_evaluations_enabled(
-            team_id, base_url=OPENROUTER_DECISIONS_BASE_URL
-        )
         judge_method = evaluation["evaluation_config"].get("judge_method")
         # Explicit selection takes precedence for models that support both methods.
         # Models gaining decisions must not move existing chat evaluations onto a different API.
         uses_decisions = (
             judge_method == "decision"
             if judge_method is not None
-            else is_decision_model(provider, model, openrouter_enabled=openrouter_enabled, decision_only=True)
+            else is_decision_model(provider, model, decision_only=True)
         )
-        if judge_method is None and provider == "openrouter" and not openrouter_enabled:
-            uses_decisions = model in (decision_model_ids(refresh=False, decision_only=True) or ())
         if uses_decisions:
             if output_type not in ("boolean", "categorical", "numeric"):
                 return build_skipped_evaluation_result(
@@ -685,15 +679,6 @@ def call_llm_judge(
                 if provider_key
                 else ""
             )
-            if (provider == "openrouter" and not openrouter_enabled) or (
-                provider in ("system_one", "openai") and not decision_evaluations_enabled(team_id, base_url=base_url)
-            ):
-                return build_skipped_evaluation_result(
-                    output_type=output_type,
-                    allows_na=allows_na,
-                    reasoning="Decision model evaluations are not available for this project.",
-                    skip_reason="system_one_unavailable",
-                )
             prompt = evaluation["evaluation_config"]["prompt"]
             categorical_config = (
                 CategoricalOutputConfig.model_validate(output_config) if output_type == "categorical" else None
@@ -960,18 +945,6 @@ def call_llm_judge(
             non_retryable=True,
         )
     except UnsupportedModelError as e:
-        # A failed chat call can populate a cold catalogue; a disabled flag must not disable the evaluation.
-        if (
-            provider == "openrouter"
-            and not openrouter_enabled
-            and model in (decision_model_ids(refresh=False, decision_only=True) or ())
-        ):
-            return build_skipped_evaluation_result(
-                output_type=output_type,
-                allows_na=allows_na,
-                reasoning="Decision model evaluations are not available for this project.",
-                skip_reason="system_one_unavailable",
-            )
         increment_user_errors("model_not_supported", provider=provider)
         return terminal_user_error_result(
             spec=require_user_error_spec("model_not_supported", is_byok=is_byok),
