@@ -293,7 +293,7 @@ export function InboxDetailFrame({
     )
 
     // Hiding the rail gives the report column the full width, which is what reading a diff needs.
-    // One toggle leads the page toolbar and keeps its place in both states, so it never jumps.
+    // One toggle sits in the page toolbar and keeps its place in both states, so it never jumps.
     const onToggleRail = (): void => {
         toggleEvidenceRail()
         captureSectionToggle('evidence_rail')(!evidenceRailCollapsed)
@@ -565,7 +565,6 @@ export function InboxDetailFrame({
         <div className={DETAIL_PAGE_CLASS}>
             <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                 <div className="-ml-4 flex items-center gap-1">
-                    {railToggleButton}
                     <LemonButton
                         type="tertiary"
                         size="small"
@@ -576,6 +575,7 @@ export function InboxDetailFrame({
                     >
                         {backLabel}
                     </LemonButton>
+                    {railToggleButton}
                 </div>
                 <div className="flex items-center gap-2">
                     {primaryAction}
