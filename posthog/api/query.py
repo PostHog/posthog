@@ -3,7 +3,7 @@ from time import perf_counter
 from typing import Any, NoReturn
 
 from django.core.cache import cache
-from django.http import JsonResponse
+from django.http import HttpRequest, JsonResponse
 from django.http.response import HttpResponseBase
 
 import orjson
@@ -260,7 +260,7 @@ def add_query_response_identity_headers(response: Response) -> Response:
     return response
 
 
-def get_query_request_analytics_properties(request: Request) -> AnalyticsProps:
+def get_query_request_analytics_properties(request: HttpRequest | Request) -> AnalyticsProps:
     analytics_props = get_request_analytics_properties(request)
     if http_request_id := get_http_request_id():
         analytics_props["http_request_id"] = http_request_id
