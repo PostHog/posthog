@@ -1,14 +1,16 @@
+import { MOCK_USER_UUID } from 'lib/api.mock'
+
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { useMountedLogic } from 'kea'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { mockSourceMetadata, pullRequestReports, reportTabReports } from '../../__mocks__/inboxMocks'
+import { claimedReports, mockSourceMetadata, pullRequestReports, reportTabReports } from '../../__mocks__/inboxMocks'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { SignalReport, SignalRun } from '../../types'
 import { ReportsTab } from './ReportsTab'
@@ -49,10 +51,14 @@ const SAMPLE_RUNS: SignalRun[] = [
 function reportsListDecorator(reports: SignalReport[]): Decorator {
     return mswDecorator({
         get: {
-            '/api/projects/:id/signals/reports': () => [
-                200,
-                { results: reports, count: reports.length, next: null, previous: null },
-            ],
+            // Mirrors the server's `assignee=me` filter so the Claimed by you scope narrows the rows.
+            '/api/projects/:id/signals/reports': ({ request }) => {
+                const claimedByMe = new URL(request.url).searchParams.get('assignee') === 'me'
+                const results = claimedByMe
+                    ? reports.filter((report) => report.assignee?.user?.uuid === MOCK_USER_UUID)
+                    : reports
+                return [200, { results, count: results.length, next: null, previous: null }]
+            },
             '/api/projects/:id/signals/reports/available_reviewers': () => [200, []],
             '/api/projects/:id/signals/scout/configs': () => [200, []],
         },
@@ -67,14 +73,14 @@ function reportsListDecorator(reports: SignalReport[]): Decorator {
 // these stories are for.
 function ReportsTabStory({ searchParams }: { searchParams?: Record<string, string> }): JSX.Element {
     useMountedLogic(inboxSceneLogic)
+    // Mount the list only after the URL holds the filters. A filter change that lands while the
+    // first page is in flight does not reload the rows.
+    const [urlReady, setUrlReady] = useState(false)
     useEffect(() => {
         router.actions.push(urls.inbox('reports'), searchParams ?? {})
+        setUrlReady(true)
     }, [searchParams])
-    return (
-        <div className="bg-primary min-h-screen">
-            <ReportsTab />
-        </div>
-    )
+    return <div className="bg-primary min-h-screen">{urlReady && <ReportsTab />}</div>
 }
 
 const meta: Meta = {
@@ -101,6 +107,18 @@ export const Reports: Story = {
 export const ReportsStateFiltered: Story = {
     decorators: [reportsListDecorator(pullRequestReports)],
     render: () => <ReportsTabStory searchParams={{ state: 'monitoring' }} />,
+}
+
+// Claim tags on the rows: the user's own claims, a teammate's claim, and unclaimed reports together.
+export const ReportsWithClaims: Story = {
+    decorators: [reportsListDecorator(claimedReports)],
+    render: () => <ReportsTabStory searchParams={{ scope: 'entire-project' }} />,
+}
+
+// The Claimed by you scope narrows the same rows to the user's own claims.
+export const ReportsClaimedByYou: Story = {
+    decorators: [reportsListDecorator(claimedReports)],
+    render: () => <ReportsTabStory searchParams={{ scope: 'claimed-by-you' }} />,
 }
 
 // Nothing anywhere: the whole-list empty state.

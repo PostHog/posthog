@@ -3,7 +3,11 @@
 // three tab types (reports / pull requests / runs), suggested-reviewer ("for
 // you") reports, conventional-commit titles, and varying agent-run volume.
 
+import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
 import { SignalNode } from 'scenes/debug/signals/types'
+
+import type { SignalReportAssigneeApi, _UserApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalReport, SignalReportStatus, SignalSourceProduct } from '../types'
 
@@ -133,6 +137,31 @@ export const reportTabReports: SignalReport[] = [
 ]
 
 // ── Pull requests tab ───────────────────────────────────────────────────────
+
+export function userClaim(user: Pick<_UserApi, 'id' | 'uuid' | 'first_name' | 'email'>): SignalReportAssigneeApi {
+    return {
+        claim_id: null,
+        kind: 'user',
+        user: { ...user, last_name: '' },
+        task_id: null,
+        agent: null,
+        claimed_at: BASE_DATE,
+    }
+}
+
+export const myClaim = userClaim(MOCK_DEFAULT_USER)
+export const teammateClaim = userClaim({
+    id: 2,
+    uuid: 'teammate-uuid',
+    first_name: 'Robin',
+    email: 'robin@example.com',
+})
+
+// The Reports tab rows with two claimed by the current user and one by a teammate.
+export const claimedReports: SignalReport[] = reportTabReports.map((report, index) => ({
+    ...report,
+    assignee: index === 0 || index === 3 ? myClaim : index === 1 ? teammateClaim : null,
+}))
 
 export const pullRequestReports: SignalReport[] = [
     makeReport({
