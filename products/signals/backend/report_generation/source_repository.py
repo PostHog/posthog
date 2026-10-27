@@ -1,8 +1,9 @@
 """The GitHub repository a report's signals were filed against.
 
 A GitHub issue is the one inbox source that states its own repository: the issue URL names it.
-That is an answer, not a question, so repository selection pins it (see `select_repo.py`) instead
-of asking the selection agent to reason its way back to it.
+Repository selection makes it the agent's default (see `select_repo.py`). It is not the answer on
+its own, because an issue filed in one repository often asks for a change in another, such as an
+SDK, so the agent still checks where the code lives.
 
 Only a single unambiguous repository counts. A report that merges issues from two repositories
 names neither, and guessing between them is the failure this module exists to prevent.
