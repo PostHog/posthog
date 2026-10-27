@@ -70,6 +70,40 @@ class DataQualitySubjectSerializer(serializers.Serializer):
     )
 
 
+class DataQualitySubjectsQuerySerializer(serializers.Serializer):
+    """Filters and paging for the subject catalog. Without any of them it returns every subject."""
+
+    subject_type = serializers.ChoiceField(
+        choices=SubjectType.choices,
+        required=False,
+        help_text="Return only subjects of this kind: 'table', 'view', 'metric', or 'posthog_table'.",
+    )
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Return only subjects whose name or display name contains this text, ignoring case.",
+    )
+    include_columns = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Set to false to return an empty columns map for every subject. "
+        "Use it to find a subject id without reading every column schema.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=1000,
+        help_text="Maximum number of subjects to return. Omit to return every match.",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        default=0,
+        help_text="Number of matching subjects to skip. Subjects are sorted by subject_type, then name. "
+        "When a response has limit rows, call again with offset increased by limit to read the next page.",
+    )
+
+
 class DataQualityOutputColumnSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Output column name available through the {metric} relation.")
     type = serializers.CharField(allow_null=True, help_text="ClickHouse type, or null when it could not be inferred.")

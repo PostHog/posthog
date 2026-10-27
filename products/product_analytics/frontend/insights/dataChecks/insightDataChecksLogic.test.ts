@@ -358,6 +358,18 @@ describe('insightDataChecksLogic', () => {
         expect(loadedEvents().map((properties) => properties.status)).toEqual(['cancelled', 'passed'])
     })
 
+    it('waits for a chart that starts to load right after the query changes, then checks once', async () => {
+        dataChecks.mockImplementation(answer([200, checksOf('passed')]))
+
+        await expectLogic(logic, () => {
+            turnTheFlagOn()
+            vizData.actions.loadData()
+        }).toFinishAllListeners()
+
+        expect(dataChecks).toHaveBeenCalledTimes(1)
+        expect(loadedEvents().map((properties) => properties.status)).toEqual(['passed'])
+    })
+
     it.each([
         [
             'a run with findings',

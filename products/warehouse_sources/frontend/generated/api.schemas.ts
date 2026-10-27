@@ -2181,6 +2181,10 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `CloudflareR2` - CloudflareR2
  * * `Particle` - Particle
  * * `FileUpload` - FileUpload
+ * * `Dripify` - Dripify
+ * * `AwsS3Tables` - AwsS3Tables
+ * * `Beacons` - Beacons
+ * * `WooPayments` - WooPayments
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3593,6 +3597,10 @@ export const ExternalDataSourceTypeEnumApi = {
     CloudflareR2: 'CloudflareR2',
     Particle: 'Particle',
     FileUpload: 'FileUpload',
+    Dripify: 'Dripify',
+    AwsS3Tables: 'AwsS3Tables',
+    Beacons: 'Beacons',
+    WooPayments: 'WooPayments',
 } as const
 
 /**
@@ -5146,7 +5154,11 @@ export interface ExternalDataSourceCreateApi {
      * * `ConectoCRM` - ConectoCRM
      * * `CloudflareR2` - CloudflareR2
      * * `Particle` - Particle
-     * * `FileUpload` - FileUpload */
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
     payload: ExternalDataSourceCreateApiPayload
@@ -7065,7 +7077,11 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `ConectoCRM` - ConectoCRM
      * * `CloudflareR2` - CloudflareR2
      * * `Particle` - Particle
-     * * `FileUpload` - FileUpload */
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -8557,7 +8573,11 @@ export interface DatabaseSchemaRequestApi {
      * * `ConectoCRM` - ConectoCRM
      * * `CloudflareR2` - CloudflareR2
      * * `Particle` - Particle
-     * * `FileUpload` - FileUpload */
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -9973,7 +9993,11 @@ export interface DirectConnectionSourceOptionApi {
      * * `ConectoCRM` - ConectoCRM
      * * `CloudflareR2` - CloudflareR2
      * * `Particle` - Particle
-     * * `FileUpload` - FileUpload */
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** Human-readable name to show in the picker (falls back to the source type). */
     readonly label: string
@@ -10027,6 +10051,11 @@ export interface DraftCustomManifestResponseApi {
      * @nullable
      */
     error: string | null
+}
+
+export interface ExternalDataSourceExistsApi {
+    /** Whether the project has any accessible external data sources. */
+    exists: boolean
 }
 
 /**
@@ -11443,7 +11472,11 @@ export interface SourcePreviewRequestApi {
      * * `ConectoCRM` - ConectoCRM
      * * `CloudflareR2` - CloudflareR2
      * * `Particle` - Particle
-     * * `FileUpload` - FileUpload */
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -12894,7 +12927,11 @@ export interface SourceSetupApi {
      * * `ConectoCRM` - ConectoCRM
      * * `CloudflareR2` - CloudflareR2
      * * `Particle` - Particle
-     * * `FileUpload` - FileUpload */
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -14352,7 +14389,11 @@ export interface SourceCredentialCreateApi {
      * * `ConectoCRM` - ConectoCRM
      * * `CloudflareR2` - CloudflareR2
      * * `Particle` - Particle
-     * * `FileUpload` - FileUpload */
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
@@ -14633,6 +14674,134 @@ export interface SourceConfigResponseApi {
  */
 export interface SourceConfigMapResponseApi {
     [key: string]: SourceConfigResponseApi
+}
+
+/**
+ * * `slack` - slack
+ * * `webhook` - webhook
+ * * `teams` - teams
+ * * `discord` - discord
+ * * `pagerduty` - pagerduty
+ */
+export type WarehouseAlertDestinationTypeEnumApi =
+    (typeof WarehouseAlertDestinationTypeEnumApi)[keyof typeof WarehouseAlertDestinationTypeEnumApi]
+
+export const WarehouseAlertDestinationTypeEnumApi = {
+    Slack: 'slack',
+    Webhook: 'webhook',
+    Teams: 'teams',
+    Discord: 'discord',
+    Pagerduty: 'pagerduty',
+} as const
+
+/**
+ * * `critical` - critical
+ * * `error` - error
+ * * `warning` - warning
+ * * `info` - info
+ */
+export type PagerDutySeverityEnumApi = (typeof PagerDutySeverityEnumApi)[keyof typeof PagerDutySeverityEnumApi]
+
+export const PagerDutySeverityEnumApi = {
+    Critical: 'critical',
+    Error: 'error',
+    Warning: 'warning',
+    Info: 'info',
+} as const
+
+/**
+ * * `us` - us
+ * * `eu` - eu
+ */
+export type PagerDutyRegionEnumApi = (typeof PagerDutyRegionEnumApi)[keyof typeof PagerDutyRegionEnumApi]
+
+export const PagerDutyRegionEnumApi = {
+    Us: 'us',
+    Eu: 'eu',
+} as const
+
+export interface WarehouseAlertDestinationApi {
+    /** HogFunction IDs that make up this destination, one per alert event kind it handles. Send them all to the delete endpoint to remove the destination. */
+    hog_function_ids: string[]
+    /** Notification destination type.
+     *
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams
+     * * `discord` - discord
+     * * `pagerduty` - pagerduty */
+    type: WarehouseAlertDestinationTypeEnumApi
+    /** Whether every HogFunction of the destination is enabled, so it notifies for every event kind. */
+    enabled: boolean
+    /** Integration ID of the Slack workspace. Set when type=slack. */
+    slack_workspace_id?: number
+    /** Slack channel ID. Set when type=slack. */
+    slack_channel_id?: string
+    /** Human-readable Slack channel name. Set when type=slack. */
+    slack_channel_name?: string
+    /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
+    webhook_url?: string
+    /** PagerDuty integration key reduced to its last four characters. */
+    pagerduty_routing_key?: string
+    /** Severity of the PagerDuty incident.
+     *
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info */
+    pagerduty_severity?: PagerDutySeverityEnumApi
+    /** PagerDuty service region the events go to.
+     *
+     * * `us` - us
+     * * `eu` - eu */
+    pagerduty_region?: PagerDutyRegionEnumApi
+}
+
+export interface WarehouseAlertCreateDestinationApi {
+    /** Notification destination type.
+     *
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams
+     * * `discord` - discord
+     * * `pagerduty` - pagerduty */
+    type: WarehouseAlertDestinationTypeEnumApi
+    /** Integration ID for the Slack workspace. Required when type=slack. */
+    slack_workspace_id?: number
+    /** Slack channel ID. Required when type=slack. */
+    slack_channel_id?: string
+    /** Human-readable channel name for display. */
+    slack_channel_name?: string
+    /** HTTPS endpoint to post to. Required for webhook, teams and discord. */
+    webhook_url?: string
+    /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. */
+    pagerduty_routing_key?: string
+    /** Severity PagerDuty records on the incident. Used when type=pagerduty.
+     *
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info */
+    pagerduty_severity?: PagerDutySeverityEnumApi
+    /** PagerDuty service region of the account. Used when type=pagerduty.
+     *
+     * * `us` - us
+     * * `eu` - eu */
+    pagerduty_region?: PagerDutyRegionEnumApi
+}
+
+export interface WarehouseAlertDestinationCreatedApi {
+    /** HogFunction IDs created for the destination, one per event kind. */
+    hog_function_ids: string[]
+}
+
+export interface WarehouseAlertDeleteDestinationApi {
+    /**
+     * HogFunction IDs of one destination, as the list endpoint returns them. They are deleted together.
+     * @minItems 1
+     * @maxItems 100
+     */
+    hog_function_ids: string[]
 }
 
 export interface WarehouseColumnStatisticsApi {

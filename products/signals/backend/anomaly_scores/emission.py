@@ -57,6 +57,14 @@ def _event(
             "$anomaly_profile": scores.profile,
             "$anomaly_scored_at": scored_at.astimezone(datetime.UTC).isoformat(),
             "$anomaly_details": json.dumps(point.details, sort_keys=True),
+            **({"$anomaly_run": scores.run.value} if scores.run else {}),
+            **({"$anomaly_model_id": scores.model_id} if scores.model_id else {}),
+            # Tells a score from a model past its retrain age apart from a score from a fresh model.
+            **(
+                {"$anomaly_trained_at": scores.state.trained_at.astimezone(datetime.UTC).isoformat()}
+                if scores.state
+                else {}
+            ),
         },
     }
 
@@ -71,21 +79,25 @@ def score_events(
 ) -> list[dict[str, Any]]:
     """One event per series and bucket that is later than the series' newest scored bucket."""
     events: list[dict[str, Any]] = []
+    event_uuids: set[str] = set()
     for series in scores.series:
         through = scored_through.get(series.series_key)
         for point in series.points:
             if through is not None and point.bucket_start <= through:
                 continue
-            events.append(
-                _event(
-                    team_id=team_id,
-                    insight_id=insight_id,
-                    scores=scores,
-                    series=series,
-                    point=point,
-                    scored_at=scored_at,
-                )
+            event = _event(
+                team_id=team_id,
+                insight_id=insight_id,
+                scores=scores,
+                series=series,
+                point=point,
+                scored_at=scored_at,
             )
+            # Capture rejects the whole batch on a repeated uuid, e.g. an hourly bucket repeated at a DST fall-back.
+            if event["event_uuid"] in event_uuids:
+                continue
+            event_uuids.add(event["event_uuid"])
+            events.append(event)
     return events
 
 

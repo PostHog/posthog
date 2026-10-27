@@ -1,5 +1,6 @@
 import re
 import dataclasses
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlparse
@@ -48,6 +49,10 @@ _ORG_ID_RE = re.compile(r"^[a-zA-Z0-9-]+$")
 # The parent resource name used when fanning out per-org endpoints over every org.
 _PARENT_ORGS = "organizations"
 _PARENT_ID_KEY = f"_{_PARENT_ORGS}_id"
+_PARENT_GROUP_ID_KEY = f"_{_PARENT_ORGS}_group_id"
+_PARENT_COLLECTIONS = "collections"
+_PARENT_COLLECTION_ID_KEY = f"_{_PARENT_COLLECTIONS}_id"
+_PARENT_COLLECTION_ORG_KEY = f"_{_PARENT_COLLECTIONS}_organization_id"
 
 
 @dataclasses.dataclass
@@ -276,6 +281,34 @@ def snyk_source(
                 client, endpoint, list_endpoint, _flatten_map, resumable_source_manager, resume, team_id, job_id, None
             )
 
+        if endpoint_config.scope == SnykScope.PER_GROUP:
+            return _build_group_fanout(
+                client,
+                endpoint,
+                endpoint_config.path,
+                params,
+                resumable_source_manager,
+                resume,
+                host,
+                single_org,
+                team_id,
+                job_id,
+            )
+
+        if endpoint_config.scope == SnykScope.PER_COLLECTION:
+            return _build_collection_fanout(
+                client,
+                endpoint,
+                endpoint_config.path,
+                params,
+                resumable_source_manager,
+                resume,
+                host,
+                single_org,
+                team_id,
+                job_id,
+            )
+
         # PER_ORG endpoints.
         params.update(_incremental_params(endpoint, should_use_incremental_field, incremental_field))
 
@@ -366,6 +399,32 @@ def _build_simple(
     )
 
 
+def _orgs_endpoint(host: str, single_org: str | None) -> Endpoint:
+    if single_org is not None:
+        return {
+            "path": f"/orgs/{single_org}",
+            "params": {"version": SNYK_REST_VERSION},
+            "data_selector": "data",
+            "paginator": SinglePagePaginator(),
+        }
+    return {
+        "path": "/orgs",
+        "params": {"version": SNYK_REST_VERSION, "limit": SNYK_ENDPOINTS[_PARENT_ORGS].page_size},
+        "data_selector": "data",
+        "paginator": SnykJSONAPIPaginator(host),
+    }
+
+
+def _fanout_resume(
+    manager: ResumableSourceManager[SnykResumeConfig], resume: SnykResumeConfig | None
+) -> tuple[Optional[dict[str, Any]], Callable[[Optional[dict[str, Any]]], None]]:
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            manager.save_state(SnykResumeConfig(fanout_state=state))
+
+    return (resume.fanout_state if resume is not None else None), save_checkpoint
+
+
 def _build_fanout(
     client: ClientConfig,
     endpoint: str,
@@ -378,15 +437,7 @@ def _build_fanout(
     job_id: str,
     db_incremental_field_last_value: Optional[Any],
 ) -> Resource:
-    parent_resource: EndpointResource = {
-        "name": _PARENT_ORGS,
-        "endpoint": {
-            "path": "/orgs",
-            "params": {"version": SNYK_REST_VERSION, "limit": SNYK_ENDPOINTS[_PARENT_ORGS].page_size},
-            "data_selector": "data",
-            "paginator": SnykJSONAPIPaginator(host),
-        },
-    }
+    parent_resource: EndpointResource = {"name": _PARENT_ORGS, "endpoint": _orgs_endpoint(host, None)}
     child_endpoint: Endpoint = {
         "path": child_path,
         "params": {**child_params, "org_id": {"type": "resolve", "resource": _PARENT_ORGS, "field": "id"}},
@@ -403,17 +454,167 @@ def _build_fanout(
 
     # Only the framework's fan-out resume state round-trips here; an old single-collection bookmark
     # (next_url/org_id without fanout_state) starts fresh and the merge dedupes any re-pulled rows.
-    initial_state = resume.fanout_state if resume is not None else None
-
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        if state is not None:
-            manager.save_state(SnykResumeConfig(fanout_state=state))
+    initial_state, save_checkpoint = _fanout_resume(manager, resume)
 
     resources = rest_api_resources(
         config,
         team_id,
         job_id,
         db_incremental_field_last_value,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_state,
+    )
+    return next(r for r in resources if r.name == endpoint)
+
+
+def _first_org_of_each_group() -> Callable[[dict[str, Any]], bool]:
+    """Keep one org row per group, so each group's endpoint is fetched once.
+
+    Personal orgs have no group and are dropped. The group id goes into a URL path, so a value that
+    could alter the path shape is dropped too.
+    """
+    seen: set[str] = set()
+
+    def _keep(item: dict[str, Any]) -> bool:
+        attributes = item.get("attributes")
+        group_id = attributes.get("group_id") if isinstance(attributes, dict) else None
+        if not isinstance(group_id, str) or not _ORG_ID_RE.match(group_id) or group_id in seen:
+            return False
+        seen.add(group_id)
+        return True
+
+    return _keep
+
+
+def _group_child_map(item: dict[str, Any]) -> dict[str, Any]:
+    item = _flatten_item(item)
+    if _PARENT_GROUP_ID_KEY in item:
+        item["group_id"] = item.pop(_PARENT_GROUP_ID_KEY)
+    return item
+
+
+def _collection_child_map(item: dict[str, Any]) -> dict[str, Any]:
+    item = _flatten_item(item)
+    if _PARENT_COLLECTION_ID_KEY in item:
+        item["collection_id"] = item.pop(_PARENT_COLLECTION_ID_KEY)
+    if _PARENT_COLLECTION_ORG_KEY in item:
+        item["organization_id"] = item.pop(_PARENT_COLLECTION_ORG_KEY)
+    return item
+
+
+def _build_group_fanout(
+    client: ClientConfig,
+    endpoint: str,
+    child_path: str,
+    child_params: dict[str, Any],
+    manager: ResumableSourceManager[SnykResumeConfig],
+    resume: SnykResumeConfig | None,
+    host: str,
+    single_org: str | None,
+    team_id: int,
+    job_id: str,
+) -> Resource:
+    # The parent row is flattened before the child reads it, so `group_id` is a root field.
+    parent_resource: EndpointResource = {
+        "name": _PARENT_ORGS,
+        "endpoint": _orgs_endpoint(host, single_org),
+        "data_map": _flatten_map,
+    }
+    child_resource: EndpointResource = {
+        "name": endpoint,
+        "endpoint": {
+            "path": child_path,
+            "params": {
+                **child_params,
+                "group_id": {"type": "resolve", "resource": _PARENT_ORGS, "field": "group_id"},
+            },
+            "data_selector": "data",
+            "paginator": SnykJSONAPIPaginator(host),
+        },
+        "include_from_parent": ["group_id"],
+        "data_map": _group_child_map,
+    }
+    config: RESTAPIConfig = {"client": client, "resource_defaults": {}, "resources": [parent_resource, child_resource]}
+    initial_state, save_checkpoint = _fanout_resume(manager, resume)
+
+    resources = rest_api_resources(
+        config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_state,
+    )
+    next(r for r in resources if r.name == _PARENT_ORGS).add_filter(_first_org_of_each_group())
+    return next(r for r in resources if r.name == endpoint)
+
+
+def _build_collection_fanout(
+    client: ClientConfig,
+    endpoint: str,
+    child_path: str,
+    child_params: dict[str, Any],
+    manager: ResumableSourceManager[SnykResumeConfig],
+    resume: SnykResumeConfig | None,
+    host: str,
+    single_org: str | None,
+    team_id: int,
+    job_id: str,
+) -> Resource:
+    collections_resource: EndpointResource
+    resource_list: list[str | EndpointResource] = []
+    if single_org is not None:
+        collections_resource = {
+            "name": _PARENT_COLLECTIONS,
+            "endpoint": {
+                "path": SNYK_ENDPOINTS[_PARENT_COLLECTIONS].path.format(org_id=single_org),
+                "params": dict(child_params),
+                "data_selector": "data",
+                "paginator": SnykJSONAPIPaginator(host),
+            },
+            "data_map": _single_org_flatten_map(single_org),
+        }
+    else:
+        # Two fan-out levels (orgs -> collections -> projects). The framework does not resume a
+        # chained fan-out, so an interrupted run starts again and the merge dedupes.
+        resource_list.append({"name": _PARENT_ORGS, "endpoint": _orgs_endpoint(host, None)})
+        collections_resource = {
+            "name": _PARENT_COLLECTIONS,
+            "endpoint": {
+                "path": SNYK_ENDPOINTS[_PARENT_COLLECTIONS].path,
+                "params": {**child_params, "org_id": {"type": "resolve", "resource": _PARENT_ORGS, "field": "id"}},
+                "data_selector": "data",
+                "paginator": SnykJSONAPIPaginator(host),
+            },
+            "include_from_parent": ["id"],
+            "data_map": _child_flatten_map,
+        }
+    resource_list.append(collections_resource)
+    resource_list.append(
+        {
+            "name": endpoint,
+            "endpoint": {
+                "path": child_path,
+                "params": {
+                    **child_params,
+                    "org_id": {"type": "resolve", "resource": _PARENT_COLLECTIONS, "field": "organization_id"},
+                    "collection_id": {"type": "resolve", "resource": _PARENT_COLLECTIONS, "field": "id"},
+                },
+                "data_selector": "data",
+                "paginator": SnykJSONAPIPaginator(host),
+            },
+            "include_from_parent": ["id", "organization_id"],
+            "data_map": _collection_child_map,
+        }
+    )
+    config: RESTAPIConfig = {"client": client, "resource_defaults": {}, "resources": resource_list}
+    initial_state, save_checkpoint = _fanout_resume(manager, resume)
+
+    resources = rest_api_resources(
+        config,
+        team_id,
+        job_id,
+        None,
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_state,
     )

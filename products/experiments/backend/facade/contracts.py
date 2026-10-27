@@ -106,6 +106,7 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
     NO_METRIC = "no_metric"
     METRIC_EVENT_NOT_INGESTED = "metric_event_not_ingested"
+    METRIC_CANNOT_COMPILE = "metric_cannot_compile"
     EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
     SRM = "srm", "Sample Ratio Mismatch"
     ZERO_EXPOSURES = "zero_exposures"
@@ -115,6 +116,18 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     BUCKETING_CHANGED_MID_RUN = "bucketing_changed_mid_run"
     RELEASE_CONDITIONS_CHANGED_MID_RUN = "release_conditions_changed_mid_run"
     NEW_FLAG_NO_TRAFFIC = "new_flag_no_traffic"
+    EARLY_SIGNIFICANCE = "early_significance"
+
+
+class ExperimentHealthMetricCompileErrorKind(LabeledStrEnum):
+    # A validation error of the query builder, written for the user.
+    REJECTED = "rejected"
+    # HogQL can't parse an expression of the metric.
+    SYNTAX = "syntax"
+    # HogQL can't compile the query.
+    QUERY = "query"
+    # The stored definition doesn't parse into a metric.
+    DEFINITION = "definition"
 
 
 class HealthExposureInputsStatus(LabeledStrEnum):
@@ -196,7 +209,9 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     NEW_FLAG_NO_TRAFFIC = "new_flag_no_traffic"
     NO_METRIC = "no_metric"
     METRIC_EVENT_NOT_INGESTED = "metric_event_not_ingested"
+    METRIC_CANNOT_COMPILE = "metric_cannot_compile"
     EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
+    EARLY_SIGNIFICANCE = "early_significance"
     ZERO_EXPOSURES = "zero_exposures"
     SRM = "srm"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
@@ -349,3 +364,18 @@ class DailyMetricCalculation:
     metric_uuid: str
     # The key that files the metric's daily result.
     calculation_key: str
+
+
+@frozen
+class EndedExperiment:
+    id: int
+    name: str
+    ended_at: datetime
+
+
+@frozen
+class RunningExperiment:
+    id: int
+    name: str
+    started_at: datetime
+    flag_key: str

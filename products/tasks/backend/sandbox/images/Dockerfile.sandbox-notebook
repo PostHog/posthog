@@ -50,9 +50,10 @@ RUN apt-get update && \
     sudo \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 24.x
+# Install Node.js 24.x. NODEJS_VERSION works as in Dockerfile.sandbox-base (the reason is there).
+ARG NODEJS_VERSION
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
-    apt-get install -y nodejs && \
+    apt-get install -y "nodejs${NODEJS_VERSION:+=$NODEJS_VERSION}" && \
     rm -rf /var/lib/apt/lists/*
 
 # Install additional language package managers

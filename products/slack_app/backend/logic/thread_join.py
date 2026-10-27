@@ -3,7 +3,6 @@
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from products.slack_app.backend.feature_flags import is_slack_app_multiplayer_approvals_enabled
 from products.slack_app.backend.models import SlackThreadJoin, ThreadJoinMode
 from products.slack_app.backend.services.slack_settings import resolve_thread_join_mode
 
@@ -28,14 +27,16 @@ def decide_thread_join(
     """The creator's join mode applied to one person, given the approvals the thread already has.
 
     A person's approval holds whatever the mode is now, because a mode change applies to new
-    people only. With the rollout flag off for the creator, the stored mode does not apply.
+    people only.
     """
-    mode = resolve_thread_join_mode(integration, mapping.mentioning_slack_user_id)
+    from products.tasks.backend.facade import api as tasks_facade
+
+    mode = resolve_thread_join_mode(
+        integration,
+        mapping.mentioning_slack_user_id,
+        own_subscription=tasks_facade.uses_own_subscription(mapping.task_run.state),
+    )
     if mode == ThreadJoinMode.ALLOW:
-        return ThreadJoinDecision.ALLOW
-    # Checked after the mode, so a creator who lets anyone join costs no flag request.
-    creator = mapping.task.created_by
-    if not is_slack_app_multiplayer_approvals_enabled(integration, creator.distinct_id if creator else None):
         return ThreadJoinDecision.ALLOW
     approved = set(
         SlackThreadJoin.objects.for_team(mapping.team_id)

@@ -10,8 +10,10 @@ from posthog.ingress.contracts import WebhookDelivery
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import (
     CohortDependentWorkflow,
+    EmailDomainCheck,
     EmailDomainDnsRecord,
     EmailDomainVerification,
+    FlowUtmUpdate,
     RecentWorkflow,
     TeamUtmDefaults,
     TierDecision,
@@ -39,6 +41,9 @@ from products.workflows.backend.services.email_sending_controls import (
     set_email_sending_tier,
     suspend_email_sending,
     unsuspend_email_sending,
+)
+from products.workflows.backend.services.existing_email_tools import (
+    lookup_existing_email_tools as _lookup_existing_email_tools,
 )
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 from products.workflows.backend.services.owned_workflow_health import list_owned_workflow_health
@@ -237,6 +242,20 @@ def has_active_workflow_for_warehouse_table(*, team_id: int, trigger_source: str
     ).exists()
 
 
+def active_workflow_warehouse_table_names(
+    *, team_id: int, trigger_source: str, table_names: Collection[str]
+) -> set[str]:
+    """The given warehouse table names that an active workflow triggers on."""
+    return set(
+        HogFlow.objects.filter(
+            team_id=team_id,
+            status=HogFlow.State.ACTIVE,
+            trigger__type=trigger_source,
+            trigger__table_name__in=list(table_names),
+        ).values_list("trigger__table_name", flat=True)
+    )
+
+
 def get_workflow_activity_summary(*, team_id: int, recent_limit: int) -> WorkflowActivitySummary:
     """Total and non-archived workflow counts, plus the most recently updated workflows."""
     qs = HogFlow.objects.filter(team_id=team_id)
@@ -319,6 +338,24 @@ def verify_ses_email_domain(domain: str, *, mail_from_subdomain: str, team_id: i
     return providers.SESProvider().verify_email_domain(domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id)
 
 
+def get_ses_email_domain_status(domain: str, *, mail_from_subdomain: str, team_id: int) -> EmailDomainCheck:
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    return providers.SESProvider().get_email_domain_status(
+        domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id
+    )
+
+
+def get_maildev_email_domain_status(domain: str, *, mail_from_subdomain: str) -> EmailDomainCheck:
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    return providers.maildev_email_domain_status(domain, mail_from_subdomain=mail_from_subdomain)
+
+
+def lookup_existing_email_tools(root_domain: str) -> list[str]:
+    return _lookup_existing_email_tools(root_domain)
+
+
 def delete_ses_identity(identity: str) -> None:
     from products.workflows.backend import providers  # noqa: PLC0415
 
@@ -347,6 +384,10 @@ def load_team_utm_defaults(team_id: int) -> TeamUtmDefaults:
     return email_utm_defaults.load_team_utm_defaults(team_id)
 
 
+def flow_ids_with_active_schedule(team_id: int) -> set[UUID]:
+    return email_utm_defaults.flow_ids_with_active_schedule(team_id)
+
+
 def seed_new_email_steps_with_utm_defaults(
     actions: list[dict[str, Any]], existing_action_ids: Iterable[str], defaults: TeamUtmDefaults
 ) -> None:
@@ -362,3 +403,13 @@ def release_edited_email_utm_keys(
     saving_draft: bool,
 ) -> None:
     email_utm_defaults.release_edited_keys(actions, stored_actions, stored_draft, defaults, saving_draft=saving_draft)
+
+
+def is_utm_apply_eligible(flow: HogFlow, has_active_schedule: bool) -> bool:
+    return email_utm_defaults.is_apply_eligible(flow, has_active_schedule)
+
+
+def plan_flow_utm_update(
+    actions: list[Any], draft: dict[str, Any] | None, defaults: TeamUtmDefaults, enable_where_off: bool
+) -> FlowUtmUpdate | None:
+    return email_utm_defaults.plan_flow_update(actions, draft, defaults, enable_where_off)

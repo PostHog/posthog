@@ -1,5 +1,5 @@
 import { autoUpdate, flip, FloatingPortal, offset, shift, useFloating, type VirtualElement } from '@floating-ui/react'
-import React, { useLayoutEffect, useMemo } from 'react'
+import React, { createContext, useContext, useLayoutEffect, useMemo } from 'react'
 
 import { useChartLayout } from '../core/chart-context'
 import type { TooltipContext } from '../core/types'
@@ -8,6 +8,15 @@ interface TooltipProps<Meta> {
     context: TooltipContext<Meta>
     renderTooltip: (ctx: TooltipContext<Meta>) => React.ReactNode
     placement?: 'follow-data' | 'top' | 'cursor'
+}
+
+const TooltipCaptureContext = createContext<((ctx: TooltipContext) => void) | null>(null)
+export const TooltipCaptureProvider = TooltipCaptureContext.Provider
+const noCapture = (): void => {}
+
+/** Test seam for `renderChart`. Called during render, so a chart that narrows the context after `Tooltip` wins. */
+export function useTooltipCapture<Meta>(): (ctx: TooltipContext<Meta>) => void {
+    return (useContext(TooltipCaptureContext) ?? noCapture) as (ctx: TooltipContext<Meta>) => void
 }
 
 const TOOLTIP_MIDDLEWARE = [offset(12), flip(), shift({ padding: 8 })]
@@ -19,6 +28,7 @@ export function Tooltip<Meta = unknown>({
     placement = 'follow-data',
 }: TooltipProps<Meta>): React.ReactElement {
     const { theme } = useChartLayout()
+    useTooltipCapture<Meta>()(context)
     const zIndex = theme.tooltipZIndex ?? DEFAULT_TOOLTIP_Z_INDEX
     const { left: canvasLeft, top: canvasTop } = context.canvasBounds
     // `cursor` follows the mouse (falling back to the data anchor on non-mousemove rebuilds);

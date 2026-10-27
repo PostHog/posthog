@@ -467,6 +467,7 @@ export function TrendsBarChart({
                 theme={theme}
                 tooltip={renderTooltip}
                 onPointClick={canHandleClick ? onPointClick : undefined}
+                onPointContextMenu={context?.dashboardResultMenu && canHandleClick ? onPointClick : undefined}
                 className="BarGraph"
                 dataAttr="trend-bar-value-graph"
                 onError={handleChartError}
@@ -509,6 +510,7 @@ export function TrendsBarChart({
             theme={theme}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
+            onPointContextMenu={context?.dashboardResultMenu && canHandleClick ? onPointClick : undefined}
             onDateRangeZoom={onDateRangeZoom}
             className="BarGraph"
             dataAttr="trend-bar-graph"

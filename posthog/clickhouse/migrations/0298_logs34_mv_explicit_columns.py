@@ -8,7 +8,7 @@ DB = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 
 operations = [
     run_sql_with_exceptions(
-        f"ALTER TABLE {DB}.kafka_logs34_avro_mv MODIFY QUERY\n{KAFKA_LOGS34_AVRO_MV_SELECT()}",
+        f"ALTER TABLE {DB}.kafka_logs34_avro_mv MODIFY QUERY\n{KAFKA_LOGS34_AVRO_MV_SELECT(internal_source=False)}",
         node_roles=[NodeRole.LOGS],
         sharded=False,
         is_alter_on_replicated_table=False,
