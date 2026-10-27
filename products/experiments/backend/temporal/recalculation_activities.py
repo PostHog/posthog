@@ -21,6 +21,7 @@ from products.experiments.backend.temporal.models import (
     RecalculationProgressUpdate,
 )
 from products.experiments.backend.temporal.recalculation_logic import (
+    AttemptCancellation,
     _calculate_experiment_metric_for_recalculation_sync,
     _cancel_metric_query_sync,
     _discover_experiment_metrics_sync,
@@ -42,6 +43,7 @@ async def _drain_cancelled_body(
     recalculation_id: str,
     metric_uuid: str,
     attempt: int,
+    cancellation: AttemptCancellation,
 ) -> None:
     # sync_to_async cannot stop its worker thread, and returning while it runs leaves the ClickHouse query, its
     # DB connection and the runner's result buffers alive and unsupervised. Kill the query so the thread returns
@@ -54,7 +56,9 @@ async def _drain_cancelled_body(
         try:
             # A kill that hangs must not hold the drain past its deadline. The floor keeps the one kill after it.
             kill_timeout = max(deadline - loop.time(), _CANCEL_KILL_RETRY_INTERVAL_SECONDS)
-            await asyncio.wait_for(_cancel_metric_query_sync(recalculation_id, metric_uuid, attempt), kill_timeout)
+            await asyncio.wait_for(
+                _cancel_metric_query_sync(recalculation_id, metric_uuid, attempt, cancellation), kill_timeout
+            )
         except Exception:
             logger.warning(
                 "experiment_metric_recalculation_query_cancel_failed",
@@ -124,19 +128,24 @@ async def calculate_experiment_metric_for_recalculation(
     attempt = temporalio.activity.info().attempt
     is_final_attempt = attempt >= MAX_METRIC_ATTEMPTS
     deadline = asyncio.get_running_loop().time() + METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS
+    cancellation = AttemptCancellation()
     # The heartbeat runs on the event loop beside the body's thread. Temporal delivers a cancellation (a workflow
     # cancel, or a timeout the server enforces) only in a heartbeat response, so the drain below depends on it.
     async with Heartbeater(factor=_HEARTBEAT_FACTOR):
         task = asyncio.ensure_future(
             _calculate_experiment_metric_for_recalculation_sync(
-                experiment_id, metric_uuid, recalculation_id, query_to, role, is_final_attempt, attempt
+                experiment_id, metric_uuid, recalculation_id, query_to, role, is_final_attempt, attempt, cancellation
             )
         )
         try:
             return await asyncio.shield(task)
         except asyncio.CancelledError:
+            # Set here, not only in the kill: a kill that waits for a free cancel worker can time out before it runs.
+            cancellation.cancel()
             # Keep the worker slot while the uncancellable thread finishes, but bound shutdown cleanup.
-            drain = asyncio.create_task(_drain_cancelled_body(task, deadline, recalculation_id, metric_uuid, attempt))
+            drain = asyncio.create_task(
+                _drain_cancelled_body(task, deadline, recalculation_id, metric_uuid, attempt, cancellation)
+            )
             while True:
                 try:
                     await asyncio.shield(drain)

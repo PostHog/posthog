@@ -1,5 +1,6 @@
 import json
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
 from typing import Optional
@@ -111,6 +112,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         max_execution_time: Optional[int] = None,
         bypass_warehouse_access_control: bool = False,
         error_event_context: Optional[str] = "ui",
+        raise_if_cancelled: Optional[Callable[[], None]] = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -123,6 +125,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # their own retries/telemetry (recalc, warming, canary, backfills) must pass None or user_facing=False
         # so the error boundary stays silent for them. See error_handling._emit_runner_terminal_error_event.
         self.error_event_context = error_event_context
+        self.raise_if_cancelled = raise_if_cancelled
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -319,6 +322,8 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # $group_N, which the INSERT ... SELECT analysis path can't resolve (MATERIALIZED
         # on sharded_events), so every build fails with UNKNOWN_IDENTIFIER.
         if should_precompute and not self.is_data_warehouse_query and self.group_type_index is None:
+            if self.raise_if_cancelled is not None:
+                self.raise_if_cancelled()
             try:
                 with tags_context(experiment_query_surface="precompute_build", experiment_precompute_table="exposures"):
                     result = self._ensure_exposures_precomputed(builder)
@@ -348,6 +353,9 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 )
 
             if self._metric_events_precompute_applicable():
+                # A killed exposure INSERT returns not ready, so the attempt can reach this stage after its cancel.
+                if self.raise_if_cancelled is not None:
+                    self.raise_if_cancelled()
                 try:
                     with tags_context(
                         experiment_query_surface="precompute_build", experiment_precompute_table="metric_events"
@@ -473,6 +481,8 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         )
         enforce_warehouse_metric_timestamp_types([self.metric.model_dump(mode="json")], database)
 
+        if self.raise_if_cancelled is not None:
+            self.raise_if_cancelled()
         response = execute_hogql_query(
             query_type="ExperimentQuery",
             query=experiment_query_ast,

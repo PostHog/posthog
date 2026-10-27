@@ -1,4 +1,5 @@
 import time as time_mod
+import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -43,6 +44,7 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     LazyComputationQuery,
     LazyComputationResult,
     LazyComputationTable,
+    PrecomputeInsertAborted,
     TtlSchedule,
     _build_manual_insert_sql,
     _get_insert_settings,
@@ -55,6 +57,8 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
     filter_overlapping_jobs,
     find_missing_contiguous_windows,
     is_non_retryable_error,
+    observe_precompute_inserts,
+    observe_precompute_waits,
     parse_ttl_schedule,
     run_lazy_computation_insert,
     split_ranges_by_ttl,
@@ -1497,6 +1501,34 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
 
         assert first.job_ids[0] != second.job_ids[0]
 
+    def test_insert_observer_can_stop_the_retry_of_a_killed_insert(self):
+        observed: list[uuid.UUID] = []
+
+        def _observer(job_id: uuid.UUID) -> None:
+            if observed:
+                raise PrecomputeInsertAborted("cancelled")
+            observed.append(job_id)
+
+        with (
+            patch(
+                "products.analytics_platform.backend.lazy_computation.lazy_computation_executor.sync_execute",
+                side_effect=ServerException(message="Query was cancelled", code=394),
+            ) as mock_execute,
+            observe_precompute_inserts(_observer),
+        ):
+            result = ensure_precomputed(
+                team=self.team,
+                insert_query=self.MANUAL_INSERT_QUERY,
+                time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+                time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            )
+
+        jobs = PreaggregationJob.objects.filter(team=self.team)
+        assert result.ready is False
+        assert mock_execute.call_count == 1
+        assert observed == [jobs.earliest("created_at").id]
+        assert [job.status for job in jobs] == [PreaggregationJob.Status.FAILED] * 2
+
     def test_sentinel_placeholders_must_exist_in_placeholders(self):
         with pytest.raises(ValueError, match="must also be present in placeholders"):
             ensure_precomputed(
@@ -2642,6 +2674,41 @@ class TestComputationExecutorExecute(BaseTest):
 
         assert result.ready is False
         assert any("Timeout" in e for e in result.errors)
+
+    def test_wait_observer_ends_the_wait_on_another_callers_pending_job(self):
+        query_info, query_hash = self._make_query_info()
+        pending_job = PreaggregationJob.objects.create(
+            team=self.team,
+            query_hash=query_hash,
+            time_range_start=datetime(2024, 1, 1, tzinfo=UTC),
+            time_range_end=datetime(2024, 1, 2, tzinfo=UTC),
+            status=PreaggregationJob.Status.PENDING,
+            expires_at=django_timezone.now() + timedelta(days=7),
+        )
+
+        class _Cancelled(BaseException):
+            pass
+
+        def _observer() -> None:
+            raise _Cancelled()
+
+        executor = LazyComputationExecutor(wait_timeout_seconds=180.0, poll_interval_seconds=0.1)
+        with (
+            patch.object(executor, "_wait_for_notification") as mock_wait,
+            observe_precompute_waits(_observer),
+            pytest.raises(_Cancelled),
+        ):
+            executor.execute(
+                team=self.team,
+                query_info=query_info,
+                start=datetime(2024, 1, 1, tzinfo=UTC),
+                end=datetime(2024, 1, 2, tzinfo=UTC),
+                run_insert=lambda t, j: None,
+            )
+
+        mock_wait.assert_not_called()
+        pending_job.refresh_from_db()
+        assert pending_job.status == PreaggregationJob.Status.PENDING
 
     def test_does_not_create_duplicate_for_pending_range(self):
         query_info, query_hash = self._make_query_info()
