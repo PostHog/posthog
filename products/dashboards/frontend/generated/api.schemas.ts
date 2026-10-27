@@ -1379,6 +1379,16 @@ export interface PatchedPatchedDashboardOpenApiApi {
     delete_insights?: boolean
 }
 
+export interface CopyDashboardGroupRequestApi {
+    /** Dashboard id the group currently belongs to. */
+    fromDashboardId: number
+    /**
+     * Key of the tile group to copy.
+     * @maxLength 100
+     */
+    groupKey: string
+}
+
 export interface CopyDashboardTileRequestApi {
     /** Dashboard id the tile currently belongs to. */
     fromDashboardId: number
@@ -10937,6 +10947,18 @@ export type DashboardsDestroyParams = {
 export type DashboardsDestroyFormat = (typeof DashboardsDestroyFormat)[keyof typeof DashboardsDestroyFormat]
 
 export const DashboardsDestroyFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsCopyGroupCreateParams = {
+    format?: DashboardsCopyGroupCreateFormat
+}
+
+export type DashboardsCopyGroupCreateFormat =
+    (typeof DashboardsCopyGroupCreateFormat)[keyof typeof DashboardsCopyGroupCreateFormat]
+
+export const DashboardsCopyGroupCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const
