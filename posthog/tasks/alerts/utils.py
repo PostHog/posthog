@@ -467,7 +467,7 @@ def render_alert_insight_chart(
                             "label": f"{insight_alert.name} {side} threshold",
                             "value": value,
                             "borderColor": "#d14343",
-                            "displayLabel": True,
+                            "displayLabel": False,
                         }
                     )
         asset, content = exports.render_png_export(

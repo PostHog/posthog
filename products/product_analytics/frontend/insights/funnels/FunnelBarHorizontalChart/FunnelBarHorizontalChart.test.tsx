@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
-import { clickAtIndex, ensureJsdom, getHogChart, hoverUntilTooltip } from '@posthog/quill-charts/testing'
+import { clickAtIndex, ensureJsdom, getChart, hoverUntilTooltip } from '@posthog/quill-charts/testing'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -89,7 +89,7 @@ describe('FunnelBarHorizontalChart', () => {
 
         await waitFor(() => {
             expect(
-                getHogChart(bar)
+                getChart(bar)
                     .referenceLines()
                     .map((line) => line.label)
             ).toEqual(['Lower threshold', 'Upper threshold'])
