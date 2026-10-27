@@ -32,6 +32,9 @@ const element = (attr: string): HTMLElement => {
     return found
 }
 
+const closedEvents = (capture: jest.SpyInstance): unknown[][] =>
+    capture.mock.calls.filter(([event]) => event === 'email domain setup closed')
+
 const startSetupFor = (domain: string): void => {
     fireEvent.change(document.getElementById('email-domain-another-domain') as HTMLInputElement, {
         target: { value: domain },
@@ -156,6 +159,7 @@ describe('email domain setup entry points', () => {
 
     it('closes the setup modal when the person opens the full page from configure', async () => {
         setWizardFlag(true)
+        const capture = jest.spyOn(posthog, 'capture')
         backend.addSender({ email: `hello@${DOMAIN}` })
         await renderInApp(<MessageChannels />)
         fireEvent.click(screen.getByText(DOMAIN))
@@ -167,6 +171,9 @@ describe('email domain setup entry points', () => {
 
         expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain(SENDER_ID)}$`))
         expect(integrationsLogic.values.setupModalOpen).toBe(false)
+        expect(closedEvents(capture)).toEqual([
+            ['email domain setup closed', { furthest_step: 'settings', surface: 'channels', completed: false }],
+        ])
     })
 
     it.each([
@@ -230,18 +237,20 @@ describe('email domain setup entry points', () => {
             },
         },
     ])(
-        'reports the furthest step $furthestStep when the wizard modal closes',
+        'reports the furthest step $furthestStep when the onboarding wizard modal closes',
         async ({ furthestStep, completed, advance }) => {
             setWizardFlag(true)
             const capture = jest.spyOn(posthog, 'capture')
-            await renderInApp(<EmailSetupModal surface="workflow_editor" onClose={jest.fn()} onComplete={jest.fn()} />)
+            await renderInApp(<WizardChannelStep />)
+            fireEvent.click(element('workflows-onboarding-wizard-connect-email'))
+            await flush()
             await advance()
 
             fireEvent.click(screen.getByLabelText('close'))
             await flush()
 
-            expect(capture.mock.calls.filter(([event]) => event === 'email domain setup closed')).toEqual([
-                ['email domain setup closed', { furthest_step: furthestStep, surface: 'workflow_editor', completed }],
+            expect(closedEvents(capture)).toEqual([
+                ['email domain setup closed', { furthest_step: furthestStep, surface: 'onboarding_wizard', completed }],
             ])
         }
     )

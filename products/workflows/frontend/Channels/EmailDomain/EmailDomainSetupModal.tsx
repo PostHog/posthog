@@ -1,13 +1,13 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { ReactNode, useEffect, useState } from 'react'
+import { ReactNode, useEffect, useRef, useState } from 'react'
 
 import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import { EmailSetupSurface } from '../EmailSetup/emailSetupModalLogic'
+import { EmailSetupSurface, captureEmailDomainSetupClosed } from '../EmailSetup/emailSetupModalLogic'
 import { BindEmailDomainLogics } from './BindEmailDomainLogics'
 import { AgentHandoffModal } from './components/AgentHandoffModal'
 import { emailDomainLogic } from './emailDomainLogic'
@@ -63,43 +63,43 @@ function ModalSettings({
     onLeave: () => void
 }): JSX.Element {
     return (
-        <div className="@container flex flex-col gap-6">
-            <ModalStep next={next} />
-            <LemonButton
-                type="tertiary"
-                className="self-center"
-                to={urls.workflowsEmailDomain(integrationId)}
-                targetBlank={openInNewTab}
-                onClick={onLeave}
-                sideIcon={<IconExternal />}
-            >
-                Open full page
-            </LemonButton>
-            <AgentHandoffModal />
-        </div>
+        <BindEmailDomainLogics id={String(integrationId)}>
+            <div className="@container flex flex-col gap-6">
+                <ModalStep next={next} />
+                <LemonButton
+                    type="tertiary"
+                    className="self-center"
+                    to={urls.workflowsEmailDomain(integrationId)}
+                    targetBlank={openInNewTab}
+                    onClick={onLeave}
+                    sideIcon={<IconExternal />}
+                >
+                    Open full page
+                </LemonButton>
+                <AgentHandoffModal />
+            </div>
+        </BindEmailDomainLogics>
+    )
+}
+
+function useReportSetupClosedOnUnmount(integrationId: number | null, surface: EmailSetupSurface): void {
+    const { furthestStep } = useValues(emailDomainLogic({ id: integrationId ? String(integrationId) : 'new' }))
+    const furthestStepRef = useRef(furthestStep)
+    furthestStepRef.current = furthestStep
+
+    useEffect(
+        () => () =>
+            captureEmailDomainSetupClosed({
+                furthestStep: furthestStepRef.current,
+                surface,
+                completed: furthestStepRef.current === 'ready',
+            }),
+        [surface]
     )
 }
 
 export function EmailDomainSetupModal({
     integrationId: initialIntegrationId,
-    ...props
-}: EmailDomainSetupModalProps): JSX.Element {
-    const [integrationId, setIntegrationId] = useState<number | null>(initialIntegrationId ?? null)
-
-    useEffect(() => {
-        // pinned: analytics event name
-        posthog.capture('email domain setup started', { entry: props.entry })
-    }, [props.entry])
-
-    return (
-        <BindEmailDomainLogics id={integrationId ? String(integrationId) : 'new'}>
-            <SetupModal {...props} integrationId={integrationId} onDomainPicked={setIntegrationId} />
-        </BindEmailDomainLogics>
-    )
-}
-
-function SetupModal({
-    integrationId,
     entry,
     surface,
     description,
@@ -107,28 +107,21 @@ function SetupModal({
     onComplete,
     onClose,
     onSenderCreated,
-    onDomainPicked,
-}: EmailDomainSetupModalProps & {
-    integrationId: number | null
-    onDomainPicked: (integrationId: number) => void
-}): JSX.Element {
-    const { reportSetupClosed } = useActions(emailDomainLogic)
+}: EmailDomainSetupModalProps): JSX.Element {
+    const [integrationId, setIntegrationId] = useState<number | null>(initialIntegrationId ?? null)
+    useReportSetupClosedOnUnmount(integrationId, surface)
 
-    const close = (): void => {
-        reportSetupClosed(surface)
-        if (integrationId) {
-            onComplete(integrationId)
-        } else {
-            onClose()
-        }
-    }
+    useEffect(() => {
+        // pinned: analytics event name
+        posthog.capture('email domain setup started', { entry })
+    }, [entry])
 
     return (
         <LemonModal
             title={integrationId ? 'Verify your sending domain' : 'Set up a sending domain'}
             description={description}
             width={720}
-            onClose={close}
+            onClose={() => (integrationId ? onComplete(integrationId) : onClose())}
         >
             {integrationId ? (
                 // A broadcast saves its new sender a moment after the modal hands it over, so leaving the
@@ -144,7 +137,7 @@ function SetupModal({
                     <DomainStep
                         logicKey="modal"
                         onCreated={(created) => {
-                            onDomainPicked(created.id)
+                            setIntegrationId(created.id)
                             onSenderCreated?.(created.id)
                         }}
                     />

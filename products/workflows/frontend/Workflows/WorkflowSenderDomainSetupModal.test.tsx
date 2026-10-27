@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -187,6 +188,7 @@ describe('the email domain setup opened from a workflow', () => {
 
     afterEach(() => {
         cleanup()
+        jest.restoreAllMocks()
         jest.useRealTimers()
     })
 
@@ -238,6 +240,7 @@ describe('the email domain setup opened from a workflow', () => {
             text: `It's on and starts sending once ${DOMAIN} is verified.`,
         },
     ])('$name, and Back to workflow only closes', async ({ workflow, text }) => {
+        const capture = jest.spyOn(posthog, 'capture')
         backend.addSender({ email: `hello@${DOMAIN}` })
         backend.publishRecords(DOMAIN)
         await openFromStatusBar(workflow())
@@ -249,6 +252,9 @@ describe('the email domain setup opened from a workflow', () => {
 
         expect(savedStatuses()).toEqual([])
         expect(screen.queryByText('For the workflow Welcome new sign-ups')).not.toBeInTheDocument()
+        expect(capture.mock.calls.filter(([event]) => event === 'email domain setup closed')).toEqual([
+            ['email domain setup closed', { furthest_step: 'verifying', surface: 'workflow_editor', completed: false }],
+        ])
     })
 
     it('offers to enable the workflow once the domain is verified', async () => {

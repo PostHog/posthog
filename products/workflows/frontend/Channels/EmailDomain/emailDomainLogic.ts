@@ -19,7 +19,6 @@ import type {
 } from 'products/integrations/frontend/generated/api.schemas'
 
 import { workflowDataSuggestionsLogic } from '../../setupGuide/suggestions/workflowDataSuggestionsLogic'
-import { EmailSetupSurface, captureEmailDomainSetupClosed } from '../EmailSetup/emailSetupModalLogic'
 import { dnsRecordsAsText } from './dnsRecordsAsText'
 import { emailDomainAutoConfigureLogic } from './emailDomainAutoConfigureLogic'
 import { EmailDomainLogicProps } from './emailDomainLogicProps'
@@ -196,9 +195,6 @@ export interface emailDomainLogicActions {
     reachPhase: (phase: EmailDomainPhase) => {
         phase: EmailDomainPhase
     }
-    reportSetupClosed: (surface: EmailSetupSurface) => {
-        surface: EmailSetupSurface
-    }
     retry: () => {
         value: true
     }
@@ -286,7 +282,6 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
         preloadDataSuggestions: true,
         shareRecords: (method: RecordsShareMethod) => ({ method }),
         reachPhase: (phase: EmailDomainPhase) => ({ phase }),
-        reportSetupClosed: (surface: EmailSetupSurface) => ({ surface }),
     }),
     reducers({
         furthestStep: [
@@ -400,13 +395,6 @@ export const emailDomainLogic = kea<emailDomainLogicType>([
             // pinned: analytics event name
             posthog.capture('email domain records shared', { method, step: phase })
             lemonToast.success(method === 'link' ? 'Copied the link to this page' : 'Copied the settings as text')
-        },
-        reportSetupClosed: ({ surface }) => {
-            captureEmailDomainSetupClosed({
-                furthestStep: values.furthestStep,
-                surface,
-                completed: values.furthestStep === 'ready',
-            })
         },
         retry: () => {
             if (values.senderFailed) {
