@@ -6120,7 +6120,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
 
             index_name = get_minmax_index_name(mat_col.name)
             if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                expected_lt_mango = [("d_low",)]
+                # The native table has no materialized column, so '' and 'null' are values in both flavors.
+                expected_lt_mango = [("d_empty",), ("d_low",)]
                 expected_gte_mango = [("d_high",), ("d_mid",), ("d_null_str",)]
 
             lt_result = execute_hogql_query(
@@ -6845,8 +6846,6 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
                 and not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
             ):
                 ilike_expected = ilike_expected_if_non_nullable
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                ilike_expected = (ilike_expected | {""}) if pattern == "None" else ilike_expected - {""}
             pattern_expr = ast.Constant(value=pattern if pattern != "None" else None)
             ilike_result = execute_hogql_query(
                 team=self.team,
@@ -6942,8 +6941,6 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             ):
                 in_expected = in_expected_if_non_nullable
 
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-                in_expected = in_expected - {""}
             in_values_exprs: list[ast.Expr] = [ast.Constant(value=v) for v in in_values]
             in_tuple = ast.Tuple(exprs=in_values_exprs)
 
