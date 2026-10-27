@@ -9581,25 +9581,8 @@
                 "clickhouse_sql": {
                     "type": "string"
                 },
-                "credible_intervals": {
-                    "additionalProperties": {
-                        "items": {
-                            "type": "number"
-                        },
-                        "maxItems": 2,
-                        "minItems": 2,
-                        "type": "array"
-                    },
-                    "type": "object"
-                },
                 "hogql": {
                     "type": "string"
-                },
-                "insight": {
-                    "items": {
-                        "type": "object"
-                    },
-                    "type": "array"
                 },
                 "is_cached": {
                     "type": "boolean"
@@ -9616,21 +9599,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
-                "metric": {
-                    "$ref": "#/definitions/ExperimentMetric"
-                },
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
-                },
-                "p_value": {
-                    "type": "number"
-                },
-                "probability": {
-                    "additionalProperties": {
-                        "type": "number"
-                    },
-                    "type": "object"
                 },
                 "query_metadata": {
                     "type": "object"
@@ -9642,15 +9613,6 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
-                },
-                "significance_code": {
-                    "$ref": "#/definitions/ExperimentSignificanceCode"
-                },
-                "significant": {
-                    "type": "boolean"
-                },
-                "stats_version": {
-                    "$ref": "#/definitions/integer"
                 },
                 "timezone": {
                     "type": "string"
@@ -9666,22 +9628,6 @@
                         {
                             "items": {
                                 "$ref": "#/definitions/ExperimentVariantResultBayesian"
-                            },
-                            "type": "array"
-                        }
-                    ]
-                },
-                "variants": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
                             },
                             "type": "array"
                         }
@@ -26835,25 +26781,8 @@
                 "clickhouse_sql": {
                     "type": "string"
                 },
-                "credible_intervals": {
-                    "additionalProperties": {
-                        "items": {
-                            "type": "number"
-                        },
-                        "maxItems": 2,
-                        "minItems": 2,
-                        "type": "array"
-                    },
-                    "type": "object"
-                },
                 "hogql": {
                     "type": "string"
-                },
-                "insight": {
-                    "items": {
-                        "type": "object"
-                    },
-                    "type": "array"
                 },
                 "is_precomputed": {
                     "description": "Whether exposures were served from the precomputation system",
@@ -26862,27 +26791,6 @@
                 "kind": {
                     "const": "ExperimentQuery",
                     "type": "string"
-                },
-                "metric": {
-                    "$ref": "#/definitions/ExperimentMetric"
-                },
-                "p_value": {
-                    "type": "number"
-                },
-                "probability": {
-                    "additionalProperties": {
-                        "type": "number"
-                    },
-                    "type": "object"
-                },
-                "significance_code": {
-                    "$ref": "#/definitions/ExperimentSignificanceCode"
-                },
-                "significant": {
-                    "type": "boolean"
-                },
-                "stats_version": {
-                    "$ref": "#/definitions/integer"
                 },
                 "variant_results": {
                     "anyOf": [
@@ -26895,22 +26803,6 @@
                         {
                             "items": {
                                 "$ref": "#/definitions/ExperimentVariantResultBayesian"
-                            },
-                            "type": "array"
-                        }
-                    ]
-                },
-                "variants": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "items": {
-                                "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
                             },
                             "type": "array"
                         }
@@ -27179,10 +27071,6 @@
             },
             "type": "object"
         },
-        "ExperimentSignificanceCode": {
-            "enum": ["significant", "not_enough_exposure", "low_win_probability", "high_loss", "high_p_value"],
-            "type": "string"
-        },
         "ExperimentStatsBase": {
             "additionalProperties": false,
             "properties": {
@@ -27329,22 +27217,6 @@
                 }
             },
             "required": ["kind", "count_query"],
-            "type": "object"
-        },
-        "ExperimentVariantFunnelsBaseStats": {
-            "additionalProperties": false,
-            "properties": {
-                "failure_count": {
-                    "type": "number"
-                },
-                "key": {
-                    "type": "string"
-                },
-                "success_count": {
-                    "type": "number"
-                }
-            },
-            "required": ["key", "success_count", "failure_count"],
             "type": "object"
         },
         "ExperimentVariantResultBayesian": {
@@ -27497,25 +27369,6 @@
                 }
             },
             "required": ["key", "method", "number_of_samples", "sum", "sum_squares"],
-            "type": "object"
-        },
-        "ExperimentVariantTrendsBaseStats": {
-            "additionalProperties": false,
-            "properties": {
-                "absolute_exposure": {
-                    "type": "number"
-                },
-                "count": {
-                    "type": "number"
-                },
-                "exposure": {
-                    "type": "number"
-                },
-                "key": {
-                    "type": "string"
-                }
-            },
-            "required": ["key", "count", "exposure", "absolute_exposure"],
             "type": "object"
         },
         "ExternalQueryError": {
@@ -43560,25 +43413,8 @@
                         "clickhouse_sql": {
                             "type": "string"
                         },
-                        "credible_intervals": {
-                            "additionalProperties": {
-                                "items": {
-                                    "type": "number"
-                                },
-                                "maxItems": 2,
-                                "minItems": 2,
-                                "type": "array"
-                            },
-                            "type": "object"
-                        },
                         "hogql": {
                             "type": "string"
-                        },
-                        "insight": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
                         },
                         "is_precomputed": {
                             "description": "Whether exposures were served from the precomputation system",
@@ -43587,27 +43423,6 @@
                         "kind": {
                             "const": "ExperimentQuery",
                             "type": "string"
-                        },
-                        "metric": {
-                            "$ref": "#/definitions/ExperimentMetric"
-                        },
-                        "p_value": {
-                            "type": "number"
-                        },
-                        "probability": {
-                            "additionalProperties": {
-                                "type": "number"
-                            },
-                            "type": "object"
-                        },
-                        "significance_code": {
-                            "$ref": "#/definitions/ExperimentSignificanceCode"
-                        },
-                        "significant": {
-                            "type": "boolean"
-                        },
-                        "stats_version": {
-                            "$ref": "#/definitions/integer"
                         },
                         "variant_results": {
                             "anyOf": [
@@ -43620,22 +43435,6 @@
                                 {
                                     "items": {
                                         "$ref": "#/definitions/ExperimentVariantResultBayesian"
-                                    },
-                                    "type": "array"
-                                }
-                            ]
-                        },
-                        "variants": {
-                            "anyOf": [
-                                {
-                                    "items": {
-                                        "$ref": "#/definitions/ExperimentVariantTrendsBaseStats"
-                                    },
-                                    "type": "array"
-                                },
-                                {
-                                    "items": {
-                                        "$ref": "#/definitions/ExperimentVariantFunnelsBaseStats"
                                     },
                                     "type": "array"
                                 }

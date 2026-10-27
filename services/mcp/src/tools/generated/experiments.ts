@@ -924,8 +924,6 @@ const experimentMetricsRecalculationLatestRetrieve = (): ToolBase<
                 'results.*.result.next_allowed_client_refresh',
                 'results.*.result.calculation_trigger',
                 'results.*.result.query_status',
-                'results.*.result.stats_version',
-                'results.*.result.insight',
             ]) as typeof result
             return await withPostHogUrl(context, filtered, `/experiments/${params.id}`)
         },
@@ -968,8 +966,6 @@ const experimentMetricsRecalculationRetrieve = (): ToolBase<
             'results.*.result.next_allowed_client_refresh',
             'results.*.result.calculation_trigger',
             'results.*.result.query_status',
-            'results.*.result.stats_version',
-            'results.*.result.insight',
         ]) as typeof result
         return await withPostHogUrl(context, filtered, `/experiments/${params.id}`)
     },
@@ -1408,8 +1404,6 @@ const experimentTimeseriesResults = (): ToolBase<ReturnType<typeof ExperimentTim
             'timeseries.*.next_allowed_client_refresh',
             'timeseries.*.calculation_trigger',
             'timeseries.*.query_status',
-            'timeseries.*.stats_version',
-            'timeseries.*.insight',
         ]) as typeof result
         return filtered
     },

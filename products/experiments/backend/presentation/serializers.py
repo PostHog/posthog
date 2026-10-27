@@ -1569,7 +1569,7 @@ class MetricRecalculationResultSerializer(serializers.Serializer):
         help_text="Status of this metric's calculation in the run",
     )
     # JSONField mirrors the ExperimentMetricResult.result column; concrete shape comes from
-    # posthog.schema.ExperimentQueryResponse (variants/baseline/credible intervals/etc., depending on metric type).
+    # posthog.schema.ExperimentQueryResponse (baseline, variant_results, and breakdown_results for a breakdown).
     result = serializers.JSONField(
         read_only=True,
         allow_null=True,
