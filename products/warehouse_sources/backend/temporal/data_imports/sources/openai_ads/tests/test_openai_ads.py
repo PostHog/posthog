@@ -6,6 +6,7 @@ import time_machine
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -149,6 +150,29 @@ class TestInsights:
         assert isinstance(result.raised, ValueError)
         assert "account currency" in str(result.raised)
         assert result.paths == ["/v1/ad_account"]
+
+
+class TestForbiddenResponses:
+    @parameterized.expand(
+        [
+            ("entity_list", "campaigns", "server_error", False),
+            ("fan_out", "ads", "server_error", False),
+            ("insights_currency_lookup", "campaign_insights", "server_error", False),
+            ("permission_code", "campaigns", "permission_denied", True),
+            ("no_error_code", "ads", None, True),
+        ]
+    )
+    def test_403_disables_the_schema_only_without_a_server_error_code(
+        self, _name: str, endpoint: str, code: str | None, disables: bool
+    ) -> None:
+        source = OpenAIAdsSource()
+        body = {"error": {"code": code}} if code is not None else {}
+        result = _driver().run(endpoint, always(ScriptedResponse(status=403, json=body)))
+
+        assert result.raised is not None
+        error = str(result.raised)
+        assert error_message_matches(error, source.get_non_retryable_errors()) is disables
+        assert error_message_matches(error, source.get_retryable_errors()) is not disables
 
 
 class TestValidateCredentials:

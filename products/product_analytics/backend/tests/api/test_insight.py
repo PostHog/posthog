@@ -60,6 +60,7 @@ from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import OrganizationMembership, SharingConfiguration, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.project import Project
 from posthog.query_scan.findings import build_warning
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
@@ -4474,6 +4475,9 @@ class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
     def _bulk_delete(self, ids: list[int]) -> Any:
         return self.client.post(f"/api/environments/{self.team.id}/insights/bulk_delete/", {"ids": ids}, format="json")
 
+    def _file_system_count(self, insight: Insight) -> int:
+        return FileSystem.objects.filter(team=self.team, type="insight", ref=insight.short_id).count()
+
     def _bulk_restore(self, ids: list[int]) -> Any:
         return self.client.post(f"/api/environments/{self.team.id}/insights/bulk_restore/", {"ids": ids}, format="json")
 
@@ -4489,6 +4493,8 @@ class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         self.assertEqual(body["skipped"], [])
         self.assertTrue(Insight.objects_including_soft_deleted.get(id=one.id).deleted)
         self.assertTrue(Insight.objects_including_soft_deleted.get(id=two.id).deleted)
+        self.assertEqual(self._file_system_count(one), 0)
+        self.assertEqual(self._file_system_count(two), 0)
 
     def test_bulk_delete_hides_dashboard_tiles_and_removes_alerts(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Dashboard")
@@ -4554,6 +4560,7 @@ class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         self.assertEqual(self._bulk_delete([insight.id]).status_code, status.HTTP_200_OK)
         self.assertTrue(Insight.objects_including_soft_deleted.get(id=insight.id).deleted)
         self.assertTrue(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)
+        self.assertEqual(self._file_system_count(insight), 0)
 
         response = self._bulk_restore([insight.id])
 
@@ -4561,6 +4568,7 @@ class TestInsightBulkDelete(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         self.assertEqual([item["id"] for item in response.json()["restored"]], [insight.id])
         self.assertFalse(Insight.objects_including_soft_deleted.get(id=insight.id).deleted)
         self.assertFalse(DashboardTile.objects_including_soft_deleted.get(id=tile.id).deleted)
+        self.assertEqual(self._file_system_count(insight), 1)
 
     def test_bulk_restore_skips_tiles_on_dashboards_the_user_cannot_edit(self) -> None:
         self.organization.available_product_features = [

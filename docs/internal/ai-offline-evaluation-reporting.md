@@ -248,6 +248,9 @@ Numeric scores can use the domain of their configured scorer version. The API va
 
 `OfflineEvalSuite.experiment_options` accepts the SDK's `ExperimentOptions` for external dataset identifiers, `prompt_version`, model/application versions, and `run_source`.
 The harness owns the experiment ID, start time, suite key, and expected counts.
+Each case's `output["model"]` becomes the item's `model_version`, so one-shot suites can report the model they actually used and compare different models within one experiment.
+Cases without a model, or with `model=None`, inherit the experiment's model version.
+Invalid model identifiers are omitted and recorded in the item's `omitted_fields`; the case's scores still upload.
 For external datasets, case metadata can supply `dataset_item_identifier` and `dataset_item_version_identifier`.
 The harness publisher does not support hosted datasets. A non-null `dataset_revision_id` stops preparation with a local error before any upload request.
 
@@ -397,6 +400,48 @@ Local and external datasets do not require hosted links; they can use the `*_ide
 Large payloads have separate storage and 30-day deadlines anchored to first acceptance.
 Retries neither extend deadlines nor restore deleted payloads.
 Automatic payload deletion and usage billing are not enabled by these endpoints.
+
+### Product usage events
+
+The API reports these product usage events after the database transaction commits:
+
+| Events                                                                                                               | When they fire                                                                                                                                                 |
+| -------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `llma offline experiment created`                                                                                    | An experiment is first accepted.                                                                                                                               |
+| `llma offline experiment results uploaded`                                                                           | A batch accepts new items or results. `created_item_count` and `created_result_count` exclude retries.                                                         |
+| `llma offline experiment completed`, `llma offline experiment failed`                                                | An uploading experiment changes to the corresponding terminal state. Repeated closure emits no event.                                                          |
+| `llma dataset created`, `llma dataset updated`, `llma dataset archived`, `llma dataset restored`                     | A dataset is created or changes. Updates include `changed_fields`; unchanged updates and repeated archive/restore requests emit no event.                      |
+| `llma dataset item created`, `llma dataset item updated`, `llma dataset item archived`, `llma dataset item restored` | A new item version is accepted. Events include item and dataset IDs, version and dataset revision; restoration also includes the requested `source_version`.   |
+| `llma dataset export requested`, `llma dataset export downloaded`                                                    | An export starts successfully or its content is served. Events include the export ID and pinned dataset revision. Each successful download request is counted. |
+| `llma scorer created`, `llma scorer updated`, `llma scorer version created`                                          | A scorer is created, changed, or versioned. Archive and unarchive use `llma scorer updated` with `archived_new_value`.                                         |
+
+Events include the acting user or service principal, project groups, and request context.
+Experiment lifecycle events include dataset source, run source, status, and expected and accepted counts.
+Dataset source is classified as `posthog` for hosted revisions, `external` for a supplied external source, or `unknown` when omitted; the original source string is never captured.
+Dataset and experiment usage events exclude input, output, reasoning, metadata values, and resource names.
+Rejected requests, unchanged item updates, and exact ingestion retries emit no success event.
+Dataset and experiment reporting failures are logged without failing successful API operations.
+
+Frontend controls use `data-attr` for autocapture action matching.
+Dataset row actions retain their existing resource-specific `data-attr` values and have stable `data-attr` values on their menu wrappers for aggregate matching.
+Existing `llma` event names and attributes remain unchanged so saved actions and dashboards continue to match.
+
+### Durable usage recording
+
+Newly accepted Postgres results produce durable `OfflineEvaluationUsageLedger` entries.
+Each upload transaction that inserts new results writes one entry with a quantity equal to the number of new results, including error, skipped, and not-applicable outcomes.
+Results, payloads, and usage commit together; a ledger write failure rolls back the upload.
+Exact retries add no usage, including retries split or regrouped into different requests.
+Mixed uploads count only new results, and changed content still returns a conflict.
+
+Each entry stores the environment's team ID, the owning organization's ID at acceptance, the experiment ID, and the same server acceptance timestamp as its new results.
+These identifiers are stored independently of the product records, so deleting results, experiments, or their owners does not remove usage.
+Moving a project to another organization does not rewrite historical attribution.
+The ownership snapshots and timestamp preserve the information needed for future aggregation by organization, team, and UTC day.
+
+Recording begins with newly accepted results after deployment; there is no historical backfill, compaction, or ledger cleanup.
+The ledger has no editing API or editable admin interface.
+Organization usage reporting, billing, actual charging, and quota enforcement remain unchanged and do not consume this ledger.
 
 ## Resource tags
 
