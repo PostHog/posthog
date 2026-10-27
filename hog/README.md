@@ -10,7 +10,8 @@ It is not published yet.
 
 `hog` has no `exp` namespace.
 The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tasks`, `schema`) are top-level commands in `hog`.
-Commands that are not implemented yet exit with an error that names the `posthog-cli` command to use instead.
+Every command fails until it is implemented.
+It exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.
 
 ## Develop
 
