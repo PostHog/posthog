@@ -33,8 +33,11 @@ def rehost_images(
     team: Team, user: User, workflow: dict[str, Any], dry_run: bool, budget: ImageBudget
 ) -> RehostedWorkflow:
     """The workflow with every Customer.io-hosted email image pointing at a copy in the media library."""
-    steps = [action for action in workflow["actions"] if _html(action) is not None]
-    urls_by_step = {action["id"]: list(dict.fromkeys(_ASSET_URL.findall(_html(action) or ""))) for action in steps}
+    urls_by_step = {
+        action["id"]: list(dict.fromkeys(_ASSET_URL.findall(body)))
+        for action in workflow["actions"]
+        if (body := _html(action)) is not None
+    }
     all_urls = list(dict.fromkeys(url for urls in urls_by_step.values() for url in urls))
     if not all_urls:
         return RehostedWorkflow(workflow=workflow, notes=())
@@ -176,8 +179,8 @@ def _html(action: dict[str, Any]) -> str | None:
     if action.get("type") != "function_email":
         return None
     value = (((action.get("config") or {}).get("inputs") or {}).get("email") or {}).get("value") or {}
-    html = value.get("html")
-    return html if isinstance(html, str) else None
+    body = value.get("html")
+    return body if isinstance(body, str) else None
 
 
 def _with_html(action: dict[str, Any], body: str) -> dict[str, Any]:

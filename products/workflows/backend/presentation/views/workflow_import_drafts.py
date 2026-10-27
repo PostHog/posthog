@@ -92,8 +92,8 @@ def import_campaign(
     source: CampaignSource,
     options: ImportOptions,
     dry_run: bool,
-    extra_notes: tuple[ImportNote, ...] = (),
-    image_budget: ImageBudget | None = None,
+    extra_notes: tuple[ImportNote, ...],
+    image_budget: ImageBudget,
 ) -> dict[str, Any]:
     """Imports one Customer.io automation, or previews it, and returns its result in the response shape."""
     try:
@@ -129,7 +129,7 @@ def import_campaign(
     if previous is not None and previous.hog_flow_id is not None and not previous.hog_flow_is_draft:
         return _skipped(result, previous.hog_flow_id, _NO_LONGER_DRAFT)
 
-    rehosted = rehost_images(team, user, translated.workflow, dry_run, image_budget or ImageBudget())
+    rehosted = rehost_images(team, user, translated.workflow, dry_run, image_budget)
     notes = (*extra_notes, *translated.notes, *rehosted.notes)
     result["notes"] = [asdict(note) for note in notes]
     validated, errors = _validated_draft(team, rehosted.workflow)
