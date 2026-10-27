@@ -97,15 +97,15 @@ def test_find_removals(base: dict[str, Any], head: dict[str, Any], expected: lis
 
 
 @pytest.mark.parametrize(
-    "body,expected",
+    "labels,expected",
     [
-        pytest.param("Cache impact: accepted, the field only chose a connection path", "accepted", id="accepted"),
-        pytest.param("## Notes\n\ncache impact: Deprecated", "deprecated", id="case-and-position-ignored"),
-        pytest.param("Cache impact: bumped", "bumped", id="bumped"),
-        pytest.param("Cache impact: maybe", None, id="unknown-choice"),
-        pytest.param("The cache impact is small.", None, id="no-line"),
-        pytest.param("", None, id="empty-body"),
+        pytest.param(["cache-impact-accepted"], "accepted", id="accepted"),
+        pytest.param(["cache-impact-deprecated"], "deprecated", id="deprecated"),
+        pytest.param(["cache-impact-bumped"], "bumped", id="bumped"),
+        pytest.param(["frontend", "cache-impact-accepted", "stamphog"], "accepted", id="among-other-labels"),
+        pytest.param(["cache-impact-maybe", "cache-impact", "frontend"], None, id="unrelated-labels"),
+        pytest.param([], None, id="no-labels"),
     ],
 )
-def test_find_acknowledgement(body: str, expected: str | None) -> None:
-    assert check_cached_schema_removals.find_acknowledgement(body) == expected
+def test_find_acknowledgement(labels: list[str], expected: str | None) -> None:
+    assert check_cached_schema_removals.find_acknowledgement(labels) == expected

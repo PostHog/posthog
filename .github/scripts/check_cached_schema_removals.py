@@ -11,31 +11,32 @@ It checks named definitions and the objects inline in them, and follows a $ref w
 Objects inside anyOf lists are not compared.
 
 Usage:
-    check_cached_schema_removals.py BASE_SCHEMA HEAD_SCHEMA COMMENT_FILE
+    check_cached_schema_removals.py BASE_SCHEMA HEAD_SCHEMA
 
 Environment:
-    PR_BODY        The pull request description. A line "Cache impact: <choice>" acknowledges a removal.
-    GITHUB_OUTPUT  Optional. Receives "removed" and "acknowledged" as true or false.
+    PR_LABELS      The pull request labels, one per line. A cache-impact label acknowledges a removal.
+    GITHUB_OUTPUT  Optional. Receives "removed", "acknowledged", "status", "summary" and "body".
+                   The last three describe the CI report section. Without it, the script prints them.
 """
 
 import os
-import re
 import sys
 import json
+import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-MARKER = "<!-- cached-schema-removal -->"
-ACKNOWLEDGEMENT = re.compile(r"^\s*Cache impact:\s*(deprecated|accepted|bumped)\b", re.IGNORECASE | re.MULTILINE)
+ACKNOWLEDGEMENT_LABELS = {
+    "cache-impact-deprecated": "deprecated",
+    "cache-impact-accepted": "accepted",
+    "cache-impact-bumped": "bumped",
+}
 CACHED_ROOT_PREFIX = "Cached"
 DEFINITION_REF_PREFIX = "#/definitions/"
 
-COMMENT_BODY = """\
-{marker}
-## This PR removes fields that cached query responses can still hold
-
+SECTION_BODY = """\
 PostHog stores each query response, with its modifiers, in the query cache.
 The generated models reject unknown keys.
 When PostHog reads a cached entry that holds a removed field, the entry fails to parse, counts as a cache miss, and sends one exception to error tracking.
@@ -45,13 +46,13 @@ When PostHog reads a cached entry that holds a removed field, the entry fails to
 {removals}
 
 **Choose one option.**
-Add the matching line to the PR description, at the start of its own line. The check passes after the description changes.
+Apply the matching label to the PR, then re-run the failed `Frontend typechecking` job. A label does not start CI by itself.
 
-| Option | Line to add | What happens | Cost |
+| Option | Label | What happens | Cost |
 | --- | --- | --- | --- |
-| Keep the field as deprecated | `Cache impact: deprecated` | The field stays in the schema with `@deprecated`, and the code stops writing it to cached responses. A later PR removes it after the entries written before that expire (up to 7 days). | No cache misses, if nothing writes the field during the wait. Needs a second PR. |
-| Accept the misses | `Cache impact: accepted` | The field is removed now. | Each cached entry that holds the field is a miss until the query runs again or the entry expires (up to 7 days). A caller that calculates on a miss waits for ClickHouse. ClickHouse load and the exception rate go up, and the cache hit rate drops. Use this only when the field did not change query results. |
-| Bump the cache version | `Cache impact: bumped` | Change `"version"` in `get_cache_payload` in `posthog/hogql_queries/query_runner.py`. | Every cached query result for every team is a miss, not only the entries that hold the field. Use this only when the field changed query results and old entries must not be served. |
+| Keep the field as deprecated | `cache-impact-deprecated` | The field stays in the schema with `@deprecated`, and the code stops writing it to cached responses. A later PR removes it after the entries written before that expire (up to 7 days). | No cache misses, if nothing writes the field during the wait. Needs a second PR. |
+| Accept the misses | `cache-impact-accepted` | The field is removed now. | Each cached entry that holds the field is a miss until the query runs again or the entry expires (up to 7 days). A caller that calculates on a miss waits for ClickHouse. ClickHouse load and the exception rate go up, and the cache hit rate drops. Use this only when the field did not change query results. |
+| Bump the cache version | `cache-impact-bumped` | Change `"version"` in `get_cache_payload` in `posthog/hogql_queries/query_runner.py`. | Every cached query result for every team is a miss, not only the entries that hold the field. Use this only when the field changed query results and old entries must not be served. |
 
 {status}
 """
@@ -157,40 +158,63 @@ def find_removals(base_schema: dict[str, Any], head_schema: dict[str, Any]) -> l
     return removals
 
 
-def find_acknowledgement(pr_body: str) -> str | None:
-    match = ACKNOWLEDGEMENT.search(pr_body)
-    return match.group(1).lower() if match else None
+def find_acknowledgement(labels: list[str]) -> str | None:
+    for label, choice in ACKNOWLEDGEMENT_LABELS.items():
+        if label in labels:
+            return choice
+    return None
 
 
-def render_comment(removals: list[Removal], acknowledgement: str | None) -> str:
+@dataclass(frozen=True)
+class Section:
+    status: str
+    summary: str
+    body: str
+
+
+def render_section(removals: list[Removal], acknowledgement: str | None) -> Section:
+    count = f"{len(removals)} removed field{'' if len(removals) == 1 else 's'}"
     if acknowledgement:
-        status = f"Acknowledged in the PR description: `Cache impact: {acknowledgement}`."
-    else:
-        status = "Not acknowledged yet. The check fails until the PR description has one of these lines."
-    return COMMENT_BODY.format(
-        marker=MARKER,
-        removals="\n".join(f"- {removal.describe()}" for removal in removals),
-        status=status,
-    )
+        status = f"Acknowledged with the `cache-impact-{acknowledgement}` label."
+        return Section("warn", f"{count}, acknowledged ({acknowledgement})", render_body(removals, status))
+    status = "Not acknowledged yet. `Frontend typechecking` fails until the PR has one of these labels."
+    return Section("alert", f"{count}, not acknowledged", render_body(removals, status))
 
 
-def main(argv: list[str]) -> int:
-    base_path, head_path, comment_path = argv[1:4]
-    removals = find_removals(json.loads(Path(base_path).read_text()), json.loads(Path(head_path).read_text()))
-    acknowledgement = find_acknowledgement(os.environ.get("PR_BODY", ""))
+def render_body(removals: list[Removal], status: str) -> str:
+    return SECTION_BODY.format(removals="\n".join(f"- {removal.describe()}" for removal in removals), status=status)
 
-    if removals:
-        Path(comment_path).write_text(render_comment(removals, acknowledgement))
-        for removal in removals:
-            print(f"Removed: {removal.describe()}")
-    else:
-        print("No fields removed from cached response models.")
 
+def write_outputs(removals: list[Removal], acknowledgement: str | None, section: Section | None) -> None:
+    fields = {
+        "removed": str(bool(removals)).lower(),
+        "acknowledged": str(acknowledgement is not None).lower(),
+        "status": section.status if section else "ok",
+        "summary": section.summary if section else "no removed fields",
+    }
+    lines = [f"{name}={value}\n" for name, value in fields.items()]
+    if section:
+        delimiter = f"EOF-{uuid.uuid4()}"
+        lines.append(f"body<<{delimiter}\n{section.body}\n{delimiter}\n")
     output_path = os.environ.get("GITHUB_OUTPUT")
     if output_path:
         with Path(output_path).open("a") as output:
-            output.write(f"removed={str(bool(removals)).lower()}\n")
-            output.write(f"acknowledged={str(acknowledgement is not None).lower()}\n")
+            output.writelines(lines)
+    else:
+        print("".join(lines), end="")
+
+
+def main(argv: list[str]) -> int:
+    base_path, head_path = argv[1:3]
+    removals = find_removals(json.loads(Path(base_path).read_text()), json.loads(Path(head_path).read_text()))
+    acknowledgement = find_acknowledgement(os.environ.get("PR_LABELS", "").splitlines())
+    section = render_section(removals, acknowledgement) if removals else None
+
+    for removal in removals:
+        print(f"Removed: {removal.describe()}")
+    if not removals:
+        print("No fields removed from cached response models.")
+    write_outputs(removals, acknowledgement, section)
     return 0
 
 
