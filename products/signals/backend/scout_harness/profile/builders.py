@@ -90,7 +90,7 @@ logger = logging.getLogger(__name__)
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache. A redaction change bumps it too, so rows built before the
 # redaction stop being served.
-INVENTORY_SOURCE_VERSION = "v18"
+INVENTORY_SOURCE_VERSION = "v19"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -859,7 +859,7 @@ def _recent_reviewer_corrections(team: Team) -> dict[str, Any]:
                 "before": change.get("before") or [],
                 "after": change.get("after") or [],
                 "removal_reason": stated.get("removal_reason"),
-                "removal_note": stated.get("removal_note"),
+                "removal_reason_reviewers": stated.get("removal_reason_reviewers") or [],
                 "at": row.created_at.isoformat() if row.created_at else None,
             }
         )

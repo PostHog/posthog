@@ -967,7 +967,7 @@ class TestRecentReviewerCorrections(BaseTest):
             "before": ["alice"],
             "after": ["bob"],
             "removal_reason": None,
-            "removal_note": None,
+            "removal_reason_reviewers": [],
             "at": correction.created_at.isoformat(),
         }
 

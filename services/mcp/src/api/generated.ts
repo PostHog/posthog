@@ -96547,11 +96547,8 @@ export namespace Schemas {
          * @nullable
          */
       removal_reason?: string | null;
-      /**
-         * The editor's own context for the removal, if they gave any.
-         * @nullable
-         */
-      removal_note?: string | null;
+      /** The removed identities that `removal_reason` applies to. */
+      removal_reason_reviewers?: string[];
       /**
          * ISO-8601 timestamp of the edit.
          * @nullable

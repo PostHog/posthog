@@ -2412,8 +2412,10 @@ class ReviewerCorrectionEntrySerializer(serializers.Serializer):
         required=False,
         help_text="Why the editor removed reviewers: wrong_area, already_covered, unavailable, or other.",
     )
-    removal_note = serializers.CharField(
-        allow_null=True, required=False, help_text="The editor's own context for the removal, if they gave any."
+    removal_reason_reviewers = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="The removed identities that `removal_reason` applies to.",
     )
     at = serializers.CharField(allow_null=True, help_text="ISO-8601 timestamp of the edit.")
 

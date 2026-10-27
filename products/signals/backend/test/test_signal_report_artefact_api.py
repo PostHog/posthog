@@ -594,12 +594,55 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
                 )
 
         assert response.status_code == status.HTTP_200_OK
-        # Every scout reads the profile verbatim, so free text needs the scout-note permission. The reason does not.
-        expected_note = "Billing is mine, checkout is not." if may_steer else None
         (row,) = _recent_reviewer_corrections(self.team)["corrections"]
-        assert (row["removal_reason"], row["removal_note"]) == ("wrong_area", expected_note)
+        assert (row["removal_reason"], row["removal_reason_reviewers"]) == ("wrong_area", ["bob"])
+        # Activity-log readers need no report access, so the note must never reach the activity row.
+        activity = ActivityLog.objects.filter(team_id=self.team.id, activity="suggested_reviewers_changed").get()
+        assert "Billing is mine" not in json.dumps(activity.detail)
+        # The note reaches scouts only when its author may steer them.
+        expected_note = "Billing is mine, checkout is not." if may_steer else None
         correction = mock_forward.call_args.kwargs["correction"]
         assert (correction.removal_reason, correction.removal_note) == ("wrong_area", expected_note)
+
+    @patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True)
+    def test_removal_reason_covers_only_the_reviewers_the_editor_removed(self, _writer):
+        teammate = self._create_org_member("teammate@example.com", github_login="teammate")
+        former = self._create_org_member("former@example.com", github_login="former")
+        report = self._create_report()
+        self._create_artefact(
+            report,
+            content=[
+                {"user_uuid": str(teammate.uuid), "github_login": "teammate"},
+                {"user_uuid": str(former.uuid), "github_login": "former"},
+                {"user_uuid": str(self.user.uuid)},
+            ],
+        )
+        OrganizationMembership.objects.filter(user=former, organization=self.organization).delete()
+
+        with patch(
+            "products.signals.backend.views.forward_reviewer_correction_note",
+            return_value=ForwardedCorrectionNotes(note_ids=(), targets_resolved=0),
+        ) as mock_forward:
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.put(
+                    f"/api/projects/{self.team.id}/signals/reports/{report.id}/reviewers/",
+                    data=json.dumps(
+                        {
+                            "action": "remove",
+                            "content": [{"user_uuid": str(self.user.uuid)}],
+                            "targets": [{"user_uuid": str(teammate.uuid)}],
+                            "removal_reason": "wrong_area",
+                        }
+                    ),
+                    content_type="application/json",
+                )
+
+        assert response.status_code == status.HTTP_200_OK
+        # Member validation drops `former` in the same write, but only `teammate` was the editor's call.
+        assert [r["user_uuid"] for r in self._latest_reviewers(report)] == [str(self.user.uuid)]
+        (row,) = _recent_reviewer_corrections(self.team)["corrections"]
+        assert row["removal_reason_reviewers"] == ["teammate"]
+        assert mock_forward.call_args.kwargs["correction"].removed_reviewers == ("teammate",)
 
     def test_put_reviewers_autostart_delegates_when_report_complete(self):
         # With actionability + repo + priority + reviewers all present, the reconstruction reaches

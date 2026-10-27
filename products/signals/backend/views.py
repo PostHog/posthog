@@ -5448,6 +5448,17 @@ def append_suggested_reviewers(
         ]
         prior_identities = list(dict.fromkeys(_reviewer_identity_label(prior) for prior in prior_payloads))
         new_identities = list(dict.fromkeys(_reviewer_identity_label(entry) for entry in new_content))
+        # Member validation can drop a reviewer who lost project access in the same write. Only the
+        # people the editor chose to remove carry the editor's verdict and reason.
+        requested = ReviewerPayloadIndex.build(
+            [{"user_uuid": entry.user_uuid, "github_login": entry.github_login} for entry in resolved_entries]
+        )
+        chosen_removals = [
+            _reviewer_identity_label(prior)
+            for prior in removed_payloads
+            if (requested.get(user_uuid=prior.get("user_uuid"), github_login=prior.get("github_login")) is not None)
+            == (edit.action == "remove")
+        ]
         correction: ReviewerCorrection | None = None
         if attribution.kind == "user" and (removed_payloads or added_entries):
             # Read impersonation once: the activity row records it, and a support-staff edit made
@@ -5459,7 +5470,7 @@ def append_suggested_reviewers(
                 team=team,
                 user=cast(User, request.user),
                 scoped_team_ids=scoped_team_id_tuple,
-                note=removal_note if removed_payloads else None,
+                note=removal_note if chosen_removals else None,
             )
             log_activity(
                 organization_id=None,
@@ -5479,12 +5490,7 @@ def append_suggested_reviewers(
                             before=prior_identities,
                             after=new_identities,
                         ),
-                        # The reviewer-corrections profile reads these, so research sees why people left.
-                        *(
-                            Change(type="SignalReport", action="changed", field=field, after=value)
-                            for field, value in (("removal_reason", removal_reason), ("removal_note", shared_note))
-                            if value and removed_payloads
-                        ),
+                        *_removal_reason_changes(removal_reason if chosen_removals else None, chosen_removals),
                     ],
                 ),
             )
@@ -5525,10 +5531,10 @@ def append_suggested_reviewers(
                 correction = ReviewerCorrection(
                     report_id=str(report_id),
                     added_reviewers=tuple(_reviewer_identity_label(entry) for entry in added_entries),
-                    removed_reviewers=tuple(_reviewer_identity_label(entry) for entry in removed_payloads),
+                    removed_reviewers=tuple(chosen_removals),
                     actor_user_id=user_id,
                     scoped_team_ids=scoped_team_id_tuple,
-                    removal_reason=removal_reason if removed_payloads else None,
+                    removal_reason=removal_reason if chosen_removals else None,
                     removal_note=shared_note,
                 )
 
@@ -5580,6 +5586,21 @@ def _stored_reviewer_entry(entry: dict) -> dict:
         "source_skill": entry.get("source_skill"),
         "is_skill_owner": bool(entry.get("is_skill_owner")),
     }
+
+
+def _removal_reason_changes(reason: str | None, reviewers: list[str]) -> list[Change]:
+    """The activity-row changes that record why the editor removed these reviewers.
+
+    The reviewer-corrections profile reads them, so research sees why people left and whom the
+    reason covers. The note never goes here: activity-log readers need no report access, so the note
+    reaches only the forwarded scout note, whose readers must be able to read reports.
+    """
+    if not reason or not reviewers:
+        return []
+    return [
+        Change(type="SignalReport", action="changed", field="removal_reason", after=reason),
+        Change(type="SignalReport", action="changed", field="removal_reason_reviewers", after=reviewers),
+    ]
 
 
 def _scout_readable_removal_note(
@@ -5697,11 +5718,7 @@ def remove_suggested_reviewer(
                         before=list(dict.fromkeys(_reviewer_identity_label(entry) for entry in prior)),
                         after=list(dict.fromkeys(_reviewer_identity_label(entry) for entry in new_content)),
                     ),
-                    *(
-                        Change(type="SignalReport", action="changed", field=field, after=value)
-                        for field, value in (("removal_reason", removal_reason), ("removal_note", removal_note))
-                        if value
-                    ),
+                    *_removal_reason_changes(removal_reason, [github_login or str(user.uuid)]),
                 ],
             ),
         )
