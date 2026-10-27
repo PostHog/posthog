@@ -1,27 +1,25 @@
 """
-Flag-gated serving of the frontend build with stable chunk names.
+Serving of the frontend build with stable chunk names.
 
 The build writes a second copy of the app's JS in which chunks import each other through identity
 specifiers, plus `stable-chunks-manifest.json` with the import map that resolves them (see
 frontend/bin/stableChunkNames.mjs). A chunk's URL then changes only when its own code changes,
 so a deploy no longer makes returning users download every chunk that imports a changed one.
 
-Which build a request gets is decided by `stable_chunks_choice`. Without a readable manifest,
-pages render exactly as before.
+Every app page gets this build, except a page that reloads after a stable chunk failed to load.
+Without a readable manifest, pages render the hashed build.
 """
 
 import os
 import re
 import json
-from collections.abc import Mapping
 from functools import lru_cache
-from typing import Any, Optional
+from typing import Optional
 
 from django.conf import settings
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpRequest
 
 import structlog
-import posthoganalytics
 from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
@@ -31,12 +29,6 @@ logger = structlog.get_logger(__name__)
 
 STABLE_CHUNKS_PARAM = "stable_chunks"
 STABLE_CHUNKS_UNMAPPED_PARAM = "stable_chunks_unmapped"
-STABLE_CHUNKS_COOKIE = "ph_stable_chunks"
-STABLE_CHUNKS_FLAG = "stable-chunk-names"
-_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
-# A logged-out request has no person, so every logged-out request evaluates the flag with this one
-# ID. A partial rollout therefore switches all logged-out pages on or off together.
-LOGGED_OUT_FLAG_DISTINCT_ID = "stable-chunks-logged-out"
 
 STABLE_CHUNKS_FALLBACK_COUNTER = Counter(
     "posthog_stable_chunks_fallback",
@@ -140,63 +132,9 @@ def _count_fallback(request: HttpRequest) -> None:
     ).inc()
 
 
-def stable_chunks_choice(request: HttpRequest, feature_flags: Optional[Mapping[str, Any]]) -> bool:
-    """
-    The query param wins, then the cookie, then the flag. For a logged-in user, `feature_flags` are
-    the ones bootstrapped into posthog-js, so events carry the flag value that picked the build.
-    A logged-out request has no bootstrapped flags, so it evaluates the flag locally.
-    """
-    param = request.GET.get(STABLE_CHUNKS_PARAM)
-    if param is not None:
-        if param == "fallback":
-            _count_fallback(request)
-        return param == "1"
-
-    cookie = request.COOKIES.get(STABLE_CHUNKS_COOKIE)
-    if cookie in ("0", "1"):
-        return cookie == "1"
-
-    if not request.user.is_authenticated:
-        return _flag_enabled_for_logged_out_requests()
-
-    if not feature_flags:
-        return False
-
-    return feature_flags.get(STABLE_CHUNKS_FLAG) is True
-
-
-def _flag_enabled_for_logged_out_requests() -> bool:
-    # Every logged-out app page runs this check, so a failure serves the hashed build instead of an error.
-    try:
-        return (
-            posthoganalytics.feature_enabled(
-                STABLE_CHUNKS_FLAG,
-                LOGGED_OUT_FLAG_DISTINCT_ID,
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-            is True
-        )
-    except Exception as e:
-        logger.warning("stable_chunks_logged_out_flag_check_failed", error=str(e))
-        capture_exception(e)
-        return False
-
-
-def stable_chunks_for_request(
-    request: HttpRequest, feature_flags: Optional[Mapping[str, Any]]
-) -> Optional[StableChunks]:
-    return _resolve_stable_chunks() if stable_chunks_choice(request, feature_flags) else None
-
-
-def persist_stable_chunks_choice(request: HttpRequest, response: HttpResponse) -> None:
-    param = request.GET.get(STABLE_CHUNKS_PARAM)
-    if param in ("0", "1"):
-        response.set_cookie(
-            STABLE_CHUNKS_COOKIE,
-            param,
-            max_age=_COOKIE_MAX_AGE_SECONDS,
-            secure=request.is_secure(),
-            httponly=True,
-            samesite="Lax",
-        )
+def stable_chunks_for_request(request: HttpRequest) -> Optional[StableChunks]:
+    # A page that fell back gets the hashed build, so the chunk that failed cannot fail it again.
+    if request.GET.get(STABLE_CHUNKS_PARAM) == "fallback":
+        _count_fallback(request)
+        return None
+    return _resolve_stable_chunks()
