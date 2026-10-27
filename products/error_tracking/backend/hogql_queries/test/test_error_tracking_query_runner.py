@@ -1102,8 +1102,22 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
         self.assertEqual([result["id"] for result in results], [self.issue_id_one])
 
+    @parameterized.expand(
+        [
+            (
+                "name",
+                ErrorTrackingIssueFilter(key="name", value=["Recent unmapped issue"], operator=PropertyOperator.EXACT),
+            ),
+            (
+                "first_seen",
+                ErrorTrackingIssueFilter(
+                    key="first_seen", value="2022-01-10T00:00:00", operator=PropertyOperator.IS_DATE_AFTER
+                ),
+            ),
+        ]
+    )
     @time_machine.travel("2022-01-10T12:11:00", tick=False)
-    def test_recent_issue_state_keeps_legacy_events_without_fingerprint_state(self):
+    def test_recent_issue_state_keeps_legacy_events_without_fingerprint_state(self, _name, issue_filter):
         issue_id = "01936e80-f594-7a2e-8545-7bcb491aa620"
         ErrorTrackingIssue.objects.create(
             id=issue_id,
@@ -1130,11 +1144,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
                 values=[
                     PropertyGroupFilterValue(
                         type=FilterLogicalOperator.AND_,
-                        values=[
-                            ErrorTrackingIssueFilter(
-                                key="name", value=["Recent unmapped issue"], operator=PropertyOperator.EXACT
-                            )
-                        ],
+                        values=[issue_filter],
                     )
                 ],
             )
