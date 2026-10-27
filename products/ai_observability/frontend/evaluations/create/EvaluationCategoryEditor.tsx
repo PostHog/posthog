@@ -93,7 +93,6 @@ export function EvaluationCategoryEditor({
                             const passes = passing.includes(option.key)
                             return (
                                 <LemonButton
-                                    // Index too, because two categories can share a key until the duplicate is fixed.
                                     key={`${index}-${option.key}`}
                                     type="secondary"
                                     size="small"

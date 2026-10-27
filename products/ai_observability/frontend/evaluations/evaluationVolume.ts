@@ -23,7 +23,6 @@ const CONTENT_PROPERTIES = new Set([
     '$ai_tools',
 ])
 
-/** Whether a trigger filters on a property the estimate cannot see, so it would wrongly count no matches. */
 export function filtersOnContent(conditions: EvaluationConditionSet[]): boolean {
     return conditions.some((condition) =>
         (condition.properties ?? []).some(
