@@ -36,8 +36,6 @@ const SOURCE_TYPES: Partial<Record<string, InboxOnboardingSourceApi['source_type
     ],
 }
 
-const SOURCES_EXCLUDED_FROM_SETUP: ReadonlySet<string> = new Set(['pganalyze', 'github', 'engineering_analytics'])
-
 export function setupSources(
     configs: SignalSourceConfig[],
     statuses: Partial<Record<string, SourceProductStatus>>,
@@ -50,7 +48,8 @@ export function setupSources(
         .filter(
             (definition) =>
                 !definition.legacy &&
-                !SOURCES_EXCLUDED_FROM_SETUP.has(definition.source) &&
+                // Turning on old warehouse tables can fail activation, so these sources stay in the sources settings page.
+                !Object.hasOwn(WAREHOUSE_SOURCE_SETUP, definition.source) &&
                 (!definition.flag || flags[definition.flag])
         )
         .map((definition) => {

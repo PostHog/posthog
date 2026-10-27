@@ -72,7 +72,8 @@ export function inboxSetupDefaultScouts(
     configs: SignalScoutConfigApi[],
     sources: InboxSetupSource[],
     hasEvents: boolean,
-    statuses: Partial<Record<AgentRosterSource, SourceProductStatus>> = {}
+    statuses: Partial<Record<AgentRosterSource, SourceProductStatus>> = {},
+    hasWarehouseSources: boolean = false
 ): ScoutSuggestionItemApi[] {
     return STARTER_SCOUTS.flatMap((starter) => {
         const config = configs.find(
@@ -91,7 +92,7 @@ export function inboxSetupDefaultScouts(
                   : starter.source === 'session_replay'
                     ? statuses.replay_vision?.enabled === true
                     : starter.source === 'data_warehouse'
-                      ? sources.some((source) => source.warehouseSource && source.available)
+                      ? hasWarehouseSources
                       : sources.some(
                             (source) =>
                                 source.definition.source === starter.source &&

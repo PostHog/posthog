@@ -5,15 +5,12 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import type { ExternalDataSourceSchema } from '~/types'
 
 import * as signalsApi from '../../generated/api'
 import type {
@@ -26,51 +23,8 @@ import { allReports } from '../__mocks__/inboxMocks'
 import { mockScoutConfigs, mockScoutSuggestionSet } from '../__mocks__/scoutConfigs'
 import { signalSourcesLogic } from '../signalSourcesLogic'
 import { inboxOnboardingLogic } from './inboxOnboardingLogic'
-import { inboxSetupLogic, requiredTableSyncUpdate } from './inboxSetupLogic'
+import { inboxSetupLogic } from './inboxSetupLogic'
 import { scoutFleetLogic } from './scoutFleetLogic'
-
-describe('requiredTableSyncUpdate', () => {
-    const schema = {
-        id: 'issues',
-        name: 'issues',
-        should_sync: false,
-        sync_type: 'full_refresh',
-        sync_frequency: '1hour',
-        incremental_field: null,
-    } as unknown as ExternalDataSourceSchema
-
-    it.each([
-        ['a configured table', {}, undefined, { should_sync: true }],
-        [
-            'a table nobody set up',
-            { sync_type: null, sync_frequency: null },
-            undefined,
-            { should_sync: true, sync_type: 'full_refresh', sync_frequency: '6hour' },
-        ],
-        [
-            'an incremental table without its field',
-            { sync_type: 'incremental' },
-            undefined,
-            { should_sync: true, sync_type: 'full_refresh' },
-        ],
-        [
-            'an incremental table with its field',
-            { sync_type: 'incremental', incremental_field: 'updated_at' },
-            undefined,
-            { should_sync: true },
-        ],
-        [
-            'a source that needs a full refresh',
-            { sync_type: 'incremental', incremental_field: 'updated_at' },
-            'full_refresh',
-            { should_sync: true, sync_type: 'full_refresh' },
-        ],
-    ] as const)('turns on %s', (_, overrides, requiredSyncType, expected) => {
-        expect(
-            requiredTableSyncUpdate({ ...schema, ...overrides } as ExternalDataSourceSchema, requiredSyncType)
-        ).toEqual(expected)
-    })
-})
 
 const draft: InboxOnboardingDraftApi = {
     step: 'github',
@@ -89,11 +43,6 @@ describe('focused Inbox setup', () => {
     let sources: SignalSourceConfigApi[]
     let failCompletion: boolean
     let createdSources: number
-    let warehouseConnected: boolean
-    let syncedSchemas: number
-    let warehouseSchema: Record<string, unknown>
-    let schemaUpdates: unknown[]
-    let schemaSyncRejected: boolean
     let canonicalScouts: SignalScoutConfigApi[]
     let enabledScouts: string[]
     let hasErrorTrackingData: boolean
@@ -107,17 +56,6 @@ describe('focused Inbox setup', () => {
         variant = 'test-ui'
         sources = []
         createdSources = 0
-        warehouseConnected = false
-        syncedSchemas = 0
-        warehouseSchema = {
-            id: 'issues',
-            name: 'issues',
-            should_sync: false,
-            sync_type: 'full_refresh',
-            sync_frequency: '6hour',
-        }
-        schemaUpdates = []
-        schemaSyncRejected = false
         canonicalScouts = []
         enabledScouts = []
         hasErrorTrackingData = false
@@ -130,18 +68,7 @@ describe('focused Inbox setup', () => {
                 '/api/projects/:id': () => [200, { ...MOCK_DEFAULT_TEAM, ingested_event: hasEvents }],
                 '/api/projects/:id/signals/reports/available_reviewers/': {},
                 '/api/projects/:id/wizard/sessions/latest/': () => [204, null],
-                '/api/environments/:id/external_data_sources/': () => ({
-                    results: warehouseConnected
-                        ? [
-                              {
-                                  id: 'linear-source',
-                                  source_type: 'Linear',
-                                  schemas: [warehouseSchema],
-                              },
-                          ]
-                        : [],
-                    next: null,
-                }),
+                '/api/environments/:id/external_data_sources/': { results: [], next: null },
                 '/api/projects/:id/signals/onboarding/': () => ({
                     draft: savedDraft,
                     completed_at: completedAt,
@@ -230,14 +157,6 @@ describe('focused Inbox setup', () => {
                     const config = canonicalScouts.find((item) => item.id === params.config)!
                     Object.assign(config, await request.json())
                     return [200, config]
-                },
-                '/api/projects/:id/external_data_schemas/:schema/': async ({ request }) => {
-                    schemaUpdates.push(await request.json())
-                    if (schemaSyncRejected) {
-                        return [400, { type: 'validation_error', detail: 'Sync type must be set up first' }]
-                    }
-                    syncedSchemas++
-                    return [200, {}]
                 },
                 '/api/projects/:id/signals/source_configs/:source/': () => [200, sources[0]],
             },
@@ -715,56 +634,6 @@ describe('focused Inbox setup', () => {
         expect(logic.values.draft.step).toBe('github')
         expect(logic.values.isFinalStep).toBe(true)
         expect(logic.values.activationDisabledReason).toBeUndefined()
-    })
-
-    it('stages an inline connection without starting signals and preserves choices when confirmation is retried', async () => {
-        savedDraft = { ...draft, step: 'signals', sources: [{ ...draft.sources[0], enabled: false }] }
-        await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
-        await expectLogic(logic, () => logic.actions.openSourceSetup('linear')).toFinishAllListeners()
-        await expectLogic(logic, () => logic.actions.finishSourceSetup()).toFinishAllListeners()
-        expect(logic.values.sourceSetupSource).toBe('linear')
-        expect(logic.values.error).toBeTruthy()
-        expect(savedDraft?.sources).toEqual([{ ...draft.sources[0], enabled: false }])
-
-        warehouseConnected = true
-        await expectLogic(logic, () => logic.actions.finishSourceSetup()).toFinishAllListeners()
-        expect(logic.values.sourceSetupSource).toBeNull()
-        expect(savedDraft?.sources).toEqual([
-            { ...draft.sources[0], enabled: false },
-            { source_product: 'linear', source_type: 'issue', enabled: true },
-        ])
-        expect(createdSources).toBe(0)
-        expect(syncedSchemas).toBe(0)
-
-        failCompletion = false
-        await expectLogic(logic, () => logic.actions.activate()).toFinishAllListeners()
-        expect(logic.values.completed).toBe(true)
-        expect(createdSources).toBe(1)
-        expect(syncedSchemas).toBe(1)
-        expect(schemaUpdates).toEqual([{ should_sync: true }])
-    })
-
-    it.each([
-        ['sets up a stale table before it turns it on', false],
-        ['finishes activation when the API still refuses a table', true],
-    ])('%s', async (_, rejected) => {
-        const warning = jest.spyOn(lemonToast, 'warning').mockImplementation(() => 'toast')
-        warehouseConnected = true
-        warehouseSchema = { id: 'issues', name: 'issues', should_sync: false, sync_type: null, sync_frequency: null }
-        schemaSyncRejected = rejected
-        savedDraft = {
-            ...draft,
-            sources: [...draft.sources, { source_product: 'linear', source_type: 'issue', enabled: true }],
-        }
-        failCompletion = false
-        await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
-        await expectLogic(logic, () => logic.actions.activate()).toFinishAllListeners()
-        expect(schemaUpdates).toEqual([{ should_sync: true, sync_type: 'full_refresh', sync_frequency: '6hour' }])
-        expect(logic.values.completed).toBe(true)
-        expect(logic.values.error).toBeNull()
-        expect(warning.mock.calls.map(([message]) => String(message).includes('issues'))).toEqual(
-            rejected ? [true] : []
-        )
     })
 
     it('explains a failed activation when the API gives no detail', async () => {

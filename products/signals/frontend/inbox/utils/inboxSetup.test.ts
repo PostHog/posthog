@@ -49,24 +49,16 @@ describe('Inbox setup defaults', () => {
         expect(draft.implementation_priority).toBe('P1')
     })
 
-    it('uses connected warehouse sources before a signal config exists and points to missing tables', () => {
+    it('leaves data warehouse sources out of setup even when their tables are connected', () => {
         const sources = setupSources([], {}, 0, {}, false, [
             { id: 'linear-source', source_type: 'Linear', schemas: [{ name: 'issues' }] },
             { id: 'github-source', source_type: 'Github', schemas: [{ name: 'issues' }] },
         ])
-        expect(newInboxSetupDraft(sources, []).sources).toEqual([
-            { source_product: 'linear', source_type: 'issue', enabled: true },
-        ])
-        for (const excluded of ['pganalyze', 'github', 'engineering_analytics']) {
+        for (const excluded of ['linear', 'pganalyze', 'github', 'engineering_analytics']) {
             expect(sources.some((source) => source.definition.source === excluded)).toBe(false)
         }
-        const missingTables = setupSources([], {}, 0, {}, false, [
-            { id: 'linear-source', source_type: 'Linear', schemas: [] },
-        ])
-        const linear = missingTables.find((source) => source.definition.source === 'linear')
-        expect(linear?.available).toBe(false)
-        expect(linear?.setupUrl).toContain('linear-source')
-        expect(newInboxSetupDraft(missingTables, []).sources).toEqual([])
+        expect(sources.some((source) => source.warehouseSource)).toBe(false)
+        expect(newInboxSetupDraft(sources, []).sources).toEqual([])
     })
 
     it.each([
@@ -132,9 +124,12 @@ describe('Inbox setup defaults', () => {
         const sources = setupSources([], statuses, 1, {}, true, [
             { id: 'linear-source', source_type: 'Linear', schemas: [{ name: 'issues' }] },
         ])
-        expect(inboxSetupDefaultScouts(configs, sources, true, statuses).map((scout) => scout.skill_name)).toEqual(
-            names.map((name) => `signals-scout-${name}`)
-        )
+        expect(
+            inboxSetupDefaultScouts(configs, sources, true, statuses, true).map((scout) => scout.skill_name)
+        ).toEqual(names.map((name) => `signals-scout-${name}`))
+        expect(
+            inboxSetupDefaultScouts(configs, sources, true, statuses, false).map((scout) => scout.skill_name)
+        ).not.toContain('signals-scout-data-warehouse')
         expect(inboxSetupDefaultScouts(configs, [], false).map((scout) => scout.skill_name)).toEqual([
             'signals-scout-general',
         ])
