@@ -19,6 +19,8 @@ function savedFilter(overrides: Record<string, unknown> = {}): SessionRecordingP
             date_from: '-3d',
             date_to: null,
             filter_test_accounts: true,
+            recommended_only: true,
+            event_match_scope: 'recording',
             session_ids: ['pinned-session'],
             duration: [{ type: PropertyFilterType.Recording, key: 'active_seconds', value: 5, operator: 'gt' }],
             filter_group: {
@@ -62,9 +64,6 @@ describe('scannerSavedFilterLogic', () => {
         jest.restoreAllMocks()
     })
 
-    // Guards the hand-off from the shared filter search: the pick must reach the scanner query without
-    // the pinned sessions or date range, and the pending pick must be cleared, or the replay page applies
-    // it again the next time it mounts. A saved filter without a duration must not crash the conversion.
     it.each([
         ['with a duration', {}],
         ['without a duration', { duration: undefined }],
@@ -76,13 +75,13 @@ describe('scannerSavedFilterLogic', () => {
         const query = scannerLogic.values.scanner.query
         expect(query?.events).toEqual([expect.objectContaining({ id: '$pageview' })])
         expect(query?.filter_test_accounts).toBe(true)
+        expect(query?.recommended_only).toBe(true)
+        expect(query?.event_match_scope).toBe('recording')
         expect(query?.session_ids).toBeUndefined()
         expect(query?.date_from).toBeUndefined()
         expect(sessionRecordingSavedFiltersLogic.values.pendingFilterApplication).toBeNull()
     })
 
-    // Guards against a silent widening: the scanner query has no place for experiment exposure, so
-    // copying the rest of such a filter would scan sessions outside the experiment.
     it('refuses a saved filter that targets an experiment', async () => {
         const before = scannerLogic.values.scanner.query
 

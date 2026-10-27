@@ -10,10 +10,7 @@ import { RecordingUniversalFilters, SessionRecordingPlaylistType } from '~/types
 
 import { clampDurationFilter } from './durationBounds'
 
-/**
- * Writes the filter dimensions that the scanner's recording filters editor renders onto the query.
- * Other query fields survive, because the editor does not show them and must not reset them.
- */
+/** Writes only the dimensions the scanner's filter editor shows, so fields it hides survive an edit. */
 export function overlayEditorFilters(
     query: RecordingsQuery | null,
     filters: RecordingUniversalFilters
@@ -38,11 +35,6 @@ export type SavedFilterApplication =
     | { status: 'experiment-filter' }
     | { status: 'no-filters' }
 
-/**
- * Copies a replay saved filter onto a scanner query. Later edits to the saved filter do not reach the
- * scanner. The overlay drops pinned session ids and the date range, because a scanner scans new sessions
- * on its own schedule.
- */
 export function applySavedFilterToScannerQuery(
     query: RecordingsQuery | null,
     savedFilter: Pick<SessionRecordingPlaylistType, 'filters'>
@@ -52,13 +44,11 @@ export function applySavedFilterToScannerQuery(
         return { status: 'no-filters' }
     }
     const filters = stripSessionIds(universal)
-    // The overlay has no place for experiment exposure. Dropping it in silence would widen the scanner
-    // to sessions outside the experiment, so the caller refuses this saved filter instead.
+    // The query cannot hold experiment exposure, and dropping it would scan sessions outside the experiment.
     if (filters.experiment_exposure) {
         return { status: 'experiment-filter' }
     }
-    // A saved filter can leave out parts, such as the duration. Those parts keep the scanner's current
-    // values, the same as when the replay page applies a saved filter.
+    // Parts the saved filter leaves out keep their current values, as on the replay page.
     const merged: RecordingUniversalFilters = {
         ...recordingsQueryToUniversalFilters(query),
         ...(Object.fromEntries(
@@ -67,6 +57,11 @@ export function applySavedFilterToScannerQuery(
     }
     return {
         status: 'applied',
-        query: overlayEditorFilters(query, { ...merged, duration: merged.duration.map(clampDurationFilter) }),
+        query: {
+            ...overlayEditorFilters(query, { ...merged, duration: merged.duration.map(clampDurationFilter) }),
+            // The editor hides these selection settings, but scans still apply them.
+            recommended_only: merged.recommended_only,
+            event_match_scope: merged.event_match_scope,
+        },
     }
 }

@@ -44,11 +44,7 @@ export type scannerSavedFilterLogicType = MakeLogicType<
     scannerSavedFilterLogicMeta
 >
 
-/**
- * Applies a replay saved filter that a person picks in the scanner's filter search. The shared filter
- * search hands the pick to `sessionRecordingSavedFiltersLogic`, the same as on the replay page. The
- * scanner's filter editor mounts this logic, so a pick on the replay page never reaches a scanner.
- */
+/** Applies a saved filter pick from the scanner's filter search. Only the scanner filter editor mounts it. */
 export const scannerSavedFilterLogic = kea<scannerSavedFilterLogicType>([
     path((key) => ['products', 'replay_vision', 'frontend', 'replay_scanners', 'scannerSavedFilterLogic', key]),
     props({} as ScannerSavedFilterLogicProps),
@@ -63,14 +59,14 @@ export const scannerSavedFilterLogic = kea<scannerSavedFilterLogicType>([
     })),
     listeners(({ actions, props }) => ({
         requestApplySavedFilter: ({ filter }) => {
-            // Cleared at once, so the replay page does not apply this pick the next time it mounts.
+            // Cleared at once, or the replay page applies this pick the next time it mounts.
             actions.clearPendingFilterApplication()
             const scanner = replayScannerLogic({ id: props.scannerId }).values.scanner
             const result = applySavedFilterToScannerQuery((scanner?.query as RecordingsQuery | null) ?? null, filter)
-            // Pinned: an event name. Renaming it breaks queries that measure saved filter adoption.
             posthog.capture('replay_vision_scanner_saved_filter_applied', {
                 scanner_id: props.scannerId === 'new' ? null : props.scannerId,
                 is_new_scanner: props.scannerId === 'new',
+                saved_filter_short_id: filter.short_id,
                 result: result.status,
             })
             if (result.status === 'experiment-filter') {

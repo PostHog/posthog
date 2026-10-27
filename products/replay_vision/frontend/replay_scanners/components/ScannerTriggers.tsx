@@ -63,7 +63,6 @@ function openTestAccountFilterSettings(): void {
 
 // Mirrors the recordings list taxonomy, including suggested filters so the search bar surfaces them.
 // Group properties are appended per-project from groupsModel (see scannerFilterTypes below).
-// A saved filter pick is applied by scannerSavedFilterLogic, which the editor below mounts.
 const SCANNER_BASE_FILTER_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.SuggestedFilters,
     TaxonomicFilterGroupType.ReplaySavedFilters,
