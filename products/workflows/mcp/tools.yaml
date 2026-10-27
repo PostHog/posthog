@@ -304,8 +304,8 @@ tools:
             /v1/environments/{environment_id}/templates/{template_id} and pass them. Pass sender identities and segment
             ids, names and types too, never segment members. Run once with dry_run=true and show the user each
             automation's notes, then import for real. Drafts never send until a person enables them. Re-importing an
-            automation replaces its draft, discarding edits made there since, so confirm with the user first. Share each draft's link and the notes marked needs_input, since the team must
-            set those before enabling.
+            automation replaces its draft, discarding edits made there since, so confirm with the user first. Share each
+            draft's link and the notes marked needs_input, since the team must set those before enabling.
         feature_flag: workflows-customerio-import
     workflows-import-notes:
         operation: workflow_imports_for_workflow_retrieve
