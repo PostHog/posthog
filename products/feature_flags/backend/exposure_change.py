@@ -29,7 +29,6 @@ from products.feature_flags.backend.facade.edits import (
     ReleaseConditions,
     Split,
     moves_people,
-    order_moves_people,
     pair_conditions,
     parse_release_conditions,
     parse_variants,
@@ -135,11 +134,23 @@ def _decides(condition: ReleaseCondition, side: _Side) -> bool:
     return condition.rollout > 0 or side.early_exit
 
 
-def _gives_another_value(released: ReleaseCondition, served_after: set[str | None]) -> bool:
-    # A person that a condition no longer serves gets the value of a later condition that matches them, which is
-    # another value when that condition serves another variant. Positions are not compared, so a served condition
-    # anywhere in the flag counts, which errs toward a raise.
-    return bool(served_after - {released.variant})
+# The variant override of a condition, or None with the group type whose key the split hashes.
+_Value = tuple[str | None, int | None]
+
+
+def _value(condition: ReleaseCondition, side: _Side) -> _Value:
+    # The split hashes the group key for a group condition and the person for a person condition, so two conditions
+    # of different group types give a person different draws of the same split. A boolean flag serves true for both.
+    if condition.variant or not served_slots(side.split):
+        return (condition.variant, None)
+    return (None, condition.aggregation)
+
+
+def _gives_another_value(released: ReleaseCondition, new: _Side, served_after: set[_Value]) -> bool:
+    # A person that a condition no longer serves gets the value of a later condition that matches them, which can
+    # differ from the released one. Positions are not compared, so a served condition anywhere in the flag counts,
+    # which errs toward a raise.
+    return bool(served_after - {_value(released, new)})
 
 
 def _reordered(pairs: Mapping[int, int]) -> bool:
@@ -169,7 +180,7 @@ def _compare_pair(
     *,
     old: _Side,
     new: _Side,
-    served_after: set[str | None],
+    served_after: set[_Value],
     builder: _ChangeBuilder,
 ) -> None:
     if not _decides(previous, old) and not _decides(condition, new):
@@ -182,7 +193,7 @@ def _compare_pair(
         # With early exit, the people outside the new rollout get false, not the value of a later condition.
         builder.add(
             ExposureChangeKind.ROLLOUT_DECREASED,
-            gives_another_value=not new.early_exit and _gives_another_value(previous, served_after),
+            gives_another_value=not new.early_exit and _gives_another_value(previous, new, served_after),
         )
     if condition.rollout > 0 and moves_people(previous, condition):
         builder.add(ExposureChangeKind.VARIANT_CHANGED)
@@ -190,7 +201,7 @@ def _compare_pair(
 
 def _compare_conditions(old: _Side, new: _Side, builder: _ChangeBuilder) -> None:
     pairs = pair_conditions(old.conditions, new.conditions)
-    served_after = {condition.variant for condition in new.conditions if condition.rollout > 0}
+    served_after = {_value(condition, new) for condition in new.conditions if condition.rollout > 0}
     for new_index, condition in enumerate(new.conditions):
         if new_index in pairs:
             previous = old.conditions[pairs[new_index]]
@@ -206,10 +217,15 @@ def _compare_conditions(old: _Side, new: _Side, builder: _ChangeBuilder) -> None
         builder.add(
             ExposureChangeKind.CONDITION_REMOVED,
             gives_another_value=(old.early_exit and removed.rollout < 100)
-            or _gives_another_value(removed, served_after),
+            or _gives_another_value(removed, new, served_after),
         )
 
-    if order_moves_people(old.conditions, new.conditions, pairs) or (new.early_exit and _reordered(pairs)):
+    # A new order gives a person who matches two conditions the value of the one that comes first now. Which pairs
+    # of conditions overlap is not known here, so any reorder of conditions with different values counts.
+    kept_values = {
+        _value(new.conditions[new_index], new) for new_index in pairs if new.conditions[new_index].rollout > 0
+    }
+    if _reordered(pairs) and (new.early_exit or len(kept_values) > 1):
         builder.add(ExposureChangeKind.CONDITIONS_REORDERED)
 
 

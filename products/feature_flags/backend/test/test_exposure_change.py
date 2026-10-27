@@ -31,9 +31,15 @@ KEEPS = ExposureDirection.KEEPS
 
 
 def _condition(
-    rollout: float, properties: list[dict[str, Any]] | None = None, variant: str | None = None
+    rollout: float,
+    properties: list[dict[str, Any]] | None = None,
+    variant: str | None = None,
+    aggregation: int | None = None,
 ) -> dict[str, Any]:
-    return {"properties": properties or [], "rollout_percentage": rollout, "variant": variant}
+    condition: dict[str, Any] = {"properties": properties or [], "rollout_percentage": rollout, "variant": variant}
+    if aggregation is not None:
+        condition["aggregation_group_type_index"] = aggregation
+    return condition
 
 
 def _flag(
@@ -185,6 +191,20 @@ class TestClassifyExposureChange(TestCase):
                 _flag(_condition(0, EMAIL), _condition(100), early_exit=True),
                 _flag(_condition(100), early_exit=True),
                 {CONDITION_REMOVED},
+                RAISES,
+            ),
+            (
+                "group_condition_removed_before_a_person_condition",
+                _flag(_condition(100, aggregation=0), _condition(100), variants=SPLIT_50_50),
+                _flag(_condition(100), variants=SPLIT_50_50),
+                {CONDITION_REMOVED},
+                RAISES,
+            ),
+            (
+                "group_and_person_conditions_reordered",
+                _flag(_condition(100, aggregation=0), _condition(100), variants=SPLIT_50_50),
+                _flag(_condition(100), _condition(100, aggregation=0), variants=SPLIT_50_50),
+                {CONDITIONS_REORDERED},
                 RAISES,
             ),
             (
