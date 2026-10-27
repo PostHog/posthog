@@ -2073,6 +2073,9 @@ export const TasksRunsPartialUpdateBody = /* @__PURE__ */ zod.object({
  * Let the run's agent-server report its own heartbeat, boot milestone, finished or failed turn, budget steer or process kill. Only the run's sandbox may call this, and only for a run whose callbacks the agent sends instead of the agent-proxy.
  * @summary Send an agent callback
  */
+export const tasksRunsAgentCallbackCreateBodyStreamGenerationDefault = `initial`
+export const tasksRunsAgentCallbackCreateBodyStreamGenerationMax = 200
+
 export const tasksRunsAgentCallbackCreateBodyActivityStartedDefault = false
 export const tasksRunsAgentCallbackCreateBodyTurnCompletedDefault = true
 export const tasksRunsAgentCallbackCreateBodyTurnSucceededDefault = false
@@ -2095,6 +2098,11 @@ export const tasksRunsAgentCallbackCreateBodyProcessKilledOneMemoryCurrentBytesM
 export const tasksRunsAgentCallbackCreateBodyProcessKilledOneMemoryLimitBytesMin = 0
 
 export const TasksRunsAgentCallbackCreateBody = /* @__PURE__ */ zod.object({
+    stream_generation: zod
+        .string()
+        .max(tasksRunsAgentCallbackCreateBodyStreamGenerationMax)
+        .default(tasksRunsAgentCallbackCreateBodyStreamGenerationDefault)
+        .describe('Stream generation from the agent event ingest token. Rejects callbacks from an earlier stream.'),
     kind: zod
         .enum([
             'heartbeat',

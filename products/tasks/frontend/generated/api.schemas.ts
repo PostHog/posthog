@@ -3290,6 +3290,11 @@ export interface AgentProxyProcessKilledApi {
 }
 
 export interface AgentCallbackRequestApi {
+    /**
+     * Stream generation from the agent event ingest token. Rejects callbacks from an earlier stream.
+     * @maxLength 200
+     */
+    stream_generation?: string
     /** Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its inactivity timer. 'awaiting_input' fires a mobile push notification when an interactive run finishes a turn and is waiting for user input. 'permission_requested' fires a 'needs your input' push when an interactive run waits on a permission request or a question. 'turn_failed' fails the run outright when a pi turn ends in a runtime error. 'command_dispatched' and 'agent_activity' record boot milestones. 'budget_steer' captures the agent's budget warning. 'process_killed' captures a sandbox memory watchdog kill.
      *
      * * `heartbeat` - Heartbeat
