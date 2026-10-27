@@ -159,22 +159,15 @@ const TriggerPopover = ({
 
 export const HogFlowManualTriggerButton = (props: WorkflowLogicProps = {}): JSX.Element => {
     const logic = hogFlowManualTriggerButtonLogic(props)
-    const { workflow, hasUnsavedChanges } = useValues(workflowLogic(props))
+    const { manualTriggerDisabledReason } = useValues(workflowLogic(props))
     const { popoverVisible } = useValues(logic)
     const { setPopoverVisible } = useActions(logic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
-    const triggerDisabledReason =
-        workflow?.status !== 'active'
-            ? 'Must enable workflow to use trigger'
-            : hasUnsavedChanges
-              ? 'Save changes first'
-              : undefined
-
     const triggerButton = todayRailNav ? (
         <Button
             variant="primary"
-            disabledReason={triggerDisabledReason}
+            disabledReason={manualTriggerDisabledReason}
             tooltip="Triggers workflow immediately"
             onClick={() => setPopoverVisible(!popoverVisible)}
         >
@@ -185,13 +178,7 @@ export const HogFlowManualTriggerButton = (props: WorkflowLogicProps = {}): JSX.
         <LemonButton
             type="primary"
             size="small"
-            disabledReason={
-                workflow?.status !== 'active'
-                    ? 'Must enable workflow to use trigger'
-                    : hasUnsavedChanges
-                      ? 'Save changes first'
-                      : undefined
-            }
+            disabledReason={manualTriggerDisabledReason}
             sideIcon={<IconChevronDown className={`transition-transform ${popoverVisible ? 'rotate-180' : ''}`} />}
             tooltip="Triggers workflow immediately"
             onClick={() => setPopoverVisible(!popoverVisible)}

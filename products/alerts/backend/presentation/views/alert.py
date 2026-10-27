@@ -1,11 +1,13 @@
 import json
 import uuid
 from datetime import datetime
-from typing import Annotated, Any, cast
+from functools import reduce
+from operator import or_
+from typing import Annotated, Any, Final, cast
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import OuterRef, Prefetch, QuerySet, Subquery
+from django.db.models import OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.utils import timezone
 
 import pydantic
@@ -112,6 +114,7 @@ from products.alerts.backend.facade.platform import (
     follow_insight_alert,
     hand_over_new_alert,
     moved_alert_check_page,
+    moved_alert_fired_checks,
     moved_alert_statuses,
     write_moved_alert_edit,
 )
@@ -1485,6 +1488,11 @@ def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) ->
             alert.last_value = moved_status.last_check.value  # type: ignore[attr-defined]
 
 
+# How many fired checks of one moved alert the list returns for the chart's dots. The window holds a
+# check every 15 minutes for a 15-minute alert, and one alert that keeps firing must not fill the response.
+MOVED_ALERT_FIRED_CHECKS_LIMIT: Final = 500
+
+
 def _as_alert_check(alert: AlertConfiguration, check: MovedAlertCheck) -> AlertCheck:
     # Never saved. It carries what the check serializer shows.
     return AlertCheck(
@@ -1494,8 +1502,15 @@ def _as_alert_check(alert: AlertConfiguration, check: MovedAlertCheck) -> AlertC
         calculated_value=check.value,
         condition=alert.condition,
         state=check.state,
-        error={"message": check.error_message} if check.error_message else None,
+        error=({"code": check.error_code} if check.error_code else {}) | {"message": check.error_message}
+        if check.error_message
+        else None,
         targets_notified={},
+        anomaly_scores=list(check.anomaly_scores) or None,
+        triggered_points=list(check.triggered_points) or None,
+        triggered_dates=list(check.triggered_dates) or None,
+        interval=check.interval,
+        triggered_metadata=check.triggered_metadata,
     )
 
 
@@ -1749,16 +1764,34 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # Prefetch firing checks for anomaly point display on chart.
         if alerts:
             alert_ids = [a.id for a in alerts]
+            moved_at = {alert.id: at for alert in alerts if (at := alert.platform_owned_since) is not None}
             firing_checks = (
                 AlertCheck.objects.filter(
                     alert_configuration_id__in=alert_ids,
                     triggered_points__isnull=False,
                 )
                 .exclude(triggered_points=[])
+                # A moved alert's own checks after the move are the shadow's, so the platform's replace them.
+                .exclude(
+                    reduce(
+                        or_,
+                        (Q(alert_configuration_id=alert_id, created_at__gte=at) for alert_id, at in moved_at.items()),
+                        Q(pk__in=[]),
+                    )
+                )
                 .select_related("investigation_notebook")
                 .order_by("-created_at")
             )
+            moved_checks = moved_alert_fired_checks(
+                team_id=self.team_id,
+                moved_at=moved_at,
+                not_before=timezone.now() - AlertCheck.RETENTION,
+                limit=MOVED_ALERT_FIRED_CHECKS_LIMIT,
+            )
+            alerts_by_id = {alert.id: alert for alert in alerts}
             checks_by_alert: dict[str, list] = {str(a.id): [] for a in alerts}
+            for alert_id, checks in moved_checks.items():
+                checks_by_alert[str(alert_id)] = [_as_alert_check(alerts_by_id[alert_id], check) for check in checks]
             for check in firing_checks:
                 checks_by_alert.setdefault(str(check.alert_configuration_id), []).append(check)
             for alert in alerts:

@@ -15,7 +15,7 @@ from django.conf import settings
 from django.core import exceptions, mail
 from django.core.cache import cache
 from django.core.mail.backends.smtp import EmailBackend
-from django.db import transaction
+from django.db import InterfaceError, OperationalError, transaction
 from django.template.loader import get_template
 from django.utils import timezone
 from django.utils.module_loading import import_string
@@ -25,7 +25,7 @@ import requests
 import structlog
 import css_inline
 import posthoganalytics
-from celery import shared_task
+from celery import current_task, shared_task
 from lxml import html as lxml_html
 from prometheus_client import Counter
 
@@ -108,7 +108,9 @@ EMAIL_TASK_KWARGS = {
     "ignore_result": True,
     "autoretry_for": (Exception,),
     "max_retries": 3,
-    "retry_backoff": True,
+    # Retries wait 5s, 10s and 20s. Without jitter the last attempt cannot come within a second of the first.
+    "retry_backoff": 5,
+    "retry_jitter": False,
 }
 
 # Failure rate as an alertable time series. Labelled only by outcome+transport to bound
@@ -279,6 +281,12 @@ class WorkflowsEmailError(Exception):
         super().__init__(message)
         self.code = code
         self.status_code = status_code
+
+
+# Errors that a later attempt can fix. A database error can come before the send, when the record is read, or after
+# it, when the record is marked sent. A Workflows send is pinned before that write, so its retry replays under the
+# same idempotency key. A Customer.io send can go out a second time.
+RETRYABLE_HTTP_SEND_ERRORS = (WorkflowsEmailError, OperationalError, InterfaceError)
 
 
 def _workflows_error_allows_fallback(err: WorkflowsEmailError) -> bool:
@@ -506,7 +514,10 @@ def _send_one(
     workflows_template_id = get_workflows_template_id(template_name, dest, pinned_template_id)
     if workflows_template_id:
         try:
-            return "workflows", _send_one_via_workflows(dest, campaign_key, workflows_template_id, properties)
+            response = _send_one_via_workflows(dest, campaign_key, workflows_template_id, properties)
+            # Marking the record sent can still fail, and the retry must then replay this send, not move providers.
+            _pin_to_workflows(idempotency_key, workflows_template_id)
+            return "workflows", response
         except WorkflowsEmailError as err:
             if pinned_template_id or not _workflows_error_allows_fallback(err):
                 _pin_to_workflows(idempotency_key, workflows_template_id)
@@ -529,6 +540,7 @@ def _send_via_http(
     campaign_key: str,
     template_name: str,
     properties: dict,
+    will_retry: bool = True,
 ) -> None:
     """Sends emails using the Customer.io API, or the Workflows transactional email API where the flag matches"""
     if not is_http_email_service_available():
@@ -536,11 +548,16 @@ def _send_via_http(
 
     # A dedicated client, because the global one may never flush before a Celery worker exits.
     with ph_scoped_capture(event_region=get_instance_region()) as capture:
-        _send_via_http_batch(capture, to, campaign_key, template_name, properties)
+        _send_via_http_batch(capture, to, campaign_key, template_name, properties, will_retry)
 
 
 def _send_via_http_batch(
-    capture: ScopedCapture, to: list[dict[str, str]], campaign_key: str, template_name: str, properties: dict
+    capture: ScopedCapture,
+    to: list[dict[str, str]],
+    campaign_key: str,
+    template_name: str,
+    properties: dict,
+    will_retry: bool = True,
 ) -> None:
     sent_count = 0
     already_sent_count = 0  # delivered in a prior run — not a failure if the batch later aborts
@@ -583,7 +600,8 @@ def _send_via_http_batch(
     except Exception as err:
         capture_exception(err)  # already logs the traceback via logger.exception
         # The exception carries no template name, so this event is what lets a dashboard count failures per template.
-        retrying = isinstance(err, WorkflowsEmailError)
+        retryable = isinstance(err, RETRYABLE_HTTP_SEND_ERRORS)
+        retrying = retryable and will_retry
         if dest:
             _capture_email_event(
                 capture,
@@ -600,9 +618,9 @@ def _send_via_http_batch(
         # Count every recipient that did not get through (the failing one + any not yet attempted),
         # so `failed` shares the per-recipient unit with `sent` instead of registering once per batch.
         EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc(len(to) - already_sent_count - sent_count)
-        if retrying:
-            # Workflows may have queued this email. The Celery retry sends the same idempotency key, so Workflows
-            # returns the queued email instead of sending a second one, and recipients already sent are skipped.
+        if retryable:
+            # The retry sends the same idempotency key, so Workflows returns an email it already queued instead of
+            # sending a second one, and recipients already marked sent are skipped.
             raise
 
 
@@ -826,6 +844,16 @@ def sanitize_email_properties(properties: dict[str, Any] | None) -> dict[str, An
     return {k: sanitize_value(v, key=k) for k, v in properties.items()}
 
 
+def _send_will_retry(retry_in_worker: bool) -> bool:
+    """Whether a retryable failure of this send gets another attempt."""
+    if retry_in_worker:
+        return True
+    task = current_task
+    if not task or task.name != "posthog.email._send_email" or task.request.is_eager:
+        return False
+    return task.request.retries < task.max_retries
+
+
 def _send_email_now(
     campaign_key: str,
     to: list[dict[str, str]],
@@ -846,8 +874,9 @@ def _send_email_now(
                 campaign_key=campaign_key,
                 template_name=template_name,
                 properties=properties or {},
+                will_retry=_send_will_retry(retry_in_worker),
             )
-        except WorkflowsEmailError:
+        except RETRYABLE_HTTP_SEND_ERRORS:
             if not retry_in_worker:
                 raise
             # The retry sends the same idempotency key, so Workflows does not send the email twice.

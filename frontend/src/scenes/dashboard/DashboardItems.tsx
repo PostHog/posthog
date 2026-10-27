@@ -4,7 +4,7 @@ import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Responsive as ReactGridLayout } from 'react-grid-layout'
+import { GridLayout, Responsive as ReactGridLayout } from 'react-grid-layout'
 import type { Layout, LayoutItem } from 'react-grid-layout'
 import { type PositionStrategy, setTransform } from 'react-grid-layout/core'
 
@@ -15,8 +15,9 @@ import { ApiError } from 'lib/api'
 import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
+import { reportDashboardTileRepositioned } from 'scenes/dashboard/dashboardEvents'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import {
     BREAKPOINTS,
@@ -146,7 +147,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         moveTileToSection,
     } = useActions(dashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
-    const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
     const { push } = useActions(router)
     const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({
         // Dashboard pages hide the survey suggestion in compact headers; notebook embeds also use this component and can show it.
@@ -485,6 +485,19 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             updateContainerWidth(gridWidth, BREAKPOINT_COLUMN_COUNTS[bandBreakpoint])
         }
     }, [showBands, gridWidth, bandBreakpoint, updateContainerWidth])
+    const bandGridConfig = useMemo(
+        () => ({
+            cols: BREAKPOINT_COLUMN_COUNTS[bandBreakpoint],
+            rowHeight,
+            margin,
+            containerPadding: CONTAINER_PADDING,
+        }),
+        [bandBreakpoint, rowHeight, margin]
+    )
+    const handleBandLayoutChange = useCallback(
+        (layout: Layout) => handleLayoutChange(layout, { [bandBreakpoint]: layout }),
+        [handleLayoutChange, bandBreakpoint]
+    )
 
     const handleResizeStart = useCallback(
         (
@@ -755,12 +768,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         dragConfig,
         resizeConfig,
         compactor: gridCompactor,
-        rowHeight,
-        margin,
-        containerPadding: CONTAINER_PADDING,
-        onLayoutChange: handleLayoutChange,
-        breakpoints: BREAKPOINTS,
-        cols: BREAKPOINT_COLUMN_COUNTS,
         onResizeStart: handleResizeStart,
         onResizeStop: handleResizeStop,
         onDragStart: handleDragStart,
@@ -790,9 +797,10 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         height={sectionRows * (rowHeight + margin[1]) - margin[1]}
                     />
                 )}
-                <ReactGridLayout
+                {/* Not Responsive: its layout copy and the inner grid's can swap on every render while tiles stream in. */}
+                <GridLayout
                     {...gridProps}
-                    // The grid takes a new tile's position from `layouts`, so a stable key lets tiles stream
+                    // The grid takes a new tile's position from `layout`, so a stable key lets tiles stream
                     // into a band without a remount that resets every chart already in it.
                     key={section.key}
                     width={gridWidth}
@@ -802,11 +810,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         layoutEditMode && (isLastSection ? 'pb-[40vh]' : 'pb-24'),
                         isDraggingOutOfSection && '[&_.react-grid-placeholder]:hidden'
                     )}
-                    breakpoint={bandBreakpoint}
-                    layouts={sectionLayouts}
+                    gridConfig={bandGridConfig}
+                    layout={sectionLayouts[bandBreakpoint] ?? []}
+                    onLayoutChange={handleBandLayoutChange}
                 >
                     {section.tiles.map(renderTile)}
-                </ReactGridLayout>
+                </GridLayout>
             </div>
         )
     }
@@ -865,6 +874,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
                     <ReactGridLayout
                         {...gridProps}
+                        rowHeight={rowHeight}
+                        margin={margin}
+                        containerPadding={CONTAINER_PADDING}
+                        breakpoints={BREAKPOINTS}
+                        cols={BREAKPOINT_COLUMN_COUNTS}
+                        onLayoutChange={handleLayoutChange}
                         width={gridWidth}
                         style={{ width: gridWidth }}
                         className={className}

@@ -14,6 +14,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.celery_queues import CeleryQueue
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.workload import Workload
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
@@ -40,7 +41,7 @@ from products.signals.backend.implementation_dispatch_tasks import (
 )
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
 from products.signals.backend.inbox_push_notifications import notify_pull_request_ready, notify_report_visible
-from products.signals.backend.inbox_summary import sync_pull_request_participants
+from products.signals.backend.inbox_summary import github_datetime, sync_pull_request_participants
 from products.signals.backend.models import (
     SignalReport,
     SignalReportPullRequest,
@@ -54,7 +55,7 @@ from products.signals.backend.models import (
 from products.signals.backend.pr_origin import write_origin_section
 from products.signals.backend.pull_request_body import BodyEditOutcome
 from products.signals.backend.pull_request_label import apply_pull_request_label
-from products.signals.backend.pull_requests import update_pull_request_review_decision
+from products.signals.backend.pull_requests import update_pull_request_review_decision, update_pull_request_state
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_KEEP_WARM_WINDOW,
     rebuild_repository_activity,
@@ -79,12 +80,29 @@ from products.signals.backend.scout_harness.slack_delivery import (
     post_scout_report_to_slack,
     slack_api_error_code,
 )
+from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
 from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
 from products.signals.backend.slack_report_threads import record_scout_report_slack_replies, scout_report_slack_message
+from products.signals.backend.support_writeback import (
+    post_pull_request_to_tickets,
+    task_can_write_support_ticket_update,
+)
 from products.signals.backend.tracker_issues import close_tracker_issue_for_report, link_pull_request_to_tracker_issue
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
+
+
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@with_team_scope()
+def write_pull_request_to_support_tickets(team_id: int, report_id: str, pr_url: str, task_id: str) -> None:
+    if not task_can_write_support_ticket_update(team_id=team_id, report_id=report_id, task_id=task_id, pr_url=pr_url):
+        return
+    team = Team.objects.filter(id=team_id).first()
+    if team is None:
+        return
+    signals = fetch_signals_for_report_sync(team, report_id, ch_user=ClickHouseUser.SIGNALS, workload=Workload.OFFLINE)
+    post_pull_request_to_tickets(team, report_id, pr_url, signals)
 
 
 @shared_task(
@@ -170,6 +188,14 @@ def refresh_pull_request_review_decision(team_id: int, repository: str, pr_numbe
     )
     if github is None:
         return
+    if pr.state == SignalReportPullRequest.State.MERGED and pr.merged_at is None:
+        details = github.get_pull_request(pr.repository, pr.number)
+        merged_at = github_datetime(details.get("merged_at"))
+        if not details.get("success") or details.get("merged") is not True or merged_at is None:
+            raise GitHubIntegrationError("Could not verify the pull request merge time")
+        update_pull_request_state(
+            team_id=team_id, repository=pr.repository, number=pr.number, state="merged", merged_at=merged_at
+        )
     snapshot = github.get_pull_request_snapshot(pr.url)
     if not snapshot.get("success"):
         logger.warning(

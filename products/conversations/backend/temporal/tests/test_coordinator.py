@@ -406,7 +406,7 @@ class TestCollectEligibleAwaitingClarification:
         ticket.refresh_from_db()
         return team, ticket
 
-    def _comment(self, team, ticket, *, author_type: str, minutes_ago: int):
+    def _comment(self, team, ticket, *, author_type: str, minutes_ago: int, automated_update_key: str | None = None):
         from posthog.models.comment import Comment
 
         created = timezone.now() - timedelta(minutes=minutes_ago)
@@ -415,7 +415,12 @@ class TestCollectEligibleAwaitingClarification:
             scope="conversations_ticket",
             item_id=str(ticket.id),
             content=author_type,
-            item_context={"author_type": author_type, "is_private": False, "persist_as": "clarification"},
+            item_context={
+                "author_type": author_type,
+                "is_private": False,
+                "persist_as": "clarification",
+                **({"automated_update_key": automated_update_key} if automated_update_key else {}),
+            },
         )
         Comment.objects.filter(id=comment.id).update(created_at=created)
         from products.conversations.backend.models.ticket import Ticket as TicketModel
@@ -423,6 +428,23 @@ class TestCollectEligibleAwaitingClarification:
         TicketModel.objects.filter(id=ticket.id).update(last_message_at=max(ticket.last_message_at or created, created))
         ticket.refresh_from_db()
         return comment
+
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_automated_pr_update_does_not_answer_a_customer_followup(self, mock_master_flag):
+        team, ticket = self._team_and_ticket()
+        self._comment(team, ticket, author_type="customer", minutes_ago=10)
+        self._comment(team, ticket, author_type="AI", minutes_ago=5)
+        self._comment(team, ticket, author_type="customer", minutes_ago=3)
+        self._comment(
+            team,
+            ticket,
+            author_type="AI",
+            minutes_ago=1,
+            automated_update_key="signals_pr:report:pr",
+        )
+
+        assert [item.ticket_id for item in _collect_eligible()] == [str(ticket.id)]
 
     @parameterized.expand(
         [

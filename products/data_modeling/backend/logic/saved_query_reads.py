@@ -124,7 +124,17 @@ def saved_query_definitions(team_id: int, *, ids: Collection[UUID] | None = None
         saved_queries_in_team = saved_queries_in_team.filter(id__in=ids)
     saved_queries = list(
         saved_queries_in_team.exclude(deleted=True)
-        .only("id", "name", "query", "is_test", "managed_viewset_id", "origin", "created_at", "incremental_config")
+        .only(
+            "id",
+            "name",
+            "query",
+            "is_test",
+            "managed_viewset_id",
+            "origin",
+            "created_at",
+            "created_by_id",
+            "incremental_config",
+        )
         .order_by("created_at", "id")
     )
     materializing_ids = set(
@@ -150,6 +160,7 @@ def _definition(saved_query: DataWarehouseSavedQuery, *, materializes: bool) -> 
         created_at=saved_query.created_at,
         refreshes_incrementally=get_incremental_config(saved_query) is not None,
         calls_decision_functions=calls_decision_functions(hogql),
+        created_by_id=saved_query.created_by_id,
     )
 
 
@@ -408,6 +419,20 @@ def upstream_saved_query_ids(team_id: int, saved_query_id: UUID | str) -> frozen
         .exclude(saved_query_id=saved_query_id)
         .values_list("saved_query_id", flat=True)
     )
+
+
+def unbuilt_upstream_saved_query_ids(
+    team_id: int, saved_query_id: UUID | str, *, engine: DataModelingJobEngine
+) -> frozenset[UUID]:
+    """The upstream saved queries of this one that have never completed a build on ``engine``."""
+    upstream_ids = upstream_saved_query_ids(team_id, saved_query_id)
+    built_ids = DataModelingJob.objects.filter(
+        team_id=team_id,
+        saved_query_id__in=upstream_ids,
+        engine=engine,
+        status=DataModelingJobStatus.COMPLETED,
+    ).values_list("saved_query_id", flat=True)
+    return upstream_ids - frozenset(built_ids)
 
 
 def last_query_change_at(team_id: int, saved_query_ids: Collection[UUID]) -> datetime | None:

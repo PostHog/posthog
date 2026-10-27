@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.chatwoot.chatwoot import (
+    AUDIT_LOGS_UNAVAILABLE_ERROR,
     HOST_NOT_ALLOWED_ERROR,
     HTTP_NOT_ALLOWED_ERROR,
     INVALID_ACCOUNT_ID_ERROR,
@@ -188,6 +189,7 @@ If automatic creation failed, note that only Chatwoot administrators can manage 
             # so retrying never changes the outcome.
             "422 Client Error": "Chatwoot rejected a request while syncing this data. Please contact support if this persists.",
             REPORTING_EVENTS_UNAVAILABLE_ERROR: "This Chatwoot instance does not serve reporting events. The endpoint only exists on Chatwoot Cloud and enterprise builds, so deselect the reporting_events table to sync the rest.",
+            AUDIT_LOGS_UNAVAILABLE_ERROR: "This Chatwoot instance does not serve audit logs. The endpoint only exists on Chatwoot Cloud and enterprise builds, so deselect the audit_logs table to sync the rest.",
             INVALID_ACCOUNT_ID_ERROR: "The Chatwoot account ID must be a number (the number in your Chatwoot URL, e.g. app.chatwoot.com/app/accounts/1). Update the source configuration.",
             HOST_NOT_ALLOWED_ERROR: "The Chatwoot host is not allowed. Please use a publicly reachable instance URL.",
             HTTP_NOT_ALLOWED_ERROR: "The Chatwoot host must use HTTPS. Please update the instance URL to use https://.",
@@ -204,8 +206,8 @@ If automatic creation failed, note that only Chatwoot administrators can manage 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Only reporting_events has a server-side timestamp filter to sync incrementally against;
-        # the rest are full refresh, and conversations and messages also support webhook-fed deltas.
+        # Only reporting_events and audit_logs have a server-side timestamp filter to sync
+        # incrementally against; the rest are full refresh, and conversations and messages also support webhook-fed deltas.
         schemas = [
             SourceSchema(
                 name=endpoint,

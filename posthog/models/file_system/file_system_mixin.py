@@ -35,29 +35,7 @@ class FileSystemSyncMixin(Model):
 
         @receiver(post_save, sender=cls, weak=False)
         def _file_system_post_save(sender, instance: "FileSystemSyncMixin", created, **kwargs):
-            from posthog.models.file_system.file_system import create_or_update_file, delete_file
-
-            fs_data = instance.get_file_system_representation()
-            try:
-                team = instance.team  # type: ignore
-                if fs_data.should_delete:
-                    delete_file(team=team, file_type=fs_data.type, ref=fs_data.ref, surface=fs_data.surface)
-                else:
-                    create_or_update_file(
-                        team=team,
-                        base_folder=fs_data.base_folder,
-                        name=fs_data.name,
-                        file_type=fs_data.type,
-                        ref=fs_data.ref,
-                        href=fs_data.href,
-                        meta=fs_data.meta,
-                        created_at=fs_data.meta.get("created_at") or getattr(instance, "created_at", None),
-                        created_by_id=fs_data.meta.get("created_by") or getattr(instance, "created_by_id", None),
-                        surface=fs_data.surface,
-                    )
-            except Exception as e:
-                # Don't raise exceptions in signals
-                capture_exception(e, additional_properties=dataclasses.asdict(fs_data))
+            instance.sync_file_system()
 
         @receiver(post_delete, sender=cls, weak=False)
         def _file_system_post_delete(sender, instance: "FileSystemSyncMixin", **kwargs):
@@ -74,6 +52,31 @@ class FileSystemSyncMixin(Model):
             except Exception as e:
                 # Don't raise exceptions in signals
                 capture_exception(e, additional_properties=dataclasses.asdict(fs_data))
+
+    def sync_file_system(self) -> None:
+        from posthog.models.file_system.file_system import create_or_update_file, delete_file
+
+        fs_data = self.get_file_system_representation()
+        try:
+            team = self.team  # type: ignore
+            if fs_data.should_delete:
+                delete_file(team=team, file_type=fs_data.type, ref=fs_data.ref, surface=fs_data.surface)
+            else:
+                create_or_update_file(
+                    team=team,
+                    base_folder=fs_data.base_folder,
+                    name=fs_data.name,
+                    file_type=fs_data.type,
+                    ref=fs_data.ref,
+                    href=fs_data.href,
+                    meta=fs_data.meta,
+                    created_at=fs_data.meta.get("created_at") or getattr(self, "created_at", None),
+                    created_by_id=fs_data.meta.get("created_by") or getattr(self, "created_by_id", None),
+                    surface=fs_data.surface,
+                )
+        except Exception as e:
+            # Don't raise exceptions in signals
+            capture_exception(e, additional_properties=dataclasses.asdict(fs_data))
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet[Any]:
