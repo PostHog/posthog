@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconCheckCircle, IconCircleDashed, IconClock, IconNotification, IconPiggyBank } from '@posthog/icons'
+import { IconCheckCircle, IconCircleDashed, IconClock, IconNotification, IconSparkles } from '@posthog/icons'
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
@@ -27,7 +27,8 @@ export function EvaluationCreateReview({
     onFix: (key: ChecklistKey) => void
 }): JSX.Element | null {
     const { props } = useMountedLogic(llmEvaluationLogic)
-    const { evaluation, canEnable, canEnableReason, isReportableEvaluation } = useValues(llmEvaluationLogic)
+    const { evaluation, canEnable, canEnableReason, isReportableEvaluation, selectedModel, selectedModelName } =
+        useValues(llmEvaluationLogic)
     const { setEvaluationEnabled } = useActions(llmEvaluationLogic)
     const { volume } = useValues(evaluationVolumeLogic)
     const { configDraft } = useValues(evaluationReportLogic({ evaluationId: props.evaluationId }))
@@ -49,13 +50,18 @@ export function EvaluationCreateReview({
               ]
             : []),
         {
-            key: 'cost',
-            icon: <IconPiggyBank />,
-            title: evaluation.evaluation_type === 'llm_judge' ? 'One judge call per run' : 'No LLM calls',
+            key: 'judge',
+            icon: <IconSparkles />,
+            title:
+                evaluation.evaluation_type === 'llm_judge'
+                    ? `Judged by ${selectedModelName ?? (selectedModel || 'the model you pick')}`
+                    : 'No AI key needed',
             detail:
                 evaluation.evaluation_type === 'llm_judge'
-                    ? 'Billed by your AI provider, on your own key'
-                    : 'Runs cost nothing extra',
+                    ? 'Uses your own AI provider key'
+                    : evaluation.evaluation_type === 'hog'
+                      ? 'Your code decides each result'
+                      : 'A built-in classifier decides each result',
         },
         {
             key: 'reports',
