@@ -171,15 +171,17 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
 
     with (
         patch(f"{GITHUB}.get_pull_request", return_value={"success": True, "state": "open", "body": first_body}),
-        patch(f"{GITHUB}.update_pull_request_body", return_value={"success": True}) as update_body,
+        patch(f"{GITHUB}.comment_on_pull_request", return_value={"success": True}) as comment,
+        patch(f"{GITHUB}.update_pull_request_body") as update_body,
         patch(CREATE_PULL_REQUEST) as second_create,
     ):
         _finish_run(joined.task_id, django_capture_on_commit_callbacks)
 
     second_create.assert_not_called()
-    updated_body = update_body.call_args.args[2]
-    assert COMMAND.pull_request_url in updated_body
-    assert "https://github.com/PostHog/posthog/pull/456" in updated_body
+    update_body.assert_not_called()
+    comment.assert_called_once()
+    assert comment.call_args.args[:2] == ("posthog.com", 9)
+    assert "https://github.com/PostHog/posthog/pull/456" in comment.call_args.args[2]
     stored = tasks_facade.read_task_state_entry(joined.task_id, team.id, PULL_REQUEST_STATE_KEY)
     assert isinstance(stored, dict)
     assert stored["number"] == 9
