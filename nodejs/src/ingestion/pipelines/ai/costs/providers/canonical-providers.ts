@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-10-26 20:03:05 UTC
+// Generated at: 2026-10-27 10:06:22 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -126,7 +126,6 @@ export type CanonicalProvider =
     | 'io-net'
     | 'io-net-bf16'
     | 'io-net-fp16'
-    | 'io-net-fp4'
     | 'io-net-fp8'
     | 'io-net-nvfp4'
     | 'ionstream'
@@ -151,8 +150,8 @@ export type CanonicalProvider =
     | 'mistral-us'
     | 'mistral-zdr'
     | 'modal'
+    | 'modal-fp4'
     | 'modal-mxfp4'
-    | 'modal-nvfp4'
     | 'modelrun-fp4'
     | 'modelrun-fp8'
     | 'moonshotai'
@@ -162,6 +161,7 @@ export type CanonicalProvider =
     | 'near-ai-fp4'
     | 'near-ai-fp8'
     | 'nebius'
+    | 'nebius-bf16'
     | 'nebius-fp4'
     | 'nebius-fp8'
     | 'nex-agi-bf16'

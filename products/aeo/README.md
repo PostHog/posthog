@@ -67,7 +67,9 @@ A prompt keeps its id, so its checks, stats and detail view stay in one place. I
 
 ### Which prompts a run takes
 
-A run takes at most 50 prompts. It takes one prompt per topic in turn, so every topic is sampled on each run. Within a topic, prompts never checked come first, then the least recently checked, so a set larger than one run rotates.
+A run takes the whole prompt set, up to `AEO_MAX_PROMPTS_PER_RUN` (default 2,000), and checks `AEO_RUN_CONCURRENCY` prompts at a time (default 16).
+It takes one prompt per topic in turn, so a capped run still samples every topic.
+Within a topic, prompts never checked come first, then the least recently checked, so a set larger than one run rotates, and a run cut short by a worker restart resumes on the next dispatch.
 
 ## The table
 
@@ -115,7 +117,9 @@ Web analytics' Content autopilot (`/web/content-autopilot`, flag `web-analytics-
 
 ## Cost
 
-Roughly \$2–4/day at 50 prompts × 3 engines × 1 run/day: provider web-search fees + tokens (attributed as `$ai_web_search_cost_usd` and `$ai_total_cost_usd` on the `$ai_generation` event) plus Exa at \$5 per 1,000 requests (`cost_usd` on the check event).
+Measured in October 2026: about \$0.06 per OpenAI check and \$0.14 per Claude check, provider web-search fees and tokens included (`$ai_web_search_cost_usd` and `$ai_total_cost_usd` on the `$ai_generation` event).
+A daily run of 1,000 prompts on both engines is about \$200.
+Exa adds \$5 per 1,000 requests (`cost_usd` on the check event).
 
 ## Out of scope
 

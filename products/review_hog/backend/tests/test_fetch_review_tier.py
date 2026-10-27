@@ -6,7 +6,12 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.review_hog.backend.models import ReviewReport
-from products.review_hog.backend.reviewer.constants import DEFAULT_REVIEW_ARM, REVIEW_MODE_FLASH, REVIEW_MODE_FULL
+from products.review_hog.backend.reviewer.constants import (
+    CONTROL_ARM_SET,
+    DEFAULT_REVIEW_ARM,
+    REVIEW_MODE_FLASH,
+    REVIEW_MODE_FULL,
+)
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.persistence import load_pr_snapshot, load_review_arm
 from products.review_hog.backend.reviewer.tools.github_meta import FetchedPR
@@ -97,6 +102,7 @@ class TestFetchDecidesTheTier(BaseTest):
             ("full", REVIEW_MODE_FULL, [10], True, 0, False, False),
         ]
     )
+    @patch(f"{_MODULE}.single_agent_arm_set", return_value="trial")
     @patch(f"{_MODULE}.delta_reviews_low_risk_follow_ups", return_value=True)
     @patch(f"{_MODULE}.skips_zero_change_follow_ups", return_value=True)
     @patch(f"{_MODULE}.standard_coordinator_on")
@@ -111,13 +117,14 @@ class TestFetchDecidesTheTier(BaseTest):
         coordinator_flag_on: bool,
         expected_parts: int,
         expected_coordinator: bool,
-        expected_delta_arm: bool,
+        separate_sessions: bool,
         mock_fetcher: MagicMock,
         _auth: MagicMock,
         _kill_switch: MagicMock,
         coordinator_flag: MagicMock,
         _zero_change_flag: MagicMock,
         _delta_flag: MagicMock,
+        _arm_set_flag: MagicMock,
     ) -> None:
         # The workflow fans the lens sessions out over this count, so a fetch that leaves it at the
         # default runs every Flash turn without its lenses and no error shows it. Only the
@@ -146,7 +153,9 @@ class TestFetchDecidesTheTier(BaseTest):
 
         assert meta.lens_chunk_count == expected_parts
         assert meta.coordinator is expected_coordinator
-        assert (meta.zero_change_skip, meta.delta_band) == (True, expected_delta_arm)
+        # The delta review and the arm sets exist only for separate sessions, so other turns stay in control.
+        assert (meta.zero_change_skip, meta.delta_band) == (True, separate_sessions)
+        assert meta.arm_set == ("trial" if separate_sessions else CONTROL_ARM_SET)
         single_agent = review_mode == REVIEW_MODE_FLASH
         assert mock_fetcher.return_value.fetch_pr_data.call_args.kwargs == {
             "review_tests_and_text": single_agent,
