@@ -275,8 +275,10 @@ posthog:query-llm-trace
 To list the user's traces with `posthog:query-llm-traces-list`, pass the
 `person_uuid` from step 1 as `personId`. Do not pass the `distinct_id`.
 `personId` accepts only a full person UUID, so a `distinct_id` fails the query.
-Set `filterTestAccounts` to `false` so the list matches the SQL ranking, which
-has no test-account filter. The list also includes traces from the person's
+Preserve the test-account filter used in the SQL ranking, including any filter supplied by the user.
+Set `filterTestAccounts` to `true` when the ranking excludes test accounts, and `false` when it includes them.
+The example below uses `false` to match the unfiltered SQL ranking shown above.
+The list also includes traces from the person's
 other distinct IDs, so its totals can differ from the SQL ranking.
 
 ```json
