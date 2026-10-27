@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
 import * as moneyPng from '@posthog/brand/hoggies/png/money'
@@ -14,6 +14,8 @@ import { nativeSourceDisplayLabel } from 'scenes/web-analytics/tabs/marketing-an
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
+import { sourceConnectionGroupsLogic } from './sourceConnectionGroupsLogic'
+
 const HedgehogMoney = pngHoggie(moneyPng)
 
 export interface SourceSetupPanelProps {
@@ -25,7 +27,11 @@ export interface SourceSetupPanelProps {
         sourceType: string
         status: 'Connected' | 'Syncing' | 'Needs attention'
         detail: string
+        manageUrl?: string
+        action?: ReactNode
     }[]
+    manageSourceDataAttr?: string
+    expansionKey?: string
     compact?: boolean
     footer?: ReactNode
     headerAction?: ReactNode
@@ -40,6 +46,8 @@ export function SourceSetupPanel({
     state,
     suggestions = [],
     connections = [],
+    manageSourceDataAttr = 'marketing-connection-manage-source',
+    expansionKey = 'setup',
     footer,
     headerAction,
     compact = false,
@@ -50,6 +58,8 @@ export function SourceSetupPanel({
     onRestore,
 }: SourceSetupPanelProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { expandedSourceTypes } = useValues(sourceConnectionGroupsLogic({ expansionKey }))
+    const { setExpandedSourceTypes } = useActions(sourceConnectionGroupsLogic({ expansionKey }))
     const busy = state === 'checking' || state === 'scanning'
     const title =
         state === 'checking'
@@ -141,7 +151,8 @@ export function SourceSetupPanel({
                     <LemonCollapse
                         embedded
                         multiple
-                        defaultActiveKeys={[connections[0].sourceType]}
+                        activeKeys={expandedSourceTypes ?? [connections[0].sourceType]}
+                        onChange={setExpandedSourceTypes}
                         panels={Array.from(new Set(connections.map((connection) => connection.sourceType))).map(
                             (sourceType) => {
                                 const group = connections.filter((connection) => connection.sourceType === sourceType)
@@ -181,21 +192,24 @@ export function SourceSetupPanel({
                                                             {connection.detail}
                                                         </p>
                                                     </div>
-                                                    {connection.status === 'Needs attention' && (
+                                                    {connection.action ? (
+                                                        <div className="shrink-0 ml-auto">{connection.action}</div>
+                                                    ) : connection.status === 'Needs attention' ? (
                                                         <div className="shrink-0 ml-auto">
                                                             <LemonButton
                                                                 type="secondary"
                                                                 size="small"
-                                                                to={urls.dataWarehouseSource(
-                                                                    `managed-${connection.id}`
-                                                                )}
+                                                                to={
+                                                                    connection.manageUrl ??
+                                                                    urls.dataWarehouseSource(`managed-${connection.id}`)
+                                                                }
                                                                 targetBlank
-                                                                data-attr="marketing-connection-manage-source"
+                                                                data-attr={manageSourceDataAttr}
                                                             >
                                                                 Manage source
                                                             </LemonButton>
                                                         </div>
-                                                    )}
+                                                    ) : null}
                                                 </div>
                                             ))}
                                         </div>

@@ -161,7 +161,12 @@ export function SearchPerformanceTable({
                 emptyState={emptyState}
                 columns={[
                     {
-                        title: query.breakdown === 'page' ? 'Landing page' : 'Keyword or query',
+                        title:
+                            query.breakdown === 'page'
+                                ? 'Landing page'
+                                : query.breakdown === 'search_term'
+                                  ? 'Search term or query'
+                                  : 'Keyword or query',
                         key: 'keyword',
                         width: 260,
                         render: (_, row) => (

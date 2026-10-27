@@ -35942,7 +35942,7 @@
             "additionalProperties": false,
             "properties": {
                 "breakdown": {
-                    "enum": ["keyword", "page"],
+                    "enum": ["keyword", "page", "search_term"],
                     "type": "string"
                 },
                 "compareFilter": {
@@ -36184,17 +36184,26 @@
                 "keywordTable": {
                     "type": "string"
                 },
+                "performanceMaxSearchTermTable": {
+                    "description": "Google Ads search terms from Performance Max campaigns.",
+                    "type": "string"
+                },
                 "placementTable": {
                     "type": "string"
                 },
                 "queryPageTable": {
                     "type": "boolean"
                 },
+                "searchTermTable": {
+                    "description": "Google Ads search terms from Search campaigns.",
+                    "type": "string"
+                },
                 "sourceType": {
                     "enum": ["GoogleAds", "BingAds", "GoogleSearchConsole"],
                     "type": "string"
                 },
                 "statsTable": {
+                    "description": "For the Google Ads search term breakdown, the campaign table, which carries the account currency.",
                     "type": "string"
                 }
             },

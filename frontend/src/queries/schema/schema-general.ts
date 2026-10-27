@@ -8246,10 +8246,15 @@ export type CachedMarketingAnalyticsRetentionQueryResponse =
 
 export interface MarketingAnalyticsSearchSource {
     sourceType: 'GoogleAds' | 'BingAds' | 'GoogleSearchConsole'
+    /** For the Google Ads search term breakdown, the campaign table, which carries the account currency. */
     statsTable: string
     keywordTable?: string
     placementTable?: string
     queryPageTable?: boolean
+    /** Google Ads search terms from Search campaigns. */
+    searchTermTable?: string
+    /** Google Ads search terms from Performance Max campaigns. */
+    performanceMaxSearchTermTable?: string
 }
 
 export interface MarketingAnalyticsSearchQuery extends DataNode<MarketingAnalyticsSearchQueryResponse> {
@@ -8258,7 +8263,7 @@ export interface MarketingAnalyticsSearchQuery extends DataNode<MarketingAnalyti
     sources: MarketingAnalyticsSearchSource[]
     compareFilter?: CompareFilter
     search?: string
-    breakdown?: 'keyword' | 'page'
+    breakdown?: 'keyword' | 'page' | 'search_term'
     keyword?: string
     page?: string
     normalizePageUrls?: boolean
