@@ -2897,7 +2897,7 @@ def test_chqueries_middleware_correlates_query_response(
 
     from posthog.api.query import QueryViewSet
     from posthog.event_usage import get_request_analytics_properties
-    from posthog.middleware import CHQueries, QueryRequestIdCorsMiddleware
+    from posthog.middleware import CHQueries
 
     analytics_props: dict[str, object] = {}
     view = QueryViewSet()
@@ -2912,97 +2912,29 @@ def test_chqueries_middleware_correlates_query_response(
         response = Response(
             {"results": []},
             status=status_code,
-            headers={"Server-Timing": "existing;dur=5", "Access-Control-Expose-Headers": "X-Existing"},
+            headers={"Server-Timing": "existing;dur=5"},
         )
         return view.finalize_response(Request(request), response)
 
-    request = RequestFactory().get("/api/projects/@current/query/", HTTP_ORIGIN="https://example.com")
+    request = RequestFactory().get("/api/projects/@current/query/")
     request.user = AnonymousUser()
     request.session = SessionStore()
     with (
-        override_settings(
-            ROOT_URLCONF=QueryResponseRoutes,
-            CORS_ALLOWED_ORIGINS=["https://example.com"],
-            CORS_ALLOW_ALL_ORIGINS=False,
-            CORS_EXPOSE_HEADERS=["X-Configured"],
-        ),
+        override_settings(ROOT_URLCONF=QueryResponseRoutes),
         structlog.contextvars.bound_contextvars(request_id=request_id),
     ):
-        response = QueryRequestIdCorsMiddleware(CHQueries(get_response))(request)
+        response = CHQueries(get_response)(request)
 
     assert isinstance(response, Response)
     assert response.status_code == status_code
     assert response.data == {"results": []}
     assert analytics_props.get("http_request_id") == expected_id
-    assert response["Access-Control-Allow-Origin"] == "https://example.com"
     if expected_id:
         assert response["X-Request-ID"] == expected_id
         assert response["Server-Timing"] == f'existing;dur=5, request_id;desc="{expected_id}"'
-        assert response["Access-Control-Expose-Headers"] == "X-Configured, X-Existing, X-Request-ID"
     else:
         assert "X-Request-ID" not in response
         assert response["Server-Timing"] == "existing;dur=5"
-        assert response["Access-Control-Expose-Headers"] == "X-Configured"
-
-
-@pytest.mark.parametrize(
-    "origin,query_response,configured,expected_exposures,expected_origin",
-    [
-        ("https://example.com", True, [], "X-Existing, X-Request-ID", "https://example.com"),
-        (
-            "https://example.com",
-            True,
-            ["X-Configured"],
-            "X-Configured, X-Existing, X-Request-ID",
-            "https://example.com",
-        ),
-        ("https://example.com", True, ["x-request-id"], "x-request-id, X-Existing", "https://example.com"),
-        ("https://denied.example.com", True, ["X-Configured"], "X-Existing, X-Request-ID", None),
-        ("https://example.com", False, ["X-Configured"], "X-Configured", "https://example.com"),
-    ],
-)
-def test_query_cors_preserves_configuration_and_access_policy(
-    origin: str, query_response: bool, configured: list[str], expected_exposures: str, expected_origin: str | None
-) -> None:
-    from uuid import UUID
-
-    from django.http.response import HttpResponseBase
-
-    from rest_framework.request import Request
-    from rest_framework.response import Response
-
-    from posthog.api.query import QueryViewSet
-    from posthog.clickhouse.query_tagging import tags_context
-    from posthog.middleware import QueryRequestIdCorsMiddleware
-
-    request_id = "01234567-89ab-4def-8123-456789abcdef"
-    request = RequestFactory().get("/api/projects/@current/query/", HTTP_ORIGIN=origin)
-    view = QueryViewSet()
-    view.headers = {}
-
-    def get_response(request: HttpRequest) -> HttpResponseBase:
-        response = Response(
-            {"results": []},
-            headers={"X-Request-ID": request_id, "Access-Control-Expose-Headers": "X-Existing, X-Request-ID"},
-        )
-        return view.finalize_response(Request(request), response) if query_response else response
-
-    with (
-        override_settings(
-            CORS_ALLOWED_ORIGINS=["https://example.com"],
-            CORS_ALLOW_ALL_ORIGINS=False,
-            CORS_ALLOW_CREDENTIALS=True,
-            CORS_EXPOSE_HEADERS=configured,
-        ),
-        tags_context(http_request_id=UUID(request_id)),
-    ):
-        response = QueryRequestIdCorsMiddleware(get_response)(request)
-
-    assert isinstance(response, Response)
-    assert response["Access-Control-Expose-Headers"] == expected_exposures
-    assert response.get("Access-Control-Allow-Origin") == expected_origin
-    assert response.get("Access-Control-Allow-Credentials") == ("true" if expected_origin else None)
-    assert not response.has_header("Timing-Allow-Origin")
 
 
 @override_settings(CAPTURE_TIME_TO_SEE_DATA=True)

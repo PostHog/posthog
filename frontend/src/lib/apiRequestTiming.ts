@@ -27,10 +27,11 @@ export interface ApiRequestTiming {
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const MAX_PENDING_RESOURCES = 32
 
-/** One POST attempt, with resource phases attributed only by a server-provided request ID. */
+/** One API request, with resource phases attributed only by a server-provided request ID. */
 export class ApiRequestTimingRecorder {
     private readonly startedAt: number
     private fetchStartedAt: number
+    private requestUrl?: string
     private timing: Omit<ApiRequestTiming, 'request_total_ms' | 'resource_timing_status'> = {}
     private responseUrl?: string
     private observer?: PerformanceObserver
@@ -50,13 +51,18 @@ export class ApiRequestTimingRecorder {
         }
     }
 
-    startFetch(): void {
+    startFetch(url: string): void {
         // Authentication can retry internally; only the terminal fetch may supply response identity.
         this.timing = {}
         this.responseUrl = undefined
         this.resourceEntries = []
         this.resourceCollectionOverflowed = false
         this.fetchStartedAt = this.clock.now()
+        try {
+            this.requestUrl = new URL(url, location.href).href
+        } catch {
+            this.requestUrl = undefined
+        }
     }
 
     recordHeaders(response: { status?: number; headers?: Headers; url?: string }): void {
@@ -112,6 +118,8 @@ export class ApiRequestTimingRecorder {
                 }
             } else {
                 if (
+                    entry.name !== this.requestUrl ||
+                    entry.startTime < this.fetchStartedAt - 1 ||
                     !entry.serverTiming?.some(
                         (metric) => metric.name === 'request_id' && UUID_PATTERN.test(metric.description)
                     )

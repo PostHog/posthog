@@ -6154,8 +6154,8 @@ const api = {
     },
 
     queryStatus: {
-        async get(queryId: string, showProgress: boolean): Promise<QueryStatusResponse> {
-            return await new ApiRequest().queryStatus(queryId, showProgress).get()
+        async get(queryId: string, showProgress: boolean, options?: ApiMethodOptions): Promise<QueryStatusResponse> {
+            return await new ApiRequest().queryStatus(queryId, showProgress).get(options)
         },
     },
 
@@ -6757,11 +6757,13 @@ const api = {
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */
     async get<T = any>(url: string, options?: ApiMethodOptions): Promise<T> {
-        const res = await api.getResponse(url, options)
-        return await getJSONFromSuccessResponse(res, 'GET', url)
+        return await withRequestTiming(options, async (timing) => {
+            const res = await api.getResponse(url, options, timing)
+            return await getJSONFromSuccessResponse(res, 'GET', url, timing)
+        })
     },
 
-    async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
+    async getResponse(url: string, options?: ApiMethodOptions, timing?: ApiRequestTimingRecorder): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
 
@@ -6773,7 +6775,8 @@ const api = {
         }
 
         return await handleFetch(url, 'GET', async () => {
-            return fetch(url, {
+            timing?.startFetch(url)
+            const response = await fetch(url, {
                 signal: options?.signal,
                 headers: {
                     ...objectClean(options?.headers ?? {}),
@@ -6782,6 +6785,8 @@ const api = {
                     ...authHeaders,
                 },
             })
+            timing?.recordHeaders(response)
+            return response
         })
     },
 
@@ -6822,24 +6827,10 @@ const api = {
     },
 
     async create<T = any, P = any>(url: string, data?: P, options?: ApiMethodOptions): Promise<T> {
-        const timing = options?.onRequestTiming ? new ApiRequestTimingRecorder() : undefined
-        try {
+        return await withRequestTiming(options, async (timing) => {
             const res = await api.createResponse(url, data, options, timing)
             return await getJSONFromSuccessResponse(res, 'POST', url, timing)
-        } catch (error) {
-            if (error instanceof ApiError) {
-                timing?.recordFailure(error)
-            }
-            throw error
-        } finally {
-            if (timing) {
-                try {
-                    options?.onRequestTiming?.(timing.finish())
-                } catch {
-                    // Observability must not change request success, failure, or cancellation.
-                }
-            }
-        }
+        })
     },
 
     async createResponse(
@@ -6853,7 +6844,7 @@ const api = {
         const isFormData = data instanceof FormData
 
         return await handleFetch(url, 'POST', async () => {
-            timing?.startFetch()
+            timing?.startFetch(url)
             const response = await fetch(url, {
                 method: 'POST',
                 headers: {
@@ -7260,6 +7251,29 @@ async function isStaleSessionResponse(response: Response): Promise<boolean> {
         return data?.code === 'sensitive_action_required_reauth'
     } catch {
         return false
+    }
+}
+
+async function withRequestTiming<T>(
+    options: ApiMethodOptions | undefined,
+    request: (timing?: ApiRequestTimingRecorder) => Promise<T>
+): Promise<T> {
+    const timing = options?.onRequestTiming ? new ApiRequestTimingRecorder() : undefined
+    try {
+        return await request(timing)
+    } catch (error) {
+        if (error instanceof ApiError) {
+            timing?.recordFailure(error)
+        }
+        throw error
+    } finally {
+        if (timing) {
+            try {
+                options?.onRequestTiming?.(timing.finish())
+            } catch {
+                // Observability must not change request success, failure, or cancellation.
+            }
+        }
     }
 }
 

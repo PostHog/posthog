@@ -117,7 +117,33 @@ type QuerySubmitTelemetry = {
     retry_wait_ms: number
     retry_status: number | null
     retry_recovered: boolean
-    request_timings: ApiRequestTiming[]
+    submit_request_timings: ApiRequestTiming[]
+    result_poll_timing?: ApiRequestTiming
+}
+
+const FLATTENED_REQUEST_TIMING_FIELDS = [
+    'http_request_id',
+    'time_to_headers_ms',
+    'body_read_ms',
+    'json_parse_ms',
+    'resource_timing_status',
+] as const
+
+function flattenRequestTiming(
+    timing: ApiRequestTiming | undefined,
+    prefix: '' | 'result_poll_'
+): Record<string, string | number | undefined> {
+    if (!timing) {
+        return {}
+    }
+    return Object.fromEntries(FLATTENED_REQUEST_TIMING_FIELDS.map((field) => [`${prefix}${field}`, timing[field]]))
+}
+
+function requestTimingProperties(telemetry: QuerySubmitTelemetry): Record<string, string | number | undefined> {
+    return {
+        ...flattenRequestTiming(telemetry.submit_request_timings.at(-1), ''),
+        ...flattenRequestTiming(telemetry.result_poll_timing, 'result_poll_'),
+    }
 }
 
 function capacityWaitMs(error: unknown): number | undefined {
@@ -205,7 +231,8 @@ export function queryExportContext<N extends DataNode>(
 export async function pollForResults(
     queryId: string,
     methodOptions?: ApiMethodOptions,
-    onPoll?: (response: QueryStatus) => void
+    onPoll?: (response: QueryStatus) => void,
+    onResultPollTiming?: (timing: ApiRequestTiming) => void
 ): Promise<QueryStatus> {
     // A hidden or offline tab must not consume the polling deadline while it cannot poll.
     let activeElapsedMs = 0
@@ -220,8 +247,18 @@ export async function pollForResults(
         await waitForPollingReady(methodOptions?.signal)
 
         try {
-            const statusResponse = (await api.queryStatus.get(queryId, true)).query_status
+            let pollTiming: ApiRequestTiming | undefined
+            const statusResponse = (
+                await api.queryStatus.get(queryId, true, {
+                    onRequestTiming: (timing) => {
+                        pollTiming = timing
+                    },
+                })
+            ).query_status
             if (statusResponse.complete) {
+                if (pollTiming) {
+                    onResultPollTiming?.(pollTiming)
+                }
                 return statusResponse
             }
             if (onPoll) {
@@ -299,10 +336,9 @@ async function executeQuery<N extends DataNode>(
                         requestOptions: {
                             ...methodOptions,
                             onRequestTiming: (timing) => {
-                                if (submitTelemetry.request_timings.length < MAX_RECORDED_SUBMIT_TIMINGS) {
-                                    submitTelemetry.request_timings.push(timing)
+                                if (submitTelemetry.submit_request_timings.length < MAX_RECORDED_SUBMIT_TIMINGS) {
+                                    submitTelemetry.submit_request_timings.push(timing)
                                 }
-                                methodOptions?.onRequestTiming?.(timing)
                             },
                         },
                         clientQueryId,
@@ -375,7 +411,9 @@ async function executeQuery<N extends DataNode>(
 
     let statusResponse: QueryStatus
     try {
-        statusResponse = await pollForResults(queryId, methodOptions, setPollResponse)
+        statusResponse = await pollForResults(queryId, methodOptions, setPollResponse, (timing) => {
+            submitTelemetry.result_poll_timing = timing
+        })
     } catch (e: any) {
         // A backgrounded tab can outlive the query's status. Submit once more to recover its result.
         //
@@ -430,7 +468,7 @@ export async function performQuery<N extends DataNode>(
         retry_wait_ms: 0,
         retry_status: null,
         retry_recovered: false,
-        request_timings: [],
+        submit_request_timings: [],
     }
     const startTime = performance.now()
 
@@ -483,6 +521,7 @@ export async function performQuery<N extends DataNode>(
             data_warehouse_source_types: warehouseSources.map((s) => s.source_type).filter(Boolean),
             ...logParams,
             ...submitTelemetry,
+            ...requestTimingProperties(submitTelemetry),
         })
         const historySources = warehouseSources.filter((s) => s.uses_history_table)
         if (historySources.length > 0) {
@@ -510,6 +549,7 @@ export async function performQuery<N extends DataNode>(
                 uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
                 ...logParams,
                 ...submitTelemetry,
+                ...requestTimingProperties(submitTelemetry),
                 retry_recovered: false,
             })
         }

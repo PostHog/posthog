@@ -116,7 +116,7 @@ describe('API request timing', () => {
 
         it.each(['abort', 'network'])('does not attribute an auth retry %s to the preceding response', (failure) => {
             entries = [resource()]
-            recorder.startFetch()
+            recorder.startFetch('https://example.com/api/query/')
             if (failure === 'network') {
                 recorder.recordFailure({})
             }
@@ -131,7 +131,7 @@ describe('API request timing', () => {
         it('rejects the preceding auth response when a successful retry reuses its request ID', () => {
             entries = [resource()]
             now = 500
-            recorder.startFetch()
+            recorder.startFetch('https://example.com/api/query/')
             now = 600
             recorder.recordHeaders({
                 status: 200,
@@ -198,7 +198,7 @@ describe('API request timing', () => {
 
         it('attributes a completed request even when the global resource buffer has stopped recording', () => {
             const recorder = new ApiRequestTimingRecorder({ now: () => now, getEntriesByName: () => [] })
-            recorder.startFetch()
+            recorder.startFetch(url)
             now = 210
             recorder.recordHeaders({ status: 200, url, headers: new Headers({ 'X-Request-ID': REQUEST_ID }) })
             // Resource callbacks may still be pending when the fetch body has completed.
@@ -218,10 +218,20 @@ describe('API request timing', () => {
             expect(recorder.finish().resource_timing_status).toBe('matched')
         })
 
-        it('retains resource phases when unidentifiable resources complete before response headers', () => {
+        it.each([
+            ['unidentifiable resources', 40, (): PerformanceResourceTiming => ({ ...resource(), serverTiming: [] })],
+            [
+                'identified requests to other URLs',
+                33,
+                (): PerformanceResourceTiming => ({
+                    ...resource(OTHER_REQUEST_ID),
+                    name: 'https://example.com/api/environments/1/query/other/',
+                }),
+            ],
+        ])('retains resource phases when %s complete before response headers', (_name, count, unrelated) => {
             const recorder = new ApiRequestTimingRecorder({ now: () => now, getEntriesByName: () => [] })
-            recorder.startFetch()
-            observer.deliver([resource(), ...Array.from({ length: 40 }, () => ({ ...resource(), serverTiming: [] }))])
+            recorder.startFetch(url)
+            observer.deliver([...Array.from({ length: count }, unrelated), resource()])
             recorder.recordHeaders({ status: 200, url, headers: new Headers({ 'X-Request-ID': REQUEST_ID }) })
             now = 320
             expect(recorder.finish()).toEqual(
@@ -239,7 +249,7 @@ describe('API request timing', () => {
 
         it('leaves ownership unknown when bounded collection could have discarded a duplicate identity', () => {
             const recorder = new ApiRequestTimingRecorder({ now: () => now, getEntriesByName: () => [] })
-            recorder.startFetch()
+            recorder.startFetch(url)
             observer.deliver([resource(), ...Array.from({ length: 64 }, () => resource(OTHER_REQUEST_ID)), resource()])
             recorder.recordHeaders({ status: 200, url, headers: new Headers({ 'X-Request-ID': REQUEST_ID }) })
             now = 320
@@ -251,7 +261,7 @@ describe('API request timing', () => {
 
         it('disconnects after a request fails before receiving an identity', () => {
             const recorder = new ApiRequestTimingRecorder({ now: () => now, getEntriesByName: () => [] })
-            recorder.startFetch()
+            recorder.startFetch(url)
             recorder.recordFailure({})
             expect(recorder.finish().resource_timing_status).toBe('missing_request_id')
             expect(observer.disconnect).toHaveBeenCalledTimes(1)
