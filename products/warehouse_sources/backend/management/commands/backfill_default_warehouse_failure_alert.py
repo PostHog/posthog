@@ -58,7 +58,8 @@ class Command(BaseCommand):
             raise CommandError("--batch-size must be 1 or greater")
 
         candidates = (
-            ExternalDataSource.objects.filter(deleted=False)
+            # `deleted` is nullable, and a NULL row is not deleted.
+            ExternalDataSource.objects.exclude(deleted=True)
             .order_by("team_id")
             .values_list("team_id", flat=True)
             .distinct()

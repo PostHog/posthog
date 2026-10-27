@@ -103,7 +103,7 @@ def notify_external_data_sync_failures(
     """
     try:
         team = Team.objects.filter(id=team_id).first()
-        # The schemas stay unstamped, so the catch-up sends their digest if the alert goes away.
+        # The schemas stay unstamped, so the team's next digest lists them if the alert goes away.
         if team is not None and alerts_replace_failure_digest(team):
             logger.info("External data sync failure digest replaced by a warehouse alert", team_id=team_id)
             return
