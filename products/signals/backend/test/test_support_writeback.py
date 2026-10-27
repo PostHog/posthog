@@ -13,11 +13,11 @@ from products.conversations.backend.models import ConversationDelivery, TeamConv
 from products.conversations.backend.models.constants import TicketMessageType
 from products.conversations.backend.services.messages import ticket_message_type
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalReportTask
 from products.signals.backend.pull_requests import PullRequestStateSource, link_pull_request
 from products.signals.backend.report_assignments import PullRequestDetails
 from products.signals.backend.support_writeback import post_pull_request_to_tickets, post_report_findings_to_tickets
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import Task, TaskRun
 
 WRITEBACK_MODULE_PATH = "products.signals.backend.support_writeback"
 
@@ -170,14 +170,30 @@ class TestPostReportFindingsToTickets(BaseTest):
             assert ticket_message_type(reply.item_context, reply.created_by_id) == TicketMessageType.INTERNAL_NOTE
             assert not ConversationDelivery.objects.for_team(self.team.id).filter(comment_id=reply.id).exists()
 
-    def test_linking_pull_request_queues_ticket_note_once(self):
+    def test_linking_pull_request_queues_ticket_note_only_after_verification(self):
         pr_url = "https://github.com/PostHog/posthog/pull/123"
         task = Task.objects.create(team=self.team, created_by=self.user)
+        SignalReportTask.objects.create(team=self.team, report=self.report, task=task, relationship="implementation")
         details = PullRequestDetails(
             url=pr_url, repository="PostHog/posthog", number=123, state="unknown", merged=False
         )
 
-        with patch("products.signals.backend.tasks.write_pull_request_to_support_tickets.delay") as send_note:
+        with (
+            patch("products.tasks.backend.facade.api.is_verified_task_pr_url") as verified,
+            patch("products.signals.backend.tasks.write_pull_request_to_support_tickets.delay") as send_note,
+        ):
+            verified.return_value = False
+            with self.captureOnCommitCallbacks(execute=True):
+                link_pull_request(
+                    report=self.report,
+                    details=details,
+                    actor=ArtefactAttribution.from_task(str(task.id)),
+                    claim_id=None,
+                    state_source=PullRequestStateSource.TASK_OUTPUT,
+                    notify_reviewers=False,
+                )
+            send_note.assert_not_called()
+            verified.return_value = True
             with self.captureOnCommitCallbacks(execute=True):
                 for _ in range(2):
                     link_pull_request(
@@ -203,7 +219,49 @@ class TestPostReportFindingsToTickets(BaseTest):
                     notify_reviewers=False,
                 )
 
-        send_note.assert_called_once_with(self.team.pk, str(self.report.id), pr_url)
+        assert send_note.call_count == 2
+        send_note.assert_called_with(self.team.pk, str(self.report.id), pr_url, str(task.id))
+
+    def test_unrelated_task_cannot_queue_ticket_note(self):
+        task = Task.objects.create(team=self.team, created_by=self.user)
+        details = PullRequestDetails(
+            url="https://github.com/PostHog/posthog/pull/123",
+            repository="PostHog/posthog",
+            number=123,
+            state="unknown",
+            merged=False,
+        )
+        with (
+            patch("products.tasks.backend.facade.api.is_verified_task_pr_url", return_value=True),
+            patch("products.signals.backend.tasks.write_pull_request_to_support_tickets.delay") as send_note,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            link_pull_request(
+                report=self.report,
+                details=details,
+                actor=ArtefactAttribution.from_task(str(task.id)),
+                claim_id=None,
+                notify_reviewers=False,
+            )
+        send_note.assert_not_called()
+
+    def test_worker_rechecks_verified_task_pr_before_ticket_write(self):
+        from products.signals.backend.tasks import write_pull_request_to_support_tickets
+
+        pr_url = "https://github.com/PostHog/posthog/pull/123"
+        task = Task.objects.create(team=self.team, created_by=self.user)
+        SignalReportTask.objects.create(team=self.team, report=self.report, task=task, relationship="implementation")
+        run = TaskRun.objects.create(team=self.team, task=task, state={})
+
+        with patch("products.signals.backend.tasks.fetch_signals_for_report_sync", return_value=[self.signal]):
+            write_pull_request_to_support_tickets.run(self.team.pk, str(self.report.id), pr_url, str(task.id))
+            assert not _ticket_notes(self.team, self.ticket).exists()
+
+            run.state = {"verified_pr_urls": [pr_url]}
+            run.save(update_fields=["state"])
+            write_pull_request_to_support_tickets.run(self.team.pk, str(self.report.id), pr_url, str(task.id))
+
+        assert _ticket_notes(self.team, self.ticket).count() == 1
 
     def test_ignores_signals_from_other_products(self):
         error_signal = {"source_product": "error_tracking", "source_id": "issue-1"}

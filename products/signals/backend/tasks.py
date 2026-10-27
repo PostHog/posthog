@@ -83,7 +83,10 @@ from products.signals.backend.scout_harness.slack_delivery import (
 from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
 from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
 from products.signals.backend.slack_report_threads import record_scout_report_slack_replies, scout_report_slack_message
-from products.signals.backend.support_writeback import post_pull_request_to_tickets
+from products.signals.backend.support_writeback import (
+    post_pull_request_to_tickets,
+    task_can_write_support_ticket_update,
+)
 from products.signals.backend.tracker_issues import close_tracker_issue_for_report, link_pull_request_to_tracker_issue
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
@@ -92,7 +95,9 @@ logger = structlog.get_logger(__name__)
 
 @shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
 @with_team_scope()
-def write_pull_request_to_support_tickets(team_id: int, report_id: str, pr_url: str) -> None:
+def write_pull_request_to_support_tickets(team_id: int, report_id: str, pr_url: str, task_id: str) -> None:
+    if not task_can_write_support_ticket_update(team_id=team_id, report_id=report_id, task_id=task_id, pr_url=pr_url):
+        return
     team = Team.objects.filter(id=team_id).first()
     if team is None:
         return

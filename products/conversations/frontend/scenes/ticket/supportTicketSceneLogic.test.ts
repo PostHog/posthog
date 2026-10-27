@@ -348,6 +348,19 @@ describe('supportTicketSceneLogic chatMessages mapping', () => {
         expect(logic.values.latestAiDraftId).toBe('new-draft')
     })
 
+    it('shows automated private notes without treating them as AI drafts', () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_SUPPORT_AI_NOTES]: false })
+        logic.actions.setMessages([
+            {
+                ...makeAiComment('pr-update'),
+                item_context: { author_type: 'AI', is_private: true, automated_update_key: 'pr-123' },
+            } as unknown as CommentType,
+        ])
+
+        expect(logic.values.chatMessages).toEqual([expect.objectContaining({ id: 'pr-update', automatedUpdate: true })])
+        expect(logic.values.latestAiDraftId).toBeNull()
+    })
+
     it('selects widget delivery statuses for public team messages', () => {
         logic.actions.setTicket({ ...makeTicket(), unread_customer_count: 1 })
         logic.actions.setMessages([

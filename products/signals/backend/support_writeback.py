@@ -17,10 +17,21 @@ from posthog.models.github_integration_base import GitHubIntegrationBase
 
 from products.conversations.backend.facade import api as conversations_facade
 from products.signals.backend.enums import SignalSourceProduct
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalReportTask
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 
 logger = structlog.get_logger(__name__)
+
+
+def task_can_write_support_ticket_update(*, team_id: int, report_id: str, task_id: str, pr_url: str) -> bool:
+    from products.tasks.backend.facade import api as tasks_facade
+
+    return SignalReportTask.objects.filter(
+        team_id=team_id,
+        report_id=report_id,
+        task_id=task_id,
+        relationship="implementation",
+    ).exists() and tasks_facade.is_verified_task_pr_url(task_id=task_id, team_id=team_id, pr_url=pr_url)
 
 
 def _note_body(report_url: str) -> str:

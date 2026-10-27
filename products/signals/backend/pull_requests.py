@@ -128,7 +128,8 @@ def link_pull_request(
         claim_id=claim_id,
         type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
     )
-    if not links.exists():
+    new_link = not links.exists()
+    if new_link:
         link = SignalReportArtefact.add_log(
             team_id=report.team_id,
             report_id=str(report.id),
@@ -138,22 +139,6 @@ def link_pull_request(
         )
         link.pull_request = pr
         link.save(update_fields=["pull_request"])
-        if (
-            actor.kind == "task"
-            and state_source != PullRequestStateSource.LEGACY_ASSIGNMENT
-            and pr.state
-            in {
-                SignalReportPullRequest.State.DRAFT,
-                SignalReportPullRequest.State.OPEN,
-                SignalReportPullRequest.State.UNKNOWN,
-            }
-        ):
-            from products.signals.backend.tasks import write_pull_request_to_support_tickets
-
-            transaction.on_commit(
-                partial(write_pull_request_to_support_tickets.delay, report.team_id, str(report.id), pr.url),
-                robust=True,
-            )
         if (
             state_source != PullRequestStateSource.LEGACY_ASSIGNMENT
             and report.status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}
@@ -176,6 +161,31 @@ def link_pull_request(
             )
             schedule_pull_request_label(
                 team_id=report.team_id, report_id=str(report.id), pr_url=pr.url, pr_state=pr.state
+            )
+    if (
+        actor.kind == "task"
+        and actor.task_id
+        and (new_link or state_source == PullRequestStateSource.TASK_OUTPUT)
+        and state_source != PullRequestStateSource.LEGACY_ASSIGNMENT
+        and pr.state
+        in {
+            SignalReportPullRequest.State.DRAFT,
+            SignalReportPullRequest.State.OPEN,
+            SignalReportPullRequest.State.UNKNOWN,
+        }
+    ):
+        from products.signals.backend.support_writeback import task_can_write_support_ticket_update
+
+        if task_can_write_support_ticket_update(
+            team_id=report.team_id, report_id=str(report.id), task_id=actor.task_id, pr_url=pr.url
+        ):
+            from products.signals.backend.tasks import write_pull_request_to_support_tickets
+
+            transaction.on_commit(
+                partial(
+                    write_pull_request_to_support_tickets.delay, report.team_id, str(report.id), pr.url, actor.task_id
+                ),
+                robust=True,
             )
     if notify_reviewers and state_source != PullRequestStateSource.LEGACY_ASSIGNMENT:
         # Every verified PR refresh can change paths, ownership, membership, or linked identities.
