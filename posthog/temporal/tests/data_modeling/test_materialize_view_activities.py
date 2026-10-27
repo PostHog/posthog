@@ -936,6 +936,7 @@ class TestNodeSuspension:
             "ch-offline.example.com:9440: While executing Remote. (ATTEMPT_TO_READ_AFTER_EOF)",
             "Cannot connect to host ch-offline.example.com:8443",
             'ProxyConnectionError: Failed to connect to proxy URL: "http://proxy.example.com:3128/"',
+            "PanicException: Memory pointer from external source (e.g, FFI) is not aligned with the specified scalar type.",
             "Abandoned: the materialization workflow is no longer running",
             "QueueEmpty: Application error",
             "Preempted: a new DAG run started before this job completed",
