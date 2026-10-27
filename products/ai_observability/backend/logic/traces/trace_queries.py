@@ -65,6 +65,14 @@ class TraceEventRow:
 
 
 @frozen
+class GitStampRow:
+    uuid: str
+    timestamp: datetime
+    git_branch: str | None
+    git_repo: str | None
+
+
+@frozen
 class PersonRow:
     distinct_id: str
     email: str | None
@@ -137,11 +145,13 @@ _SELECTED: dict[str, ast.Expr] = {
 }
 
 
-def _select() -> list[ast.Expr]:
-    return [
-        expr if isinstance(expr, ast.Field) and expr.chain == [alias] else ast.Alias(alias=alias, expr=expr)
-        for alias, expr in _SELECTED.items()
-    ]
+def _selected(alias: str) -> ast.Expr:
+    expr = _SELECTED[alias]
+    return expr if isinstance(expr, ast.Field) and expr.chain == [alias] else ast.Alias(alias=alias, expr=expr)
+
+
+def _select(aliases: Sequence[str]) -> list[ast.Expr]:
+    return [_selected(alias) for alias in aliases]
 
 
 def _ai_events() -> ast.JoinExpr:
@@ -166,21 +176,28 @@ def _filter_conditions() -> ast.Placeholder:
     return ast.Placeholder(expr=ast.Field(chain=["filter_conditions"]))
 
 
-def _trace_rows_query(*conditions: ast.Expr) -> ast.SelectQuery:
+def _trace_rows_query(columns: Sequence[str] = tuple(_SELECTED)) -> ast.SelectQuery:
     return ast.SelectQuery(
-        select=_select(),
+        select=_select(columns),
         select_from=_ai_events(),
-        where=ast.And(exprs=[_event_in(TRACE_EVENT_NAMES), *conditions, _filter_conditions()]),
+        where=ast.And(exprs=[_event_in(TRACE_EVENT_NAMES), _filter_conditions()]),
         order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC")],
         limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[ast.Field(chain=["uuid"])]),
         limit=ast.Constant(value=MAX_TRACE_EVENTS),
     )
 
 
-def _has_git_branch() -> ast.Expr:
-    # HogQL makes `!=` true for NULL, so a missing property is folded into the empty string first.
-    branch = ast.Call(name="ifNull", args=[ast.Field(chain=["properties", "$ai_git_branch"]), ast.Constant(value="")])
-    return ast.Call(name="notEmpty", args=[branch])
+def _git_stamps_query() -> ast.SelectQuery:
+    # The stamps come from the same first events load_trace reads, so the chip and its pull request agree on a trace
+    # longer than MAX_TRACE_EVENTS.
+    columns = ("uuid", "timestamp", "git_branch", "git_repo")
+    # HogQL makes `!=` true for NULL, so a missing branch is folded into the empty string first.
+    branch = ast.Call(name="ifNull", args=[ast.Field(chain=["git_branch"]), ast.Constant(value="")])
+    return ast.SelectQuery(
+        select=[ast.Field(chain=[column]) for column in columns],
+        select_from=ast.JoinExpr(table=_trace_rows_query(columns)),
+        where=ast.Call(name="notEmpty", args=[branch]),
+    )
 
 
 def _node_query(selection: ast.Expr) -> ast.SelectQuery:
@@ -434,16 +451,10 @@ def load_trace_root(team: Team, user: User | None, trace_id: str, timestamp_hint
 
 def load_trace_git_rows(
     team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None
-) -> tuple[TraceEventRow, ...]:
+) -> tuple[GitStampRow, ...]:
     return tuple(
-        _trace_event_row(values)
-        for values in _read_trace(
-            "ai_trace_git",
-            lambda: _trace_rows_query(_has_git_branch()),
-            team,
-            user,
-            trace_id,
-            timestamp_hint,
-            widen_unhinted=False,
+        GitStampRow(uuid=str(uuid), timestamp=timestamp, git_branch=read_text(branch), git_repo=read_text(repo))
+        for uuid, timestamp, branch, repo in _read_trace(
+            "ai_trace_git", _git_stamps_query, team, user, trace_id, timestamp_hint, widen_unhinted=False
         )
     )

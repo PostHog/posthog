@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -11,7 +12,9 @@ from posthog.models.ai_events.sql import AI_EVENTS_MV_SQL
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
 
+from products.ai_observability.backend.logic.traces import trace_queries
 from products.ai_observability.backend.logic.traces.trace_queries import (
+    GitStampRow,
     TraceRootLookup,
     is_truthy_json,
     load_trace,
@@ -235,6 +238,24 @@ class TestLoadTraceGitRows(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
         )
 
         assert [row.uuid for row in load_trace_git_rows(self.team, None, "trace-1", T0)] == [stamped]
+
+    def test_reads_stamps_only_from_the_events_the_trace_loads(self) -> None:
+        bulk_create_ai_events(
+            [
+                self._event(NODE, properties={"$ai_git_branch": "feat/one", "$ai_git_repo": "acme/app"}),
+                self._event("00000000-0000-0000-0000-000000000002", timestamp=T0 + timedelta(seconds=1)),
+                self._event(
+                    "00000000-0000-0000-0000-000000000003",
+                    timestamp=T0 + timedelta(seconds=2),
+                    properties={"$ai_git_branch": "feat/two"},
+                ),
+            ]
+        )
+
+        with patch.object(trace_queries, "MAX_TRACE_EVENTS", 2):
+            rows = load_trace_git_rows(self.team, None, "trace-1", T0)
+
+        assert rows == (GitStampRow(uuid=NODE, timestamp=T0, git_branch="feat/one", git_repo="acme/app"),)
 
 
 class TestEventsFallback(TraceEventsMixin, ClickhouseTestMixin, BaseTest):

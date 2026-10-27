@@ -1,17 +1,25 @@
 from collections.abc import Iterable
 from datetime import datetime
-from typing import TYPE_CHECKING, Self
+from typing import Protocol, Self
 
 from posthog.dataclasses import frozen
-
-if TYPE_CHECKING:
-    from .trace_queries import TraceEventRow
 
 # The repo's real default branch is not known here, so these two names stand in for it.
 _DEFAULT_BRANCHES = frozenset({"main", "master"})
 
 
-def _stamp_order(row: "TraceEventRow") -> tuple[datetime, str]:
+class GitStamp(Protocol):
+    @property
+    def uuid(self) -> str: ...
+    @property
+    def timestamp(self) -> datetime: ...
+    @property
+    def git_branch(self) -> str | None: ...
+    @property
+    def git_repo(self) -> str | None: ...
+
+
+def _stamp_order(row: GitStamp) -> tuple[datetime, str]:
     # Ties break on the uuid so every read of the same rows picks the same event.
     return (row.timestamp, row.uuid)
 
@@ -27,7 +35,7 @@ class GitRef:
         return self.branch in _DEFAULT_BRANCHES
 
     @classmethod
-    def from_rows(cls, rows: Iterable["TraceEventRow"]) -> Self | None:
+    def from_rows(cls, rows: Iterable[GitStamp]) -> Self | None:
         """The branch the trace's work ran on. A coding agent often starts on the default branch and creates the
         feature branch during the trace, so the latest stamp on another branch wins. A trace that never leaves the
         default branch keeps its first stamp."""
