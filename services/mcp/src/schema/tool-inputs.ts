@@ -787,9 +787,12 @@ export const PathCleaningRulesUpdateSchema = z.object({
         ),
 })
 
-export const ProjectSetActiveSchema = z.object({
-    projectId: z.number().int().positive(),
-})
+export const ProjectSetActiveSchema = z.preprocess(
+    normalizeParamAliases({ projectId: ['project_id', 'new_project_id'] }),
+    z.object({
+        projectId: z.number().int().positive(),
+    })
+)
 
 const taskAgentRunOptions = {
     // Use a pattern because JSON Schema's date-time format requires a timezone offset.

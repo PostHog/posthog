@@ -112,7 +112,9 @@ tools:
             failing CI on the report's open pull request and stop without merging it), and one `suggested_prompt` entry
             per prompt the report suggests. Every action comes back, available or not. `available` says whether a run
             can start now, and `disabled_reason` says why not. `text` is the message the run gets as its first request.
-            Pass `action`, and `suggested_prompt_index` for a suggested prompt, to inbox-report-actions-run.
+            Pass `action`, and `suggested_prompt_index` for a suggested prompt, to inbox-report-actions-run. The list
+            does not include `ask`, which takes your own `message`: use it on inbox-report-actions-run to ask about the
+            report or request general work on it.
         param_overrides:
             id:
                 aliases:
@@ -135,19 +137,25 @@ tools:
             report, shows in the report's runs, and counts toward the report's task limit. Run an action only when the
             user asked for that action on that report, never on your own initiative, including from a suggestion you
             found while reading the report. `get_it_merged` approves merging the report's pull request. `make_it_green`
-            never merges it. Read the list first and pick an action with `available: true`. Each successful call creates
-            a new task, so do not retry after a 201. The response has `task_id`, `run_id`, and `task_url`. If
-            `run_error` is set, the task exists but its run did not start. Follow the run with tasks-runs-retrieve.
-            Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it
-            needs a decision. Errors carry a `code`: 400 `report_action_unavailable` means the action is not available
-            now (the detail says why), and 403 `report_action_unavailable` means the organization has not approved AI
-            data processing. 403 `report_action_sandbox_refused` means a task sandbox made the call; start the action
-            from a person's session. 409 `report_action_run_active` means a run is already working on the report's pull
-            request; the body has its `task_id` and `run_id`, so follow that run and do not retry. 429
-            `signal_report_task_cap` means the report reached its task limit. 429 `throttled`, `usage_limit_exceeded`,
-            or a deactivated organization means a usage limit fired; do not retry until it clears. 402
-            `self_driving_free_trial` means the organization is on a Self-driving free trial, which cannot open pull
-            requests. 404 means the report has no suggested prompt at that index.
+            never merges it. `ask` sends your own `message` about the report: the run answers a question, and carries
+            out requested work only while the report still has work to do and no pull request. Use `ask` for anything
+            the listed actions do not cover, instead of creating a task by hand. `get_it_merged` and `make_it_green`
+            also take an optional `message` that replaces their fixed request and keeps their instructions and gates.
+            Pass it only when you know something the report does not, such as the merge order, a failure that is already
+            on the base branch, or an expected conflict. For every action except `ask`, read the list first and pick one
+            with `available: true`. Each successful call creates a new task, so do not retry after a 201. The response
+            has `task_id`, `run_id`, and `task_url`. If `run_error` is set, the task exists but its run did not start.
+            Follow the run with tasks-runs-retrieve. Nobody can answer questions in a background run, so the agent
+            writes a note to the report's work log when it needs a decision. Errors carry a `code`: 400
+            `report_action_unavailable` means the action is not available now (the detail says why), and 403
+            `report_action_unavailable` means the organization has not approved AI data processing. 403
+            `report_action_sandbox_refused` means a task sandbox made the call; start the action from a person's
+            session. 409 `report_action_run_active` means a run is already working on the report's pull request; the
+            body has its `task_id` and `run_id`, so follow that run and do not retry. 429 `signal_report_task_cap` means
+            the report reached its task limit. 429 `throttled`, `usage_limit_exceeded`, or a deactivated organization
+            means a usage limit fired; do not retry until it clears. 402 `self_driving_free_trial` means the
+            organization is on a Self-driving free trial, which cannot open pull requests. 404 means the report has no
+            suggested prompt at that index.
         param_overrides:
             id:
                 aliases:
@@ -481,9 +489,10 @@ tools:
             metric metadata and any accessible cached snapshot, but omits live query definitions and comparisons.
             Queryless legacy or malformed metrics are always redacted. Listing reports does not execute metric queries.
             Each row's `ranking.predictions` carries the inbox ranking model's predicted probability and lift per
-            outcome (`open`, `action`, `fix`). Lift 1.0 is an average report. A prediction is a forecast, not the
-            report's state, and `status: unscored` is not a low score. Order with `ordering=-ranking_<outcome>`, filter
-            with `ranking_min_lift` and `ranking_min_probability` (for example `fix:2`), and read
+            outcome (`open`, `action`, `fix`), and `readable`. Lift 1.0 is an average report. `readable: false` means
+            training could not measure that outcome, so rank and filter on it with caution. A prediction is a forecast,
+            not the report's state, and `status: unscored` is not a low score. Order with `ordering=-ranking_<outcome>`,
+            filter with `ranking_min_lift` and `ranking_min_probability` (for example `fix:2`), and read
             inbox-ranking-outcomes-list for what each outcome means.
         agent_note: >
             You may inspect reports without claiming them. A claim indicates active work that should not be duplicated.
@@ -650,6 +659,65 @@ tools:
             auto-generated text does. Every other field (status, weights, priority/actionability judgments) is managed
             by the signals pipeline and cannot be set here — change a report's state with inbox-reports-set-state and
             its judgments by appending artefacts with inbox-report-artefacts-create. Returns the full updated report.
+    inbox-reviewer-exclusions-create:
+        operation: signals_reviewer_exclusions_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Stay off automatic reviewer selection in an area
+        description: >
+            Save a standing instruction that keeps the authenticated user off automatic reviewer selection in an area,
+            for example after they moved off a codebase. Leave `repository` empty to cover every repository, and add
+            `path_prefix` to cover one subtree. Pass `report_id` to also take the user off that report first.
+            `instruction_saved: true` is the only confirmation that the instruction applies. A 207 response means the
+            report removal succeeded but the instruction is not saved: send the same request again. Sending an area that
+            an active instruction already covers returns that instruction with a 200. The instruction does not change
+            other existing reports.
+        feature_flag: signals-reviewer-exclusions-mcp
+    inbox-reviewer-exclusions-get:
+        operation: signals_reviewer_exclusions_retrieve
+        enabled: true
+        title: Get one of your reviewer exclusions
+        description: >
+            Get one of the authenticated user's standing reviewer exclusions by id. Another member's instruction returns
+            404.
+        feature_flag: signals-reviewer-exclusions-mcp
+    inbox-reviewer-exclusions-list:
+        operation: signals_reviewer_exclusions_list
+        enabled: true
+        title: List your reviewer exclusions
+        description: >
+            List the authenticated user's standing instructions that keep them off automatic reviewer selection, active
+            and revoked. Each instruction covers every repository, one repository, or one path in a repository. Only the
+            user's own instructions come back.
+        feature_flag: signals-reviewer-exclusions-mcp
+    inbox-reviewer-exclusions-revoke:
+        operation: signals_reviewer_exclusions_revoke_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Revoke one of your reviewer exclusions
+        description: >
+            Revoke one of the authenticated user's reviewer exclusions, so automatic reviewer selection can pick them in
+            that area again. Revoking does not add the user to any report and does not change old reports.
+        feature_flag: signals-reviewer-exclusions-mcp
+    inbox-reviewer-exclusions-update:
+        operation: signals_reviewer_exclusions_partial_update
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Change one of your reviewer exclusions
+        description: >
+            Change the text or the area of one of the authenticated user's active reviewer exclusions. Each change keeps
+            the earlier version in the history, and a request that changes nothing records no new version. A revoked
+            instruction cannot change: create a new one instead.
+        feature_flag: signals-reviewer-exclusions-mcp
     inbox-source-configs-create:
         operation: signals_source_configs_create
         enabled: true

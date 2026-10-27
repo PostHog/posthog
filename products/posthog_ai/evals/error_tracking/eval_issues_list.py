@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import NoToolCall
@@ -85,7 +85,7 @@ async def eval_issues_list(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-error-tracking-issues-list-cli",
         offline_suite=offline_suite(
             "error_tracking/eval_issues_list::eval_issues_list",

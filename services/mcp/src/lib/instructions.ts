@@ -237,6 +237,7 @@ export class ToolDomainExtractor {
         'reset',
         'restore',
         'resume',
+        'revoke',
         'ship',
         'show',
         'start',
