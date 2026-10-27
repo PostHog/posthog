@@ -7,11 +7,14 @@ makes each pick a train step or a score step, and each kind has its own budgets.
 
 With the split on, the tick runs two passes, each with its own order and pick cap. The score pass goes
 first: it takes the trained insights from their stored state, longest overdue first, so cheap score steps
-keep them current. The train pass then takes the other due insights in the `pick_order` order.
+keep them current. The train pass then takes the other due insights in the `pick_order` order. An insight
+whose model is due for a soft retrain goes to the train pass first. When the train pass does not pick it,
+the score pass scores it with the old model, so the train budget does not decide the score coverage.
 """
 
 import datetime
 import itertools
+import dataclasses
 from collections.abc import Callable, Collection
 from typing import Any, cast
 
@@ -53,7 +56,7 @@ from products.signals.backend.anomaly_scores.selection import (
     pick_order,
     score_order,
 )
-from products.signals.backend.anomaly_scores.state import RunPlan, load_states, plan_run, scored_through_by_insight
+from products.signals.backend.anomaly_scores.state import RunPlan, load_states, plan_run, score_ready_by_insight
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 
@@ -139,6 +142,21 @@ class Selection:
     # Picks of the score pass and of the train pass. With the split off, every pick is a train pass pick.
     picked_score: int = 0
     picked_train: int = 0
+    # Score pass picks that score with a model due for a soft retrain.
+    scored_stale_model: int = 0
+    # Due train candidates that the train pass did not pick: soft ones still score with a stale model, hard ones do not.
+    train_backlog_soft: int = 0
+    train_backlog_hard: int = 0
+
+
+@frozen
+class ScorePassOrder:
+    # Due insights with a current model, longest overdue first.
+    order: list[int]
+    # Due insights with a model past a soft retrain trigger, longest overdue first.
+    stale_order: list[int]
+    # Every watched insight with a current model, due or not.
+    ready: set[int]
 
 
 @frozen
@@ -436,24 +454,31 @@ def select_insights(
             planned.update(_run_plans(teams[team_id], team_batch, config, now))
         return {insight_id: planned[insight_id] for insight_id in insight_ids}
 
-    def walk(order: list[int], kind: ScoringRun, cap: int) -> tuple[dict[int, RunPlan], int]:
+    def walk(
+        order: list[int],
+        kind: ScoringRun,
+        cap: int,
+        plans: Callable[[list[int]], dict[int, RunPlan]] = plans_for,
+    ) -> tuple[dict[int, RunPlan], int]:
         # Read the budget before any cost, so a spent hour loads no insight.
         return within_budget(
             order,
             team_ids,
             {kind: remaining_budget(config, {team_ids[insight_id] for insight_id in order}, now, kind)},
             cap,
-            plans_for,
+            plans,
             reserve=lambda team_id, plan: reserve_queries(config, team_id, plan.queries, now, budget_kind(plan.run)),
         )
 
     score_order_ids: list[int] = []
+    stale_order_ids: list[int] = []
     score_ready: set[int] = set()
     score_picked: dict[int, RunPlan] = {}
     score_skipped = 0
+    score_cap = config.max_score_insights_per_tick if limit is None else limit
     if config.train_score_split:
-        score_order_ids, score_ready = _score_order(watched_by_id, teams, config, now)
-        score_cap = config.max_score_insights_per_tick if limit is None else limit
+        score_pass = _score_order(watched_by_id, teams, config, now)
+        score_order_ids, stale_order_ids, score_ready = score_pass.order, score_pass.stale_order, score_pass.ready
         score_picked, score_skipped = walk(score_order_ids, ScoringRun.SCORE, score_cap)
         # A spent score budget makes the walk load no plan. Plan the head of the order anyway, so that an
         # edited insight there still reaches the train pass while the train budget has room.
@@ -461,6 +486,7 @@ def select_insights(
     # A score-ready insight belongs to the score pass, also when its cap or budget left it out this tick.
     # Without this, the train pass loads a plan for every one of them and then passes over it. An insight
     # that the score pass planned as a train step, for example after an edit, goes to the train pass.
+    # A stale model goes to the train pass first, and the score pass takes it back below.
     score_only = {
         insight_id
         for insight_id in score_ready
@@ -507,9 +533,25 @@ def select_insights(
         train_cap = config.max_train_insights_per_tick
     else:
         train_cap = config.max_insights_per_tick
-    # With the split off, every pick charges the train budgets.
+    # A stale model plans as a train step here. With the split off, every pick charges the train budgets.
     train_picked, train_skipped = walk(train_order, ScoringRun.TRAIN, train_cap if limit is None else limit)
 
+    stale_picked: dict[int, RunPlan] = {}
+    stale_skipped = 0
+    stale_cap = score_cap - len(score_picked)
+    if config.train_score_split and stale_cap > 0:
+        stale_picked, stale_skipped = walk(
+            [insight_id for insight_id in stale_order_ids if insight_id not in train_picked],
+            ScoringRun.SCORE,
+            stale_cap,
+            lambda insight_ids: {
+                insight_id: _as_score_step(plan) for insight_id, plan in plans_for(insight_ids).items()
+            },
+        )
+    score_picked.update(stale_picked)
+
+    stale_ready = set(stale_order_ids)
+    backlog = [insight_id for insight_id in due_by_id if insight_id not in train_picked]
     picks = [
         InsightPick(
             team_id=team_ids[insight_id],
@@ -523,11 +565,19 @@ def select_insights(
     ]
     return Selection(
         picks=picks,
-        candidates=len({*score_order_ids, *train_order}),
-        skipped_for_budget=score_skipped + train_skipped,
+        candidates=len({*score_order_ids, *stale_order_ids, *train_order}),
+        skipped_for_budget=score_skipped + train_skipped + stale_skipped,
         picked_score=len(score_picked),
         picked_train=len(train_picked),
+        scored_stale_model=len(stale_picked),
+        train_backlog_soft=sum(insight_id in stale_ready for insight_id in backlog),
+        train_backlog_hard=sum(insight_id not in stale_ready for insight_id in backlog),
     )
+
+
+def _as_score_step(plan: RunPlan) -> RunPlan:
+    """A stale model plan as a score step. A plan that needs a train step stays one, and the score pass passes over it."""
+    return dataclasses.replace(plan, run=ScoringRun.SCORE) if plan.stale_model else plan
 
 
 def _score_order(
@@ -535,26 +585,39 @@ def _score_order(
     teams: dict[int, Team],
     config: AnomalyScoringConfig,
     now: datetime.datetime,
-) -> tuple[list[int], set[int]]:
-    """The score pass order, and every watched insight with a score-ready state, due or not.
+) -> ScorePassOrder:
+    """The score pass orders, longest overdue first in each project.
 
-    The order holds the insights with a due bucket after their state, longest overdue first in each project.
+    A stale model is in `stale_order` only, because the train pass gets it first. `ready` leaves out the
+    stale models, so they reach the train pass.
     """
     team_orders: list[list[int]] = []
+    stale_orders: list[list[int]] = []
     ready: set[int] = set()
     for team_id in sorted({insight.team_id for insight in watched_by_id.values()}):
         team = teams[team_id]
         team_insights = [insight for insight in watched_by_id.values() if insight.team_id == team_id]
-        scored = scored_through_by_insight(team, [insight.insight_id for insight in team_insights], config, now)
-        ready.update(scored)
+        scored = score_ready_by_insight(team, [insight.insight_id for insight in team_insights], config, now)
+        ready.update(insight_id for insight_id, state in scored.items() if not state.stale_model)
         candidates = [
-            ScoreCandidate(
-                insight_id=insight.insight_id,
-                interval=insight.interval,
-                scored_through=scored[insight.insight_id].astimezone(team.timezone_info),
+            (
+                scored[insight.insight_id].stale_model,
+                ScoreCandidate(
+                    insight_id=insight.insight_id,
+                    interval=insight.interval,
+                    scored_through=scored[insight.insight_id].scored_through.astimezone(team.timezone_info),
+                ),
             )
             for insight in team_insights
-            if insight.insight_id in scored and is_due(insight, scored[insight.insight_id], team.timezone_info, now)
+            if insight.insight_id in scored
+            and is_due(insight, scored[insight.insight_id].scored_through, team.timezone_info, now)
         ]
-        team_orders.append(score_order(candidates, now=now, max_staleness=config.limits.max_backfill_buckets))
-    return _take_turns(team_orders), ready
+        for stale, orders in ((False, team_orders), (True, stale_orders)):
+            orders.append(
+                score_order(
+                    [candidate for is_stale, candidate in candidates if is_stale == stale],
+                    now=now,
+                    max_staleness=config.limits.max_backfill_buckets,
+                )
+            )
+    return ScorePassOrder(order=_take_turns(team_orders), stale_order=_take_turns(stale_orders), ready=ready)

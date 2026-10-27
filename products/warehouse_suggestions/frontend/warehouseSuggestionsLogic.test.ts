@@ -14,6 +14,7 @@ import {
 
 import {
     warehouseSuggestionsAcceptCreate,
+    warehouseSuggestionsAssignCreate,
     warehouseSuggestionsDismissCreate,
     warehouseSuggestionsList,
     warehouseSuggestionsResumeCreate,
@@ -25,6 +26,7 @@ import { ROW_LEAVE_MS, StripState, SuggestionSurface, warehouseSuggestionsLogic 
 
 jest.mock('./generated/api', () => ({
     warehouseSuggestionsAcceptCreate: jest.fn(),
+    warehouseSuggestionsAssignCreate: jest.fn(),
     warehouseSuggestionsDismissCreate: jest.fn(),
     warehouseSuggestionsList: jest.fn(),
     warehouseSuggestionsResumeCreate: jest.fn(),
@@ -38,6 +40,7 @@ jest.mock('products/data_warehouse/frontend/generated/api', () => ({
 const mockList = warehouseSuggestionsList as jest.MockedFunction<typeof warehouseSuggestionsList>
 const mockStatus = warehouseSuggestionsStatusRetrieve as jest.MockedFunction<typeof warehouseSuggestionsStatusRetrieve>
 const mockAccept = warehouseSuggestionsAcceptCreate as jest.MockedFunction<typeof warehouseSuggestionsAcceptCreate>
+const mockAssign = warehouseSuggestionsAssignCreate as jest.MockedFunction<typeof warehouseSuggestionsAssignCreate>
 const mockDismiss = warehouseSuggestionsDismissCreate as jest.MockedFunction<typeof warehouseSuggestionsDismissCreate>
 const mockResume = warehouseSuggestionsResumeCreate as jest.MockedFunction<typeof warehouseSuggestionsResumeCreate>
 const mockSavedQuery = warehouseSavedQueriesRetrieve as jest.MockedFunction<typeof warehouseSavedQueriesRetrieve>
@@ -87,6 +90,7 @@ const MATERIALIZE: WarehouseSuggestionApi = {
     realized_seconds_saved_per_month: null,
     realized_bytes_saved_per_month: null,
     can_act: true,
+    assignee: null,
 }
 
 function materialize(id: string, savesSeconds: number, savesBytes = 0): WarehouseSuggestionApi {
@@ -256,6 +260,18 @@ describe('warehouseSuggestionsLogic', () => {
 
         expect(logic.values.surfaceSuggestions).toEqual([])
         finish({ ...MATERIALIZE, status: 'dismissed' })
+    })
+
+    it('shows the new assignee on the row and keeps the row listed', async () => {
+        const assignee = { id: 7, first_name: 'Ana', email: 'ana@example.com' }
+        mockAssign.mockResolvedValue({ ...MATERIALIZE, assignee })
+        await mountLogic()
+
+        logic.actions.assignSuggestion(MATERIALIZE.id, assignee.id)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockAssign).toHaveBeenCalledWith(expect.any(String), MATERIALIZE.id, { assignee_id: assignee.id })
+        expect(logic.values.surfaceSuggestions.map((suggestion) => suggestion.assignee)).toEqual([assignee])
     })
 
     it('ignores a second accept while the first is in flight', async () => {

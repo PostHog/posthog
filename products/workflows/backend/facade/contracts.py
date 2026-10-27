@@ -920,6 +920,8 @@ class DataSuggestionsResult:
     suggestions: tuple[DataSuggestion, ...]
     # The project's events that a build can wait on. Kept with the cards, so a build does not count events again.
     events: tuple[str, ...] = ()
+    # Whether most of the project's app events come from its mobile SDKs. Kept with the cards for the same reason.
+    mobile_first: bool = False
 
 
 DataSuggestionBuildStatus = Literal["ready", "building", "failed"]
@@ -956,6 +958,34 @@ class PreparedIdeas:
 
 class DataSuggestionNotFound(Exception):
     """The suggestion id is unknown, usually because the cached suggestions expired."""
+
+
+# not_yet: did one event but not the next one. regulars: did one event often. lapsed: did it before, not lately.
+AudienceKind = Literal["not_yet", "regulars", "lapsed"]
+
+
+@frozen
+class AudienceSuggestion:
+    id: str
+    name: str
+    description: str
+    reason: str
+    kind: AudienceKind
+    event: str
+    # The event the audience has not done yet. Set only for not_yet.
+    missing_event: str | None
+    window_days: int
+    # How many times the event must happen in the window. Set only for regulars.
+    min_count: int | None
+    # People in the audience with an email address, counted when the suggestion was made.
+    reachable_count: int
+    cohort_filters: dict[str, Any]
+
+
+@frozen
+class AudienceSuggestionsResult:
+    status: DataSuggestionsStatus
+    suggestions: tuple[AudienceSuggestion, ...]
 
 
 class WorkflowIdeaAlreadyResolved(Exception):
