@@ -63,6 +63,14 @@ def test_single_column_violations_are_detected(batches: list[tuple], match: str)
             tracker.check(_batch(ids, names))
 
 
+def test_a_duplicate_split_across_slices_of_one_batch_is_detected() -> None:
+    tracker = UniqueKeyTracker(("id",))
+
+    with patch("posthog.temporal.data_modeling.activities.incremental_write.UNIQUE_KEY_CHECK_SLICE_ROWS", 2):
+        with pytest.raises(IncrementalWriteError, match="appears 2 times"):
+            tracker.check(_batch([1, 2, 3, 1], ["a", "b", "c", "d"]))
+
+
 def test_distinct_keys_across_batches_pass() -> None:
     tracker = UniqueKeyTracker(("id",))
 

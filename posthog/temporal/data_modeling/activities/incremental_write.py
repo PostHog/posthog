@@ -33,6 +33,10 @@ import pyarrow.compute as pc
 # batch, and a worker runs many activities at once, so the cap has to stay a small share of a pod.
 MAX_UNIQUE_KEY_CHECK_BYTES = 1024 * 1024 * 1024
 
+# A materialization batch is about 100 MB, so a narrow key-only table sends ~12M rows at once, and the
+# group-by hash table for that many rows dwarfs the stored keys. Checking in slices keeps that bounded.
+UNIQUE_KEY_CHECK_SLICE_ROWS = 1_000_000
+
 
 class IncrementalWriteError(Exception):
     """A batch cannot be safely upserted. Carries a message meant for the run's error field."""
@@ -129,7 +133,10 @@ class UniqueKeyTracker:
                 f"Update the incremental configuration to match the query's columns."
             )
         assert_no_null_keys(batch, tuple(self._columns))
+        for offset in range(0, max(batch.num_rows, 1), UNIQUE_KEY_CHECK_SLICE_ROWS):
+            self._check_slice(batch.slice(offset, UNIQUE_KEY_CHECK_SLICE_ROWS))
 
+    def _check_slice(self, batch: pa.RecordBatch) -> None:
         keys = pa.Table.from_batches([batch]).select(self._columns)
         grouped = keys.group_by(self._columns).aggregate([([], "count_all")])
         worst = pc.max(grouped.column("count_all")).as_py() if grouped.num_rows != keys.num_rows else 1
