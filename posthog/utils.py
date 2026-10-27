@@ -846,7 +846,7 @@ def feature_flag_bootstrap(user: "User", current_user: dict[str, Any]) -> Option
     identity = _flag_identity(current_user, user.date_joined.isoformat())
     with tracer.start_as_current_span("template.feature_flag_bootstrap"):
         feature_flags = posthoganalytics.get_all_flags(
-            current_user.get("distinct_id"),
+            cast(str, current_user.get("distinct_id")),
             only_evaluate_locally=True,
             person_properties=identity.person_properties,
             groups=identity.groups,
