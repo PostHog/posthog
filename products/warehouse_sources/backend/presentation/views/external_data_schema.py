@@ -62,6 +62,7 @@ from products.warehouse_sources.backend.facade.models import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.pipelines import finish_row_tracking
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.facade.source_management import (
     BUFFER_LANE,
     CDC_RESET_PENDING_KEY,
@@ -74,6 +75,8 @@ from products.warehouse_sources.backend.facade.source_management import (
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
     hand_reset_to_capture_if_sync_running,
+    history_column_collisions,
+    is_history_table_mode,
     purge_buffer_prefix,
     repair_is_running,
     resnapshot_stays_in_buffer,
@@ -86,6 +89,7 @@ from products.warehouse_sources.backend.facade.types import (
     IncrementalFieldType,
     IncrementalSyncBlockedReason,
 )
+from products.warehouse_sources.backend.presentation.history_tracking import report_history_change
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     DestinationLinkSerializer,
     SchemaDestinationsSerializer,
@@ -444,17 +448,52 @@ def _apply_primary_key_columns(
         )
 
 
-def _refuse_reserved_cdc_column(instance: ExternalDataSchema) -> None:
-    """Capture stamps each change with this column, so a source column of the same name would fail
-    the source's sync. Checked against the columns discovery recorded, which are the source's own."""
+def _source_column_names(instance: ExternalDataSchema) -> set[str]:
+    """The columns discovery recorded, which are the source's own."""
     metadata = instance.schema_metadata or {}
     columns = metadata.get("columns") if isinstance(metadata, dict) else None
-    if isinstance(columns, list) and any(
-        isinstance(column, dict) and column.get("name") == CDC_SEQ_COLUMN for column in columns
-    ):
+    if not isinstance(columns, list):
+        return set()
+    return {column["name"] for column in columns if isinstance(column, dict) and isinstance(column.get("name"), str)}
+
+
+def _refuse_reserved_cdc_column(instance: ExternalDataSchema) -> None:
+    """Capture stamps each change with this column, so a source column of the same name would fail
+    the source's sync."""
+    if CDC_SEQ_COLUMN in _source_column_names(instance):
         raise ValidationError(
             "Change data capture can't sync a column named _ph_cdc_seq, because PostHog uses that name. "
             "Rename the column on your database, or choose another sync method for this table."
+        )
+
+
+def _refuse_reserved_history_columns(
+    instance: ExternalDataSchema,
+    *,
+    previous_mode: str | None,
+    previous_enabled_columns: list[str] | None,
+    previous_primary_keys: list[str] | None,
+    new_mode: str | None,
+    new_enabled_columns: list[str] | None,
+    new_primary_keys: list[str] | None,
+) -> None:
+    """The history table stamps each row version with `valid_from` and `valid_to`, so a synced source
+    column of the same name fails every load into it. Only a collision this request adds is refused,
+    so a table that already has one can still be edited or switched back."""
+    if not is_history_table_mode(new_mode):
+        return
+    columns = _source_column_names(instance)
+    taken = history_column_collisions(columns, new_enabled_columns, new_primary_keys, instance.incremental_field)
+    if instance.sync_type == ExternalDataSchema.SyncType.CDC and is_history_table_mode(previous_mode):
+        existing = history_column_collisions(
+            columns, previous_enabled_columns, previous_primary_keys, instance.incremental_field
+        )
+        taken = [column for column in taken if column not in existing]
+    if taken:
+        raise ValidationError(
+            f"A history table can't store the column {' or '.join(taken)}, because PostHog uses valid_from and "
+            "valid_to to record when each version was current. Rename the column on your database, or choose "
+            "the consolidated table only for this table."
         )
 
 
@@ -981,6 +1020,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # Capture the previous cdc_table_mode before any mutation so the post-save hook below can decide
         # whether the change adds a new physical write target (and therefore needs a re-snapshot).
         previous_cdc_table_mode = instance.cdc_table_mode
+        history_mode_before = previous_cdc_table_mode if instance.keeps_history else None
 
         api_version_changed = "api_version" in validated_data and validated_data["api_version"] != instance.api_version
 
@@ -1318,6 +1358,20 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     payload["cdc_table_mode"] = cdc_table_mode
                     validated_data["sync_type_config"] = payload
 
+        # Checked once the branches above settle the mode and the key, because `enabled_columns` alone
+        # can also bring a validity column into the history table.
+        if (sync_type if "sync_type" in data else instance.sync_type) == ExternalDataSchema.SyncType.CDC:
+            resulting_config = validated_data.get("sync_type_config", instance.sync_type_config) or {}
+            _refuse_reserved_history_columns(
+                instance,
+                previous_mode=previous_cdc_table_mode,
+                previous_enabled_columns=instance.enabled_columns,
+                previous_primary_keys=original_sync_type_config.get("primary_key_columns"),
+                new_mode=resulting_config.get("cdc_table_mode"),
+                new_enabled_columns=validated_data.get("enabled_columns", instance.enabled_columns),
+                new_primary_keys=resulting_config.get("primary_key_columns"),
+            )
+
         should_sync = validated_data.get("should_sync", None)
         sync_frequency = data.get("sync_frequency", None)
         sync_time_of_day_in_payload = "sync_time_of_day" in data
@@ -1642,6 +1696,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 )
                 self._run_temporal_side_effect(lambda: _reset_cdc_for_full_resnapshot(updated_instance))
 
+        request = self.context.get("request")
+        if request is not None:
+            report_history_change(
+                request.user, updated_instance, history_mode_before=history_mode_before, request=request
+            )
+
         return updated_instance
 
     def _effective_probe_api_version(self, schema: ExternalDataSchema, source_impl: AnySource) -> str | None:
@@ -1660,7 +1720,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
     def _is_webhook_only_schema(self, schema: ExternalDataSchema) -> bool:
         source = schema.source
-        if not source.job_inputs:
+        try:
+            source_inputs = SourceInputsStore.load(source)
+        except UnreadableSourceInputsError:
+            return False
+        if not source_inputs:
             return False
         try:
             source_type = ExternalDataSourceType(source.source_type)
@@ -1668,7 +1732,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         except Exception:
             return False
         try:
-            config = source_impl.parse_config(source.job_inputs)
+            config = source_impl.parse_config(source_inputs)
             source_schemas = source_impl.get_schemas(
                 config,
                 schema.team_id,
@@ -1684,12 +1748,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         materialized view, PG13+). Runs discovery so a raw PATCH can't enable xmin on a table that
         has no physical `xmin` (plain views, foreign tables, partitioned parents)."""
         source = schema.source
-        if not source.job_inputs:
+        try:
+            source_inputs = SourceInputsStore.load(source)
+        except UnreadableSourceInputsError:
+            return False
+        if not source_inputs:
             return False
         try:
             source_type = ExternalDataSourceType(source.source_type)
             source_impl = SourceRegistry.get_source(source_type)
-            config = source_impl.parse_config(source.job_inputs)
+            config = source_impl.parse_config(source_inputs)
             source_schemas = source_impl.get_schemas(
                 config,
                 schema.team_id,
@@ -1732,7 +1800,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
     def _maybe_create_webhook(self, schema: ExternalDataSchema) -> None:
         source = schema.source
-        if not source.job_inputs:
+        source_inputs = SourceInputsStore.load(source)
+        if not source_inputs:
             return
 
         try:
@@ -1746,7 +1815,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             return
 
         try:
-            config = source_impl.parse_config(source.job_inputs)
+            config = source_impl.parse_config(source_inputs)
         except (UndecryptedConfigError, ConfigValueError) as e:
             raise ValidationError(UNREADABLE_SOURCE_CONFIG_ERROR) from e
         # Source pin only: webhook-sync schemas cannot carry a schema-level override (validate()
@@ -1844,7 +1913,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         _, db_schema, source_table_name = get_postgres_source_location(
             schema_name=instance.name,
             schema_metadata=instance.schema_metadata,
-            default_schema=(source.job_inputs or {}).get("schema"),
+            default_schema=SourceInputsStore.load_settings(source).get("schema"),
         )
 
         newly_set_to_cdc = (
@@ -2093,7 +2162,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 _, db_schema, source_table_name = get_postgres_source_location(
                     schema_name=instance.name,
                     schema_metadata=instance.schema_metadata,
-                    default_schema=(source.job_inputs or {}).get("schema"),
+                    default_schema=SourceInputsStore.load_settings(source).get("schema"),
                 )
                 adapter.remove_table(source, db_schema, source_table_name)
             except Exception:
@@ -2403,7 +2472,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance: ExternalDataSchema = self.get_object()
         source: ExternalDataSource = instance.source
 
-        if not source.job_inputs:
+        source_inputs = SourceInputsStore.load(source)
+        if not source_inputs:
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Missing job inputs"})
 
         if not source.source_type:
@@ -2413,7 +2483,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         new_source = SourceRegistry.get_source(source_type_enum)
         try:
-            config = new_source.parse_config(source.job_inputs)
+            config = new_source.parse_config(source_inputs)
         except (UndecryptedConfigError, ConfigValueError):
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": UNREADABLE_SOURCE_CONFIG_ERROR})
 
@@ -2491,7 +2561,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # job_inputs is an EncryptedJSONField: booleans round-trip as "True"/"False"
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.
-        source_cdc_enabled = str_to_bool(source.job_inputs.get("cdc_enabled"))
+        source_cdc_enabled = str_to_bool(SourceInputsStore.load_settings(source).get("cdc_enabled"))
         source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
         cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
         # xmin is source-capability-gated, mirroring the database_schema endpoint.

@@ -1239,7 +1239,9 @@ def _patched_activity_reaching_run(source_mock, schema, api_version=None, workfl
         mock.patch.object(module, "is_schema_flag_enabled", return_value=False),
         mock.patch.object(module.SourceRegistry, "is_registered", return_value=True),
         mock.patch.object(module.SourceRegistry, "get_source", return_value=source_mock),
-        mock.patch.object(module, "_run", new=mock.AsyncMock(return_value=mock.sentinel.run_result)) as run_mock,
+        mock.patch.object(
+            module, "_run", new=mock.AsyncMock(return_value={"should_trigger_cdp_producer": False})
+        ) as run_mock,
     ):
         yield run_mock
 
@@ -1360,6 +1362,37 @@ async def test_a_resumable_run_continues_the_cursor_of_the_interrupted_job_unles
     assert carry.await_count == (1 if continues and copied else 0)
     assert run_mock.call_args.kwargs["continued_workflow_run_id"] == ("interrupted-run" if continues else None)
     assert run_mock.call_args.kwargs["continued_job_ids"] == (("interrupted-job", "earlier-job") if continues else ())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "is_incremental,external_destination_ids,reads_from_start",
+    [(False, ["dest-1"], True), (False, [], False), (True, ["dest-1"], False)],
+    ids=["full_refresh_to_destination", "full_refresh_to_warehouse_only", "incremental_to_destination"],
+)
+async def test_a_full_refresh_to_an_external_destination_reads_the_source_from_the_start(
+    is_incremental: bool, external_destination_ids: list[str], reads_from_start: bool
+) -> None:
+    source = mock.MagicMock(spec=ResumableSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    manager = source.get_resumable_source_manager.return_value
+    manager.continue_from_job.return_value = True
+    schema = _incremental_schema(is_incremental=is_incremental, lookback_seconds=None)
+    interrupted = mock.MagicMock(id="interrupted-job", workflow_run_id="interrupted-run")
+
+    with (
+        _patched_activity_reaching_run(source, schema) as run_mock,
+        mock.patch.object(module, "external_destination_ids_for", return_value=external_destination_ids),
+        mock.patch.object(module, "_jobs_to_continue", new=mock.AsyncMock(return_value=[interrupted])),
+        mock.patch.object(module, "_carry_rows_synced", new=mock.AsyncMock()),
+    ):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    # The destination publishes the staging table of this attempt alone, so it must hold every row.
+    assert manager.clear_job_state.called is reads_from_start
+    assert manager.continue_from_job.called is not reads_from_start
+    assert run_mock.call_args.kwargs["continued_job_ids"] == (() if reads_from_start else ("interrupted-job",))
 
 
 @pytest.mark.asyncio
@@ -2050,6 +2083,59 @@ async def test_a_free_handoff_is_a_result_and_any_other_handoff_is_a_retry(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "behavior,handoffs_are_free,expected_outcome",
+    [
+        ("completes", False, "completed"),
+        ("hands_off", True, "handed_off"),
+        ("hands_off", False, "handed_off"),
+        ("raises", False, "failed"),
+        ("cancelled", False, "cancelled"),
+    ],
+)
+async def test_each_attempt_records_one_duration_with_its_outcome(
+    behavior: str, handoffs_are_free: bool, expected_outcome: str
+):
+    shutdown = WorkerShuttingDownError("5", "import_data_activity_sync", "data-warehouse-task-queue", 2, "wf", "wt")
+
+    async def import_attempt(_inputs, _logger, _progress):
+        module._attempt_source_type.set("MongoDB")
+        if behavior == "hands_off":
+            raise shutdown
+        if behavior == "raises":
+            raise ValueError("boom")
+        if behavior == "cancelled":
+            raise asyncio.CancelledError()
+        return {"should_trigger_cdp_producer": False}
+
+    inputs = dataclasses.replace(_inputs_no_reset(), handoffs_are_free=handoffs_are_free)
+
+    with (
+        mock.patch.object(module, "tag_queries"),
+        mock.patch.object(module, "report_heartbeat_timeout"),
+        mock.patch.object(module, "aworkload_reporting", return_value=_FakeAsyncCM()),
+        mock.patch.object(module, "_import_data_with_reporting", new=mock.AsyncMock(side_effect=import_attempt)),
+        mock.patch.object(module, "current_activity_attempt", return_value=1),
+        mock.patch.object(module, "get_import_attempt_duration_metric") as metric_mock,
+        mock.patch.object(module.activity, "in_activity", return_value=True),
+    ):
+        if behavior == "completes" or (behavior == "hands_off" and handoffs_are_free):
+            await import_data_activity_sync(inputs)
+        else:
+            expected_error = {
+                "hands_off": WorkerShuttingDownError,
+                "raises": ValueError,
+                "cancelled": asyncio.CancelledError,
+            }[behavior]
+            with pytest.raises(expected_error):
+                await import_data_activity_sync(inputs)
+
+    metric_mock.assert_called_once_with("MongoDB", expected_outcome)
+    metric_mock.return_value.record.assert_called_once()
+    assert metric_mock.return_value.record.call_args.args[0] >= 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "preemption_enabled,handoffs_are_free,carry_over_enabled,expected",
     [
         pytest.param(
@@ -2094,25 +2180,33 @@ async def test_the_pipeline_preempts_only_with_the_setting_on_and_free_handoffs(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "flag_enabled,handoffs_are_free,grace,expected",
+    "flag_enabled,handoffs_are_free,grace,shutdown_grace,expected",
     [
-        pytest.param(True, True, 7200, RideOutConfig(grace_seconds=7200.0, max_seconds=1800.0), id="on"),
+        pytest.param(True, True, 7200, 0.0, RideOutConfig(grace_seconds=7200.0, max_seconds=1800.0), id="on"),
+        # The ride-out starts when the shutdown grace ends, so its deadline leaves that time out.
+        pytest.param(
+            True, True, 7200, 60.0, RideOutConfig(grace_seconds=7140.0, max_seconds=1800.0), id="after_shutdown_grace"
+        ),
         # The worker falls back to a five-minute graceful shutdown when the setting is unset.
-        pytest.param(True, True, None, RideOutConfig(grace_seconds=300.0, max_seconds=1800.0), id="no_grace_period"),
+        pytest.param(
+            True, True, None, 0.0, RideOutConfig(grace_seconds=300.0, max_seconds=1800.0), id="no_grace_period"
+        ),
         # Holding the worker past the deadline on the retry path would cost an attempt at the hand-off.
-        pytest.param(True, False, 7200, None, id="off_when_a_handoff_uses_a_retry_attempt"),
-        pytest.param(False, True, 7200, None, id="off_when_the_flag_is_off"),
+        pytest.param(True, False, 7200, 0.0, None, id="off_when_a_handoff_uses_a_retry_attempt"),
+        pytest.param(False, True, 7200, 0.0, None, id="off_when_the_flag_is_off"),
     ],
 )
 async def test_the_pipeline_rides_out_only_with_the_flag_on_and_free_handoffs(
     flag_enabled: bool,
     handoffs_are_free: bool,
     grace: int | None,
+    shutdown_grace: float,
     expected: RideOutConfig | None,
     settings,
 ):
     settings.DATA_WAREHOUSE_IMPORT_RIDE_OUT_MAX_SECONDS = 1800.0
     settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS = grace
+    settings.DATA_WAREHOUSE_IMPORT_SHUTDOWN_GRACE_SECONDS = shutdown_grace
     source = mock.MagicMock(spec=SimpleSource)
     source.parse_config.return_value = {}
     source.source_for_pipeline.return_value = mock.MagicMock()
@@ -2128,6 +2222,37 @@ async def test_the_pipeline_rides_out_only_with_the_flag_on_and_free_handoffs(
     if handoffs_are_free:
         flag_check.assert_called_once_with(schema, IMPORT_RIDE_OUT_FLAG)
     assert isinstance(run_mock.await_args.kwargs["progress"], DurableProgress)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "grace_setting,graceful_timeout,expected",
+    [
+        pytest.param(60.0, 7200, 60.0, id="default"),
+        pytest.param(0.0, 7200, 0.0, id="zero_hands_off_at_the_signal"),
+        # The hand-off after the grace keeps at least half the graceful shutdown timeout.
+        pytest.param(600.0, None, 150.0, id="capped_at_half_the_default_timeout"),
+        pytest.param(-5.0, 7200, 0.0, id="negative_is_no_grace"),
+    ],
+)
+async def test_the_shutdown_grace_reaches_the_monitor_and_the_pipeline(
+    grace_setting: float, graceful_timeout: int | None, expected: float, settings
+):
+    settings.DATA_WAREHOUSE_IMPORT_SHUTDOWN_GRACE_SECONDS = grace_setting
+    settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS = graceful_timeout
+    source = mock.MagicMock(spec=SimpleSource)
+    source.parse_config.return_value = {}
+    source.source_for_pipeline.return_value = mock.MagicMock()
+    schema = _incremental_schema(is_incremental=True, lookback_seconds=None)
+
+    with (
+        _patched_activity_reaching_run(source, schema, workflow_run_id="wfrun-1") as run_mock,
+        mock.patch.object(module, "ShutdownMonitor", return_value=_FakeAsyncCM()) as monitor_cls,
+    ):
+        await import_data_activity_sync(_inputs_no_reset())
+
+    monitor_cls.assert_called_once_with(grace_seconds=expected)
+    assert run_mock.await_args.kwargs["shutdown_grace_seconds"] == expected
 
 
 @parameterized.expand(

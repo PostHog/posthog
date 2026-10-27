@@ -390,5 +390,45 @@ describe('HogFlowManager', () => {
             expect(loaded).not.toBeNull()
             expect(loaded).not.toHaveProperty('encrypted_inputs')
         })
+
+        it.each<{ name: string; actions: unknown }>([
+            { name: 'actions is not a list', actions: { trigger: { type: 'trigger' } } },
+            { name: 'actions holds a null entry', actions: [null] },
+            {
+                name: 'the trigger action has a null config',
+                actions: [{ id: 'trigger', type: 'trigger', config: null }],
+            },
+        ])(
+            'leaves out a flow whose secrets cannot be merged when $name, and loads the rest of its batch',
+            async ({ actions }) => {
+                // Served without its secrets, a webhook trigger would skip its auth header check.
+                const flow = await insertHogFlow(
+                    hub.postgres,
+                    new FixtureHogFlowBuilder()
+                        .withName('Flow that cannot take its secrets')
+                        .withTeamId(teamId1)
+                        .withStatus('active')
+                        .build()
+                )
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `UPDATE posthog_hogflow SET encrypted_inputs = $2, actions = $3::jsonb WHERE id = $1`,
+                    [
+                        flow.id,
+                        hub.encryptedFields.encrypt(
+                            JSON.stringify({ trigger: { auth_header: { value: 'Bearer secret' } } })
+                        ),
+                        JSON.stringify(actions),
+                    ],
+                    'testKey'
+                )
+                manager['onHogFlowsReloaded'](teamId1, [flow.id])
+
+                const loaded = await manager.getHogFlows([flow.id, hogFlows[0].id])
+
+                expect(loaded[flow.id]).toBeNull()
+                expect(loaded[hogFlows[0].id]?.id).toBe(hogFlows[0].id)
+            }
+        )
     })
 })

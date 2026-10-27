@@ -1,3 +1,4 @@
+import time
 import uuid
 import socket
 import asyncio
@@ -5,6 +6,7 @@ import datetime as dt
 import functools
 import dataclasses
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, NoReturn, Optional
 
 from django.conf import settings
@@ -32,6 +34,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT, ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     WORKER_RESTART_ERROR_MESSAGE,
@@ -55,6 +58,7 @@ from products.warehouse_sources.backend.temporal.data_imports.import_attempt imp
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
     TERMINAL_JOB_STATUSES,
+    get_import_attempt_duration_metric,
     get_progressless_stand_down_metric,
     get_worker_shutdown_handoff_metric,
 )
@@ -128,9 +132,12 @@ from products.warehouse_sources.backend.temporal.data_imports.util import (
     PostHogInternalDatabaseError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
+
+# The source type is known only after the job row loads. The attempt wrapper reads it on exit.
+_attempt_source_type: ContextVar[str | None] = ContextVar("import_attempt_source_type", default=None)
 
 
 @frozen
@@ -224,6 +231,18 @@ CONTINUABLE_SYNC_TYPES = frozenset(
 MAX_CONTINUED_JOBS = 20
 
 
+def _graceful_shutdown_timeout_seconds() -> float:
+    grace = settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS
+    return float(grace) if grace is not None else DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT.total_seconds()
+
+
+def _import_shutdown_grace_seconds() -> float:
+    # At most half the SDK's graceful shutdown timeout, so the hand-off after the grace always has
+    # time to finish before the SDK cancels the activity.
+    grace = min(settings.DATA_WAREHOUSE_IMPORT_SHUTDOWN_GRACE_SECONDS, _graceful_shutdown_timeout_seconds() / 2)
+    return max(grace, 0.0)
+
+
 @database_sync_to_async_pool
 def _jobs_to_continue(job: ExternalDataJob, schema: ExternalDataSchema) -> list[ExternalDataJob]:
     """The jobs before this one that worker restarts stopped, newest first, when this job can continue their cursor.
@@ -253,6 +272,20 @@ def _jobs_to_continue(job: ExternalDataJob, schema: ExternalDataSchema) -> list[
             break
         chain.append(previous)
     return chain
+
+
+def _publishes_staged_full_refresh(
+    job: ExternalDataJob, sync_type: ExternalDataSchemaSyncType | None, team_id: int
+) -> bool:
+    """Whether an external destination stages this full refresh and publishes it on the final batch.
+
+    A destination writer stages a full refresh under the run id of one attempt, and each attempt
+    has its own run id. An attempt that resumes from the cursor of an earlier attempt or job
+    stages only the rows after that cursor, and its final batch publishes that part as the whole table.
+    """
+    if sync_type not in (None, ExternalDataSchema.SyncType.FULL_REFRESH):
+        return False
+    return bool(external_destination_ids_for(team_id, list(job.destination_ids or [])))
 
 
 @database_sync_to_async_pool
@@ -442,6 +475,27 @@ def v3_pipeline_class(source_response: SourceResponse) -> "type[PipelineV3]":
 
 @activity.defn
 async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> PipelineResult:
+    started_at = time.monotonic()
+    outcome = "failed"
+    _attempt_source_type.set(None)
+    try:
+        result = await _run_import_attempt(inputs)
+        outcome = "handed_off" if result.get("handed_off") else "completed"
+        return result
+    except WorkerShuttingDownError:
+        outcome = "handed_off"
+        raise
+    except asyncio.CancelledError:
+        outcome = "cancelled"
+        raise
+    finally:
+        if activity.in_activity():
+            get_import_attempt_duration_metric(_attempt_source_type.get(), outcome).record(
+                time.monotonic() - started_at
+            )
+
+
+async def _run_import_attempt(inputs: ImportDataActivityInputs) -> PipelineResult:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
     tag_queries(team_id=inputs.team_id, product=Product.WAREHOUSE, feature=Feature.IMPORT_PIPELINE)
@@ -499,7 +553,8 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
 async def _import_data_with_reporting(
     inputs: ImportDataActivityInputs, logger: FilteringBoundLogger, progress: DurableProgress
 ) -> PipelineResult:
-    async with Heartbeater(factor=30), ShutdownMonitor() as shutdown_monitor:
+    shutdown_grace_seconds = _import_shutdown_grace_seconds()
+    async with Heartbeater(factor=30), ShutdownMonitor(grace_seconds=shutdown_grace_seconds) as shutdown_monitor:
         await setup_row_tracking(inputs.team_id, inputs.schema_id)
 
         try:
@@ -549,6 +604,7 @@ async def _import_data_with_reporting(
         await logger.adebug("Running import_data_activity")
 
         source_type = ExternalDataSourceType(model.pipeline.source_type)
+        _attempt_source_type.set(str(source_type))
 
         bind_job_context(
             team_id=inputs.team_id,
@@ -664,9 +720,9 @@ async def _import_data_with_reporting(
         if inputs.handoffs_are_free and await database_sync_to_async_pool(is_schema_flag_enabled)(
             schema, IMPORT_RIDE_OUT_FLAG
         ):
-            grace = settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS
+            # The ride-out's stopwatch starts when the monitor reports the shutdown, after the shutdown grace.
             ride_out = RideOutConfig(
-                grace_seconds=float(grace) if grace is not None else DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT.total_seconds(),
+                grace_seconds=_graceful_shutdown_timeout_seconds() - shutdown_grace_seconds,
                 max_seconds=settings.DATA_WAREHOUSE_IMPORT_RIDE_OUT_MAX_SECONDS,
             )
 
@@ -765,7 +821,8 @@ async def _import_data_with_reporting(
             )
 
             try:
-                config = new_source.parse_config(model.pipeline.job_inputs)
+                stored_inputs = await SourceInputsStore.aload(model.pipeline)
+                config = new_source.parse_config(stored_inputs)
             except CredentialsServiceFailure as e:
                 # A source whose config carries a PostHog-owned credential resolves it here, so a
                 # failure at this point is ours and not a corrupt `job_inputs`. Route it through the
@@ -814,7 +871,19 @@ async def _import_data_with_reporting(
                 try:
                     if isinstance(new_source, ResumableSource):
                         resumable_source_manager = new_source.get_resumable_source_manager(source_inputs)
-                        jobs_to_continue = await _jobs_to_continue(model, schema) if use_stored_cursors else []
+                        reads_from_start = await database_sync_to_async_pool(_publishes_staged_full_refresh)(
+                            model, resolved_sync_type, inputs.team_id
+                        )
+                        if reads_from_start:
+                            await database_sync_to_async_pool(resumable_source_manager.clear_job_state)()
+                            await logger.ainfo(
+                                "Reading the source from the start: an external destination publishes this full refresh from one attempt"
+                            )
+                        jobs_to_continue = (
+                            await _jobs_to_continue(model, schema)
+                            if use_stored_cursors and not reads_from_start
+                            else []
+                        )
                         if jobs_to_continue:
                             job_to_continue = jobs_to_continue[0]
                             continued_workflow_run_id = job_to_continue.workflow_run_id
@@ -886,6 +955,7 @@ async def _import_data_with_reporting(
                 continued_job_ids=continued_job_ids,
                 ride_out=ride_out,
                 progress=progress,
+                shutdown_grace_seconds=shutdown_grace_seconds,
             )
         else:
             raise ValueError(f"Source type {model.pipeline.source_type} not supported")
@@ -960,9 +1030,9 @@ POSTHOG_DATABASE_UNAVAILABLE_MESSAGE = (
 
 
 def _log_worker_shutdown_during_import(logger: FilteringBoundLogger) -> None:
-    # One line per import still running when the worker got SIGTERM. A matching hand-off line from
-    # _handle_import_error means the import moved to another pod; without one, the import held
-    # this pod until it finished or the graceful shutdown timeout ran out.
+    # One line per import still running when the shutdown grace after SIGTERM ended. A matching
+    # hand-off line from _handle_import_error means the import moved to another pod; without one,
+    # the import held this pod until it finished or the graceful shutdown timeout ran out.
     info = activity.info()
     logger.info(
         "Worker shutdown detected while import is running",
@@ -1278,6 +1348,7 @@ async def _run(
     continued_job_ids: tuple[str, ...] = (),
     ride_out: RideOutConfig | None = None,
     progress: DurableProgress | None = None,
+    shutdown_grace_seconds: float = 0.0,
 ) -> PipelineResult:
     try:
         reset_pipeline = (
@@ -1303,6 +1374,7 @@ async def _run(
             continued_job_ids=continued_job_ids,
             ride_out=ride_out,
             progress=progress,
+            shutdown_grace_seconds=shutdown_grace_seconds,
         )
 
         result = await pipeline.run()

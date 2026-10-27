@@ -299,6 +299,12 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 AUTH_ERROR = "Ahrefs authentication failed. Check your API key in Account settings > API keys."
 ACCESS_ERROR = "Ahrefs denied access. Check your plan, project access, and verified ownership for page data."
 QUOTA_ERROR = "Ahrefs API units are exhausted. Increase your API key or workspace limit, or wait for renewal."
+# The units renew each period, so the schema stays enabled and keeps retrying. Disabling it would
+# leave the sync off after the units come back.
+QUOTA_RETRY_ERROR = (
+    "Your Ahrefs API units ran out, so this sync can't finish. It tries again on its own and works again "
+    "once you raise your API key or workspace unit limit, or the units renew."
+)
 PROJECT_NOT_FOUND_ERROR = (
     "Ahrefs returned no target for the Site Audit project. Check the project ID and that the project has a target URL."
 )
@@ -306,9 +312,11 @@ PROJECT_NOT_FOUND_ERROR = (
 NON_RETRYABLE_ERRORS: dict[str, str | None] = {
     "ahrefs_invalid_api_key": AUTH_ERROR,
     "ahrefs_access_denied": ACCESS_ERROR,
-    "ahrefs_quota_exceeded": QUOTA_ERROR,
     "ahrefs_project_not_found": PROJECT_NOT_FOUND_ERROR,
     "401 Client Error": AUTH_ERROR,
     "403 Client Error": ACCESS_ERROR,
-    "402 Client Error": QUOTA_ERROR,
 }
+
+RETRYABLE_QUOTA_ERRORS: frozenset[str] = frozenset({"ahrefs_quota_exceeded", "402 Client Error"})
+
+CREDENTIAL_ERRORS: dict[str, str | None] = {**NON_RETRYABLE_ERRORS, "ahrefs_quota_exceeded": QUOTA_ERROR}

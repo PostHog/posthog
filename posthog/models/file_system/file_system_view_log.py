@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import heapq
 from collections.abc import Collection, Sequence
 from dataclasses import is_dataclass
 from datetime import date, datetime, timedelta
@@ -23,6 +24,15 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 VIEW_DAYS_KEPT = 35
+FRECENCY_HALF_LIFE_DAYS = 14
+
+
+def view_days_score(view_days: Sequence[date], today: date) -> float:
+    return sum(
+        0.5 ** ((today - day).days / FRECENCY_HALF_LIFE_DAYS)
+        for day in set(view_days)
+        if 0 <= (today - day).days < VIEW_DAYS_KEPT
+    )
 
 
 class FileSystemViewLog(UUIDModel):
@@ -158,6 +168,7 @@ def get_recent_file_system_items(
     exclude_types: Optional[Sequence[str]] = ("folder",),
     file_system_queryset: Optional[QuerySet[FileSystem]] = None,
     descending: bool = True,
+    frequent_on: date | None = None,
 ) -> list[FileSystem]:
     """Recently-viewed FileSystem rows for a user, newest first by default.
 
@@ -170,9 +181,15 @@ def get_recent_file_system_items(
     before the ``(type, ref)`` keys are matched. ``descending`` is threaded down to the view-log
     query so the ``limit`` slice picks the globally oldest/newest views, not a re-sorted page.
     """
-    entries = FileSystem.objects.filter(
-        surface_q(surface), team_id=team_id, type=OuterRef("type"), ref=OuterRef("ref")
-    ).exclude(shortcut=True)
+    entries = (
+        (
+            file_system_queryset
+            if frequent_on is not None and file_system_queryset is not None
+            else FileSystem.objects.all()
+        )
+        .filter(surface_q(surface), team_id=team_id, type=OuterRef("type"), ref=OuterRef("ref"))
+        .exclude(shortcut=True)
+    )
     log_queryset = recent_view_logs(
         team_id=team_id,
         user_id=user_id,
@@ -180,9 +197,22 @@ def get_recent_file_system_items(
         exclude_types=exclude_types,
         descending=descending,
     ).filter(Exists(entries))
-    if limit is not None:
-        log_queryset = log_queryset[:limit]
-    log_rows = list(log_queryset.values_list("type", "ref", "viewed_at"))
+    if frequent_on is not None:
+        candidates = (
+            (row_type, row_ref, viewed_at, view_days_score(view_days or [], frequent_on))
+            for row_type, row_ref, viewed_at, view_days in log_queryset.filter(
+                viewed_at__gte=timezone.now() - timedelta(days=VIEW_DAYS_KEPT)
+            )
+            .values_list("type", "ref", "viewed_at", "view_days")
+            .iterator()
+            if len({day for day in view_days or [] if 0 <= (frequent_on - day).days < VIEW_DAYS_KEPT}) >= 2
+        )
+        ranked = heapq.nlargest(limit or 20, candidates, key=lambda row: (row[3], row[2], row[0], row[1]))
+        log_rows = [(row_type, row_ref, viewed_at) for row_type, row_ref, viewed_at, _ in ranked]
+    else:
+        if limit is not None:
+            log_queryset = log_queryset[:limit]
+        log_rows = list(log_queryset.values_list("type", "ref", "viewed_at"))
     if not log_rows:
         return []
 

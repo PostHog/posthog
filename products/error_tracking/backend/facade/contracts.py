@@ -171,6 +171,7 @@ class ErrorTrackingSettings:
     project_rate_limit_bucket_size_minutes: int | None
     per_issue_rate_limit_value: int | None
     per_issue_rate_limit_bucket_size_minutes: int | None
+    ingestion_enabled: bool
 
 
 @dataclass(frozen=True)
@@ -312,6 +313,7 @@ class ErrorTrackingIssueBasics:
     description: str | None
     status: str
     severity: str | None
+    created_at: datetime
     # Earliest across all fingerprints, merged ones included.
     first_seen: datetime | None
 

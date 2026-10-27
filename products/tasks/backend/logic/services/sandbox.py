@@ -379,7 +379,6 @@ def build_agent_runtime_env_prefix(
     event_ingest_url: str | None = None,
     rtk_enabled: bool = True,
     benjamin_enabled: bool = False,
-    peer_messaging: bool = False,
     pi_acp_conversation: bool = False,
     unset_bedrock: bool = False,
 ) -> str:
@@ -409,10 +408,6 @@ def build_agent_runtime_env_prefix(
         # even if a stale env value survives in a resumed sandbox.
         "POSTHOG_RTK": "1" if rtk_enabled else "0",
         "POSTHOG_BENJAMIN": "1" if benjamin_enabled else "0",
-        # Exposure gate for the peer-messaging tools (PR: agent peer messaging). Set in
-        # both states so a stale "1" in a resumed sandbox can't outlive a flag rollback;
-        # the peers endpoints re-check authorization server-side regardless.
-        "POSTHOG_AGENT_PEER_MESSAGING": "1" if peer_messaging else "0",
         "POSTHOG_PI_CONVERSATION_FORMAT": "acp" if pi_acp_conversation else "pi",
     }
     assignments = " ".join(
@@ -690,7 +685,6 @@ class SandboxBase(ABC):
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
-        peer_messaging: bool = False,
         pi_acp_conversation: bool = False,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,

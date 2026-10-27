@@ -415,7 +415,7 @@ def record_squash_run_failure(context: dagster.HookContext) -> None:
 @dagster.job(
     tags={
         "owner": JobOwners.TEAM_CLICKHOUSE.value,
-        # Shares the run-queue limit with deletes_job and monthly_old_events_cleanup_job, because
+        # Shares the run-queue limit with deletes_job and monthly_retention_events_cleanup_job, because
         # all three mutate the events tables. A squash run then queues while either of them runs.
         "deletes_job_concurrency": "v1",
     },

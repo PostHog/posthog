@@ -133,6 +133,7 @@ class NoaaCdoSource(ResumableSource[NoaaCdoSourceConfig, NoaaCdoResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="dataset_id",
+                        sync_setting=True,
                         label="Dataset ID",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -141,6 +142,7 @@ class NoaaCdoSource(ResumableSource[NoaaCdoSourceConfig, NoaaCdoResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="station_id",
+                        sync_setting=True,
                         label="Station ID",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -149,6 +151,7 @@ class NoaaCdoSource(ResumableSource[NoaaCdoSourceConfig, NoaaCdoResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
