@@ -184,3 +184,23 @@ describe('experiment variant notes and screenshots', () => {
         ])
     })
 })
+
+describe('experiment responses with the linked flag', () => {
+    it.each([
+        ['experiment-create', { name: 'Checkout', feature_flag_key: 'checkout' }],
+        ['experiment-launch', { id: '1' }],
+    ])('%s keeps only the flag id, so the agent can link the flag', async (toolName, args) => {
+        const { context } = contextWith({
+            POST: {
+                id: 1,
+                feature_flag_key: 'checkout',
+                feature_flag: { id: 42, key: 'checkout', filters: { groups: [{ rollout_percentage: 100 }] } },
+            },
+        })
+
+        const result = (await run(toolName, context, args)) as Record<string, unknown>
+
+        expect(result.feature_flag).toEqual({ id: 42 })
+        expect(result._posthogUrl).toBe('https://app.example.com/project/7/experiments/1')
+    })
+})

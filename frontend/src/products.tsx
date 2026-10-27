@@ -1719,6 +1719,9 @@ export const productUrls = {
         const params = options ? toParams(options) : ''
         return params ? `${baseUrl}?${params}` : baseUrl
     },
+    experimentRecordingsTab: (id: string | number): string => urls.experiment(id, null, { tab: 'recordings' }),
+    experimentSettingsTab: (id: string | number): string => urls.experiment(id, null, { tab: 'settings' }),
+    experimentFeedbackTab: (id: string | number): string => urls.experiment(id, null, { tab: 'feedback' }),
     experiments: (tab?: ExperimentsTabs): string => (tab ? `/experiments?tab=${tab}` : '/experiments'),
     experimentsStaffTools: (): string => '/experiments/staff',
     experimentsSharedMetrics: (): string => '/experiments/shared-metrics',

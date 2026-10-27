@@ -111,8 +111,10 @@ export function toolResultAnalyticsProperties(response: ToolResultPayload): Reco
  */
 export const STRUCTURED_CONTENT_ONLY_TEXT = "Full result is in this response's structuredContent field."
 
+// The link is called out because the inline view does not replace it: without the exception,
+// agents read the link as part of "this data" and drop it from the reply.
 export const UI_APP_RENDER_NOTE =
-    'The user already sees this result as an interactive view in the conversation. State your conclusion in text and do not repeat this data in your reply.'
+    'The user already sees this result as an interactive view in the conversation. State your conclusion in text and do not repeat this data in your reply, but do share any `_posthogUrl` link it includes.'
 
 /**
  * Estimate output tokens from what the client actually receives — the serialized

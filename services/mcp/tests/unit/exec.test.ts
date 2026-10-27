@@ -627,7 +627,8 @@ describe('exec tool', () => {
             }
 
             expect(result.content[0]!.text).toBe(`${STRUCTURED_CONTENT_ONLY_TEXT}\n\n${UI_APP_RENDER_NOTE}`)
-            expect(result.content[0]!.text).not.toContain('_posthogUrl')
+            // The render note names `_posthogUrl`, so check that the URL value is not copied into the text.
+            expect(result.content[0]!.text).not.toContain('http://localhost:8010/insights/new')
             const structured = result.structuredContent as { results: unknown }
             expect(structured.results).toEqual([{ data: [1, 2, 3], count: 6 }])
             expect(result._meta[APP_DATA_META_KEY]).toBeUndefined()

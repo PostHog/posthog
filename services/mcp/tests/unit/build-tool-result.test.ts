@@ -314,6 +314,8 @@ describe('buildToolResultPayload — inline-exec UI host (forceUiDataToMeta)', (
         // The text channel points at structuredContent instead of repeating it.
         expect(payload.content[0]!.text).toContain(STRUCTURED_CONTENT_ONLY_TEXT)
         expect(payload.content[0]!.text).toContain(UI_APP_RENDER_NOTE)
+        // The note must not stop the agent sharing the link that rides in structuredContent.
+        expect(payload.content[0]!.text).toContain('share any `_posthogUrl` link')
         expect(payload.content[0]!.text).not.toContain('Onboarding copy')
         expect(payload._meta?.[APP_DATA_META_KEY]).toBeUndefined()
     })

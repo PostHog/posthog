@@ -41,6 +41,10 @@ export const manifest: ProductManifest = {
             const params = options ? toParams(options) : ''
             return params ? `${baseUrl}?${params}` : baseUrl
         },
+        // Tab deep links, kept as separate builders so the MCP `generate-app-url` catalog lists them.
+        experimentRecordingsTab: (id: string | number): string => urls.experiment(id, null, { tab: 'recordings' }),
+        experimentSettingsTab: (id: string | number): string => urls.experiment(id, null, { tab: 'settings' }),
+        experimentFeedbackTab: (id: string | number): string => urls.experiment(id, null, { tab: 'feedback' }),
         experiments: (tab?: ExperimentsTabs): string => (tab ? `/experiments?tab=${tab}` : '/experiments'),
         experimentsStaffTools: (): string => '/experiments/staff',
         experimentsSharedMetrics: (): string => '/experiments/shared-metrics',

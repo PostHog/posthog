@@ -834,6 +834,21 @@
         "params": ["id"],
         "scope": "project"
     },
+    "experimentFeedbackTab": {
+        "template": "/experiments/{id}?tab=feedback",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "experimentRecordingsTab": {
+        "template": "/experiments/{id}?tab=recordings",
+        "params": ["id"],
+        "scope": "project"
+    },
+    "experimentSettingsTab": {
+        "template": "/experiments/{id}?tab=settings",
+        "params": ["id"],
+        "scope": "project"
+    },
     "experiments": {
         "template": "/experiments",
         "params": [],
