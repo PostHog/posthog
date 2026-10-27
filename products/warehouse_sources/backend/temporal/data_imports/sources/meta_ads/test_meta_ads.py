@@ -2375,25 +2375,45 @@ class TestBreakdownStatsRequests:
         assert result.requests[0].param("time_range") is None
         assert result.requests[0].path.endswith("/act_123/adcreatives")
 
-    def test_attribution_settings_omitted_when_unset(self, monkeypatch) -> None:
+    @pytest.mark.parametrize("action_attribution_windows", [None, "", "first_touch, 30d_click"])
+    def test_attribution_settings_omitted_when_unset(self, monkeypatch, action_attribution_windows: str | None) -> None:
         # Backward compatibility: an existing connection that never set attribution config must
         # produce the same Insights request as before — Meta then applies its own default window.
-        result = self._capture_request(monkeypatch, MetaAdsResource.CampaignStats)
+        # A setting with no value Meta accepts falls back the same way, because Meta rejects the
+        # whole request for one unknown window.
+        result = self._capture_request(
+            monkeypatch, MetaAdsResource.CampaignStats, action_attribution_windows=action_attribution_windows
+        )
 
         assert result.requests[0].param("action_attribution_windows") is None
         assert result.requests[0].param("use_unified_attribution_setting") is None
 
-    def test_attribution_settings_threaded_into_stats_request(self, monkeypatch) -> None:
+    @pytest.mark.parametrize(
+        "action_attribution_windows, expected",
+        [
+            ("7d_click, 1d_view", ["7d_click", "1d_view"]),
+            ("7D_Click;1d_VIEW", ["7d_click", "1d_view"]),
+            ("7d_click 1d_view", ["7d_click", "1d_view"]),
+            ('["7d_click", "28d_view"]', ["7d_click", "28d_view"]),
+            ("7 day click, 1-day view, 28 days clicks", ["7d_click", "1d_view", "28d_click"]),
+            ("7d_click, 7d_click", ["7d_click"]),
+            ("dda, 7d_view_first_conversion, skan_click", ["dda", "7d_view_first_conversion", "skan_click"]),
+            ("7d_click, last_touch, 2d_click", ["7d_click"]),
+        ],
+    )
+    def test_attribution_settings_threaded_into_stats_request(
+        self, monkeypatch, action_attribution_windows: str, expected: list[str]
+    ) -> None:
         result = self._capture_request(
             monkeypatch,
             MetaAdsResource.CampaignStats,
-            action_attribution_windows="7d_click, 1d_view",
+            action_attribution_windows=action_attribution_windows,
             use_unified_attribution_setting="true",
         )
 
-        # Windows are sent JSON-encoded (Meta's list-parameter shape) with surrounding whitespace
-        # trimmed; the unified-setting flag is passed through verbatim.
-        assert json.loads(result.requests[0].param("action_attribution_windows") or "null") == ["7d_click", "1d_view"]
+        # Windows are sent JSON-encoded (Meta's list-parameter shape), normalized to the values Meta
+        # accepts, with unknown ones dropped; the unified-setting flag is passed through verbatim.
+        assert json.loads(result.requests[0].param("action_attribution_windows") or "null") == expected
         assert result.requests[0].param("use_unified_attribution_setting") == "true"
 
     def test_attribution_default_sentinel_leaves_unified_setting_unset(self, monkeypatch) -> None:

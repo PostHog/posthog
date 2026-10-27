@@ -366,8 +366,8 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # the fetch succeeds again, so a fresh connect after backoff typically recovers. Match the full
     # "failed to retrieve database credentials" wording, NOT the bare "(ECIRCUITBREAKER)" code —
     # Supavisor reuses the same code for a different condition ("too many authentication failures",
-    # tripped by repeated bad credentials rather than pooler bookkeeping), which must stay
-    # non-retryable and is matched separately in source.py's `get_non_retryable_errors`.
+    # tripped by repeated failed sign-ins). That block is not retried in-process, because retrying
+    # during the block only adds attempts. source.py keeps it retryable across activity attempts.
     "(ecircuitbreaker) failed to retrieve database credentials",
     # pgcat (a Rust Postgres pooler) refuses to hand out a backend when every server in the pool is
     # currently banned/down — a failed health check bans a server and pgcat auto-unbans it after
@@ -614,7 +614,8 @@ def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
     `offset_chunking` reconnect. The schema-discovery path retries drops, connection-limit refusals,
     server-startup refusals, and recovery conflicts too (via `_is_dropped_or_connection_limit`) but
     deliberately keeps failing fast on connect-time *timeouts*, where a timeout usually means an
-    unreachable host / unconfigured firewall (see `PostgresErrors` and `get_non_retryable_errors`).
+    unreachable host / unconfigured firewall (see `PostgresErrors`). A fast failure there is still
+    retried by the activity, because `get_retryable_errors` lists the timeout.
     """
     return (
         _is_connection_dropped_error(error)
