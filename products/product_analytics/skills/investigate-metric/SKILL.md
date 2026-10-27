@@ -88,6 +88,7 @@ Decide this now, before the investigation, because it changes which queries you 
 
 The findings go in a walkthrough when the chart is a `TrendsQuery` over time (not a box plot, 2D heatmap or scatter plot) and `posthog:explain-chart` exists in this session.
 It exists when `posthog:render-ui` lists `explain-chart` in its `tool_name`, or when `info explain-chart` works through `exec`.
+Without `render-ui`, only some hosts draw the walkthrough from `exec`, so Step 5 checks that it appeared and falls back to the written report when it did not.
 Otherwise the findings go in a written report.
 
 When it is a walkthrough:
@@ -166,6 +167,7 @@ Call `posthog:explain-chart` first. It reports any chapter whose dates match no 
 chart, so fix those dates and call it again.
 When its response says the user already sees the result, the walkthrough is on screen, and you are done.
 Otherwise call `posthog:render-ui` with `tool_name` `explain-chart` and the same input as `tool_input`.
+When `render-ui` does not exist either, the user sees nothing, so write the written report instead.
 
 Then reply in at most three short sentences: which chapter to look at first, one caveat
 about the data if the walkthrough cannot show it, and one offer from below. The walkthrough
