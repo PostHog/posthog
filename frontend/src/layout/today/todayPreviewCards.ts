@@ -58,7 +58,19 @@ export interface TodayProductPreview extends SidebarProductMeta {
     product: FileSystemImport
 }
 
-export type TodayPreviewPayload = TodaySessionPreview | TodayChatPreview | TodayObjectPreview | TodayProductPreview
+/** Explains a sidebar row that is not a product, such as a way to browse Analytics. */
+export interface TodayExplainerPreview extends SidebarProductMeta {
+    kind: 'explainer'
+    label: string
+    icon: JSX.Element
+}
+
+export type TodayPreviewPayload =
+    | TodaySessionPreview
+    | TodayChatPreview
+    | TodayObjectPreview
+    | TodayProductPreview
+    | TodayExplainerPreview
 
 export function sessionPreview(
     item: TodayWorkItem,

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-10-23 20:03:12 UTC
+// Generated at: 2026-10-26 20:03:05 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -23,7 +23,6 @@ export type CanonicalProvider =
     | 'ambient-fp8'
     | 'anthropic'
     | 'anthropic-fast'
-    | 'arcee-ai'
     | 'atlas-cloud-fp4'
     | 'atlas-cloud-fp8'
     | 'atlas-cloud-int4'
@@ -66,6 +65,7 @@ export type CanonicalProvider =
     | 'darkbloom-fp4'
     | 'darkbloom-fp8'
     | 'darkbloom-int4'
+    | 'darkbloom-nvfp4'
     | 'decart-fast'
     | 'decart-fp4'
     | 'decart-mxfp4'
@@ -155,8 +155,8 @@ export type CanonicalProvider =
     | 'modal-nvfp4'
     | 'modelrun-fp4'
     | 'modelrun-fp8'
+    | 'moonshotai'
     | 'moonshotai-highspeed'
-    | 'moonshotai-int4'
     | 'moonshotai-mxfp4'
     | 'morph-fp8'
     | 'near-ai-fp4'
@@ -196,11 +196,11 @@ export type CanonicalProvider =
     | 'perplexity'
     | 'perplexity-int8'
     | 'phala'
-    | 'phala-fp8'
     | 'phala-nvfp4'
     | 'poolside-fp4'
     | 'poolside-fp8'
     | 'primeintellect'
+    | 'primeintellect-bf16'
     | 'primeintellect-fp8'
     | 'recursive-bf16'
     | 'reka'
@@ -241,6 +241,7 @@ export type CanonicalProvider =
     | 'venice-fp4'
     | 'venice-fp8'
     | 'venice-int4'
+    | 'venice-turbo'
     | 'voyageai'
     | 'wafer'
     | 'wafer-fast'

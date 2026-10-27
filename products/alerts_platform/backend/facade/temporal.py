@@ -3,6 +3,7 @@ from products.alerts_platform.backend.temporal.metrics import (
     ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS,
 )
 from products.alerts_platform.backend.temporal.schedule import (
+    create_alerts_platform_expired_holds_schedule,
     create_alerts_platform_inventory_schedule,
     create_alerts_platform_tick_schedule,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "SHARED_ORCHESTRATION_ACTIVITIES",
     "SHARED_ORCHESTRATION_WORKFLOWS",
     "AlertsPlatformTelemetryInterceptor",
+    "create_alerts_platform_expired_holds_schedule",
     "create_alerts_platform_inventory_schedule",
     "create_alerts_platform_tick_schedule",
     "source_evaluation_timeout",

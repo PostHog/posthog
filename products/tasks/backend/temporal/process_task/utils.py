@@ -13,6 +13,7 @@ from django.db import transaction
 
 from pydantic import BaseModel
 
+from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.enums import LabeledStrEnum
 from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
@@ -27,7 +28,8 @@ from posthog.models.user_integration import (
 )
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
-from products.mcp_store.backend.facade.api import get_installations_for_sandbox
+from products.mcp_store.backend.facade.api import resolve_installations_for_sandbox
+from products.mcp_store.backend.facade.contracts import UnmountedInstallation, UnmountedInstallationReason
 from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import (
     ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
@@ -590,6 +592,43 @@ def loop_mcp_installation_allowlist(state: dict | None) -> list[str] | None:
     return [str(i) for i in ids] if isinstance(ids, list) else []
 
 
+@frozen
+class UserMcpServerConfigs:
+    configs: list[McpServerConfig]
+    unmounted: tuple[UnmountedInstallation, ...] = ()
+
+
+_UNMOUNTED_REASON_NOTICES: dict[UnmountedInstallationReason, str] = {
+    "needs_reconnect": "reconnect it in the MCP Store",
+    "server_disabled": "a project admin turned this server off",
+    "revoked": "a project admin turned this server off for you",
+}
+
+
+def unmounted_mcp_installations_notice(unmounted: Sequence[UnmountedInstallation]) -> str | None:
+    """The run-log warning for connections the user expects but the run left out.
+
+    A connection the run's own selection excluded, or one the user's personal copy replaced,
+    is the expected outcome, so it is not reported.
+    """
+    missing = [
+        f"{installation.name} ({_UNMOUNTED_REASON_NOTICES[installation.reason]})"
+        for installation in unmounted
+        if installation.reason in _UNMOUNTED_REASON_NOTICES
+    ]
+    if not missing:
+        return None
+    noun = "connection was" if len(missing) == 1 else "connections were"
+    return f"{len(missing)} MCP Store {noun} not added to this run: {', '.join(missing)}."
+
+
+def unmounted_mcp_installations_log_fields(unmounted: Sequence[UnmountedInstallation]) -> list[dict[str, str]]:
+    return [
+        {"id": installation.id, "name": installation.name, "scope": installation.scope, "reason": installation.reason}
+        for installation in unmounted
+    ]
+
+
 def get_user_mcp_server_configs(
     token: str,
     team_id: int,
@@ -603,7 +642,7 @@ def get_user_mcp_server_configs(
     task_agent_key: str | None = None,
     credential_owner_id: int | None = None,
     allowed_gateway_server_ids: list[str] | None = None,
-) -> list[McpServerConfig]:
+) -> UserMcpServerConfigs:
     """Fetch MCP Store installations for sandbox use and return configs.
 
     Unmapped tasks include shared team installations. Built-in agent tasks only
@@ -634,12 +673,14 @@ def get_user_mcp_server_configs(
     identity propagates through the MCP Store proxy to whichever upstream MCP
     the user installed. Non-PostHog upstreams ignore the header.
 
-    Returns an empty list on errors (non-fatal).
+    ``unmounted`` carries the installations the run reached but left out, with the reason.
+
+    Returns no configs on errors (non-fatal).
     """
     if origin_product == "account_audit":
-        return []
+        return UserMcpServerConfigs(configs=[])
 
-    installations = get_installations_for_sandbox(
+    resolution = resolve_installations_for_sandbox(
         team_id,
         user_id=user_id,
         include_personal=include_personal,
@@ -655,7 +696,7 @@ def get_user_mcp_server_configs(
     )
 
     configs: list[McpServerConfig] = []
-    for installation in installations:
+    for installation in resolution.mounted:
         headers = [
             {"name": "Authorization", "value": f"Bearer {installation.proxy_token or token}"},
             {"name": "x-posthog-mcp-consumer", "value": consumer},
@@ -670,7 +711,7 @@ def get_user_mcp_server_configs(
             )
         )
 
-    return configs
+    return UserMcpServerConfigs(configs=configs, unmounted=resolution.unmounted)
 
 
 def build_imported_mcp_server_configs(

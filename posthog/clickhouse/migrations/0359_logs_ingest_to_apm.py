@@ -30,7 +30,9 @@ operations = (
         run_sql_with_exceptions(WRITABLE_LOGS34_TABLE_SQL(), node_roles=[NodeRole.APM], require_hosts=True),
         run_sql_with_exceptions(KAFKA_LOGS_AVRO_TABLE_SQL(), node_roles=[NodeRole.APM], require_hosts=True),
         run_sql_with_exceptions(
-            KAFKA_LOGS34_AVRO_MV(to_table="writable_logs34"), node_roles=[NodeRole.APM], require_hosts=True
+            KAFKA_LOGS34_AVRO_MV(to_table="writable_logs34", internal_source=False),
+            node_roles=[NodeRole.APM],
+            require_hosts=True,
         ),
         run_sql_with_exceptions(f"DROP TABLE IF EXISTS {DB}.kafka_logs_avro", node_roles=[NodeRole.INGESTION_EVENTS]),
         run_sql_with_exceptions(
