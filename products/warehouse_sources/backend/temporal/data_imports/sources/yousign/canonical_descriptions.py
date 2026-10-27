@@ -63,6 +63,22 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "recipient_stage_index": "Notification stage; recipients sharing an index are notified together.",
         },
     },
+    "approvers": {
+        "description": "An approver of a signature request, with their identity details and approval status.",
+        "docs_url": "https://developers.yousign.com/reference/get-signature_requests-id-approvers",
+        "columns": {
+            "id": "Unique identifier of the approver.",
+            "signature_request_id": "Signature request this approver belongs to.",
+            "info": "Approver identity: first name, last name, email, phone number, and locale.",
+            "status": "Approval status: initiated, notified, approved, or rejected.",
+            # approval_link is intentionally not imported (see yousign.APPROVER_CAPABILITY_FIELDS).
+            "approval_link_expiration_date": "When the approver's (non-imported) approval link expires.",
+            "custom_text": "Custom subjects and bodies of the request and reminder emails sent to the approver.",
+            "approved_at": "When the approver approved the signature request.",
+            "recipient_stage_index": "Notification stage; recipients sharing an index are notified together.",
+            "excluded_documents": "Ids of documents not visible to this approver.",
+        },
+    },
     "documents": {
         "description": "A document attached to a signature request, either signable or a simple attachment.",
         "docs_url": "https://developers.yousign.com/reference/get-signature_requests-signaturerequestid-documents-1",

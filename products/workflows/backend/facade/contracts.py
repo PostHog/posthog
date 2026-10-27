@@ -1,3 +1,4 @@
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -7,6 +8,12 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.enums import (
+    EmailDomainSetupRecordKind,
+    EmailDomainSetupRecordStatus,
+    EmailDomainSetupRecordType,
+    EmailDomainSetupStatus,
+    EmailDomainSetupStepKey,
+    EmailDomainSetupStepState,
     EmailDraftFallbackReason,
     EmailDraftOrigin,
     HogFlowBatchJobState,
@@ -77,6 +84,17 @@ class WorkflowVisionScanDailyLimits:
 
     per_workflow: int | None
     per_team: int | None
+
+
+@frozen
+class RealtimeAudienceCohort:
+    """A realtime cohort a batch audience sends to from the realtime pipeline's membership."""
+
+    id: int
+    name: str
+    ready: bool
+    # False when the realtime pipeline doesn't run for the cohort's project, so it never becomes ready.
+    can_finish: bool
 
 
 @frozen
@@ -204,6 +222,17 @@ class AccountAudienceProvider(Protocol):
 
 
 @frozen
+class RealtimeCohortStatus:
+    """How far a realtime cohort audience is from having its membership calculated."""
+
+    id: int
+    name: str
+    # A CohortRealtimeState value: "ready", "building", "rebuilding" or "needs_attention".
+    state: str
+    percent_complete: int | None
+
+
+@frozen
 class AudienceSize:
     """How many recipients a batch audience matches, and the most a batch trigger may send to."""
 
@@ -211,6 +240,10 @@ class AudienceSize:
     total: int
     limit: int
     dedupe_key: str | None
+    # Set when the audience is one realtime cohort. A send waits until that cohort is ready.
+    realtime_cohort: RealtimeCohortStatus | None = None
+    # Set when a realtime cohort shares the audience with other conditions, which a save rejects.
+    realtime_cohort_with_other_conditions: RealtimeAudienceCohort | None = None
 
 
 @frozen
@@ -396,6 +429,86 @@ class EmailDomainVerification(TypedDict):
     dnsRecords: list[EmailDomainDnsRecord]
 
 
+@frozen
+class EmailDomainStatusRecord:
+    kind: EmailDomainSetupRecordKind
+    hostname: str
+    type: EmailDomainSetupRecordType
+    value: str
+    priority: int | None = None
+    status: EmailDomainSetupRecordStatus = EmailDomainSetupRecordStatus.PENDING
+
+
+@frozen
+class EmailDomainStatusStep:
+    key: EmailDomainSetupStepKey
+    state: EmailDomainSetupStepState
+
+
+@frozen
+class EmailDomainCheck:
+    """What the email provider and public DNS report for a sending domain, read without changing either."""
+
+    status: EmailDomainSetupStatus
+    steps: tuple[EmailDomainStatusStep, ...]
+    records: tuple[EmailDomainStatusRecord, ...]
+    every_dns_lookup_answered: bool = True
+
+    @property
+    def is_verified(self) -> bool:
+        return self.status == EmailDomainSetupStatus.VERIFIED
+
+    # The Django cache pickles what it stores, so the check goes in as a JSON string of plain values.
+    def to_json(self) -> str:
+        return json.dumps(
+            {
+                "status": self.status.value,
+                "steps": [{"key": step.key.value, "state": step.state.value} for step in self.steps],
+                "records": [
+                    {
+                        "kind": record.kind.value,
+                        "hostname": record.hostname,
+                        "type": record.type.value,
+                        "value": record.value,
+                        "priority": record.priority,
+                        "status": record.status.value,
+                    }
+                    for record in self.records
+                ],
+                "every_dns_lookup_answered": self.every_dns_lookup_answered,
+            }
+        )
+
+    @classmethod
+    def from_json(cls, raw: str) -> "EmailDomainCheck":
+        data = json.loads(raw)
+        return cls(
+            status=EmailDomainSetupStatus(data["status"]),
+            steps=tuple(
+                EmailDomainStatusStep(
+                    key=EmailDomainSetupStepKey(step["key"]), state=EmailDomainSetupStepState(step["state"])
+                )
+                for step in data["steps"]
+            ),
+            records=tuple(
+                EmailDomainStatusRecord(
+                    kind=EmailDomainSetupRecordKind(record["kind"]),
+                    hostname=str(record["hostname"]),
+                    type=EmailDomainSetupRecordType(record["type"]),
+                    value=str(record["value"]),
+                    priority=None if record["priority"] is None else int(record["priority"]),
+                    status=EmailDomainSetupRecordStatus(record["status"]),
+                )
+                for record in data["records"]
+            ),
+            every_dns_lookup_answered=bool(data["every_dns_lookup_answered"]),
+        )
+
+
+class EmailProviderUnavailableError(Exception):
+    """The email provider could not be reached or refused the read, so the domain's state is unknown."""
+
+
 class TwilioPhoneNumber(TypedDict):
     """The fields callers read. The Twilio payload has more keys."""
 
@@ -408,6 +521,26 @@ class TwilioAccount(TypedDict, total=False):
     """Empty when the Twilio request fails."""
 
     sid: str
+
+
+@frozen
+class TeamUtmDefaults:
+    enabled: bool
+    params: dict[str, str]
+
+
+@frozen
+class FlowUtmUpdate:
+    actions: list[dict[str, Any]] | None
+    draft_actions: list[dict[str, Any]] | None
+    emails_updated: int
+    emails_turned_on: int
+
+
+@frozen
+class UtmDefaultsWriteResult:
+    write: "WorkflowWriteResult"
+    plan: FlowUtmUpdate
 
 
 @frozen
@@ -508,9 +641,22 @@ class Workflow:
     email_sending_paused_by: str
     email_sending_resumed_at: datetime | None
     user_access_level: str | None
+    # Tag names, sorted.
+    tags: tuple[str, ...] = ()
     # Read on the list only. A single-workflow read leaves both None and ``schedules`` filled.
     pending_suggestions: int | None = None
     suggestions_enabled: bool | None = None
+
+
+@frozen
+class SuggestionsSample:
+    """Whether the live version has sent enough email for the suggestions scout to judge it."""
+
+    reached: bool
+    # Tracked sends (sent minus untracked) from the live version's busiest email step in the window.
+    tracked_sends: int
+    required_sends: int
+    version_live_since: datetime
 
 
 @frozen
@@ -546,6 +692,12 @@ class TransactionalEmailContent:
     # None uses the project's default sender on create, and keeps the workflow's sender on update.
     from_integration_id: int | None
     message_category_id: UUID | None
+    # Sends keep a placeholder instead of the body, and clicks drop the link's query string.
+    sensitive: bool = False
+    # Empty values use the sender's own address, name and default reply-to.
+    from_email: str = ""
+    from_name: str = ""
+    reply_to: str = ""
 
 
 class TransactionalEmailSenderUnavailable(Exception):
@@ -580,6 +732,8 @@ class WorkflowListQuery:
     broadcast_eligible: bool = False
     broadcast_statuses: frozenset[str] = frozenset()
     suggestions_first: bool = False
+    # A workflow matches when it carries at least one of these tags.
+    tags: frozenset[str] = frozenset()
     field_filters: Mapping[str, str] = field(default_factory=dict)
 
 
@@ -756,6 +910,8 @@ class DataSuggestion:
     weekly_count: int
     stage: LifecycleStage
     step_outline: tuple[OutlineKind, ...]
+    # Prepared ahead of time with its workflow already built, so a click creates the draft without a model call.
+    premade: bool = False
 
 
 @frozen
@@ -764,6 +920,8 @@ class DataSuggestionsResult:
     suggestions: tuple[DataSuggestion, ...]
     # The project's events that a build can wait on. Kept with the cards, so a build does not count events again.
     events: tuple[str, ...] = ()
+    # Whether most of the project's app events come from its mobile SDKs. Kept with the cards for the same reason.
+    mobile_first: bool = False
 
 
 DataSuggestionBuildStatus = Literal["ready", "building", "failed"]
@@ -789,8 +947,21 @@ class BuiltSuggestion:
     missing_inputs: tuple[MissingInput, ...] = ()
 
 
+@frozen
+class PreparedIdeas:
+    """What `prepare_workflow_ideas` did for one project."""
+
+    status: DataSuggestionsStatus
+    stored: tuple[str, ...] = ()
+    failed_builds: int = 0
+
+
 class DataSuggestionNotFound(Exception):
     """The suggestion id is unknown, usually because the cached suggestions expired."""
+
+
+class WorkflowIdeaAlreadyResolved(Exception):
+    """The premade idea was already used."""
 
 
 class EmailDraftSourceNotFound(Exception):

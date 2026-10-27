@@ -1,12 +1,12 @@
 import { ErrorEventType } from 'lib/components/Errors/types'
 
-import { EventsQuery } from '~/queries/schema/schema-general'
+import { ErrorTrackingIssueEventsQuery, EventsQuery } from '~/queries/schema/schema-general'
 
 import { createDataSourceLogic } from '../DataSourceTable'
 
 export interface EventsSourceProps {
     queryKey: string
-    query: EventsQuery
+    query: EventsQuery | ErrorTrackingIssueEventsQuery
 }
 
 type EventsQueryPerson = ErrorEventType['person'] & { distinct_id: string }

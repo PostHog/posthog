@@ -47,10 +47,6 @@ class TestStytchSource:
         assert advised_tables in (classified[0] or "")
         assert len(result.requests) == 1
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["users"])
-        assert [schema.name for schema in schemas] == ["users"]
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [

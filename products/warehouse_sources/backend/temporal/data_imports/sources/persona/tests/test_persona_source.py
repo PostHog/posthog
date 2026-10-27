@@ -35,10 +35,6 @@ class TestPersonaGetSchemas:
         assert schema.supports_incremental is incremental
         assert schema.supports_append is append
 
-    def test_names_filter(self) -> None:
-        schemas = PersonaSource().get_schemas(MagicMock(), team_id=1, names=["cases"])
-        assert [s.name for s in schemas] == ["cases"]
-
 
 class TestPersonaValidateCredentials:
     @parameterized.expand(

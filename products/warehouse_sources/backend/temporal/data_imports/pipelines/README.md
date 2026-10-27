@@ -35,6 +35,32 @@ A later attempt of the same workflow run that also reads from the start loads th
 An attempt that continues from a cursor merges, because it can read a row again that an earlier attempt already queued.
 The append keeps one row for each key in a batch, not in the run: a key that the source holds in two batches stays twice until a later run merges that key.
 
+## Incremental runs that replace rows by file
+
+A source that has no primary key can name the origin of each row instead, for example the file it came from.
+It sets `SourceResponse.replace_scope` (`ReplaceScope` in `sources/common/typings.py`): a column, the values this run reads again (`replaced`), and the values that are live now (`retained`).
+A source sets a scope only while the `warehouse-replace-rows-by-file` flag is on for the schema, because an older loader ignores the scope and fails the keyless batch.
+
+- The pipeline writes the two value sets to `replace_scope.parquet` in the run's folder (`pipeline_v3/replace_scope.py`). Each queue row carries only the column and the manifest path, under `replace_scope` in its metadata.
+- Before batch 0 of a fresh attempt writes, the loader deletes each row whose value is in `replaced` or not in `retained` (`pipeline_v3/load/replace_rows.py`). It reads the values in the table from one column, and deletes in commits of up to 1,000 values. Then every batch of the run appends.
+- The delete commits do not carry the batch tag, so a batch that failed after its deletes still writes on redelivery. A second delete of the same values finds nothing more to delete.
+- The attempt records itself in `sync_type_config["replace_scope_run_uuid"]`, and the loader drops each later batch of an earlier attempt of the same workflow run. The producer also supersedes the queue rows of earlier attempts. The new attempt deletes the rows of every file that an earlier attempt read again.
+- A run that reads no rows queues one empty batch, so a scope that only removes rows still reaches the loader.
+- A first sync and a reset load into an empty table, so they do not send a scope. A row with no value in the column stays.
+- The watermark does not change: it moves only when the run completes, so a failed run reads and deletes the same files again.
+
+## Incremental runs that fail part way
+
+The final batch of a run promotes the run's staged watermark, so a run that fails after many loaded batches would make the next run read all of them again.
+With `DATA_WAREHOUSE_IMPORT_PREFIX_WATERMARK_ENABLED`, the watermark also moves each time batches `0..k` of a run are all loaded.
+
+- Only an incremental merge on a primary key qualifies, from a source that says `sort_mode="asc"`. A first sync, a reset, a CDC table, a laned source, a resumable source, an attempt that continues an earlier one and a table with an active chunk sink (a warehouse-triggered workflow, a HogFunction or a person-property mapping) do not qualify. A retry clears the sink's staged files, so it would never stage the rows that it skips.
+- A run with an external destination does not qualify. A file destination publishes the batches of a run only when the run completes, so a loaded warehouse prefix does not prove that the destination has the rows.
+- The promoted value is safe only when the source really reads in ascending order, because the next run reads only the rows above it. The check for a batch out of order cannot protect rows that the run did not read yet. Enable the setting only where every source that says `sort_mode="asc"` proves that order.
+- Each batch records in its queue metadata (`loaded_prefix_cursor`) the largest value below the newest value read so far. Rows that hold the newest value can still be in the next batch, so the next run reads them again and merges them. A batch out of ascending order stops the recording for the rest of the run.
+- After each write, the loader checks that every earlier batch of the run has `succeeded` (`get_loaded_prefix_sync` in `jobs_db.py`). Then it promotes the value under the schema row lock. It never moves the watermark down, and it does nothing when the run has no staged cursor, because a reset deleted it.
+- A later attempt of the same job reads only the rows above the promoted value, so it keeps the job's `rows_synced` through that prefix (`incremental_prefix_promotion`) instead of counting from zero.
+
 ## Destinations
 
 A schema syncs to a set of destinations, of which the PostHog warehouse is one rather than a special case.

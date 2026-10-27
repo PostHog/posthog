@@ -278,18 +278,22 @@ class SandboxConfig(BaseModel):
             return self.dev_stack_present
         return self.custom_image_name == DEV_STACK_IMAGE_NAME
 
+    @property
+    def applies_dev_stack_floors(self) -> bool:
+        return self.is_dev_stack_image and self.workload == SandboxWorkload.DEFAULT
+
     @model_validator(mode="after")
     def _enforce_dev_stack_memory_floor(self) -> Self:
-        if self.is_dev_stack_image:
+        if self.applies_dev_stack_floors:
             self.memory_gb = max(self.memory_gb, DEV_STACK_MEMORY_GB)
         return self
 
     @property
     def effective_cpu_request_cores(self) -> float:
         """CPU floor the provider actually reserves when burstable: the configured request,
-        raised to the dev-stack image floor, clamped to the limit."""
+        raised to the dev-stack floor on default-workload boxes, clamped to the limit."""
         floor = float(self.cpu_request_cores)
-        if self.is_dev_stack_image:
+        if self.applies_dev_stack_floors:
             floor = max(floor, DEV_STACK_CPU_REQUEST_CORES)
         return min(floor, float(self.cpu_cores))
 
@@ -373,10 +377,8 @@ def build_agent_runtime_env_prefix(
     event_ingest_token: str | None = None,
     task_run_session_token: str | None = None,
     event_ingest_url: str | None = None,
-    event_ingest_keep_stream_open: bool = False,
     rtk_enabled: bool = True,
     benjamin_enabled: bool = False,
-    peer_messaging: bool = False,
     pi_acp_conversation: bool = False,
     unset_bedrock: bool = False,
 ) -> str:
@@ -400,16 +402,12 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_TASK_RUN_SESSION_TOKEN": task_run_session_token,
         "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
         "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN": (
-            "true" if event_ingest_keep_stream_open else "false" if settings.DEBUG and not event_ingest_url else None
+            "false" if settings.DEBUG and not event_ingest_url else "true"
         ),
         # Set explicitly in both states: "0" opts the run out, "1" pins auto-detection on
         # even if a stale env value survives in a resumed sandbox.
         "POSTHOG_RTK": "1" if rtk_enabled else "0",
         "POSTHOG_BENJAMIN": "1" if benjamin_enabled else "0",
-        # Exposure gate for the peer-messaging tools (PR: agent peer messaging). Set in
-        # both states so a stale "1" in a resumed sandbox can't outlive a flag rollback;
-        # the peers endpoints re-check authorization server-side regardless.
-        "POSTHOG_AGENT_PEER_MESSAGING": "1" if peer_messaging else "0",
         "POSTHOG_PI_CONVERSATION_FORMAT": "acp" if pi_acp_conversation else "pi",
     }
     assignments = " ".join(
@@ -683,12 +681,10 @@ class SandboxBase(ABC):
         event_ingest_token: str | None = None,
         task_run_session_token: str | None = None,
         event_ingest_url: str | None = None,
-        event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
-        peer_messaging: bool = False,
         pi_acp_conversation: bool = False,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
@@ -729,6 +725,9 @@ class SandboxBase(ABC):
     def is_running(self) -> bool: ...
 
     def exit_reason(self) -> str | None:
+        return None
+
+    def exit_status(self) -> str | None:
         return None
 
     def read_agent_server_session_init_ms(self) -> int | None:

@@ -72,7 +72,7 @@ class CoralogixSource(ResumableSource[CoralogixSourceConfig, CoralogixResumeConf
             name=ExternalDataSourceType.CORALOGIX,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Coralogix",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["logs", "observability", "traces", "dataprime"],
             caption="""Enter a Coralogix API key to pull your logs and spans into the PostHog Data warehouse via the DataPrime query API.
 

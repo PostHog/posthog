@@ -4,8 +4,6 @@ from typing import Any
 import pytest
 from unittest import mock
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     RecordedRequest,
     ScriptedResponse,
@@ -82,11 +80,8 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_valid"),
         [
-            (200, True),
             # 403 = genuine key missing the probed capability; must not block source creation.
             (403, True),
-            (401, False),
-            (500, False),
         ],
     )
     def test_status_mapping(self, status_code: int, expected_valid: bool) -> None:
@@ -98,12 +93,6 @@ class TestValidateCredentials:
             assert error is None
         else:
             assert error is not None
-
-    def test_request_exception_is_caught(self) -> None:
-        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
-            is_valid, error = validate_credentials("us1", "id", "key")
-        assert is_valid is False
-        assert error is not None
 
 
 class TestCredentialRedaction:

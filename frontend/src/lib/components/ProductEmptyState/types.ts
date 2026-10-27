@@ -149,6 +149,7 @@ export interface ProductEmptyStateConfig {
     manualSetupUrl?: string
     /** Rendered as "<previewLabel>" with a pulsing live dot, above the preview */
     previewLabel: string
+    previewClassName?: string
     /** Self-animating signature preview populated with realistic fake data */
     Preview: ComponentType<{ mode: ProductEmptyStateMode }>
     /** Product-specific live status line (e.g. a "listening for events" indicator), rendered under the command block */

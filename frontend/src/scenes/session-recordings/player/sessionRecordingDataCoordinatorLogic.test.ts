@@ -8,22 +8,14 @@ import { processAllSnapshots, SnapshotSourceType, SourceKey, ViewportResolution 
 
 import { dayjs } from 'lib/dayjs'
 import { convertSnapshotsByWindowId } from 'scenes/session-recordings/__mocks__/recording_snapshots'
-import {
-    recordingDurationMs,
-    sessionRecordingDataCoordinatorLogic,
-} from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
+import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingMetaLogic } from 'scenes/session-recordings/player/sessionRecordingMetaLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { HogQLQueryResponse } from '~/queries/schema/schema-general'
-import {
-    RecordingSnapshot,
-    SessionRecordingSnapshotSource,
-    SessionRecordingSnapshotSourceResponse,
-    SessionRecordingType,
-} from '~/types'
+import { RecordingSnapshot, SessionRecordingSnapshotSource, SessionRecordingSnapshotSourceResponse } from '~/types'
 
 import { sortedRecordingSnapshots } from '../__mocks__/recording_snapshots'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
@@ -57,22 +49,6 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
         logic.actions.loadRecordingMeta()
         jest.spyOn(api, 'get')
         jest.spyOn(api, 'create')
-    })
-
-    describe('recordingDurationMs', () => {
-        const start = dayjs('2023-08-11T12:00:00Z')
-        const end = start.add(20, 'second')
-        const meta = { recording_duration: 10 } as SessionRecordingType
-
-        it.each([
-            { livePolling: false, expected: 10000 },
-            { livePolling: true, expected: 20000 },
-        ])(
-            'caps a fully loaded recording at the metadata duration unless live: $livePolling',
-            ({ livePolling, expected }) => {
-                expect(recordingDurationMs(start, end, meta, true, livePolling)).toBe(expected)
-            }
-        )
     })
 
     describe('core assumptions', () => {

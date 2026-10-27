@@ -1,17 +1,23 @@
 import functools
 import dataclasses
-from collections.abc import Iterator
+import unicodedata
+from collections.abc import AsyncIterable, Iterable, Iterator
 from typing import Any, Optional
 
+import orjson
+import pyarrow as pa
+from asgiref.sync import async_to_sync
 from requests import Request, Response
 from requests.exceptions import HTTPError, RequestException
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.clerk.settings import (
     CLERK_ENDPOINTS,
     RETIRED_ENDPOINTS,
+    WEBHOOK_SCHEMA_NAMES,
     ClerkEndpointConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -26,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 
 @dataclasses.dataclass
@@ -250,8 +257,16 @@ INSTANCE_NOT_FOUND_MESSAGE = (
 )
 
 
+def clean_secret_key(secret_key: str) -> str:
+    # A Clerk secret key is ASCII, so an invisible format character (zero-width space, byte order
+    # mark, direction mark) or Unicode whitespace at either end is debris from the copy, not part of
+    # the key. Remove it so the pasted key works instead of failing the latin-1 header encoding.
+    return "".join(char for char in secret_key if unicodedata.category(char) != "Cf").strip()
+
+
 def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
     """Validate Clerk API credentials by making a test request."""
+    secret_key = clean_secret_key(secret_key)
     # The key rides in the Authorization header, which http.client encodes as latin-1. A character
     # outside that range raises UnicodeEncodeError mid-request, so reject it as user input rather
     # than letting the encoding error surface. A carriage return or newline is ASCII but still
@@ -339,6 +354,33 @@ def _skip_when_feature_disabled(
         )
 
 
+def _webhook_table_transformer(table: pa.Table) -> pa.Table:
+    """Extract the Clerk object from each webhook event and keep the latest event per id."""
+    rows_by_id: dict[str, tuple[int, dict[str, Any]]] = {}
+    for event in table.to_pylist():
+        event_type = event.get("type")
+        resource = event.get("data")
+        if isinstance(resource, str):
+            try:
+                resource = orjson.loads(resource)
+            except orjson.JSONDecodeError:
+                continue
+        if not isinstance(event_type, str) or not isinstance(resource, dict) or not resource.get("id"):
+            continue
+        # The Hog template already drops deletions. This keeps a hand-configured webhook from
+        # writing an id-only payload over a stored row. See WEBHOOK_EVENTS_BY_SCHEMA.
+        if event_type.endswith(".deleted") or resource.get("deleted") is True:
+            continue
+
+        raw_timestamp = event.get("timestamp")
+        timestamp = raw_timestamp if isinstance(raw_timestamp, int) and not isinstance(raw_timestamp, bool) else 0
+        current = rows_by_id.get(str(resource["id"]))
+        if current is None or timestamp >= current[0]:
+            rows_by_id[str(resource["id"])] = (timestamp, _convert_timestamps(resource))
+
+    return table_from_py_list([row for _, row in rows_by_id.values()])
+
+
 def clerk_source(
     secret_key: str,
     endpoint: str,
@@ -346,6 +388,7 @@ def clerk_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[ClerkResumeConfig],
     logger: FilteringBoundLogger,
+    webhook_source_manager: WebhookSourceManager,
 ) -> SourceResponse:
     retired_reason = RETIRED_ENDPOINTS.get(endpoint)
     if retired_reason is not None:
@@ -359,7 +402,7 @@ def clerk_source(
             "base_url": "https://api.clerk.com/v1",
             "auth": {
                 "type": "bearer",
-                "token": secret_key,
+                "token": clean_secret_key(secret_key),
             },
             "headers": {
                 "Content-Type": "application/json",
@@ -407,11 +450,16 @@ def clerk_source(
 
     gated_feature = endpoint_config.gated_feature
 
-    def items() -> Iterator[Any]:
+    webhook_enabled = endpoint in WEBHOOK_SCHEMA_NAMES and async_to_sync(webhook_source_manager.webhook_enabled)()
+
+    def items() -> Iterable[Any] | AsyncIterable[Any]:
+        if webhook_enabled:
+            return webhook_source_manager.get_items(table_transformer=_webhook_table_transformer)
         if gated_feature is None:
-            yield from resource
-            return
-        yield from _skip_when_feature_disabled(iter(resource), endpoint, gated_feature, logger)
+            # The resource itself, so the framework stages a page's resume state before the page is
+            # yielded and a hand-off keeps the rows the pipeline still buffers.
+            return resource
+        return _skip_when_feature_disabled(iter(resource), endpoint, gated_feature, logger)
 
     if endpoint_config.partition_key is None:
         return SourceResponse(

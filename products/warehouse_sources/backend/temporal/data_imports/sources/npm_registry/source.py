@@ -49,7 +49,7 @@ class NpmRegistrySource(ResumableSource[NpmRegistrySourceConfig, NpmRegistryResu
             name=ExternalDataSourceType.NPMREGISTRY,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="npm registry",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["npm", "node", "javascript", "downloads"],
             caption="""Pull daily download counts and published-version metadata for npm packages from the public npm registry into the PostHog Data warehouse.
 

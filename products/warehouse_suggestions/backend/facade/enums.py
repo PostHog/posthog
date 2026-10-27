@@ -7,6 +7,7 @@ class WarehouseSuggestionKind(LabeledStrEnum):
     CERTIFY = "certify"
     DEPRECATE = "deprecate"
     MATERIALIZE = "materialize"
+    UNMATERIALIZE = "unmaterialize"
 
 
 class WarehouseSuggestionStatus(LabeledStrEnum):
@@ -32,3 +33,15 @@ class WarehouseSuggestionAssetOutcome(LabeledStrEnum):
     LIVE = "live"
     DELETED = "deleted"
     UNUSED = "unused"
+
+
+class WarehouseSuggestionRefreshMode(LabeledStrEnum):
+    FULL = "full"
+    INCREMENTAL = "incremental"
+
+
+class WarehouseSuggestionRefreshIntervalBasis(LabeledStrEnum):
+    SOURCE_SYNC = ("source_sync", "Source sync")
+    FASTEST_SCHEDULE = ("fastest_schedule", "Fastest schedule")
+    READ_RATE = ("read_rate", "Read rate")
+    SAVINGS = "savings"

@@ -30,6 +30,7 @@ from posthog.settings import (
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -151,6 +152,29 @@ class TestImageExporter(APIBaseTest):
 
         # The browser must never be reached — the point is failing before the render.
         mock_screenshot_asset.assert_not_called()
+
+    @patch("products.exports.backend.tasks.image_exporter.report_creator_access_revoked")
+    @patch("products.exports.backend.tasks.image_exporter.capture_exception")
+    @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
+    def test_creator_without_resource_access_is_reported_as_event_not_exception(
+        self,
+        mock_calculate: Any,
+        mock_capture: Any,
+        mock_report: Any,
+        mock_remove: Any,
+        mock_open_file: Any,
+        mock_screenshot_asset: Any,
+    ) -> None:
+        mock_calculate.side_effect = UserAccessControlError("web_analytics", "viewer")
+        self.exported_asset.created_by = self.user
+        self.exported_asset.save()
+
+        with self.assertRaises(UserAccessControlError):
+            image_exporter.export_image(self.exported_asset)
+
+        mock_capture.assert_not_called()
+        assert mock_report.call_args.kwargs["reason"] == "missing_resource_access"
+        assert mock_report.call_args.kwargs["properties"]["resource"] == "web_analytics"
 
     @parameterized.expand(
         [
@@ -432,12 +456,14 @@ class TestImageExporter(APIBaseTest):
                 {"source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
                 {"kind": "HogQLQuery", "query": "SELECT 1"},
                 False,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             ),
             (
                 "with_source_and_dashboard_variables",
                 {"source": {"kind": "HogQLQuery", "query": "SELECT 1"}},
                 {"kind": "HogQLQuery", "query": "SELECT 1"},
                 True,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             ),
             (
                 "source_vars_not_overridden_by_dashboard_vars",
@@ -454,12 +480,28 @@ class TestImageExporter(APIBaseTest):
                     "variables": {"var_1": {"code_name": "eventName", "value": "$pageview"}},
                 },
                 True,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             ),
             (
                 "without_export_context",
                 None,
                 None,
                 False,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            ),
+            (
+                "recent_cache_execution_mode",
+                {"execution_mode": ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE.value},
+                None,
+                False,
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ),
+            (
+                "async_execution_mode_falls_back",
+                {"execution_mode": ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE.value},
+                None,
+                False,
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
             ),
         ]
     )
@@ -470,6 +512,7 @@ class TestImageExporter(APIBaseTest):
         export_context: dict | None,
         expected_query_override: dict | None,
         with_dashboard: bool,
+        expected_execution_mode: ExecutionMode,
         mock_calculate: Any,
         *args: Any,
     ) -> None:
@@ -506,6 +549,7 @@ class TestImageExporter(APIBaseTest):
             image_exporter.export_image(exported_asset)
 
         call_kwargs = mock_calculate.call_args[1]
+        assert call_kwargs["execution_mode"] == expected_execution_mode
         if expected_query_override is not None:
             assert call_kwargs["query_override"] == expected_query_override
         else:

@@ -18,6 +18,7 @@ import {
     getHomeTabAudienceOptions,
     getHomeTabBreakdownOptions,
     getHomeTabChartOptions,
+    getHomeTabDashboardTemplate,
     getHomeTabExploreUrl,
     getHomeTabInterval,
     getHomeTabStatQueries,
@@ -285,5 +286,63 @@ describe('homeTabDefaultTiles', () => {
         expect(editorQuery.embedded).toBeUndefined()
         expect(editorQuery.source).toEqual(JSON.parse(JSON.stringify(chart!.query.source)))
         expect(editorQuery.source.dateRange).toEqual(dateRange)
+    })
+
+    it('copies Home into a dashboard template with saved queries and a non-overlapping layout', () => {
+        const { tiles } = getHomeTabDashboardTemplate()
+
+        expect(tiles.map((tile) => tile.type === 'INSIGHT' && tile.name)).toEqual([
+            'Weekly active users',
+            'Sessions',
+            'First-time users',
+            'Avg. session duration',
+            'Avg. DAU',
+            'Daily active users',
+            'Top pages',
+            'Top screens',
+            'Top events',
+            'New user retention',
+            'Active users by country',
+            'Sessions by device',
+        ])
+        const cells = new Set<string>()
+        for (const tile of tiles) {
+            expect(tile.type === 'INSIGHT' && tile.query).toMatchObject({ kind: NodeKind.InsightVizNode })
+            expect(tile.type === 'INSIGHT' && tile.query).not.toHaveProperty('embedded')
+            const { x, y, w, h } = tile.layouts!.sm!
+            expect(x + w).toBeLessThanOrEqual(12)
+            for (let column = x; column < x + w; column++) {
+                for (let row = y; row < y + h; row++) {
+                    expect(cells.has(`${column},${row}`)).toBe(false)
+                    cells.add(`${column},${row}`)
+                }
+            }
+        }
+        expect(tiles.slice(0, 5).map((tile) => tile.type === 'INSIGHT' && tile.query)).toMatchObject([
+            {
+                source: {
+                    series: [{ math: BaseMathType.WeeklyActiveUsers }],
+                    interval: 'day',
+                    trendsFilter: { display: ChartDisplayType.Metric, metricSummary: 'latest' },
+                },
+            },
+            { source: { trendsFilter: { display: ChartDisplayType.Metric, metricSummary: 'total' } } },
+            { source: { trendsFilter: { display: ChartDisplayType.Metric, metricSummary: 'total' } } },
+            {
+                source: {
+                    trendsFilter: {
+                        display: ChartDisplayType.Metric,
+                        metricSummary: 'average',
+                        aggregationAxisFormat: 'duration',
+                    },
+                },
+            },
+            {
+                source: {
+                    interval: 'day',
+                    trendsFilter: { display: ChartDisplayType.Metric, metricSummary: 'average' },
+                },
+            },
+        ])
     })
 })

@@ -11,6 +11,7 @@ from posthog.schema import ErrorTrackingOrderBy
 from posthog.api.documentation import PropertyItemSerializer, extend_schema_field
 
 from products.error_tracking.backend.facade import contracts
+from products.error_tracking.backend.facade.query_utils import TREND_CHANGE_FRACTION
 from products.error_tracking.backend.presentation.views.issues import AssigneeType, ErrorTrackingIssueSeverityField
 
 STRING_OR_STRING_LIST_SCHEMA = {
@@ -168,7 +169,7 @@ class ErrorTrackingIssuesListQueryRequestSerializer(serializers.Serializer):
     release = serializers.CharField(
         required=False,
         max_length=500,
-        help_text="Filter by exact release ID, version, or git commit ID captured in $exception_releases.",
+        help_text="Filter by exact release ID, version, or git commit ID captured in $exception_release.",
     )
     fingerprint = StringOrStringListField(
         required=False, help_text="Filter by exact exception fingerprint hash, not fuzzy search."
@@ -349,6 +350,29 @@ class ErrorTrackingLatestReleaseSerializer(serializers.Serializer):
     repo_name = serializers.CharField(required=False, help_text="Git repository name.")
 
 
+class ErrorTrackingIssueTrendSerializer(serializers.Serializer):
+    direction = serializers.ChoiceField(
+        choices=contracts.IssueTrendDirection.choices,
+        help_text=(
+            "Occurrences in the second half of dateRange against the first half. 'increasing' or 'decreasing' means "
+            f"a change of at least {TREND_CHANGE_FRACTION:.0%}. 'new' means the issue first occurred in the second half, "
+            "counting merged fingerprints. "
+            "'stable' means a smaller change."
+        ),
+    )
+    current_occurrences = serializers.IntegerField(help_text="Occurrences in the second half of dateRange.")
+    previous_occurrences = serializers.IntegerField(help_text="Occurrences in the first half of dateRange.")
+    change_percent = serializers.IntegerField(
+        required=False,
+        help_text="Percent change from the first half to the second half. Absent when the first half has no occurrences.",
+    )
+    previous_from = serializers.CharField(help_text="Start of the first half.")
+    previous_to = serializers.CharField(help_text="End of the first half.")
+    current_from = serializers.CharField(
+        help_text="Start of the second half. The second half ends at the end of dateRange."
+    )
+
+
 class ErrorTrackingBreakdownValueSerializer(serializers.Serializer):
     value = serializers.CharField(help_text="Property value.")
     count = serializers.IntegerField(help_text="Number of matching events with this value.")
@@ -388,18 +412,74 @@ class ErrorTrackingIssueBreakdownSerializer(serializers.Serializer):
     )
 
 
+class IssueSummaryStatus(models.TextChoices):
+    READY = "ready"
+    GENERATING = "generating"
+    UNAVAILABLE = "unavailable"
+
+
+class ErrorTrackingIssueSummarySerializer(serializers.Serializer):
+    what_happened = serializers.CharField(help_text="What the error is and where it happens, in plain language.")
+    likely_cause = serializers.CharField(
+        help_text="The model's best guess at the cause. A hypothesis to check against the code, never a finding."
+    )
+    who_is_affected = serializers.CharField(help_text="Which users, sessions or platforms the error reaches.")
+    suggested_next_step = serializers.CharField(help_text="One concrete step to investigate or fix the error.")
+    category = serializers.ChoiceField(
+        choices=contracts.IssueSummaryCategory.choices,
+        required=False,
+        help_text=(
+            "Where the error most likely comes from. 'own_code' is a bug in the application's code, 'third_party' a "
+            "third-party script, browser extension or dependency, 'network' a network or connectivity failure, 'bots' "
+            "automated traffic, 'expected' handled behavior that needs no fix, and 'unclear' means the stack trace "
+            "does not tell. Absent when no category was inferred."
+        ),
+    )
+    generated_at = serializers.DateTimeField(help_text="When the summary was written.")
+
+
 class ErrorTrackingIssueDetailSerializer(ErrorTrackingIssueListItemSerializer):
     function = serializers.CharField(
         required=False, allow_null=True, help_text="Top function associated with the issue."
     )
     top_in_app_frame = ErrorTrackingTopFrameSerializer(required=False, help_text="Top in_app application frame.")
     latest_release = ErrorTrackingLatestReleaseSerializer(required=False, help_text="Latest release metadata.")
+    first_release = ErrorTrackingLatestReleaseSerializer(
+        required=False,
+        help_text=(
+            "Release metadata from the issue's first event, found near first_seen and not limited by dateRange. "
+            "Compare it with latest_release to see which release introduced the issue. Absent when the first event "
+            "has no release metadata."
+        ),
+    )
     impact = ErrorTrackingImpactSerializer(required=False, help_text="Compact impact counts.")
+    trend = ErrorTrackingIssueTrendSerializer(
+        required=False,
+        help_text=(
+            "Whether the issue is getting worse or better: occurrences in the second half of dateRange against the "
+            "first half. Absent when the issue has no occurrences in dateRange."
+        ),
+    )
     sparkline = serializers.ListField(
         child=serializers.FloatField(), required=False, help_text="Optional compact occurrence sparkline."
     )
     breakdown = ErrorTrackingIssueBreakdownSerializer(
         required=False, help_text="Aggregate over matching events. Returned only when includeBreakdown is true."
+    )
+    summary = ErrorTrackingIssueSummarySerializer(
+        required=False,
+        help_text=(
+            "A model-written summary of the issue. Present only when summary_status is 'ready'. "
+            "Treat likely_cause as a hypothesis, not a fact."
+        ),
+    )
+    summary_status = serializers.ChoiceField(
+        choices=IssueSummaryStatus.choices,
+        help_text=(
+            "'ready' means summary is present. 'generating' means a summary may still be written: call once more "
+            "after a few seconds, and continue without it if the status does not change. 'unavailable' means no "
+            "summary exists for this issue and none is being written."
+        ),
     )
 
 

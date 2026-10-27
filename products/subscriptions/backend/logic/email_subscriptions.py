@@ -7,7 +7,7 @@ from posthog.email import EmailMessage, raise_if_delivery_rejected
 from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.models.subscription import Subscription, get_unsubscribe_token
+from products.subscriptions.backend.logic.email_formatting import render_ai_email_html
 from products.subscriptions.backend.logic.subscription_utils import (
     MAX_INSIGHTS,
     UTM_TAGS_BASE,
@@ -15,6 +15,7 @@ from products.subscriptions.backend.logic.subscription_utils import (
     failed_asset_details,
     next_delivery_date_display,
 )
+from products.subscriptions.backend.models.subscription import Subscription, get_unsubscribe_token
 
 logger = structlog.get_logger(__name__)
 
@@ -99,6 +100,7 @@ def send_email_subscription_report(
             "total_asset_count": total_asset_count,
             "max_insights": MAX_INSIGHTS,
             "change_summary": change_summary,
+            "change_summary_html": render_ai_email_html(change_summary) if change_summary else None,
             "summary_skipped_over_budget": summary_skipped_over_budget,
             "billing_url": absolute_uri(f"/organization/billing?{utm_tags}"),
         },

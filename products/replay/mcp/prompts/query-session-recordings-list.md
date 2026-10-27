@@ -61,6 +61,8 @@ Do not use property filters for time-based filtering. Use the `date_from`/`date_
 
 Use `limit` to control page size and `after` (from the previous response's `next_cursor`) for cursor-based pagination.
 
+Each response has `has_next` and `next_cursor`. To get the next page, send the same query again with `after` set to `next_cursor`. When `has_next` is `false`, the response is the last page and `next_cursor` is `null`.
+
 # Response shape
 
 Each recording in results contains:

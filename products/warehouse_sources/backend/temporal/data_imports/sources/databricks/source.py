@@ -1,6 +1,7 @@
 from typing import Optional, cast
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE, is_databricks_workspace_host
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
@@ -100,7 +101,7 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
             caption="Enter your Databricks SQL warehouse credentials to automatically pull your Databricks data into the PostHog Data warehouse. Requires a Unity Catalog catalog.",
             iconPath="/static/services/databricks.png",
             docsUrl="https://posthog.com/docs/cdp/sources/databricks",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["delta lake", "spark", "unity catalog", "sql warehouse"],
             fields=cast(
                 list[FieldType],
@@ -202,6 +203,8 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
         return {
             **self.default_non_retryable_errors(),
             "Invalid access token": "Databricks rejected the access token. Check that the personal access token is correct and has not expired or been revoked, then resync.",
+            # Raised by `DatabricksImplementation.connect` for a stored host outside the Databricks DNS zones.
+            "is not a Databricks workspace hostname": "This source's server hostname is not a Databricks workspace hostname. Update it to the server hostname from your SQL warehouse's connection details, then resync.",
             "invalid_client": "Databricks rejected the service principal credentials. Check the client ID and client secret, and that the service principal still exists, then resync.",
             # Unity Catalog error classes are stable identifiers; the object names around them are volatile.
             "CATALOG_NOT_FOUND": "The configured catalog no longer exists in Databricks, or your credentials lost USE CATALOG on it. Check the catalog and grants, then resync.",
@@ -274,8 +277,12 @@ class DatabricksSource(SQLSource[DatabricksSourceConfig], ValidateDatabaseHostMi
         ):
             return False, "Missing required parameters: client ID, client secret"
 
+        host = clean_databricks_host(config.host)
+        if not is_databricks_workspace_host(host):
+            return False, NOT_A_DATABRICKS_HOST_MESSAGE
+
         # Block SSRF to internal hosts before any OAuth/SQL request reaches the pasted host.
-        valid_host, host_error = self.is_database_host_valid(clean_databricks_host(config.host), team_id)
+        valid_host, host_error = self.is_database_host_valid(host, team_id)
         if not valid_host:
             return valid_host, host_error
 

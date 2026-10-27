@@ -196,6 +196,7 @@ class ScoutTrialStore:
         *,
         text: str | None = None,
         key: str | None = None,
+        skill_name: str | None = None,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
         limit: int = DEFAULT_SCRATCHPAD_SEARCH_LIMIT,
@@ -208,6 +209,8 @@ class ScoutTrialStore:
         result = []
         for entry in entries:
             if key and entry.key != key:
+                continue
+            if skill_name and entry.created_by_skill != skill_name:
                 continue
             if text and text.casefold() not in entry.key.casefold() and text.casefold() not in entry.content.casefold():
                 continue

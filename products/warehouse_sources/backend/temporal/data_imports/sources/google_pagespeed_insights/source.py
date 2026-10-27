@@ -56,7 +56,7 @@ class GooglePageSpeedInsightsSource(SimpleSource[GooglePageSpeedInsightsSourceCo
             name=ExternalDataSourceType.GOOGLEPAGESPEEDINSIGHTS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Google PageSpeed Insights",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Google Cloud API key and the URLs you want to analyze to pull PageSpeed Insights (Lighthouse) scores into the PostHog Data warehouse.
 
 Create an API key in the [Google Cloud console](https://console.cloud.google.com/apis/credentials) and enable the **PageSpeed Insights API** for your project. A key raises your quota to 25,000 queries/day (400 per 100 seconds); without one, requests are heavily throttled.

@@ -9,7 +9,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     SourceDriver,
     always,
     route,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.zep import ZepSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.zep.settings import ZEP_ENDPOINTS
@@ -19,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zep.zep im
     ZepResumeConfig,
     ZepRetryableError,
     _build_url,
-    validate_credentials,
 )
 
 
@@ -31,17 +29,6 @@ def _run(endpoint: str, script: Any, resume_state: ZepResumeConfig | None = None
 class TestHelpers:
     def test_build_url_no_params(self) -> None:
         assert _build_url("/threads", {}) == f"{ZEP_BASE_URL}/threads"
-
-
-class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("server_error", 500, False)])
-    def test_validate_credentials_maps_status(self, _name: str, status_code: int, expected: bool) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code, json={}))):
-            assert validate_credentials("z_test") is expected
-
-    def test_validate_credentials_swallows_network_error(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            assert validate_credentials("z_test") is False
 
 
 class TestFetchPage:

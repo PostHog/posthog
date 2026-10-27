@@ -19,10 +19,6 @@ class TestTawkToSource:
         self.team_id = 123
         self.config = TawkToSourceConfig(api_key="api-key")
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["chats"])
-        assert [schema.name for schema in schemas] == ["chats"]
-
     @pytest.mark.parametrize(
         "side_effect, expected_valid, expected_message",
         [

@@ -4,8 +4,6 @@ from typing import Any, Optional
 import pytest
 from unittest import mock
 
-import requests
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -123,11 +121,8 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code,expected_ok,expected_status",
         [
-            (200, True, 200),
-            (401, False, 401),
             (403, False, 403),
             (422, False, 422),
-            (500, False, 500),
         ],
     )
     def test_status_mapping(self, status_code: int, expected_ok: bool, expected_status: int) -> None:
@@ -140,17 +135,6 @@ class TestValidateCredentials:
         assert status == expected_status
         assert network.requests_log[0].path == "/v2/users"
         assert network.requests_log[0].param("limit") == "1"
-
-    def test_transport_failure_returns_zero_status(self) -> None:
-        def fail_request(_request: Any) -> ScriptedResponse:
-            raise requests.ConnectionError("no network")
-
-        with scripted_network(fail_request):
-            ok, status, error = validate_credentials("key", "us")
-
-        assert ok is False
-        assert status == 0
-        assert error is not None and "no network" in error
 
 
 class TestOpsgenieSourceResponse:

@@ -20,7 +20,7 @@ jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog'
+        if: github.repository_owner == 'PostHog'
         name: Determine need to run Semgrep checks
         permissions:
             contents: read
@@ -51,7 +51,7 @@ jobs:
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               # forks can't read org secrets — fall back to github.token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -150,7 +150,9 @@ jobs:
         needs: changes
         if: needs.changes.outputs.python == 'true'
         runs-on: ubuntu-24.04
-        timeout-minutes: 30
+        # A copy of the repository lands on a slower GitHub-hosted runner pool, so
+        # it gets a longer budget for the full scan.
+        timeout-minutes: ${{ github.repository == 'PostHog/posthog' && 45 || 75 }}
 
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}

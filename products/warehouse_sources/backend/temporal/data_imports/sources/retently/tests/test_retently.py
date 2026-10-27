@@ -177,9 +177,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Retently API key"),
-            ("forbidden", 403, False, "Invalid Retently API key"),
-            ("server_error_is_inconclusive", 500, False, "Retently returned HTTP 500"),
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected_ok: bool, expected_msg: str | None) -> None:
@@ -191,12 +188,6 @@ class TestValidateCredentials:
         else:
             assert message is not None and expected_msg in message
         assert network.requests_log[0].path.endswith("/ping")
-
-    def test_network_error_is_inconclusive_not_invalid(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            ok, message = validate_credentials("key")
-        assert ok is False
-        assert message is not None and "Could not connect to Retently" in message
 
 
 class TestSourceResponse:

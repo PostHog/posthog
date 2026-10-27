@@ -9,15 +9,11 @@ methods, so importing this adds nothing beyond the models Django loads at ``setu
 """
 
 from products.data_modeling.backend.graph import Graph
-from products.data_modeling.backend.models.dag import (
-    DAG,
-    DEFAULT_DAG_NAME,
-    RESERVED_DAG_NAMES,
-    REVENUE_ANALYTICS_DAG_NAME,
-)
+from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
 from products.data_modeling.backend.models.data_modeling_job import (
     DataModelingJob,
     DataModelingJobEngine,
+    DataModelingJobRunMode,
     DataModelingJobStatus,
 )
 from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
@@ -39,11 +35,10 @@ __all__ = [
     "DAG",
     "DEFAULT_DAG_NAME",
     "NON_SCHEDULING_EDGES",
-    "RESERVED_DAG_NAMES",
-    "REVENUE_ANALYTICS_DAG_NAME",
     "SAVED_QUERY_NODE_TYPES",
     "DataModelingJob",
     "DataModelingJobEngine",
+    "DataModelingJobRunMode",
     "DataModelingJobStatus",
     "DataWarehouseManagedViewSet",
     "DataWarehouseSavedQuery",

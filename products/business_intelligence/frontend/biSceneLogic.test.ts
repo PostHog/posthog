@@ -1,10 +1,13 @@
+import { getPluginContext } from 'kea'
 import { router } from 'kea-router'
+import type { RouterPluginContext } from 'kea-router/lib/types'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -317,6 +320,70 @@ describe('biSceneLogic', () => {
         }
     })
 
+    it.each(['loaded', 'failed', 'left'])('handles a pending catalog metric request when %s', async (outcome) => {
+        let release!: () => void
+        const pending = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        let started!: () => void
+        const requested = new Promise<void>((resolve) => {
+            started = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/data_catalog/metrics/revenue/': async () => {
+                    started()
+                    await pending
+                    return outcome === 'failed'
+                        ? [503, { detail: 'Metric unavailable' }]
+                        : [
+                              200,
+                              {
+                                  name: 'revenue',
+                                  display_name: 'Revenue',
+                                  definition: { kind: NodeKind.HogQLQuery, query: 'SELECT 42 AS revenue' },
+                              },
+                          ]
+                },
+            },
+        })
+        silenceKeaLoadersErrors()
+        try {
+            const completed = expectLogic(logic, () =>
+                router.actions.push(urls.businessIntelligenceNew(), { metric: 'revenue' })
+            ).toFinishAllListeners()
+            await requested
+            expect(logic.values.catalogMetricLoading).toBe(true)
+            expect(logic.values.loadError).toBeNull()
+            if (outcome === 'left') {
+                router.actions.push(urls.businessIntelligence())
+            }
+            release()
+            await completed
+            expect(logic.values.catalogMetricLoading).toBe(false)
+            if (outcome === 'failed') {
+                expect(logic.values.loadError).toBeTruthy()
+                expect(logic.values.lastRunQuery).toBeNull()
+                await expectLogic(logic, () =>
+                    router.actions.push(urls.businessIntelligenceNew(), {}, { q: '' })
+                ).toFinishAllListeners()
+                expect(logic.values.loadError).toBeNull()
+                expect(logic.values.worksheet.config.source).toBeNull()
+                expect(logic.values.worksheet.config.querySnapshot).toBeUndefined()
+            } else if (outcome === 'left') {
+                expect(router.values.location.pathname).toBe('/project/997/bi')
+                expect(router.values.hashParams).toEqual({})
+                expect(logic.values.worksheet.config.querySnapshot).toBeUndefined()
+            } else {
+                expect(logic.values.worksheet.config.querySnapshot?.query).toBe('SELECT 42 AS revenue')
+                expect(logic.values.lastRunQuery).toBeNull()
+            }
+        } finally {
+            release()
+            resumeKeaLoadersErrors()
+        }
+    })
+
     it.each([false, true])('protects unsaved worksheet edits when navigating away (saved: %s)', async (saved) => {
         const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false)
         try {
@@ -350,6 +417,45 @@ describe('biSceneLogic', () => {
             expect(logic.values.name).toBe(saved ? stored.name : 'Untitled worksheet')
             expect(logic.values.hasUnsavedChanges).toBe(false)
         } finally {
+            confirm.mockRestore()
+        }
+    })
+
+    it.each([
+        {
+            kind: 'metric',
+            query: catalogMetricWorksheet({
+                name: 'revenue',
+                definition: { kind: NodeKind.HogQLQuery, query: 'SELECT 42 AS revenue' },
+            })!,
+        },
+        { kind: 'starter', query: worksheet() },
+    ])('returns to the library with browser Back from a $kind', async ({ kind, query }) => {
+        logic.unmount()
+        router.actions.push(urls.businessIntelligence())
+        router.actions.push(
+            urls.businessIntelligenceNew(),
+            { [kind]: kind === 'metric' ? 'revenue' : '1' },
+            { q: JSON.stringify(query) }
+        )
+        logic = biSceneLogic({ tabId: 'bi-test' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true)
+        const context = getPluginContext('router') as RouterPluginContext
+        const originalLocation = context.location
+        const replaceState = jest.spyOn(context.history!, 'replaceState')
+        try {
+            const pathname = '/project/997/bi'
+            context.location = { pathname, search: '', hash: '' }
+            window.dispatchEvent(new PopStateEvent('popstate', { state: { count: context.historyStateCount! - 1 } }))
+            await expectLogic(logic).toFinishAllListeners()
+            expect(router.values.location).toMatchObject({ pathname, search: '', hash: '' })
+            expect(confirm).toHaveBeenCalledTimes(1)
+            expect(replaceState).not.toHaveBeenCalled()
+        } finally {
+            replaceState.mockRestore()
+            context.location = originalLocation
             confirm.mockRestore()
         }
     })
@@ -841,6 +947,7 @@ describe('biSceneLogic', () => {
             () => editor.actions.addFieldToShelf(eventField, 'filters'),
             () => editor.actions.setFilterValue(0, '$pageview'),
             () => editor.actions.addFieldToShelf(eventField, 'values'),
+            () => editor.actions.setMeasureExpression(0, 'count(DISTINCT distinct_id)', 'custom'),
             () => editor.actions.setTableCalculation(0, { type: 'running_total' }),
             () => editor.actions.updateMeasureSettings(0, { formatting: { prefix: '€' } }),
             () => editor.actions.addResultFilter(),
@@ -963,16 +1070,30 @@ describe('biSceneLogic', () => {
         expect(logic.values.insight?.name).toBe('Saved worksheet (copy)')
     })
 
-    it('preserves an unfinished calculated measure when chart settings update', () => {
-        logic.actions.restoreWorksheet(worksheet())
+    it('saves and reloads conditional formatting without discarding an unfinished calculated measure', async () => {
+        await expectLogic(logic, () => logic.actions.loadInsight(stored.short_id)).toFinishAllListeners()
         editor.actions.setCalculatedMeasureDraft({
             index: null,
             name: 'Revenue per user',
             expression: 'sum(revenue) /',
         })
         const draft = editor.values.calculatedMeasureDraft
-        logic.actions.setVisualization({ ...logic.values.worksheet, tableSettings: { conditionalFormatting: [] } })
+        const conditionalFormatting = [
+            {
+                id: 'count-threshold',
+                templateId: 'equals',
+                columnName: 'count',
+                input: '10',
+                color: '#FFADAD',
+                bytecode: ['_H', 1, 32, 'input', 1, 1, 32, 'value', 1, 1, 11, 38],
+            },
+        ]
+        logic.actions.setVisualization({ ...logic.values.worksheet, tableSettings: { conditionalFormatting } })
         expect(editor.values.calculatedMeasureDraft).toEqual(draft)
+        await expectLogic(logic, () => logic.actions.saveInsight()).toFinishAllListeners()
+        expect(stored.query.tableSettings?.conditionalFormatting).toEqual(conditionalFormatting)
+        await expectLogic(logic, () => logic.actions.loadInsight(stored.short_id)).toFinishAllListeners()
+        expect(logic.values.worksheet.tableSettings?.conditionalFormatting).toEqual(conditionalFormatting)
     })
 
     it('reruns unchanged SQL for a date change while preserving dashboard properties', async () => {
@@ -1011,7 +1132,7 @@ describe('biSceneLogic', () => {
         expect(logic.values.worksheet.source.query).toContain('LIMIT 50000')
         expect(JSON.parse(router.values.hashParams.q).config).toEqual(logic.values.config)
         logic.unmount()
-        router.actions.push(urls.businessIntelligence())
+        router.actions.push(urls.businessIntelligenceNew())
         logic = biSceneLogic({ tabId: 'bi-test' })
         logic.mount()
         expect(logic.values.config.limit).toBe(50000)
@@ -1039,7 +1160,7 @@ describe('biSceneLogic', () => {
     })
 
     test.each(['ready', 'failed', 'cancelled', 'missing'] as const)(
-        'handles chart-only edits with %s results',
+        'reuses chart-only edits and reruns pivot edits with %s results',
         async (state) => {
             logic.actions.restoreWorksheet(worksheet())
             const data = dataNodeLogic({
@@ -1064,9 +1185,12 @@ describe('biSceneLogic', () => {
                 editor.actions.setChartType(ChartDisplayType.ActionsStackedBar)
                 await jest.advanceTimersByTimeAsync(500)
                 expect(run).toHaveBeenCalledTimes(state === 'ready' ? 0 : 1)
-                editor.actions.setChartType(ChartDisplayType.ActionsTable)
+                editor.actions.setChartType(ChartDisplayType.ActionsAreaGraph)
                 await jest.advanceTimersByTimeAsync(500)
                 expect(run).toHaveBeenCalledTimes(state === 'ready' ? 0 : 1)
+                editor.actions.setChartType(ChartDisplayType.ActionsTable)
+                await jest.advanceTimersByTimeAsync(500)
+                expect(run).toHaveBeenCalledTimes(state === 'ready' ? 1 : 2)
             } finally {
                 jest.useRealTimers()
                 data.unmount()
@@ -1080,11 +1204,13 @@ describe('biSceneLogic', () => {
         editor.actions.setAutoUpdate(false)
         const run = jest.spyOn(logic.actions, 'runQuery')
         try {
+            editor.actions.setChartType(ChartDisplayType.ActionsAreaGraph)
+            expect(logic.values.lastRunQuery?.display).toBe(ChartDisplayType.ActionsAreaGraph)
             editor.actions.setChartType(ChartDisplayType.ActionsTable)
-            expect(logic.values.lastRunQuery?.display).toBe(ChartDisplayType.ActionsTable)
+            expect(logic.values.lastRunQuery?.display).toBe(ChartDisplayType.ActionsAreaGraph)
             editor.actions.setLimit(10000)
             editor.actions.setChartType(ChartDisplayType.ActionsLineGraph)
-            expect(logic.values.lastRunQuery?.display).toBe(ChartDisplayType.ActionsTable)
+            expect(logic.values.lastRunQuery?.display).toBe(ChartDisplayType.ActionsAreaGraph)
             expect(logic.values.lastRunQuery?.config.limit).toBe(1000)
             expect(run).not.toHaveBeenCalled()
         } finally {

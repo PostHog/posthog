@@ -342,6 +342,7 @@ pub async fn evaluate_for_request(
     groups: Option<HashMap<String, Value>>,
     hash_key_override: Option<String>,
     request_id: Uuid,
+    request_entered_at: tokio::time::Instant,
     disable_flags: bool,
     flag_keys: Option<Vec<String>>,
     detailed_analysis: Option<bool>,
@@ -352,55 +353,68 @@ pub async fn evaluate_for_request(
         return Ok(FlagsResponse::new(false, HashMap::new(), None, request_id));
     }
 
-    if filtered_flags.flags.is_empty() {
-        return Ok(FlagsResponse::new(false, HashMap::new(), None, request_id));
-    }
+    let has_unparseable_flags = filtered_flags.evaluation_metadata.has_unparseable_flags;
 
-    // Every flag is in the filter set (inactive, deleted, runtime/tag mismatch) — nothing to evaluate.
-    // This is O(1) since the filter set includes deleted flags.
-    if filtered_flags.filtered_out_flag_ids.len() >= filtered_flags.flags.len() {
-        return Ok(FlagsResponse::new(false, HashMap::new(), None, request_id));
-    }
+    // No flag is left, or every flag is in the filter set (inactive, deleted, runtime/tag
+    // mismatch), so there is nothing to evaluate. This is O(1) since the filter set includes
+    // deleted flags.
+    let mut response = if filtered_flags.filtered_out_flag_ids.len() >= filtered_flags.flags.len() {
+        FlagsResponse::new(false, HashMap::new(), None, request_id)
+    } else {
+        let persons_db_deadline = state
+            .config
+            .persons_db_deadline(tokio::time::Instant::now(), Some(request_entered_at));
+        with_canonical_log(|log| {
+            log.persons_db_deadline_bound = persons_db_deadline.map(|deadline| deadline.bound)
+        });
 
-    let ctx = FeatureFlagEvaluationContext {
-        team_id,
-        team_timezone,
-        distinct_id,
-        device_id,
-        feature_flags: filtered_flags,
-        persons_reader: state.database_pools.persons_reader.clone(),
-        persons_writer: state.database_pools.persons_writer.clone(),
-        non_persons_reader: state.database_pools.non_persons_reader.clone(),
-        non_persons_writer: state.database_pools.non_persons_writer.clone(),
-        cohort_cache: state.cohort_cache_manager.clone(),
-        group_type_cache: state.group_type_cache_manager.clone(),
-        person_property_overrides,
-        group_property_overrides,
-        groups,
-        hash_key_override,
-        flag_keys,
-        optimize_experience_continuity_lookups: state
-            .config
-            .optimize_experience_continuity_lookups
-            .0,
-        parallel_eval_threshold: state.config.parallel_eval_threshold,
-        rayon_dispatcher: state.rayon_dispatcher.clone(),
-        skip_writes: detailed_analysis.unwrap_or(false)
-            || only_use_override_person_properties.unwrap_or(false)
-            || *state.config.skip_writes,
-        cohort_membership_provider: state.cohort_membership_provider.clone(),
-        enable_realtime_cohort_evaluation: state
-            .config
-            .realtime_cohort_evaluation_team_ids
-            .includes_team(team_id),
-        use_explicit_exact_matching,
-        membership_stamp_policy: state.config.realtime_cohort_membership_stamp_policy,
-        detailed_analysis: detailed_analysis.unwrap_or(false),
-        only_use_override_person_properties: only_use_override_person_properties.unwrap_or(false),
-        persons_db_deadline: state.config.persons_db_deadline(),
+        let ctx = FeatureFlagEvaluationContext {
+            team_id,
+            team_timezone,
+            distinct_id,
+            device_id,
+            feature_flags: filtered_flags,
+            persons_reader: state.database_pools.persons_reader.clone(),
+            persons_writer: state.database_pools.persons_writer.clone(),
+            non_persons_reader: state.database_pools.non_persons_reader.clone(),
+            non_persons_writer: state.database_pools.non_persons_writer.clone(),
+            cohort_cache: state.cohort_cache_manager.clone(),
+            group_type_cache: state.group_type_cache_manager.clone(),
+            person_property_overrides,
+            group_property_overrides,
+            groups,
+            hash_key_override,
+            flag_keys,
+            optimize_experience_continuity_lookups: state
+                .config
+                .optimize_experience_continuity_lookups
+                .0,
+            parallel_eval_threshold: state.config.parallel_eval_threshold,
+            rayon_dispatcher: state.rayon_dispatcher.clone(),
+            skip_writes: detailed_analysis.unwrap_or(false)
+                || only_use_override_person_properties.unwrap_or(false)
+                || *state.config.skip_writes,
+            cohort_membership_provider: state.cohort_membership_provider.clone(),
+            enable_realtime_cohort_evaluation: state
+                .config
+                .realtime_cohort_evaluation_team_ids
+                .includes_team(team_id),
+            use_explicit_exact_matching,
+            membership_stamp_policy: state.config.realtime_cohort_membership_stamp_policy,
+            detailed_analysis: detailed_analysis.unwrap_or(false),
+            only_use_override_person_properties: only_use_override_person_properties
+                .unwrap_or(false),
+            persons_db_deadline: persons_db_deadline.map(|deadline| deadline.at),
+        };
+
+        evaluation::evaluate_feature_flags(ctx, request_id).await?
     };
 
-    evaluation::evaluate_feature_flags(ctx, request_id).await
+    // A response that lacks a flag Python's builder publishes reports an error, because the
+    // serving read skipped it or the PostgreSQL fallback omitted it. An SDK then merges the
+    // response into its stored flags and keeps the missing flag's last value.
+    response.errors_while_computing_flags |= has_unparseable_flags;
+    Ok(response)
 }
 
 #[cfg(test)]

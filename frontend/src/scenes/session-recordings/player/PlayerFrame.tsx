@@ -6,6 +6,7 @@ import { useActions, useValues } from 'kea'
 import { Handler, viewportResizeDimension } from 'posthog-js/rrweb-types'
 import { useCallback, useEffect, useRef } from 'react'
 
+import { recordPlayerFrameMount } from 'scenes/session-recordings/player/playerFrameLoadDiagnostics'
 import { getPlayerFrameScale, isIOS } from 'scenes/session-recordings/player/playerFrameScaling'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -25,9 +26,10 @@ export const PlayerFrame = (): JSX.Element => {
     const replayDimensionRef = useRef<viewportResizeDimension>()
     const { player, sessionRecordingId, maskingWindow, speed, resolution, playerFrameLoadRetries } =
         useValues(sessionRecordingPlayerLogic)
-    const { setScale, setRootFrame, playerFrameDocumentLoadFailed } = useActions(sessionRecordingPlayerLogic)
+    const { setScale, setRootFrame, playerFrameDocumentLoaded, playerFrameDocumentLoadFailed } =
+        useActions(sessionRecordingPlayerLogic)
 
-    // A frame loads again only when its src changes, so each retry adds a query string the server ignores.
+    // Each retry adds a query string the server ignores, so the browser fetches the shell again.
     const frameSrc = playerFrameLoadRetries ? `${PLAYER_FRAME_SRC}?retry=${playerFrameLoadRetries}` : PLAYER_FRAME_SRC
 
     const iframeRef = useRef<HTMLIFrameElement | null>(null)
@@ -101,12 +103,14 @@ export const PlayerFrame = (): JSX.Element => {
         // The frame usually loads after speed and maskingWindow settle, so the effect below has
         // already run against a document that did not exist yet.
         applyFrameStyles()
+        playerFrameDocumentLoaded(iframeRef.current)
         setRootFrame(frameRef.current)
-    }, [setRootFrame, applyFrameStyles, playerFrameDocumentLoadFailed])
+    }, [setRootFrame, applyFrameStyles, playerFrameDocumentLoaded, playerFrameDocumentLoadFailed])
 
     // frameSrc is a dependency so each retry, which swaps the frame's document, arms its own
     // timeout instead of reusing the one armed for the previous document.
     useEffect(() => {
+        recordPlayerFrameMount(iframeRef.current)
         const timer = setTimeout(() => {
             if (!frameRef.current) {
                 playerFrameDocumentLoadFailed(iframeRef.current)
@@ -150,6 +154,9 @@ export const PlayerFrame = (): JSX.Element => {
     return (
         <div ref={containerRef} className={clsx('PlayerFrame ph-no-capture', isIOS() && 'PlayerFrame--ios')}>
             <iframe
+                // A frame can stay on about:blank with its navigation never committed, and a new src on that
+                // element does not always start a new navigation. A new element does.
+                key={frameSrc}
                 ref={iframeRef}
                 className="PlayerFrame__document"
                 src={frameSrc}

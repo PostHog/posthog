@@ -11,6 +11,7 @@ from structlog.testing import capture_logs
 from posthog.schema import HogQLQuery
 
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.transforms.trino.manifest import (
     TrinoCatalogManifest,
     TrinoManifestColumn,
@@ -34,7 +35,12 @@ from products.managed_warehouse.backend.trino_compiler import (
     get_ready_trino_catalog_name,
     prepare_hogql_to_trino_compiler,
 )
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
@@ -201,6 +207,71 @@ class TestReadyTrinoCatalogName:
 
 
 class TestCompileHogQLToTrinoSQL:
+    @pytest.mark.django_db
+    def test_requires_an_alias_before_a_source_credential_can_enter_an_output_name(self) -> None:
+        organization = Organization.objects.create(name="trino-sensitive-output-name")
+        team = Team.objects.create(organization=organization)
+        membership = _membership(team_id=team.pk, organization_id=str(organization.pk))
+        access_key = "example-access-key"
+        access_secret = "example-access-secret"
+        credential = DataWarehouseCredential.objects.create(
+            team=team,
+            access_key=access_key,
+            access_secret=access_secret,
+        )
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id="source-id",
+            connection_id="connection-id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix="",
+        )
+        table = DataWarehouseTable.objects.create(
+            team=team,
+            name="orders",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            url_pattern="https://example.com/orders/",
+            credential=credential,
+            external_data_source=source,
+            columns={"id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True}},
+        )
+        ExternalDataSchema.objects.create(team=team, name="orders", source=source, table=table, should_sync=True)
+
+        with (
+            mock.patch("products.managed_warehouse.backend.cp_teams.list_org_teams", return_value=[]),
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_ready_trino_catalog_name",
+                return_value="org_catalog",
+            ),
+            mock.patch(
+                "products.managed_warehouse.backend.trino_compiler.get_org_team_membership",
+                return_value=membership,
+            ),
+        ):
+            with pytest.raises(QueryError, match="explicit alias"):
+                compile_hogql_to_trino_sql(
+                    team.pk,
+                    HogQLQuery(query="SELECT (SELECT max(id) FROM orders)"),
+                    team=team,
+                    expansion_mode=TrinoExpansionMode.DJANGO,
+                    bypass_warehouse_access_control=True,
+                    preserve_clickhouse_output_names=True,
+                )
+
+            compiled = compile_hogql_to_trino_sql(
+                team.pk,
+                HogQLQuery(query="SELECT (SELECT max(id) FROM orders) AS max_order_id"),
+                team=team,
+                expansion_mode=TrinoExpansionMode.DJANGO,
+                bypass_warehouse_access_control=True,
+                preserve_clickhouse_output_names=True,
+            )
+
+        assert 'AS "max_order_id"' in compiled.sql
+        assert access_key not in compiled.sql
+        assert access_secret not in compiled.sql
+
     @pytest.mark.parametrize(
         "limit_clause, trino_limit_clause",
         [

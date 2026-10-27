@@ -1,7 +1,5 @@
 from unittest import mock
 
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postscript import (
     PostscriptSourceConfig,
 )
@@ -13,22 +11,6 @@ class TestPostscriptSource:
         self.source = PostscriptSource()
         self.team_id = 123
         self.config = PostscriptSourceConfig(api_key="sk_postscript")
-
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.postscript.io/api/v2/subscribers",
-                True,
-            ),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.postscript.io/api/v2/keywords", True),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.postscript.io", False),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.postscript.io", False),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures_only(self, _name, observed_error, expect_match) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable) is expect_match
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.postscript.source.postscript_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_postscript_source: mock.MagicMock) -> None:

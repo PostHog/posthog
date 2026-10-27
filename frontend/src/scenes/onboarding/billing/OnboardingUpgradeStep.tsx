@@ -26,6 +26,7 @@ type OnboardingUpgradeStepProps = {
 
 export const OnboardingUpgradeStep: OnboardingStepComponentType<OnboardingUpgradeStepProps> = ({ product }) => {
     const { billing, billingLoading } = useValues(billingLogic)
+    const { flowVariant } = useValues(onboardingLogic)
     const { goToNextStep } = useActions(onboardingLogic)
 
     if (billingLoading) {
@@ -44,11 +45,11 @@ export const OnboardingUpgradeStep: OnboardingStepComponentType<OnboardingUpgrad
     const activeAddon = trialAddon ?? platformProduct?.addons?.find((addon) => addon.subscribed)
 
     const skipPlatformPackages = (): void => {
-        reportOnboardingStepSkipped(OnboardingStepKey.PLANS)
+        reportOnboardingStepSkipped(OnboardingStepKey.PLANS, flowVariant)
         goToNextStep()
     }
     const continueFromPlatformPackages = (): void => {
-        reportOnboardingStepCompleted(OnboardingStepKey.PLANS)
+        reportOnboardingStepCompleted(OnboardingStepKey.PLANS, flowVariant)
         goToNextStep()
     }
 

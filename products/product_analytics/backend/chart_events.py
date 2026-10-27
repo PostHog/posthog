@@ -5,7 +5,7 @@ from typing import Any, cast
 
 from pydantic import ValidationError
 
-from posthog.schema import EventsNode, HogQLQueryModifiers
+from posthog.schema import ActionsNode, EventsNode, GroupNode, HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
@@ -85,8 +85,8 @@ def chart_events(query: Mapping[str, Any], team: Team, user: User) -> ChartEvent
         return None
     if not isinstance(runner, _CHART_RUNNERS) or type(runner) not in _CHART_RUNNERS:
         return None
-    # An action or a data warehouse series has no event name to check.
-    if not runner.query.series or not all(isinstance(series, EventsNode) for series in runner.query.series):
+    # A data warehouse series reads no events.
+    if not runner.query.series or not all(_reads_events(series) for series in runner.query.series):
         return None
     runner.validate()
     database = runner.shared_database
@@ -106,18 +106,19 @@ def chart_events(query: Mapping[str, Any], team: Team, user: User) -> ChartEvent
     return ChartEvents(
         alias=alias,
         where=_any_of(wheres),
-        sort_key_where=_any_of(
-            [
-                _all_of([part for part in top_level_conjuncts(where) if _reads_sort_key_only(part, alias)])
-                for where in wheres
-            ]
-        ),
+        sort_key_where=_any_of([_sort_key_part(where, alias) or ast.Constant(value=True) for where in wheres]),
         date_from=min(date_range.date_from() for date_range in date_ranges),
         date_to=max(date_range.date_to() for date_range in date_ranges),
         filters_test_accounts=bool(runner.query.filterTestAccounts),
         modifiers=runner.modifiers,
         database=database,
     )
+
+
+def _reads_events(series: object) -> bool:
+    if isinstance(series, GroupNode):
+        return all(isinstance(node, EventsNode | ActionsNode) for node in series.nodes)
+    return isinstance(series, EventsNode | ActionsNode)
 
 
 def _chart_queries(
@@ -266,6 +267,17 @@ def _reads_sort_key_only(expr: ast.Expr, alias: str | None) -> bool:
     finder = _OtherFieldFinder(alias)
     finder.visit(expr)
     return not finder.found and not contains_subquery(expr)
+
+
+def _sort_key_part(expr: ast.Expr, alias: str | None) -> ast.Expr | None:
+    """A filter on event names and dates only that keeps every event `expr` keeps, or None when there is none."""
+    if isinstance(expr, ast.And):
+        parts = [part for part in (_sort_key_part(child, alias) for child in expr.exprs) if part is not None]
+        return _all_of(parts) if parts else None
+    if isinstance(expr, ast.Or):
+        branches = [_sort_key_part(child, alias) for child in expr.exprs]
+        return None if any(branch is None for branch in branches) else _any_of(cast(list[ast.Expr], branches))
+    return expr if _reads_sort_key_only(expr, alias) else None
 
 
 def _all_of(conditions: list[ast.Expr]) -> ast.Expr:

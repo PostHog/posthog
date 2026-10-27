@@ -91,7 +91,7 @@ class TestValidateCredentials:
         with scripted_network(always(ConnectionError("boom"))) as network:
             is_valid, message = validate_credentials("acme", "you@example.com", "token")
         assert is_valid is False
-        assert message is None
+        assert message == "Couldn't reach Confluence to check your credentials. Try again in a few minutes."
         assert {request.path for request in network.requests_log} == {"/wiki/api/v2/spaces"}
 
     @parameterized.expand(

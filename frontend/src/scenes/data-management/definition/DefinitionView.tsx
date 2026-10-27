@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 
 import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
 import { LemonTag, LemonTagType, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { ImageCarousel } from 'lib/components/ImageCarousel/ImageCarousel'
@@ -15,6 +16,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
@@ -133,6 +135,7 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
     const { definition, definitionLoading, definitionMissing, singular, isEvent, isProperty, metrics, metricsLoading } =
         useValues(logic)
     const { deleteDefinition } = useActions(logic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const memoizedQuery = useMemo(() => {
         const columnsToUse =
@@ -183,6 +186,42 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
         ? getCoreFilterDefinition(definition.name, virtualProperty.group)?.description
         : definition.description
 
+    const openEditDefinition = (): void => {
+        if (isProperty) {
+            router.actions.push(urls.propertyDefinitionEdit(definition.id))
+        } else {
+            router.actions.push(urls.eventDefinitionEdit(definition.id))
+        }
+    }
+
+    const openDeleteDialog = (): void =>
+        LemonDialog.open({
+            title: `Delete this ${singular} definition?`,
+            description: (
+                <>
+                    <p>
+                        <strong>
+                            {getFilterLabel(
+                                definition.name,
+                                isEvent ? TaxonomicFilterGroupType.Events : TaxonomicFilterGroupType.EventProperties
+                            )}
+                        </strong>{' '}
+                        will no longer appear in selectors. Associated data will remain in the database.
+                    </p>
+                    <p>This definition will be recreated if the {singular} is ever seen again in the event stream.</p>
+                </>
+            ),
+            primaryButton: {
+                status: 'danger',
+                children: 'Delete definition',
+                onClick: () => deleteDefinition(),
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+            width: 448,
+        })
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -225,67 +264,43 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                                 data-attr="event-definition-view-recordings"
                             />
                         )}
-                        {!isVirtual && (
-                            <>
-                                <LemonButton
-                                    data-attr="delete-definition"
-                                    type="secondary"
-                                    status="danger"
-                                    size="small"
-                                    onClick={() =>
-                                        LemonDialog.open({
-                                            title: `Delete this ${singular} definition?`,
-                                            description: (
-                                                <>
-                                                    <p>
-                                                        <strong>
-                                                            {getFilterLabel(
-                                                                definition.name,
-                                                                isEvent
-                                                                    ? TaxonomicFilterGroupType.Events
-                                                                    : TaxonomicFilterGroupType.EventProperties
-                                                            )}
-                                                        </strong>{' '}
-                                                        will no longer appear in selectors. Associated data will remain
-                                                        in the database.
-                                                    </p>
-                                                    <p>
-                                                        This definition will be recreated if the {singular} is ever seen
-                                                        again in the event stream.
-                                                    </p>
-                                                </>
-                                            ),
-                                            primaryButton: {
-                                                status: 'danger',
-                                                children: 'Delete definition',
-                                                onClick: () => deleteDefinition(),
-                                            },
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                            },
-                                            width: 448,
-                                        })
-                                    }
-                                    tooltip="Delete this definition. Associated data will remain."
-                                >
-                                    Delete
-                                </LemonButton>
-                                <LemonButton
-                                    data-attr="edit-definition"
-                                    type="secondary"
-                                    size="small"
-                                    onClick={() => {
-                                        if (isProperty) {
-                                            router.actions.push(urls.propertyDefinitionEdit(definition.id))
-                                        } else {
-                                            router.actions.push(urls.eventDefinitionEdit(definition.id))
-                                        }
-                                    }}
-                                >
-                                    Edit
-                                </LemonButton>
-                            </>
-                        )}
+                        {!isVirtual &&
+                            (todayRailNav ? (
+                                <>
+                                    <Button
+                                        data-attr="delete-definition"
+                                        variant="destructive-outline"
+                                        onClick={openDeleteDialog}
+                                        tooltip="Delete this definition. Associated data will remain."
+                                    >
+                                        Delete
+                                    </Button>
+                                    <Button data-attr="edit-definition" variant="outline" onClick={openEditDefinition}>
+                                        Edit
+                                    </Button>
+                                </>
+                            ) : (
+                                <>
+                                    <LemonButton
+                                        data-attr="delete-definition"
+                                        type="secondary"
+                                        status="danger"
+                                        size="small"
+                                        onClick={openDeleteDialog}
+                                        tooltip="Delete this definition. Associated data will remain."
+                                    >
+                                        Delete
+                                    </LemonButton>
+                                    <LemonButton
+                                        data-attr="edit-definition"
+                                        type="secondary"
+                                        size="small"
+                                        onClick={openEditDefinition}
+                                    >
+                                        Edit
+                                    </LemonButton>
+                                </>
+                            ))}
                     </>
                 }
                 forceBackTo={

@@ -27,12 +27,22 @@ export function GithubIntegration({
     connectText = 'Connect account',
     emphasizeConnect = false,
     showPersonalConnectionHelp = true,
+    showManageButton = true,
+    connectDescription,
+    integrationSuffix,
+    onAuthorize,
+    authorizing = false,
 }: {
     next?: string
+    onAuthorize?: (url: string) => void
+    authorizing?: boolean
     centered?: boolean
     connectText?: string
     emphasizeConnect?: boolean
     showPersonalConnectionHelp?: boolean
+    showManageButton?: boolean
+    connectDescription?: React.ReactNode
+    integrationSuffix?: JSX.Element
     /**
      * Where this card is rendered, reported as the `surface` on `integration_connect_clicked`.
      * Omit it only on the OAuth landing page, which reports every kind's connect click itself —
@@ -83,7 +93,7 @@ export function GithubIntegration({
 
     const installations = githubAvailableInstallations ?? []
     const isConnected = githubIntegrations.length > 0
-    const canLinkExisting = !isConnected && !githubAvailableInstallationsResponseLoading && installations.length > 0
+    const canLinkExisting = !isConnected && installations.length > 0
     const multipleInstallations = installations.length > 1
     const pickerOpen =
         visibleDiscoveryId !== null && visibleDiscoveryId === githubAvailableInstallationsResponse?.discovery_id
@@ -117,13 +127,17 @@ export function GithubIntegration({
     }
 
     return (
-        <Integration kind="github" centered={centered}>
+        <Integration kind="github" centered={centered} integrationSuffix={integrationSuffix}>
             {/* w-full because Integration drops its children into a bare flex row, which would
                 otherwise size the banner to its longest word. */}
             <div className="flex flex-col gap-y-4 w-full">
                 <GitHubInstallRequestsBanner
-                    finishConnectingUrl={authorizationUrl}
-                    onFinishConnecting={() => reportConnect('install_approved_banner')}
+                    finishConnectingUrl={onAuthorize ? undefined : authorizationUrl}
+                    connecting={authorizing}
+                    onFinishConnecting={() => {
+                        reportConnect('install_approved_banner')
+                        onAuthorize?.(authorizationUrl)
+                    }}
                     variant={emphasizeConnect ? 'onboarding' : 'default'}
                 />
                 {/* An install GitHub already has is the exception, not a second way to connect, so it
@@ -204,9 +218,11 @@ export function GithubIntegration({
                         )}
                     </LemonBanner>
                 )}
-                {!isConnected && githubAvailableInstallationsResponseLoading && (
-                    <p className="text-secondary mb-0">Looking for existing GitHub installations…</p>
-                )}
+                {!isConnected &&
+                    !githubAvailableInstallationsResponse &&
+                    githubAvailableInstallationsResponseLoading && (
+                        <p className="text-secondary mb-0">Looking for existing GitHub installations…</p>
+                    )}
                 {!isConnected &&
                     !githubAvailableInstallationsResponseLoading &&
                     (githubDiscoveryFailed ||
@@ -220,22 +236,31 @@ export function GithubIntegration({
                             </div>
                         </LemonBanner>
                     )}
-                {installRequestInProgress ? null : emphasizeConnect && !isConnected ? (
+                {installRequestInProgress || (isConnected && !showManageButton) ? null : emphasizeConnect &&
+                  !isConnected ? (
                     <div className="flex w-full flex-col items-center gap-4">
                         <div className="flex flex-wrap justify-center gap-2">
                             <LemonButton
                                 type={canLinkExisting ? 'secondary' : 'primary'}
                                 icon={<IconGithub />}
                                 disableClientSideRouting
-                                to={authorizationUrl}
-                                onClick={() => reportConnect()}
+                                to={onAuthorize ? undefined : authorizationUrl}
+                                loading={authorizing}
+                                onClick={() => {
+                                    reportConnect()
+                                    onAuthorize?.(authorizationUrl)
+                                }}
                             >
                                 {canLinkExisting ? 'Connect a different organization or repository' : connectText}
                             </LemonButton>
                         </div>
                         <p className="m-0 max-w-[520px] text-center text-[13px] text-tertiary">
-                            PostHog uses GitHub to create reports and pull requests based on your code. After connecting
-                            GitHub, you can run Wizard in the background to complete setup.
+                            {connectDescription ?? (
+                                <>
+                                    PostHog uses GitHub to create reports and pull requests based on your code. After
+                                    connecting GitHub, you can run Wizard in the background to complete setup.
+                                </>
+                            )}
                         </p>
                     </div>
                 ) : (
@@ -247,14 +272,18 @@ export function GithubIntegration({
                         <LemonButton
                             type="secondary"
                             disableClientSideRouting
-                            to={authorizationUrl}
-                            onClick={() => reportConnect(isConnected ? 'settings_manage' : undefined)}
+                            to={onAuthorize ? undefined : authorizationUrl}
+                            loading={authorizing}
+                            onClick={() => {
+                                reportConnect(isConnected ? 'settings_manage' : undefined)
+                                onAuthorize?.(authorizationUrl)
+                            }}
                         >
                             {isConnected ? 'Manage on GitHub' : connectText}
                         </LemonButton>
                     </div>
                 )}
-                {isConnected && (
+                {isConnected && showManageButton && (
                     <p className={cn('text-secondary text-xs mb-0', centered && 'text-center')}>
                         Add the PostHog app to another GitHub account, or change which repositories it can see.
                     </p>

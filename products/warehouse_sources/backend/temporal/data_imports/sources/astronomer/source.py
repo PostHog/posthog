@@ -95,7 +95,7 @@ class AstronomerSource(ResumableSource[AstronomerSourceConfig, AstronomerResumeC
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Astronomer (Astro)",
             iconPath="/static/services/astronomer.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Import Astro deployments, deploy history, workspaces, and clusters. "
                 "Create an organization API token in Astro under Settings > Access Management > API Tokens. "

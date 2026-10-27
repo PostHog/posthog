@@ -1,12 +1,14 @@
 import uuid
 import hashlib
 import datetime
+import collections
 from enum import Enum
 from typing import Any, Literal, Optional, cast
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import OuterRef, Subquery
+from django.db.models import Count, OuterRef, Subquery, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 import structlog
@@ -60,6 +62,8 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.conversations.backend.models import Ticket
 from products.data_modeling.backend.facade.api import (
+    declared_targets_by_saved_query,
+    get_node_ids_for_saved_queries,
     suspended_saved_query_ids_by_team,
     suspension_state_for_saved_query,
 )
@@ -1333,6 +1337,46 @@ def send_warehouse_destination_paused(
 
 MAX_VIEWS_PER_DIGEST_EMAIL = 30
 MAX_ERROR_CHARS = 255
+# Most urgent first: this order drives the email layout, the subject line and which rows the cap keeps.
+DIGEST_SECTIONS: dict[str, dict[str, Any]] = {
+    "action": {
+        "title": "Needs action",
+        "description": "These views stopped running. They won't update until you fix them.",
+        "color": "#dc3545",
+        "verbs": ("needs action", "need action"),
+    },
+    "new": {
+        "title": "Started failing",
+        "description": "These started failing in the last 24 hours. They retry on their next scheduled run, so a temporary problem can clear on its own.",
+        "color": "#fd7e14",
+        "verbs": ("started failing", "started failing"),
+    },
+    "ongoing": {
+        "title": "Still failing",
+        "description": "These have failed every run for more than a day. Retrying hasn't fixed them, so they likely need a change.",
+        "color": "#9ca3af",
+        "verbs": ("is still failing", "are still failing"),
+    },
+}
+DIGEST_SECTION_ORDER = tuple(DIGEST_SECTIONS)
+# Older than any job, so a view that never succeeded counts every failure in its streak.
+STREAK_FLOOR_BEFORE_ANY_RUN = datetime.datetime(1970, 1, 1, tzinfo=datetime.UTC)
+
+
+def _matview_digest_summary(counts: dict[str, int]) -> str:
+    """Count each section, e.g. "1 materialized view needs action, 3 started failing"."""
+    parts: list[str] = []
+    for key in DIGEST_SECTION_ORDER:
+        count = counts.get(key, 0)
+        if not count:
+            continue
+        verb = DIGEST_SECTIONS[key]["verbs"][count != 1]
+        if not parts:
+            noun = "materialized view" if count == 1 else "materialized views"
+            parts.append(f"{count} {noun} {verb}")
+        else:
+            parts.append(f"{count} {verb}")
+    return ", ".join(parts) or "Materialized view failures"
 
 
 @shared_task(ignore_result=True)
@@ -1419,7 +1463,26 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         return
 
     all_ids = list(set(failed_query_ids + suspended_query_ids))
-    queries = {str(sq.id): sq for sq in DataWarehouseSavedQuery.objects.filter(id__in=all_ids, team_id=team_id)}
+    clickhouse_jobs = DataModelingJob.objects.filter(
+        saved_query_id=OuterRef("id"), engine=DataModelingJobEngine.CLICKHOUSE, last_run_at__isnull=False
+    )
+    last_success_at = (
+        clickhouse_jobs.filter(status=DataModelingJob.Status.COMPLETED).order_by("-last_run_at").values("last_run_at")
+    )
+    streak_jobs = clickhouse_jobs.filter(status=DataModelingJob.Status.FAILED, last_run_at__gt=OuterRef("streak_floor"))
+    queries: dict[str, DataWarehouseSavedQuery] = {
+        str(sq.id): sq
+        for sq in DataWarehouseSavedQuery.objects.filter(id__in=all_ids, team_id=team_id).annotate(
+            streak_floor=Coalesce(Subquery(last_success_at[:1]), Value(STREAK_FLOOR_BEFORE_ANY_RUN)),
+            failing_since=Subquery(streak_jobs.order_by("last_run_at").values("last_run_at")[:1]),
+            failed_runs=Subquery(
+                streak_jobs.order_by().values("saved_query_id").annotate(n=Count("id")).values("n")[:1]
+            ),
+        )
+    }
+    new_failure_cutoff = timezone.now() - datetime.timedelta(hours=24)
+    declared_targets = declared_targets_by_saved_query(team_id, all_ids)
+    node_ids = get_node_ids_for_saved_queries(team_id, all_ids)
 
     latest_jobs: dict[str, DataModelingJob] = {}
     for latest_job in (
@@ -1447,6 +1510,21 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         if len(error) > MAX_ERROR_CHARS:
             error = error[: MAX_ERROR_CHARS - 3] + "..."
         run_at = (job.last_run_at if job else None) or sq.last_run_at
+        # `is_materialized` stays True after a pause, so read the cadence and the table instead.
+        # Pausing clears the cadence and keeps the table; reverting clears both.
+        if qid in declared_targets or sq.sync_frequency_interval is not None:
+            schedule = "scheduled"
+        elif sq.table_id is not None:
+            schedule = "paused"
+        else:
+            schedule = "reverted"
+        failing_since: datetime.datetime | None = getattr(sq, "failing_since", None) or run_at
+        if suspended or schedule != "scheduled":
+            section = "action"
+        elif failing_since is None or failing_since >= new_failure_cutoff:
+            section = "new"
+        else:
+            section = "ongoing"
         views.append(
             {
                 "id": str(sq.id),
@@ -1454,12 +1532,12 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
                 "error": error,
                 "last_run_at": run_at.strftime("%b %d, %H:%M UTC") if run_at else "Unknown",
                 "last_run_at_ts": run_at.timestamp() if run_at else 0,
+                "failing_since": failing_since.strftime("%b %d, %H:%M UTC") if failing_since else "Unknown",
+                "failed_runs": getattr(sq, "failed_runs", None) or 1,
+                "section": section,
                 "suspended": suspended,
-                # Reverting clears the schedule, so promising a retry here would be false. `is not
-                # False` keeps a never-written flag on the retrying side, as `exclude(deleted=True)`
-                # does above.
-                "scheduled": sq.is_materialized is not False,
-                "url": f"{settings.SITE_URL}/project/{team_id}/sql?open_view={sq.id}",
+                "schedule": schedule,
+                "url": settings.SITE_URL + matview_view_path(team_id, qid, node_ids.get(qid)),
             }
         )
 
@@ -1467,8 +1545,14 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         logger.warning("No failed or suspended views found")
         return
 
-    # Rows needing action outrank rows that heal themselves, so the cap keeps them.
-    views.sort(key=lambda v: (not v["suspended"], v["scheduled"], -cast(float, v["last_run_at_ts"])))
+    # Rows needing action outrank new failures, which outrank old ones, so the cap keeps them.
+    views.sort(
+        key=lambda v: (
+            DIGEST_SECTION_ORDER.index(v["section"]),
+            not v["suspended"],
+            -cast(float, v["last_run_at_ts"]),
+        )
+    )
     for v in views:
         v.pop("last_run_at_ts", None)
 
@@ -1479,15 +1563,27 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         omitted_count = max(0, len(visible_views) - MAX_VIEWS_PER_DIGEST_EMAIL)
         listed_views = visible_views[:MAX_VIEWS_PER_DIGEST_EMAIL]
 
+        # Count before the cap, so the subject reflects every failing view the reader can see.
+        summary = _matview_digest_summary(collections.Counter(v["section"] for v in visible_views))
+        sections = [
+            {
+                "key": key,
+                "title": DIGEST_SECTIONS[key]["title"],
+                "description": DIGEST_SECTIONS[key]["description"],
+                "color": DIGEST_SECTIONS[key]["color"],
+                "views": [v for v in listed_views if v["section"] == key],
+            }
+            for key in DIGEST_SECTION_ORDER
+        ]
         message = EmailMessage(
             campaign_key=campaign_key,
-            subject=f"PostHog: Materialized view failures in {team.name}",
+            subject=f"PostHog: {summary} in {team.name}",
             template_name="matview_failure_digest",
             template_context={
                 "team": team,
                 "views": listed_views,
-                "has_suspended": any(v["suspended"] for v in listed_views),
-                "has_unscheduled": any(not v["suspended"] and not v["scheduled"] for v in listed_views),
+                "sections": [section for section in sections if section["views"]],
+                "summary": summary,
                 "omitted_count": omitted_count,
                 "views_url": f"{settings.SITE_URL}/project/{team_id}/models",
             },
@@ -1506,13 +1602,25 @@ def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], 
         )
 
 
+def matview_view_path(team_id: int, saved_query_id: str, node_id: str | None) -> str:
+    """Where a failure email or notification sends the reader: the view's node detail, which shows its runs and error.
+
+    A view with no DAG node has no node detail page, so it falls back to the SQL editor.
+    """
+    if node_id:
+        return f"/project/{team_id}/models/{node_id}"
+    return f"/project/{team_id}/sql?open_view={saved_query_id}"
+
+
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_matview_failure_immediate_email(team_id: int, saved_query_id: str, job_id: str) -> None:
+def send_matview_failure_immediate_email(
+    team_id: int, saved_query_id: str, job_id: str, suspended: bool = False
+) -> None:
     """Email members who asked for a materialization failure email as it happens.
 
-    Dispatched on the first failure of a streak only; the job-scoped campaign key
-    makes redelivery idempotent per recipient.
+    Dispatched on the first failure of a streak, and again when the streak suspends the view;
+    the job-scoped campaign key makes redelivery idempotent per recipient.
     """
 
     if not is_email_available(with_absolute_urls=True):
@@ -1542,18 +1650,27 @@ def send_matview_failure_immediate_email(team_id: int, saved_query_id: str, job_
 
     job = DataModelingJob.objects.filter(id=job_id, team_id=team_id).first()
     error = (job.error if job else None) or saved_query.latest_error or ""
+    node_id = get_node_ids_for_saved_queries(team_id, [saved_query.id]).get(str(saved_query.id))
     if len(error) > MAX_ERROR_CHARS:
         error = error[: MAX_ERROR_CHARS - 3] + "..."
 
+    if suspended:
+        campaign_key = f"matview_suspended_{saved_query_id}_{job_id}"
+        subject = f"PostHog: Materialized view '{saved_query.name}' was suspended in {team.name}"
+    else:
+        campaign_key = f"matview_failure_immediate_{saved_query_id}_{job_id}"
+        subject = f"PostHog: Materialized view '{saved_query.name}' failed in {team.name}"
     message = EmailMessage(
-        campaign_key=f"matview_failure_immediate_{saved_query_id}_{job_id}",
-        subject=f"PostHog: Materialized view '{saved_query.name}' failed in {team.name}",
+        campaign_key=campaign_key,
+        subject=subject,
         template_name="saved_query_materialization_failure",
         template_context={
             "team": team,
             "saved_query_name": saved_query.name,
             "saved_query_id": str(saved_query.id),
+            "view_url": settings.SITE_URL + matview_view_path(team_id, str(saved_query.id), node_id),
             "error": error,
+            "suspended": suspended,
         },
     )
     for membership in memberships_to_email:

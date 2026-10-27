@@ -9,9 +9,10 @@ export const DISMISSAL_REASON_OPTIONS = [
     { value: 'already_fixed', label: 'Already fixed' },
     { value: 'report_unclear', label: 'Report is unclear to me' },
     { value: 'analysis_wrong', label: "Agent's analysis is wrong" },
+    { value: 'wrong_assignee', label: 'Wrong assignee' },
     { value: 'wrong_repo', label: 'Agent picked the wrong repository' },
     { value: 'wontfix_intentional', label: "Won't fix - intentional behavior" },
-    { value: 'wontfix_irrelevant', label: "Won't fix - issue is real but insignificant" },
+    { value: 'wontfix_irrelevant', label: 'Not relevant to this project' },
     { value: 'other', label: 'Something else…' },
 ] as const
 
@@ -23,8 +24,15 @@ export const DISMISSAL_REASON_OPTIONS = [
  * joining this one — so the choice no longer decides whether the issue can come back.
  */
 export const RESOLVE_REASON_OPTIONS = [
-    { value: 'fixed_outside_posthog', label: 'Fixed outside PostHog' },
-    { value: 'pr_merged', label: 'PR was merged' },
+    { value: 'fixed_outside_posthog', label: 'Implemented manually' },
+    { value: 'no_action_needed', label: 'No action needed' },
+    { value: 'already_fixed', label: 'Was already fixed before this report' },
+    { value: 'other', label: 'Something else…' },
+] as const
+
+export const STOP_MONITORING_REASON_OPTIONS = [
+    { value: 'verified_manually', label: 'Verified manually' },
+    { value: 'no_action_needed', label: 'No action needed' },
     { value: 'already_fixed', label: 'Was already fixed before this report' },
     { value: 'other', label: 'Something else…' },
 ] as const
@@ -32,8 +40,11 @@ export const RESOLVE_REASON_OPTIONS = [
 /** Persisted dismiss reason (values match {@link DISMISSAL_REASON_OPTIONS}). */
 export type DismissalReasonValue = (typeof DISMISSAL_REASON_OPTIONS)[number]['value']
 
-/** Persisted resolve reason (values match {@link RESOLVE_REASON_OPTIONS}). */
-export type ResolveReasonValue = (typeof RESOLVE_REASON_OPTIONS)[number]['value']
+/** Persisted feedback can include reasons that are no longer selectable in the dialog. */
+export type ResolveReasonValue =
+    | (typeof RESOLVE_REASON_OPTIONS)[number]['value']
+    | (typeof STOP_MONITORING_REASON_OPTIONS)[number]['value']
+    | 'pr_merged'
 
 /**
  * Whether a persisted reason describes a resolve rather than a dismissal. A resolved row only shows
@@ -41,7 +52,13 @@ export type ResolveReasonValue = (typeof RESOLVE_REASON_OPTIONS)[number]['value'
  * its old dismiss reason, and showing that on finished work would mislabel it.
  */
 export function isResolveReason(value: string | null | undefined): boolean {
-    return value === 'fixed_outside_posthog' || value === 'pr_merged' || value === 'already_fixed'
+    return (
+        value === 'fixed_outside_posthog' ||
+        value === 'verified_manually' ||
+        value === 'no_action_needed' ||
+        value === 'pr_merged' ||
+        value === 'already_fixed'
+    )
 }
 
 /** Feedback captured by the dismiss dialog and forwarded to the report state API. */
@@ -79,6 +96,7 @@ export function suppressDismissalPayload(dismissal: DismissalFeedback): {
 // refund action, which dismisses the report as part of the refund. `merged` is written by the
 // report merge action, which archives each duplicate it folds into the surviving report.
 const EXTRA_DISMISSAL_REASON_LABELS: Record<string, string> = {
+    pr_merged: 'PR already merged',
     refunded: 'Refunded',
     merged: 'Merged into another report',
 }
@@ -104,6 +122,7 @@ export function dismissalReasonLabel(value: string | null | undefined): string |
     return (
         DISMISSAL_REASON_OPTIONS.find((o) => o.value === value)?.label ??
         RESOLVE_REASON_OPTIONS.find((o) => o.value === value)?.label ??
+        STOP_MONITORING_REASON_OPTIONS.find((o) => o.value === value)?.label ??
         EXTRA_DISMISSAL_REASON_LABELS[value] ??
         value
     )

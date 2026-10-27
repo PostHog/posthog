@@ -134,5 +134,5 @@ class QdrantSource(ResumableSource[QdrantSourceConfig, QdrantResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

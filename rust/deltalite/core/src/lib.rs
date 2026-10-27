@@ -36,6 +36,8 @@ pub mod limits;
 mod logprobe;
 pub mod pkset;
 pub mod prefetch;
+pub mod probecache;
+mod readahead;
 pub mod schema;
 mod smallfile;
 mod stats;
@@ -49,6 +51,7 @@ pub use errors::{Error, Result};
 pub use handle::{LiveFile, TableHandle};
 pub use limits::ProcessLimits;
 pub use prefetch::CheckpointCache;
+pub use probecache::{ProbeCache, ProbeCacheStats};
 pub use table::{
     open_table, open_table_multipart, open_table_prefetched, wrap_multipart, MultipartConfig,
 };

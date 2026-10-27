@@ -618,6 +618,7 @@ class TestPersonalApiKeySavedSignalHandler(TestCase):
             (["scopes"], True, "scopes only"),
             (["scoped_teams"], True, "scoped_teams only"),
             (["scoped_organizations"], True, "scoped_organizations only"),
+            (["expires_at"], True, "expires_at only"),
             (["label", "scopes"], True, "label and scopes"),
         ]
     )

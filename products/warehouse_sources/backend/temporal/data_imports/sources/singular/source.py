@@ -118,7 +118,7 @@ class SingularSource(ResumableSource[SingularSourceConfig, SingularResumeConfig]
             iconPath="/static/services/singular.png",
             docsUrl="https://posthog.com/docs/cdp/sources/singular",
             keywords=["mmp", "attribution", "marketing measurement"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

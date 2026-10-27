@@ -34,9 +34,12 @@ import {
 } from "vitest";
 import { POSTHOG_NOTIFICATIONS } from "../acp-extensions";
 import { getSessionJsonlPath } from "../adapters/claude/session/jsonl-hydration";
+import { selectProduct } from "../boot/select-product";
+import type { ContextSelectionResponse } from "../context-selection/schemas";
 import type { PermissionMode } from "../execution-mode";
 import type { PostHogAPIClient } from "../posthog-api";
-import type { ResumeState } from "../resume";
+import { formatConversationForResume, type ResumeState } from "../resume";
+import type { ProductLaunchConfiguration, TaskSource } from "../sdk/product";
 import { SessionLogWriter } from "../session-log-writer";
 import {
   createMockApiClient,
@@ -55,8 +58,34 @@ import {
   SSE_KEEPALIVE_INTERVAL_MS,
   UPSTREAM_PROVIDER_FAILURE_MESSAGE,
 } from "./agent-server";
+import { ContextSelection, type HumanMessage } from "./context-selection";
 import { type JwtPayload, SANDBOX_CONNECTION_AUDIENCE } from "./jwt";
 import type { ExistingPrCheckoutResult } from "./pr-checkout";
+
+const SLACK_THREAD_URL = "https://posthog.slack.com/archives/C123/p456";
+const INBOX_REPORT = {
+  label: "inbox report",
+  url: "http://localhost:8000/project/1/inbox/rep_1",
+};
+
+async function openProduct(
+  server: AgentServer,
+  originProduct?: string,
+  launchOptions: Record<string, unknown> = {},
+  source?: TaskSource,
+): Promise<void> {
+  await (
+    server as unknown as {
+      openProductSession(launch: ProductLaunchConfiguration): Promise<void>;
+    }
+  ).openProductSession({
+    taskId: "test-task-id",
+    runId: "test-run-id",
+    originProduct,
+    launchOptions,
+    source,
+  });
+}
 
 const mockedClaudeSdk = vi.hoisted(() => {
   const createSuccessResult = () => ({
@@ -250,15 +279,7 @@ interface TestableServer {
     run: TaskRun | null,
   ): Promise<void>;
   detectedPrUrl: string | null;
-  slackArtifactDelivery: "none" | "message" | "canvas_file" | null;
-  slackChartDelivery: boolean;
-  slackProgressChecklist: boolean;
-  slackReplyContext: boolean;
-  buildCloudSystemPrompt(
-    prUrl?: string | null,
-    slackThreadUrl?: string | null,
-    inboxReportUrl?: string | null,
-  ): string;
+  buildCloudSystemPrompt(prUrl?: string | null): string;
   buildDetectedPrContext(prUrl: string): string;
   buildExistingPrCheckoutPromise(
     prUrl: string | null,
@@ -267,11 +288,7 @@ interface TestableServer {
     prUrl: string | null,
     result: ExistingPrCheckoutResult,
   ): void;
-  buildSessionSystemPrompt(
-    prUrl?: string | null,
-    slackThreadUrl?: string | null,
-    inboxReportUrl?: string | null,
-  ): string | { append: string };
+  buildSessionSystemPrompt(prUrl?: string | null): string | { append: string };
   buildCodexInstructions(systemPrompt: string | { append: string }): string;
   getRuntimeAdapter(): Adapter;
   buildClaudeCodeSessionMeta(
@@ -638,6 +655,7 @@ describe("AgentServer HTTP Mode", () => {
       taskId: "test-task-id",
       runId: "test-run-id",
       resolveRtkSavings: async () => null,
+      selectProduct,
       ...overrides,
     });
     return server;
@@ -2222,16 +2240,28 @@ describe("AgentServer HTTP Mode", () => {
 
     function createRetryTestServer(prompt: ReturnType<typeof vi.fn>) {
       const testServer = createFailureTestServer();
-      testServer.session = {
+      const session = {
+        cancellationVersion: 0,
+        contextSelection: new ContextSelection(
+          {
+            prepareContextSelection: vi.fn().mockResolvedValue({ context: "" }),
+          },
+          "run-1",
+        ),
         acpSessionId: "acp-1",
         payload: { run_id: "run-1", task_id: "task-1" },
-        logWriter: { appendRawLine: vi.fn(), flush: vi.fn(async () => {}) },
+        logWriter: {
+          appendRawLine: vi.fn(),
+          flush: vi.fn(async () => {}),
+          getFullAgentResponse: vi.fn(),
+        },
         clientConnection: { prompt, cancel: vi.fn(async () => {}) },
       };
+      testServer.session = session;
       return testServer as unknown as {
         eventStreamSender: { enqueue: ReturnType<typeof vi.fn> };
         posthogAPI: { updateTaskRun: ReturnType<typeof vi.fn> };
-        session: unknown;
+        session: typeof session;
         executeCommand(
           method: string,
           params: Record<string, unknown>,
@@ -2242,6 +2272,7 @@ describe("AgentServer HTTP Mode", () => {
             prompt: ContentBlock[];
           },
           recordFailedUsage?: boolean,
+          humanMessage?: HumanMessage,
         ): Promise<{
           stopReason: string;
           usage?: { inputTokens?: number; outputTokens?: number };
@@ -2250,6 +2281,96 @@ describe("AgentServer HTTP Mode", () => {
         runRetryWrappedTurn<T>(operation: () => Promise<T>): Promise<T>;
       };
     }
+
+    it("prepares context again for each upstream retry", async () => {
+      vi.useFakeTimers();
+      try {
+        const prompt = vi
+          .fn()
+          .mockRejectedValueOnce(new Error("API Error: terminated"))
+          .mockResolvedValueOnce({ stopReason: "end_turn" });
+        const testServer = createRetryTestServer(prompt);
+        const api = {
+          prepareContextSelection: vi
+            .fn()
+            .mockResolvedValueOnce({
+              selection_id: "selection",
+              context: "definition",
+              mode: "treatment",
+            })
+            .mockResolvedValueOnce({
+              selection_id: "selection",
+              context: "",
+              mode: "treatment",
+              reason: "empty",
+            }),
+        };
+        testServer.session.contextSelection = new ContextSelection(
+          api,
+          "run-1",
+        );
+        const result = testServer.promptWithUpstreamRetry(
+          {
+            sessionId: "acp-1",
+            prompt: [{ type: "text", text: "Define activation" }],
+          },
+          true,
+          { messageId: "human-message", text: "Define activation" },
+        );
+        await vi.advanceTimersByTimeAsync(5_000);
+        await result;
+        expect(api.prepareContextSelection).toHaveBeenCalledTimes(2);
+        expect(prompt.mock.calls[0][0].prompt).toHaveLength(2);
+        expect(prompt.mock.calls[1][0].prompt).toEqual([
+          expect.objectContaining({ _meta: { ui: { hidden: true } } }),
+        ]);
+        expect(api.prepareContextSelection.mock.calls[1][0]).toMatchObject({
+          message_id: "human-message",
+          prompt: "Define activation",
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("does not deliver a prompt cancelled during context preparation", async () => {
+      const prompt = vi.fn().mockResolvedValue({ stopReason: "end_turn" });
+      const testServer = createRetryTestServer(prompt);
+      let finishPreparation!: (value: ContextSelectionResponse) => void;
+      let started!: () => void;
+      const preparing = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      const api = {
+        prepareContextSelection: vi.fn(() => {
+          started();
+          return new Promise<ContextSelectionResponse>((resolve) => {
+            finishPreparation = resolve;
+          });
+        }),
+      };
+      testServer.session.contextSelection = new ContextSelection(api, "run-1");
+      const result = testServer.runStartupTurn(() =>
+        testServer.promptWithUpstreamRetry(
+          {
+            sessionId: "acp-1",
+            prompt: [{ type: "text", text: "Define activation" }],
+          },
+          true,
+          { messageId: "human-message", text: "Define activation" },
+        ),
+      );
+      await preparing;
+      await testServer.executeCommand("cancel", {});
+      finishPreparation({
+        selection_id: "s",
+        context: "definition",
+        mode: "treatment",
+        reason: "selected",
+      });
+      await expect(result).resolves.toMatchObject({ stopReason: "cancelled" });
+      expect(prompt).not.toHaveBeenCalled();
+    });
 
     it("continues an unattended turn after a transient upstream stream death", async () => {
       vi.useFakeTimers();
@@ -2310,9 +2431,13 @@ describe("AgentServer HTTP Mode", () => {
         );
         await Promise.resolve();
         testServer.session = {
+          ...testServer.session,
           acpSessionId: "acp-2",
-          payload: { run_id: "run-2" },
-          clientConnection: { prompt: vi.fn() },
+          payload: { run_id: "run-2", task_id: "task-2" },
+          clientConnection: {
+            ...testServer.session.clientConnection,
+            prompt: vi.fn(),
+          },
         };
         await vi.advanceTimersByTimeAsync(5_000);
 
@@ -2336,7 +2461,7 @@ describe("AgentServer HTTP Mode", () => {
           sessionId: "acp-1",
           prompt: [{ type: "text", text: "do the task" }],
         });
-        await vi.advanceTimersByTimeAsync(10_000);
+        await vi.advanceTimersByTimeAsync(15_000);
 
         await expect(resultPromise).resolves.toEqual({
           stopReason: "end_turn",
@@ -2429,9 +2554,13 @@ describe("AgentServer HTTP Mode", () => {
         await Promise.resolve();
         await testServer.executeCommand("cancel", {});
         testServer.session = {
+          ...testServer.session,
           acpSessionId: "acp-2",
-          payload: { run_id: "run-2" },
-          clientConnection: { prompt: vi.fn() },
+          payload: { run_id: "run-2", task_id: "task-2" },
+          clientConnection: {
+            ...testServer.session.clientConnection,
+            prompt: vi.fn(),
+          },
         };
         await vi.advanceTimersByTimeAsync(5_000);
 
@@ -2509,7 +2638,7 @@ describe("AgentServer HTTP Mode", () => {
           }),
         });
 
-        await vi.advanceTimersByTimeAsync(10_000);
+        await vi.advanceTimersByTimeAsync(15_000);
         await assertion;
         expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
       } finally {
@@ -2658,7 +2787,7 @@ describe("AgentServer HTTP Mode", () => {
         const assertion = expect(resultPromise).rejects.toThrow(
           "API Error: terminated",
         );
-        await vi.advanceTimersByTimeAsync(10_000);
+        await vi.advanceTimersByTimeAsync(15_000);
 
         await assertion;
         expect(prompt).toHaveBeenCalledTimes(3);
@@ -3349,11 +3478,14 @@ describe("AgentServer HTTP Mode", () => {
     function exposeRefresh(testServer: AgentServer) {
       return testServer as unknown as {
         session: {
+          contextSelection: ContextSelection;
           payload: { task_id: string; run_id: string };
           clientConnection: { extMethod: ReturnType<typeof vi.fn> };
         } | null;
         mcpRelayServer: { mcpServers: unknown[] } | null;
         posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
+        contextSelectionAPI: PostHogAPIClient;
+        handleAcpTransportMessage(message: unknown): void;
         executeCommand(
           method: string,
           params: Record<string, unknown>,
@@ -3369,6 +3501,10 @@ describe("AgentServer HTTP Mode", () => {
       extMethod: ReturnType<typeof vi.fn>,
     ) {
       testServer.session = {
+        contextSelection: new ContextSelection(
+          testServer.contextSelectionAPI,
+          "test-run-id",
+        ),
         payload: { task_id: "test-task-id", run_id: "test-run-id" },
         clientConnection: { extMethod },
       };
@@ -3378,6 +3514,68 @@ describe("AgentServer HTTP Mode", () => {
         }),
       };
     }
+
+    it("uses the refreshed PostHog actor credential and clears selection history at the adapter boundary", async () => {
+      const testServer = exposeRefresh(createServer());
+      attachSession(
+        testServer,
+        vi.fn(async () => ({ refreshed: true })),
+      );
+      const requests: Array<{ authorization: string | null; history: string }> =
+        [];
+      mswServer.use(
+        http.post(
+          "http://localhost:8000/api/projects/1/context_layer/selection/prepare/",
+          async ({ request }) => {
+            const body = (await request.json()) as { history: string };
+            requests.push({
+              authorization: request.headers.get("authorization"),
+              history: body.history,
+            });
+            return HttpResponse.json({
+              selection_id: "s",
+              context: "",
+              mode: "control",
+              reason: "control",
+            });
+          },
+        ),
+      );
+      if (!testServer.session) throw new Error("Missing test session");
+      const selector = testServer.session.contextSelection;
+      await selector.prepare({ messageId: "first", text: "Define activation" });
+      selector.recordTurn(
+        { messageId: "first", text: "Define activation" },
+        "",
+      );
+      await testServer.executeCommand("refresh_session", {
+        mcpServers: [
+          {
+            type: "http",
+            name: "posthog",
+            url: "https://mcp.example.com",
+            headers: [
+              { name: "Authorization", value: "Bearer refreshed-actor-token" },
+            ],
+          },
+        ],
+      });
+      await selector.prepare({
+        messageId: "second",
+        text: "Define activation",
+      });
+      expect(requests.map((request) => request.authorization)).toEqual([
+        "Bearer test-api-key",
+        "Bearer refreshed-actor-token",
+      ]);
+      expect(requests[1].history).toContain("Define activation");
+      testServer.handleAcpTransportMessage({
+        method: POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED,
+      });
+      await selector.prepare({ messageId: "third", text: "Define activation" });
+      expect(requests[2].history).toBe("");
+      testServer.session = null;
+    });
 
     it("re-appends the loopback relay entries so a refresh doesn't drop them", async () => {
       const testServer = exposeRefresh(createServer());
@@ -3927,6 +4125,48 @@ describe("AgentServer HTTP Mode", () => {
       );
       expect(turnCompleteEvents).toHaveLength(1);
     }, 20000);
+
+    it("honors cancellation while preparing a human follow-up", async () => {
+      const s = createServer();
+      await s.start();
+      const internals = s as unknown as {
+        session: { clientConnection: { prompt: ReturnType<typeof vi.fn> } };
+        executeCommand(
+          method: string,
+          params: Record<string, unknown>,
+        ): Promise<unknown>;
+      };
+      const prompt = vi.fn(async () => ({ stopReason: "end_turn" }));
+      internals.session.clientConnection.prompt = prompt;
+      const preparing = Promise.withResolvers<void>();
+      const release = Promise.withResolvers<void>();
+      mswServer.use(
+        http.post(
+          "http://localhost:8000/api/projects/1/context_layer/selection/prepare/",
+          async () => {
+            preparing.resolve();
+            await release.promise;
+            return HttpResponse.json({
+              selection_id: "s",
+              context: "definition",
+              mode: "treatment",
+              reason: "selected",
+            });
+          },
+        ),
+      );
+      const delivery = internals.executeCommand("user_message", {
+        content: "Define activation",
+        messageId: "cancelled-followup",
+      });
+      await preparing.promise;
+      await internals.executeCommand("cancel", {});
+      release.resolve();
+      await expect(delivery).resolves.toMatchObject({
+        stopReason: "cancelled",
+      });
+      expect(prompt).not.toHaveBeenCalled();
+    });
 
     it("retries only the continuation after compact follow-up failure", async () => {
       const s = createServer();
@@ -5392,6 +5632,77 @@ describe("AgentServer HTTP Mode", () => {
       expect(await health.json()).toMatchObject({ hasSession: true });
     });
 
+    it("delivers a startup prompt before a follow-up while context preparation is pending", async () => {
+      const s = createServer();
+      const internals = s as unknown as {
+        posthogAPI: PostHogAPIClient;
+        session: {
+          payload: JwtPayload;
+          clientConnection: { prompt: ReturnType<typeof vi.fn> };
+        };
+        executeCommand(
+          method: string,
+          params: Record<string, unknown>,
+        ): Promise<unknown>;
+      };
+      const idleRun = createTaskRun({ state: { prewarmed: true } });
+      vi.spyOn(internals.posthogAPI, "getTaskRun").mockResolvedValue(idleRun);
+      await s.start();
+      const startupRun = createTaskRun({
+        state: {
+          pending_user_message: "initial question",
+          pending_user_message_ts: "123",
+        },
+      });
+      vi.mocked(internals.posthogAPI.getTaskRun).mockResolvedValue(startupRun);
+      const preparation = Promise.withResolvers<void>();
+      const preparing = Promise.withResolvers<void>();
+      let preparations = 0;
+      mswServer.use(
+        http.post(
+          "http://localhost:8000/api/projects/1/context_layer/selection/prepare/",
+          async () => {
+            if (++preparations === 1) {
+              preparing.resolve();
+              await preparation.promise;
+            }
+            return HttpResponse.json({
+              selection_id: "s",
+              context: "",
+              mode: "control",
+              reason: "control",
+            });
+          },
+        ),
+      );
+      const prompt = vi.fn(async (_request: { prompt: ContentBlock[] }) => ({
+        stopReason: "cancelled" as const,
+      }));
+      internals.session.clientConnection.prompt = prompt;
+      const startup = (
+        s as unknown as StartupTestServer
+      ).sendInitialTaskMessage(internals.session.payload, {
+        taskRun: startupRun,
+        action: "initial",
+      });
+      await preparing.promise;
+      const followup = internals.executeCommand("user_message", {
+        content: "follow-up",
+        messageId: "second-message",
+      });
+      preparation.resolve();
+      await Promise.all([startup, followup]);
+      expect(prompt).toHaveBeenCalledTimes(2);
+      expect(prompt.mock.calls[0][0].prompt).toContainEqual({
+        type: "text",
+        text: "initial question",
+      });
+      expect(prompt.mock.calls[1][0].prompt).toContainEqual({
+        type: "text",
+        text: "follow-up",
+      });
+    });
+
     it.each([
       { resumeKind: "native", activated: false, beforeStartup: false },
       { resumeKind: "native", activated: true, beforeStartup: false },
@@ -5404,6 +5715,24 @@ describe("AgentServer HTTP Mode", () => {
       async ({ resumeKind, activated, beforeStartup }) => {
         const s = createServer();
         await s.start();
+
+        const selections: Array<{ prompt: string; history: string }> = [];
+        mswServer.use(
+          http.post(
+            "http://localhost:8000/api/projects/1/context_layer/selection/prepare/",
+            async ({ request }) => {
+              selections.push(
+                (await request.json()) as { prompt: string; history: string },
+              );
+              return HttpResponse.json({
+                selection_id: "s",
+                context: "",
+                mode: "control",
+                reason: "control",
+              });
+            },
+          ),
+        );
 
         const prompt = vi.fn(async () => ({ stopReason: "cancelled" }));
         const payload: JwtPayload = {
@@ -5427,7 +5756,14 @@ describe("AgentServer HTTP Mode", () => {
         });
         const internals = s as unknown as {
           posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
-          session: { clientConnection: { prompt: typeof prompt } };
+          session: {
+            contextSelection: ContextSelection;
+            clientConnection: { prompt: typeof prompt };
+          };
+          createContextSelection(
+            runId: string,
+            history: string,
+          ): ContextSelection;
           resumeState: ResumeState | null;
           nativeResume: { sessionId: string; warm: boolean } | null;
           prewarmedRun: boolean;
@@ -5459,6 +5795,10 @@ describe("AgentServer HTTP Mode", () => {
           logEntryCount: 2,
           sessionId: "prior-session",
         };
+        internals.session.contextSelection = internals.createContextSelection(
+          payload.run_id,
+          formatConversationForResume(internals.resumeState.conversation),
+        );
         internals.nativeResume =
           resumeKind === "native"
             ? { sessionId: "prior-session", warm: true }
@@ -5506,6 +5846,13 @@ describe("AgentServer HTTP Mode", () => {
         );
 
         expect(response.status).toBe(200);
+        expect(selections).toHaveLength(1);
+        expect(selections[0].history).toContain("original request");
+        expect(selections[0].history).toContain("work completed so far");
+        expect(selections[0].history).not.toContain(
+          "You are resuming a previous conversation",
+        );
+        expect(selections[0].prompt).toBe("continue with this change");
         if (beforeStartup) {
           await startup.sendInitialTaskMessage(payload, prepared);
         }
@@ -5576,7 +5923,9 @@ describe("AgentServer HTTP Mode", () => {
         });
         const internals = s as unknown as {
           posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
-          session: { clientConnection: { prompt: typeof prompt } };
+          session: {
+            clientConnection: { prompt: typeof prompt };
+          };
           resumeState: ResumeState | null;
           nativeResume: { sessionId: string; warm: boolean } | null;
           prewarmedRun: boolean;
@@ -5849,10 +6198,12 @@ describe("AgentServer HTTP Mode", () => {
       );
     }, 30000);
 
-    it("hides synthetic resume context while keeping the pending user message visible", async () => {
+    it.each([true, false])("keeps summary history: %s", async (humanTurn) => {
       const s = createServer() as unknown as {
         resumeState: ResumeState | null;
         session: {
+          contextSelection: ContextSelection;
+          cancellationVersion: number;
           payload: JwtPayload;
           acpSessionId: string;
           clientConnection: {
@@ -5883,6 +6234,13 @@ describe("AgentServer HTTP Mode", () => {
       };
       const prompt = vi.fn(async () => ({ stopReason: "cancelled" }));
       s.session = {
+        contextSelection: new ContextSelection(
+          {
+            prepareContextSelection: vi.fn().mockResolvedValue({ context: "" }),
+          },
+          payload.run_id,
+        ),
+        cancellationVersion: 0,
         payload,
         acpSessionId: "acp-session",
         clientConnection: { prompt },
@@ -5909,13 +6267,30 @@ describe("AgentServer HTTP Mode", () => {
         sessionId: "prior-session",
       };
 
+      const api = {
+        prepareContextSelection: vi.fn().mockResolvedValue({
+          selection_id: "s",
+          context: "",
+          mode: "control",
+          reason: "control",
+        }),
+      };
+      s.session.contextSelection = new ContextSelection(
+        api,
+        payload.run_id,
+        undefined,
+        "test",
+        formatConversationForResume(s.resumeState.conversation),
+      );
       const taskRun = createTaskRun({
         id: "test-run-id",
         task: "test-task-id",
-        state: {
-          pending_user_message: "visible follow-up",
-          pending_user_message_ts: "123.456",
-        },
+        state: humanTurn
+          ? {
+              pending_user_message: "visible follow-up",
+              pending_user_message_ts: "123.456",
+            }
+          : {},
       });
       vi.spyOn(
         (
@@ -5949,7 +6324,17 @@ describe("AgentServer HTTP Mode", () => {
       expect((promptBlocks[0] as { text: string }).text).toContain(
         "You are resuming a previous conversation",
       );
-      expect(visibleText).toEqual(["visible follow-up"]);
+      expect(visibleText).toEqual(humanTurn ? ["visible follow-up"] : []);
+      await s.session.contextSelection.prepare({
+        messageId: "next",
+        text: "Does that still apply?",
+      });
+      expect(api.prepareContextSelection.mock.lastCall?.[0].history).toContain(
+        "old request",
+      );
+      expect(api.prepareContextSelection.mock.lastCall?.[0].history).toContain(
+        "old answer",
+      );
       expect(promptBlocks.at(-1)).toMatchObject({
         type: "text",
         _meta: { ui: { hidden: true } },
@@ -5985,7 +6370,9 @@ describe("AgentServer HTTP Mode", () => {
         const broadcastEvent = vi.fn();
         const internals = s as unknown as {
           posthogAPI: { getTaskRun: ReturnType<typeof vi.fn> };
-          session: { clientConnection: { prompt: typeof prompt } };
+          session: {
+            clientConnection: { prompt: typeof prompt };
+          };
           nativeResume: { sessionId: string; warm: boolean } | null;
           resumeState: ResumeState | null;
           broadcastEvent: typeof broadcastEvent;
@@ -6211,20 +6598,27 @@ describe("AgentServer HTTP Mode", () => {
       ).toContain("BENJAMIN-PLUS MODE ACTIVE");
     });
 
-    it("injects STE100 guidance into Slack prompts when POSTHOG_BENJAMIN is set", () => {
-      vi.stubEnv("POSTHOG_BENJAMIN", "1");
-      vi.stubEnv("POSTHOG_CODE_INTERACTION_ORIGIN", "slack");
-      const s = createServer();
-      const sessionPrompt = (
-        s as unknown as TestableServer
-      ).buildSessionSystemPrompt();
+    it.each([
+      ["slack", {}],
+      ["workflow", { slack_reply_context: true }],
+    ])(
+      "ends Slack reply prompts with STE100 guidance and no rich output (origin: %s)",
+      async (origin, launchOptions) => {
+        vi.stubEnv("POSTHOG_BENJAMIN", "1");
+        const s = createServer();
+        await openProduct(s, origin, launchOptions);
+        const sessionPrompt = (
+          s as unknown as TestableServer
+        ).buildSessionSystemPrompt();
+        const prompt =
+          typeof sessionPrompt === "string"
+            ? sessionPrompt
+            : sessionPrompt.append;
 
-      expect(
-        typeof sessionPrompt === "string"
-          ? sessionPrompt
-          : sessionPrompt.append,
-      ).toContain(STE100_INSTRUCTION);
-    });
+        expect(prompt.endsWith(STE100_INSTRUCTION)).toBe(true);
+        expect(prompt).not.toContain("Rich output in replies");
+      },
+    );
 
     it("does not inject STE100 guidance into user-created prompts", () => {
       vi.stubEnv("POSTHOG_BENJAMIN", "1");
@@ -6967,96 +7361,26 @@ describe("AgentServer HTTP Mode", () => {
       vi.unstubAllEnvs();
     });
 
-    it.each([
-      {
-        delivery: "canvas_file" as const,
-        expected: "`slack_canvas`, `slack_message`, `slack_file`",
-        notExpected: "You do not have canvas or file delivery",
-      },
-      {
-        delivery: "message" as const,
-        expected: "You do not have canvas or file delivery in this workspace",
-        notExpected: "`slack_canvas`, `slack_message`, `slack_file`",
-      },
-      {
-        delivery: "none" as const,
-        expected: "You do not have artifact delivery in this workspace",
-        notExpected: "create a living artifact before claiming delivery",
-      },
-    ])(
-      "offers only the Slack delivery routes the workspace has: $delivery",
-      ({ delivery, expected, notExpected }) => {
-        const s = createServer() as unknown as TestableServer;
-        s.slackArtifactDelivery = delivery;
+    it("places product delivery instructions with the other delivery instructions", async () => {
+      const s = createServer();
+      await openProduct(s, "slack", { slack_artifact_delivery: "message" });
 
-        const prompt = s.buildCloudSystemPrompt();
+      const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt();
+      const delivery = prompt.indexOf("## Delivering to Slack");
 
-        expect(prompt).toContain("## Delivering to Slack");
-        expect(prompt).toContain(expected);
-        expect(prompt).not.toContain(notExpected);
-      },
-    );
-
-    it("says nothing about Slack delivery when the backend did not resolve it", () => {
-      const s = createServer() as unknown as TestableServer;
-      s.slackArtifactDelivery = null;
-
-      expect(s.buildCloudSystemPrompt()).not.toContain(
-        "## Delivering to Slack",
+      expect(delivery).toBeGreaterThan(
+        prompt.indexOf("## Delivering non-code files"),
       );
+      expect(delivery).toBeLessThan(prompt.indexOf("## GitHub access"));
     });
 
-    // Charts need only the rollout flag, while canvas/file also needs Slack scopes still in
-    // review, so the chart offer has to be independent of the delivery mode in both
-    // directions: present on a message-only workspace, absent on a canvas_file one whose
-    // backend never sent the key.
-    it.each([
-      { delivery: "canvas_file" as const, charts: true },
-      { delivery: "message" as const, charts: true },
-    ])(
-      "offers the chart endpoint on a $delivery workspace when charts are on",
-      ({ delivery, charts }) => {
-        const s = createServer() as unknown as TestableServer;
-        s.slackArtifactDelivery = delivery;
-        s.slackChartDelivery = charts;
+    it("says nothing about Slack delivery when the backend did not resolve it", async () => {
+      const s = createServer();
+      await openProduct(s, "slack");
 
-        const prompt = s.buildCloudSystemPrompt();
-
-        expect(prompt).toContain("living_artifacts/chart/");
-        expect(prompt).toContain("deliver a chart image by default");
-      },
-    );
-
-    it.each([
-      { delivery: "canvas_file" as const },
-      { delivery: "message" as const },
-      { delivery: "none" as const },
-    ])(
-      "never mentions charts on a $delivery workspace when charts are off",
-      ({ delivery }) => {
-        const s = createServer() as unknown as TestableServer;
-        s.slackArtifactDelivery = delivery;
-        s.slackChartDelivery = false;
-
-        expect(s.buildCloudSystemPrompt()).not.toContain(
-          "living_artifacts/chart/",
-        );
-      },
-    );
-
-    it("tells a message-only workspace that charts are the exception to the no-file rule", () => {
-      // Without this the two bullets contradict each other: one forbids file delivery, the
-      // other tells the agent to deliver an image.
-      const s = createServer() as unknown as TestableServer;
-      s.slackArtifactDelivery = "message";
-      s.slackChartDelivery = true;
-
-      const prompt = s.buildCloudSystemPrompt();
-
-      expect(prompt).toContain("Chart images are the one exception");
-      expect(prompt).toContain(
-        "cannot be expressed as a Slack message or a chart image",
-      );
+      expect(
+        (s as unknown as TestableServer).buildCloudSystemPrompt(),
+      ).not.toContain("## Delivering to Slack");
     });
 
     it("describes every repository in a shared multi-repository workspace", () => {
@@ -7160,7 +7484,9 @@ describe("AgentServer HTTP Mode", () => {
           "`posthog:metric-list`",
           "`posthog:metric-describe`",
           "`posthog:data-catalog-metric-run`",
-          "You do not have GitHub access in this session.",
+          "This session has no authenticated GitHub access.",
+          "Read public or already cloned repository content without asking the user to connect GitHub.",
+          "Only when the requested work requires unavailable private repository or publishing access:",
           "Codebase analysis and code review require readable repository content.",
           "do not replace the requested code work with generic guidance or PostHog data analysis",
           "The connection applies to a new task, not this task.",
@@ -7216,9 +7542,10 @@ describe("AgentServer HTTP Mode", () => {
       },
     );
 
-    it("returns auto-PR prompt for Slack-origin runs", () => {
+    it("returns auto-PR prompt for Slack-origin runs", async () => {
       process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
       const s = createServer();
+      await openProduct(s, process.env.POSTHOG_CODE_INTERACTION_ORIGIN);
       const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt();
       expect(prompt).toContain("posthog/");
       expect(prompt).toContain("Create a draft pull request");
@@ -7267,15 +7594,15 @@ describe("AgentServer HTTP Mode", () => {
 
     it.each(["slack", "signal_report"])(
       "carries the GitHub identity guidance on %s-origin runs",
-      (origin) => {
+      async (origin) => {
         // Non-Slack runs open issues under a person's credentials too, so this must not
         // sit behind `isSlack`.
         vi.stubEnv("GITHUB_TOKEN", "ghu_actor");
-        vi.stubEnv("POSTHOG_CODE_INTERACTION_ORIGIN", origin);
-        const s = createServer() as unknown as TestableServer;
-        expect(s.buildCloudSystemPrompt()).toContain(
-          "# Whose GitHub account you are using",
-        );
+        const s = createServer();
+        await openProduct(s, origin);
+        expect(
+          (s as unknown as TestableServer).buildCloudSystemPrompt(),
+        ).toContain("# Whose GitHub account you are using");
       },
     );
 
@@ -7291,9 +7618,10 @@ describe("AgentServer HTTP Mode", () => {
       );
     });
 
-    it("returns auto-PR prompt for signal_report-origin runs", () => {
+    it("returns auto-PR prompt for signal_report-origin runs", async () => {
       process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "signal_report";
       const s = createServer();
+      await openProduct(s, process.env.POSTHOG_CODE_INTERACTION_ORIGIN);
       const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt();
       expect(prompt).toContain("posthog/");
       expect(prompt).toContain("Create a draft pull request");
@@ -7488,9 +7816,10 @@ describe("AgentServer HTTP Mode", () => {
       { label: "signal_report", origin: "signal_report" },
     ])(
       "guards the auto-PR prompt against duplicating an existing PR on $label-origin runs",
-      ({ origin }) => {
+      async ({ origin }) => {
         process.env.POSTHOG_CODE_INTERACTION_ORIGIN = origin;
         const s = createServer();
+        await openProduct(s, process.env.POSTHOG_CODE_INTERACTION_ORIGIN);
         const prompt = (
           s as unknown as TestableServer
         ).buildCloudSystemPrompt();
@@ -7504,9 +7833,10 @@ describe("AgentServer HTTP Mode", () => {
       },
     );
 
-    it("returns PR-update prompt for existing PRs on Slack-origin runs", () => {
+    it("returns PR-update prompt for existing PRs on Slack-origin runs", async () => {
       process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
       const s = createServer();
+      await openProduct(s, process.env.POSTHOG_CODE_INTERACTION_ORIGIN);
       const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt(
         "https://github.com/org/repo/pull/1",
       );
@@ -7530,7 +7860,7 @@ describe("AgentServer HTTP Mode", () => {
       delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
     });
 
-    it("includes --base flag when baseBranch is configured", () => {
+    it("includes --base flag when baseBranch is configured", async () => {
       process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
       server = new AgentServer({
         port,
@@ -7543,7 +7873,9 @@ describe("AgentServer HTTP Mode", () => {
         taskId: "test-task-id",
         runId: "test-run-id",
         baseBranch: "add-yolo-to-readme",
+        selectProduct,
       });
+      await openProduct(server, process.env.POSTHOG_CODE_INTERACTION_ORIGIN);
       const prompt = (
         server as unknown as TestableServer
       ).buildCloudSystemPrompt();
@@ -7553,9 +7885,10 @@ describe("AgentServer HTTP Mode", () => {
       delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
     });
 
-    it("omits --base flag when baseBranch is not configured", () => {
+    it("omits --base flag when baseBranch is not configured", async () => {
       process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
       const s = createServer();
+      await openProduct(s, process.env.POSTHOG_CODE_INTERACTION_ORIGIN);
       const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt();
       expect(prompt).toContain("gh pr create --draft`");
       // Scoped to the create command; other sections mention the flag legitimately.
@@ -7563,7 +7896,7 @@ describe("AgentServer HTTP Mode", () => {
       delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
     });
 
-    it("disables auto-publish for Slack-origin runs when createPr is false", () => {
+    it("disables auto-publish for Slack-origin runs when createPr is false", async () => {
       process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
       server = new AgentServer({
         port,
@@ -7576,7 +7909,9 @@ describe("AgentServer HTTP Mode", () => {
         taskId: "test-task-id",
         runId: "test-run-id",
         createPr: false,
+        selectProduct,
       });
+      await openProduct(server, process.env.POSTHOG_CODE_INTERACTION_ORIGIN);
       const prompt = (
         server as unknown as TestableServer
       ).buildCloudSystemPrompt();
@@ -7585,7 +7920,7 @@ describe("AgentServer HTTP Mode", () => {
       delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
     });
 
-    it("disables auto-publish for existing PRs when createPr is false", () => {
+    it("disables auto-publish for existing PRs when createPr is false", async () => {
       process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
       server = new AgentServer({
         port,
@@ -7598,7 +7933,9 @@ describe("AgentServer HTTP Mode", () => {
         taskId: "test-task-id",
         runId: "test-run-id",
         createPr: false,
+        selectProduct,
       });
+      await openProduct(server, process.env.POSTHOG_CODE_INTERACTION_ORIGIN);
       const prompt = (
         server as unknown as TestableServer
       ).buildCloudSystemPrompt("https://github.com/org/repo/pull/1");
@@ -7609,12 +7946,13 @@ describe("AgentServer HTTP Mode", () => {
     });
 
     describe("identity instructions", () => {
-      it("injects Slack identity for workflow Slack replies", () => {
-        delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
-        const s = createServer() as unknown as TestableServer;
-        s.slackReplyContext = true;
+      it("injects Slack identity for workflow Slack replies", async () => {
+        const s = createServer();
+        await openProduct(s, "workflow", { slack_reply_context: true });
 
-        const prompt = s.buildCloudSystemPrompt();
+        const prompt = (
+          s as unknown as TestableServer
+        ).buildCloudSystemPrompt();
 
         expect(prompt).toContain("# Identity");
         expect(prompt).toContain("You are replying in a Slack thread");
@@ -7628,9 +7966,10 @@ describe("AgentServer HTTP Mode", () => {
         { label: "repository, no PR", config: {} },
       ])(
         "injects PostHog Slack app identity for Slack-origin runs ($label)",
-        ({ config }) => {
+        async ({ config }) => {
           process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
           const s = createServer(config);
+          await openProduct(s, process.env.POSTHOG_CODE_INTERACTION_ORIGIN);
           const prompt = (
             s as unknown as TestableServer
           ).buildCloudSystemPrompt();
@@ -7653,9 +7992,10 @@ describe("AgentServer HTTP Mode", () => {
         { label: "repository, no PR", config: {} },
       ])(
         "injects concise response-style guidance for Slack-origin runs ($label)",
-        ({ config }) => {
+        async ({ config }) => {
           process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
           const s = createServer(config);
+          await openProduct(s, process.env.POSTHOG_CODE_INTERACTION_ORIGIN);
           const prompt = (
             s as unknown as TestableServer
           ).buildCloudSystemPrompt();
@@ -7669,37 +8009,19 @@ describe("AgentServer HTTP Mode", () => {
       );
 
       it.each([
-        { checklist: true, expected: true },
-        { checklist: false, expected: false },
-      ])(
-        "asks for a plain-language task list only when the Slack reply streams it (checklist: $checklist)",
-        ({ checklist, expected }) => {
-          // The checklist is the Slack progress UI. Without it the task list is invisible,
-          // and asking for one only costs the agent turns.
-          process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
-          const s = createServer() as unknown as TestableServer;
-          s.slackProgressChecklist = checklist;
-
-          const prompt = s.buildCloudSystemPrompt();
-
-          expect(prompt.includes("# Progress checklist")).toBe(expected);
-          delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
-        },
-      );
-
-      it.each([
         { label: "no origin set", origin: undefined },
         { label: "signal_report origin", origin: "signal_report" },
         { label: "posthog_code origin", origin: "posthog_code" },
       ])(
         "omits response-style guidance for non-Slack runs ($label)",
-        ({ origin }) => {
+        async ({ origin }) => {
           if (origin) {
             process.env.POSTHOG_CODE_INTERACTION_ORIGIN = origin;
           } else {
             delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
           }
           const s = createServer();
+          await openProduct(s, process.env.POSTHOG_CODE_INTERACTION_ORIGIN);
           const prompt = (
             s as unknown as TestableServer
           ).buildCloudSystemPrompt();
@@ -7708,9 +8030,10 @@ describe("AgentServer HTTP Mode", () => {
         },
       );
 
-      it("injects identity for Slack-origin runs with an existing PR", () => {
+      it("injects identity for Slack-origin runs with an existing PR", async () => {
         process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
         const s = createServer();
+        await openProduct(s, process.env.POSTHOG_CODE_INTERACTION_ORIGIN);
         const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt(
           "https://github.com/org/repo/pull/1",
         );
@@ -7723,104 +8046,104 @@ describe("AgentServer HTTP Mode", () => {
         { label: "no origin set", origin: undefined },
         { label: "signal_report origin", origin: "signal_report" },
         { label: "posthog_code origin", origin: "posthog_code" },
-      ])("omits identity block for non-Slack runs ($label)", ({ origin }) => {
-        if (origin) {
-          process.env.POSTHOG_CODE_INTERACTION_ORIGIN = origin;
-        } else {
+      ])(
+        "omits identity block for non-Slack runs ($label)",
+        async ({ origin }) => {
+          if (origin) {
+            process.env.POSTHOG_CODE_INTERACTION_ORIGIN = origin;
+          } else {
+            delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
+          }
+          const s = createServer();
+          await openProduct(s, process.env.POSTHOG_CODE_INTERACTION_ORIGIN);
+          const prompt = (
+            s as unknown as TestableServer
+          ).buildCloudSystemPrompt();
+          expect(prompt).not.toContain("# Identity");
+          expect(prompt).not.toContain("PostHog Slack app");
+          expect(prompt).not.toContain("# PostHog products first");
           delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
-        }
-        const s = createServer();
-        const prompt = (
-          s as unknown as TestableServer
-        ).buildCloudSystemPrompt();
-        expect(prompt).not.toContain("# Identity");
-        expect(prompt).not.toContain("PostHog Slack app");
-        expect(prompt).not.toContain("# PostHog products first");
-        delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
-      });
+        },
+      );
     });
 
     describe("PR body guidance (why context + brevity + footer)", () => {
-      it("instructs Why, brevity, and the plain footer (no Slack link) when auto-creating a Slack PR without a thread URL", () => {
-        process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
-        try {
-          const prompt = (
-            createServer() as unknown as TestableServer
-          ).buildCloudSystemPrompt();
-          expect(prompt).toContain("gh pr create --draft");
-          // why context
-          expect(prompt).toContain("**Why**");
-          expect(prompt).toContain("the reason the user asked for this change");
-          // brevity
-          expect(prompt).toContain("Keep the PR description brief");
-          expect(prompt).toContain("do NOT enumerate every change");
-          // plain footer, no Slack link; Slack-origin PRs are branded "PostHog"
-          expect(prompt).toContain(
-            "*Created with [PostHog](https://posthog.com?ref=pr)*",
-          );
-          expect(prompt).not.toContain("from a [Slack thread]");
-          expect(prompt).not.toContain("PostHog Desktop](https://posthog.com");
-        } finally {
-          delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
-        }
+      it("instructs Why, brevity, and the plain footer (no Slack link) when auto-creating a Slack PR without a thread URL", async () => {
+        const s = createServer();
+        await openProduct(s, "slack");
+
+        const prompt = (
+          s as unknown as TestableServer
+        ).buildCloudSystemPrompt();
+
+        expect(prompt).toContain("gh pr create --draft");
+        // why context
+        expect(prompt).toContain("**Why**");
+        expect(prompt).toContain("the reason the user asked for this change");
+        // brevity
+        expect(prompt).toContain("Keep the PR description brief");
+        expect(prompt).toContain("do NOT enumerate every change");
+        // plain footer, no Slack link; Slack-origin PRs are branded "PostHog"
+        expect(prompt).toContain(
+          "*Created with [PostHog](https://posthog.com?ref=pr)*",
+        );
+        expect(prompt).not.toContain("from a [Slack thread]");
+        expect(prompt).not.toContain("PostHog Desktop](https://posthog.com");
       });
 
-      it("embeds the Slack thread link in the footer when one is available", () => {
-        process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
-        try {
+      it.each([
+        {
+          label: "Slack thread",
+          origin: "slack",
+          launchOptions: { slack_thread_url: SLACK_THREAD_URL },
+          source: undefined,
+          footer: `*Created with [PostHog](https://posthog.com?ref=pr) from a [Slack thread](${SLACK_THREAD_URL})*`,
+        },
+        {
+          label: "inbox report on a signal_report run",
+          origin: "signal_report",
+          launchOptions: {},
+          source: INBOX_REPORT,
+          footer: `*Created with [PostHog](https://posthog.com?ref=pr) from an [inbox report](${INBOX_REPORT.url})*`,
+        },
+        {
+          label: "Slack thread over the inbox report",
+          origin: "slack",
+          launchOptions: { slack_thread_url: SLACK_THREAD_URL },
+          source: INBOX_REPORT,
+          footer: `*Created with [PostHog](https://posthog.com?ref=pr) from a [Slack thread](${SLACK_THREAD_URL})*`,
+        },
+        {
+          label: "inbox report on a desktop run",
+          origin: "desktop",
+          launchOptions: {},
+          source: INBOX_REPORT,
+          footer: `*Created with [PostHog Desktop](https://posthog.com/desktop?ref=pr) from an [inbox report](${INBOX_REPORT.url})*`,
+        },
+        {
+          label: "mobile client",
+          origin: undefined,
+          launchOptions: { client_platform: "mobile" },
+          source: undefined,
+          footer: "*Created with [PostHog Mobile](https://posthog.com?ref=pr)*",
+        },
+      ])(
+        "embeds the $label footer",
+        async ({ origin, launchOptions, source, footer }) => {
+          const s = createServer({ autoPublish: true });
+          await openProduct(s, origin, launchOptions, source);
+
           const prompt = (
-            createServer() as unknown as TestableServer
-          ).buildCloudSystemPrompt(
-            null,
-            "https://posthog.slack.com/archives/C123/p456",
-          );
-          expect(prompt).toContain(
-            "*Created with [PostHog](https://posthog.com?ref=pr) from a [Slack thread](https://posthog.slack.com/archives/C123/p456)*",
-          );
+            s as unknown as TestableServer
+          ).buildCloudSystemPrompt();
+
+          expect(prompt).toContain(footer);
           // The Why bullet no longer carries the thread link.
           expect(prompt).not.toContain(
             "this task started from a Slack thread, also link it",
           );
-        } finally {
-          delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
-        }
-      });
-
-      it("embeds the inbox report link in the footer for a signal_report run", () => {
-        process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "signal_report";
-        try {
-          const prompt = (
-            createServer() as unknown as TestableServer
-          ).buildCloudSystemPrompt(
-            null,
-            null,
-            "http://localhost:8000/project/1/inbox/rep_1",
-          );
-          expect(prompt).toContain(
-            "*Created with [PostHog](https://posthog.com?ref=pr) from an [inbox report](http://localhost:8000/project/1/inbox/rep_1)*",
-          );
-          expect(prompt).not.toContain("from a [Slack thread]");
-        } finally {
-          delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
-        }
-      });
-
-      it("prefers the Slack thread link over the inbox report link when both are present", () => {
-        process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
-        try {
-          const prompt = (
-            createServer() as unknown as TestableServer
-          ).buildCloudSystemPrompt(
-            null,
-            "https://posthog.slack.com/archives/C123/p456",
-            "http://localhost:8000/project/1/inbox/rep_1",
-          );
-          expect(prompt).toContain("from a [Slack thread]");
-          expect(prompt).not.toContain("from an [inbox report]");
-        } finally {
-          delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
-        }
-      });
+        },
+      );
 
       it("instructs Why, brevity, and the plain footer on the non-Slack no-repository path", () => {
         delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
@@ -7838,23 +8161,17 @@ describe("AgentServer HTTP Mode", () => {
         expect(prompt).not.toContain("from a [Slack thread]");
       });
 
-      it("embeds the Slack thread link in the footer on the no-repository path when one is available", () => {
-        process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
-        try {
-          const prompt = (
-            createServer({
-              repositoryPath: undefined,
-            }) as unknown as TestableServer
-          ).buildCloudSystemPrompt(
-            null,
-            "https://posthog.slack.com/archives/C123/p456",
-          );
-          expect(prompt).toContain(
-            "*Created with [PostHog](https://posthog.com?ref=pr) from a [Slack thread](https://posthog.slack.com/archives/C123/p456)*",
-          );
-        } finally {
-          delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
-        }
+      it("embeds the Slack thread link in the footer on the no-repository path when one is available", async () => {
+        const s = createServer({ repositoryPath: undefined });
+        await openProduct(s, "slack", { slack_thread_url: SLACK_THREAD_URL });
+
+        const prompt = (
+          s as unknown as TestableServer
+        ).buildCloudSystemPrompt();
+
+        expect(prompt).toContain(
+          `*Created with [PostHog](https://posthog.com?ref=pr) from a [Slack thread](${SLACK_THREAD_URL})*`,
+        );
       });
     });
   });
@@ -7874,9 +8191,10 @@ describe("AgentServer HTTP Mode", () => {
       expect(context).not.toContain("gh pr checkout");
     });
 
-    it("avoids redundant PR checkout for auto-update runs", () => {
+    it("avoids redundant PR checkout for auto-update runs", async () => {
       process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
       const s = createServer();
+      await openProduct(s, process.env.POSTHOG_CODE_INTERACTION_ORIGIN);
       const context = (s as unknown as TestableServer).buildDetectedPrContext(
         prUrl,
       );
@@ -7892,7 +8210,7 @@ describe("AgentServer HTTP Mode", () => {
       delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
     });
 
-    it("returns review-first PR context when createPr is false", () => {
+    it("returns review-first PR context when createPr is false", async () => {
       process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
       server = new AgentServer({
         port,
@@ -7905,7 +8223,9 @@ describe("AgentServer HTTP Mode", () => {
         taskId: "test-task-id",
         runId: "test-run-id",
         createPr: false,
+        selectProduct,
       });
+      await openProduct(server, process.env.POSTHOG_CODE_INTERACTION_ORIGIN);
       const context = (
         server as unknown as TestableServer
       ).buildDetectedPrContext(prUrl);
@@ -7933,36 +8253,40 @@ describe("AgentServer HTTP Mode", () => {
       expect(promise).toBeNull();
     });
 
-    it("does not check out when there is no prUrl", () => {
+    it("does not check out when there is no prUrl", async () => {
       process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
       const s = createServer();
+      await openProduct(s, process.env.POSTHOG_CODE_INTERACTION_ORIGIN);
       const promise = (
         s as unknown as TestableServer
       ).buildExistingPrCheckoutPromise(null);
       expect(promise).toBeNull();
     });
 
-    it("does not check out when createPr is false, even on a Slack-origin run", () => {
+    it("does not check out when createPr is false, even on a Slack-origin run", async () => {
       process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
       const s = createServer({ createPr: false });
+      await openProduct(s, process.env.POSTHOG_CODE_INTERACTION_ORIGIN);
       const promise = (
         s as unknown as TestableServer
       ).buildExistingPrCheckoutPromise(prUrl);
       expect(promise).toBeNull();
     });
 
-    it("does not check out when no repository is connected", () => {
+    it("does not check out when no repository is connected", async () => {
       process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
       const s = createServer({ repositoryPath: undefined });
+      await openProduct(s, process.env.POSTHOG_CODE_INTERACTION_ORIGIN);
       const promise = (
         s as unknown as TestableServer
       ).buildExistingPrCheckoutPromise(prUrl);
       expect(promise).toBeNull();
     });
 
-    it("starts a checkout when auto-publish is on for a Slack-origin run", () => {
+    it("starts a checkout when auto-publish is on for a Slack-origin run", async () => {
       process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
       const s = createServer();
+      await openProduct(s, process.env.POSTHOG_CODE_INTERACTION_ORIGIN);
       const promise = (
         s as unknown as TestableServer
       ).buildExistingPrCheckoutPromise(prUrl);

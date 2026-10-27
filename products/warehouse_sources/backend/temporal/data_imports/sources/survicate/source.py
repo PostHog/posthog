@@ -120,7 +120,7 @@ class SurvicateSource(ResumableSource[SurvicateSourceConfig, SurvicateResumeConf
             "Your plan must include the Data Export API.",
             docsUrl="https://developers.survicate.com/data-export/setup/",
             iconPath="/static/services/survicate.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

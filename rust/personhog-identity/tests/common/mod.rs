@@ -11,6 +11,8 @@ use rand::Rng;
 use sqlx::postgres::PgPool;
 use uuid::Uuid;
 
+use personhog_coordination::changelog::LiveChangelog;
+use personhog_coordination::types::ChangelogConfig;
 use personhog_identity::config::{IdentityTables, OutboxWrites};
 use personhog_identity::pools::IdentityPools;
 use personhog_identity::publish::config::MergeEventsAllowlist;
@@ -31,6 +33,10 @@ const DRAIN_LOCK_KEY: i64 = 0x5048_5055_424c_4953;
 pub const FAN_OUT_CONCURRENCY: usize = 8;
 /// Partition count the delete driver groups its fence batches by.
 pub const NUM_PARTITIONS: u32 = 4;
+
+pub fn changelog() -> LiveChangelog {
+    LiveChangelog::new(ChangelogConfig::new("personhog_updates", NUM_PARTITIONS))
+}
 
 pub fn default_tables() -> IdentityTables {
     IdentityTables::real()

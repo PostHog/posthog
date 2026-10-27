@@ -21,14 +21,7 @@ import { ExperimentsConfig } from 'scenes/settings/environment/experimentsConfig
 import { urls } from 'scenes/urls'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
-import {
-    ActivityScope,
-    CorrelationConfigType,
-    GroupType,
-    PathCleaningFilter,
-    TeamSurveyConfigType,
-    TeamType,
-} from '~/types'
+import { ActivityScope, GroupType, PathCleaningFilter, TeamSurveyConfigType, TeamType } from '~/types'
 
 import { ThemeName } from '../dataThemeLogic'
 import { coreEventsConfigurationDescriber } from './core_events_config/coreEventsConfigurationDescriber'
@@ -175,12 +168,29 @@ function createExperimentsDefaultHandler(fieldName: string, format: (value: unkn
 }
 
 const TEAM_PROPERTIES_MAPPING: Record<
-    keyof TeamType | keyof ExperimentsConfig | 'heatmaps_screenshot_allowed_hostnames',
+    | keyof TeamType
+    | keyof ExperimentsConfig
+    | 'heatmaps_screenshot_allowed_hostnames'
+    | 'conversations_signing_secret'
+    | 'conversations_signing_secret_previous',
     (change: ActivityChange) => ChangeMapping | null
 > = {
     // API-related tokens
     api_token: createApiTokenHandler('project token', 'set', 'reset'),
     secret_api_token: createApiTokenHandler('Feature Flags secure API key', 'generated', 'rotated'),
+    conversations_signing_secret: createApiTokenHandler(
+        'Conversations identity verification secret',
+        'generated',
+        'rotated'
+    ),
+    conversations_signing_secret_previous: (change) => {
+        if (change.action !== 'deleted') {
+            return null
+        }
+        return {
+            description: [<>Expired the previous Conversations identity verification secret</>],
+        }
+    },
     heatmaps_screenshot_secret: createApiTokenHandler('heatmap screenshot value', 'generated', 'rotated'),
     heatmaps_screenshot_allowed_hostnames: createArrayChangeHandler('approved screenshot hostnames'),
     secret_api_token_backup: (change) => {
@@ -477,6 +487,43 @@ const TEAM_PROPERTIES_MAPPING: Record<
     human_friendly_comparison_periods: createBooleanToggleHandler('human friendly comparison periods'),
     receive_org_level_activity_logs: createBooleanToggleHandler('organization-level activity logs'),
     require_evaluation_contexts: createBooleanToggleHandler('require evaluation context tags'),
+    feature_flag_policy_config: (change) => {
+        const before = isObject(change.before) ? change.before : {}
+        const after = isObject(change.after) ? change.after : {}
+        const descriptions: JSX.Element[] = []
+        if (!!before.require_tags !== !!after.require_tags) {
+            descriptions.push(
+                <>
+                    {after.require_tags ? 'enabled' : 'disabled'} <em>required tags on feature flags</em>
+                </>
+            )
+        }
+        const lists = [
+            ['blocked_hosts', 'blocked domains for feature flag requests'],
+            ['blocked_ips', 'blocked IP addresses for feature flag requests'],
+        ] as const
+        for (const [field, label] of lists) {
+            const beforeEntries = (before[field] ?? []) as string[]
+            const afterEntries = (after[field] ?? []) as string[]
+            const added = afterEntries.filter((entry) => !beforeEntries.includes(entry))
+            const removed = beforeEntries.filter((entry) => !afterEntries.includes(entry))
+            if (added.length) {
+                descriptions.push(
+                    <>
+                        added <code>{added.join(', ')}</code> to the <em>{label}</em>
+                    </>
+                )
+            }
+            if (removed.length) {
+                descriptions.push(
+                    <>
+                        removed <code>{removed.join(', ')}</code> from the <em>{label}</em>
+                    </>
+                )
+            }
+        }
+        return descriptions.length ? { description: descriptions } : null
+    },
     test_account_filters: (change) => {
         // change.after is an array of property filters
         // change.before is an array o property filters
@@ -726,53 +773,6 @@ const TEAM_PROPERTIES_MAPPING: Record<
             ],
         }
     },
-    correlation_config: (change) => {
-        const before = change.before as CorrelationConfigType
-        const after = change.after as CorrelationConfigType
-
-        const descriptions = []
-
-        const sameArray = (a: string[], b: string[]): boolean => {
-            if (a.length !== b.length) {
-                return false
-            }
-            return a.every((x) => b.includes(x)) && b.every((x) => a.includes(x))
-        }
-
-        if (
-            after.excluded_person_property_names &&
-            !sameArray(before.excluded_person_property_names || [], after.excluded_person_property_names)
-        ) {
-            descriptions.push(
-                <>
-                    set <em>excluded person properties</em> to{' '}
-                    <code>{after.excluded_person_property_names.join(', ')}</code>
-                </>
-            )
-        }
-
-        if (
-            after.excluded_event_property_names &&
-            !sameArray(before.excluded_event_property_names || [], after.excluded_event_property_names)
-        ) {
-            descriptions.push(
-                <>
-                    set <em>excluded event properties</em> to{' '}
-                    <code>{after.excluded_event_property_names.join(', ')}</code>
-                </>
-            )
-        }
-
-        if (after.excluded_event_names && !sameArray(before.excluded_event_names || [], after.excluded_event_names)) {
-            descriptions.push(
-                <>
-                    set <em>excluded event names</em> to <code>{after.excluded_event_names.join(', ')}</code>
-                </>
-            )
-        }
-
-        return { description: descriptions }
-    },
 
     // Complex configs that require a custom describer
     customer_analytics_config: customerAnalyticsConfigurationDescriber,
@@ -846,7 +846,6 @@ const TEAM_PROPERTIES_MAPPING: Record<
     managed_viewsets: () => null,
     flag_evaluations_mode: () => null,
     workflows_config: () => null,
-    feature_flag_policy_config: () => null,
 }
 
 function describeWorkflowEmailSuspension(logItem: ActivityLogItem): HumanizedChange {

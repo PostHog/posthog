@@ -7,6 +7,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.db import connection
 from django.test import SimpleTestCase
@@ -30,6 +31,9 @@ from posthog.models import OrganizationMembership, Project, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
+from posthog.models.file_system.file_system_view_log import FileSystemViewLog
+from posthog.models.tag import Tag
+from posthog.models.tagged_item import TaggedItem
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -68,6 +72,26 @@ class TestFileSystemAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(response_data["count"], 0)
         self.assertEqual(response_data["results"], [])
+
+    def test_list_includes_tags_only_on_request(self) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Revenue")
+        insight = Insight.objects.create(team=self.team, short_id="tagged", name="Signups")
+        for tag_name, obj in (("finance", dashboard), ("weekly", dashboard), ("growth", insight)):
+            tag, _ = Tag.objects.get_or_create(name=tag_name, team=self.team)
+            TaggedItem.objects.create(
+                tag=tag, team=self.team, content_type=ContentType.objects.get_for_model(type(obj)), object_id=obj.id
+            )
+
+        plain = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"depth": "3"}).json()["results"]
+        self.assertNotIn("tags", next(item["meta"] for item in plain if item["type"] == "dashboard"))
+
+        tagged = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"depth": "3", "include_tags": "true"})
+        self.assertEqual(tagged.status_code, 200, tagged.content)
+        by_ref = {
+            (item["type"].split("/")[0], item["ref"]): item["meta"].get("tags") for item in tagged.json()["results"]
+        }
+        self.assertEqual(by_ref[("dashboard", str(dashboard.id))], ["finance", "weekly"])
+        self.assertEqual(by_ref[("insight", "tagged")], ["growth"])
 
     @parameterized.expand([(False,), (True,)])
     def test_list_content_types_without_object_contents(self, include_content_type: bool) -> None:
@@ -1102,6 +1126,48 @@ class TestFileSystemAPI(APIBaseTest):
         paths = [item["path"] for item in resp.json()["results"]]
         # Pure case-insensitive alphabetical order, regardless of type
         self.assertEqual(paths, ["Afile.txt", "alpha", "beta", "bFile.txt"])
+
+    @parameterized.expand([("type=dashboard",), ("type__startswith=dashboard",)])
+    def test_typed_list_orders_by_own_views_with_unviewed_last(self, type_filter: str) -> None:
+        files = [
+            FileSystem.objects.create(team=self.team, path=f"Dashboard {index}", type="dashboard", ref=str(index))
+            for index in range(3)
+        ]
+        FileSystemViewLog.objects.create(
+            team=self.team, user=self.user, type="dashboard", ref="0", viewed_at="2026-09-01T00:00:00Z"
+        )
+        FileSystemViewLog.objects.create(
+            team=self.team, user=self.user, type="dashboard", ref="1", viewed_at="2026-09-02T00:00:00Z"
+        )
+        other_user = User.objects.create_and_join(self.organization, "viewer@example.com", "password")
+        FileSystemViewLog.objects.create(
+            team=self.team, user=other_user, type="dashboard", ref="2", viewed_at="2026-09-03T00:00:00Z"
+        )
+        files.append(FileSystem.objects.create(team=self.team, path="Dashboard copy", type="dashboard", ref="0"))
+        files.extend(
+            FileSystem.objects.create(
+                team=self.team, path=f"Dashboard unseen {index}", type="dashboard", ref=f"unseen-{index}"
+            )
+            for index in range(2)
+        )
+        FileSystem.objects.create(team=self.team, path="Excluded", type="dashboard", ref="excluded")
+        FileSystemViewLog.objects.create(
+            team=self.team, user=self.user, type="dashboard", ref="excluded", viewed_at="2026-09-04T00:00:00Z"
+        )
+        base = f"/api/projects/{self.team.id}/file_system/?{type_filter}&search=name:Dashboard&order_by="
+        for ordering, expected in [("-last_viewed_at", [1, 3, 0, 5, 4, 2]), ("last_viewed_at", [3, 0, 1, 5, 4, 2])]:
+            next_url = f"{base}{ordering}&limit=2"
+            results = []
+            while next_url:
+                response = self.client.get(next_url)
+                self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+                data = response.json()
+                self.assertEqual(data["count"], 6)
+                results.extend(data["results"])
+                next_url = data["next"]
+            self.assertEqual([row["id"] for row in results], [str(files[index].id) for index in expected])
+            self.assertTrue(all(row["last_viewed_at"] is None for row in results[-3:]))
+            self.assertTrue(all(row["last_viewed_at"] for row in results[:-3]))
 
     def test_list_order_by_created_at(self):
         # Create items in chronological order

@@ -491,7 +491,7 @@ describeWithGrammars("PostHogEnricher", () => {
       const enriched = await result.enrichFromApi(API_CONFIG);
 
       expect(enriched.flags[0].url).toBe(
-        "https://test.posthog.com/project/1/feature_flags/42",
+        "https://test.posthog.com/project/1/feature-flags/42",
       );
       expect(enriched.flags[0].evaluationStats).toEqual({
         evaluations: 1240,
@@ -512,7 +512,7 @@ describeWithGrammars("PostHogEnricher", () => {
       });
 
       expect(enriched.flags[0].url).toBe(
-        "https://test.posthog.com/project/1/feature_flags/42",
+        "https://test.posthog.com/project/1/feature-flags/42",
       );
     });
 
@@ -537,7 +537,7 @@ describeWithGrammars("PostHogEnricher", () => {
       expect(annotated).toContain("60% rolled out");
       expect(annotated).toContain("1,240 evals / 230 users (7d)");
       expect(annotated).toContain(
-        "https://test.posthog.com/project/1/feature_flags/42",
+        "https://test.posthog.com/project/1/feature-flags/42",
       );
     });
 
@@ -575,7 +575,7 @@ describeWithGrammars("PostHogEnricher", () => {
       expect(annotated).toContain(`Flag: "quiet-flag"`);
       expect(annotated).not.toContain("evals /");
       expect(annotated).toContain(
-        "https://test.posthog.com/project/1/feature_flags/7",
+        "https://test.posthog.com/project/1/feature-flags/7",
       );
     });
 
@@ -648,7 +648,7 @@ describeWithGrammars("PostHogEnricher", () => {
       });
 
       expect(enriched.flags[0].url).toBe(
-        "https://test.posthog.com/project/1/feature_flags/9",
+        "https://test.posthog.com/project/1/feature-flags/9",
       );
     });
 

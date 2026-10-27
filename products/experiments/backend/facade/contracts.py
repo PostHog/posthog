@@ -103,13 +103,31 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     FLAG_LIVE_AFTER_END = "flag_live_after_end"
     FLAG_LIVE_BEFORE_LAUNCH = "flag_live_before_launch"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
+    MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
     NO_METRIC = "no_metric"
+    METRIC_EVENT_NOT_INGESTED = "metric_event_not_ingested"
+    METRIC_CANNOT_COMPILE = "metric_cannot_compile"
+    EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
     SRM = "srm", "Sample Ratio Mismatch"
     ZERO_EXPOSURES = "zero_exposures"
     FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
     FLAG_VARIANTS_MISMATCH = "flag_variants_mismatch"
     SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
     BUCKETING_CHANGED_MID_RUN = "bucketing_changed_mid_run"
+    RELEASE_CONDITIONS_CHANGED_MID_RUN = "release_conditions_changed_mid_run"
+    NEW_FLAG_NO_TRAFFIC = "new_flag_no_traffic"
+    EARLY_SIGNIFICANCE = "early_significance"
+
+
+class ExperimentHealthMetricCompileErrorKind(LabeledStrEnum):
+    # A validation error of the query builder, written for the user.
+    REJECTED = "rejected"
+    # HogQL can't parse an expression of the metric.
+    SYNTAX = "syntax"
+    # HogQL can't compile the query.
+    QUERY = "query"
+    # The stored definition doesn't parse into a metric.
+    DEFINITION = "definition"
 
 
 class HealthExposureInputsStatus(LabeledStrEnum):
@@ -140,6 +158,7 @@ class ExperimentHealthFlagChangeKind(LabeledStrEnum):
     SPLIT = "split"
     # A setting that decides the variant draw: the key, the group type, the bucketing identifier or persistence.
     BUCKETING = "bucketing"
+    RELEASE_CONDITIONS = "release_conditions", "Release-condition"
 
 
 class ExperimentHealthFindingSeverity(LabeledStrEnum):
@@ -174,6 +193,52 @@ class ExperimentHealthFinding:
     evidence: Mapping[str, str | int | float | bool | None]
     actions: tuple[ExperimentHealthFindingActionKind, ...]
     diagnostic_ref: str | None
+
+
+class ExperimentHealthCheckKey(LabeledStrEnum):
+    # pinned: the health endpoint and the exposure query return these values, so API callers depend on them. A key
+    # names the check, not a problem: `flag_state` reports four finding codes, and `flag_history` reports its finding
+    # under `split_changed_mid_run`.
+    FLAG_STATE = "flag_state"
+    FLAG_HISTORY = "flag_history"
+    SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
+    BUCKETING_CHANGED_MID_RUN = "bucketing_changed_mid_run"
+    RELEASE_CONDITIONS_CHANGED_MID_RUN = "release_conditions_changed_mid_run"
+    FLAG_VARIANTS_MISMATCH = "flag_variants_mismatch"
+    FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
+    NEW_FLAG_NO_TRAFFIC = "new_flag_no_traffic"
+    NO_METRIC = "no_metric"
+    METRIC_EVENT_NOT_INGESTED = "metric_event_not_ingested"
+    METRIC_CANNOT_COMPILE = "metric_cannot_compile"
+    EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
+    EARLY_SIGNIFICANCE = "early_significance"
+    ZERO_EXPOSURES = "zero_exposures"
+    SRM = "srm"
+    BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
+    MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
+
+
+class ExperimentHealthCheckStatus(LabeledStrEnum):
+    PASSED = "passed"
+    FINDING = "finding"
+    NOT_APPLICABLE = "not_applicable"
+    # The check covers the experiment, but it could not read an input or it failed, so a problem can go unreported.
+    NOT_CHECKED = "not_checked"
+
+
+@frozen
+class ExperimentHealthCheckResult:
+    key: ExperimentHealthCheckKey
+    name: str
+    status: ExperimentHealthCheckStatus
+    # Why the check did not look, for the statuses not_applicable and not_checked. None otherwise.
+    reason: str | None
+
+
+@frozen
+class ExperimentHealth:
+    findings: tuple[ExperimentHealthFinding, ...]
+    checks: tuple[ExperimentHealthCheckResult, ...]
 
 
 @frozen
@@ -299,3 +364,18 @@ class DailyMetricCalculation:
     metric_uuid: str
     # The key that files the metric's daily result.
     calculation_key: str
+
+
+@frozen
+class EndedExperiment:
+    id: int
+    name: str
+    ended_at: datetime
+
+
+@frozen
+class RunningExperiment:
+    id: int
+    name: str
+    started_at: datetime
+    flag_key: str

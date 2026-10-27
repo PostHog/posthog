@@ -15,8 +15,10 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
     BackfillDetails,
-    BatchExportModel,
+    BatchExportEventsCustomModel,
+    BatchExportPersonsModel,
     BatchExportSchema,
     BigQueryBatchExportInputs,
 )
@@ -100,7 +102,7 @@ async def test_bigquery_export_workflow(
     ateam,
     table_id,
     use_json_type,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -110,13 +112,13 @@ async def test_bigquery_export_workflow(
     The workflow should update the batch export run status to completed and produce the expected
     records to the configured BigQuery table.
     """
-    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
+    if isinstance(model, AnyBatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    batch_export_model: BatchExportModel | None = None
+    batch_export_model: AnyBatchExportModel | None = None
     sort_key = "event"
 
-    if isinstance(model, BatchExportModel):
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
         if batch_export_model.name == "persons":
             sort_key = "person_id"
@@ -124,7 +126,7 @@ async def test_bigquery_export_workflow(
             sort_key = "session_id"
 
     elif model is not None:
-        batch_export_model = BatchExportModel(name="events", schema=model)
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     workflow_id = str(uuid.uuid4())
     inputs = BigQueryBatchExportInputs(
@@ -198,7 +200,7 @@ async def test_bigquery_export_workflow_without_events(
     ateam,
     table_id,
     use_json_type,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     data_interval_start,
     data_interval_end,
 ):
@@ -206,14 +208,14 @@ async def test_bigquery_export_workflow_without_events(
 
     The workflow should update the batch export run status to completed and set 0 as `records_completed`.
     """
-    if isinstance(model, BatchExportModel) and model.name == "persons" and exclude_events is not None:
+    if isinstance(model, AnyBatchExportModel) and model.name == "persons" and exclude_events is not None:
         pytest.skip("Unnecessary test case as person batch export is not affected by 'exclude_events'")
 
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_model = BatchExportModel(name="events", schema=model)
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     workflow_id = str(uuid.uuid4())
     inputs = BigQueryBatchExportInputs(
@@ -264,7 +266,7 @@ async def test_bigquery_export_workflow_without_events(
 )
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("use_json_type", [True], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportPersonsModel()])
 async def test_bigquery_export_workflow_backfill_earliest_persons(
     ateam,
     bigquery_client,

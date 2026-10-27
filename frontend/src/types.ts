@@ -44,6 +44,9 @@ import type {
     OrganizationMemberNoticeApi,
     OrganizationTeamBasicApi,
     OrganizationNotificationLockApi,
+    ProjectApi,
+    SharingConfigurationApi,
+    TeamFeatureFlagPolicyConfigApi,
 } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
@@ -90,6 +93,7 @@ import type { ScopeObjectEnumApi } from 'products/access_control/frontend/genera
 import { AlertType } from 'products/alerts/frontend/types'
 import type { BatchExportApi } from 'products/batch_exports/frontend/generated/api.schemas'
 import type { CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
+import type { DashboardTileGroupApi } from 'products/dashboards/frontend/generated/api.schemas'
 import {
     type LineageIssueApi,
     type NodeApiSuspended,
@@ -315,6 +319,7 @@ export enum AccessControlResourceType {
     Action = 'action',
     CustomerAnalytics = 'customer_analytics',
     CustomerTask = 'customer_task',
+    DataCatalog = 'data_catalog',
     DataDeletion = 'data_deletion',
     FeatureFlag = 'feature_flag',
     Heatmap = 'heatmap',
@@ -388,7 +393,7 @@ export type UserShortcutPosition = 'above' | 'below' | 'hidden'
 // Mirrors posthog.models.user.OnboardingSkippedReason. Kept as a union here to avoid a
 // hard dependency on generated types; when adopting generated `UserApi`, switch to
 // `OnboardingSkippedReasonEnumApi` from `~/generated/core/api.schemas`.
-export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | 'provisioned' | null
+export type OnboardingSkippedReason = 'delegated' | 'later' | 'other' | 'provisioned' | 'connector' | null
 
 /** Full User model. */
 export interface UserType extends UserBaseType {
@@ -581,6 +586,7 @@ export interface PersonalAPIKeyType {
     created_at: string
     last_used_at: string | null
     last_rolled_at: string | null
+    expires_at: string | null
     team_id: number
     user_id: string
     scopes: string[]
@@ -749,13 +755,7 @@ export interface TeamBasicType extends WithAccessControl {
     timezone: string
 }
 
-export interface CorrelationConfigType {
-    excluded_person_property_names?: string[]
-    excluded_event_property_names?: string[]
-    excluded_event_names?: string[]
-}
-
-export interface ProjectType extends ProjectBasicType {
+export interface ProjectType extends ProjectBasicType, Pick<ProjectApi, 'logo_media_id'> {
     created_at: string
     is_pending_deletion: boolean
     deletion_scheduled_at: string | null
@@ -907,12 +907,6 @@ export interface TeamType extends TeamBasicType {
     /** Effective access level of the user in this specific team. Null if user has no access. */
     effective_membership_level: OrganizationMembershipLevel | null
 
-    /** Used to exclude person properties from correlation analysis results.
-     *
-     * For example can be used to exclude properties that have trivial causation.
-     * This field should have a default value of `{}`, but it IS nullable and can be `null` in some cases.
-     */
-    correlation_config: CorrelationConfigType | null
     person_on_events_querying_enabled: boolean
     extra_settings?: Record<string, string | number | boolean | undefined>
     modifiers?: HogQLQueryModifiers
@@ -933,7 +927,7 @@ export interface TeamType extends TeamBasicType {
     customer_analytics_config: CustomerAnalyticsConfig
     workflows_config: WorkflowsConfig
     // Optional so cached team objects from before this field shipped still typecheck.
-    feature_flag_policy_config?: FeatureFlagPolicyConfig
+    feature_flag_policy_config?: TeamFeatureFlagPolicyConfigApi
     business_model?: 'b2b' | 'b2c' | 'other' | null
 }
 
@@ -944,16 +938,15 @@ export interface WorkflowsConfig {
     // Null uses the product default.
     workflow_task_rate_limit_per_day?: number | null
     workflow_task_team_rate_limit_per_day?: number | null
+    // Optional so cached team objects from before these fields shipped still typecheck.
+    email_utm_tags_enabled?: boolean
+    email_utm_params?: Partial<Record<'utm_source' | 'utm_medium' | 'utm_campaign' | 'utm_content', string>>
     replay_vision_scan_rate_limit_per_day?: number | null
     replay_vision_scan_team_rate_limit_per_day?: number | null
     default_email_integration_id?: number | null
     // Null on either disables the marketing frequency cap.
     marketing_frequency_cap_max_messages?: number | null
     marketing_frequency_cap_window_days?: number | null
-}
-
-export interface FeatureFlagPolicyConfig {
-    require_tags: boolean
 }
 
 export interface ProductIntentType {
@@ -1150,7 +1143,6 @@ export enum ReplayTabs {
     Home = 'home',
     Playlists = 'playlists',
     Settings = 'settings',
-    WhatToWatch = 'what-to-watch',
 }
 
 export type ReplayTab = {
@@ -1318,6 +1310,10 @@ export interface CohortPropertyFilter extends BasePropertyFilter {
     /** @default 'in' */
     operator: PropertyOperator
     cohort_name?: string
+    /** Set by the feature flag API when the cohort is deleted or does not exist. */
+    cohort_deleted?: boolean
+    /** Set by the feature flag API when the cohort does not exist, so it cannot be restored. */
+    cohort_missing?: boolean
 }
 
 export interface GroupPropertyFilter extends BasePropertyFilter {
@@ -2477,7 +2473,6 @@ export interface BillingType {
     free_trial_until?: Dayjs
     stripe_portal_url?: string
     external_billing_provider_invoices_url?: string
-    deactivated?: boolean
     current_total_amount_usd?: string
     current_total_amount_usd_after_discount?: string
     projected_total_amount_usd?: string
@@ -2826,11 +2821,14 @@ export interface DashboardType extends DashboardBasicType {
     customization?: {
         tile_spacing?: DashboardTileSpacing
         layout_compaction?: 'vertical' | 'horizontal' | 'stable'
-        group_titles?: Record<string, string>
+        group_display?: TileGroupDisplay
+        groups?: Record<string, DashboardTileGroupApi>
     }
 }
 
 export type DashboardTileSpacing = 'tight' | 'condensed' | 'standard' | 'relaxed' | 'wide'
+
+export type TileGroupDisplay = 'sections' | 'tabs'
 
 export enum TemplateAvailabilityContext {
     GENERAL = 'general',
@@ -2850,6 +2848,7 @@ export type DashboardTemplateStoredInsightTile = {
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
     transparent_background?: boolean | null
+    group_key?: string | null
     filters?: Record<string, unknown>
 }
 
@@ -2860,6 +2859,7 @@ export type DashboardTemplateStoredTextTile = {
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
     transparent_background?: boolean | null
+    group_key?: string | null
 }
 
 export type DashboardTemplateStoredButtonTile = {
@@ -2873,6 +2873,7 @@ export type DashboardTemplateStoredButtonTile = {
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
     transparent_background?: boolean | null
+    group_key?: string | null
 }
 
 export type DashboardTemplateStoredWidgetTile = {
@@ -2882,6 +2883,7 @@ export type DashboardTemplateStoredWidgetTile = {
     layouts?: Record<DashboardLayoutSize, TileLayout> | Record<string, never>
     color?: InsightColor | null
     transparent_background?: boolean | null
+    group_key?: string | null
 }
 
 export type DashboardTemplateStoredTile =
@@ -2907,6 +2909,7 @@ export interface DashboardTemplateType {
     dashboard_filters?: DashboardFilter
     tiles: DashboardTemplateStoredTile[]
     variables?: DashboardTemplateVariableType[]
+    customization?: DashboardType['customization'] | null
     tags?: string[]
     image_url?: string
     scope?: DashboardTemplateScope
@@ -3306,19 +3309,6 @@ export interface TemplateVariableStep {
     custom_event?: boolean
 }
 
-export interface PropertiesTimelineFilterType {
-    date_from?: string | null // DateMixin
-    date_to?: string | null // DateMixin
-    interval?: IntervalType // IntervalMixin
-    properties?: AnyPropertyFilter[] | PropertyGroupFilter // PropertyMixin
-    events?: Record<string, any>[] // EntitiesMixin
-    actions?: Record<string, any>[] // EntitiesMixin
-    aggregation_group_type_index?: number // GroupsAggregationMixin
-    display?: ChartDisplayType // DisplayDerivedMixin
-    breakdown_type?: BreakdownType | null
-    breakdown?: BreakdownKeyType
-}
-
 export interface TrendsFilterType extends FilterType {
     // Specifies that we want to smooth the aggregation over the specified
     // number of intervals, e.g. for a day interval, we may want to smooth over
@@ -3390,9 +3380,7 @@ export interface FunnelsFilterType extends FilterType {
     drop_off?: boolean
     funnel_step?: number
     funnel_step_breakdown?: string | number[] | number | null // used in steps breakdown: persons modal
-    funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel - primarily for correlation use
-    funnel_correlation_person_entity?: Record<string, any> // Funnel Correlation Persons Filter
-    funnel_correlation_person_converted?: 'true' | 'false' // Funnel Correlation Persons Converted - success or failure counts
+    funnel_custom_steps?: number[] // used to provide custom steps for which to get people in a funnel
 }
 export interface PathsFilterType extends FilterType {
     path_type?: PathType
@@ -3727,31 +3715,6 @@ export interface FlattenedFunnelStepByBreakdown {
     }
     steps?: FunnelStepWithConversionMetrics[]
     significant?: boolean
-}
-
-export interface FunnelCorrelation {
-    event: Pick<EventType, 'elements' | 'event' | 'properties'>
-    odds_ratio: number
-    success_count: number
-    success_people_url: string
-    failure_count: number
-    failure_people_url: string
-    correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
-    result_type:
-        | FunnelCorrelationResultsType.Events
-        | FunnelCorrelationResultsType.Properties
-        | FunnelCorrelationResultsType.EventWithProperties
-}
-
-export enum FunnelCorrelationType {
-    Success = 'success',
-    Failure = 'failure',
-}
-
-export enum FunnelCorrelationResultsType {
-    Events = 'events',
-    Properties = 'properties',
-    EventWithProperties = 'event_with_properties',
 }
 
 export enum BreakdownAttributionType {
@@ -4548,7 +4511,6 @@ interface FeatureFlagRulesV2RuleBase {
     targeting: { properties: AnyPropertyFilter[] }
     description?: string
     metadata?: Record<string, unknown>
-    value: JsonType
 }
 
 interface FeatureFlagRulesV2RolloutFields {
@@ -4561,18 +4523,34 @@ interface FeatureFlagRulesV2RolloutFields {
 
 export interface FeatureFlagRulesV2TargetedReleaseRule extends FeatureFlagRulesV2RuleBase {
     rule_type: 'targeted_release'
+    value: JsonType
 }
 
 export interface FeatureFlagRulesV2PercentageRolloutRule
     extends FeatureFlagRulesV2RuleBase, FeatureFlagRulesV2RolloutFields {
     rule_type: 'percentage_rollout'
+    value: JsonType
 }
 
+export interface FeatureFlagRulesV2Variant {
+    key: string
+    /** Percentage of the subjects the rule enrolls; the weights of a rule total 100. */
+    weight: number
+    value: JsonType
+}
+
+/** Belongs to its rule. The seed is server-owned. */
+export interface FeatureFlagRulesV2Holdout {
+    seed: string
+    exclusion_percentage: number
+}
+
+/** Serves the values of its variants. An experiment links to its rule, so the rule never names an experiment. */
 export interface FeatureFlagRulesV2ExperimentRule extends FeatureFlagRulesV2RuleBase, FeatureFlagRulesV2RolloutFields {
     rule_type: 'experiment'
     paused: boolean
-    variants: { key: string; weight: number; value: JsonType }[]
-    holdout?: { id: number; seed: string; exclusion_percentage: number }
+    variants: FeatureFlagRulesV2Variant[]
+    holdout?: FeatureFlagRulesV2Holdout
 }
 
 export type FeatureFlagRulesV2Rule =
@@ -4594,10 +4572,22 @@ export interface FeatureFlagUnsupportedConfig extends WithoutFeatureFlagFiltersK
     aggregation_group_type_index?: never
 }
 
-/** A rule while the editor drafts it: a new rule has no `id` until the server assigns one, and no draft holds a `seed`. */
+/**
+ * A rule while the editor drafts it. A new rule has no `id`, and a new rollout or holdout no `seed`, until the server
+ * assigns them. A stored rule keeps both, and every field the editor does not render, as it was loaded.
+ */
 export type FeatureFlagRulesV2DraftRule =
     | (Omit<FeatureFlagRulesV2TargetedReleaseRule, 'id'> & { id?: string })
-    | (Omit<FeatureFlagRulesV2PercentageRolloutRule, 'id' | 'seed'> & { id?: string })
+    | (Omit<FeatureFlagRulesV2PercentageRolloutRule, 'id' | 'seed'> & { id?: string; seed?: string })
+    | (Omit<FeatureFlagRulesV2ExperimentRule, 'id' | 'seed' | 'holdout'> & {
+          id?: string
+          seed?: string
+          holdout?: FeatureFlagRulesV2DraftHoldout
+      })
+
+export type FeatureFlagRulesV2DraftExperimentRule = Extract<FeatureFlagRulesV2DraftRule, { rule_type: 'experiment' }>
+
+export type FeatureFlagRulesV2DraftHoldout = Omit<FeatureFlagRulesV2Holdout, 'seed'> & { seed?: string }
 
 export interface FeatureFlagRulesV2DraftConfig extends Omit<FeatureFlagRulesV2Config, 'rules'> {
     rules: FeatureFlagRulesV2DraftRule[]
@@ -4897,6 +4887,7 @@ export interface PreflightStatus {
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
+    cohort_csv_upload_max_bytes?: number
     /** Whether the instance has an MCP server that the WebMCP proxy can reach. */
     webmcp_available?: boolean
     object_storage: boolean
@@ -5863,6 +5854,7 @@ export interface SharePasswordType {
 }
 
 export interface SharingConfigurationType {
+    has_relevant_access_controls?: SharingConfigurationApi['has_relevant_access_controls']
     enabled: boolean
     access_token: string
     created_at: string
@@ -6171,6 +6163,7 @@ export type PromptFlag = {
 // Should be kept in sync with "posthog/models/activity_logging/activity_log.py"
 export enum ActivityScope {
     DATA_QUALITY_CHECK_SCHEDULE = 'DataQualityCheckSchedule',
+    DEV_GATEWAY_TOKEN = 'DevGatewayToken',
     ACTION = 'Action',
     ACCOUNT_VIEW = 'AccountView',
     ALERT_CONFIGURATION = 'AlertConfiguration',
@@ -6217,7 +6210,11 @@ export enum ActivityScope {
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_EXPRESSION = 'DataWarehouseExpression',
     DATA_WAREHOUSE_SAVED_QUERY = 'DataWarehouseSavedQuery',
+    DATA_WAREHOUSE_TABLE = 'DataWarehouseTable',
+    DATA_WAREHOUSE_JOIN = 'DataWarehouseJoin',
+    ACCESS_CONTROL = 'AccessControl',
     DATA_QUALITY_CHECK = 'DataQualityCheck',
+    WAREHOUSE_SUGGESTION = 'WarehouseSuggestion',
     TAG = 'Tag',
     TAGGED_ITEM = 'TaggedItem',
     EVALUATION = 'Evaluation',
@@ -6229,9 +6226,11 @@ export enum ActivityScope {
     USER = 'User',
     LLM_PROMPT = 'LLMPrompt',
     LLM_PROMPT_LABEL = 'LLMPromptLabel',
+    LLM_SKILL = 'LLMSkill',
     LLM_TRACE = 'LLMTrace',
     LOG = 'Log',
     LOGS_ALERT_CONFIGURATION = 'LogsAlertConfiguration',
+    PLATFORM_ALERT_CONFIGURATION = 'PlatformAlertConfiguration',
     PRODUCT_TOUR = 'ProductTour',
     TICKET = 'Ticket',
     KNOWLEDGE_SOURCE = 'KnowledgeSource',
@@ -6662,6 +6661,9 @@ export interface ExternalDataSourceSyncSchema {
     /** True when the resource has no API list endpoint and can only be populated via webhooks
      *  (e.g. Stripe Discount). The picker should hide non-webhook sync methods. */
     webhook_only?: boolean
+    /** True when only a full refresh keeps the table equal to the origin (e.g. file imports), so the
+     *  wizard defaults it to `full_refresh` even though incremental or append is available. */
+    prefers_full_refresh?: boolean
     description?: string | null
     should_sync_default: boolean
     primary_key_columns: string[] | null
@@ -7502,7 +7504,14 @@ export type HogFunctionType = {
     batch_export_id?: string | null
     template_id?: string
     deleted?: boolean
+    /** Config staged for review by an agent, not live until published. Null when nothing is staged. */
+    draft?: HogFunctionDraftType | null
+    draft_updated_at?: string | null
 }
+
+export type HogFunctionDraftType = Partial<
+    Pick<HogFunctionType, 'hog' | 'inputs_schema' | 'inputs' | 'filters' | 'mappings' | 'masking'>
+>
 
 export type HogFunctionTemplateStatus = 'stable' | 'alpha' | 'beta' | 'deprecated' | 'coming_soon' | 'hidden'
 
@@ -7519,7 +7528,6 @@ export type HogFunctionConfigurationContextId =
     | 'batch-export-alerts'
     | 'billing-alerts'
     | 'replay-vision-alerts'
-    | 'data-warehouse-alerts'
     | 'replay-vision-requests'
 
 export type HogFunctionSubTemplateIdType =
@@ -7542,10 +7550,6 @@ export type HogFunctionSubTemplateIdType =
     | 'health-check-firing'
     | 'health-check-resolved'
     | 'batch-export-run-failed'
-    | 'data-warehouse-sync-failed'
-    | 'data-warehouse-sync-recovered'
-    | 'data-warehouse-sync-completed'
-    | 'data-warehouse-billing-limit-reached'
     | 'replay-vision-request-completed'
 
 export type HogFunctionConfigurationType = Omit<
@@ -7585,7 +7589,7 @@ export type HogFunctionTemplateType = Pick<
     /** Whether this is a featured/recommended source */
     featured?: boolean
     /** Release status, only populated for `type: 'source'` templates */
-    releaseStatus?: 'alpha' | 'beta' | 'ga'
+    releaseStatus?: 'beta' | 'ga'
 }
 
 export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {
@@ -8133,6 +8137,7 @@ export enum OnboardingStepKey {
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
     PATH_CLEANING = 'path_cleaning',
+    MCP = 'mcp',
 }
 
 // Managed viewset

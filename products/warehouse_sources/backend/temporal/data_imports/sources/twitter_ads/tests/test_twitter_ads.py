@@ -87,6 +87,26 @@ def test_signing_pagination_and_resume(client: TwitterAdsClient, manager: MagicM
     send.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "table,count,sort_by",
+    [
+        ("campaigns", "1000", ["created_at-asc"]),
+        ("media_creatives", "1000", None),
+        ("lead_forms", "200", None),
+    ],
+)
+def test_entity_page_request_respects_per_table_limits(
+    client: TwitterAdsClient, manager: MagicMock, table: str, count: str, sort_by: list[str] | None
+) -> None:
+    with patch.object(client.session, "send", return_value=response({"data": [], "next_cursor": None})) as send:
+        list(sync_items(twitter_ads_source(client, "account", table, manager, None)))
+    url = urlparse(request_url(send.call_args.args[0]))
+    params = parse_qs(url.query)
+    assert url.path == f"/12/accounts/account/{table}"
+    assert params["count"] == [count]
+    assert params.get("sort_by") == sort_by
+
+
 @pytest.mark.parametrize("table", ["campaign_stats", "line_item_stats"])
 @pytest.mark.parametrize("incremental_since", [None, date(2025, 10, 30)])
 def test_stats_limits_daily_rows_currency_and_dst(

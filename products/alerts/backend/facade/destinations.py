@@ -37,7 +37,13 @@ from ..logic import (
     destinations,
     insight_alert_destinations,
 )
-from .contracts import AlertInternalEvent, DeliveryPathChoice, DestinationBucket, DestinationEligibility
+from .contracts import (
+    AlertInternalEvent,
+    DeliveryPathChoice,
+    DestinationBucket,
+    DestinationEligibility,
+    DestinationHoldBack,
+)
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
 
@@ -151,6 +157,14 @@ def list_alert_destination_groups(
     )
 
 
+def owned_alert_destination_ids(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str], hog_function_ids: Collection[UUID]
+) -> frozenset[UUID]:
+    return destinations.owned_alert_destination_ids(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids, hog_function_ids=hog_function_ids
+    )
+
+
 def list_owned_alert_destinations(
     *,
     team_id: int,
@@ -250,6 +264,22 @@ def classify_alert_destinations(
     """Every destination function of one alert, with what native delivery cannot carry for each."""
     return destination_eligibility.classify_alert_destinations(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    )
+
+
+def customized_alert_destination_ids(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> frozenset[UUID]:
+    """The destination functions of one alert that send something other than the stock message.
+
+    A refused address is not an edit: such a function still sends the stock message.
+    """
+    return frozenset(
+        eligibility.hog_function_id
+        for eligibility in destination_eligibility.classify_alert_destinations(
+            team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+        )
+        if set(eligibility.hold_backs) - {DestinationHoldBack.REFUSED_ADDRESS}
     )
 
 

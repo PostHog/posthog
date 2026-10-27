@@ -921,7 +921,14 @@ def _new_tile(tile: TileDraft) -> NewInsightTile | NewTextTile:
     layout = TileLayout(x=tile.layout.x, y=tile.layout.y, w=tile.layout.w, h=tile.layout.h)
     if tile.kind == "text":
         return NewTextTile(body=tile.text or "", layout=layout)
-    return NewInsightTile(name=tile.name, description=tile.description, query=tile.query or {}, layout=layout)
+    # Grafana shows a panel description only in a tooltip, and the tile's (i) popover still shows a hidden one.
+    return NewInsightTile(
+        name=tile.name,
+        description=tile.description,
+        query=tile.query or {},
+        layout=layout,
+        show_description=False if tile.description else None,
+    )
 
 
 def _delete_inputs(paths: list[str]) -> None:

@@ -16,7 +16,7 @@ from posthog.clickhouse.client.connection import (
 )
 from posthog.clickhouse.client.execute import query_with_columns, sync_execute
 from posthog.clickhouse.client.limit import ConcurrencySlot, RateLimit, get_llm_analytics_rate_limiter
-from posthog.clickhouse.query_tagging import AccessMethod, Product, tags_context
+from posthog.clickhouse.query_tagging import AccessMethod, Feature, Product, tags_context
 
 
 @pytest.fixture
@@ -65,11 +65,24 @@ def test_process_query_task_workload_routing(
 
 
 @pytest.mark.parametrize(
+    "access_method,expected_workload",
+    [
+        (None, Workload.ONLINE),
+        (AccessMethod.PERSONAL_API_KEY, Workload.OFFLINE),
+    ],
+)
+def test_celery_cache_warming_workload_routing(client_from_pool, access_method, expected_workload):
+    with tags_context(kind="celery", feature=Feature.CACHE_WARMUP, access_method=access_method):
+        sync_execute("SELECT 1", flush=False)
+
+    assert client_from_pool.call_args[0][0] == expected_workload
+
+
+@pytest.mark.parametrize(
     "workload,expected_workload",
     [
         (Workload.DEFAULT, Workload.ENDPOINTS),
         (Workload.LOGS, Workload.LOGS),
-        (Workload.NEW_EVENTS_CLUSTER, Workload.NEW_EVENTS_CLUSTER),
     ],
 )
 def test_endpoints_tag_workload_routing(client_from_pool, workload, expected_workload):
@@ -104,15 +117,19 @@ def test_llm_analytics_ch_user_routing(client_from_pool, product, kind, tag_id, 
 
 
 @pytest.mark.parametrize(
-    "tagged_ch_user,requested_ch_user,expected_ch_user",
+    "tagged_ch_user,feature,requested_ch_user,expected_ch_user",
     [
-        (ClickHouseUser.ALERTS_PLATFORM_INSIGHT, ClickHouseUser.DEFAULT, ClickHouseUser.ALERTS_PLATFORM_INSIGHT),
-        (None, ClickHouseUser.DEFAULT, ClickHouseUser.DEFAULT),
-        (ClickHouseUser.ALERTS_PLATFORM_INSIGHT, ClickHouseUser.META, ClickHouseUser.META),
+        (ClickHouseUser.ALERTS_PLATFORM_INSIGHT, None, ClickHouseUser.DEFAULT, ClickHouseUser.ALERTS_PLATFORM_INSIGHT),
+        (None, None, ClickHouseUser.DEFAULT, ClickHouseUser.DEFAULT),
+        (ClickHouseUser.ALERTS_PLATFORM_INSIGHT, None, ClickHouseUser.META, ClickHouseUser.META),
+        (ClickHouseUser.EXPERIMENTS, Feature.CACHE_WARMUP, ClickHouseUser.DEFAULT, ClickHouseUser.EXPERIMENTS),
+        (None, Feature.CACHE_WARMUP, ClickHouseUser.DEFAULT, ClickHouseUser.CACHE_WARMUP),
     ],
 )
-def test_tagged_ch_user_routing(client_from_pool, tagged_ch_user, requested_ch_user, expected_ch_user):
-    with tags_context(product=Product.PRODUCT_ANALYTICS, kind="temporal", id="alerts", ch_user=tagged_ch_user):
+def test_tagged_ch_user_routing(client_from_pool, tagged_ch_user, feature, requested_ch_user, expected_ch_user):
+    with tags_context(
+        product=Product.PRODUCT_ANALYTICS, feature=feature, kind="temporal", id="alerts", ch_user=tagged_ch_user
+    ):
         sync_execute("SELECT 1", flush=False, ch_user=requested_ch_user)
 
     assert client_from_pool.call_args[0][3] == expected_ch_user

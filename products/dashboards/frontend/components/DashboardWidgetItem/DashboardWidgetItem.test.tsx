@@ -15,6 +15,12 @@ import { getDashboardWidgetCatalogEntry, tryGetDashboardWidgetCatalogEntry } fro
 import { userHasDashboardWidgetProductAccess } from '../../widgetProductAccess'
 import { DashboardWidgetItem } from './DashboardWidgetItem'
 
+let mockInView = true
+
+jest.mock('react-intersection-observer', () => ({
+    useInView: () => ({ ref: jest.fn(), inView: mockInView }),
+}))
+
 jest.mock('lib/utils/accessControlUtils', () => ({
     userHasAccess: () => true,
 }))
@@ -112,6 +118,7 @@ const tileWithoutDescription = {
 
 describe('DashboardWidgetItem', () => {
     beforeEach(() => {
+        mockInView = true
         jest.mocked(userHasDashboardWidgetProductAccess).mockReturnValue(true)
         initKeaTests(true, {
             ...MOCK_DEFAULT_TEAM,
@@ -139,6 +146,33 @@ describe('DashboardWidgetItem', () => {
             dashboardId: 99,
             dashboard_tiles: [],
         }).unmount()
+    })
+
+    it('mounts widget content only near the viewport', () => {
+        mockInView = false
+        const widgetItem = (placement = DashboardPlacement.Dashboard): JSX.Element => (
+            <DashboardWidgetItem
+                tile={tile}
+                placement={placement}
+                dashboardId={99}
+                result={null}
+                loading={false}
+                onRefresh={jest.fn()}
+            />
+        )
+        const { rerender } = render(widgetItem())
+
+        expect(screen.queryByText('Widget body')).not.toBeInTheDocument()
+
+        mockInView = true
+        rerender(widgetItem())
+
+        expect(screen.getByText('Widget body')).toBeInTheDocument()
+
+        mockInView = false
+        rerender(widgetItem(DashboardPlacement.Export))
+
+        expect(screen.getByText('Widget body')).toBeInTheDocument()
     })
 
     it('does not render tile filters or widget actions without product access', async () => {

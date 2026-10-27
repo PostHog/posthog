@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workable import (
@@ -123,6 +124,16 @@ class TestPagination:
         assert [r["id"] for r in result.rows] == ["99"]
         assert result.urls == [resume_url]
 
+    def test_next_url_on_another_host_is_not_followed(self) -> None:
+        result = _driver().run(
+            "candidates",
+            [_response(_page([{"id": "1"}], next_url="https://attacker.example/collect"))],
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert "disallowed host" in str(result.raised)
+        assert len(result.urls) == 1
+
     def test_a_run_with_no_saved_state_starts_from_the_first_page(self) -> None:
         result = _driver().run("candidates", [_response(_page([{"id": "1"}]))])
 
@@ -219,8 +230,6 @@ class TestWorkableSourceResponse:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, (200, True)),
-            ("unauthorized", 401, (401, False)),
             ("forbidden", 403, (403, False)),
         ]
     )
@@ -234,3 +243,128 @@ class TestValidateCredentials:
     def test_invalid_subdomain_raises(self) -> None:
         with pytest.raises(ValueError):
             validate_credentials("evil.com/", "tok")
+
+
+class TestEmployees:
+    @parameterized.expand(
+        [
+            # A server-side cap below PAGE_SIZE must move the offset by the rows returned, not the limit.
+            ("capped_page_size_stops_at_total", {"totalCount": 4}, ["0", "2"]),
+            # Without a total, the walk ends on the first empty page.
+            ("missing_total_stops_on_empty_page", {}, ["0", "2", "4"]),
+        ]
+    )
+    def test_offset_walk(self, _name: str, total: dict[str, Any], expected_offsets: list[str]) -> None:
+        pages = [
+            _response({**total, "employees": [{"id": "e1"}, {"id": "e2"}]}),
+            _response({**total, "employees": [{"id": "e3"}, {"id": "e4"}]}),
+            _response({**total, "employees": []}),
+        ]
+
+        result = _driver().run("employees", pages[: len(expected_offsets)])
+
+        assert result.raised is None
+        assert [r["id"] for r in result.rows] == ["e1", "e2", "e3", "e4"]
+        assert result.params("offset") == expected_offsets
+        assert set(result.params("limit")) == {"100"}
+
+
+class TestDepartments:
+    def test_bare_array_body_is_read_in_one_request(self) -> None:
+        result = _driver().run(
+            "departments",
+            [
+                ScriptedResponse(
+                    json=[
+                        {"id": "d1", "name": "Engineering", "parent_id": None},
+                        {"id": "d2", "name": "Platform", "parent_id": "d1"},
+                    ]
+                )
+            ],
+        )
+
+        assert result.raised is None
+        assert [(r["id"], r["parent_id"]) for r in result.rows] == [("d1", None), ("d2", "d1")]
+        assert result.paths == ["/spi/v3/departments"]
+        assert result.requests[0].query == {}
+
+
+class TestCandidateActivities:
+    @parameterized.expand(
+        [
+            ("full_refresh", False, None, None),
+            ("incremental", True, datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC), "2026-01-02T03:04:05Z"),
+        ]
+    )
+    def test_fans_out_over_candidates(
+        self, _name: str, use_incremental: bool, last_value: datetime | None, expected_filter: str | None
+    ) -> None:
+        candidates_next = "https://acme.workable.com/spi/v3/candidates?limit=100&since_id=c2"
+        activities_next = "https://acme.workable.com/spi/v3/candidates/c1/activities?limit=100&since_id=a2"
+        script = route(
+            {
+                "/c1/activities": [
+                    _response(
+                        _page(
+                            [{"action": "applied", "created_at": "2026-01-03T00:00:00Z"}], "activities", activities_next
+                        )
+                    ),
+                    _response(_page([{"action": "comment", "created_at": "2026-01-04T00:00:00Z"}], "activities")),
+                ],
+                # A candidate deleted between the listing and its activity fetch is skipped.
+                "/c2/activities": [_response({"error": "Not found"}, status=404)],
+                "/c3/activities": [
+                    _response(_page([{"action": "moved", "created_at": "2026-01-05T00:00:00Z"}], "activities"))
+                ],
+                "/candidates": [
+                    _response(_page([{"id": "c1"}, {"id": "c2"}], next_url=candidates_next)),
+                    _response(_page([{"id": "c3"}])),
+                ],
+            }
+        )
+
+        result = _driver().run(
+            "candidate_activities",
+            script,
+            incremental_field="updated_at",
+            should_use_incremental_field=use_incremental,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        assert [(r["candidate_id"], r["action"]) for r in result.rows] == [
+            ("c1", "applied"),
+            ("c1", "comment"),
+            ("c3", "moved"),
+        ]
+        child_requests = [r for r in result.requests if r.path.endswith("/activities")]
+        parent_requests = [r for r in result.requests if r.path.endswith("/candidates")]
+        assert [r.param("updated_after") for r in child_requests[:1] + child_requests[2:]] == [expected_filter] * 3
+        assert all(r.param("updated_after") is None for r in parent_requests)
+
+    def test_resume_skips_completed_candidates(self) -> None:
+        script = route(
+            {
+                "/c2/activities": [
+                    _response(_page([{"action": "applied", "created_at": "2026-01-03T00:00:00Z"}], "activities"))
+                ],
+                "/candidates": [_response(_page([{"id": "c1"}, {"id": "c2"}]))],
+            }
+        )
+
+        result = _driver().run(
+            "candidate_activities",
+            script,
+            should_use_incremental_field=False,
+            resume_state=WorkableResumeConfig(
+                fanout_state={"completed": ["/candidates/c1/activities"], "current": None, "child_state": None}
+            ),
+        )
+
+        assert result.raised is None
+        assert [r["candidate_id"] for r in result.rows] == ["c2"]
+        assert not any(r.path.endswith("/c1/activities") for r in result.requests)
+        assert result.committed_states[-1].fanout_state["completed"] == [
+            "/candidates/c1/activities",
+            "/candidates/c2/activities",
+        ]

@@ -25,10 +25,10 @@ def find(context: Context) -> Found:
         raise DailyValueNotReady("key_metrics")
     shown = [metric for metric in metrics if metric.this_week or metric.last_week]
     candidates = [candidate for metric in shown if (candidate := _same_weekday(context, metric)) is not None]
-    return Found(items=tuple(candidates), pulse=tuple(_tile(metric) for metric in shown))
+    return Found(items=tuple(candidates), pulse=tuple(tile(metric) for metric in shown))
 
 
-def _tile(metric: KeyMetric) -> contracts.HighlightMetric:
+def tile(metric: KeyMetric) -> contracts.HighlightMetric:
     return contracts.HighlightMetric(
         key=metric.key,
         name=metric.name,

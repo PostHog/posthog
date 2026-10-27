@@ -571,7 +571,7 @@ class EntitySearchContext:
             case "experiment":
                 return f"{base_url}/experiments/{result_id}"
             case "feature_flag":
-                return f"{base_url}/feature_flags/{result_id}"
+                return f"{base_url}/feature-flags/{result_id}"
             case "notebook":
                 return f"{base_url}/notebooks/{result_id}"
             case "action":

@@ -9,6 +9,9 @@ use lifecycle::{ComponentOptions, Handle, Manager};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
 use personhog_common::metrics::WRITE_PATH_LATENCY_BUCKETS_MS;
+use personhog_coordination::changelog::{
+    keep_changelog_live, load_changelog_config, LiveChangelog, CHANGELOG_BOOT_POLL_INTERVAL,
+};
 use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
 use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
 use personhog_coordination::store::PersonhogStore;
@@ -151,6 +154,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let identity_discovery_handle = (config.identity_enabled
         && config.identity_discovery_mode == DiscoveryMode::K8s)
         .then(|| manager.register("identity-discovery", discovery_options()));
+    let changelog_handle = (config.router_mode == RouterMode::Leader)
+        .then(|| manager.register("changelog-config", ComponentOptions::new()));
 
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
@@ -253,12 +258,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Failed to connect to etcd");
         let store = Arc::new(PersonhogStore::new(etcd_store));
 
-        // Read total_partitions from etcd (set by kafka-assigner)
-        let num_partitions = store
-            .get_total_partitions()
+        let loaded = load_changelog_config(&store, CHANGELOG_BOOT_POLL_INTERVAL)
             .await
-            .expect("Failed to read total_partitions from etcd");
-        tracing::info!(num_partitions, "loaded partition count from etcd");
+            .expect("Failed to load the changelog config from etcd");
+        let num_partitions = loaded.partitions;
+        tracing::info!(
+            num_partitions,
+            epoch = loaded.epoch,
+            "loaded changelog config"
+        );
+        let changelog = LiveChangelog::new(loaded).holding_floor();
 
         // Build the routing table and leader backend, sharing the same
         // partition-to-pod mapping so both see consistent state.
@@ -294,7 +303,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .map(|address| format!("http://{address}"))
             }),
             LeaderBackendConfig {
-                num_partitions,
+                changelog: changelog.clone(),
                 timeout: config.backend_timeout(),
                 num_channels: config.leader_channels,
                 http2_windows: config.backend_http2_windows(),
@@ -302,13 +311,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             StashTable::with_bounds(
                 config.stash_max_messages_per_partition,
                 config.stash_max_bytes_per_partition,
+                changelog.clone(),
             ),
         ));
+
+        // New requests hash under the live partition count.
+        {
+            let store = Arc::clone(&store);
+            let changelog = leader_backend.changelog().clone();
+            let handle =
+                changelog_handle.expect("changelog handle must be registered in leader mode");
+            tokio::spawn(async move {
+                let _guard = handle.process_scope();
+                let cancel = CancellationToken::new();
+                tokio::select! {
+                    _ = handle.shutdown_signal() => cancel.cancel(),
+                    _ = keep_changelog_live(store, changelog, cancel.clone()) => {}
+                }
+            });
+        }
 
         let stash_handler: Arc<dyn StashHandler> = Arc::new(RouterStashHandler::new(
             Arc::clone(&leader_backend),
             config.stash_max_wait(),
             config.stash_drain_concurrency,
+            Arc::clone(&store),
         ));
 
         // Start routing table (etcd registration + assignment/handoff watches)
@@ -365,6 +392,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // The same server limit the routing table's ack
                     // batches mirror: one env, one `--max-txn-ops`.
                     max_txn_ops: config.etcd_max_txn_ops,
+                    migration_pre_flip_deadline: config.coordinator_migration_pre_flip_deadline(),
+                    migration_debounce_interval: config.coordinator_migration_debounce_interval(),
                 },
                 Arc::new(StickyBalancedStrategy),
                 k8s_awareness,

@@ -49,9 +49,10 @@ def build_access_control_guard(
     Mirrors `UserAccessControl.filter_queryset_by_access_level`, the REST equivalent, branch for
     branch: with no resource-level access the rows are narrowed to the user's explicit grants,
     otherwise the objects denied to them are removed, and either way the objects they created stay
-    visible. The id sets live on UserAccessControl (`allowlisted_resource_ids_by_scope` /
-    `blocked_resource_ids_by_scope`) — single source of truth, shared with the cache-key fingerprint
-    in query_runner.py.
+    visible. The grant set comes from `UserAccessControl.allowlisted_resource_ids_by_scope`, shared
+    with the cache-key fingerprint in query_runner.py. The deny set comes from
+    `table.blocked_object_ids`, and the parent objects a child table's reader created come from
+    `table.creator_owned_object_ids`. Both default to the rules on UserAccessControl.
     """
     resource = table.access_scope
     if not resource:
@@ -75,8 +76,24 @@ def build_access_control_guard(
             right=ast.Constant(value=sorted(allowlisted_ids), is_sensitive=True),
             type=ast.BooleanType(),
         )
+        creator_owned_ids = table.creator_owned_object_ids(user_access_control, context.team_id, None) - allowlisted_ids
+        if creator_owned_ids:
+            guard = ast.Or(
+                exprs=[
+                    guard,
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.In,
+                        left=_id_as_string(id_field, table_type),
+                        right=ast.Constant(value=sorted(creator_owned_ids), is_sensitive=True),
+                        type=ast.BooleanType(),
+                    ),
+                ],
+                type=ast.BooleanType(),
+            )
     else:
-        blocked_ids = user_access_control.blocked_resource_ids_by_scope.get(resource, frozenset())
+        blocked_ids = table.blocked_object_ids(user_access_control, context.team_id)
+        if blocked_ids:
+            blocked_ids -= table.creator_owned_object_ids(user_access_control, context.team_id, blocked_ids)
         if not blocked_ids:
             return None
         guard = ast.CompareOperation(

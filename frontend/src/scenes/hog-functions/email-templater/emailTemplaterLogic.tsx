@@ -43,8 +43,13 @@ export type UnlayerMergeTags = NonNullable<EmailEditorProps['options']>['mergeTa
  * email: basic email editor with free-text fields, used for configuring email platform realtime destinations
  * native_email: advanced editor with email integration dropdown, and additional email metafields
  * native_email_template: editor for creating reusable templates, with only subject and preheader, and email content fields
+ * native_email_transactional_template: a template sent over the API, which also sets its own sender
  */
-export type EmailTemplaterType = 'email' | 'native_email' | 'native_email_template'
+export type EmailTemplaterType =
+    | 'email'
+    | 'native_email'
+    | 'native_email_template'
+    | 'native_email_transactional_template'
 export type EmailMetaFieldKey = 'from' | 'to' | 'replyTo' | 'cc' | 'bcc' | 'subject' | 'preheader'
 export type EmailMetaField = {
     key: EmailMetaFieldKey
@@ -100,6 +105,8 @@ export const EMAIL_TYPE_SUPPORTED_FIELDS: Record<EmailTemplaterType, EmailMetaFi
         EMAIL_META_FIELDS.PREHEADER,
     ],
     native_email_template: [EMAIL_META_FIELDS.SUBJECT, EMAIL_META_FIELDS.PREHEADER],
+    // The sender and reply-to are edited from the sender summary above these fields.
+    native_email_transactional_template: [EMAIL_META_FIELDS.SUBJECT, EMAIL_META_FIELDS.PREHEADER],
 }
 
 // Helping kea-typegen navigate the exported type
@@ -638,9 +645,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
                 const finalValues: EmailTemplate = {
                     ...formValues,
-                    html: ['native_email', 'native_email_template'].includes(props.type)
-                        ? htmlData.html
-                        : escapeHTMLStringCurlies(htmlData.html),
+                    html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
                     text: textData.text,
                     design: htmlData.design,
                 }
@@ -722,9 +727,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             cache.lastLoadedExternalDesign = null
             props.onChange({
                 ...values.emailTemplate,
-                html: ['native_email', 'native_email_template'].includes(props.type)
-                    ? htmlData.html
-                    : escapeHTMLStringCurlies(htmlData.html),
+                html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
                 text: textData.text,
                 design: htmlData.design,
             })
@@ -767,7 +770,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
 
         applyTemplate: ({ template }) => {
-            const emailTemplateContent = template.content.email
+            // A transactional template's sender and reply-to belong to its own sends, so applying it keeps the
+            // email's current ones.
+            const { from: _from, replyTo: _replyTo, ...emailTemplateContent } = template.content.email
             actions.setEmailTemplateValues(emailTemplateContent)
 
             // Load the design into the editor if it's ready and has a design
@@ -814,9 +819,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                         cache.lastLoadedExternalDesign = null
                         props.onChange({
                             ...values.emailTemplate,
-                            html: ['native_email', 'native_email_template'].includes(props.type)
-                                ? htmlData.html
-                                : escapeHTMLStringCurlies(htmlData.html),
+                            html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
                             text: textData.text,
                             design: htmlData.design,
                         })
@@ -852,9 +855,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
 
                     emailContent = {
                         ...currentValues,
-                        html: ['native_email', 'native_email_template'].includes(props.type)
-                            ? htmlData.html
-                            : escapeHTMLStringCurlies(htmlData.html),
+                        html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
                         text: textData.text,
                         design: htmlData.design,
                     }

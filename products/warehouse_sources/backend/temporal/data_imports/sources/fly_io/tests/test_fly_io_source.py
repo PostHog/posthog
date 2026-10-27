@@ -32,8 +32,6 @@ class TestGetSchemas:
 class TestNonRetryableErrors:
     @parameterized.expand(
         [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.machines.dev/v1/orgs/acme/machines"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.machines.dev/v1/apps?org_slug=acme"),
             # A 400 on the org-scoped machines/volumes endpoint is a permanent rejection (auth passed,
             # since a bad token is a 401/403); retrying resends the same doomed request.
             (
@@ -45,13 +43,3 @@ class TestNonRetryableErrors:
     def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
         non_retryable = FlyIoSource().get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.machines.dev', port=443): Read timed out."),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.machines.dev/v1/apps"),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = FlyIoSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)

@@ -13,9 +13,10 @@ body {
 .TodayAppLayout--top-bar {
     --today-top-bar-height: 40px;
 
-    // The rail runs the full height. The top bar spans the sidebar, the content and the side panel.
+    // The top bar runs the full width, and its first column holds the org menu above the rail, so the rail and the
+    // bar meet at one seam.
     grid-template:
-        'rail top top top' var(--today-top-bar-height)
+        'top top top top' var(--today-top-bar-height)
         'rail left content side' minmax(0, 1fr) / var(--today-rail-width) calc(
             var(--left-nav-width) - var(--today-rail-width)
         ) minmax(0, 1fr) var(--side-panel-width, 0);
@@ -54,7 +55,7 @@ body {
 }
 
 .TodayTopBar {
-    // Above the rail, which comes later in the grid and would otherwise paint over focus rings at the bar's left edge.
+    // Above the rail, which comes later in the grid and would otherwise paint over the org tile where it hangs below the bar.
     position: relative;
     z-index: 1;
     grid-area: top;

@@ -1,10 +1,11 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import posthog from 'posthog-js'
 
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import type { IntegrationConnectSurface } from 'lib/integrations/utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -60,6 +61,71 @@ describe('GithubIntegration', () => {
 
     const connectClicks = (): Record<string, unknown>[] =>
         captureSpy.mock.calls.filter((call) => call[0] === 'integration_connect_clicked').map((call) => call[1])
+
+    it.each([false, true])(
+        'keeps a known discovery result visible during refresh (has installations: %s)',
+        async (hasInstallations) => {
+            let finishDiscovery!: () => void
+            let pendingDiscovery = new Promise<void>((resolve) => {
+                finishDiscovery = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/integrations/github/available_installations/': async () => {
+                        await pendingDiscovery
+                        return [
+                            200,
+                            {
+                                installations: hasInstallations
+                                    ? [
+                                          {
+                                              installation_id: '12345',
+                                              account_name: 'example-org',
+                                              account_type: 'Organization',
+                                              source_team_id: 7,
+                                              source_team_name: 'Example project',
+                                          },
+                                      ]
+                                    : [],
+                                personal_github_connected: false,
+                                personal_discovery_status: 'ok',
+                                personal_github_login: null,
+                                discovery_id: '11111111-1111-4111-8111-111111111111',
+                                discovered_at: new Date().toISOString(),
+                            },
+                        ]
+                    },
+                },
+            })
+            render(
+                <Provider>
+                    <GithubIntegration connectSurface="inbox_welcome" />
+                </Provider>
+            )
+            expect(await screen.findByText('Looking for existing GitHub installations…')).toBeInTheDocument()
+            act(() => finishDiscovery())
+            await waitFor(() =>
+                expect(screen.queryByText('Looking for existing GitHub installations…')).not.toBeInTheDocument()
+            )
+            if (hasInstallations) {
+                expect(screen.getByText(/^Connect to /)).toBeVisible()
+            }
+
+            pendingDiscovery = new Promise<void>((resolve) => {
+                finishDiscovery = resolve
+            })
+            act(() => integrationsLogic.actions.loadGithubAvailableInstallations())
+            expect(integrationsLogic.values.githubAvailableInstallationsResponseLoading).toBe(true)
+            expect(screen.queryByText('Looking for existing GitHub installations…')).not.toBeInTheDocument()
+            if (hasInstallations) {
+                expect(screen.getByText(/^Connect to /)).toBeVisible()
+            }
+            act(() => finishDiscovery())
+            await waitFor(() =>
+                expect(integrationsLogic.values.githubAvailableInstallationsResponseLoading).toBe(false)
+            )
+        }
+    )
 
     it('reports the surface it was rendered on', async () => {
         await clickConnect(<GithubIntegration connectSurface="settings" />)

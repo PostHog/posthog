@@ -5,6 +5,7 @@ import { Counter } from 'prom-client'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { RedisV2 } from '~/common/redis/redis-v2'
+import { noteOobDomain } from '~/common/utils/oob-domains'
 
 import { CyclotronJobInvocationHogFunction } from '../../types'
 
@@ -100,7 +101,7 @@ export class EmailValidationService {
 
         const rawEmail = invocation.state.globals.inputs?.email?.to?.email
         if (typeof rawEmail !== 'string' || rawEmail.trim().length === 0) {
-            // Missing recipient is handled (and surfaced) by the existing opt-out check.
+            // EmailService skips a missing recipient at send time and records email_missing_recipient.
             return null
         }
         const email = rawEmail.trim()
@@ -121,6 +122,10 @@ export class EmailValidationService {
         // open, which is the safe direction.
         const rawDomain = email.slice(email.lastIndexOf('@') + 1)
         const domain = domainToASCII(rawDomain) || rawDomain.toLowerCase()
+        // Above resolveDeliverability on purpose: one verdict is cached and shared across teams for
+        // up to a day, so a check inside the lookup would miss every send that hits the cache.
+        noteOobDomain(domain, 'node_email_validation', { teamId: invocation.teamId })
+
         const deliverable = await this.resolveDeliverability(domain)
         if (!deliverable) {
             return this.skip(

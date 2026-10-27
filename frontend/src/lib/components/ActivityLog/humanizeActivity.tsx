@@ -221,6 +221,7 @@ const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plu
     [ActivityScope.ALERT_CONFIGURATION]: { singular: 'Alert', plural: 'Alerts' },
     [ActivityScope.BATCH_EXPORT]: { singular: 'Destination', plural: 'Destinations' },
     [ActivityScope.CANVAS]: { singular: 'Canvas', plural: 'Canvases' },
+    [ActivityScope.DEV_GATEWAY_TOKEN]: { singular: 'Developer mode token', plural: 'Developer mode tokens' },
     [ActivityScope.EXTERNAL_DATA_SOURCE]: { singular: 'Source', plural: 'Sources' },
     [ActivityScope.HOG_FUNCTION]: { singular: 'Data pipeline', plural: 'Data pipelines' },
     [ActivityScope.PERSONAL_API_KEY]: { singular: 'Personal API key', plural: 'Personal API keys' },
@@ -260,6 +261,8 @@ const SIMPLE_ACTIVITY_VERBS: Record<string, string> = {
     created: 'created',
     restored: 'restored',
     updated: 'updated',
+    minted: 'created',
+    revoked: 'revoked',
 }
 
 function describeComment(

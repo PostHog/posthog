@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -39,13 +40,11 @@ export function BroadcastsScene(): JSX.Element {
     const { location } = useValues(router)
     const { startNewBroadcast } = useActions(newBroadcastAgentLogic)
     // The tab routes are literal paths, so the tab is the last path segment rather than a route param.
-    const showCalendar = useFeatureFlag('WORKFLOWS_SEND_CALENDAR')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const lastSegment = location.pathname.split('/').pop() as MessagingNavTabKey | 'calendar'
     const currentTab: MessagingNavTabKey | 'broadcasts' | 'calendar' =
         lastSegment === 'calendar'
-            ? showCalendar
-                ? 'calendar'
-                : 'broadcasts'
+            ? 'calendar'
             : MESSAGING_NAV_TAB_KEYS.includes(lastSegment)
               ? lastSegment
               : 'broadcasts'
@@ -74,14 +73,20 @@ export function BroadcastsScene(): JSX.Element {
                             resourceType={AccessControlResourceType.Workflow}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
-                            <LemonButton
-                                data-attr="new-broadcast"
-                                onClick={startNewBroadcast}
-                                type="primary"
-                                size="small"
-                            >
-                                New broadcast
-                            </LemonButton>
+                            {todayRailNav ? (
+                                <Button data-attr="new-broadcast" onClick={startNewBroadcast} variant="primary">
+                                    New broadcast
+                                </Button>
+                            ) : (
+                                <LemonButton
+                                    data-attr="new-broadcast"
+                                    onClick={startNewBroadcast}
+                                    type="primary"
+                                    size="small"
+                                >
+                                    New broadcast
+                                </LemonButton>
+                            )}
                         </AccessControlAction>
                     ) : (
                         <MessagingTabActions tab={currentTab} channelsUrl={urls.broadcasts('channels')} />
@@ -97,14 +102,12 @@ export function BroadcastsScene(): JSX.Element {
                 }
                 tabs={[
                     broadcastsTab,
-                    showCalendar
-                        ? {
-                              label: <SendCalendarTabLabel />,
-                              key: 'calendar',
-                              link: urls.broadcasts('calendar'),
-                              content: <SendCalendar />,
-                          }
-                        : null,
+                    {
+                        label: <SendCalendarTabLabel />,
+                        key: 'calendar',
+                        link: urls.broadcasts('calendar'),
+                        content: <SendCalendar />,
+                    },
                     {
                         label: 'Templates',
                         key: 'library',
@@ -126,7 +129,7 @@ export function BroadcastsScene(): JSX.Element {
                 sceneInset
             />
             {/* The calendar can start a workflow, and its template picker lives in this modal. */}
-            {showCalendar ? <NewWorkflowModal /> : null}
+            <NewWorkflowModal />
         </SceneContent>
     )
 }

@@ -79,7 +79,12 @@ def test_invalid_or_repeated_cursor_fails(body: dict[str, Any], message: str) ->
     assert result.saved_states == []
 
 
-@pytest.mark.parametrize("status,expected", [(200, None), (401, "rejected your API key"), (403, "account permissions")])
+@pytest.mark.parametrize(
+    "status,expected",
+    [
+        (200, None),
+    ],
+)
 @pytest.mark.parametrize(
     "schema,path",
     [

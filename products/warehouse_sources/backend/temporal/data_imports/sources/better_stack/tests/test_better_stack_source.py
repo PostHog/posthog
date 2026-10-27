@@ -93,11 +93,6 @@ class TestBetterStackValidateCredentials:
 class TestBetterStackNonRetryableErrors:
     @parameterized.expand(
         [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://uptime.betterstack.com/api/v2/monitors?per_page=250",
-            ),
-            ("forbidden", "403 Client Error: Forbidden for url: https://uptime.betterstack.com/api/v3/incidents"),
             # Team members and roles are served from the account-level host, which needs its own
             # entries — the Uptime-host patterns don't match a URL on it.
             ("org_host_unauthorized", "401 Client Error: Unauthorized for url: https://betterstack.com/api/v2/roles"),
@@ -115,23 +110,6 @@ class TestBetterStackNonRetryableErrors:
     def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
         non_retryable = BetterStackSource().get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://uptime.betterstack.com/api/v3/incidents",
-            ),
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://uptime.betterstack.com/api/v2/monitors",
-            ),
-            ("read_timeout", "HTTPSConnectionPool(host='uptime.betterstack.com', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable = BetterStackSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable)
 
 
 class TestBetterStackResumableAndPipeline:

@@ -5,12 +5,14 @@ from itertools import pairwise
 
 import pytest
 import time_machine
+from posthog.test.base import materialized
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
 from django.test import override_settings
 from django.utils import timezone
 
+from posthog.clickhouse.client import sync_execute
 from posthog.models import data_deletion_request as ddr
 from posthog.models.data_deletion_request import (
     DataDeletionRequest,
@@ -18,11 +20,16 @@ from posthog.models.data_deletion_request import (
     RequestType,
     auto_approve_blocker,
     cached_compile_hogql_predicate,
+    compile_hogql_predicate,
     invalidate_compiled_predicate_cache,
+    uncopied_rows_predicate,
 )
-from posthog.models.deletion_targets import FLAG_EVALUATIONS
+from posthog.models.deletion_targets import FLAG_EVALUATIONS, FLAG_EVALUATIONS_HOGQL_TABLE
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+
+from products.event_definitions.backend.models import PropertyDefinition
 
 LOCMEM_CACHE = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache", "LOCATION": "ddr-test"}}
 
@@ -318,6 +325,161 @@ def test_compile_hogql_predicate_boolean_person_property_not_coerced(team):
     assert "person_properties_map_custom" in sql
     assert "accurateCastOrNull" not in sql
     assert "transform(" not in sql
+
+
+@pytest.fixture
+def materialized_browser():
+    with materialized("events", "$browser"):
+        yield
+
+
+@pytest.fixture
+def dmat_slot_for_plan(team):
+    from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
+
+    from products.event_definitions.backend.models.property_definition import PropertyType
+
+    prop_def = PropertyDefinition.objects.create(
+        team=team,
+        project_id=team.project_id,
+        name="plan",
+        property_type=PropertyType.String,
+        type=PropertyDefinition.Type.EVENT,
+    )
+    MaterializedColumnSlot.objects.create(
+        team=team, property_definition=prop_def, slot_index=0, state=MaterializedColumnSlotState.READY
+    )
+
+
+def _flag_call_request(team: Team, hogql_predicate: str) -> DataDeletionRequest:
+    # OPTIMIZED is the cloud setting. It makes events read non-$ keys and $feature/ keys from
+    # property-group maps, which flag_evaluations does not have.
+    team.modifiers = {"propertyGroupsMode": "optimized"}
+    team.save()
+    return DataDeletionRequest(
+        **_base_kwargs(team_id=team.id, events=[FLAG_EVALUATIONS_SOURCE_EVENT], hogql_predicate=hogql_predicate)
+    )
+
+
+@pytest.mark.parametrize("table_visible", [True, False], ids=["org_sees_the_table", "org_mode_hides_the_table"])
+def test_compile_hogql_predicate_against_flag_evaluations_reads_its_own_columns(
+    team, materialized_browser, table_visible
+):
+    request = _flag_call_request(team, "properties.$browser = 'Chrome'")
+    events_sql, _ = compile_hogql_predicate(request)
+
+    with patch(
+        "products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=table_visible
+    ):
+        flag_sql, values = compile_hogql_predicate(request, hogql_table=FLAG_EVALUATIONS_HOGQL_TABLE)
+
+    assert "mat_$browser" in events_sql
+    assert "mat_$browser" not in flag_sql
+    assert "Chrome" in values.values()
+
+
+@pytest.mark.parametrize(
+    "predicate, error_match",
+    [
+        ("person_id = '5f1c9e2a-0b7d-4e63-9a48-2c3d1e7f6b90'", "join"),
+        ("person.id = '5f1c9e2a-0b7d-4e63-9a48-2c3d1e7f6b90'", "join"),
+        # Exposing elements_chain as '' on flag_evaluations would make this match every row.
+        ("NOT elements_chain ILIKE '%checkout%'", "elements_chain"),
+        ("properties.plan = 'pro'", "property-group map"),
+        ("properties.`$feature/beta` = 'true'", "property-group map"),
+        # Events reads a non-$ person property from person_properties_map_custom.
+        ("person.properties.email = 'a@example.com'", "person_properties_map_custom"),
+        # mat_$browser reads a stored "" as NULL, and the raw JSON read on flag_evaluations reads it as "".
+        ("properties.$browser = ''", "materialized column mat_$browser"),
+        ("properties.$browser IS NULL", "materialized column mat_$browser"),
+        # The built-in $group_0 column scrubs the same way, with no mat_ prefix.
+        ("properties.$group_0 IS NULL", "materialized column $group_0"),
+        # A team's READY dynamic slot makes events read dmat_string_0, which the column registry does not list.
+        ("properties.plan IS NULL", "materialized column dmat_string_0"),
+    ],
+    ids=[
+        "person_id",
+        "person_id_through_person",
+        "elements_chain",
+        "custom_property",
+        "feature_flag_property",
+        "custom_person_property",
+        "materialized_property_equals_empty_string",
+        "materialized_property_is_null",
+        "builtin_group_column_is_null",
+        "dynamic_slot_is_null",
+    ],
+)
+def test_uncopied_rows_predicate_refuses_what_flag_evaluations_rows_cannot_answer(
+    team, request, predicate, error_match
+):
+    if "$browser" in predicate:
+        request.getfixturevalue("materialized_browser")
+    if predicate == "properties.plan IS NULL":
+        request.getfixturevalue("dmat_slot_for_plan")
+    uncopied = uncopied_rows_predicate(_flag_call_request(team, predicate), FLAG_EVALUATIONS)
+
+    assert uncopied.compiled is None
+    assert error_match in uncopied.error
+
+
+# A missing key, a JSON null and an escaped quote are the rows where two ways of reading a property can
+# disagree.
+_PARITY_ROW_PROPERTIES = [
+    '{"$plan": "pro"}',
+    '{"$plan": "free"}',
+    '{"$plan": ""}',
+    '{"$plan": null}',
+    "{}",
+    '{"$plan": "a\\"b"}',
+    '{"$plan": 5}',
+    '{"$plan": true}',
+]
+
+
+def _matches_by_row(read_table: str, team_id: int, fragment: str, values: dict) -> dict[str, bool]:
+    rows = sync_execute(
+        f"SELECT properties, ({fragment}) FROM {read_table} WHERE team_id = %(team_id)s",
+        {**values, "team_id": team_id},
+    )
+    return {properties: bool(matched) for properties, matched in rows}
+
+
+@pytest.mark.parametrize(
+    "property_type, predicate",
+    [
+        pytest.param(None, "properties.$plan = 'pro'", id="equals"),
+        pytest.param(None, "properties.$plan = ''", id="equals_empty_string"),
+        pytest.param(None, "properties.$plan = 'a\"b'", id="equals_escaped_quote"),
+        pytest.param(None, "properties.$plan != 'pro'", id="not_equals"),
+        pytest.param(None, "properties.$plan IN ('pro', 'team')", id="in"),
+        pytest.param(None, "properties.$plan > 'free'", id="greater"),
+        pytest.param(None, "properties.$plan IS NULL", id="is_null"),
+        pytest.param(None, "properties.$plan LIKE 'pr%'", id="like"),
+        pytest.param("Numeric", "properties.$plan > 1", id="numeric_greater"),
+        pytest.param("Boolean", "properties.$plan = true", id="boolean_equals"),
+        pytest.param(None, "person.properties.$plan = 'pro'", id="person_property_equals"),
+    ],
+)
+def test_flag_evaluations_predicate_matches_the_rows_the_events_predicate_matches(team, property_type, predicate):
+    if property_type is not None:
+        PropertyDefinition.objects.create(
+            team=team, name="$plan", type=PropertyDefinition.Type.EVENT, property_type=property_type
+        )
+    request = _flag_call_request(team, predicate)
+    events_sql, events_values = compile_hogql_predicate(request)
+    assert "properties_group_" not in events_sql
+    flag_sql, flag_values = compile_hogql_predicate(request, hogql_table=FLAG_EVALUATIONS_HOGQL_TABLE)
+
+    now = timezone.now()
+    rows = [(team.id, FLAG_EVALUATIONS_SOURCE_EVENT, uuid_lib.uuid4(), now, p, p) for p in _PARITY_ROW_PROPERTIES]
+    columns = "(team_id, event, uuid, timestamp, properties, person_properties)"
+    sync_execute(f"INSERT INTO writable_events {columns} VALUES", rows)
+    sync_execute(f"INSERT INTO writable_flag_evaluations {columns} VALUES", rows)
+
+    events_matches = _matches_by_row("events", team.id, events_sql, events_values)
+    assert events_matches.keys() == set(_PARITY_ROW_PROPERTIES)
+    assert _matches_by_row("flag_evaluations", team.id, flag_sql, flag_values) == events_matches
 
 
 def test_rendered_count_query_substitutes_parameters():
