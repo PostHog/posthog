@@ -6,8 +6,8 @@ import {
     PageAgentReplyMessage,
     PageAgentRequest,
     isPageAgentRequestMessage,
-} from './pageAgentProtocol'
-import type { PageAnalyticsInfo, PageDebugInfo, PageFeatureFlagsSnapshot } from './pageToolbarBridge'
+} from './messaging/pageAgentProtocol'
+import type { PageAnalyticsInfo, PageDebugInfo, PageFeatureFlagsSnapshot } from './messaging/pageToolbarBridge'
 
 interface PagePosthog extends DebugInfoPosthog {
     __loaded?: boolean

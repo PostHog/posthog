@@ -21,8 +21,17 @@ Both builds live in `frontend/toolbar-config.mjs` and share its toolbar module p
 | `toolbar/floating/`  | The floating toolbar: its entry and loader, the bar, and the menus that bind shared logic to its UI |
 | `toolbar/extension/` | The extension: the panel, the content script, the page agent, and the panel's own tool components   |
 
+Inside `floating/` and `extension/`, only the entry points the build names sit at the top. Everything else goes in a folder:
+
+| Folder                  | Holds                                                                                                                       |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `components/<feature>/` | React components, their stories and tests. The feature folders use the names `shared/` uses, such as `flags`                |
+| `logics/`               | The form's kea logics and the pure helpers they test. The extension splits them into `panel/` and `page/` by where they run |
+| `messaging/`            | Extension only: the port, page agent and form sync protocol between the panel, the content script and the page              |
+| `browser/`              | Extension only: the wrappers around the extension APIs                                                                      |
+
 - Put logic in `shared/`. A form folder configures shared code for its form: it mounts logics, binds them to its UI, and renders shared components with its own data.
-- When a component is the same in both forms, it lives in `shared/` and takes its data and callbacks as props. `WebExperimentVariant` is the pattern: `floating/experiments/ExperimentsTabEditorProvider.tsx` and `extension/ExtensionExperimentEditorProvider.tsx` each bind it to their own state.
+- When a component is the same in both forms, it lives in `shared/` and takes its data and callbacks as props. `WebExperimentVariant` is the pattern: `floating/components/experiments/ExperimentsTabEditorProvider.tsx` and `extension/components/experiments/ExtensionExperimentEditorProvider.tsx` each bind it to their own state.
 - `shared/` never imports from `floating/` or `extension/`, and the two forms never import each other. `toolbar/toolbarLayout.test.ts` fails on such an import.
 - Keep each kea logic's `path([...])` as it is when you move its file. The path is the logic's identity and storage key, not its location.
 

@@ -13,7 +13,7 @@ import { windowValuesPlugin } from 'kea-window-values'
 import type { PostHog } from 'posthog-js'
 import { createRoot } from 'react-dom/client'
 
-import { ToolbarApp } from '~/toolbar/floating/ToolbarApp'
+import { ToolbarApp } from '~/toolbar/floating/components/ToolbarApp'
 import { isToolbarMounted, posthogToolbarController, setToolbarRefs } from '~/toolbar/floating/toolbarController'
 import { canonicalizeApiHost, identifiesToolbarUser } from '~/toolbar/shared/toolbarConfigLogic'
 import { toolbarLogger } from '~/toolbar/shared/toolbarLogger'

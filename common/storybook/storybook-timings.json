@@ -1547,7 +1547,7 @@
         "chromium": 5.448,
         "webkit": 3.626
     },
-    "frontend/src/toolbar/floating/Toolbar.stories.tsx": {
+    "frontend/src/toolbar/floating/components/Toolbar.stories.tsx": {
         "chromium": 82.436,
         "webkit": 1.726
     },

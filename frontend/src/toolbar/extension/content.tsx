@@ -12,8 +12,8 @@ import { windowValuesPlugin } from 'kea-window-values'
 
 import { TOOLBAR_EXTENSION_ID, TOOLBAR_ROOT_ATTRIBUTE } from '~/toolbar/shared/utils'
 
-import { answerContentScriptPing } from './extensionBrowser'
-import { PageToolbarHost } from './pageToolbarHost'
+import { answerContentScriptPing } from './browser/extensionBrowser'
+import { PageToolbarHost } from './components/page/pageToolbarHost'
 
 const INSTALLED_FLAG = '__posthogToolbarExtensionContent'
 
