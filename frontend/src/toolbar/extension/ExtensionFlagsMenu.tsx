@@ -6,15 +6,32 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
-import { ExtensionFlagRow } from './ExtensionFlagRow'
+import { FeatureFlagRow } from '~/toolbar/shared/flags/FeatureFlagRow'
+import { urls } from '~/toolbar/shared/urls'
+
 import { extensionFlagsLogic } from './extensionFlagsLogic'
+import { extensionPanelLogic } from './extensionPanelLogic'
 import { ExtensionToolLoading } from './ExtensionToolLoading'
 import { NoPagePosthogBanner } from './NoPagePosthogBanner'
 
 export function ExtensionFlagsMenu(): JSX.Element {
-    const { flagsState, filteredFlags, searchTerm, mutationDisabledReason, impersonationOpen, draftDistinctId } =
-        useValues(extensionFlagsLogic)
     const {
+        flagsState,
+        filteredFlags,
+        searchTerm,
+        mutationDisabledReason,
+        impersonationOpen,
+        draftDistinctId,
+        draftPayloads,
+    } = useValues(extensionFlagsLogic)
+    const { projectUrl } = useValues(extensionPanelLogic)
+    const {
+        setFlagOverride,
+        removeFlagOverride,
+        openPayloadEditor,
+        closePayloadEditor,
+        setDraftPayload,
+        savePayload,
         setSearchTerm,
         clearOverrides,
         reloadFlags,
@@ -103,7 +120,21 @@ export function ExtensionFlagsMenu(): JSX.Element {
             {filteredFlags.length > 0 ? (
                 <div className="flex flex-col gap-px">
                     {filteredFlags.map((flag) => (
-                        <ExtensionFlagRow key={flag.key} flag={flag} />
+                        <FeatureFlagRow
+                            key={flag.key}
+                            flag={flag}
+                            flagUrl={projectUrl(flag.id ? urls.featureFlag(flag.id) : urls.featureFlags())}
+                            payloadDraft={draftPayloads[flag.key] ?? null}
+                            payloadError={flagsState.payloadErrors[flag.key] ?? null}
+                            disabledReason={mutationDisabledReason}
+                            onSetOverride={(value) => setFlagOverride(flag.key, value)}
+                            onRemoveOverride={() => removeFlagOverride(flag.key)}
+                            onOpenPayloadEditor={(initialDraft) => openPayloadEditor(flag.key, initialDraft)}
+                            onPayloadDraftChange={(draft) => setDraftPayload(flag.key, draft)}
+                            onSavePayload={() => savePayload(flag.key)}
+                            onClosePayloadEditor={() => closePayloadEditor(flag.key)}
+                            dataAttrPrefix="toolbar-extension-flag"
+                        />
                     ))}
                 </div>
             ) : loading ? (

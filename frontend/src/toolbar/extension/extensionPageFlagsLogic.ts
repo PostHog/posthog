@@ -1,12 +1,13 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import type { PostHog } from 'posthog-js'
 
+import { FlagInfo, toFlagInfo } from '~/toolbar/shared/flags/flagInfo'
 import { flagsToolbarLogic, flagsToolbarLogicValues } from '~/toolbar/shared/flags/flagsToolbarLogic'
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 
 import type { FeatureFlagType } from '../../types'
 import type { PageFlagMutationStatus } from './pagePosthogBridge'
-import type { FlagInfo, PageToolbarFlagsState } from './pageToolbarBridge'
+import type { PageToolbarFlagsState } from './pageToolbarBridge'
 
 export type PageFlagsCommand =
     | { type: 'set-flag-override'; flagKey: string; value: string | boolean }
@@ -106,23 +107,7 @@ export const extensionPageFlagsLogic = kea<extensionPageFlagsLogicType>([
         ],
     }),
     selectors({
-        flags: [
-            (s) => [s.filteredFlags],
-            (filteredFlags: FilteredFlag[]): FlagInfo[] =>
-                filteredFlags.map(({ feature_flag, value, currentValue, hasOverride, payloadOverride }) => ({
-                    key: feature_flag.key,
-                    id: feature_flag.id ?? null,
-                    value,
-                    currentValue,
-                    hasOverride,
-                    variants: (feature_flag.filters?.multivariate?.variants ?? []).map((variant) => ({
-                        key: variant.key,
-                        name: variant.name ?? null,
-                        rolloutPercentage: variant.rollout_percentage ?? null,
-                    })),
-                    payloadOverride: payloadOverride ?? null,
-                })),
-        ],
+        flags: [(s) => [s.filteredFlags], (filteredFlags: FilteredFlag[]): FlagInfo[] => filteredFlags.map(toFlagInfo)],
         pageState: [
             (s) => [
                 s.posthog,

@@ -1,9 +1,11 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
+import type { FlagInfo } from '~/toolbar/shared/flags/flagInfo'
+
 import type { PageFlagsCommand } from './extensionPageFlagsLogic'
 import { extensionPageToolbarConnectionLogic } from './extensionPageToolbarConnectionLogic'
 import { capturePageToolUsed } from './extensionTelemetry'
-import type { FlagInfo, PageToolbarFlagsState, PageToolbarState } from './pageToolbarBridge'
+import type { PageToolbarFlagsState, PageToolbarState } from './pageToolbarBridge'
 
 export type FlagValue = string | boolean
 

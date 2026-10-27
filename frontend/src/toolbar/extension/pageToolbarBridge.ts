@@ -9,6 +9,7 @@ import type { SelectorMatchCounts } from '~/toolbar/shared/actions/SelectorCount
 import type { EventCategory } from '~/toolbar/shared/debug/eventCategories'
 import type { PosthogDebugInfo } from '~/toolbar/shared/debug/posthogDebugInfo'
 import type { ElementSelectorType } from '~/toolbar/shared/experiments/elementSelectorTypes'
+import type { FlagInfo } from '~/toolbar/shared/flags/flagInfo'
 import type { ActionForm, WebExperimentForm } from '~/toolbar/shared/types'
 import type { WebVitalsMetrics } from '~/toolbar/shared/web-vitals/webVitalsToolbarLogic'
 import type { ActionStepType, ElementType } from '~/types'
@@ -200,17 +201,6 @@ export interface PageToolbarExperimentsState {
     removeVariantAvailable: boolean
     saving: boolean
     saveResult: ExperimentSaveResult | null
-}
-
-export interface FlagInfo {
-    key: string
-    id: number | null
-    /** The value PostHog evaluates for the signed-in user. Choosing it again removes the override. */
-    value: string | boolean
-    currentValue: string | boolean
-    hasOverride: boolean
-    variants: { key: string; name: string | null; rolloutPercentage: number | null }[]
-    payloadOverride: unknown
 }
 
 export interface PageToolbarFlagsState {
