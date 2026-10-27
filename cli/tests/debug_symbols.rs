@@ -100,7 +100,7 @@ fn discovers_and_packages_elf_files() {
         .into_iter()
         .find(|f| f.debug_id == "850c70a2-6592-a70c-3e49-c0e443794d23")
         .unwrap();
-    let upload = file.into_upload(None, false).unwrap();
+    let upload = file.into_upload(None, false, None).unwrap();
     assert_eq!(upload.chunk_id, "850c70a2-6592-a70c-3e49-c0e443794d23");
 
     let unwrapped: ElfDebugInfo = read_symbol_data(&upload.data).unwrap();
@@ -188,7 +188,7 @@ fn discovers_and_packages_macho_executables() {
     assert_eq!(file.debug_id, elf_debug_id(&path).unwrap().to_uppercase());
 
     // Packaged as an AppleDsym container with the thin Mach-O at `dwarf`.
-    let upload = file.into_upload(None, false).unwrap();
+    let upload = file.into_upload(None, false, None).unwrap();
     let unwrapped: AppleDsym = read_symbol_data(&upload.data).unwrap();
     assert_eq!(dwarf_magic(&unwrapped.data), [0xcf, 0xfa, 0xed, 0xfe]);
 }
@@ -259,7 +259,7 @@ fn discovers_every_fat_macho_slice() {
     // the fat container: the server resolves one thin binary per chunk id.
     for (file, expected_slice) in report.files.into_iter().zip([&thin, &thin_b]) {
         assert_eq!(file.debug_id, file.debug_id.to_uppercase());
-        let upload = file.into_upload(None, false).unwrap();
+        let upload = file.into_upload(None, false, None).unwrap();
         let unwrapped: AppleDsym = read_symbol_data(&upload.data).unwrap();
         let mut zip = zip::ZipArchive::new(std::io::Cursor::new(unwrapped.data)).unwrap();
         let mut dwarf = Vec::new();
@@ -370,9 +370,9 @@ fn packages_elf_and_dsym_from_one_directory() {
     let mut uploads: Vec<SymbolSetUpload> = report
         .files
         .into_iter()
-        .map(|f| f.into_upload(None, false).unwrap())
+        .map(|f| f.into_upload(None, false, None).unwrap())
         .collect();
-    uploads.extend(package_dsym_bundles(&report.dsym_bundles, false));
+    uploads.extend(package_dsym_bundles(&report.dsym_bundles, false, None));
     let uploads = dedup_uploads_by_chunk_id(uploads);
     assert_eq!(uploads.len(), 2, "one ELF + one dSYM upload");
 

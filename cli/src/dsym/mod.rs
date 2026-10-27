@@ -36,7 +36,7 @@ impl DsymFile {
     /// Each DWARF binary in the bundle gets its own ZIP so that
     /// stable UUIDs (e.g. app stubs) don't get a new content hash
     /// when a sibling binary (e.g. debug dylib) changes.
-    pub fn new(path: &PathBuf, include_source: bool) -> Result<Self> {
+    pub fn new(path: &PathBuf, include_source: bool, source_root: Option<&Path>) -> Result<Self> {
         if !path.is_dir() {
             anyhow::bail!("Path {} is not a directory", path.display());
         }
@@ -55,7 +55,7 @@ impl DsymFile {
         let mut entries = Vec::new();
         for (uuid, arch, dwarf_filename) in &uuid_entries {
             let dwarf_path = dwarf_dir.join(dwarf_filename);
-            let data = zip_dwarf_binary(&dwarf_path, arch, include_source)?;
+            let data = zip_dwarf_binary(&dwarf_path, arch, include_source, source_root)?;
             entries.push(DsymEntry {
                 uuid: uuid.clone(),
                 data,
@@ -154,7 +154,12 @@ fn extract_dsym_uuids(dsym_path: &PathBuf) -> Result<Vec<(String, String, String
 ///   dwarf                    — the raw DWARF Mach-O binary (single-arch)
 ///   __source/manifest.json   — (optional) source file manifest
 ///   __source/...             — (optional) source files
-fn zip_dwarf_binary(dwarf_path: &Path, arch: &str, include_source: bool) -> Result<Vec<u8>> {
+fn zip_dwarf_binary(
+    dwarf_path: &Path,
+    arch: &str,
+    include_source: bool,
+    source_root: Option<&Path>,
+) -> Result<Vec<u8>> {
     use std::io::{Cursor, Write};
     use tracing::info;
 
@@ -176,12 +181,23 @@ fn zip_dwarf_binary(dwarf_path: &Path, arch: &str, include_source: bool) -> Resu
         if include_source {
             match source_bundle::extract_source_paths_from_dwarf(dwarf_path) {
                 Ok(all_paths) => {
-                    let filtered = source_bundle::filter_source_paths(&all_paths);
+                    let filtered = match source_root {
+                        Some(root) => {
+                            source_bundle::filter_source_paths_under_root(&all_paths, root)
+                        }
+                        None => source_bundle::filter_source_paths(&all_paths),
+                    };
                     info!(
                         "Found {} source paths in DWARF ({} after filtering)",
                         all_paths.len(),
                         filtered.len()
                     );
+                    if filtered.is_empty() && source_root.is_some() {
+                        tracing::warn!(
+                            "No readable sources found inside the source root for {}",
+                            dwarf_path.display()
+                        );
+                    }
 
                     if !filtered.is_empty() {
                         match source_bundle::collect_source_files(&filtered) {
