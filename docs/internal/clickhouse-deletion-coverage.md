@@ -316,8 +316,12 @@ When one of those runs starts during a copy, the shard stops, and its error name
 
 `_fetch_stats` counts only the events tables. It feeds `AUTO_APPROVE_MAX_EVENTS`, a cost heuristic rather than a completeness claim, so a request auto-approved as small may move somewhat more rows than measured.
 
-`cleanup_old_events_by_partition` stays events-only. It enforces the events retention that staff set for each team, and every other personal-data table already expires sooner under its own TTL.
+`cleanup_old_events_by_partition` enforces the events retention that staff set for each team.
+It deletes from the events tables and from the sessions tables, which are built from events and have no TTL: `sharded_sessions` (v1), `sharded_raw_sessions` (v2) and `sharded_raw_sessions_v3`.
+In deployed cloud it also deletes from `raw_sessions_v3` on the sessions satellite cluster, named by `CLICKHOUSE_SESSIONS_CLUSTER`.
+Other personal-data tables expire sooner under their own TTL.
 It deletes a month only when every event in it is older than the retention. A month that is only partly past the retention waits for a later run, for manual runs too.
+The sessions tables partition by the month a session started, so a session that starts in a due month and continues into the next month is deleted with the due month.
 
 Staff set the retention in Django admin, on the team and organization pages:
 
@@ -330,7 +334,7 @@ Staff set the retention in Django admin, on the team and organization pages:
 
 `monthly_retention_events_cleanup_job` has two steps:
 
-- `plan_old_events_cleanup` reads every team's effective retention when the run starts and logs each one as organization, team and months. It then finds the months that hold events for each team and keeps the ones entirely past that team's retention. It logs the teams due in each month.
+- `plan_old_events_cleanup` reads every team's effective retention when the run starts and logs each one as organization, team and months. It then finds the months that hold events or sessions for each team and keeps the ones entirely past that team's retention. Reading the sessions tables too means a month whose events an earlier run deleted still gets its sessions deleted. It logs the teams due in each month.
 - `cleanup_old_events_by_partition` deletes each planned month for the teams due in that month only. A team with 13 months and a team with 18 months share the older months, and the 13-month team also has months of its own.
 
 A manual run can narrow the plan with `team_ids` and `partitions`. A listed team with no retention is ignored.

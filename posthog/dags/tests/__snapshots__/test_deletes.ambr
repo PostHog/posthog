@@ -13,5 +13,8 @@
                       AND timestamp < %(before)s
                   
     ''',
+    "DELETE FROM posthog_test.sharded_sessions IN PARTITION '202406' WHERE team_id IN %(team_ids)s",
+    "DELETE FROM posthog_test.sharded_raw_sessions IN PARTITION '202406' WHERE team_id IN %(team_ids)s",
+    "DELETE FROM posthog_test.sharded_raw_sessions_v3 IN PARTITION '202406' WHERE team_id IN %(team_ids)s",
   ])
 # ---
