@@ -77,27 +77,36 @@ class TestExpoTransport:
 
 
 class TestExpoCredentials:
-    # A robot token gets no `viewer` from Expo, so the probe must accept the token on `meActor` alone.
-    @pytest.mark.parametrize("actor", [{"__typename": "User", "id": "u1"}, {"__typename": "Robot", "id": "r1"}])
-    def test_a_valid_token_with_project_access_passes(self, actor: dict[str, Any]) -> None:
+    def test_a_valid_token_with_project_access_passes(self) -> None:
         session = mock.MagicMock()
         session.post.side_effect = [
-            _response({"data": {"meActor": actor, "viewer": None}}),
+            _response({"data": {"meActor": {"id": "r1"}}}),
             _response(_rows("builds", 1)),
         ]
 
         with mock.patch(f"{_MODULE}._get_session", return_value=session):
             assert validate_credentials("token", "app") == (True, None)
 
-    def test_a_rejected_token_is_reported(self) -> None:
+        # Expo gives robot and SSO user tokens no `viewer`, so the probe must ask for `meActor`.
+        assert "meActor" in session.post.call_args_list[0].kwargs["json"]["query"]
+
+    @pytest.mark.parametrize(
+        "actor_response, expected",
+        [
+            ({"errors": [{"message": "Token has been revoked."}]}, "(Token has been revoked)"),
+            ({"errors": [{"message": "Unknown token tok_secret_123"}]}, "(Unknown token REDACTED)"),
+            ({"data": {"meActor": None}}, "did not return an account"),
+        ],
+    )
+    def test_a_rejected_token_is_reported(self, actor_response: dict[str, Any], expected: str) -> None:
         session = mock.MagicMock()
-        session.post.return_value = _response({"errors": [{"message": "Token has been revoked"}]})
+        session.post.return_value = _response(actor_response)
 
         with mock.patch(f"{_MODULE}._get_session", return_value=session):
-            valid, message = validate_credentials("token", "app")
+            valid, message = validate_credentials("tok_secret_123", "app")
 
         assert valid is False
-        assert message is not None and "access token" in message and "Token has been revoked" in message
+        assert message is not None and "access token" in message and expected in message
 
     @pytest.mark.parametrize(
         "project_response",
