@@ -146,8 +146,31 @@ const REDIRECT_MAX_ATTEMPTS = 3
 
 const FLUSH_WAIT_ROUND_MS = 1_000
 
+/**
+ * How long a flush keeps retrying lanes whose write failed on the transport
+ * after the gRPC layer spent its own retries, before it fails the batch to
+ * redelivery. Sized past a router pod's full drain, so a rollout or a
+ * scale-down costs this process a stall and not an exit, and well under the
+ * consumer's poll interval, so a wedged router still fails the batch rather
+ * than the group member.
+ */
+const FLUSH_TRANSIENT_RETRY_BUDGET_MS = 30_000
+
+/** A transport failure the gRPC layer tagged retriable once its own budget ran out. */
+function isTransientTransportError(error: unknown): error is ConnectError & { isRetriable: true } {
+    return error instanceof ConnectError && (error as { isRetriable?: boolean }).isRetriable === true
+}
+
 /** A redirect failure that already incremented its own flush outcome. */
 class CountedRedirectError extends Error {}
+
+interface WritePass {
+    /** Lanes another writer held; the round loop waits them out. */
+    deferrals: number
+    /** Lanes whose write failed on the transport; the round loop writes them again. */
+    transientFailures: number
+    lastTransientError: unknown
+}
 
 interface CapturedLane {
     personKey: string
@@ -1239,15 +1262,20 @@ export class PersonhogPersonsStore implements PersonsStore {
         // Success lets the batch ack, so the pass must not return while any
         // lane holds unwritten segments: claimed lanes are waited out and
         // rewritten, or the pass fails and the batch redelivers.
+        const startedAt = Date.now()
         for (let round = 0; ; round++) {
-            const pass = { deferrals: 0 }
+            const pass: WritePass = { deferrals: 0, transientFailures: 0, lastTransientError: undefined }
             await this.writeEligibleLanes(pass)
-            if (pass.deferrals === 0) {
+            if (pass.deferrals === 0 && pass.transientFailures === 0) {
                 // No FlushResults: the leader's changelog is the person
                 // feed, so a flush publishes nothing.
                 return []
             }
-            if (round * FLUSH_WAIT_ROUND_MS >= this.flushWaitBudgetMs) {
+            if (pass.transientFailures > 0 && Date.now() - startedAt >= FLUSH_TRANSIENT_RETRY_BUDGET_MS) {
+                personhogStoreFlushCounter.inc({ outcome: 'transient_exhausted' })
+                throw pass.lastTransientError
+            }
+            if (pass.deferrals > 0 && round * FLUSH_WAIT_ROUND_MS >= this.flushWaitBudgetMs) {
                 personhogStoreFlushCounter.inc({ outcome: 'parked_exhausted' })
                 throw new Error(
                     `flush cannot complete: ${pass.deferrals} lanes deferred behind writes that did not settle`
@@ -1273,7 +1301,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    private async writeEligibleLanes(pass: { deferrals: number }): Promise<void> {
+    private async writeEligibleLanes(pass: WritePass): Promise<void> {
         // Before the claim, so a held lane that resolves writes in this pass.
         await this.resolveHeldLanes()
         // No await in this block, so the claim snapshot is atomic.
@@ -1299,9 +1327,17 @@ export class PersonhogPersonsStore implements PersonsStore {
         const outcomes = await Promise.allSettled(
             captured.map(({ personKey, entry, segments }) => limit(() => this.writeEntry(personKey, entry, segments)))
         )
-        const failed = outcomes.find((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
-        if (failed) {
-            throw failed.reason
+        const rejected = outcomes.filter((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
+        const fatal = rejected.find((outcome) => !isTransientTransportError(outcome.reason))
+        if (fatal) {
+            throw fatal.reason
+        }
+        if (rejected.length > 0) {
+            // The lanes kept their segments and were released on exit, so the
+            // next round claims and writes them again, on whatever connection
+            // the transport holds by then.
+            pass.transientFailures += rejected.length
+            pass.lastTransientError = rejected[0].reason
         }
     }
 
@@ -1392,6 +1428,14 @@ export class PersonhogPersonsStore implements PersonsStore {
                             teamId: entry.teamId,
                             personId: entry.personId,
                             fencingOpId: error.fencingOpId,
+                        })
+                    } else if (isTransientTransportError(error)) {
+                        personhogStoreFlushCounter.inc({ outcome: 'transient' })
+                        personhogStoreFlushErrorCounter.inc({ error: errorClassLabel(error) })
+                        logger.warn('transport failed a folded update; the flush retries the lane next round', {
+                            teamId: entry.teamId,
+                            personId: entry.personId,
+                            error,
                         })
                     } else {
                         if (!(error instanceof CountedRedirectError)) {

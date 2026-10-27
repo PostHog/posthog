@@ -22,6 +22,9 @@ import {
     personhogStoreShadowShedCounter,
 } from './personhog-persons-store'
 
+/** The store's flush round interval. */
+const FLUSH_ROUND_MS = 1_000
+
 const counterTotal = async (counter: { get: () => Promise<{ values: { value: number }[] }> }): Promise<number> =>
     (await counter.get()).values.reduce((sum, entry) => sum + entry.value, 0)
 
@@ -3140,6 +3143,51 @@ describe('PersonhogPersonsStore', () => {
         const bound = store.forBatch(0)
         await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
         await expect(bound.flush()).rejects.toThrow('leader unreachable')
+    })
+
+    describe('a write that fails on the transport after the gRPC retries', () => {
+        // A router pod drain cancels the calls in flight on its sessions and
+        // the gRPC layer's retries land back on it before its endpoint is
+        // gone. The flush used to throw on that one lane and the process
+        // exited with every stream on it.
+        const transportFailure = () =>
+            Object.assign(new ConnectError('http/2 stream closed with error code CANCEL', Code.Canceled), {
+                isRetriable: true as const,
+            })
+
+        it('is written again on the next round and the flush acks', async () => {
+            jest.useFakeTimers()
+            try {
+                repository.updatePersonProperties.mockRejectedValueOnce(transportFailure())
+                const bound = store.forBatch(0)
+                await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+                const flushing = bound.flush()
+                await jest.advanceTimersByTimeAsync(FLUSH_ROUND_MS)
+                await expect(flushing).resolves.toEqual([])
+                expect(repository.updatePersonProperties).toHaveBeenCalledTimes(2)
+                expect((store as any).entries.get('1:7').segments).toHaveLength(0)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('fails the flush with the transport error once the retry budget is spent', async () => {
+            jest.useFakeTimers()
+            try {
+                repository.updatePersonProperties.mockRejectedValue(transportFailure())
+                const bound = store.forBatch(0)
+                await bound.applyEventOps(person, ops({ $set: { a: '1' } }), 'd1')
+                const settled = bound.flush().then(
+                    () => 'acked' as const,
+                    (error: unknown) => error
+                )
+                await jest.advanceTimersByTimeAsync(31_000)
+                expect(await settled).toBeInstanceOf(ConnectError)
+                expect((store as any).entries.get('1:7').segments).toHaveLength(1)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
     })
 
     describe('concurrent batches share one flush', () => {
