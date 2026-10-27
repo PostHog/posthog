@@ -37,7 +37,7 @@ from ..temporal.inputs import (
     highlights_workflow_id,
 )
 from . import pulse_pins
-from .highlight_registry import load_sources
+from .highlight_registry import load_sources, source_product
 from .highlight_types import CACHE_SECONDS, Context, property_restrictions
 from .pinned import PINNED_METRICS
 
@@ -259,6 +259,7 @@ def _item(candidate: HighlightCandidate) -> contracts.HighlightItem:
         url=candidate.url,
         series=candidate.series,
         score=score,
+        product=source_product(candidate.source),
     )
 
 

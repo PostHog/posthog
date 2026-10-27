@@ -1,8 +1,7 @@
-from products.access_control.backend.facade.user_access_control import AccessControlLevel
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.data_catalog.backend.facade.api import PendingGroup, build_team_pending_review
-
-from ...facade.enums import HighlightLabel
-from ..highlight_types import Candidate, Context, Found, Source
+from products.today.backend.facade.contracts import HighlightCandidate, HighlightContext, HighlightFindings
+from products.today.backend.facade.enums import HighlightLabel
 
 APPROVER_ACCESS_LEVEL: AccessControlLevel = "editor"
 IMPORTANCE = 0.5
@@ -13,16 +12,22 @@ ONE_DETAIL = "Review it in the data catalog."
 MANY_DETAIL = "Review them in the data catalog."
 
 
-def find(context: Context) -> Found:
-    if not context.access.check_access_level_for_resource("data_catalog", APPROVER_ACCESS_LEVEL):
-        return Found()
+def _join(groups: list[PendingGroup]) -> str:
+    counts = [f"{group.count} {group.noun}{'' if group.count == 1 else 's'}" for group in groups]
+    return counts[0] if len(counts) == 1 else f"{', '.join(counts[:-1])} and {counts[-1]}"
+
+
+def find_pending_approvals(context: HighlightContext) -> HighlightFindings:
+    access = UserAccessControl(user=context.user, team=context.team)
+    if not access.check_access_level_for_resource("data_catalog", APPROVER_ACCESS_LEVEL):
+        return HighlightFindings()
     review = build_team_pending_review(context.team, sample_size=0)
     if review is None:
-        return Found()
+        return HighlightFindings()
     one = review.total == 1
-    return Found(
+    return HighlightFindings(
         items=(
-            Candidate(
+            HighlightCandidate(
                 key="data_catalog_approvals",
                 label=HighlightLabel.OPPORTUNITY,
                 family="data_catalog",
@@ -34,15 +39,3 @@ def find(context: Context) -> Found:
             ),
         )
     )
-
-
-def _join(groups: list[PendingGroup]) -> str:
-    counts = [f"{group.count} {group.noun}{'' if group.count == 1 else 's'}" for group in groups]
-    return counts[0] if len(counts) == 1 else f"{', '.join(counts[:-1])} and {counts[-1]}"
-
-
-SOURCE = Source(
-    name="data_catalog_approvals",
-    find=find,
-    scopes=("data_catalog:read", "data_catalog_approval:write"),
-)
