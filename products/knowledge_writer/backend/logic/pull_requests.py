@@ -4,6 +4,7 @@ from uuid import UUID
 import structlog
 
 from posthog.egress.limiter.policies import Priority
+from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import GitHubIntegration, Integration
 
 from products.tasks.backend.facade import api as tasks_facade
@@ -106,6 +107,10 @@ def open_writer_pull_requests(writer: WriterSettings) -> list[WriterPullRequest]
     return None
 
 
+class WriterPullRequestFailed(Exception):
+    pass
+
+
 def open_or_join_pull_request(task_run_id: UUID, *, team_id: int) -> str | None:
     writer = writer_settings()
     if writer is None or writer.team_id != team_id:
@@ -132,7 +137,10 @@ def open_or_join_pull_request(task_run_id: UUID, *, team_id: int) -> str | None:
         else open_pull_request(github, docs_name, request, head_branch, section=read_section(run.task_id, team_id))
     )
     if pull_request is None:
-        logger.warning("knowledge_writer_pull_request_failed", team_id=team_id, task_run_id=str(task_run_id))
+        capture_exception(
+            WriterPullRequestFailed("knowledge writer docs pull request failed"),
+            {"team_id": team_id, "task_run_id": str(task_run_id)},
+        )
         return None
     stored = pull_request_json.dump_python(pull_request, mode="json")
     tasks_facade.update_task_state_entry(run.task_id, team_id, PULL_REQUEST_STATE_KEY, lambda _current: (stored, None))
