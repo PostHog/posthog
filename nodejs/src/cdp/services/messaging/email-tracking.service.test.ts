@@ -368,31 +368,35 @@ describe('EmailTrackingService', () => {
             )
 
             it('should capture the click on the recipient with the run id of the send', async () => {
-                jest.spyOn(TeamWorkflowsConfigService.prototype, 'shouldCaptureEngagementEvents').mockResolvedValueOnce(
-                    true
-                )
-                const link = new URL(
-                    signer.redirectUrl(
-                        { functionId: hogFunction.id, id: invocationId, teamId: team.id, distinctId: 'recipient' },
-                        'https://example.com/'
+                const captureSpy = jest
+                    .spyOn(TeamWorkflowsConfigService.prototype, 'shouldCaptureEngagementEvents')
+                    .mockResolvedValue(true)
+                try {
+                    const link = new URL(
+                        signer.redirectUrl(
+                            { functionId: hogFunction.id, id: invocationId, teamId: team.id, distinctId: 'recipient' },
+                            'https://example.com/'
+                        )
                     )
-                )
 
-                const res = await supertest(app).get(`${link.pathname}${link.search}`)
-                expect(res.status).toBe(302)
+                    const res = await supertest(app).get(`${link.pathname}${link.search}`)
+                    expect(res.status).toBe(302)
 
-                await waitForExpect(() => {
-                    const captured = mockInternalFetch.mock.calls.map(([, options]) =>
-                        parseJSON(options!.body as string)
-                    )
-                    expect(captured).toEqual([
-                        expect.objectContaining({
-                            event: '$workflows_email_link_clicked',
-                            distinct_id: 'recipient',
-                            properties: expect.objectContaining({ $workflow_run_id: invocationId }),
-                        }),
-                    ])
-                })
+                    await waitForExpect(() => {
+                        const captured = mockInternalFetch.mock.calls.map(([, options]) =>
+                            parseJSON(options!.body as string)
+                        )
+                        expect(captured).toEqual([
+                            expect.objectContaining({
+                                event: '$workflows_email_link_clicked',
+                                distinct_id: 'recipient',
+                                properties: expect.objectContaining({ $workflow_run_id: invocationId }),
+                            }),
+                        ])
+                    })
+                } finally {
+                    captureSpy.mockRestore()
+                }
             })
 
             it('should return 404 for an unsigned link after the unsigned link sunset', async () => {
