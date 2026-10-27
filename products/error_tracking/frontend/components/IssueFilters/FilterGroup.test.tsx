@@ -232,6 +232,7 @@ describe('FilterGroup', () => {
         const valueEditor = (await screen.findByText('Enter value...')).closest('.Popover')
         await waitFor(() => expect(valueEditor).toHaveClass('Popover--enter-active'))
         expect(screen.getByTestId('error-tracking-active-filters')).toHaveTextContent('Issue severity')
+        await waitFor(() => expect(screen.queryByTestId('taxonomic-filter-searchfield')).not.toBeInTheDocument())
 
         const inner = logic.values.filterGroup.values[0] as UniversalFiltersGroup
         expect(inner.values).toContainEqual(
@@ -271,7 +272,8 @@ describe('FilterGroup', () => {
         )
 
         await userEvent.click(screen.getByText('Add filter'))
-        const [recentIssueRow] = await screen.findAllByText('Issue severity')
+        const recentIssueRow = await screen.findByTestId('prop-filter-recent_filters-0')
+        expect(recentIssueRow).toHaveTextContent('Issue severity')
         await userEvent.click(recentIssueRow)
 
         const valueEditor = (await screen.findByText('Enter value...')).closest('.Popover')
