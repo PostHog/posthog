@@ -264,9 +264,6 @@ export function LoginForm(): JSX.Element {
                         logic={loginLogic}
                         formKey="codeVerification"
                         enableFormOnSubmit
-                        // The code input renders a hidden input with a \d{6} pattern. Without noValidate,
-                        // the browser blocks submit on a partial code and kea cannot show its error.
-                        noValidate
                         className="flex flex-col gap-4"
                     >
                         <LemonField
