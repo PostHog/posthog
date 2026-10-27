@@ -71,8 +71,20 @@ def plan(*steps: PlannedStep, first_step: str | None = None) -> PlannedWorkflow:
     return PlannedWorkflow(first_step=first_step or (steps[0].id if steps else "email_1"), steps=list(steps))
 
 
-def branch(label: str, next_id: str | None, percentage: int | None = None) -> PlannedBranch:
-    return PlannedBranch(label=label, percentage=percentage, next=next_id)
+def branch(
+    label: str,
+    next_id: str | None,
+    percentage: int | None = None,
+    person_property: str | None = None,
+    property_value: str | None = None,
+) -> PlannedBranch:
+    return PlannedBranch(
+        label=label,
+        percentage=percentage,
+        next=next_id,
+        person_property=person_property,
+        property_value=property_value,
+    )
 
 
 def context(**overrides: Any) -> BuildContext:
@@ -332,6 +344,41 @@ class TestDataSuggestions(SimpleTestCase):
             ("action_0_email", "action_1_delay", "continue", None),
             ("action_1_delay", "action_2_email", "continue", None),
         ]
+
+    @parameterized.expand(
+        [
+            (
+                "a sent property and value",
+                "plan",
+                "pro",
+                [{"key": "plan", "value": ["pro"], "operator": "exact", "type": "person"}],
+            ),
+            ("a value the project does not send", "plan", "enterprise", None),
+            ("a property the project does not send", "secret", "pro", None),
+        ]
+    )
+    def test_build_workflow_fills_branch_conditions_from_sent_person_properties(
+        self, _name: str, person_property: str, property_value: str, expected: list | None
+    ) -> None:
+        built = build_workflow(
+            IDEA,
+            plan(
+                step(
+                    "check",
+                    type="conditional_branch",
+                    branches=[
+                        branch("Pro plan", "nudge", person_property=person_property, property_value=property_value)
+                    ],
+                ),
+                step("nudge"),
+            ),
+            context(person_properties={"plan": ("free", "pro")}),
+        )
+        assert built is not None
+        condition = built.workflow["actions"][1]["config"]["conditions"][0]
+        assert condition["filters"] == ({"properties": expected} if expected else {})
+        unset = {item.field for item in missing_inputs(built.workflow, {})}
+        assert ("Condition: Pro plan" in unset) is (expected is None)
 
     @parameterized.expand([("quiet trigger", 50_000, None), ("busy trigger", 1_000_000, 5), ("flood", 9_000_000, 1)])
     def test_build_workflow_starts_a_busy_trigger_on_a_sample(

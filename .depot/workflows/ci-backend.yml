@@ -123,6 +123,10 @@ env:
     # (key is posthog-hypothesis-constants-<version>-<epoch>-<isoyear>-<isoweek>); used by
     # the Django test shards below.
     HYPOTHESIS_CONSTANTS_EPOCH: v1
+    # A Depot step timeout leaves the step's processes running. A stalled uv sync then
+    # keeps the env lock, and the step's retry blocks on it. Ending uv before the step
+    # timeout frees the lock. Keep this under the 5-minute timeout-minutes of every step that uses it.
+    PY_DEPS_SYNC_TIMEOUT: 270s
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     COMPOSE_PROJECT_NAME: posthog
     WAIT_FOR_DOCKER_REGISTRY_MIRROR: ${{ vars.DEPOT_PULL_THROUGH_REGISTRY }} mirror.gcr.io
@@ -991,7 +995,7 @@ jobs:
               if: steps.schema-cache.outputs.cache-matched-key == ''
               timeout-minutes: 5
               retry: 1
-              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation timeout --kill-after=10s "$PY_DEPS_SYNC_TIMEOUT" uv sync --frozen --dev
             - name: Wait for database services
               if: steps.schema-cache.outputs.cache-matched-key == ''
               env:
@@ -1138,7 +1142,7 @@ jobs:
             - name: Install Python dependencies
               timeout-minutes: 5
               retry: 1
-              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation timeout --kill-after=10s "$PY_DEPS_SYNC_TIMEOUT" uv sync --frozen --dev
             - name: Add service hostnames to /etc/hosts
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage temporal" | sudo tee -a /etc/hosts
             - name: Set up needed files
@@ -1534,7 +1538,7 @@ jobs:
             - name: Install Python dependencies
               timeout-minutes: 5
               retry: 1
-              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation timeout --kill-after=10s "$PY_DEPS_SYNC_TIMEOUT" uv sync --frozen --dev
             # Block deleting historical migration files (see safe-django-migrations.md).
             # Two steps, so a failed PR-files read fails the job instead of handing the
             # check an empty list. The read uses the ambient token, which only reads here.
@@ -1784,7 +1788,7 @@ jobs:
               timeout-minutes: 5
               retry: 1
               run: |
-                  UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev --no-install-package pytest-split
+                  UV_PROJECT_ENVIRONMENT=.venv-master timeout --kill-after=10s "$PY_DEPS_SYNC_TIMEOUT" uv sync --frozen --dev --no-install-package pytest-split
             - name: Compute master schema cache key
               # Must match the migration-set computation in turbo-discover and the
               # push-side save below (inputs, hash, and key prefix). Keyed off the
@@ -1836,10 +1840,9 @@ jobs:
                   fi
                   # The load is atomic: on failure the transaction rolls back and
                   # the fallback below recreates an empty DB for a full migrate.
-                  # ensure_migration_defaults re-seeds data-migration rows the
+                  # The migrate in the next step seeds the data-migration rows the
                   # schema-only dump lacks.
-                  if gunzip -c schema.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -v ON_ERROR_STOP=1 --single-transaction -U posthog posthog > /dev/null \
-                      && (cd upstream-master && .venv-master/bin/python manage.py ensure_migration_defaults); then
+                  if gunzip -c schema.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -v ON_ERROR_STOP=1 --single-transaction -U posthog posthog > /dev/null; then
                       echo "Primed posthog DB from cached master schema"
                   else
                       echo "::warning::Cached schema restore failed — recreating empty DB; the next step runs all migrations from scratch"
@@ -1876,7 +1879,7 @@ jobs:
               timeout-minutes: 5
               retry: 1
               run: |
-                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+                  UV_PROJECT_ENVIRONMENT=$pythonLocation timeout --kill-after=10s "$PY_DEPS_SYNC_TIMEOUT" uv sync --frozen --dev
             - name: Get app token for CI report
               # Depot's ambient token must not write, so the CI report sections post with a
               # posthog-tests token that can write pull requests and nothing else. When the
@@ -2490,7 +2493,7 @@ jobs:
             - name: Install python dependencies
               timeout-minutes: 5
               retry: 1
-              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation timeout --kill-after=10s "$PY_DEPS_SYNC_TIMEOUT" uv sync --frozen --dev
             - name: Install pnpm dependencies
               uses: ./.depot/actions/pnpm-install
               with:
@@ -3209,7 +3212,7 @@ jobs:
               timeout-minutes: 5
               retry: 1
               run: |
-                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+                  UV_PROJECT_ENVIRONMENT=$pythonLocation timeout --kill-after=10s "$PY_DEPS_SYNC_TIMEOUT" uv sync --frozen --dev
             - name: Set up Node.js for canvas builder
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && hashFiles('products/canvas/packages/canvas_builder/package.json') != '' }}
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
