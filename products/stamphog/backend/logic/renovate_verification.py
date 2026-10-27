@@ -7,12 +7,17 @@ judge one, this module proves what the lockfiles install, against facts that the
 - GitHub attests the author, the head branch and the PR's one commit.
 - The manifests change only the version specifiers of dependencies that they already declare, and
   a lockfile locks a new version of each one.
-- Every version change is a minor or patch update, and never a minor update below 1.0.
+- Every version change is a minor or patch update, and never a minor update below 1.0. The same
+  holds for every changed reference to a locked version, so a dependent cannot move to another
+  major line that the lockfile already held.
 - The lockfiles add no package that they did not already lock, keep the entry of every version that
-  stays, and resolve every new version from the public registry.
-- The registry attests that each new version is at least ``MINIMUM_RELEASE_AGE`` old, that its hash
-  matches the lockfile, that it keeps the provenance its previous version had, and that it adds no
-  install step.
+  stays, never point a dependency at another package, and resolve every new version from the
+  public registry.
+- The registry attests that each new version is at least ``MINIMUM_RELEASE_AGE`` old and that its
+  hashes and download URLs match the lockfile.
+- Measured against every version of the package that the base locked, each new version keeps the
+  provenance that any of them had, adds no install script that one of them did not have, and keeps
+  a wheel for every platform family that one of them had a wheel for.
 
 Every check fails closed. A problem is one sentence that names the file or the package, and the
 result is verified only when no problem was found and at least one version changed.
@@ -32,7 +37,9 @@ from typing import Any, Literal
 
 import yaml
 from packaging.requirements import InvalidRequirement, Requirement
-from packaging.utils import canonicalize_name
+from packaging.specifiers import SpecifierSet
+from packaging.utils import InvalidWheelFilename, canonicalize_name, parse_wheel_filename
+from packaging.version import InvalidVersion
 
 from posthog.dataclasses import frozen
 from posthog.egress.npm_registry import npm_packument_url, npm_registry_request
@@ -48,6 +55,8 @@ GITHUB_WEB_FLOW_LOGIN = "web-flow"
 MINIMUM_RELEASE_AGE = timedelta(days=7)
 # Bounds the registry reads for one PR. A larger update fails closed rather than slowing the run.
 MAX_VERSION_CHANGES = 100
+# PyPI attests provenance per file, and one release can ship dozens of wheels.
+MAX_DISTRIBUTION_FILES = 1000
 
 PNPM_LOCKFILE = "pnpm-lock.yaml"
 UV_LOCKFILE = "uv.lock"
@@ -67,6 +76,19 @@ _PYPI_FILENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]*\.(whl|tar\.gz|zip)
 _VERSION_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z.+-]*$")
 # uv rewrites these when the resolution changes, so they may differ without a version change.
 _UV_LOCK_DERIVED_KEYS = frozenset({"package", "revision", "resolution-markers"})
+_UV_EDGE_TABLES = ("dependencies", "optional-dependencies", "dev-dependencies")
+# A package that keeps its version may still change these. uv rewrites its edges when a dependency's
+# version changes, and its metadata when a manifest changes. uv sync --frozen installs from the
+# edges, so the edges are checked one by one.
+_UV_RETAINED_DERIVED_KEYS = frozenset({*_UV_EDGE_TABLES, "metadata", "resolution-markers"})
+_WHEEL_PLATFORM_FAMILIES = {
+    "manylinux": "linux",
+    "musllinux": "linux",
+    "linux": "linux",
+    "macosx": "macos",
+    "win": "windows",
+}
+_ALL_WHEEL_PLATFORMS = frozenset(_WHEEL_PLATFORM_FAMILIES.values())
 _PNPM_LOCK_DERIVED_KEYS = frozenset({"packages", "snapshots", "importers", "catalogs"})
 
 _REGISTRY_TIMEOUT_SECONDS = 20
@@ -121,15 +143,30 @@ class RenovateVerification:
 class _NpmLockedVersion:
     change: VersionChange
     integrity: str
+    base_versions: tuple[str, ...]
+
+
+@frozen
+class _LockedFile:
+    url: str
+    hash: str
+
+    @property
+    def filename(self) -> str:
+        return PurePosixPath(self.url).name
+
+
+@frozen
+class _BaseRelease:
+    version: str
+    filenames: tuple[str, ...]
 
 
 @frozen
 class _UvLockedVersion:
     change: VersionChange
-    old_files: tuple[str, ...]
-    new_files: tuple[tuple[str, str], ...]
-    old_has_wheels: bool
-    new_has_wheels: bool
+    new_files: tuple[_LockedFile, ...]
+    base_releases: tuple[_BaseRelease, ...]
 
 
 @frozen
@@ -288,9 +325,13 @@ def pyproject_problems(path: str, base_text: str, head_text: str) -> list[str]:
     ]
 
 
-def _major(version: str) -> int | None:
+def _release_line(version: str) -> tuple[int, ...] | None:
+    """The versions that ``is_major_update`` treats as compatible: one major, or one minor below 1.0."""
     match = _VERSION_PREFIX_RE.match(version)
-    return None if match is None else int(match["major"])
+    if match is None:
+        return None
+    major = int(match["major"])
+    return (major,) if major else (0, int(match["minor"]))
 
 
 def is_major_update(change: VersionChange) -> bool:
@@ -311,13 +352,13 @@ def _replaced_version(base_versions: list[str], *, kept: set[str], new_version: 
 
     A lockfile can hold several versions of one package, so a new version only replaces one of
     them when the head drops it. Otherwise the new version sits beside the old ones. Among the
-    candidates, one in the new version's major line is the one the provenance and install-script
-    checks compare against.
+    candidates, one in the new version's release line is the one the major-update check compares
+    against, so two updates in one lockfile pair up by line and not by lockfile order.
     """
     candidates = [version for version in base_versions if version not in kept] or base_versions
-    new_major = _major(new_version)
-    same_major = [version for version in candidates if new_major is not None and _major(version) == new_major]
-    return (same_major or candidates)[-1]
+    new_line = _release_line(new_version)
+    same_line = [version for version in candidates if new_line is not None and _release_line(version) == new_line]
+    return (same_line or candidates)[-1]
 
 
 def _split_pnpm_key(key: str) -> tuple[str, str] | None:
@@ -373,13 +414,14 @@ def pnpm_lock_versions(path: str, base_text: str, head_text: str) -> tuple[list[
                     new_version=version,
                 ),
                 integrity=str(resolution["integrity"]),
+                base_versions=tuple(base_versions[name]),
             )
         )
     return locked, [*problems, *_pnpm_reference_problems(path, base, head)]
 
 
-def _pnpm_reference_resolves(name: str, reference: Any, packages: Mapping[str, Any], *, alias: bool = False) -> bool:
-    """Whether a lockfile reference to ``name`` selects a registry package that the lockfile locks.
+def _pnpm_reference_target(name: str, reference: Any, *, alias: bool) -> tuple[str, str] | None:
+    """The package and version that a lockfile reference to ``name`` selects, or None.
 
     A reference is a version with an optional peer suffix, ``1.2.0(react@18.3.1)``. With ``alias``,
     it may also name another locked package, ``web-vitals@6.2.1``, which is how a published package
@@ -387,11 +429,43 @@ def _pnpm_reference_resolves(name: str, reference: Any, packages: Mapping[str, A
     installs code the checks never saw.
     """
     if not isinstance(reference, str):
-        return False
+        return None
     target = reference.split("(", 1)[0]
-    if alias and _split_pnpm_key(target) is not None:
-        return target in packages
-    return bool(_VERSION_RE.match(target)) and f"{name}@{target}" in packages
+    if alias and (parsed := _split_pnpm_key(target)) is not None:
+        return parsed
+    return (name, target) if _VERSION_RE.match(target) else None
+
+
+def _pnpm_reference_problem(
+    path: str,
+    owner: str,
+    name: str,
+    base_reference: Any,
+    reference: Any,
+    packages: Mapping[str, Any],
+    *,
+    base_aliases: frozenset[tuple[str, str]] = frozenset(),
+    alias: bool = False,
+) -> str | None:
+    """A changed reference must select a locked package, the same package as before, in the same release line.
+
+    ``base_aliases`` holds the (dependency, package) aliases that the base locked. A published
+    package declares its own aliases, so a new pair substitutes a package that no check has seen.
+    """
+    target = _pnpm_reference_target(name, reference, alias=alias)
+    if target is None or f"{target[0]}@{target[1]}" not in packages:
+        return f"{path} points {owner} at {name} through something other than a locked version."
+    previous = _pnpm_reference_target(name, base_reference, alias=alias)
+    if previous is None:
+        if target[0] != name and (name, target[0]) not in base_aliases:
+            return f"{path} points {owner} at another package for {name}."
+        return None
+    if previous[0] != target[0]:
+        return f"{path} points {owner} at another package for {name}."
+    change = VersionChange(ecosystem="npm", name=target[0], old_version=previous[1], new_version=target[1])
+    if is_major_update(change):
+        return f"{path} moves {owner} from {name} {previous[1]} to {target[1]}, a major update."
+    return None
 
 
 def _pnpm_specifier_map_problems(
@@ -399,16 +473,27 @@ def _pnpm_specifier_map_problems(
 ) -> list[str]:
     if set(base) != set(head):
         return [f"{path} adds or removes a dependency of {owner}."]
-    return [
-        f"{path} points {owner} at {name} through something other than a locked version."
-        for name, entry in head.items()
-        if entry != base[name]
-        and not (
-            isinstance(entry, dict)
-            and set(entry) == {"specifier", "version"}
-            and _pnpm_reference_resolves(name, entry["version"], packages)
-        )
-    ]
+    problems = []
+    for name, entry in head.items():
+        if entry == base[name]:
+            continue
+        if not isinstance(entry, dict) or set(entry) != {"specifier", "version"}:
+            problems.append(f"{path} points {owner} at {name} through something other than a locked version.")
+            continue
+        base_reference = base[name].get("version") if isinstance(base[name], dict) else None
+        if problem := _pnpm_reference_problem(path, owner, name, base_reference, entry["version"], packages):
+            problems.append(problem)
+    return problems
+
+
+def _pnpm_snapshot_aliases(snapshots: Mapping[str, Any]) -> frozenset[tuple[str, str]]:
+    return frozenset(
+        (name, target[0])
+        for snapshot in snapshots.values()
+        for field in ("dependencies", "optionalDependencies")
+        for name, reference in ((snapshot or {}).get(field) or {}).items()
+        if (target := _pnpm_reference_target(name, reference, alias=True)) is not None and target[0] != name
+    )
 
 
 def _pnpm_reference_problems(path: str, base: Mapping[str, Any], head: Mapping[str, Any]) -> list[str]:
@@ -438,21 +523,26 @@ def _pnpm_reference_problems(path: str, base: Mapping[str, Any], head: Mapping[s
         )
 
     base_snapshots = base.get("snapshots") or {}
+    base_aliases = _pnpm_snapshot_aliases(base_snapshots)
     for key, snapshot in (head.get("snapshots") or {}).items():
+        parsed = _split_pnpm_key(key.split("(", 1)[0])
         previous = base_snapshots.get(key)
         if previous is None:
-            parsed = _split_pnpm_key(key.split("(", 1)[0])
-            if parsed is None or not _pnpm_reference_resolves(parsed[0], parsed[1], packages):
+            if parsed is None or f"{parsed[0]}@{parsed[1]}" not in packages:
                 problems.append(f"{path} adds a snapshot that matches no locked package.")
                 continue
             previous = {}
+        owner = f"the snapshot of {parsed[0]}" if parsed is not None else "a snapshot"
         for field in ("dependencies", "optionalDependencies"):
             base_references = previous.get(field) or {}
             for name, reference in ((snapshot or {}).get(field) or {}).items():
-                if reference != base_references.get(name) and not _pnpm_reference_resolves(
-                    name, reference, packages, alias=True
+                base_reference = base_references.get(name)
+                if reference != base_reference and (
+                    problem := _pnpm_reference_problem(
+                        path, owner, name, base_reference, reference, packages, base_aliases=base_aliases, alias=True
+                    )
                 ):
-                    problems.append(f"{path} has a snapshot that depends on something other than a locked version.")
+                    problems.append(problem)
     return problems
 
 
@@ -470,14 +560,64 @@ def _uv_filename(file: Mapping[str, Any]) -> str:
     return PurePosixPath(str(file.get("url") or "")).name
 
 
+def _uv_edges(entry: Mapping[str, Any]) -> dict[str, Mapping[str, Any]]:
+    """A package's dependency edges, keyed by everything but the version and index they select."""
+    edges: dict[str, Mapping[str, Any]] = {}
+    for table in _UV_EDGE_TABLES:
+        value = entry.get(table) or []
+        groups = value.items() if isinstance(value, dict) else [("", value)]
+        for group, group_edges in groups:
+            for edge in group_edges:
+                key = json.dumps([table, group, _without(edge, ("version", "source"))], sort_keys=True)
+                edges[key] = edge
+    return edges
+
+
+def _uv_edge_version(edge: Mapping[str, Any], versions_by_name: Mapping[str, set[str]]) -> str | None:
+    # uv names the version on an edge only when the lockfile holds more than one version of it.
+    if "version" in edge:
+        return str(edge["version"])
+    versions = versions_by_name.get(str(edge.get("name")), set())
+    return next(iter(versions)) if len(versions) == 1 else None
+
+
+def _uv_retained_problems(
+    path: str,
+    previous: Mapping[str, Any],
+    entry: Mapping[str, Any],
+    base_versions: Mapping[str, set[str]],
+    head_versions: Mapping[str, set[str]],
+) -> list[str]:
+    """A package that keeps its version keeps its files, and each dependency stays in its release line."""
+    label = f"{entry.get('name')} {entry.get('version')}"
+    if _without(entry, _UV_RETAINED_DERIVED_KEYS) != _without(previous, _UV_RETAINED_DERIVED_KEYS):
+        return [f"{path} changes {label} without changing its version."]
+    base_edges, head_edges = _uv_edges(previous), _uv_edges(entry)
+    if set(base_edges) != set(head_edges):
+        return [f"{path} changes the dependencies of {label} without changing its version."]
+    problems = []
+    for key, edge in head_edges.items():
+        old, new = _uv_edge_version(base_edges[key], base_versions), _uv_edge_version(edge, head_versions)
+        if old == new:
+            continue
+        dependency = str(edge.get("name"))
+        if old is None or new is None or new not in head_versions.get(dependency, set()):
+            problems.append(f"{path} points {label} at a {dependency} version that it does not lock.")
+        elif is_major_update(VersionChange(ecosystem="pypi", name=dependency, old_version=old, new_version=new)):
+            problems.append(f"{path} moves {label} from {dependency} {old} to {new}, a major update.")
+    return problems
+
+
 def uv_lock_versions(path: str, base_text: str, head_text: str) -> tuple[list[_UvLockedVersion], list[str]]:
     base, head = tomllib.loads(base_text), tomllib.loads(head_text)
     if _without(base, _UV_LOCK_DERIVED_KEYS) != _without(head, _UV_LOCK_DERIVED_KEYS):
         return [], [f"{path} changes lockfile options or manifest settings."]
     base_entries = {_uv_key(p): p for p in base.get("package", [])}
     base_by_name: dict[str, list[Mapping[str, Any]]] = {}
+    base_versions_by_name: dict[str, set[str]] = {}
     for entry in base_entries.values():
         base_by_name.setdefault(str(entry.get("name")), []).append(entry)
+        base_versions_by_name.setdefault(str(entry.get("name")), set()).add(str(entry.get("version")))
     head_versions_by_name: dict[str, set[str]] = {}
     for entry in head.get("package", []):
         head_versions_by_name.setdefault(str(entry.get("name")), set()).add(str(entry.get("version")))
@@ -488,8 +628,7 @@ def uv_lock_versions(path: str, base_text: str, head_text: str) -> tuple[list[_U
         name, version = str(entry.get("name") or ""), str(entry.get("version") or "")
         previous = base_entries.get(_uv_key(entry))
         if previous is not None:
-            if _uv_files(entry) != _uv_files(previous):
-                problems.append(f"{path} changes the files of {name} {version} without changing its version.")
+            problems.extend(_uv_retained_problems(path, previous, entry, base_versions_by_name, head_versions_by_name))
             continue
         if not _PYPI_NAME_RE.match(name) or not _VERSION_RE.match(version):
             problems.append(f"{path} locks an entry that is not a plain package name and version.")
@@ -504,18 +643,23 @@ def uv_lock_versions(path: str, base_text: str, head_text: str) -> tuple[list[_U
         old_version = _replaced_version(
             base_versions, kept=set(base_versions) & head_versions_by_name[name], new_version=version
         )
-        old = next(p for p in base_by_name[name] if str(p.get("version")) == old_version)
-        new_files = tuple((_uv_filename(file), str(file.get("hash") or "")) for file in _uv_files(entry))
-        if not all(_PYPI_FILENAME_RE.match(filename) for filename, _ in new_files):
+        new_files = tuple(
+            _LockedFile(url=str(file.get("url") or ""), hash=str(file.get("hash") or "")) for file in _uv_files(entry)
+        )
+        if not all(_PYPI_FILENAME_RE.match(file.filename) for file in new_files):
             problems.append(f"{path} locks a file of {name} {version} that is not a plain distribution name.")
             continue
         locked.append(
             _UvLockedVersion(
                 change=VersionChange(ecosystem="pypi", name=name, old_version=old_version, new_version=version),
-                old_files=tuple(_uv_filename(file) for file in _uv_files(old)),
                 new_files=new_files,
-                old_has_wheels=bool(old.get("wheels")),
-                new_has_wheels=bool(entry.get("wheels")),
+                base_releases=tuple(
+                    _BaseRelease(
+                        version=str(p.get("version")),
+                        filenames=tuple(_uv_filename(file) for file in _uv_files(p)),
+                    )
+                    for p in base_by_name[name]
+                ),
             )
         )
     return locked, problems
@@ -543,26 +687,49 @@ def npm_registry_problems(locked: _NpmLockedVersion, packument: dict[str, Any] |
     new = versions.get(change.new_version)
     if not isinstance(new, dict):
         return [f"The npm registry does not list {label}."]
-    old = versions.get(change.old_version) or {}
+    # A version the registry no longer lists counts as one with no provenance and no install script.
+    base = [versions.get(version) or {} for version in locked.base_versions]
     problems = []
     if not _released_long_enough_ago((packument.get("time") or {}).get(change.new_version), now):
         problems.append(f"{label} was published less than {MINIMUM_RELEASE_AGE.days} days ago.")
     if (new.get("dist") or {}).get("integrity") != locked.integrity:
         problems.append(f"The lockfile hash for {label} does not match the npm registry.")
-    if (old.get("dist") or {}).get("attestations") and not (new.get("dist") or {}).get("attestations"):
-        problems.append(f"{label} has no provenance attestation, and {change.old_version} had one.")
-    if _npm_installs_code(new) and not _npm_installs_code(old):
+    if not (new.get("dist") or {}).get("attestations") and any(
+        (version.get("dist") or {}).get("attestations") for version in base
+    ):
+        problems.append(f"{label} has no provenance attestation, and a version locked before had one.")
+    if _npm_installs_code(new) and not all(_npm_installs_code(version) for version in base):
         problems.append(f"{label} adds an install script.")
     return problems
+
+
+def _wheel_platforms(filenames: Iterable[str]) -> frozenset[str]:
+    """The platform families that the wheels among these files install on without a build step."""
+    platforms: set[str] = set()
+    for filename in filenames:
+        if not filename.endswith(".whl"):
+            continue
+        try:
+            tags = parse_wheel_filename(filename)[3]
+        except InvalidWheelFilename:
+            continue
+        for tag in tags:
+            if tag.platform == "any":
+                return _ALL_WHEEL_PLATFORMS
+            platforms.update(
+                family for prefix, family in _WHEEL_PLATFORM_FAMILIES.items() if tag.platform.startswith(prefix)
+            )
+    return frozenset(platforms)
 
 
 def pypi_registry_problems(
     locked: _UvLockedVersion,
     release: dict[str, Any] | None,
-    old_has_provenance: bool,
+    base_has_provenance: bool,
     new_has_provenance: bool,
     now: datetime,
 ) -> list[str]:
+    """``base_has_provenance``: any file of any base version has it. ``new_has_provenance``: every new file has it."""
     change = locked.change
     label = f"{change.name} {change.new_version}"
     if release is None:
@@ -573,19 +740,26 @@ def pypi_registry_problems(
         return [f"The lockfile lists no files for {label}, so nothing proves its upload age or hash."]
     published = {str(file.get("filename")): file for file in release.get("urls") or [] if isinstance(file, dict)}
     problems = []
-    for filename, lock_hash in locked.new_files:
+    for locked_file in locked.new_files:
+        filename = locked_file.filename
         file = published.get(filename)
         if file is None:
             problems.append(f"PyPI does not list {filename} for {label}.")
             continue
-        if lock_hash != f"sha256:{(file.get('digests') or {}).get('sha256')}":
+        # uv downloads from the locked URL before it checks the hash, so a foreign host gets the request.
+        if locked_file.url != file.get("url"):
+            problems.append(f"The lockfile URL for {filename} is not the one PyPI lists.")
+        if locked_file.hash != f"sha256:{(file.get('digests') or {}).get('sha256')}":
             problems.append(f"The lockfile hash for {filename} does not match PyPI.")
         if not _released_long_enough_ago(file.get("upload_time_iso_8601"), now):
             problems.append(f"{filename} was uploaded less than {MINIMUM_RELEASE_AGE.days} days ago.")
-    if locked.old_has_wheels and not locked.new_has_wheels:
-        problems.append(f"{label} ships no wheel, so installing it runs its build step.")
-    if old_has_provenance and not new_has_provenance:
-        problems.append(f"{label} has no provenance, and {change.old_version} had it.")
+    base_platforms = _wheel_platforms(name for release in locked.base_releases for name in release.filenames)
+    if lost := base_platforms - _wheel_platforms(file.filename for file in locked.new_files):
+        problems.append(
+            f"{label} ships no wheel for {', '.join(sorted(lost))}, so installing it there runs its build step."
+        )
+    if base_has_provenance and not new_has_provenance:
+        problems.append(f"{label} has no provenance on every file, and a version locked before had it.")
     return problems
 
 
@@ -605,12 +779,19 @@ def _manifest_problems(path: str, base_text: str, head_text: str) -> list[str]:
     return pyproject_problems(path, base_text, head_text)
 
 
-def _changed_range_names(base: Mapping[str, Any], head: Mapping[str, Any]) -> set[str]:
-    return {name for name, value in head.items() if base.get(name) != value}
+def _changed_ranges(base: Mapping[str, Any], head: Mapping[str, Any]) -> set[tuple[str, str]]:
+    return {(name, str(value)) for name, value in head.items() if base.get(name) != value}
 
 
-def manifest_changed_names(path: str, base_text: str, head_text: str) -> tuple[Ecosystem, set[str]]:
-    """The dependencies whose specifier a manifest changes, for a manifest with no problems.
+def _specifier_admits(specifier: str, version: str) -> bool:
+    try:
+        return SpecifierSet(specifier).contains(version, prereleases=True)
+    except InvalidVersion:
+        return False
+
+
+def manifest_changed_specifiers(path: str, base_text: str, head_text: str) -> tuple[Ecosystem, set[tuple[str, str]]]:
+    """Each (dependency, new specifier) that a manifest changes, for a manifest with no problems.
 
     The lockfile checks prove what gets installed, and CI installs with ``uv sync --frozen``, which
     never compares the lockfile with the manifest. So a specifier change that no locked version
@@ -620,7 +801,7 @@ def manifest_changed_names(path: str, base_text: str, head_text: str) -> tuple[E
     if name == "package.json":
         base, head = json.loads(base_text), json.loads(head_text)
         maps = [(base.get(field, {}), head.get(field, {})) for field in _NPM_DEPENDENCY_FIELDS]
-        return "npm", set().union(*(_changed_range_names(old, new) for old, new in maps))
+        return "npm", set().union(*(_changed_ranges(old, new) for old, new in maps))
     if name == "pnpm-workspace.yaml":
         base, head = yaml.safe_load(base_text) or {}, yaml.safe_load(head_text) or {}
         base_catalogs, head_catalogs = base.get("catalogs", {}), head.get("catalogs", {})
@@ -628,7 +809,7 @@ def manifest_changed_names(path: str, base_text: str, head_text: str) -> tuple[E
             (base.get("catalog", {}), head.get("catalog", {})),
             *((base_catalogs[catalog], head_catalogs[catalog]) for catalog in head_catalogs),
         ]
-        return "npm", set().union(*(_changed_range_names(old, new) for old, new in maps))
+        return "npm", set().union(*(_changed_ranges(old, new) for old, new in maps))
     base, head = tomllib.loads(base_text), tomllib.loads(head_text)
     base_project, head_project = base.get("project", {}), head.get("project", {})
     lists = [
@@ -639,18 +820,10 @@ def manifest_changed_names(path: str, base_text: str, head_text: str) -> tuple[E
         ),
         *((base["dependency-groups"][group], entries) for group, entries in head.get("dependency-groups", {}).items()),
     ]
-    return "pypi", {
-        canonicalize_name(Requirement(new).name)
-        for old_list, new_list in lists
-        for old, new in zip(old_list, new_list)
-        if old != new
-    }
-
-
-def _first_file(filenames: tuple[str, ...]) -> str | None:
-    wheels = [name for name in filenames if name.endswith(".whl")]
-    candidates = wheels or list(filenames)
-    return candidates[0] if candidates else None
+    requirements = [
+        Requirement(new) for old_list, new_list in lists for old, new in zip(old_list, new_list) if old != new
+    ]
+    return "pypi", {(canonicalize_name(requirement.name), str(requirement.specifier)) for requirement in requirements}
 
 
 def _registry_problems(
@@ -669,17 +842,19 @@ def _registry_problems(
             packument = readers.npm_packument(name)
             return [problem for locked in versions for problem in npm_registry_problems(locked, packument, now)]
 
-    def has_provenance(name: str, version: str, filenames: tuple[str, ...]) -> bool:
-        filename = _first_file(filenames)
-        return False if filename is None else readers.pypi_has_provenance(name, version, filename)
-
     def uv_problems(locked: _UvLockedVersion) -> list[str]:
         change = locked.change
         release = readers.pypi_release(change.name, change.new_version)
-        new_provenance = has_provenance(change.name, change.new_version, tuple(f for f, _ in locked.new_files))
-        # The old version's provenance matters only when the new version has none.
-        old_provenance = not new_provenance and has_provenance(change.name, change.old_version, locked.old_files)
-        return pypi_registry_problems(locked, release, old_provenance, new_provenance, now)
+        new_provenance = bool(locked.new_files) and all(
+            readers.pypi_has_provenance(change.name, change.new_version, file.filename) for file in locked.new_files
+        )
+        # The base versions' provenance matters only when a new file has none.
+        base_provenance = not new_provenance and any(
+            readers.pypi_has_provenance(change.name, base_release.version, filename)
+            for base_release in locked.base_releases
+            for filename in base_release.filenames
+        )
+        return pypi_registry_problems(locked, release, base_provenance, new_provenance, now)
 
     with ThreadPoolExecutor(max_workers=_REGISTRY_WORKERS, thread_name_prefix="stamphog-renovate") as executor:
         # PyPI jobs go first, so they do not queue behind npm jobs that wait for a packument slot.
@@ -688,7 +863,14 @@ def _registry_problems(
             *(executor.submit(uv_problems, locked) for locked in dict.fromkeys(uv_versions)),
             *(executor.submit(npm_problems, name, versions) for name, versions in npm_by_name.items()),
         ]
-        return [problem for future in futures for problem in future.result()]
+        try:
+            return [problem for future in futures for problem in future.result()]
+        except BaseException:
+            # Leaving the block waits for every queued read, so a registry outage would hold the
+            # activity for each queued timeout before it retries.
+            for future in futures:
+                future.cancel()
+            raise
 
 
 def verify_renovate_update(
@@ -713,7 +895,7 @@ def verify_renovate_update(
     npm_versions: list[_NpmLockedVersion] = []
     uv_versions: list[_UvLockedVersion] = []
     cleared: list[str] = []
-    respecified: list[tuple[str, Ecosystem, str]] = []
+    respecified: list[tuple[str, Ecosystem, str, str]] = []
     for file in files:
         path = str(file["filename"])
         texts = _read_pair(read_file, path, merge_base_sha, head_sha)
@@ -732,8 +914,8 @@ def verify_renovate_update(
                 manifest_problems = _manifest_problems(path, *texts)
                 problems.extend(manifest_problems)
                 if not manifest_problems:
-                    ecosystem, names = manifest_changed_names(path, *texts)
-                    respecified.extend((path, ecosystem, dependency) for dependency in sorted(names))
+                    ecosystem, specifiers = manifest_changed_specifiers(path, *texts)
+                    respecified.extend((path, ecosystem, *specifier) for specifier in sorted(specifiers))
                 continue
         except (ValueError, yaml.YAMLError, tomllib.TOMLDecodeError, TypeError, AttributeError):
             problems.append(f"{path} does not parse.")
@@ -741,14 +923,21 @@ def verify_renovate_update(
         problems.extend(lock_problems)
         cleared.append(path)
 
-    relocked = {("npm", v.change.name) for v in npm_versions} | {
-        ("pypi", canonicalize_name(v.change.name)) for v in uv_versions
-    }
-    problems.extend(
-        f"{path} changes the specifier of {dependency}, and no lockfile locks a new version of it."
-        for path, ecosystem, dependency in respecified
-        if (ecosystem, dependency) not in relocked
-    )
+    relocked: dict[tuple[Ecosystem, str], set[str]] = {}
+    for npm_version in npm_versions:
+        relocked.setdefault(("npm", npm_version.change.name), set()).add(npm_version.change.new_version)
+    for uv_version in uv_versions:
+        relocked.setdefault(("pypi", canonicalize_name(uv_version.change.name)), set()).add(
+            uv_version.change.new_version
+        )
+    for path, ecosystem, dependency, specifier in respecified:
+        new_versions = relocked.get((ecosystem, dependency))
+        if new_versions is None:
+            problems.append(f"{path} changes the specifier of {dependency}, and no lockfile locks a new version of it.")
+        # pnpm refuses a frozen install whose lockfile specifiers differ from the manifests, and
+        # uv sync --frozen does not compare them.
+        elif ecosystem == "pypi" and not any(_specifier_admits(specifier, version) for version in new_versions):
+            problems.append(f"{path} sets {dependency} to {specifier}, which no newly locked version meets.")
     # Two lockfiles can lock the same version, so both lists keep the first copy of each entry.
     changes = tuple(dict.fromkeys([*(v.change for v in npm_versions), *(v.change for v in uv_versions)]))
     problems.extend(
@@ -756,6 +945,12 @@ def verify_renovate_update(
     )
     if len(npm_versions) + len(uv_versions) > MAX_VERSION_CHANGES:
         problems.append(f"The PR changes more than {MAX_VERSION_CHANGES} locked versions.")
+    distribution_files = sum(
+        len(v.new_files) + sum(len(release.filenames) for release in v.base_releases)
+        for v in dict.fromkeys(uv_versions)
+    )
+    if distribution_files > MAX_DISTRIBUTION_FILES:
+        problems.append(f"The PR's Python updates span more than {MAX_DISTRIBUTION_FILES} distribution files.")
     if not problems:
         problems.extend(_registry_problems(npm_versions, uv_versions, readers or default_registry_readers(), now))
     # A lockfile is cleared only by a verified result, so no consumer can clear one that a problem names.
