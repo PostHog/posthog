@@ -1,4 +1,7 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { useMocks } from '~/mocks/jest'
@@ -142,5 +145,25 @@ describe('analyticsSpacesLogic', () => {
         }
         expect(folderRequests).toHaveLength(1)
         expect(metadataRequests).toHaveLength(24 * 4)
+    })
+
+    it('loads the first page again when a collection is unstarred after paging', async () => {
+        folders = [
+            ...Array.from({ length: 22 }, (_, index) => `Collection ${String(index + 1).padStart(2, '0')}`),
+            'Growth',
+        ]
+        router.actions.push(urls.analyticsSpaces())
+        const logic = analyticsSpacesLogic()
+        logic.mount()
+        await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
+        await expectLogic(logic, () => logic.actions.loadSpaces()).toDispatchActions(['loadSpacesSuccess'])
+        await expectLogic(logic, () => logic.actions.loadMore()).toDispatchActions(['loadSpacesSuccess'])
+        expect(logic.values.pagination).toEqual({ offset: 23, hasMore: false })
+
+        await expectLogic(logic, () => projectTreeDataLogic.actions.deleteShortcut('sc-growth')).toDispatchActions([
+            'loadSpacesSuccess',
+        ])
+        expect(logic.values.pagination).toEqual({ offset: 20, hasMore: true })
+        expect(logic.values.spaces.map((space) => space.name)).toEqual(folders.slice(0, 20))
     })
 })
