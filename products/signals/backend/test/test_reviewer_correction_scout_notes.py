@@ -83,8 +83,7 @@ class TestReviewerCorrectionNoteContent(SimpleTestCase):
     @parameterized.expand(
         [
             ("no_reason", None, "Self-removal alone does not establish"),
-            ("wrong_area", "wrong_area", "scoped to the area of the source report"),
-            ("owned_by_someone_else", "owned_by_someone_else", "on the strength of the same older evidence"),
+            ("wrong_area", "wrong_area", "on the strength of the same older evidence"),
             ("unavailable", "unavailable", "do not record an exclusion"),
         ]
     )

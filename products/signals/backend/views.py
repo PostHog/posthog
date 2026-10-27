@@ -3767,7 +3767,7 @@ class SignalReportViewSet(
                     user=user,
                     scoped_team_ids=tuple(scoped_team_ids) if scoped_team_ids is not None else None,
                     was_impersonated=was_impersonated,
-                    removal_reason=ReviewerRemovalReason.OWNED_BY_SOMEONE_ELSE,
+                    removal_reason=ReviewerRemovalReason.WRONG_AREA,
                     removal_note=note,
                     # The dismissal already sent each scout one note for the whole batch, so a bulk
                     # request does not add one correction note per report on top of it.

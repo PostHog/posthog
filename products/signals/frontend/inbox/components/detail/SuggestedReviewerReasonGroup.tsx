@@ -3,8 +3,8 @@ import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { EnrichedReviewer, ReviewerRemoval } from '../../types'
-import { RemoveReviewerButton } from './RemoveReviewerButton'
 import { getReviewerDisplayName } from './reviewerDisplay'
+import { ReviewerRowMenu } from './ReviewerRowMenu'
 import {
     ReviewerClaim,
     reviewerClaimRemoveDisabledReason,
@@ -59,37 +59,36 @@ export function SuggestedReviewerReasonGroup({
                     return (
                         <div
                             key={reviewer.user?.uuid ?? reviewer.user_uuid ?? reviewer.github_login}
-                            className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded py-0.5 pr-0.5 hover:bg-fill-highlight"
+                            className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 py-0.5"
                         >
-                            <Tooltip
-                                title={
-                                    reviewer.user
-                                        ? undefined
-                                        : 'This reviewer is not linked to a PostHog member and cannot receive the report.'
+                            <ReviewerRowMenu
+                                reviewer={reviewer}
+                                displayName={displayName}
+                                disabledReason={
+                                    reviewerClaimRemoveDisabledReason(reviewer, claim, displayName) ??
+                                    (disabled ? 'Updating…' : undefined)
                                 }
+                                onRemove={(removal) => onRemove(reviewer, removal)}
                             >
-                                <span className={`min-w-0 ${reviewer.user ? '' : 'opacity-75'}`}>
-                                    <PersonDisplay
-                                        person={{ properties: { email: reviewer.user?.email, name: displayName } }}
-                                        displayName={displayName}
-                                        withIcon="xs"
-                                        noLink
-                                        noPopover
-                                    />
-                                </span>
-                            </Tooltip>
-                            <div className="flex items-center gap-2">
-                                <SuggestedReviewerClaimControls reviewer={reviewer} claim={claim} />
-                                <RemoveReviewerButton
-                                    reviewer={reviewer}
-                                    displayName={displayName}
-                                    disabledReason={
-                                        reviewerClaimRemoveDisabledReason(reviewer, claim, displayName) ??
-                                        (disabled ? 'Updating…' : undefined)
+                                <Tooltip
+                                    title={
+                                        reviewer.user
+                                            ? undefined
+                                            : 'This reviewer is not linked to a PostHog member and cannot receive the report.'
                                     }
-                                    onRemove={(removal) => onRemove(reviewer, removal)}
-                                />
-                            </div>
+                                >
+                                    <span className={`min-w-0 ${reviewer.user ? '' : 'opacity-75'}`}>
+                                        <PersonDisplay
+                                            person={{ properties: { email: reviewer.user?.email, name: displayName } }}
+                                            displayName={displayName}
+                                            withIcon="xs"
+                                            noLink
+                                            noPopover
+                                        />
+                                    </span>
+                                </Tooltip>
+                            </ReviewerRowMenu>
+                            <SuggestedReviewerClaimControls reviewer={reviewer} claim={claim} />
                         </div>
                     )
                 })}

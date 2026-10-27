@@ -3029,9 +3029,9 @@ class SignalReportArtefactWriteSerializer(serializers.Serializer):
         choices=ReviewerRemovalReason.choices,
         required=False,
         help_text=(
-            "Why the people in `targets` are removed. Remove action only. 'wrong_area': the report's area is not "
-            "theirs. 'owned_by_someone_else': another person owns the work. 'unavailable': they are not available, "
-            "which says nothing about ownership. 'other': explain in removal_note. Research and scouts read the "
+            "Why the people in `targets` are removed. Remove action only. 'wrong_area': they are not the right "
+            "reviewer, because the work is outside their area or someone else owns it. 'unavailable': they are not "
+            "available, which says nothing about ownership. 'other': explain in removal_note. Research and scouts read the "
             "reason when they pick reviewers for later reports."
         ),
     )

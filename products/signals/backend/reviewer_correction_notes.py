@@ -376,16 +376,13 @@ def _build_note_content(
 
 
 # A stated reason replaces the generic caution: it tells the scout which of the meanings a removal
-# can have applies, and the three lead to different memory updates.
+# can have applies, and the two lead to different memory updates.
 _REASON_GUIDANCE = {
     "wrong_area": (
-        "The removed identity does not work on this area. Record an exclusion for this identity that is "
-        "scoped to the area of the source report, and keep routing other areas to them."
-    ),
-    "owned_by_someone_else": (
-        "Someone else owns this work, which transfers responsibility for it and similar work away from the "
-        "removed identity. Do not select them for that work on the strength of the same older evidence. Look for "
-        "the owner in current ownership evidence."
+        "The removed identity is not the right reviewer for this work, because it is outside their area or someone "
+        "else owns it. Responsibility for it and similar work moves away from them, so do not select them for that "
+        "work on the strength of the same older evidence. Look for the owner in current ownership evidence, and keep "
+        "routing unrelated areas to them."
     ),
     "unavailable": (
         "The removed identity is not available. This is not ownership evidence, so do not record an "

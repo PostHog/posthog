@@ -3491,7 +3491,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         # Research reads the reviewer corrections, never the dismissal note, so the verdict has to land there.
         corrections = _recent_reviewer_corrections(self.team)["corrections"]
         assert [(row["removal_reason"], row["removal_note"]) for row in corrections] == (
-            [("owned_by_someone_else", "The payments team owns this.")] if removed else []
+            [("wrong_area", "The payments team owns this.")] if removed else []
         )
 
     def test_a_bulk_wrong_assignee_dismissal_removes_the_caller_without_per_report_notes(self) -> None:

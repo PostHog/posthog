@@ -3037,7 +3037,7 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
                 "report_title": "Checkout errors",
                 "before": ["octocat"],
                 "after": [],
-                "removal_reason": "owned_by_someone_else",
+                "removal_reason": "wrong_area",
                 "removal_note": "The payments team owns this.",
                 "at": "2026-10-20T10:00:00+00:00",
             }
@@ -3052,7 +3052,7 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         # A removal note can quote dismissal text, so it follows the reports API's `task` read gate.
         (served,) = response.json()["payload"]["inventory"]["recent_reviewer_corrections"]["corrections"]
-        assert (served["removal_reason"], served["removal_note"]) == ("owned_by_someone_else", expected)
+        assert (served["removal_reason"], served["removal_note"]) == ("wrong_area", expected)
         # The stored profile is shared, so redaction must not touch it.
         row.refresh_from_db()
         stored = row.payload["inventory"]["recent_reviewer_corrections"]["corrections"][0]
