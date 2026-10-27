@@ -13,6 +13,7 @@ import { TRIGGER_NODE_ID, workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogFlowEditorTestEvent } from './HogFlowEditorTestEvent'
 import { hogFlowEditorTestLogic } from './hogFlowEditorTestLogic'
+import { testResultBanner } from './testResultBanner'
 
 export function HogFlowTestPanelNonSelected(): JSX.Element {
     return (
@@ -148,21 +149,7 @@ export function HogFlowEditorPanelTest(): JSX.Element | null {
                         <div className="text-muted text-sm">No tests run yet</div>
                     ) : (
                         <>
-                            <LemonBanner
-                                type={
-                                    testResult.status === 'success'
-                                        ? 'success'
-                                        : testResult.status === 'skipped'
-                                          ? 'warning'
-                                          : 'error'
-                                }
-                            >
-                                {testResult.status === 'success'
-                                    ? 'Success'
-                                    : testResult.status === 'skipped'
-                                      ? 'Workflow was skipped because the event did not match the filter criteria'
-                                      : 'Error: ' + testResult.errors?.join(', ')}
-                            </LemonBanner>
+                            <LemonBanner {...testResultBanner(testResult)} />
 
                             <div className="flex flex-col gap-2">
                                 <LemonLabel>Logs</LemonLabel>

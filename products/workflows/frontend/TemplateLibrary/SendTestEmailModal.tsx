@@ -20,6 +20,7 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
         sendDisabledReason,
         testSendResult,
         testSendResultLoading,
+        testSendSkipReason,
     } = useValues(logic)
     const { setModalOpen, setRecipientEmail, setSenderIntegrationId, sendTestEmail } = useActions(logic)
 
@@ -86,11 +87,8 @@ export function SendTestEmailModal(props: MessageTemplateLogicProps & { isOpen: 
                         </div>
                     )}
                 </div>
-                {testSendResult && testSendResult.status === 'skipped' ? (
-                    <LemonBanner type="warning">
-                        {testSendResult.logs?.map((log) => log.message).join(' ') ||
-                            'The send was skipped for this recipient.'}
-                    </LemonBanner>
+                {testSendSkipReason ? (
+                    <LemonBanner type="warning">{testSendSkipReason}</LemonBanner>
                 ) : testSendResult && testSendResult.status === 'error' ? (
                     <LemonBanner type="error">
                         {testSendResult.errors?.join(', ') || 'Failed to send test email'}

@@ -31,6 +31,7 @@ import { TRIGGER_NODE_ID, workflowLogic } from '../../../workflowLogic'
 import { hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { hogFlowEditorNotificationTestLogic } from './hogFlowEditorNotificationTestLogic'
 import { reorderGlobalsForEmailAction } from './hogFlowEditorNotificationTestLogic'
+import { testResultBanner } from './testResultBanner'
 
 export function EmailActionTestContent(): JSX.Element | null {
     const { workflow, selectedNode } = useValues(hogFlowEditorLogic)
@@ -359,21 +360,7 @@ export function EmailActionTestContent(): JSX.Element | null {
                         <div className="text-muted text-sm">No tests run yet</div>
                     ) : (
                         <>
-                            <LemonBanner
-                                type={
-                                    testResult.status === 'success'
-                                        ? 'success'
-                                        : testResult.status === 'skipped'
-                                          ? 'warning'
-                                          : 'error'
-                                }
-                            >
-                                {testResult.status === 'success'
-                                    ? 'Success'
-                                    : testResult.status === 'skipped'
-                                      ? 'Workflow was skipped because the event did not match the filter criteria'
-                                      : 'Error: ' + testResult.errors?.join(', ')}
-                            </LemonBanner>
+                            <LemonBanner {...testResultBanner(testResult)} />
 
                             <div className="flex flex-col gap-2">
                                 <LemonLabel>Logs</LemonLabel>
