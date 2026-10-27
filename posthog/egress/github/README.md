@@ -38,6 +38,7 @@ The branch picker serves its cached branch list at once. When the list is older 
 Engineering analytics downloads one job's log (source `job_logs`) on `NORMAL` when a person opens that job in the CI explorer, and on `BATCH` in the scheduled failed-job log collection.
 Stamphog reads the author-familiarity blame and history (GraphQL) and the pull request's commit messages on `BATCH`, because both signals are advisory: a shed call leaves them out of that review.
 Its merge base read (compare) stays on `CRITICAL`, because the review checkout needs it.
+The knowledge writer merge check (source `knowledge_writer`) reads each master merge's pull request and diff on `NORMAL`, because a merge whose reads are shed on all three attempts, one and then two minutes apart, is recorded as failed and never checked. Its replay CLI sends the same reads through `github_request` with a personal token, so they record volume only.
 The Tasks infrastructure admin reads the sandbox version pin and recent image build runs on `NORMAL`, using a regional cache. When the GitHub App is configured, it discovers the `PostHog/posthog` installation and mints an ephemeral token restricted to that repository with Contents and Actions read permissions. Calls share the installation budget. Deployments without App credentials retain the shared-token behavior.
 
 The `BATCH` floor on the `core` resource is **demand-responsive**, because a reserve is only worth holding against traffic that exists.

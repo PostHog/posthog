@@ -1,10 +1,17 @@
 import re
 from dataclasses import dataclass
+from typing import Protocol
 
 import httpx
+import requests
+
+from posthog.egress.github.transport import github_request
+from posthog.egress.limiter.policies import Priority
 
 POSTHOG_REPOSITORY = "PostHog/posthog"
+POSTHOG_MAINLINE = "master"
 GITHUB_API_URL = "https://api.github.com"
+GITHUB_EGRESS_SOURCE = "knowledge_writer"
 SITEMAP_URL = "https://posthog.com/sitemap/sitemap-0.xml"
 TRUSTED_AUTHOR_ASSOCIATIONS = frozenset({"MEMBER", "OWNER"})
 SITEMAP_DOCS_URL_PATTERN = re.compile(r"<loc>(https://posthog\.com/docs/[^<]+)</loc>")
@@ -22,23 +29,73 @@ class MergedPullRequest:
     is_trusted_author: bool
 
 
-def github_client(token: str) -> httpx.Client:
-    return httpx.Client(
-        base_url=GITHUB_API_URL,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-        timeout=30,
+class GitHubReader(Protocol):
+    def api_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        endpoint: str | None = None,
+        params: dict[str, str | int] | None = None,
+        headers: dict[str, str] | None = None,
+        priority: Priority | None = None,
+    ) -> requests.Response: ...
+
+
+class PersonalTokenGitHub:
+    def __init__(self, token: str) -> None:
+        self.token = token
+
+    def api_request(
+        self,
+        method: str,
+        path: str,
+        *,
+        endpoint: str | None = None,
+        params: dict[str, str | int] | None = None,
+        headers: dict[str, str] | None = None,
+        priority: Priority | None = None,
+    ) -> requests.Response:
+        return github_request(
+            method,
+            f"{GITHUB_API_URL}{path}",
+            source=GITHUB_EGRESS_SOURCE,
+            headers={**(headers or {}), "Authorization": f"Bearer {self.token}"},
+            priority=priority or Priority.NORMAL,
+            endpoint=endpoint,
+            params=params,
+            timeout=30,
+        )
+
+
+def read_github(
+    github: GitHubReader,
+    path: str,
+    *,
+    endpoint: str,
+    params: dict[str, str | int] | None = None,
+    headers: dict[str, str] | None = None,
+) -> requests.Response:
+    response = github.api_request(
+        "GET", path, endpoint=endpoint, params=params, headers=headers, priority=Priority.NORMAL
     )
-
-
-def find_merged_pull_request(github: httpx.Client, commit_sha: str) -> MergedPullRequest | None:
-    response = github.get(f"/repos/{POSTHOG_REPOSITORY}/commits/{commit_sha}/pulls")
     response.raise_for_status()
+    return response
+
+
+def find_merged_pull_request(github: GitHubReader, commit_sha: str) -> MergedPullRequest | None:
+    response = read_github(
+        github,
+        f"/repos/{POSTHOG_REPOSITORY}/commits/{commit_sha}/pulls",
+        endpoint="/repos/{owner}/{repo}/commits/{sha}/pulls",
+    )
     for listed in response.json():
-        if listed.get("merge_commit_sha") != commit_sha:
+        is_merge_into_mainline = (
+            listed.get("merge_commit_sha") == commit_sha
+            and listed.get("merged_at")
+            and (listed.get("base") or {}).get("ref") == POSTHOG_MAINLINE
+        )
+        if not is_merge_into_mainline:
             continue
         return MergedPullRequest(
             number=listed["number"],
@@ -49,21 +106,22 @@ def find_merged_pull_request(github: httpx.Client, commit_sha: str) -> MergedPul
     return None
 
 
-def read_commit_diff_by_path(github: httpx.Client, commit_sha: str) -> dict[str, str]:
-    response = github.get(
-        f"/repos/{POSTHOG_REPOSITORY}/commits/{commit_sha}", headers={"Accept": "application/vnd.github.diff"}
+def read_commit_diff_by_path(github: GitHubReader, commit_sha: str) -> dict[str, str]:
+    response = read_github(
+        github,
+        f"/repos/{POSTHOG_REPOSITORY}/commits/{commit_sha}",
+        endpoint="/repos/{owner}/{repo}/commits/{sha}",
+        headers={"Accept": "application/vnd.github.diff"},
     )
-    response.raise_for_status()
-    diff_by_path: dict[str, str] = {}
-    current_path: str | None = None
+    diff_lines_by_path: dict[str, list[str]] = {}
+    current_lines: list[str] | None = None
     for line in response.text.splitlines(keepends=True):
         header = DIFF_FILE_HEADER_PATTERN.match(line.rstrip("\n"))
         if header:
-            current_path = header.group(1)
-            diff_by_path[current_path] = ""
-        if current_path is not None:
-            diff_by_path[current_path] += line
-    return diff_by_path
+            current_lines = diff_lines_by_path.setdefault(header.group(1), [])
+        if current_lines is not None:
+            current_lines.append(line)
+    return {path: "".join(lines) for path, lines in diff_lines_by_path.items()}
 
 
 def is_test_path(path: str) -> bool:

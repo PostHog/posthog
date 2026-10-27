@@ -6,6 +6,7 @@ from .judge import MAX_DIFF_CHARACTERS, judge_merge
 from .routing import load_path_map, mapped_sections, section_page_urls
 from .sources import (
     POSTHOG_REPOSITORY,
+    GitHubReader,
     find_merged_pull_request,
     is_test_path,
     read_commit_diff_by_path,
@@ -18,7 +19,7 @@ MAX_SUGGESTED_PAGES = 3
 def run_merge_check(
     commit_sha: str,
     *,
-    github: httpx.Client,
+    github: GitHubReader,
     http: httpx.Client,
     anthropic_client: Anthropic,
 ) -> MergeCheckReport:

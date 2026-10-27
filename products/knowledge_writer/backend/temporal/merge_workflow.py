@@ -2,17 +2,20 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 import httpx
+import requests
 from anthropic import APIError
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.exceptions_capture import capture_exception
+from posthog.models.integration import GitHubIntegrationError
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.utils import close_db_connections
 
 from ...merge_check.check import run_merge_check
 from ...merge_check.judge import judge_client
-from ...merge_check.sources import POSTHOG_REPOSITORY, github_client
+from ...merge_check.sources import POSTHOG_REPOSITORY
 from ..adapters import REGISTRY
 from ..facade.contracts import AdapterVerdict
 from ..facade.enums import DocsRequestSource
@@ -21,6 +24,15 @@ from ..logic.publish import docs_github
 
 MERGE_CHECK_FAILED_REASON = "merge_check_failed"
 MERGE_CHECK_ATTEMPTS = 3
+MERGE_CHECK_RETRY_INTERVAL = timedelta(minutes=1)
+MERGE_CHECK_RETRYABLE_ERRORS = (
+    requests.RequestException,
+    GitHubIntegrationError,
+    GitHubRateLimitError,
+    GitHubEgressBudgetExhausted,
+    httpx.HTTPError,
+    APIError,
+)
 
 
 @dataclass
@@ -40,18 +52,9 @@ def record_merge_check_failed(inputs: MergeCheckInputs) -> None:
     intake.submit(verdict, team_id=inputs.team_id)
 
 
-def posthog_github_token(team_id: int) -> str | None:
-    github = docs_github(team_id, POSTHOG_REPOSITORY.split("/", 1)[0])
-    if github is None:
-        return None
-    if github.access_token_expired():
-        github.refresh_access_token()
-    return github.installation_access_token
-
-
 def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
-    github_token = posthog_github_token(inputs.team_id)
-    if github_token is None:
+    github = docs_github(inputs.team_id, POSTHOG_REPOSITORY.split("/", 1)[0])
+    if github is None:
         record_merge_check_failed(inputs)
         return
     try:
@@ -60,9 +63,9 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
         record_merge_check_failed(inputs)
         return
     try:
-        with github_client(github_token) as github, httpx.Client(timeout=30) as http, anthropic_client:
+        with httpx.Client(timeout=30) as http, anthropic_client:
             report = run_merge_check(inputs.commit_sha, github=github, http=http, anthropic_client=anthropic_client)
-    except (httpx.HTTPError, APIError) as error:
+    except MERGE_CHECK_RETRYABLE_ERRORS as error:
         if not is_final_attempt:
             raise
         capture_exception(error, {"commit_sha": inputs.commit_sha})
@@ -86,5 +89,7 @@ class MergeCheckWorkflow:
             run_merge_check_activity,
             inputs,
             start_to_close_timeout=timedelta(minutes=10),
-            retry_policy=RetryPolicy(maximum_attempts=MERGE_CHECK_ATTEMPTS),
+            retry_policy=RetryPolicy(
+                initial_interval=MERGE_CHECK_RETRY_INTERVAL, maximum_attempts=MERGE_CHECK_ATTEMPTS
+            ),
         )

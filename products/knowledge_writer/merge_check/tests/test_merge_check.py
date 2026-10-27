@@ -1,8 +1,10 @@
+import json
 from collections.abc import Callable
 from types import SimpleNamespace
 from typing import cast
 
 import httpx
+import requests
 from anthropic import Anthropic
 
 from products.knowledge_writer.backend.facade.enums import DocsChangeKind
@@ -13,25 +15,39 @@ COMPONENT_PATH = "products/feature_flags/frontend/FlagBanner.tsx"
 FLAGS_PAGES = [f"https://posthog.com/docs/feature-flags/page-{number}" for number in range(5)]
 
 
-def fake_github_and_sitemap(commit_sha: str) -> httpx.Client:
-    def respond(request: httpx.Request) -> httpx.Response:
-        if request.url.path.endswith("/pulls"):
+class FakePostHogGitHub:
+    def __init__(self, commit_sha: str) -> None:
+        self.commit_sha = commit_sha
+
+    def api_request(self, method: str, path: str, **_options: object) -> requests.Response:
+        if path.endswith("/pulls"):
             pulls = [
                 {
                     "number": 7,
                     "title": "chore: drop legacy rollout",
                     "html_url": "https://github.com/PostHog/posthog/pull/7",
-                    "merge_commit_sha": commit_sha,
+                    "merge_commit_sha": self.commit_sha,
+                    "merged_at": "2026-10-27T00:00:00Z",
+                    "base": {"ref": "master"},
                     "author_association": "MEMBER",
                 }
             ]
-            return httpx.Response(200, json=pulls)
-        if request.url.host == "posthog.com":
-            return httpx.Response(200, text="".join(f"<loc>{url}</loc>" for url in FLAGS_PAGES))
-        diff = f"diff --git a/{COMPONENT_PATH} b/{COMPONENT_PATH}\n-old\n+new\n"
-        return httpx.Response(200, text=diff)
+            return github_response(json.dumps(pulls))
+        return github_response(f"diff --git a/{COMPONENT_PATH} b/{COMPONENT_PATH}\n-old\n+new\n")
 
-    return httpx.Client(transport=httpx.MockTransport(respond), base_url="https://api.github.com")
+
+def github_response(body: str) -> requests.Response:
+    response = requests.Response()
+    response.status_code = 200
+    response._content = body.encode()
+    return response
+
+
+def fake_sitemap() -> httpx.Client:
+    def respond(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="".join(f"<loc>{url}</loc>" for url in FLAGS_PAGES))
+
+    return httpx.Client(transport=httpx.MockTransport(respond))
 
 
 def judge_with_parse(parse: Callable[..., object]) -> Anthropic:
@@ -62,8 +78,8 @@ def test_mapped_merge_flagged_by_judge_yields_kind_and_at_most_three_listed_page
 
     report = run_merge_check(
         commit_sha,
-        github=fake_github_and_sitemap(commit_sha),
-        http=fake_github_and_sitemap(commit_sha),
+        github=FakePostHogGitHub(commit_sha),
+        http=fake_sitemap(),
         anthropic_client=judge_returning(verdict),
     )
 
@@ -76,8 +92,8 @@ def test_malformed_judge_output_declines_instead_of_raising() -> None:
 
     report = run_merge_check(
         commit_sha,
-        github=fake_github_and_sitemap(commit_sha),
-        http=fake_github_and_sitemap(commit_sha),
+        github=FakePostHogGitHub(commit_sha),
+        http=fake_sitemap(),
         anthropic_client=judge_returning_malformed_output(),
     )
 

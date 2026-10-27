@@ -8,7 +8,7 @@ import httpx
 
 from .check import run_merge_check
 from .judge import judge_client
-from .sources import POSTHOG_REPOSITORY, github_client
+from .sources import POSTHOG_MAINLINE, POSTHOG_REPOSITORY, GitHubReader, PersonalTokenGitHub, read_github
 
 MAX_RECENT_MERGES = 100
 
@@ -16,7 +16,8 @@ MAX_RECENT_MERGES = 100
 def replay_command(arguments: argparse.Namespace) -> int:
     github_token = os.environ.get("GITHUB_TOKEN") or os.environ["GH_TOKEN"]
     flagged = 0
-    with github_client(github_token) as github, httpx.Client(timeout=30) as http:
+    github = PersonalTokenGitHub(github_token)
+    with httpx.Client(timeout=30) as http:
         merges = recent_master_merges(github, arguments.recent) if arguments.recent else read_merges(arguments.merges)
         for merge in merges:
             with judge_client(merge["commit_sha"]) as anthropic_client:
@@ -35,9 +36,13 @@ def read_merges(merges_path: Path) -> list[dict]:
     return [json.loads(line) for line in merges_path.read_text().splitlines() if line.strip()]
 
 
-def recent_master_merges(github: httpx.Client, count: int) -> list[dict]:
-    response = github.get(f"/repos/{POSTHOG_REPOSITORY}/commits", params={"sha": "master", "per_page": count})
-    response.raise_for_status()
+def recent_master_merges(github: GitHubReader, count: int) -> list[dict]:
+    response = read_github(
+        github,
+        f"/repos/{POSTHOG_REPOSITORY}/commits",
+        endpoint="/repos/{owner}/{repo}/commits",
+        params={"sha": POSTHOG_MAINLINE, "per_page": count},
+    )
     return [{"commit_sha": commit["sha"]} for commit in response.json()]
 
 
