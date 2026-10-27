@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { Button, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle, Text } from '@posthog/quill'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { errorTrackingEditAccessDisabledReason } from '../../../utils'
 import { ImportWizardStepActions } from './ImportWizardStepActions'
@@ -33,7 +33,7 @@ export function SentryReviewStep(): JSX.Element {
                 description="Check what changes in PostHog. You can change or remove anything you import later, on this page."
             />
             {changes.length > 0 ? (
-                <ul className="m-0 flex list-disc flex-col gap-1 pl-5">
+                <ul className="list-disc pl-5 mb-0 flex flex-col gap-1">
                     {changes.map((change) => (
                         <li key={change} className="text-sm">
                             {change}
@@ -41,29 +41,24 @@ export function SentryReviewStep(): JSX.Element {
                     ))}
                 </ul>
             ) : importResult ? (
-                <Empty>
-                    <EmptyHeader>
-                        <EmptyTitle>Import finished</EmptyTitle>
-                        <EmptyDescription>{importSummary(importResult)}</EmptyDescription>
-                    </EmptyHeader>
-                    <EmptyContent>
-                        <Button
-                            variant="outline"
-                            onClick={resetWizard}
-                            data-attr="error-tracking-import-another-project"
-                        >
-                            Import another project
-                        </Button>
-                    </EmptyContent>
-                </Empty>
+                <LemonBanner
+                    type="success"
+                    action={{
+                        children: 'Import another project',
+                        onClick: resetWizard,
+                        'data-attr': 'error-tracking-import-another-project',
+                    }}
+                >
+                    {importSummary(importResult)}
+                </LemonBanner>
             ) : (
-                <Text size="sm" variant="muted" className="m-0">
+                <p className="text-sm text-secondary mb-0">
                     Nothing is selected. Go back and select the settings you want to import.
-                </Text>
+                </p>
             )}
             <ImportWizardStepActions onBack={goToPreviousStep}>
-                <Button
-                    variant="primary"
+                <LemonButton
+                    type="primary"
                     onClick={applyImport}
                     loading={importResultLoading}
                     disabledReason={
@@ -72,8 +67,12 @@ export function SentryReviewStep(): JSX.Element {
                     }
                     data-attr="error-tracking-sentry-migration-import"
                 >
-                    {selectedItemIds.length === 1 ? 'Import 1 setting' : `Import ${selectedItemIds.length} settings`}
-                </Button>
+                    {selectedItemIds.length === 0
+                        ? 'Import'
+                        : selectedItemIds.length === 1
+                          ? 'Import 1 setting'
+                          : `Import ${selectedItemIds.length} settings`}
+                </LemonButton>
             </ImportWizardStepActions>
         </>
     )

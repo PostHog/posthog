@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { Button, CardGroup } from '@posthog/quill'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { ImportWizardStepActions } from './ImportWizardStepActions'
 import { ImportWizardStepHeading } from './ImportWizardStepHeading'
@@ -21,7 +21,7 @@ export function SentryCategoryStep({ category }: SentryCategoryStepProps): JSX.E
     return (
         <>
             <ImportWizardStepHeading title={category.title} description={category.description} />
-            <CardGroup size="sm">
+            <div className="rounded border bg-surface-primary divide-y">
                 {categoryItems.map((item) => (
                     <SentryMigrationItemCard
                         key={item.id}
@@ -31,11 +31,11 @@ export function SentryCategoryStep({ category }: SentryCategoryStepProps): JSX.E
                         onToggle={() => toggleItem(item.id)}
                     />
                 ))}
-            </CardGroup>
+            </div>
             <ImportWizardStepActions onBack={goToPreviousStep}>
-                <Button variant="primary" onClick={goToNextStep} data-attr="error-tracking-import-next">
+                <LemonButton type="primary" onClick={goToNextStep} data-attr="error-tracking-import-next">
                     Continue
-                </Button>
+                </LemonButton>
             </ImportWizardStepActions>
         </>
     )

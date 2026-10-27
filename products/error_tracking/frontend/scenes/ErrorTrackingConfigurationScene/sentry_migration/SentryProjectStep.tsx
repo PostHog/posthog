@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { Button, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle, Spinner, Text } from '@posthog/quill'
+import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { ImportWizardStepActions } from './ImportWizardStepActions'
 import { ImportWizardStepHeading } from './ImportWizardStepHeading'
@@ -19,75 +19,56 @@ export function SentryProjectStep(): JSX.Element {
                 description="PostHog reads the filters and rate limits of this project. Nothing changes until you import."
             />
             {projects && projects.length === 0 ? (
-                <Empty>
-                    <EmptyHeader>
-                        <EmptyTitle>No Sentry projects found</EmptyTitle>
-                        <EmptyDescription>
-                            This token can't see any Sentry projects. Check that its user is a member of the
-                            organization, then connect again.
-                        </EmptyDescription>
-                    </EmptyHeader>
-                    <EmptyContent>
-                        <Button
-                            variant="outline"
-                            onClick={disconnect}
-                            data-attr="error-tracking-sentry-migration-disconnect"
-                        >
-                            Use another token
-                        </Button>
-                    </EmptyContent>
-                </Empty>
+                <LemonBanner
+                    type="warning"
+                    action={{
+                        children: 'Use another token',
+                        onClick: disconnect,
+                        'data-attr': 'error-tracking-sentry-migration-disconnect',
+                    }}
+                >
+                    This token can't see any Sentry projects. Check that its user is a member of the organization, then
+                    connect again.
+                </LemonBanner>
             ) : (
                 <>
                     <SentryMigrationProjectPicker />
                     {!selectedProjectKey ? null : itemsLoading ? (
                         <Spinner />
                     ) : previewFailed ? (
-                        <Empty>
-                            <EmptyHeader>
-                                <EmptyTitle>Couldn't load this project from Sentry</EmptyTitle>
-                                <EmptyDescription>
-                                    Try again. If it keeps failing, the token may have expired, so go back and use
-                                    another token.
-                                </EmptyDescription>
-                            </EmptyHeader>
-                            <EmptyContent>
-                                <Button
-                                    variant="outline"
-                                    onClick={() => loadPreview()}
-                                    data-attr="error-tracking-sentry-migration-retry-preview"
-                                >
-                                    Try again
-                                </Button>
-                            </EmptyContent>
-                        </Empty>
+                        <LemonBanner
+                            type="error"
+                            action={{
+                                children: 'Try again',
+                                onClick: () => loadPreview(),
+                                'data-attr': 'error-tracking-sentry-migration-retry-preview',
+                            }}
+                        >
+                            Couldn't load this project from Sentry. Try again. If it keeps failing, the token may have
+                            expired, so go back and use another token.
+                        </LemonBanner>
                     ) : items === null ? (
                         <Spinner />
                     ) : items.length === 0 ? (
-                        <Empty>
-                            <EmptyHeader>
-                                <EmptyTitle>Nothing to import</EmptyTitle>
-                                <EmptyDescription>
-                                    This Sentry project has no filters or rate limits that PostHog can import.
-                                </EmptyDescription>
-                            </EmptyHeader>
-                        </Empty>
+                        <LemonBanner type="info">
+                            This Sentry project has no filters or rate limits that PostHog can import.
+                        </LemonBanner>
                     ) : (
-                        <Text size="sm" className="m-0">
+                        <p className="text-sm mb-0">
                             {`Found ${items.length} ${items.length === 1 ? 'setting' : 'settings'} to review in this project.`}
-                        </Text>
+                        </p>
                     )}
                 </>
             )}
             <ImportWizardStepActions onBack={goToPreviousStep}>
-                <Button
-                    variant="primary"
+                <LemonButton
+                    type="primary"
                     onClick={goToNextStep}
                     disabledReason={hasItems ? undefined : 'Choose a project with settings to import'}
                     data-attr="error-tracking-import-next"
                 >
                     Continue
-                </Button>
+                </LemonButton>
             </ImportWizardStepActions>
         </>
     )
