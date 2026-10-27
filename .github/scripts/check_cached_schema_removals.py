@@ -26,7 +26,7 @@ import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 ACKNOWLEDGEMENT_LABELS = {
     "cache-impact-deprecated": "deprecated",
@@ -58,11 +58,11 @@ Apply the matching label to the PR, then re-run the failed `Frontend typecheckin
 """
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class Removal:
     model: str
     location: str
-    kind: str
+    kind: Literal["property", "enum value"]
     name: str
 
     def describe(self) -> str:
@@ -103,7 +103,13 @@ def cached_definitions(definitions: dict[str, Any]) -> set[str]:
     return seen
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
+class RefPair:
+    base: str
+    head: str
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
 class SchemaPair:
     base_definitions: dict[str, Any]
     head_definitions: dict[str, Any]
@@ -114,16 +120,17 @@ class SchemaPair:
         base: Any,
         head: Any,
         location: str,
-        followed: frozenset[tuple[str, str]] = frozenset(),
+        followed: frozenset[RefPair] = frozenset(),
     ) -> Iterator[Removal]:
         base_ref = reference_name(base)
         head_ref = reference_name(head)
         if base_ref is not None and base_ref == head_ref:
             return
         if base_ref is not None and head_ref is not None:
-            if (base_ref, head_ref) in followed:
+            ref_pair = RefPair(base=base_ref, head=head_ref)
+            if ref_pair in followed:
                 return
-            followed = followed | {(base_ref, head_ref)}
+            followed = followed | {ref_pair}
         if base_ref is not None or head_ref is not None:
             base = self.base_definitions.get(base_ref) if base_ref is not None else base
             head = self.head_definitions.get(head_ref) if head_ref is not None else head
@@ -136,7 +143,7 @@ class SchemaPair:
                 for name, base_property in base_value.items():
                     child_location = f"{location}.{name}" if location else name
                     if name not in head_properties:
-                        yield Removal(model, location, "property", name)
+                        yield Removal(model=model, location=location, kind="property", name=name)
                     else:
                         yield from self.removed_fields(
                             model, base_property, head_properties[name], child_location, followed
@@ -144,13 +151,15 @@ class SchemaPair:
             elif key == "enum" and isinstance(base_value, list) and isinstance(head_value, list):
                 for value in base_value:
                     if value not in head_value:
-                        yield Removal(model, location, "enum value", str(value))
+                        yield Removal(model=model, location=location, kind="enum value", name=str(value))
             elif isinstance(base_value, dict):
                 yield from self.removed_fields(model, base_value, head_value, location, followed)
 
 
 def find_removals(base_schema: dict[str, Any], head_schema: dict[str, Any]) -> list[Removal]:
-    pair = SchemaPair(base_schema.get("definitions", {}), head_schema.get("definitions", {}))
+    pair = SchemaPair(
+        base_definitions=base_schema.get("definitions", {}), head_definitions=head_schema.get("definitions", {})
+    )
     removals: list[Removal] = []
     for name in sorted(cached_definitions(pair.base_definitions)):
         if name in pair.head_definitions:
@@ -165,24 +174,28 @@ def find_acknowledgement(labels: list[str]) -> str | None:
     return None
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True, slots=True)
 class Section:
-    status: str
+    status: Literal["warn", "alert"]
     summary: str
     body: str
+
+
+def render_body(removals: list[Removal], status: str) -> str:
+    return SECTION_BODY.format(removals="\n".join(f"- {removal.describe()}" for removal in removals), status=status)
 
 
 def render_section(removals: list[Removal], acknowledgement: str | None) -> Section:
     count = f"{len(removals)} removed field{'' if len(removals) == 1 else 's'}"
     if acknowledgement:
         status = f"Acknowledged with the `cache-impact-{acknowledgement}` label."
-        return Section("warn", f"{count}, acknowledged ({acknowledgement})", render_body(removals, status))
+        return Section(
+            status="warn",
+            summary=f"{count}, acknowledged ({acknowledgement})",
+            body=render_body(removals, status),
+        )
     status = "Not acknowledged yet. `Frontend typechecking` fails until the PR has one of these labels."
-    return Section("alert", f"{count}, not acknowledged", render_body(removals, status))
-
-
-def render_body(removals: list[Removal], status: str) -> str:
-    return SECTION_BODY.format(removals="\n".join(f"- {removal.describe()}" for removal in removals), status=status)
+    return Section(status="alert", summary=f"{count}, not acknowledged", body=render_body(removals, status))
 
 
 def write_outputs(removals: list[Removal], acknowledgement: str | None, section: Section | None) -> None:
