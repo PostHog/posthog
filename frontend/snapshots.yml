@@ -6426,6 +6426,12 @@ snapshots:
         hash: v1.k794b7964.fb16e88ea3b384dd8f67fe6012124373f57c30e37c09a786aa222664bb7fcb8b.mgcHhsY-mwox6xCW6CCwDrmhgLfHnLRPosHWNigYE_Y
     mcp-apps-experiments--running--light:
         hash: v1.k794b7964.f7ae67feb87956b98204afeb00f52012a62fc090b18d186d0575110924e5cb69.lWvegECniqeejO8WWNUVam5X0NQTkwxq2iifV-mN5JI
+    mcp-apps-explain-chart--chapter-beside-the-chart--light:
+        hash: v1.k794b7964.59974ba8a33be7e981f575614bb77b3fe73dc905c9f6cb5db54e61591c7484ae.Qzl-nCRtGQHeYMHKmGsneXCagaDtWsjsyZlavdRVmmU
+    mcp-apps-explain-chart--evidence-chart--light:
+        hash: v1.k794b7964.c25bffca27dae4d96ed3a8a534297c79fc55e9f5a332472bedfeb46f4cb79bd8.DQxHAg-l47utDGyaTLdaaAMkkaLBaeHnxF-YTKFnmh0
+    mcp-apps-explain-chart--summary--light:
+        hash: v1.k794b7964.8e544f3f6c9e2e43bf03efd6bf30e402e2f24a41ec060922b5e3068643ce4c86.BQcCbMIGeBusavfXWYInYZD6jMZfnN4zr-HV9oOAFHg
     mcp-apps-feature-flags--boolean-flag--light:
         hash: v1.k794b7964.f3ee0e724e30f350166b5a87d46cd36ba9f982735aa9d7e322aeaf28bc4c9b1c.KzlRVALZdoWS2mlKcnTJRTOo4SmFvIZzKhj6SodWt3I
     mcp-apps-feature-flags--flag-list--light:
