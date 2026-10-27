@@ -173,6 +173,8 @@ def signal_spend_summaries(*, team_id: int, signal_ids: list[str]) -> dict[str, 
     amounts: dict[str, Decimal] = {}
     failures: dict[str, set[str]] = {}
     for spend in SignalSpend.objects.for_team(team_id).filter(signal_id__in=ids):
+        if spend.kind is None:
+            continue
         key = str(spend.signal_id)
         amounts[key] = amounts.get(key, Decimal(0)) + spend.spend
         if spend.accounting_failed:

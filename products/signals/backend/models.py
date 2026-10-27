@@ -3967,7 +3967,8 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
         SCOUT_TRIGGERED_IMPLEMENTATION = "scout_triggered_implementation"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
-    kind = models.CharField(max_length=40, choices=Kind.choices)
+    # Old workers omit kind during rolling deploys; their receipts remain unbillable.
+    kind = models.CharField(max_length=40, choices=Kind.choices, null=True)
     signal_id = models.UUIDField(null=True, blank=True)
     scout_run = models.ForeignKey(
         SignalScoutRun, on_delete=models.DO_NOTHING, db_constraint=False, null=True, blank=True, related_name="+"
@@ -3977,11 +3978,13 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
         SignalReport, on_delete=models.DO_NOTHING, db_constraint=False, null=True, blank=True, related_name="+"
     )
     task_run_id = models.UUIDField(null=True, blank=True, unique=True)
-    llm_failed_stages = ArrayField(models.CharField(max_length=100), default=list)
-    spend = models.DecimalField(max_digits=20, decimal_places=4, default=0, help_text="Customer spend in USD cents")
+    llm_failed_stages = ArrayField(models.CharField(max_length=100), default=list, db_default=[])
+    spend = models.DecimalField(
+        max_digits=20, decimal_places=4, default=0, db_default=0, help_text="Customer spend in USD cents"
+    )
     accounting_failed = models.BooleanField(default=False)
     finalized_at = models.DateTimeField(null=True, blank=True, db_index=True)
-    billing_exempt = models.BooleanField(default=False)
+    billing_exempt = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -3993,24 +3996,34 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
             ),
             models.CheckConstraint(
                 condition=(
-                    models.Q(signal_id__isnull=False, scout_run__isnull=True, report__isnull=True)
+                    models.Q(kind__isnull=False)
                     & (
-                        models.Q(kind="ad-hoc", task_run_id__isnull=True)
-                        | models.Q(kind__in=["research", "repo_selection"], task_run_id__isnull=False)
+                        models.Q(signal_id__isnull=False, scout_run__isnull=True, report__isnull=True)
+                        & (
+                            models.Q(kind="ad-hoc", task_run_id__isnull=True)
+                            | models.Q(kind__in=["research", "repo_selection"], task_run_id__isnull=False)
+                        )
+                        | models.Q(
+                            kind="scout_run",
+                            scout_run__isnull=False,
+                            signal_id__isnull=True,
+                            report__isnull=True,
+                            task_run_id__isnull=False,
+                        )
+                        | models.Q(
+                            kind__in=["reviewer_triggered_implementation", "scout_triggered_implementation"],
+                            report__isnull=False,
+                            signal_id__isnull=True,
+                            scout_run__isnull=True,
+                            task_run_id__isnull=False,
+                        )
                     )
                     | models.Q(
-                        kind="scout_run",
-                        scout_run__isnull=False,
-                        signal_id__isnull=True,
+                        kind__isnull=True,
+                        task_run_id__isnull=True,
                         report__isnull=True,
-                        task_run_id__isnull=False,
-                    )
-                    | models.Q(
-                        kind__in=["reviewer_triggered_implementation", "scout_triggered_implementation"],
-                        report__isnull=False,
-                        signal_id__isnull=True,
-                        scout_run__isnull=True,
-                        task_run_id__isnull=False,
+                        finalized_at__isnull=True,
+                        spend=0,
                     )
                 ),
                 name="signals_owner_spend_kind_owner",

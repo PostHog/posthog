@@ -14,7 +14,6 @@ class Migration(migrations.Migration):
     ]
 
     # Receipt history is intentionally discarded for the new spend model.
-    # Stop old accounting workers before this reset; they cannot write the new spend schema.
     operations = [
         migrations.RunSQL("TRUNCATE TABLE signals_signalspend"),
         migrations.RemoveConstraint(
@@ -43,7 +42,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="signalspend",
             name="billing_exempt",
-            field=models.BooleanField(default=False),
+            field=models.BooleanField(default=False, db_default=False),
         ),
         migrations.AddField(
             model_name="signalspend",
@@ -53,7 +52,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="signalspend",
             name="kind",
-            preserve_default=False,
             field=models.CharField(
                 choices=[
                     ("research", "Research"),
@@ -69,7 +67,7 @@ class Migration(migrations.Migration):
                         "Scout Triggered Implementation",
                     ),
                 ],
-                default="ad-hoc",
+                null=True,
                 max_length=40,
             ),
         ),
@@ -77,7 +75,7 @@ class Migration(migrations.Migration):
             model_name="signalspend",
             name="llm_failed_stages",
             field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=100), default=list, size=None
+                base_field=models.CharField(max_length=100), default=list, db_default=[], size=None
             ),
         ),
         migrations.AddField(
@@ -98,6 +96,7 @@ class Migration(migrations.Migration):
             field=models.DecimalField(
                 decimal_places=4,
                 default=0,
+                db_default=0,
                 help_text="Customer spend in USD cents",
                 max_digits=20,
             ),
@@ -130,41 +129,51 @@ class Migration(migrations.Migration):
         migrations.AddConstraint(
             model_name="signalspend",
             constraint=models.CheckConstraint(
-                condition=models.Q(
-                    models.Q(
-                        ("report__isnull", True),
-                        ("scout_run__isnull", True),
-                        ("signal_id__isnull", False),
+                condition=(
+                    models.Q(kind__isnull=False)
+                    & models.Q(
                         models.Q(
-                            models.Q(("kind", "ad-hoc"), ("task_run_id__isnull", True)),
+                            ("report__isnull", True),
+                            ("scout_run__isnull", True),
+                            ("signal_id__isnull", False),
                             models.Q(
-                                ("kind__in", ["research", "repo_selection"]),
-                                ("task_run_id__isnull", False),
+                                models.Q(("kind", "ad-hoc"), ("task_run_id__isnull", True)),
+                                models.Q(
+                                    ("kind__in", ["research", "repo_selection"]),
+                                    ("task_run_id__isnull", False),
+                                ),
+                                _connector="OR",
                             ),
-                            _connector="OR",
                         ),
-                    ),
-                    models.Q(
-                        ("kind", "scout_run"),
-                        ("report__isnull", True),
-                        ("scout_run__isnull", False),
-                        ("signal_id__isnull", True),
-                        ("task_run_id__isnull", False),
-                    ),
-                    models.Q(
-                        (
-                            "kind__in",
-                            [
-                                "reviewer_triggered_implementation",
-                                "scout_triggered_implementation",
-                            ],
+                        models.Q(
+                            ("kind", "scout_run"),
+                            ("report__isnull", True),
+                            ("scout_run__isnull", False),
+                            ("signal_id__isnull", True),
+                            ("task_run_id__isnull", False),
                         ),
-                        ("report__isnull", False),
-                        ("scout_run__isnull", True),
-                        ("signal_id__isnull", True),
-                        ("task_run_id__isnull", False),
-                    ),
-                    _connector="OR",
+                        models.Q(
+                            (
+                                "kind__in",
+                                [
+                                    "reviewer_triggered_implementation",
+                                    "scout_triggered_implementation",
+                                ],
+                            ),
+                            ("report__isnull", False),
+                            ("scout_run__isnull", True),
+                            ("signal_id__isnull", True),
+                            ("task_run_id__isnull", False),
+                        ),
+                        _connector="OR",
+                    )
+                    | models.Q(
+                        kind__isnull=True,
+                        task_run_id__isnull=True,
+                        report__isnull=True,
+                        finalized_at__isnull=True,
+                        spend=0,
+                    )
                 ),
                 name="signals_owner_spend_kind_owner",
             ),

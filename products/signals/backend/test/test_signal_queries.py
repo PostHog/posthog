@@ -51,7 +51,7 @@ from products.signals.backend.temporal.signal_queries import (
     retract_source_signals,
 )
 
-_MODEL_TABLE = f"distributed_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
+_MODEL_TABLE = f"sharded_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
 
 
 class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):

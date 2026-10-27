@@ -48,6 +48,7 @@ from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.runner import _self_heal_stale_runs
 from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
 from products.signals.backend.spend import (
+    SignalSpendSummary,
     SignalSpendUpdate,
     begin_report_spend,
     complete_signal_pipeline,
@@ -616,6 +617,7 @@ class TestSignalSpend(BaseTest):
         run = TaskRun.objects.get(id=run_id, team_id=team_id)
         spend = SignalSpend.objects.for_team(team_id).filter(task_run_id=run.id).first()
         if spend:
+            assert spend.kind is not None
             record_task_spend(
                 team_id=team_id,
                 run_id=run_id,
@@ -888,6 +890,32 @@ class TestSignalSpend(BaseTest):
                 finalized_at=timezone.now(),
             )
             assert spend.objects.get(id=row.id).spend == Decimal("4.0123")
+            legacy_signal = old_spend.objects.create(
+                team_id=self.team.id,
+                signal_id=row.signal_id,
+                source_id="overlapping-call",
+                token_cost_microusd=20_000,
+                accounting_failed=True,
+            )
+            legacy_scout = old_spend.objects.create(
+                team_id=self.team.id,
+                scout_run_id=uuid4(),
+                source_id=str(uuid4()),
+                is_task=True,
+            )
+            legacy_scout.token_cost_microusd = 30_000
+            legacy_scout.save(update_fields=["token_cost_microusd"])
+            assert old_spend.objects.get(id=legacy_scout.id).token_cost_microusd == 30_000
+            assert list(
+                spend.objects.filter(id__in=[legacy_signal.id, legacy_scout.id]).values_list(
+                    "kind", "spend", "finalized_at"
+                )
+            ) == [(None, Decimal(0), None), (None, Decimal(0), None)]
+            assert signal_spend_summaries(team_id=self.team.id, signal_ids=[str(row.signal_id)]) == {
+                str(row.signal_id): SignalSpendSummary(total_spend=4.0123, failed_stages=[])
+            }
+            with self.assertRaises(IntegrityError), transaction.atomic():
+                spend.objects.filter(id=legacy_signal.id).update(finalized_at=timezone.now())
             with connection.cursor() as cursor:
                 cursor.execute("SELECT 'signals_signalspend'::regclass::oid")
                 assert cursor.fetchone()[0] == original_table
