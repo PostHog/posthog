@@ -21,7 +21,6 @@ import {
 
 import { makeReport } from './__mocks__/inboxMocks'
 import {
-    FREE_TRIAL_PR_DISABLED_REASON,
     FIX_CI_REQUEST,
     MERGE_PR_REQUEST,
     REPORT_AI_PANEL,
@@ -563,7 +562,7 @@ describe('inboxTaskKickoffLogic', () => {
         })
     })
 
-    describe('freeTrialDisabledReason', () => {
+    describe('manual report billing', () => {
         let logic: ReturnType<typeof inboxTaskKickoffLogic.build>
 
         beforeEach(() => {
@@ -579,14 +578,11 @@ describe('inboxTaskKickoffLogic', () => {
             logic.unmount()
         })
 
-        it.each([
-            [true, FREE_TRIAL_PR_DISABLED_REASON],
-            [false, null],
-        ])('with the free trial flag %s, Create PR carries %s', (enabled, expected) => {
+        it.each([true, false])('Create PR uses the same consent gate with self-driving trial %s', (enabled) => {
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SELF_DRIVING_FREE_TRIAL], {
                 [FEATURE_FLAGS.SELF_DRIVING_FREE_TRIAL]: enabled,
             })
-            expect(logic.values.freeTrialDisabledReason).toBe(expected)
+            expect(logic.values.createPrDisabledReason).toBe(logic.values.aiConsentDisabledReason)
         })
     })
 

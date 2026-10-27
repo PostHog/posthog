@@ -29,7 +29,6 @@ from posthog.utils import absolute_uri
 
 from products.signals.backend.artefact_schemas import SIGNALS_PRODUCT, TASK_RUN_TYPE_DISCUSSION
 from products.signals.backend.enums import ReportTaskActionKind
-from products.signals.backend.free_trial import FREE_TRIAL_PR_MESSAGE, self_driving_free_trial_enabled
 from products.signals.backend.implementation_pr import ImplementationPr, fetch_implementation_prs_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.pr_ci_status import pr_ci_statuses_for_references, rollup_ci_status
@@ -238,9 +237,6 @@ def get_it_merged_action(
         disabled_reason = GET_IT_MERGED_NO_PR_DISABLED_REASON
     if disabled_reason is None and not context.pr_actions_flag_enabled():
         disabled_reason = GET_IT_MERGED_FLAG_DISABLED_REASON
-    # The merge pushes to the PR, so a trial org gets the same refusal as Create PR.
-    if disabled_reason is None and self_driving_free_trial_enabled(context.team):
-        disabled_reason = FREE_TRIAL_PR_MESSAGE
     url = action_report_url(report)
     return ReportTaskAction(
         kind=ReportTaskActionKind.GET_IT_MERGED,
@@ -262,9 +258,6 @@ def make_it_green_action(
         disabled_reason = MAKE_IT_GREEN_FLAG_DISABLED_REASON
     if disabled_reason is None and not _open_pull_requests_ci_failing(report.team_id, list(state.pull_requests)):
         disabled_reason = MAKE_IT_GREEN_CI_NOT_FAILING_DISABLED_REASON
-    # The fix pushes to the PR, so a trial org gets the same refusal as Create PR.
-    if disabled_reason is None and self_driving_free_trial_enabled(context.team):
-        disabled_reason = FREE_TRIAL_PR_MESSAGE
     return ReportTaskAction(
         kind=ReportTaskActionKind.MAKE_IT_GREEN,
         disabled_reason=disabled_reason,

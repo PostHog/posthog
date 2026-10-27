@@ -23,6 +23,7 @@ export interface GatewayEnvInput {
   runSpanContext?: SpanContext;
   isInternal?: boolean;
   originProduct?: Task["origin_product"] | null;
+  billingProduct?: string | null;
   signalReportId?: string | null;
   aiStage?: string | null;
   aiAgentName?: string | null;
@@ -49,6 +50,7 @@ export function buildGatewayEnv(
     runSpanContext,
     isInternal = false,
     originProduct,
+    billingProduct,
     signalReportId,
     aiStage,
     aiAgentName,
@@ -68,7 +70,11 @@ export function buildGatewayEnv(
   logger: Logger,
 ): GatewayEnv {
   const { apiKey, apiUrl, projectId, serviceTier } = config;
-  const product = resolveGatewayProduct({ isInternal, originProduct });
+  const product = resolveGatewayProduct({
+    isInternal,
+    originProduct,
+    billingProduct,
+  });
   // Go-gateway runs authenticate with the per-run scoped token minted by the
   // worker (pinned product + on-behalf-of team, per-run spend cap), not the
   // run's per-team OAuth token, whose team has no gateway wallet. A routed
@@ -220,12 +226,14 @@ export function buildPiProviderRoute(
   config: Pick<AgentServerConfig, "apiKey" | "apiUrl" | "projectId">,
   {
     originProduct,
+    billingProduct,
     aiStage,
     taskId,
     model,
     properties,
   }: {
     originProduct?: Task["origin_product"] | null;
+    billingProduct?: string | null;
     aiStage?: string | null;
     taskId?: string | null;
     model?: string;
@@ -234,8 +242,9 @@ export function buildPiProviderRoute(
   logger: Logger,
 ): PiProviderRoute {
   const gatewayToken = process.env.AI_GATEWAY_TOKEN?.trim() || undefined;
+  const product = resolveGatewayProduct({ originProduct, billingProduct });
   const target = resolveGatewayTarget({
-    product: resolveGatewayProduct({ originProduct }),
+    product,
     aiStage,
     posthogHost: config.apiUrl,
   });
@@ -263,7 +272,11 @@ export function buildPiProviderRoute(
   }
   return {
     apiKey: config.apiKey,
-    baseUrl: resolveLlmGatewayUrl(process.env.LLM_GATEWAY_URL, config.apiUrl),
+    baseUrl: resolveLlmGatewayUrl(
+      process.env.LLM_GATEWAY_URL,
+      config.apiUrl,
+      product,
+    ),
     headers: buildPosthogPropertyHeaderRecord(properties),
     model,
     isAiGateway: false,

@@ -10,14 +10,11 @@ from __future__ import annotations
 DEFAULT_MAX_RUNTIME_S = 20 * 60
 TRIGGERED_BY_ONBOARDING = "onboarding"
 
-# Slack added on top of `DEFAULT_MAX_RUNTIME_S` for the Temporal activity
-# `start_to_close_timeout`, so heartbeat-based failures get a chance to surface
-# before Temporal's own timeout fires.
-ACTIVITY_SLACK_S = 60
+# Task teardown can wait up to 15 minutes for spend settlement after the agent stops.
+ACTIVITY_SLACK_S = 15 * 60 + 60
 
 # Hard ceiling on how long a regular scout activity can actually be running. The
-# workflow sets `start_to_close_timeout = DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S`,
-# providing a heartbeat window before Temporal's own timeout fires. The stale-RUNNING
+# allowance covers teardown as well as the agent's execution budget. The stale-RUNNING
 # self-heal in `runner.py` uses this as the staleness base.
 WORKFLOW_HARD_CEILING_S = DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S
 

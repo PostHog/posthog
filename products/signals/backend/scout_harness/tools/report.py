@@ -1567,7 +1567,9 @@ async def _maybe_autostart_report(*, team_id: int, report_id: str) -> None:
     )
 
     try:
-        await maybe_autostart_from_report_artefacts(team_id=team_id, report_id=report_id)
+        await maybe_autostart_from_report_artefacts(
+            team_id=team_id, report_id=report_id, implementation_spend_kind="scout_triggered_implementation"
+        )
     except Exception:
         logger.exception("signals_scout.emit_report: autostart failed", extra={"report_id": report_id})
 

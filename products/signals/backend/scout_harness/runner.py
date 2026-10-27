@@ -7,7 +7,7 @@ from collections import deque
 from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from functools import lru_cache
+from functools import lru_cache, partial
 from typing import Any
 from uuid import UUID
 
@@ -86,6 +86,7 @@ from products.signals.backend.scout_harness.trial_launch import (
 from products.signals.backend.scout_harness.trial_result import export_trial_result, validate_trial_runtime
 from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY, initial_trial_state
 from products.signals.backend.scout_report import scout_report_tags_in_use
+from products.signals.backend.spend import record_task_spend
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -1367,6 +1368,10 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
     )
     if not stale_runs:
         return
+    from products.signals.backend.tasks import (
+        settle_scout_spend,  # noqa: PLC0415 - avoids loading the Celery task registry when importing the runner
+    )
+
     # Resolve the team once, only when there is actually something to reap, so the reaped
     # event carries the same team / groups shape as the other scout lifecycle events.
     team = _get_team(team_id)
@@ -1414,6 +1419,7 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
                 status_before=status_before,
                 age_seconds=age_seconds,
             )
+            transaction.on_commit(partial(settle_scout_spend.delay, team_id=team_id, run_id=str(task_run.id)))
         except Exception:
             logger.exception(
                 "signals_scout: failed to reap stale in-progress run; continuing",
@@ -1575,16 +1581,19 @@ def _create_run_row(
     # by it. Absent when no pre-check ran.
     if precheck_query_source:
         metadata["precheck_query_source"] = precheck_query_source
-    return SignalScoutRun.objects.unscoped().create(
-        id=run_id,
-        task_run_id=task_run_id,
-        team=team,
-        scout_config=config,
-        skill_name=skill.name,
-        skill_version=skill.version,
-        metadata=metadata,
-        trial_state=initial_trial_state() if trial is not None else None,
-    )
+    with transaction.atomic():
+        run = SignalScoutRun.objects.for_team(team.id).create(
+            id=run_id,
+            task_run_id=task_run_id,
+            team=team,
+            scout_config=config,
+            skill_name=skill.name,
+            skill_version=skill.version,
+            metadata=metadata,
+            trial_state=initial_trial_state() if trial is not None else None,
+        )
+        record_task_spend(team_id=team.id, run_id=str(task_run_id), scout_run_id=str(run.id), stage="scout")
+    return run
 
 
 @dataclass(frozen=True)

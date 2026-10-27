@@ -3,7 +3,7 @@
 import json
 import asyncio
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from typing import Any
 
@@ -16,7 +16,9 @@ import temporalio
 import posthoganalytics
 from structlog.types import FilteringBoundLogger
 from temporalio import workflow
+from temporalio.client import WorkflowExecutionStatus
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.workflow import ParentClosePolicy
 
 from posthog.clickhouse.client.connection import ClickHouseUser
@@ -26,6 +28,7 @@ from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_SIGNALS_REPORT_COMPLETED
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
@@ -41,6 +44,7 @@ from products.signals.backend.models import (
     SIGNALS_AT_RUN_INCREMENT,
     SignalReport,
     SignalReportArtefact,
+    SignalSpend,
     SignalTeamConfig,
 )
 from products.signals.backend.quota import (
@@ -52,7 +56,12 @@ from products.signals.backend.report_generation.research import ActionabilityCho
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_metric_query_access import query_filter_shape_allows_read
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS
-from products.signals.backend.spend import publish_report_spend
+from products.signals.backend.spend import (
+    begin_report_spend,
+    finish_report_spend,
+    publish_signal_spend,
+    report_triggering_signal,
+)
 from products.signals.backend.stack_plan import create_layer_reports, start_unblocked_layers_of_plan
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.agentic.report import (
@@ -81,6 +90,7 @@ from products.signals.backend.temporal.types import (
     SignalReportSummaryWorkflowInputs,
     next_research_bucket,
 )
+from products.tasks.backend.facade.api import get_task_run
 
 logger = structlog.get_logger(__name__)
 
@@ -195,6 +205,33 @@ class ReportDecision:
     pending_reason: str | None = None
 
 
+@temporalio.activity.defn
+async def check_report_task_settlement_activity(input: SignalReportSummaryWorkflowInputs) -> None:
+    @database_sync_to_async
+    def task_run_ids() -> list[str]:
+        return [
+            str(run_id)
+            for run_id in SignalSpend.objects.for_team(input.team_id)
+            .filter(signal_id=input.signal_id, task_run_id__isnull=False)
+            .values_list("task_run_id", flat=True)
+        ]
+
+    run_ids = await task_run_ids()
+    if not run_ids:
+        return
+    client = await async_connect()
+    for run_id in run_ids:
+        run = await database_sync_to_async(get_task_run)(run_id, team_id=input.team_id)
+        if run is None:
+            raise ApplicationError("Spend task run no longer exists", non_retryable=True)
+        execution = await client.get_workflow_handle(run.workflow_id).describe(rpc_timeout=timedelta(seconds=5))
+        if execution.status == WorkflowExecutionStatus.RUNNING:
+            # Retry backoff releases the slot needed by metadata publication on this same queue.
+            raise ApplicationError("Task spend is still settling", type="TaskSpendPending")
+        if execution.status != WorkflowExecutionStatus.COMPLETED:
+            raise ApplicationError("Task workflow did not complete settlement", non_retryable=True)
+
+
 @temporalio.workflow.defn(name="signal-report-summary")
 class SignalReportSummaryWorkflow:
     """
@@ -219,6 +256,34 @@ class SignalReportSummaryWorkflow:
     def workflow_id_for(team_id: int, report_id: str) -> str:
         return f"signals-report:{team_id}:{report_id}"
 
+    async def _wait_for_task_settlement(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
+        if inputs.signal_id and workflow.patched("signals-wait-for-task-settlement"):
+            try:
+                await workflow.execute_activity(
+                    check_report_task_settlement_activity,
+                    inputs,
+                    start_to_close_timeout=timedelta(minutes=1),
+                    schedule_to_close_timeout=timedelta(minutes=20),
+                    retry_policy=RetryPolicy(
+                        initial_interval=timedelta(seconds=5), maximum_interval=timedelta(seconds=30)
+                    ),
+                )
+            except ActivityError:
+                # Billing failure must not rerun paid research or discard its result.
+                workflow.logger.exception("signals.spend.accounting_failed", extra={"signal_id": inputs.signal_id})
+
+    async def _publish_spend(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
+        try:
+            await workflow.execute_activity(
+                publish_report_spend_activity,
+                inputs,
+                start_to_close_timeout=timedelta(minutes=20),
+                schedule_to_close_timeout=timedelta(minutes=20),
+                retry_policy=RetryPolicy(initial_interval=timedelta(seconds=5), maximum_interval=timedelta(seconds=30)),
+            )
+        except Exception:
+            workflow.logger.exception("Failed to publish completed signal spend")
+
     @temporalio.workflow.run
     async def run(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
         with posthoganalytics.new_context(capture_exceptions=False):
@@ -228,16 +293,10 @@ class SignalReportSummaryWorkflow:
             try:
                 await self._run_impl(inputs)
             finally:
-                if workflow.patched("signals-publish-spend-on-completion"):
-                    try:
-                        await workflow.execute_activity(
-                            publish_report_spend_activity,
-                            inputs,
-                            start_to_close_timeout=timedelta(minutes=20),
-                            retry_policy=RetryPolicy(maximum_attempts=1),
-                        )
-                    except Exception:
-                        workflow.logger.exception("Failed to publish completed report spend")
+                if workflow.patched("signals-publish-spend-on-completion") and not workflow.patched(
+                    "signals-spend-explicit-owner"
+                ):
+                    await self._publish_spend(inputs)
 
     async def _run_impl(self, inputs: SignalReportSummaryWorkflowInputs) -> None:
         # Bind team_id + report_id so all logs flow to the log_entries sink (the Temporal
@@ -255,7 +314,21 @@ class SignalReportSummaryWorkflow:
         for _ in range(max_iterations):
             # Loop internally rather than spawning new workflows because summary workflows are
             # fire-and-forget (ParentClosePolicy.ABANDON), so there's no external caller to wait/restart them.
-            should_loop = await self._run_once(inputs, log)
+            if workflow.patched("signals-spend-explicit-owner"):
+                signal_id = inputs.signal_id or await workflow.execute_activity(
+                    report_spend_owner_activity,
+                    inputs,
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                try:
+                    should_loop = await self._run_once(replace(inputs, signal_id=signal_id), log)
+                finally:
+                    if signal_id:
+                        await self._publish_spend(replace(inputs, signal_id=signal_id))
+                inputs = replace(inputs, signal_id=None)
+            else:
+                should_loop = await self._run_once(inputs, log)
             if not should_loop:
                 return
         log.warning(
@@ -390,6 +463,7 @@ class SignalReportSummaryWorkflow:
             MarkReportInProgressInput(
                 team_id=inputs.team_id,
                 report_id=inputs.report_id,
+                signal_id=inputs.signal_id,
                 signal_count=signal_count,
                 source_products=source_products,
             ),
@@ -403,6 +477,7 @@ class SignalReportSummaryWorkflow:
                 SafetyJudgeInput(
                     team_id=inputs.team_id,
                     report_id=inputs.report_id,
+                    signal_id=inputs.signal_id,
                     signals=fetch_result.signals,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
@@ -447,6 +522,7 @@ class SignalReportSummaryWorkflow:
                 SelectRepositoryInput(
                     team_id=inputs.team_id,
                     report_id=inputs.report_id,
+                    signal_id=inputs.signal_id,
                     signals=fetch_result.signals,
                 ),
                 # Budget = heavy-cache warmup (cold, ≤1000 repos, rate-limit backoffs) +
@@ -456,6 +532,7 @@ class SignalReportSummaryWorkflow:
                 # Retry once: the sandbox agent turn can time out (poll_for_turn) or hit a transient LLM 429.
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
+            await self._wait_for_task_settlement(inputs)
             if repo_result.repository is None:
                 log.warning(
                     "Report has no repository selected",
@@ -485,6 +562,7 @@ class SignalReportSummaryWorkflow:
                     RunAgenticReportInput(
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,
+                        signal_id=inputs.signal_id,
                         signals=fetch_result.signals,
                         repo_selection=repo_result,
                         repo_selection_as_of=repo_selection_as_of,
@@ -494,6 +572,7 @@ class SignalReportSummaryWorkflow:
                     # Retry once: the sandbox agent turn can time out (poll_for_turn) or hit a transient LLM 429.
                     retry_policy=RetryPolicy(maximum_attempts=2),
                 )
+                await self._wait_for_task_settlement(inputs)
                 decision = ReportDecision(
                     title=agentic_result.title,
                     summary=agentic_result.summary,
@@ -799,12 +878,13 @@ async def revert_report_to_candidate_activity(input: RevertReportToCandidateInpu
     )
 
 
-@dataclass
+@dataclass(frozen=False)
 class MarkReportInProgressInput:
     team_id: int
     report_id: str
     signal_count: int
     source_products: list[str] = field(default_factory=list)
+    signal_id: str | None = None
 
 
 @temporalio.activity.defn
@@ -824,6 +904,9 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.IN_PROGRESS:
                 return report.run_count, True
+            signal_id = input.signal_id or (str(report.triggering_signal_id) if report.triggering_signal_id else None)
+            if signal_id:
+                begin_report_spend(team_id=input.team_id, report_id=input.report_id, signal_id=signal_id)
             updated_fields = report.transition_to(
                 SignalReport.Status.IN_PROGRESS, signals_at_run_increment=SIGNALS_AT_RUN_INCREMENT
             )
@@ -1491,4 +1574,29 @@ async def publish_report_completed_activity(input: PublishReportCompletedInput) 
 @temporalio.activity.defn
 @scoped_temporal()
 async def publish_report_spend_activity(input: SignalReportSummaryWorkflowInputs) -> None:
-    await publish_report_spend(team_id=input.team_id, report_id=input.report_id)
+    # Older histories did not snapshot their owner. New passes always supply it explicitly.
+    signal_id = input.signal_id or await database_sync_to_async(report_triggering_signal)(
+        team_id=input.team_id, report_id=input.report_id
+    )
+    if signal_id:
+        await database_sync_to_async(finish_report_spend)(
+            team_id=input.team_id, report_id=input.report_id, signal_id=signal_id
+        )
+        # Release the shared activity slot between attempts so the metadata publisher can run.
+        await asyncio.wait_for(
+            publish_signal_spend(
+                team_id=input.team_id,
+                signal_id=signal_id,
+                update_id=f"{temporalio.activity.info().workflow_run_id}:{temporalio.activity.info().activity_id}",
+            ),
+            timeout=5,
+        )
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def report_spend_owner_activity(input: SignalReportSummaryWorkflowInputs) -> str | None:
+    return input.signal_id or await database_sync_to_async(report_triggering_signal)(
+        team_id=input.team_id, report_id=input.report_id
+    )

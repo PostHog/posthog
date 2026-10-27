@@ -129,8 +129,12 @@ _MINT_ATTEMPTS = 2
 _MINT_TIMEOUT_SECONDS = 3
 
 
-def resolve_sandbox_ai_product(origin_product: str | None, ai_stage: str | None, *, internal: bool = False) -> str:
+def resolve_sandbox_ai_product(
+    origin_product: str | None, ai_stage: str | None, *, internal: bool = False, billing_product: str | None = None
+) -> str:
     """The `ai_product` the agent server will resolve for this run."""
+    if origin_product == "signal_report" and billing_product == "posthog_ai":
+        return "posthog_ai"
     gateway_product = _ORIGIN_TO_GATEWAY_PRODUCT.get(origin_product or "")
     # Stored rows may carry a caller-set review_hog origin predating its
     # reservation; only the server-stamped `internal` flag admits the mintable product.
