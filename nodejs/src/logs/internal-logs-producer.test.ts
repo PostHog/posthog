@@ -137,6 +137,34 @@ describe('InternalLogsProducer', () => {
         expect(fetchMock).toHaveBeenCalledTimes(2)
     })
 
+    it('splits a large team batch into requests under the capture-logs body limit', async () => {
+        const message = 'x'.repeat(10_000)
+        await new InternalLogsProducer(config(), teamManager).send(
+            Array.from({ length: 250 }, () => record({ message }))
+        )
+
+        const bodies = fetchMock.mock.calls.map(([, options]) => options!.body as string)
+        expect(bodies.length).toBeGreaterThan(1)
+        for (const body of bodies) {
+            expect(Buffer.byteLength(body)).toBeLessThan(2 * 1024 * 1024)
+        }
+        const sent = bodies.map((body) => (parseJSON(body) as any).resourceLogs[0].scopeLogs[0].logRecords.length)
+        expect(sent.reduce((a, b) => a + b, 0)).toEqual(250)
+    })
+
+    it('replaces an unpaired surrogate so capture-logs can decode the rest of the batch', async () => {
+        await new InternalLogsProducer(config(), teamManager).send([
+            record({ message: '😀'.substring(0, 1) }),
+            record({ message: 'valid' }),
+        ])
+
+        const body = fetchMock.mock.calls[0][1]!.body as string
+        const messages = (parseJSON(body) as any).resourceLogs[0].scopeLogs[0].logRecords.map(
+            (r: any) => r.body.stringValue
+        )
+        expect(messages).toEqual(['\uFFFD', 'valid'])
+    })
+
     it('resolves when capture-logs is unreachable', async () => {
         fetchMock.mockRejectedValueOnce(new Error('connect ECONNREFUSED'))
 

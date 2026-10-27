@@ -4,6 +4,7 @@ import { Counter } from 'prom-client'
 import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
 import { internalFetch } from '~/common/utils/request'
+import { sanitizeForUTF8 } from '~/common/utils/strings'
 import type { TeamManager } from '~/common/utils/team-manager'
 import type { ValueMatcher } from '~/types'
 
@@ -18,6 +19,9 @@ const SERVICE_NAMES: Readonly<Record<string, string>> = {
 
 // OTLP SeverityNumber for the first value of each range.
 const SEVERITY_NUMBERS: Readonly<Record<string, number>> = { debug: 5, info: 9, warn: 13, error: 17 }
+
+// Half of capture-logs' default 2 MiB body limit, which leaves room for the envelope.
+const MAX_REQUEST_RECORD_BYTES = 1024 * 1024
 
 export type InternalLogRecord = {
     source: string
@@ -64,23 +68,24 @@ export class InternalLogsProducer {
 
     /** Never throws. A caller must not await the result on a hot path, because capture-logs can be slow. */
     async send(records: InternalLogRecord[]): Promise<void> {
-        const batches = new Map<string, InternalLogRecord[]>()
+        const batches = new Map<string, { source: string; teamId: number; records: OtlpLogRecord[] }>()
         for (const record of records) {
             if (!this.accepts(record.source, record.teamId)) {
                 continue
             }
             const key = `${record.source}:${record.teamId}`
-            const batch = batches.get(key)
-            if (batch) {
-                batch.push(record)
-            } else {
-                batches.set(key, [record])
-            }
+            const batch = batches.get(key) ?? { source: record.source, teamId: record.teamId, records: [] }
+            batch.records.push(toOtlpLogRecord(record))
+            batches.set(key, batch)
         }
-        await Promise.all([...batches.values()].map((batch) => this.sendBatch(batch[0].source, batch[0].teamId, batch)))
+        await Promise.all(
+            [...batches.values()].flatMap(({ source, teamId, records }) =>
+                splitBySize(records).map((chunk) => this.sendBatch(source, teamId, chunk))
+            )
+        )
     }
 
-    private async sendBatch(source: string, teamId: number, records: InternalLogRecord[]): Promise<void> {
+    private async sendBatch(source: string, teamId: number, records: OtlpLogRecord[]): Promise<void> {
         if (this.inFlight >= this.config.LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT) {
             internalLogsProducerBatchesCounter.inc({ source, outcome: 'dropped' })
             return
@@ -121,7 +126,40 @@ export class InternalLogsProducer {
     }
 }
 
-function toOtlpJson(source: string, records: InternalLogRecord[]): Record<string, unknown> {
+type OtlpLogRecord = Record<string, unknown>
+
+function toOtlpLogRecord(record: InternalLogRecord): OtlpLogRecord {
+    return {
+        timeUnixNano: (BigInt(record.timestamp.toMillis()) * 1_000_000n).toString(),
+        severityText: record.level.toUpperCase(),
+        severityNumber: SEVERITY_NUMBERS[record.level] ?? 0,
+        // capture-logs rejects a whole request that holds one unpaired surrogate.
+        body: { stringValue: sanitizeForUTF8(record.message) },
+        attributes: Object.entries(record.attributes).map(([key, value]) => ({ key, value: { stringValue: value } })),
+    }
+}
+
+function splitBySize(records: OtlpLogRecord[]): OtlpLogRecord[][] {
+    const chunks: OtlpLogRecord[][] = []
+    let chunk: OtlpLogRecord[] = []
+    let chunkBytes = 0
+    for (const record of records) {
+        const bytes = Buffer.byteLength(JSON.stringify(record))
+        if (chunk.length > 0 && chunkBytes + bytes > MAX_REQUEST_RECORD_BYTES) {
+            chunks.push(chunk)
+            chunk = []
+            chunkBytes = 0
+        }
+        chunk.push(record)
+        chunkBytes += bytes
+    }
+    if (chunk.length > 0) {
+        chunks.push(chunk)
+    }
+    return chunks
+}
+
+function toOtlpJson(source: string, records: OtlpLogRecord[]): Record<string, unknown> {
     return {
         resourceLogs: [
             {
@@ -133,16 +171,7 @@ function toOtlpJson(source: string, records: InternalLogRecord[]): Record<string
                 scopeLogs: [
                     {
                         scope: { name: source },
-                        logRecords: records.map((record) => ({
-                            timeUnixNano: (BigInt(record.timestamp.toMillis()) * 1_000_000n).toString(),
-                            severityText: record.level.toUpperCase(),
-                            severityNumber: SEVERITY_NUMBERS[record.level] ?? 0,
-                            body: { stringValue: record.message },
-                            attributes: Object.entries(record.attributes).map(([key, value]) => ({
-                                key,
-                                value: { stringValue: value },
-                            })),
-                        })),
+                        logRecords: records,
                     },
                 ],
             },
