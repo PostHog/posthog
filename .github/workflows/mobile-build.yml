@@ -4,10 +4,6 @@ name: Mobile Build
 # are published only by Mobile Release after a release request merges to master.
 # Release steps: products/mobile/docs/RELEASING.md.
 #
-# Required repository secret:
-#   EXPO_TOKEN - an Expo access token with build and submit permissions for the
-#                "posthog" account (https://expo.dev/settings/access-tokens).
-#
 # Store credentials stay on EAS, set once with `eas credentials`, so this workflow
 # never handles an Apple or Google key.
 
