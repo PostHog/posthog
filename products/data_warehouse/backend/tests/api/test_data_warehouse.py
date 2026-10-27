@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -9,6 +10,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.response import Response
+
+from posthog.models.team import Team
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -21,6 +24,22 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
+
+HALTED_AT = datetime(2026, 1, 15, 12, 0, tzinfo=UTC)
+
+
+def _failing_schema(team: Team, *, source_id: str = "halted-id", **fields: object) -> ExternalDataSchema:
+    source = ExternalDataSource.objects.create(
+        source_id=source_id,
+        connection_id="conn-id",
+        destination_id="dest-id",
+        team=team,
+        source_type="Stripe",
+    )
+    return ExternalDataSchema.objects.create(
+        name="charges", team=team, source=source, latest_error="Invalid API key", **fields
+    )
 
 
 class TestDataWarehouseAPI(APIBaseTest):
@@ -448,6 +467,59 @@ class TestDataWarehouseAPI(APIBaseTest):
         results = self.client.get(endpoint).json()["results"]
 
         self.assertEqual([issue for issue in results if issue["type"] == "external_data_sync"], [])
+
+    @parameterized.expand(
+        [
+            ("still_retrying", ExternalDataSchema.Status.FAILED, True, None, "failed"),
+            ("halted_by_posthog", ExternalDataSchema.Status.FAILED, False, HALTED_AT, "disabled"),
+            (
+                "billing_wins_over_halt",
+                ExternalDataSchema.Status.BILLING_LIMIT_REACHED,
+                False,
+                HALTED_AT,
+                "billing_limit",
+            ),
+        ]
+    )
+    def test_data_health_issues_reports_a_sync_unless_the_user_switched_it_off(
+        self,
+        _name: str,
+        schema_status: str,
+        should_sync: bool,
+        auto_disabled_at: datetime | None,
+        expected_status: str,
+    ) -> None:
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/data_health_issues"
+        schema = _failing_schema(
+            self.team, status=schema_status, should_sync=should_sync, auto_disabled_at=auto_disabled_at
+        )
+
+        results = self.client.get(endpoint).json()["results"]
+
+        syncs = {issue["id"]: issue for issue in results if issue["type"] == "external_data_sync"}
+        self.assertEqual(syncs[str(schema.id)]["status"], expected_status)
+
+    def test_data_health_issues_reports_when_posthog_halted_a_sync(self) -> None:
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/data_health_issues"
+        schema = _failing_schema(
+            self.team,
+            status=ExternalDataSchema.Status.FAILED,
+            should_sync=False,
+            auto_disabled_at=HALTED_AT,
+            last_synced_at=HALTED_AT - timedelta(days=3),
+            label="Charges",
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        results = self.client.get(endpoint).json()["results"]
+
+        syncs = [issue for issue in results if issue["type"] == "external_data_sync"]
+        self.assertEqual(len(syncs), 1)
+        self.assertEqual(syncs[0]["failed_at"], HALTED_AT.isoformat())
+        self.assertEqual(syncs[0]["error"], "Invalid API key")
+        self.assertEqual(syncs[0]["name"], "Charges")
+        self.assertEqual(syncs[0]["sync_type"], "full_refresh")
+        self.assertEqual(syncs[0]["url"], f"/data-warehouse/sources/managed-{schema.source_id}")
 
     @parameterized.expand(
         [
@@ -1163,3 +1235,29 @@ class TestDataHealthIssuesReadsTheNewestRun(APIBaseTest):
         self._view("orders", status="Failed", latest_error="Ancient v1 error")
 
         assert "orders" not in self._reported()
+
+
+@pytest.mark.ee
+class TestDataHealthIssuesHaltedSyncAccess(WarehouseAccessControlTestMixin):
+    resource = "external_data_source"
+
+    def test_a_member_denied_on_a_source_does_not_see_its_halted_syncs(self) -> None:
+        granted = _failing_schema(
+            self.team, source_id="granted-id", status=ExternalDataSchema.Status.FAILED, should_sync=True
+        )
+        denied = _failing_schema(
+            self.team,
+            source_id="denied-id",
+            status=ExternalDataSchema.Status.FAILED,
+            should_sync=False,
+            auto_disabled_at=HALTED_AT,
+        )
+        self._create_access_control(self.viewer_user, access_level="none")
+        self._create_access_control(self.viewer_user, resource_id=str(granted.source_id), access_level="viewer")
+        self.client.force_login(self.viewer_user)
+
+        results = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/data_health_issues").json()["results"]
+
+        reported = {issue["id"] for issue in results if issue["type"] == "external_data_sync"}
+        self.assertEqual(reported, {str(granted.id)})
+        self.assertNotIn(str(denied.id), reported)
