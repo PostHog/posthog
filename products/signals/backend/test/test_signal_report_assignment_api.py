@@ -27,7 +27,7 @@ from products.signals.backend.models import (
     SignalReportPullRequest,
 )
 from products.signals.backend.report_assignments import update_assignments_for_pull_request
-from products.signals.backend.report_claims import get_active_claim
+from products.signals.backend.report_claims import get_active_claim, get_active_claims, responsible_users
 from products.signals.backend.report_monitoring_attempts import complete_implementation
 
 
@@ -963,6 +963,23 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         rows = response.json()["results"]
         assert {row["id"] for row in rows} == {str(report.id) for report in mine}
         assert {row["assignee"]["responsible_user"]["id"] for row in rows} == {self.user.id}
+
+    def test_responsible_users_resolves_task_claims_in_fixed_queries(self):
+        Task = apps.get_model("tasks", "Task")
+        reports = [self._create_report(title=f"Task report {i}") for i in range(3)]
+        for report in reports:
+            task = Task.objects.create(
+                team=self.team, created_by=self.user, title="Task", origin_product=Task.OriginProduct.SIGNAL_REPORT
+            )
+            headers = {"X-PostHog-Task-Id": str(task.id)}
+            assert self.client.post(self._claim_url(report), data={}, format="json", headers=headers).status_code == 200
+        claims = get_active_claims(team_id=self.team.id, report_ids=[str(report.id) for report in reports])
+
+        with self.assertNumQueries(2):
+            users = responsible_users(claims.values())
+
+        assert len(users) == len(reports)
+        assert {user.id for user in users.values()} == {self.user.id}
 
     def test_claimed_report_remains_in_default_actionable_list(self):
         report = self._create_report()

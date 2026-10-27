@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { myClaim } from '../__mocks__/inboxMocks'
 import {
     INBOX_SCOPE_CLAIMED_BY_YOU,
     INBOX_SCOPE_ENTIRE_PROJECT,
@@ -151,6 +152,32 @@ describe('reportListLogic', () => {
                     suggested_reviewers,
                     assignee,
                 })
+            }
+        )
+
+        it.each([
+            { name: 'tags the row with a new claim', scope: INBOX_SCOPE_ENTIRE_PROJECT, assignee: myClaim },
+            { name: 'drops a released row from Claimed by you', scope: INBOX_SCOPE_CLAIMED_BY_YOU, assignee: null },
+        ] as { name: string; scope: InboxScope; assignee: SignalReport['assignee'] }[])(
+            'a claim change in the detail pane $name',
+            async ({ scope, assignee }) => {
+                const bulkLogic = inboxBulkActionsLogic()
+                bulkLogic.mount()
+                logic.actions.setScope(scope)
+                await expectLogic(logic).toFinishAllListeners()
+                const countBefore = logic.values.totalCount ?? 0
+
+                bulkLogic.actions.reportClaimChanged(FIRST_PAGE[0].id, assignee)
+                await expectLogic(logic).toFinishAllListeners()
+
+                const row = logic.values.reports.find((r) => r.id === FIRST_PAGE[0].id)
+                if (assignee) {
+                    expect(row?.assignee).toEqual(assignee)
+                } else {
+                    expect(row).toBeUndefined()
+                    expect(logic.values.totalCount).toBe(countBefore - 1)
+                }
+                bulkLogic.unmount()
             }
         )
 

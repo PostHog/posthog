@@ -20,6 +20,7 @@ import {
 } from 'products/signals/frontend/generated/api'
 import type { SignalReportMetricSnapshotsApi } from 'products/signals/frontend/generated/api.schemas'
 
+import type { SignalReportAssigneeApi } from '../../generated/api.schemas'
 import { createdAfterForWindow } from '../filterOptions'
 import { captureInboxReportAction, type InboxReportActionSurface, setInboxServedRanker } from '../inboxAnalytics'
 import {
@@ -337,6 +338,13 @@ export interface reportListLogicActions {
         reportId: string
         surface: InboxReportActionSurface
     }
+    setReportAssignee: (
+        reportId: string,
+        assignee: SignalReport['assignee']
+    ) => {
+        assignee: SignalReportAssigneeApi | null | undefined
+        reportId: string
+    }
     setSuggestedToMe: (
         reportIds: string[],
         isSuggested: boolean
@@ -465,6 +473,7 @@ export const reportListLogic = kea<reportListLogicType>([
         unassignMe: (reportId: string, surface: InboxReportActionSurface) => ({ reportId, surface }),
         unassignMeFinished: (reportId: string) => ({ reportId }),
         setSuggestedToMe: (reportIds: string[], isSuggested: boolean) => ({ reportIds, isSuggested }),
+        setReportAssignee: (reportId: string, assignee: SignalReport['assignee']) => ({ reportId, assignee }),
         removeReport: (reportId: string) => ({ reportId }),
         refresh: true,
         // Ask the server for the newest snapshot of the metrics these rows show. Best effort: a
@@ -578,6 +587,10 @@ export const reportListLogic = kea<reportListLogicType>([
                           results: state.results.filter((r) => r.id !== reportId),
                           count: Math.max(0, state.count - 1),
                       }
+                    : state,
+            setReportAssignee: (state, { reportId, assignee }) =>
+                state?.results.some((r) => r.id === reportId)
+                    ? { ...state, results: state.results.map((r) => (r.id === reportId ? { ...r, assignee } : r)) }
                     : state,
             setSuggestedToMe: (state, { reportIds, isSuggested }) => {
                 const ids = new Set(reportIds)
@@ -960,6 +973,23 @@ export const reportListLogic = kea<reportListLogicType>([
             if (userUuid) {
                 actions.setSuggestedToMe([reportId], reviewerUuids.includes(userUuid))
             }
+        },
+        // The Claimed by you list holds only the user's claims: a release drops the row in place, and a
+        // new claim reloads the list so the row joins it. Every other list updates the claim tag.
+        [inboxBulkActionsLogic.actionTypes.reportClaimChanged]: ({ reportId, assignee }) => {
+            const isLoaded = values.reports.some((r) => r.id === reportId)
+            if (values.scopeAssignee) {
+                const isMine = !!values.user?.uuid && assignee?.responsible_user?.uuid === values.user.uuid
+                if (!isMine && isLoaded) {
+                    actions.removeReport(reportId)
+                    return
+                }
+                if (isMine && !isLoaded) {
+                    actions.refresh()
+                    return
+                }
+            }
+            actions.setReportAssignee(reportId, assignee)
         },
         [inboxBulkActionsLogic.actionTypes.unassignedMe]: ({ reportIds }: { reportIds: string[] }) => {
             if (values.isScopedToMe) {

@@ -105,11 +105,10 @@ def responsible_users(claims: Iterable[ReportClaim]) -> dict[UUID, User]:
     task_claims = [claim for claim in claims if claim.actor_user is None and claim.actor_task_id is not None]
     if not task_claims:
         return result
-    tasks = tasks_facade.get_tasks_by_ids(
+    creator_by_task = tasks_facade.get_task_creator_ids(
         [claim.actor_task_id for claim in task_claims if claim.actor_task_id is not None],
         {claim.team_id for claim in task_claims},
     )
-    creator_by_task = {str(task.id): task.created_by_id for task in tasks if task.created_by_id is not None}
     users = User.objects.in_bulk(set(creator_by_task.values()))
     for claim in task_claims:
         creator_id = creator_by_task.get(str(claim.actor_task_id))
@@ -122,14 +121,7 @@ def reports_claimed_for_user(*, team_id: int, user_id: int) -> Q:
     """Reports whose active claim the user answers for: their own, their external agents', and their tasks'."""
     claims = active_claims(team_id=team_id)
     legacy = legacy_claims(team_id=team_id)
-    candidate_task_ids = [
-        *claims.filter(created_by__isnull=True, task_id__isnull=False).values_list("task_id", flat=True),
-        *legacy.filter(actor_user__isnull=True, actor_task_id__isnull=False).values_list("actor_task_id", flat=True),
-    ]
-    task_ids = [task_id for task_id in candidate_task_ids if task_id is not None]
-    own_task_ids = [
-        task.id for task in tasks_facade.get_tasks_by_ids(task_ids, [team_id]) if task.created_by_id == user_id
-    ]
+    own_task_ids = tasks_facade.task_ids_created_by_subquery(team_id=team_id, user_id=user_id)
     own_claims = claims.filter(Q(created_by_id=user_id) | Q(created_by__isnull=True, task_id__in=own_task_ids))
     own_legacy = legacy.filter(Q(actor_user_id=user_id) | Q(actor_user__isnull=True, actor_task_id__in=own_task_ids))
     return Q(id__in=own_claims.values("report_id")) | Q(id__in=own_legacy.values("report_id"))
