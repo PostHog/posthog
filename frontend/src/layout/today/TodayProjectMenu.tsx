@@ -7,6 +7,7 @@ import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { withoutLeadingEmoji } from './leadingEmoji'
 import { TodayLogo } from './TodayLogo'
 import { ProjectMenuActionKey, todayProjectMenuLogic } from './todayProjectMenuLogic'
 import { TodaySwitcherMenu, TodaySwitcherRow } from './TodaySwitcherMenu'
@@ -45,7 +46,9 @@ export function TodayProjectMenu(): JSX.Element {
                             size="trigger"
                         />
                     )}
-                    <span className="max-w-48 min-w-0 truncate">{currentTeam?.name ?? 'Select project'}</span>
+                    <span className="max-w-48 min-w-0 truncate">
+                        {currentTeam ? withoutLeadingEmoji(currentTeam.name) : 'Select project'}
+                    </span>
                 </Button>
             }
             open={isProjectSwitcherOpen}
@@ -58,7 +61,7 @@ export function TodayProjectMenu(): JSX.Element {
                 label: group.name ?? 'Projects',
                 rows: group.projects.map(({ team }) => ({
                     value: String(team.id),
-                    label: team.name,
+                    label: withoutLeadingEmoji(team.name),
                     leading: (
                         <TodayLogo
                             name={team.name}
