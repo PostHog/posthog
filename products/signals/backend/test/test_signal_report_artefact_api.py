@@ -37,6 +37,7 @@ from products.signals.backend.models import (
     SignalReportSuggestedReviewer,
 )
 from products.signals.backend.reviewer_correction_notes import ForwardedCorrectionNotes
+from products.signals.backend.scout_harness.profile.builders import _recent_reviewer_corrections
 from products.signals.backend.scout_harness.tools.notes import list_notes
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
@@ -564,6 +565,41 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             correction = mock_forward.call_args.kwargs["correction"]
             assert correction is not None
             assert correction.removed_reviewers == ("bob",)
+
+    @parameterized.expand([("may_steer_scouts", True), ("may_not_steer_scouts", False)])
+    def test_put_removal_reason_reaches_the_corrections_profile_and_the_scout_note(self, _name, may_steer):
+        report = self._create_report()
+        self._create_artefact(report, content=[{"github_login": "alice"}, {"github_login": "bob"}])
+
+        with (
+            patch(
+                "products.signals.backend.views.forward_reviewer_correction_note",
+                return_value=ForwardedCorrectionNotes(note_ids=(), targets_resolved=0),
+            ) as mock_forward,
+            patch("products.signals.backend.views.principal_may_steer_scouts", return_value=may_steer),
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                response = self.client.put(
+                    f"/api/projects/{self.team.id}/signals/reports/{report.id}/reviewers/",
+                    data=json.dumps(
+                        {
+                            "action": "remove",
+                            "content": [{"github_login": "alice"}],
+                            "targets": [{"github_login": "bob"}],
+                            "removal_reason": "wrong_area",
+                            "removal_note": "  Billing is mine, checkout is not.  ",
+                        }
+                    ),
+                    content_type="application/json",
+                )
+
+        assert response.status_code == status.HTTP_200_OK
+        # Every scout reads the profile verbatim, so free text needs the scout-note permission. The reason does not.
+        expected_note = "Billing is mine, checkout is not." if may_steer else None
+        (row,) = _recent_reviewer_corrections(self.team)["corrections"]
+        assert (row["removal_reason"], row["removal_note"]) == ("wrong_area", expected_note)
+        correction = mock_forward.call_args.kwargs["correction"]
+        assert (correction.removal_reason, correction.removal_note) == ("wrong_area", expected_note)
 
     def test_put_reviewers_autostart_delegates_when_report_complete(self):
         # With actionability + repo + priority + reviewers all present, the reconstruction reaches

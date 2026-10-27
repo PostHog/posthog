@@ -27,8 +27,10 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.oauth import find_oauth_access_token
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
@@ -3019,6 +3021,42 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
     # --- internal scout token: lazy-builds on miss ---
+
+    @parameterized.expand(
+        [
+            ("scout_read_only", ["signal_scout:read"], None),
+            ("with_task_read", ["signal_scout:read", "task:read"], "The payments team owns this."),
+        ]
+    )
+    def test_removal_notes_need_report_read_access(self, _name: str, scopes: list[str], expected: str | None) -> None:
+        self._seed_profile()
+        row = SignalProjectProfile.objects.get(team=self.team)
+        row.payload["inventory"]["recent_reviewer_corrections"]["corrections"] = [
+            {
+                "report_id": "0198e7f0-0000-7000-8000-000000000001",
+                "report_title": "Checkout errors",
+                "before": ["octocat"],
+                "after": [],
+                "removal_reason": "wrong_area",
+                "removal_note": "The payments team owns this.",
+                "at": "2026-10-20T10:00:00+00:00",
+            }
+        ]
+        row.save(update_fields=["payload"])
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.get(self._list_url(), HTTP_AUTHORIZATION=f"Bearer {raw}")
+
+        assert response.status_code == status.HTTP_200_OK
+        # A removal note can quote dismissal text, so it follows the reports API's `task` read gate.
+        (served,) = response.json()["payload"]["inventory"]["recent_reviewer_corrections"]["corrections"]
+        assert (served["removal_reason"], served["removal_note"]) == ("wrong_area", expected)
+        # The stored profile is shared, so redaction must not touch it.
+        row.refresh_from_db()
+        stored = row.payload["inventory"]["recent_reviewer_corrections"]["corrections"][0]
+        assert stored["removal_note"] == "The payments team owns this."
 
     def test_scout_read_lazy_computes_a_profile_when_none_exists(self) -> None:
         _authenticate_as_scout(self)

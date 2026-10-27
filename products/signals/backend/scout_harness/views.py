@@ -393,6 +393,18 @@ def _may_read_reports(request: Request, canonical_team: Team) -> bool:
     return may_read_reports(user=user, team=canonical_team)
 
 
+def _withhold_removal_notes(body: dict[str, Any]) -> None:
+    """Blank the removal notes in a served profile, for a caller who cannot read reports.
+
+    A removal note can quote a report's dismissal text, which the reports API gates on `task` read.
+    Every caller shares the stored profile, so the check runs on the copy this request serves.
+    """
+    inventory = (body.get("payload") or {}).get("inventory") or {}
+    for correction in (inventory.get("recent_reviewer_corrections") or {}).get("corrections") or []:
+        if isinstance(correction, dict) and correction.get("removal_note"):
+            correction["removal_note"] = None
+
+
 class Conflict(exceptions.APIException):
     status_code = status.HTTP_409_CONFLICT
     default_detail = "A run for this scout is already in progress."
@@ -2465,6 +2477,8 @@ class SignalProjectProfileViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 "No project profile has been built for this team yet. A build has started, so retry in a minute."
             )
         body = profile.as_dict()
+        if not _may_read_reports(request, self.team.parent_team or self.team):
+            _withhold_removal_notes(body)
         _overlay_effective_emit_eligibility(
             body,
             team_id=team_id,

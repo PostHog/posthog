@@ -851,12 +851,15 @@ def _recent_reviewer_corrections(team: Team) -> dict[str, Any]:
         detail = row.detail or {}
         changes = detail.get("changes") or []
         change = changes[0] if changes and isinstance(changes[0], dict) else {}
+        stated = {c.get("field"): c.get("after") for c in changes if isinstance(c, dict)}
         corrections.append(
             {
                 "report_id": str(row.item_id),
                 "report_title": detail.get("name"),
                 "before": change.get("before") or [],
                 "after": change.get("after") or [],
+                "removal_reason": stated.get("removal_reason"),
+                "removal_note": stated.get("removal_note"),
                 "at": row.created_at.isoformat() if row.created_at else None,
             }
         )

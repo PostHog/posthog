@@ -494,6 +494,12 @@ const inboxReportReviewersUpdate = (): ToolBase<
         if (params.targets !== undefined) {
             body['targets'] = params.targets
         }
+        if (params.removal_reason !== undefined) {
+            body['removal_reason'] = params.removal_reason
+        }
+        if (params.removal_note !== undefined) {
+            body['removal_note'] = params.removal_note
+        }
         const result = await context.api.request<Schemas.SignalReportSuggestedReviewersArtefact>({
             method: 'PUT',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/reports/${encodeURIComponent(String(params.id))}/reviewers/`,
