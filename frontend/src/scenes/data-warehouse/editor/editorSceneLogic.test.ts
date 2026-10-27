@@ -43,4 +43,19 @@ describe('editorSceneLogic', () => {
         logic.unmount()
         expect(panelLayoutLogic.values.isLayoutNavCollapsed).toBe(false)
     })
+
+    it('opens the save target chooser and closes it after a selection', () => {
+        const logic = editorSceneLogic({ tabId: TAB_ID })
+        logic.mount()
+
+        expect(logic.values.isSaveAsModalOpen).toBe(false)
+
+        logic.actions.openSaveAsModal()
+        expect(logic.values.isSaveAsModalOpen).toBe(true)
+
+        logic.actions.selectSaveAsTarget('view')
+        expect(logic.values.isSaveAsModalOpen).toBe(false)
+
+        logic.unmount()
+    })
 })

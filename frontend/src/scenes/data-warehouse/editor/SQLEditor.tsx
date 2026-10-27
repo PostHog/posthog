@@ -43,6 +43,10 @@ import { MaterializationRunActions } from 'products/data_warehouse/frontend/shar
 import { ViewLinkModal } from 'products/data_warehouse/frontend/shared/components/ViewLinkModal'
 import { connectionSelectorLogic } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 import { aiChartRecommendationLogic } from 'products/data_warehouse/frontend/sql_editor/aiChartRecommendationLogic'
+import { QuillSaveAsDialog } from 'products/data_warehouse/frontend/sql_editor/QuillSaveAsDialog'
+import { SaveAsModal } from 'products/data_warehouse/frontend/sql_editor/SaveAsModal'
+import { SAVE_AS_TARGETS } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
+import type { SaveAsTarget, SaveAsTargetId } from 'products/data_warehouse/frontend/sql_editor/saveAsTargets'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
@@ -506,7 +510,7 @@ function AccessControlModal(): JSX.Element | null {
 }
 
 function SQLEditorSceneTitle(): JSX.Element | null {
-    const { titleSectionProps, updateInsightButtonEnabled, saveAsMenuItems, notebooksLoading } =
+    const { titleSectionProps, updateInsightButtonEnabled, saveAsMenuItems, notebooksLoading, isSaveAsModalOpen } =
         useValues(editorSceneLogic)
     const {
         queryInput,
@@ -518,7 +522,8 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         selectedConnectionId,
         hasEditorChanges,
     } = useValues(sqlEditorLogic)
-    const { convertToNotebook, openHistoryModal } = useActions(editorSceneLogic)
+    const { convertToNotebook, openHistoryModal, openSaveAsModal, closeSaveAsModal, selectSaveAsTarget } =
+        useActions(editorSceneLogic)
     const {
         updateInsight,
         closeEditingObject,
@@ -578,65 +583,6 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         AccessControlLevel.Editor
     )
 
-    const secondarySaveMenuItems = useMemo(
-        () =>
-            saveAsMenuItems.secondary.map((item) => ({
-                ...item,
-                onClick: () => {
-                    if (item.action === 'insight') {
-                        saveAsInsight()
-                        return
-                    }
-
-                    if (item.action === 'endpoint') {
-                        saveAsEndpoint()
-                        return
-                    }
-
-                    if (item.action === 'metric') {
-                        saveAsMetric()
-                        return
-                    }
-
-                    saveAsView()
-                },
-                accessDisabledReason:
-                    item.action === 'view'
-                        ? saveAsViewAccessDisabledReason
-                        : item.action === 'endpoint'
-                          ? saveAsEndpointDisabledReason
-                          : undefined,
-            })),
-        [
-            saveAsEndpoint,
-            saveAsInsight,
-            saveAsMetric,
-            saveAsMenuItems.secondary,
-            saveAsView,
-            saveAsViewAccessDisabledReason,
-            saveAsEndpointDisabledReason,
-        ]
-    )
-
-    const onPrimarySaveClick = (): void => {
-        if (saveAsMenuItems.primary.action === 'endpoint') {
-            saveAsEndpoint()
-            return
-        }
-
-        if (saveAsMenuItems.primary.action === 'metric') {
-            saveAsMetric()
-            return
-        }
-
-        if (saveAsMenuItems.primary.action === 'view') {
-            saveAsView()
-            return
-        }
-
-        saveAsInsight()
-    }
-
     const saveAsInsightDisabledReason = insightLoading
         ? 'Loading insight...'
         : !queryInput?.trim()
@@ -662,6 +608,40 @@ function SQLEditorSceneTitle(): JSX.Element | null {
 
         return undefined
     }, [insightLoading, isSourceQueryLastRun, responseLoading, responseError, response])
+
+    const disabledReasonForSaveAsTarget = (target: SaveAsTargetId): string | null | undefined => {
+        if (target === 'insight') {
+            return saveAsInsightDisabledReason
+        }
+        if (target === 'view') {
+            return saveAsDisabledReason ?? saveAsViewAccessDisabledReason
+        }
+        if (target === 'endpoint') {
+            return saveAsDisabledReason ?? saveAsEndpointDisabledReason
+        }
+        return saveAsDisabledReason
+    }
+
+    const saveAsTargets: SaveAsTarget[] = [saveAsMenuItems.primary, ...saveAsMenuItems.secondary].map((item) => ({
+        id: item.action,
+        ...SAVE_AS_TARGETS[item.action],
+        recommended: item.action === saveAsMenuItems.primary.action,
+        disabledReason: disabledReasonForSaveAsTarget(item.action),
+        dataAttr: item.dataAttr ?? `sql-editor-save-as-${item.action}`,
+    }))
+
+    const onSaveAsTargetSelect = (target: SaveAsTargetId): void => {
+        selectSaveAsTarget(target)
+        if (target === 'insight') {
+            saveAsInsight()
+        } else if (target === 'view') {
+            saveAsView()
+        } else if (target === 'endpoint') {
+            saveAsEndpoint()
+        } else {
+            saveAsMetric()
+        }
+    }
 
     const {
         disabledReason: editingViewDisabledReason,
@@ -701,6 +681,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
               ? continueInNotebookAccessDisabledReason
               : 'Write a SQL query before continuing',
         'data-attr': 'sql-editor-continue-in-notebook-button',
+    }
+    const saveAsMenuItem = {
+        label: 'Save as...',
+        onClick: () => openSaveAsModal(),
+        'data-attr': 'sql-editor-save-as-button',
     }
     const discardChangesButton = (
         <LemonButton
@@ -770,11 +755,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                             onUpdateView={updateEditingView}
                             saveAsInsightDisabledReason={saveAsInsightDisabledReason}
                             saveAsDisabledReason={saveAsDisabledReason}
-                            saveAsViewAccessDisabledReason={saveAsViewAccessDisabledReason}
-                            saveAsEndpointDisabledReason={saveAsEndpointDisabledReason}
                             continueInNotebookAccessDisabledReason={continueInNotebookAccessDisabledReason}
-                            secondarySaveMenuItems={secondarySaveMenuItems}
-                            onPrimarySaveClick={onPrimarySaveClick}
                         />
                     ) : (
                         <div className="flex flex-wrap items-center gap-2">
@@ -806,28 +787,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                     placement: 'bottom-end',
                                                     overlay: (
                                                         <LemonMenuOverlay
-                                                            items={[
-                                                                continueInNotebookMenuItem,
-                                                                {
-                                                                    label: 'Save as new insight...',
-                                                                    disabledReason: saveAsInsightDisabledReason,
-                                                                    onClick: () => saveAsInsight(),
-                                                                },
-                                                                {
-                                                                    label: 'Save as new view...',
-                                                                    disabledReason:
-                                                                        saveAsDisabledReason ??
-                                                                        saveAsViewAccessDisabledReason,
-                                                                    onClick: () => saveAsView(),
-                                                                },
-                                                                {
-                                                                    label: 'Save as endpoint...',
-                                                                    disabledReason:
-                                                                        saveAsDisabledReason ??
-                                                                        saveAsEndpointDisabledReason,
-                                                                    onClick: () => saveAsEndpoint(),
-                                                                },
-                                                            ]}
+                                                            items={[continueInNotebookMenuItem, saveAsMenuItem]}
                                                         />
                                                     ),
                                                 },
@@ -875,28 +835,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                     <LemonMenuOverlay
                                                         items={[
                                                             {
-                                                                items: [
-                                                                    continueInNotebookMenuItem,
-                                                                    {
-                                                                        label: 'Save as new insight...',
-                                                                        disabledReason: saveAsInsightDisabledReason,
-                                                                        onClick: () => saveAsInsight(),
-                                                                    },
-                                                                    {
-                                                                        label: 'Save as new view...',
-                                                                        disabledReason:
-                                                                            saveAsDisabledReason ??
-                                                                            saveAsViewAccessDisabledReason,
-                                                                        onClick: () => saveAsView(),
-                                                                    },
-                                                                    {
-                                                                        label: 'Save as endpoint...',
-                                                                        disabledReason:
-                                                                            saveAsDisabledReason ??
-                                                                            saveAsEndpointDisabledReason,
-                                                                        onClick: () => saveAsEndpoint(),
-                                                                    },
-                                                                ],
+                                                                items: [continueInNotebookMenuItem, saveAsMenuItem],
                                                             },
                                                             {
                                                                 items: [
@@ -930,18 +869,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                             icon: <IconChevronDown />,
                                             dropdown: {
                                                 placement: 'bottom-end',
-                                                overlay: (
-                                                    <LemonMenuOverlay
-                                                        items={secondarySaveMenuItems.map((item) => ({
-                                                            ...item,
-                                                            disabledReason:
-                                                                (item.action === 'insight'
-                                                                    ? saveAsInsightDisabledReason
-                                                                    : saveAsDisabledReason) ??
-                                                                item.accessDisabledReason,
-                                                        }))}
-                                                    />
-                                                ),
+                                                overlay: <LemonMenuOverlay items={[saveAsMenuItem]} />,
                                             },
                                         }}
                                     >
@@ -962,38 +890,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                     <LemonButton
                                         type="primary"
                                         size="small"
-                                        onClick={onPrimarySaveClick}
-                                        disabledReason={
-                                            (saveAsMenuItems.primary.action === 'insight'
-                                                ? saveAsInsightDisabledReason
-                                                : saveAsDisabledReason) ??
-                                            (saveAsMenuItems.primary.action === 'endpoint'
-                                                ? saveAsEndpointDisabledReason
-                                                : saveAsMenuItems.primary.action === 'view'
-                                                  ? saveAsViewAccessDisabledReason
-                                                  : undefined)
-                                        }
-                                        sideAction={{
-                                            icon: <IconChevronDown />,
-                                            'data-attr': 'sql-editor-save-options-button',
-                                            dropdown: {
-                                                placement: 'bottom-end',
-                                                overlay: (
-                                                    <LemonMenuOverlay
-                                                        items={secondarySaveMenuItems.map((item) => ({
-                                                            ...item,
-                                                            disabledReason:
-                                                                (item.action === 'insight'
-                                                                    ? saveAsInsightDisabledReason
-                                                                    : saveAsDisabledReason) ??
-                                                                item.accessDisabledReason,
-                                                        }))}
-                                                    />
-                                                ),
-                                            },
-                                        }}
+                                        onClick={() => openSaveAsModal()}
+                                        disabledReason={saveAsInsightDisabledReason}
+                                        data-attr="sql-editor-save-options-button"
                                     >
-                                        {saveAsMenuItems.primary.label}
+                                        Save as...
                                     </LemonButton>
                                 </>
                             )}
@@ -1002,6 +903,21 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                 }
             />
             <QueryHistoryModal />
+            {todayRailNav ? (
+                <QuillSaveAsDialog
+                    isOpen={isSaveAsModalOpen}
+                    targets={saveAsTargets}
+                    onClose={() => closeSaveAsModal()}
+                    onSelect={onSaveAsTargetSelect}
+                />
+            ) : (
+                <SaveAsModal
+                    isOpen={isSaveAsModalOpen}
+                    targets={saveAsTargets}
+                    onClose={() => closeSaveAsModal()}
+                    onSelect={onSaveAsTargetSelect}
+                />
+            )}
         </>
     )
 }
