@@ -56,6 +56,7 @@ def start_writer(
     team: Team,
     writer: WriterSettings,
     joining: WriterPullRequest | None = None,
+    start_workflow: bool = True,
 ) -> UUID:
     state_entries = {
         REQUEST_STATE_KEY: request_json.dump_python(request, mode="json"),
@@ -76,6 +77,7 @@ def start_writer(
             posthog_mcp_scopes="read_only",
             origin_key=request.dedupe_id,
             branch=joining.head_branch if joining is not None else None,
+            start_workflow=start_workflow,
         )
         for key, value in state_entries.items():
             tasks_facade.update_task_state_entry(created.task_id, team.id, key, replace_entry_with(value))
