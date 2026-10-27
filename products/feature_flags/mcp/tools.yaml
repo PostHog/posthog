@@ -418,8 +418,8 @@ tools:
             readOnly: false
             destructive: true
             idempotent: false
-        enrich_url: '{id}'
         input_schema: FlagRulesV2UpdateInputSchema
+        enrich_url: '{id}'
         title: Replace feature flag rules
         description: >
             Replace the rules of a feature flag whose `filters.version` is 2. Requires the flag's numeric ID; use
@@ -446,10 +446,10 @@ tools:
 
 
             Returns 400 naming the first invalid field when the document is invalid. Fix it and send the document again;
-            the next attempt can name another field. Returns 400 with code `reserved_config_version` ("filters.version is
-            reserved") when this project or this flag does not accept version 2 rule changes. Do not remove
-            `filters.version`. Report that to the user; do not work around it with `update-feature-flag`. This tool changes
-            only `filters`. Use `feature-flag-enable` and `feature-flag-disable` to turn the flag on or off.
+            the next attempt can name another field. Returns 400 with code `reserved_config_version` ("filters.version
+            is reserved") when this project or this flag does not accept version 2 rule changes. Do not remove
+            `filters.version`. Report that to the user; do not work around it with `update-feature-flag`. This tool
+            changes only `filters`. Use `feature-flag-enable` and `feature-flag-disable` to turn the flag on or off.
         feature_flag: feature-flag-rules-v2-mcp
         response:
             include:
