@@ -47,6 +47,9 @@ collects qualitative feedback (a rating, an optional comment) alongside the metr
 never let it delay the launch. Do **not** raise it at end or ship-variant time — there it reads as a gate
 on rolling out. → See [`references/qualitative-feedback.md`](../diagnosing-experiment-health/references/qualitative-feedback.md) in [[diagnosing-experiment-health]]
 
+When the launch succeeds, end your report with one question about the next step, as [`references/next-steps.md`](../creating-experiments/references/next-steps.md) in [[creating-experiments]] describes.
+The experiment now has a start date, so include the reminder and recommend it.
+
 ### Pause (`experiment-pause`)
 
 Deactivates the feature flag. Users fall back to the default experience (typically control).

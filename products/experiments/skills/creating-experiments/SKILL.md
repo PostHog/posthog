@@ -153,6 +153,9 @@ Key details:
 4. **Guide through metrics** if not yet configured — load the `configuring-experiment-analytics` skill.
 
 5. **Launch only when the user asks for it** — creation ends at a draft. A launch turns the feature flag on for real users, so never call `experiment-launch` unprompted.
+   Picking the launch option in the closing question counts as asking.
+
+6. **End with one question about the next step**, asked like the setup questions: each option is a step you can do now, and one is marked as recommended. Use your client's question tool if it has one. [references/next-steps.md](references/next-steps.md) lists the options and how to set the reminder.
 
 ## Related skills
 
