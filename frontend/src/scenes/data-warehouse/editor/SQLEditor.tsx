@@ -617,6 +617,26 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         return undefined
     }, [insightLoading, isSourceQueryLastRun, responseLoading, responseError, response])
 
+    const saveAsEndpointQueryDisabledReason = useMemo(() => {
+        if (insightLoading) {
+            return 'Wait for the insight to load before creating an endpoint'
+        }
+
+        if (!queryInput?.trim()) {
+            return 'Write a SQL query before creating an endpoint'
+        }
+
+        if (responseLoading) {
+            return 'Wait for the current query to finish before creating an endpoint'
+        }
+
+        if (!isSourceQueryLastRun || responseError || !response) {
+            return 'Run the current query successfully to check which columns the endpoint will return'
+        }
+
+        return undefined
+    }, [insightLoading, queryInput, responseLoading, isSourceQueryLastRun, responseError, response])
+
     const disabledReasonForSaveAsTarget = (target: SaveAsTargetId): string | null | undefined => {
         if (target === 'insight') {
             return saveAsInsightDisabledReason
@@ -625,7 +645,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             return saveAsDisabledReason ?? saveAsViewAccessDisabledReason
         }
         if (target === 'endpoint') {
-            return !queryInput?.trim() ? 'Write a SQL query before saving' : saveAsEndpointDisabledReason
+            return saveAsEndpointQueryDisabledReason ?? saveAsEndpointDisabledReason
         }
         return saveAsDisabledReason
     }

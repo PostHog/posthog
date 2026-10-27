@@ -254,6 +254,20 @@ export default meta
 type Story = StoryObj<{}>
 export const TopToolsPerServer: Story = {}
 
+export const SaveAsFlowQuill: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER, FEATURE_FLAGS.TODAY_RAIL_NAV],
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/environments/:team_id/warehouse_expressions/': { results: [] },
+                },
+            },
+        },
+    },
+}
+
 export const CustomerImages: Story = {
     tags: ['hogqlx-images'],
     parameters: {
@@ -469,7 +483,10 @@ export const EditedInsight: Story = {
         ).toHaveAttribute('aria-disabled', 'true')
         await expect(
             canvasElement.ownerDocument.querySelector('[data-attr="sql-editor-save-as-endpoint"]')
-        ).toHaveAttribute('aria-disabled', 'false')
+        ).toHaveAttribute('aria-disabled', 'true')
+        await expect(
+            menu.getByText('Run the current query successfully to check which columns the endpoint will return')
+        ).toBeVisible()
         await userEvent.keyboard('{Escape}')
         await expect(canvas.queryByRole('button', { name: /^close$/ })).not.toBeInTheDocument()
         await userEvent.click(canvasElement.querySelector('[data-attr="sql-editor-save-options-button"]')!)
@@ -517,7 +534,7 @@ export const EditedInsightLegacySaveMenu: Story = {
         )
         await expect(menu.getByRole('menuitem', { name: 'Save as endpoint...' })).toHaveAttribute(
             'aria-disabled',
-            'false'
+            'true'
         )
         await expect(menu.queryByText('Save query as')).not.toBeInTheDocument()
     },
