@@ -9,11 +9,11 @@ from parameterized import parameterized
 
 from posthog.models import Team, User
 
+from products.conversations.backend import today_highlights
+from products.conversations.backend.facade.today_highlights import HIGHLIGHT_SOURCES
 from products.conversations.backend.facade.types import RoleSlaBreach
 from products.today.backend.facade.enums import HighlightLabel
-from products.today.backend.logic.highlight_registry import load_sources
-from products.today.backend.logic.highlight_sources import ticket_sla
-from products.today.backend.logic.highlight_types import Context
+from products.today.backend.facade.testing import highlight_context
 
 ROLE_ID = UUID("11111111-1111-1111-1111-111111111111")
 
@@ -45,11 +45,10 @@ class TestTicketSlaHighlight(SimpleTestCase):
             soonest_ticket_number=12,
             soonest_due_at=datetime(2026, 10, 15, 14, 0, tzinfo=UTC),
         )
-        registered = next(source for source in load_sources() if source.name == "ticket_sla")
-        with patch("products.today.backend.logic.highlight_types.property_restrictions", return_value="0"):
-            context = Context(Team(id=1), User(id=2), date(2026, 10, 15))
+        registered = next(source for source in HIGHLIGHT_SOURCES if source.name == "ticket_sla")
+        context = highlight_context(team=Team(id=1), user=User(id=2), today=date(2026, 10, 15))
 
-        with patch.object(ticket_sla, "list_role_sla_breaches", return_value=[breach]):
+        with patch.object(today_highlights, "list_role_sla_breaches", return_value=[breach]):
             found = registered.find(context)
 
         assert len(found.items) == 1

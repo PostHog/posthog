@@ -11,10 +11,9 @@ from products.feature_flags.backend.facade.usage import (
     list_flags_created_by,
     summarize_flag_calls,
 )
-
-from ...facade.enums import HighlightLabel
-from ..highlight_rules import exact, human
-from ..highlight_types import Candidate, Context, Found, Source
+from products.today.backend.facade.contracts import HighlightCandidate, HighlightContext, HighlightFindings
+from products.today.backend.facade.enums import HighlightLabel
+from products.today.backend.facade.highlight_helpers import exact, human
 
 REACH_DROP = "Flag ‘{flag}’ reached {pct}% fewer users in the last 7 days"
 REACH_DROP_DETAIL = "{before} → {now} · Check the code that calls it"
@@ -37,37 +36,8 @@ NO_CALLS = FlagCalls(
 )
 
 
-def find(context: Context) -> Found:
-    flags = [
-        flag
-        for flag in list_flags_created_by(context.team.id, context.user.id, limit=500)
-        if not flag.remote_configuration and not flag.key.startswith(INTERNAL_FLAG_PREFIXES)
-    ]
-    if not flags:
-        return Found()
-    summary = context.daily("flag_calls", lambda: summarize_flag_calls(context.team, context.user))
-    items: list[Candidate] = []
-    removable: list[CreatedFlag] = []
-    same: list[tuple[CreatedFlag, FlagCalls]] = []
-    for flag in flags:
-        calls = summary.by_key.get(flag.key, NO_CALLS)
-        if calls.people_last_week >= MIN_REACH and calls.people_this_week <= calls.people_last_week / 2:
-            items.append(_reach_drop(flag, calls))
-        if flag.removal_blocked or RISKY_FLAGS.search(flag.key) or not summary.covers_all_environments:
-            continue
-        age = (context.today - timezone.localtime(flag.created_at, context.team.timezone_info).date()).days
-        if age >= SAME_VALUE_MIN_AGE_DAYS and calls.people_this_week >= MIN_REACH and calls.values_this_week == 1:
-            removable.append(flag)
-            same.append((flag, calls))
-        elif age >= FLAG_CALL_DAYS and calls.calls == 0 and summary.complete:
-            removable.append(flag)
-    if cleanup := _cleanup(context, removable, same):
-        items.append(cleanup)
-    return Found(items=tuple(items))
-
-
-def _reach_drop(flag: CreatedFlag, calls: FlagCalls) -> Candidate:
-    return Candidate(
+def _reach_drop(flag: CreatedFlag, calls: FlagCalls) -> HighlightCandidate:
+    return HighlightCandidate(
         key=f"flag_reach_drop:{flag.id}",
         label=HighlightLabel.RISK,
         family="flags",
@@ -87,8 +57,8 @@ def _listing(keys: list[str]) -> str:
 
 
 def _cleanup(
-    context: Context, removable: list[CreatedFlag], same: list[tuple[CreatedFlag, FlagCalls]]
-) -> Candidate | None:
+    context: HighlightContext, removable: list[CreatedFlag], same: list[tuple[CreatedFlag, FlagCalls]]
+) -> HighlightCandidate | None:
     if context.today.weekday() == 0 and removable:
         keys = [flag.key for flag in sorted(removable, key=lambda flag: flag.created_at)]
         if len(keys) > 1:
@@ -104,7 +74,7 @@ def _cleanup(
             return None
         title = CLEANUP_COST.format(n=len(same), cost=human(cost))
         detail = CLEANUP_COST_DETAIL.format(names=_listing([flag.key for flag, _ in same]))
-    return Candidate(
+    return HighlightCandidate(
         key="flag_cleanup",
         label=HighlightLabel.OPPORTUNITY,
         family="flag_cleanup",
@@ -116,4 +86,30 @@ def _cleanup(
     )
 
 
-SOURCE = Source(name="flags", find=find, scopes=("feature_flag:read",))
+def find_flag_highlights(context: HighlightContext) -> HighlightFindings:
+    flags = [
+        flag
+        for flag in list_flags_created_by(context.team.id, context.user.id, limit=500)
+        if not flag.remote_configuration and not flag.key.startswith(INTERNAL_FLAG_PREFIXES)
+    ]
+    if not flags:
+        return HighlightFindings()
+    summary = context.daily("flag_calls", lambda: summarize_flag_calls(context.team, context.user))
+    items: list[HighlightCandidate] = []
+    removable: list[CreatedFlag] = []
+    same: list[tuple[CreatedFlag, FlagCalls]] = []
+    for flag in flags:
+        calls = summary.by_key.get(flag.key, NO_CALLS)
+        if calls.people_last_week >= MIN_REACH and calls.people_this_week <= calls.people_last_week / 2:
+            items.append(_reach_drop(flag, calls))
+        if flag.removal_blocked or RISKY_FLAGS.search(flag.key) or not summary.covers_all_environments:
+            continue
+        age = (context.today - timezone.localtime(flag.created_at, context.team.timezone_info).date()).days
+        if age >= SAME_VALUE_MIN_AGE_DAYS and calls.people_this_week >= MIN_REACH and calls.values_this_week == 1:
+            removable.append(flag)
+            same.append((flag, calls))
+        elif age >= FLAG_CALL_DAYS and calls.calls == 0 and summary.complete:
+            removable.append(flag)
+    if cleanup := _cleanup(context, removable, same):
+        items.append(cleanup)
+    return HighlightFindings(items=tuple(items))

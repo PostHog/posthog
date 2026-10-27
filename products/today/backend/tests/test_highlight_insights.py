@@ -16,9 +16,9 @@ from posthog.models import FileSystemViewLog
 from products.dashboards.backend.facade.api import DashboardInsights, DashboardInsightTile
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeries
 from products.today.backend.logic.highlight_rules import human, short
-from products.today.backend.logic.highlight_sources import home, routine
 from products.today.backend.logic.highlight_trends import BAD_METRIC, MONEY, UNCLEAR_LABEL, UNKNOWN_DIRECTION
 from products.today.backend.logic.highlight_types import Context
+from products.today.backend.logic.today_highlights import home, routine
 
 TODAY = date(2026, 10, 13)
 
