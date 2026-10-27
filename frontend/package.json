@@ -146,6 +146,7 @@
         "@posthog/products-session-replay": "workspace:*",
         "@posthog/products-signals": "workspace:*",
         "@posthog/products-skills": "workspace:*",
+        "@posthog/products-slack-app": "workspace:*",
         "@posthog/products-stamphog": "workspace:*",
         "@posthog/products-streamlit-apps": "workspace:*",
         "@posthog/products-subscriptions": "workspace:*",

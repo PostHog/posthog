@@ -197,7 +197,7 @@ function ConnectedView({
                 </div>
             ) : null}
 
-            <ConnectedNextStep />
+            <ConnectedNextStep definition={definition} integrations={integrations} />
         </>
     )
 }
@@ -209,8 +209,15 @@ function ConnectedView({
  * provisioned account lands in an onboarding it never started, an unonboarded existing account gets
  * bounced there by the onboarding gate, and an onboarded one is pulled away from the run mid-flight.
  */
-function ConnectedNextStep(): JSX.Element {
+function ConnectedNextStep({
+    definition,
+    integrations,
+}: {
+    definition: IntegrationDefinition
+    integrations: IntegrationType[]
+}): JSX.Element {
     const { inFlight, resolved } = useSelfDrivingRunState()
+    const setupUrl = definition.useSetupUrl?.(integrations) ?? null
 
     // Until the detector answers, assume the run: this page is reached by clicking through a
     // provider's consent screen, which is overwhelmingly something a run sent the user off to do,
@@ -226,6 +233,14 @@ function ConnectedNextStep(): JSX.Element {
                     Go to PostHog
                 </LemonButton>
             </div>
+        )
+    }
+
+    if (setupUrl) {
+        return (
+            <LemonButton type="primary" to={setupUrl} data-attr="integration-continue-setup">
+                Continue setup
+            </LemonButton>
         )
     }
 
