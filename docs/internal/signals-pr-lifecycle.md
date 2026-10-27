@@ -183,6 +183,7 @@ For reports built from GitHub issues, the issue repository is a default when it 
 With multiple permitted candidates, selection can choose another repository based on code ownership, applicable routing rules, or past wrong-repository corrections.
 Matching paths can be vendored, generated, or mirrored copies; ownership evidence takes precedence over the source default.
 If the evidence otherwise leaves candidates equally plausible, selection prefers the issue repository.
+Selection sandboxes use read-only GitHub credentials and read-only PostHog scopes to inspect repositories and query the cache.
 
 The selector checks cached source visibility before the single-candidate shortcut or the agent runs, including when the source is not eligible.
 If the source is not confirmed public, the permitted destinations are the eligible source itself and eligible repositories confirmed private.

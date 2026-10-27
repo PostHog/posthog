@@ -300,6 +300,7 @@ def test_source_repository_is_a_default_for_the_agent_not_an_answer(
         )
 
     assert selected.repository == "acme/a"
+    assert start.call_args.kwargs["context"].github_read_access is True
     prompt = start.call_args.kwargs["prompt"]
     if expected_in_prompt:
         assert f"filed as an issue in `{expected_in_prompt}`" in prompt

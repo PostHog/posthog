@@ -736,6 +736,7 @@ async def select_repository(
         sandbox_environment_id=sandbox_environment_id,
         # Read-only PostHog scopes so the agent can call `execute-sql` against `system.integration_repository_cache`.
         posthog_mcp_scopes="read_only",
+        github_read_access=True,
         sandbox_resources=SandboxResources(cpu_cores=2, memory_gb=8),
         # Optional agent runtime/model override (e.g. the Codex runtime + gpt-5.5). All-None keeps
         # the agent-server default; threaded through from the caller's per-step resolution.
