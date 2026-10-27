@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.facade.source_config import (
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
     AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
     AwsAuthError,
     RoleCredentials,
     aws_auth_field,
@@ -101,6 +102,8 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
     requires_team_feature_flag = FEATURE_FLAG
     self_managed_service = "s3"
 
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.AMAZONS3
@@ -159,8 +162,8 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
             keywords=["s3", "aws", *KEYWORDS],
             label="Amazon S3",
             caption=(
-                f"{source_caption('an S3 bucket')} Connect with an IAM role or access keys that can list and read "
-                "the bucket."
+                f"{source_caption('an S3 bucket')} Connect with an IAM role or access keys that have `s3:ListBucket` "
+                "on the bucket and `s3:GetObject` on its objects."
             ),
             iconPath="/static/services/aws-s3.png",
             releaseStatus=ReleaseStatus.ALPHA,

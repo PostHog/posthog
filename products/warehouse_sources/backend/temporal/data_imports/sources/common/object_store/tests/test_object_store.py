@@ -17,6 +17,7 @@ from django.test import override_settings
 import boto3
 import pyarrow as pa
 import structlog
+import pyarrow.fs as pa_fs
 import pyarrow.parquet as pq
 from botocore.exceptions import ClientError
 from botocore.stub import Stubber
@@ -881,6 +882,27 @@ class TestDeltaCursor:
     @staticmethod
     def _deleted(scope: ReplaceScope | None, file: str) -> bool:
         return scope is not None and (file in scope.replaced or file not in scope.retained)
+
+    def test_data_files_read_through_a_filesystem_plan_the_same_read(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            path = str(Path(folder) / "sales")
+            write_deltalake(path, pa.table({"id": [1, 2], "day": ["a", "b"]}), partition_by=["day"])
+            stored = ObjectStorageDeltaCursor(version=0, table_id=str(DeltaTable(path).metadata().id), file_names=True)
+            _update(path)
+            handler = pa_fs.FSSpecHandler(LocalFileSystem())  # type: ignore[abstract]
+            data_filesystem = pa_fs.SubTreeFileSystem(path, pa_fs.PyFileSystem(handler))
+
+            reads = [
+                plan_delta_read(path, {}, "sales", stored=stored, by_file=True, data_filesystem=filesystem)
+                for filesystem in (None, data_filesystem)
+            ]
+            rows = [
+                sorted(map(str, (row for table in read.iter_tables(with_file_names=True) for row in table.to_pylist())))
+                for read in reads
+            ]
+
+        assert reads[0].replace_scope == reads[1].replace_scope
+        assert rows[0] == rows[1] and rows[0]
 
     @parameterized.expand([("append", False), ("by_file", True)])
     def test_a_cleaned_up_version_rebuilds(self, _name: str, by_file: bool) -> None:

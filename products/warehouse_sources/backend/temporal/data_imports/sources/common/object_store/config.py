@@ -131,6 +131,9 @@ class ObjectStoreConfig:
                 )
         elif self.account_id is not None:
             raise ObjectStorageError(f"{INVALID_CONFIG_ERROR}: this storage provider has no account ID setting.")
+        # An assumed AWS role must never sign a request to another provider's endpoint.
+        if self.role_credentials is not None and self.provider != ObjectStoreProvider.S3:
+            raise ObjectStorageError(f"{INVALID_CONFIG_ERROR}: only AWS S3 can connect with an IAM role.")
         # Without both keys the SDKs fall back to the worker's own AWS credentials, which must
         # never be used to read a customer-chosen bucket.
         if self.role_credentials is None and (not self.access_key_id.strip() or not self.secret_access_key.strip()):

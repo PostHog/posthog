@@ -37,8 +37,8 @@ def translate_storage_error(error: Exception, location: str) -> Exception:
         return error
     if isinstance(error, PermissionError):
         return ObjectStorageError(
-            f"{ACCESS_DENIED_ERROR} '{location}'. Check the access key and secret, and that the key can list "
-            "and read objects in this bucket."
+            f"{ACCESS_DENIED_ERROR} '{location}'. Check the credentials, and that the access key or IAM role can "
+            "list and read objects in this bucket."
         )
     if isinstance(error, FileNotFoundError):
         return ObjectStorageError(f"{NO_SUCH_BUCKET_ERROR}: '{location}'. Check the bucket name.")

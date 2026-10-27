@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from typing import ClassVar, cast
 
 import pyarrow as pa
+import pyarrow.fs as pa_fs
 import pyarrow.dataset as ds
 from deltalake import DeltaTable
 from deltalake.exceptions import DeltaError, DeltaProtocolError, TableNotFoundError
@@ -37,7 +38,7 @@ def _raise_if_access_denied(error: Exception, table_name: str) -> None:
     # HTTP status or the S3 error code inside the message.
     if _ACCESS_DENIED_MARKERS.search(str(error)):
         raise ObjectStorageError(
-            f"{ACCESS_DENIED_ERROR} for the Delta table '{table_name}'. Check that the key can read its folder."
+            f"{ACCESS_DENIED_ERROR} for the Delta table '{table_name}'. Check that the access key or IAM role can read its folder."
         ) from error
 
 
@@ -185,6 +186,7 @@ def plan_delta_read(
     stored: ObjectStorageDeltaCursor | None = None,
     logger: FilteringBoundLogger | None = None,
     by_file: bool = False,
+    data_filesystem: pa_fs.FileSystem | None = None,
 ) -> DeltaRead:
     """Pin the table's current version and decide what to read to bring the destination up to it.
 
@@ -197,12 +199,14 @@ def plan_delta_read(
     the files that are gone and of the files it reads. Such a read still rebuilds when the table was
     created again, when it is at an earlier version, when the stored version can't be read, and when
     the stored rows don't name their files.
+
+    `data_filesystem` reads the data files instead of delta-rs. It must be rooted at the table folder.
     """
     with _delta_errors(table_name):
         table = DeltaTable(uri, storage_options=storage_options)
         version = table.version()
         cursor = ObjectStorageDeltaCursor(version=version, table_id=str(table.metadata().id), file_names=by_file)
-        dataset = cast(ds.FileSystemDataset, table.to_pyarrow_dataset())
+        dataset = cast(ds.FileSystemDataset, table.to_pyarrow_dataset(filesystem=data_filesystem))
 
     if logger is not None:
         logger.info("Reading Delta table snapshot", table=table_name, delta_version=cursor.version)
@@ -266,6 +270,9 @@ def iter_delta_tables(
     table_name: str,
     batch_rows: int = DELTA_BATCH_ROWS,
     logger: FilteringBoundLogger | None = None,
+    data_filesystem: pa_fs.FileSystem | None = None,
 ) -> Iterator[pa.Table]:
     """Stream one whole Delta snapshot."""
-    yield from plan_delta_read(uri, storage_options, table_name, logger=logger).iter_tables(batch_rows)
+    yield from plan_delta_read(
+        uri, storage_options, table_name, logger=logger, data_filesystem=data_filesystem
+    ).iter_tables(batch_rows)

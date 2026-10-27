@@ -7,6 +7,7 @@ from typing import IO, TYPE_CHECKING, Any, cast
 
 import s3fs
 import boto3
+import pyarrow.fs as pa_fs
 import botocore.session
 from adlfs import AzureBlobFileSystem
 from aiobotocore.credentials import AioRefreshableCredentials
@@ -74,12 +75,25 @@ class ObjectStore:
     root: str
     delta_uri_prefix: str
     delta_storage_options: dict[str, str] = dataclasses.field(repr=False)
+    # Read Delta data files through `fs`, so they follow its credentials instead of the fixed storage options.
+    delta_data_through_fs: bool = False
 
     def path(self, relative: str) -> str:
         return f"{self.root}/{relative}" if relative else self.root
 
     def delta_uri(self, relative: str) -> str:
         return f"{self.delta_uri_prefix}{self.path(relative)}"
+
+    def delta_data_filesystem(self, relative: str) -> pa_fs.FileSystem | None:
+        """The filesystem for a Delta table's data files, or None to let delta-rs read them itself.
+
+        Rooted at the table folder, so the fragment paths match the ones delta-rs gives.
+        """
+        if not self.delta_data_through_fs:
+            return None
+        # The pyarrow stubs declare FSSpecHandler abstract, but pyarrow implements every method.
+        handler = pa_fs.FSSpecHandler(self.fs)  # type: ignore[abstract]
+        return pa_fs.SubTreeFileSystem(self.path(relative), pa_fs.PyFileSystem(handler))
 
     def list_objects(self, relative_prefix: str, max_objects: int) -> list[StoredObject]:
         """List up to `max_objects` files under the prefix, in path order.
@@ -183,8 +197,8 @@ def build_s3_filesystem(config: ObjectStoreConfig) -> s3fs.S3FileSystem:
 
 def delta_storage_options(config: ObjectStoreConfig) -> dict[str, str]:
     if config.role_credentials is not None:
-        # delta-rs takes fixed keys, so a Delta read signs with one snapshot of the role session.
-        # The role chain caps that session at one hour.
+        # delta-rs takes fixed keys, so it reads the Delta log with one snapshot of the role session.
+        # The data files go through s3fs, which refreshes, so a long read outlives the snapshot.
         metadata = config.role_credentials.metadata()
         keys = {
             "AWS_ACCESS_KEY_ID": metadata["access_key"],
@@ -333,6 +347,7 @@ def open_s3_store(config: ObjectStoreConfig) -> S3ObjectStore:
         root=f"{config.bucket}/{config.prefix}" if config.prefix else config.bucket,
         delta_uri_prefix="s3://",
         delta_storage_options=delta_storage_options(config),
+        delta_data_through_fs=config.role_credentials is not None,
         client=build_s3_client(config),
         bucket=config.bucket,
         prefix=config.prefix,

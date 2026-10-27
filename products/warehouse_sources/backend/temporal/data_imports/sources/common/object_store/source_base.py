@@ -162,8 +162,8 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             INVALID_CONFIG_ERROR: None,
             BLOCKED_LOCATION_ERROR: None,
             ACCESS_DENIED_ERROR: (
-                "The storage provider rejected these credentials. Check the access key and secret, and that "
-                "the key can list and read the bucket, then reconnect the source."
+                "The storage provider rejected these credentials. Check them, and that the access key or IAM role "
+                "can list and read the bucket, then reconnect the source."
             ),
             NO_SUCH_BUCKET_ERROR: "The bucket doesn't exist. Check the bucket in the URL, then reconnect the source.",
             WRONG_REGION_ERROR: (
@@ -316,6 +316,7 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             stored=stored,
             logger=inputs.logger,
             by_file=by_file,
+            data_filesystem=store.delta_data_filesystem(table.path),
         )
 
         def items() -> Iterator[pa.Table]:
@@ -379,7 +380,11 @@ def iter_table(
 ) -> Iterator[pa.Table]:
     if table.kind == "delta":
         yield from iter_delta_tables(
-            store.delta_uri(table.path), store.delta_storage_options, table.name, logger=logger
+            store.delta_uri(table.path),
+            store.delta_storage_options,
+            table.name,
+            logger=logger,
+            data_filesystem=store.delta_data_filesystem(table.path),
         )
         return
 

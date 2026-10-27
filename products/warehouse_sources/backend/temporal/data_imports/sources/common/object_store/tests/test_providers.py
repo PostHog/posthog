@@ -6,6 +6,7 @@ from typing import Any, cast
 import pytest
 from unittest.mock import patch
 
+import pyarrow.fs as pa_fs
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 from fsspec.implementations.local import LocalFileSystem
 
@@ -13,7 +14,12 @@ from products.warehouse_sources.backend.facade.source_config import SourceFieldS
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_s3.source import AmazonS3Source
 from products.warehouse_sources.backend.temporal.data_imports.sources.azure_blob.source import AzureBlobSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.cloudflare_r2.source import CloudflareR2Source
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import RoleCredentials
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import aws_auth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    ROLE_NOT_FOUND_ERROR,
+    AwsAuthError,
+    RoleCredentials,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import filesystem
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     ObjectStoreConfig,
@@ -30,7 +36,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     open_s3_store,
     open_store,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.locations import parse_s3_url
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.locations import (
+    parse_r2_url,
+    parse_s3_url,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.source_base import (
     ObjectStorageSource,
 )
@@ -122,9 +131,9 @@ def _role_metadata(suffix: str, expires_in: timedelta) -> dict[str, str]:
 
 
 def test_an_s3_role_signs_every_client_and_refreshes() -> None:
-    refreshed = _role_metadata("SECOND", timedelta(hours=1))
+    refreshes = iter([_role_metadata("SECOND", timedelta(minutes=5)), _role_metadata("THIRD", timedelta(hours=1))])
     role_credentials = RoleCredentials.create_from_metadata(
-        _role_metadata("FIRST", timedelta(minutes=5)), refresh_using=lambda: refreshed, method="sts-assume-role"
+        _role_metadata("FIRST", timedelta(minutes=5)), refresh_using=lambda: next(refreshes), method="sts-assume-role"
     )
     config = ObjectStoreConfig.from_url(
         ObjectStoreProvider.S3,
@@ -136,11 +145,57 @@ def test_an_s3_role_signs_every_client_and_refreshes() -> None:
 
     store = open_s3_store(config)
 
-    boto3_credentials = store.client._request_signer._credentials.get_frozen_credentials()
+    # s3fs starts on SECOND, which is close to expiry, so this read goes through its own refresh callback.
     s3fs_credentials = asyncio.run(store.fs.session._credentials.get_frozen_credentials())
-    assert (boto3_credentials.access_key, boto3_credentials.token) == ("ASIASECOND", "token-SECOND")
-    assert (s3fs_credentials.access_key, s3fs_credentials.token) == ("ASIASECOND", "token-SECOND")
-    assert store.delta_storage_options["AWS_SESSION_TOKEN"] == "token-SECOND"
+    boto3_credentials = store.client._request_signer._credentials.get_frozen_credentials()
+    assert (s3fs_credentials.access_key, s3fs_credentials.token) == ("ASIATHIRD", "token-THIRD")
+    assert (boto3_credentials.access_key, boto3_credentials.token) == ("ASIATHIRD", "token-THIRD")
+    assert store.delta_storage_options["AWS_SESSION_TOKEN"] == "token-THIRD"
+    data_filesystem = store.delta_data_filesystem("sales")
+    assert isinstance(data_filesystem, pa_fs.SubTreeFileSystem)
+    assert data_filesystem.base_path == "customer-data/exports/sales/"
+
+
+def test_an_s3_role_source_builds_a_store_without_keys() -> None:
+    role_credentials = RoleCredentials.create_from_metadata(
+        _role_metadata("ROLE", timedelta(hours=1)), refresh_using=lambda: {}, method="sts-assume-role"
+    )
+    source, values = PROVIDERS["s3"]
+    config = source.parse_config(
+        {"url_pattern": values["url_pattern"], "aws_auth": {"selection": "role", "aws_integration_id": "7"}}
+    )
+
+    with patch.object(aws_auth, "_integration_credentials", return_value=role_credentials) as resolve:
+        store_config = cast(ObjectStoreConfig, source.object_store_config(config, team_id=1))
+
+    resolve.assert_called_once_with(7, 1)
+    assert store_config.role_credentials is role_credentials
+    assert (store_config.access_key_id, store_config.secret_access_key) == ("", "")
+
+
+def test_an_s3_role_that_cannot_be_resolved_fails_the_check_with_its_message() -> None:
+    source, values = PROVIDERS["s3"]
+    config = source.parse_config(
+        {"url_pattern": values["url_pattern"], "aws_auth": {"selection": "role", "aws_integration_id": "7"}}
+    )
+
+    with patch.object(aws_auth, "_integration_credentials", side_effect=AwsAuthError(ROLE_NOT_FOUND_ERROR)):
+        valid, message = source.validate_credentials(config, team_id=1)
+
+    assert not valid
+    assert message is not None and ROLE_NOT_FOUND_ERROR in message
+
+
+def test_role_credentials_are_refused_for_a_provider_other_than_s3() -> None:
+    role_credentials = RoleCredentials.create_from_metadata(
+        _role_metadata("ROLE", timedelta(hours=1)), refresh_using=lambda: {}, method="sts-assume-role"
+    )
+    url = parse_r2_url(PROVIDERS["r2"][1]["url_pattern"])
+
+    with pytest.raises(ObjectStorageError, match="only AWS S3 can connect with an IAM role"):
+        ObjectStoreConfig.from_url(
+            ObjectStoreProvider.R2, url, access_key_id="", secret_access_key="", role_credentials=role_credentials
+        )
 
 
 @pytest.mark.parametrize(
