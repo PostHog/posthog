@@ -2,7 +2,7 @@
 #
 # If these tests get too slow, look at increasing concurrency and re-timing the tests by manually dispatching
 # .github/workflows/ci-backend-update-test-timing.yml action
-name: Hog CI
+name: HogLang CI
 on:
     push:
         branches:
@@ -50,13 +50,13 @@ jobs:
         if: github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        name: Determine need to run Hog checks
+        name: Determine need to run HogLang checks
         permissions:
             contents: read
             pull-requests: read
         # Set job outputs to values from filter step
         outputs:
-            hog: ${{ steps.filter.outputs.hog || 'true' }}
+            hoglang: ${{ steps.filter.outputs.hoglang || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -77,24 +77,23 @@ jobs:
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
-                      hog:
+                      hoglang:
                         # Avoid running tests for irrelevant changes
                         - 'common/hogvm/**/*'
                         - 'posthog/hogql/**/*'
-                        - 'bin/hog'
-                        - 'bin/hoge'
+                        - 'bin/hoglang'
                         - 'package.json'
                         - requirements.txt
                         - requirements-dev.txt
-                        - .github/workflows/ci-hog.yml
+                        - .github/workflows/ci-hoglang.yml
                         - .github/actions/setup-uv/**
 
-    hog-tests:
+    hoglang-tests:
         needs: changes
         timeout-minutes: 30
-        name: Hog tests
+        name: HogLang tests
         runs-on: ubuntu-24.04
-        if: needs.changes.outputs.hog == 'true'
+        if: needs.changes.outputs.hoglang == 'true'
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -176,7 +175,7 @@ jobs:
                   pnpm --filter=@posthog/hogvm install --frozen-lockfile
                   pnpm --filter=@posthog/hogvm test
 
-            - name: Run Hog tests
+            - name: Run HogLang tests
               run: |
                   pnpm --filter=@posthog/hogvm install --frozen-lockfile
                   pnpm --filter=@posthog/hogvm compile:stl
