@@ -87,7 +87,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-07-04',
         testOptions: {
-            loaderTimeout: 15000,
             waitForSelector: 'iframe.PlayerFrame__document >>> .PlayerFrame__content .replayer-wrapper iframe',
         },
     },

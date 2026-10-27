@@ -11,7 +11,6 @@ const meta: Meta<typeof FlagshipProductsCard> = {
     component: FlagshipProductsCard,
     parameters: {
         layout: 'padded',
-        testOptions: { include: false },
     },
     decorators: [mswDecorator({})],
 }
