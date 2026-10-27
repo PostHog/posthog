@@ -127,6 +127,7 @@ def reconcile_inbox_onboarding(team_id: int, failed_checks: int = 0) -> None:
 
 @shared_task(
     ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
     autoretry_for=(Exception,),
     retry_backoff=True,
     max_retries=10,
