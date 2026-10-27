@@ -9589,3 +9589,5 @@ export interface PropertyValuesQueryResponse extends AnalyticsQueryResponseBase 
 }
 
 export type CachedPropertyValuesQueryResponse = CachedQueryResponse<PropertyValuesQueryResponse>
+
+// Test only: keeps the frontend jobs running so the cached schema check can clear.
