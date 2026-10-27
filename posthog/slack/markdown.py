@@ -12,8 +12,6 @@ from typing import Any
 
 from markdown_it import MarkdownIt
 
-from posthog.helpers.markdown_safety import is_allowed_link_url
-
 # Slack budgets 12,000 characters across every markdown block in one message. A message carries
 # one, and the headroom covers the blocks around it.
 SLACK_MARKDOWN_TEXT_MAX_LEN = 11500
@@ -65,6 +63,9 @@ _INLINE_MARKUP = re.compile(
 
 
 def _inline_elements(text: str, style: dict[str, bool], allowed_root: str) -> list[dict[str, Any]]:
+    # Deferred: markdown_safety pulls in posthog.api.utils, which is too heavy for the django.setup() path.
+    from posthog.helpers.markdown_safety import is_allowed_link_url
+
     elements: list[dict[str, Any]] = []
     cursor = 0
     for match in _INLINE_MARKUP.finditer(text):
