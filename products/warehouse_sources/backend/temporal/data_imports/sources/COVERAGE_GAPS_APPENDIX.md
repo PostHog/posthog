@@ -4937,7 +4937,7 @@ Today (4): `call_metrics`, `calls`, `teams`, `users`
 
 Diffed against: <https://developers.freshcaller.com/api/>
 
-- [ ] `/api/v1/user-statuses` — lookup resolving the custom agent status IDs on users and call legs (available/break/etc) (medium)
+- [x] `/api/v1/user-statuses` — lookup resolving the custom agent status IDs on users and call legs (available/break/etc) (medium)
 
 Note: Freshcaller's public API is genuinely small - calls, call_metrics (with include=life_cycle), teams, users, user-statuses, plus recording download/delete and an account export job. PostHog covers 4 of the 5 listable collections; call recordings are per-call binaries, not a queryable collection.
 
