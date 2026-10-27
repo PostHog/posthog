@@ -1,0 +1,24 @@
+# Links to PostHog
+
+Give a link for every place in PostHog you send the user to: the experiment, one of its tabs, the feature flag, a scanner or a survey.
+Put the link where you name the place, and say in a few words what the user will find there.
+Someone running a first experiment may not know what a session replay or a health check is.
+
+Show a `_posthogUrl` exactly as the tool returned it, and never add a path or a query string to it.
+Build every other link with `generate-app-url`, never by hand.
+
+| Next step                                                             | Link                                                                                                                                                                                                                                                              |
+| --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Open the experiment                                                   | `_posthogUrl` from the experiment tool you called, such as `experiment-create`, `experiment-get` or `experiment-launch`                                                                                                                                           |
+| Implement the flag in code                                            | The experiment's `_posthogUrl`. A draft shows the code snippets above its tabs, and a launched experiment shows them on its Code tab.                                                                                                                             |
+| Look at the health checks                                             | The experiment's `_posthogUrl`. Health checks show at the top of the experiment page, and no link opens them directly.                                                                                                                                            |
+| Filter out test accounts                                              | The experiment's `_posthogUrl`. The filter is in the exposure criteria on the Metrics tab, which the page opens on.                                                                                                                                               |
+| Open the feature flag                                                 | `generate-app-url {url: "/feature-flags/{id}", params: {id: "<flag id>"}}`                                                                                                                                                                                        |
+| Watch session replays for each variant                                | `generate-app-url {url: "/experiments/{id}?tab=recordings", params: {id: "<experiment id>"}}`. The Recordings tab lists sessions of the people exposed to the experiment and filters them by variant. Use it instead of a link to one recording or to a playlist. |
+| Get notified at significance, or require completed conversion windows | `generate-app-url {url: "/experiments/{id}?tab=settings", params: {id: "<experiment id>"}}`                                                                                                                                                                       |
+| Read user feedback and the surveys on the experiment                  | `generate-app-url {url: "/experiments/{id}?tab=feedback", params: {id: "<experiment id>"}}`                                                                                                                                                                       |
+| Open a scanner or a survey you created                                | `_posthogUrl` from `vision-scanners-create` or `survey-create`                                                                                                                                                                                                    |
+| Anything else                                                         | `generate-app-url` with the page's template from its catalog                                                                                                                                                                                                      |
+
+The flag id is `feature_flag.id` in the `experiment-create`, `experiment-launch` and `experiment-get` responses. Other experiment tools leave it out, so call `experiment-get` for it.
+If the `generate-app-url` catalog has no template for a tab, link the experiment's `_posthogUrl` and name the tab.
