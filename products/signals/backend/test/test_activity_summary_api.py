@@ -19,9 +19,29 @@ NOW = datetime.datetime(2026, 10, 19, 12, tzinfo=datetime.UTC)
 SUMMARY = {
     "profile": "## Funnels\n- Builds the signup funnel.",
     "headline": "Builds the signup funnel.",
-    "focus_areas": [{"topic": "signup funnel", "strength": "high", "last_seen": "2026-10-18"}],
-    "products": ["product_analytics"],
+    "themes": [
+        {"label": "Signup funnel", "mode": "building", "strength": "high", "refs": ["o1"], "last_seen": "2026-10-18"}
+    ],
+    "modes": ["building"],
     "recent_shift": "Moved from dashboards to funnels.",
+}
+COMPUTED = {
+    "schema_version": 1,
+    "owned": [
+        {
+            "ref": "o1",
+            "type": "insight",
+            "id": "12",
+            "name": "Signup funnel",
+            "edit_days": 2,
+            "last_at": "2026-10-18",
+            "created": True,
+        }
+    ],
+    "watched": [],
+    "pages": [{"ref": "p1", "product": "session_replay", "open_days": 2, "last_at": "2026-10-17"}],
+    "products": {"works_in": ["product_analytics"], "visits": ["session_replay"]},
+    "task_count": 0,
 }
 
 
@@ -49,6 +69,7 @@ class TestActivitySummaryAPI(APIBaseTest):
             prompt_version=PROMPT_VERSION,
             render_version=RENDER_VERSION,
             version=version,
+            computed=COMPUTED,
         )
 
     def _versions(self, count: int) -> None:
@@ -66,6 +87,7 @@ class TestActivitySummaryAPI(APIBaseTest):
                 prompt_version=PROMPT_VERSION,
                 render_version=RENDER_VERSION,
                 input_watermark=NOW,
+                computed=COMPUTED,
             )
 
     def _get(self, path: str = "") -> Any:
@@ -113,16 +135,35 @@ class TestActivitySummaryAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_row", None, {"status": "not_ready", "headline": None, "profile": None}),
+            ("no_row", None, {"status": "not_ready", "headline": None, "profile": None, "computed": None}),
             (
                 "current_row",
                 SUMMARY,
-                {"status": "ready", "headline": "Builds the signup funnel.", "profile": SUMMARY["profile"]},
+                {
+                    "status": "ready",
+                    "headline": "Builds the signup funnel.",
+                    "profile": SUMMARY["profile"],
+                    "themes": SUMMARY["themes"],
+                    "modes": ["building"],
+                    "computed": COMPUTED,
+                },
             ),
             (
                 "pre_profile_row",
                 {"summary": "Builds funnels.", "focus_areas": [], "products": []},
                 {"status": "ready", "headline": "Builds funnels.", "profile": None},
+            ),
+            (
+                "pre_theme_row",
+                {
+                    **SUMMARY,
+                    "themes": None,
+                    "focus_areas": [{"topic": "funnels", "strength": "high", "last_seen": None}],
+                },
+                {
+                    "status": "ready",
+                    "themes": [{"label": "funnels", "mode": None, "strength": "high", "refs": [], "last_seen": None}],
+                },
             ),
         ]
     )
@@ -151,7 +192,7 @@ class TestActivitySummaryAPI(APIBaseTest):
 
         assert response.status_code == 200
         assert [item["version"] for item in response.json()] == [5, 4, 3]
-        assert all(item["profile"] is None for item in response.json())
+        assert all(item["profile"] is None and item["computed"] is None for item in response.json())
 
     @parameterized.expand([("existing", 2, 200), ("missing", 9, 404)])
     def test_one_version_returns_its_profile(self, _name: str, version: int, status_code: int) -> None:
@@ -168,7 +209,9 @@ class TestActivitySummaryAPI(APIBaseTest):
                     "prompt_version": PROMPT_VERSION,
                     "headline": "Version 2",
                     "recent_shift": SUMMARY["recent_shift"],
-                    "focus_areas": SUMMARY["focus_areas"],
+                    "themes": SUMMARY["themes"],
+                    "modes": SUMMARY["modes"],
                     "profile": SUMMARY["profile"],
+                    "computed": COMPUTED,
                 }
             ]

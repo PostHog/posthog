@@ -16,6 +16,7 @@ from products.dashboards.backend.constants import (
 from products.dashboards.backend.models.dashboard import (
     DASHBOARD_GRID_COMPACTION_MODES,
     DASHBOARD_GRID_SPACING_GAPS,
+    DASHBOARD_TILE_GROUP_DISPLAY_MODES,
     DashboardTileGroupColor,
 )
 from products.dashboards.backend.models.dashboard_tile import DashboardTileBadge
@@ -58,7 +59,8 @@ class DashboardTileGroupSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their "
-            "browser keeps that choice and it wins over this default."
+            "browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer "
+            "opens it."
         ),
     )
     color = serializers.ChoiceField(
@@ -86,6 +88,7 @@ class DashboardWidgetType(models.TextChoices):
     EXPERIMENT_RESULTS = "experiment_results"
     EXPERIMENTS_LIST = "experiments_list"
     LOGS_LIST = "logs_list"
+    METRICS_TABLE = "metrics_table"
     NOTEBOOK_WIDGET = "notebook_widget"
     SESSION_REPLAY_LIST = "session_replay_list"
     SURVEY_RESULTS = "survey_results"
@@ -494,6 +497,14 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
         help_text=(
             "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles "
             "to the left, and stable preserves positions while moving colliding tiles."
+        ),
+    )
+    group_display = serializers.ChoiceField(
+        choices=DASHBOARD_TILE_GROUP_DISPLAY_MODES,
+        required=False,
+        help_text=(
+            "How tile groups show. sections shows each group as a band that opens and closes. tabs shows one "
+            "group at a time, and tiles outside any group get their own first tab."
         ),
     )
     groups = serializers.DictField(

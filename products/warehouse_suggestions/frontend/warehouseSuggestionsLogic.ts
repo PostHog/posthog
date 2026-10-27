@@ -19,7 +19,6 @@ import { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { EMPTY_INCREMENTAL_DRAFT, IncrementalConfigDraft } from 'scenes/data-warehouse/editor/IncrementalConfigFields'
-import { urls } from 'scenes/urls'
 
 import { DataModelingSyncInterval } from '~/types'
 
@@ -45,6 +44,7 @@ import type {
 } from './generated/api.schemas'
 import type { WarehouseSuggestionDismissalReasonEnumApi } from './generated/api.schemas'
 import { INTERVAL_SECONDS, intervalForSeconds } from './refreshIntervals'
+import { subjectUrl } from './subjectUrl'
 import {
     MonthlySaving,
     SavingsSummary,
@@ -56,6 +56,10 @@ import {
 
 export type StripState = 'loading' | 'error' | 'hidden' | 'warming_up' | 'not_eligible' | 'active' | 'all_done'
 export type SuggestionSurface = 'models' | 'catalog'
+export interface SuggestionGroup {
+    kind: string
+    suggestions: WarehouseSuggestionApi[]
+}
 
 export interface WarehouseSuggestionsLogicProps {
     surface: SuggestionSurface
@@ -70,7 +74,7 @@ const SURFACE_KINDS: Record<SuggestionSurface, string[]> = {
     models: ['materialize', 'unmaterialize'],
     catalog: ['certify', 'deprecate'],
 }
-const VIEW_IN_SQL_EDITOR_KINDS = ['materialize', 'unmaterialize']
+const VIEW_ON_MODEL_PAGE_KINDS = ['materialize', 'unmaterialize']
 const CONFLICT_STATUS = 409
 const NOT_FOUND_STATUS = 404
 const FORBIDDEN_STATUS = 403
@@ -112,6 +116,14 @@ function compareSuggestions(a: WarehouseSuggestionApi, b: WarehouseSuggestionApi
     const [groupA, valueA] = suggestionWorth(a)
     const [groupB, valueB] = suggestionWorth(b)
     return groupA - groupB || valueA - valueB
+}
+
+function groupedByKind(suggestions: WarehouseSuggestionApi[]): SuggestionGroup[] {
+    const kindsByBestSuggestion = [...new Set(suggestions.map((suggestion) => suggestion.kind))]
+    return kindsByBestSuggestion.map((kind) => ({
+        kind,
+        suggestions: suggestions.filter((suggestion) => suggestion.kind === kind),
+    }))
 }
 
 function proposedRefreshDraft(payload: WarehouseSuggestionMaterializePayloadApi): IncrementalConfigDraft {
@@ -197,6 +209,7 @@ export interface warehouseSuggestionsLogicValues {
     status: WarehouseSuggestionStatusApi | null
     statusLoading: boolean
     stripState: StripState
+    suggestionGroups: SuggestionGroup[]
     suggestions: WarehouseSuggestionApi[] | null
     suggestionsLoading: boolean
     surfaceSuggestions: WarehouseSuggestionApi[]
@@ -361,6 +374,7 @@ export interface warehouseSuggestionsLogicMeta {
             hiddenSuggestionIds: string[],
             surface: SuggestionSurface
         ) => WarehouseSuggestionApi[]
+        suggestionGroups: (listedSuggestions: WarehouseSuggestionApi[]) => SuggestionGroup[]
         surfaceSuggestions: (
             listedSuggestions: WarehouseSuggestionApi[],
             leavingSuggestionIds: string[]
@@ -570,15 +584,21 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     suggestions: WarehouseSuggestionApi[] | null,
                     hiddenIds: string[],
                     surface: SuggestionSurface
-                ): WarehouseSuggestionApi[] =>
-                    (suggestions ?? [])
+                ): WarehouseSuggestionApi[] => {
+                    const byWorth = (suggestions ?? [])
                         .filter(
                             (suggestion) =>
                                 suggestion.surfaced_at !== null &&
                                 !hiddenIds.includes(suggestion.id) &&
                                 SURFACE_KINDS[surface].includes(suggestion.kind)
                         )
-                        .sort(compareSuggestions),
+                        .sort(compareSuggestions)
+                    return groupedByKind(byWorth).flatMap((group) => group.suggestions)
+                },
+            ],
+            suggestionGroups: [
+                (s) => [s.listedSuggestions],
+                (listed: WarehouseSuggestionApi[]): SuggestionGroup[] => groupedByKind(listed),
             ],
             surfaceSuggestions: [
                 (s) => [s.listedSuggestions, s.leavingSuggestionIds],
@@ -591,13 +611,12 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     const savings = open
                         .map(({ payload }) => monthlySaving(payload))
                         .filter((saving): saving is MonthlySaving => saving !== null)
-                    const timeSavers = savings.filter(savesTime)
-                    const bytesSavers = savings.filter((saving) => !savesTime(saving))
                     return {
-                        timeViews: timeSavers.length,
-                        savedSeconds: sum(timeSavers.map((saving) => saving.seconds)),
-                        bytesViews: bytesSavers.length,
-                        savedBytes: sum(bytesSavers.map((saving) => saving.bytes)),
+                        views: savings.length,
+                        saving: {
+                            seconds: sum(savings.map((saving) => saving.seconds)),
+                            bytes: sum(savings.map((saving) => saving.bytes)),
+                        },
                     }
                 },
             ],
@@ -691,12 +710,12 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                 })
             }
             const viewAction = (suggestion: WarehouseSuggestionApi): (() => void) | null => {
-                const opensInSqlEditor = VIEW_IN_SQL_EDITOR_KINDS.includes(suggestion.kind)
-                if (!opensInSqlEditor && !suggestion.created_asset?.certification_id) {
+                const opensModelPage = VIEW_ON_MODEL_PAGE_KINDS.includes(suggestion.kind)
+                if (!opensModelPage && !suggestion.created_asset?.certification_id) {
                     return null
                 }
                 const onViewAccepted = props.onViewAccepted
-                if (!onViewAccepted && !opensInSqlEditor) {
+                if (!onViewAccepted && !opensModelPage) {
                     return null
                 }
                 return () => {
@@ -705,7 +724,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                         onViewAccepted(suggestion)
                         return
                     }
-                    router.actions.push(urls.sqlEditor({ view_id: suggestion.subject_id }))
+                    router.actions.push(subjectUrl(suggestion, 'materialization'))
                 }
             }
             return {

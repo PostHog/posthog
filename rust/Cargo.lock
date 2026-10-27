@@ -2991,7 +2991,10 @@ dependencies = [
  "aws-smithy-runtime-api",
  "futures",
  "reqwest 0.12.28",
+ "serde_json",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -3048,11 +3051,13 @@ dependencies = [
  "common-liveness",
  "common-types",
  "governor",
+ "lifecycle",
  "metrics",
  "metrics-util",
  "rdkafka",
  "rstest",
  "serde_json",
+ "tokio",
  "tracing",
  "uuid",
 ]
@@ -9106,7 +9111,6 @@ dependencies = [
  "lifecycle",
  "metrics",
  "metrics-exporter-prometheus",
- "metrics-util",
  "personhog-common",
  "personhog-coordination",
  "personhog-proto",
@@ -11067,6 +11071,7 @@ dependencies = [
  "aws-sdk-dynamodb",
  "aws-sdk-kms",
  "aws-sdk-s3",
+ "aws-smithy-http-client",
  "axum 0.7.9",
  "base64 0.22.1",
  "brotlic",

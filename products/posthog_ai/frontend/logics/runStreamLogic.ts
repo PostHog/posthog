@@ -2673,6 +2673,7 @@ export interface runStreamLogicValues {
     turnComplete: boolean
     turnSuggestion: TurnSuggestion | null
     turnSuggestionAcceptedHere: number | null
+    turnSuggestionExpandedHere: number | null
     turnSuggestionLedger: TurnSuggestionLedger | null
     turnSuggestionOutcomesHere: Record<number, string>
     turnSuggestionsMuted: boolean
@@ -2823,6 +2824,9 @@ export interface runStreamLogicActions {
         value: true
     }
     markTurnSuggestionAccepted: (turnIndex: number) => {
+        turnIndex: number
+    }
+    markTurnSuggestionExpanded: (turnIndex: number) => {
         turnIndex: number
     }
     mergeRunArtifacts: (partial: Partial<RunArtifacts>) => {
@@ -3258,6 +3262,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
         /** Records an outcome this tab sent to the server, so the card closes before the frame echoes back. */
         recordTurnSuggestionOutcome: (turnIndex: number, outcome: string) => ({ turnIndex, outcome }),
         markTurnSuggestionAccepted: (turnIndex: number) => ({ turnIndex }),
+        markTurnSuggestionExpanded: (turnIndex: number) => ({ turnIndex }),
         /**
          * Reopens the turn for a follow-up that started outside this composer, such as one sent from Slack
          * or from another tab. Dispatched from a user turn seen on the wire, and from the agent's first
@@ -3681,6 +3686,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
             null as number | null,
             {
                 markTurnSuggestionAccepted: (_, { turnIndex }) => turnIndex,
+                reset: () => null,
+            },
+        ],
+        // The card's own logic unmounts when the virtualized thread recycles its row, so the open state lives here
+        // to keep an opened card open after the reader scrolls away and back.
+        turnSuggestionExpandedHere: [
+            null as number | null,
+            {
+                markTurnSuggestionExpanded: (_, { turnIndex }) => turnIndex,
                 reset: () => null,
             },
         ],

@@ -314,6 +314,16 @@ export interface WarehouseSuggestionApi {
     realized_bytes_saved_per_month: number | null
     /** Whether the caller has edit access to the subject and so may accept, dismiss or resume. */
     can_act: boolean
+    /**
+     * Warehouse source that syncs the subject table, for linking to its schema page. Null for views and for tables no source syncs.
+     * @nullable
+     */
+    subject_source_id?: string | null
+    /**
+     * Source schema that syncs the subject table, for linking to its schema page. Null for views and for tables no source syncs.
+     * @nullable
+     */
+    subject_schema_id?: string | null
 }
 
 export interface PaginatedWarehouseSuggestionListApi {

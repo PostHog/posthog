@@ -193,10 +193,14 @@ describe('BI analysis queries', () => {
         expect(across.query).not.toContain('PARTITION BY bi_column_event')
     })
 
-    it.each(['average', 'count_distinct'] as const)('reaggregates %s for Other and totals', (aggregation) => {
+    it.each(
+        [ChartDisplayType.ActionsTable, ChartDisplayType.TwoDimensionalHeatmap].flatMap((chartType) =>
+            (['average', 'count_distinct'] as const).map((aggregation) => ({ chartType, aggregation }))
+        )
+    )('reaggregates $aggregation for Other and totals in $chartType', ({ chartType, aggregation }) => {
         const worksheet: BIConfig = {
             ...config,
-            chartType: ChartDisplayType.TwoDimensionalHeatmap,
+            chartType,
             values: [{ field: field('properties.amount', 'float'), aggregation }],
             topN: { fieldId: 'event', count: 5, measureIndex: 0, includeOther: true },
             totals: { rows: true, columns: true, subtotals: true },
@@ -227,7 +231,9 @@ describe('BI analysis queries', () => {
             sort: { key: 'rows:number', direction: 'asc' },
         })!
         expect(result.query).toContain('PARTITION BY bi_grouping = 0')
-        expect(result.query).toContain('GROUPING SETS ((bi_row_number, bi_column_event), ())')
+        expect(result.query).toContain(
+            'GROUPING SETS ((bi_row_number, bi_column_event), (bi_row_number), (bi_column_event), ())'
+        )
         expect(result.query).toContain('WHERE bi_grouping = 0 OR bi_rank <= 50')
         expect(result.query).toContain('ORDER BY bi_grouping DESC, bi_result.bi_row_number ASC LIMIT 100')
         const probe = buildBIQuery(

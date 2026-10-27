@@ -30,11 +30,21 @@ export const RESOLVE_REASON_OPTIONS = [
     { value: 'other', label: 'Something else…' },
 ] as const
 
+export const STOP_MONITORING_REASON_OPTIONS = [
+    { value: 'verified_manually', label: 'Verified manually' },
+    { value: 'no_action_needed', label: 'No action needed' },
+    { value: 'already_fixed', label: 'Was already fixed before this report' },
+    { value: 'other', label: 'Something else…' },
+] as const
+
 /** Persisted dismiss reason (values match {@link DISMISSAL_REASON_OPTIONS}). */
 export type DismissalReasonValue = (typeof DISMISSAL_REASON_OPTIONS)[number]['value']
 
 /** Persisted feedback can include reasons that are no longer selectable in the dialog. */
-export type ResolveReasonValue = (typeof RESOLVE_REASON_OPTIONS)[number]['value'] | 'pr_merged'
+export type ResolveReasonValue =
+    | (typeof RESOLVE_REASON_OPTIONS)[number]['value']
+    | (typeof STOP_MONITORING_REASON_OPTIONS)[number]['value']
+    | 'pr_merged'
 
 /**
  * Whether a persisted reason describes a resolve rather than a dismissal. A resolved row only shows
@@ -44,6 +54,7 @@ export type ResolveReasonValue = (typeof RESOLVE_REASON_OPTIONS)[number]['value'
 export function isResolveReason(value: string | null | undefined): boolean {
     return (
         value === 'fixed_outside_posthog' ||
+        value === 'verified_manually' ||
         value === 'no_action_needed' ||
         value === 'pr_merged' ||
         value === 'already_fixed'
@@ -111,6 +122,7 @@ export function dismissalReasonLabel(value: string | null | undefined): string |
     return (
         DISMISSAL_REASON_OPTIONS.find((o) => o.value === value)?.label ??
         RESOLVE_REASON_OPTIONS.find((o) => o.value === value)?.label ??
+        STOP_MONITORING_REASON_OPTIONS.find((o) => o.value === value)?.label ??
         EXTRA_DISMISSAL_REASON_LABELS[value] ??
         value
     )

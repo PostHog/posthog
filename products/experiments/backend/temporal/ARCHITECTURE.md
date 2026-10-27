@@ -1,6 +1,6 @@
 # Recalculation workflow architecture
 
-This document describes the **recalculation workflow** for experiment metrics: what it does, how it's built, and why we made the design choices we made. For the daily timeseries family of workflows (the cache-warming ones in `posthog/temporal/experiments/`), see that package's `README.md`.
+This document describes the **recalculation workflow** for experiment metrics: what it does, how it's built, and why we made the design choices we made. For the daily timeseries family of workflows (the ones in `posthog/temporal/experiments/`), see that package's `README.md`.
 
 ## What it does
 
@@ -9,7 +9,7 @@ When a user opens an experiment and the cached results look stale, they click **
 It's distinct from the daily timeseries workflows in two ways:
 
 - **One experiment per run.** Triggered by the user, by experiment lifecycle events like launch/stop, or by the hourly scheduled recalculation for enabled teams. Every trigger starts the same per-experiment run; there is no sweep across experiments inside one workflow. See "Scheduled recalculation".
-- **Snapshot per run, not cache warming.** Each click creates a new run with its own results, identifiable by `recalculation_id`. The timeseries family overwrites cached values; we preserve them. (Two exceptions: a stopped experiment has a fixed window, and a `METRIC_CONFIG_CHANGE` run reuses the previous window, so those runs share result rows rather than each getting a distinct snapshot. See "Snapshot semantics for the user".)
+- **Snapshot per run.** Each click creates a new run with its own results, identifiable by `recalculation_id`. The timeseries family keeps one result per metric per daily window and updates it in place; we keep every run. (Two exceptions: a stopped experiment has a fixed window, and a `METRIC_CONFIG_CHANGE` run reuses the previous window, so those runs share result rows rather than each getting a distinct snapshot. See "Snapshot semantics for the user".)
 
 ## End-to-end flow
 
@@ -261,9 +261,9 @@ The split is intentional: Grafana tells you about the worker process, PostHog te
 
   Retries live in Temporal's `RetryPolicy` on the calc activity, not in the workflow. The policy is exponential: `initial_interval=5s`, `backoff_coefficient=2.0`, `maximum_interval=60s`, `maximum_attempts=MAX_METRIC_ATTEMPTS` (currently 8). So a metric backs off 5s, 10s, 20s, 40s, 60s, 60s, 60s across its retries, then the eighth attempt is final. `asyncio.gather(..., return_exceptions=True)` lets healthy metrics finish while a failing one retries; a retrying metric never blocks the others, because each activity retries on its own worker slot rather than holding a shared queue slot.
 
-  A permanent failure fails fast rather than burning the retry budget. `NON_RETRYABLE_ERROR_TYPES` (`out_of_memory`, `byte_limit`, `validation_error`, `recalculation_window_too_long`) plus `ValueError` are raised non-retryable, so the metric is terminal on the first trip. A different bucket, the cluster at-capacity error (`ClickHouseAtCapacity`, from `TOO_MANY_SIMULTANEOUS_QUERIES` or `CANNOT_SCHEDULE_TASK`) and `ConcurrencyLimitExceeded`, is retried after a random delay between 2 and 5 minutes (`CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS` and `CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS`) via `ApplicationError(next_retry_delay=...)`, out-of-band from the exponential schedule, because that error means "come back later", not "this query is wrong". The random delay spreads out metrics that bounced in the same burst, so their retries do not arrive together and hit the same saturated cluster again.
+  A permanent failure fails fast rather than burning the retry budget. `NON_RETRYABLE_ERROR_TYPES` (`out_of_memory`, `byte_limit`, `validation_error`, `recalculation_window_too_long`) plus `ValueError` are raised non-retryable, so the metric is terminal on the first trip. A different bucket, the cluster at-capacity error (`ClickHouseAtCapacity`, from `TOO_MANY_SIMULTANEOUS_QUERIES` or `CANNOT_SCHEDULE_TASK`) and `ConcurrencyLimitExceeded`, is retried after a random delay in a band that doubles with each attempt, 10 to 20 seconds first and 160 to 300 seconds at most (the `CAPACITY_RETRY_*` constants), via `ApplicationError(next_retry_delay=...)`, out-of-band from the RetryPolicy schedule, because that error means "come back later", not "this query is wrong". A refused query costs nothing, so the first retry comes fast and catches the common case of a pool that frees up within seconds; the later, longer waits keep a sustained full pool from being polled constantly. The random position in the band spreads out metrics that bounced in the same burst, so their retries do not arrive together and hit the same saturated cluster again.
 
-  Two error classes have a lower attempt cap than `MAX_METRIC_ATTEMPTS`, because their retries rarely succeed and each one costs ClickHouse capacity: capacity errors stop at `CAPACITY_MAX_METRIC_ATTEMPTS` (3) and the `timeout` class at `TIMEOUT_MAX_METRIC_ATTEMPTS` (2). The activity compares the attempt number with the cap of the error it just got. At the cap it persists the failure with `retriable=True` and raises non-retryable, so Temporal stops early without a change to the workflow's `RetryPolicy`. A user retry can recover the metric later.
+  Two error classes have a lower attempt cap than `MAX_METRIC_ATTEMPTS`, because their retries rarely succeed within one run: capacity errors stop at `CAPACITY_MAX_METRIC_ATTEMPTS` (6, one attempt per band of the delay schedule) and the `timeout` class at `TIMEOUT_MAX_METRIC_ATTEMPTS` (2). The activity compares the attempt number with the cap of the error it just got. At the cap it persists the failure with `retriable=True` and raises non-retryable, so Temporal stops early without a change to the workflow's `RetryPolicy`. A user retry can recover the metric later.
 
 - **`is_final_attempt` is derived inside the activity.** Because Temporal now owns retries, the activity reads its own attempt count from `activity.info().attempt` and compares it against `MAX_METRIC_ATTEMPTS` (the same constant the workflow's `RetryPolicy` is built from, so both sides agree on which attempt is last). The activity persists a transient failure (FAILED row + `metric_errors`) only on the final attempt (or at the error class cap above), so a metric still being retried stays in its loading/dim state on the frontend instead of flashing an error that may yet resolve. Non-final transient state is tracked separately in the `metric_retries` column for the UI.
 
@@ -300,7 +300,7 @@ The split is intentional: Grafana tells you about the worker process, PostHog te
 
 ## What this doc doesn't cover
 
-- The legacy timeseries family of workflows (`posthog/temporal/experiments/`, three workflows that share the daily cache-warming pattern). See that package's `README.md`.
+- The legacy timeseries family of workflows (`posthog/temporal/experiments/`, three workflows). See that package's `README.md`.
 - The Temporal SDK basics. See `posthog/temporal/README.md`.
 - Frontend polling and rendering in depth. The kea logic has landed (`experimentMetricsLogic.ts`, with `RecalculationStatus.tsx` for rendering); this doc covers only the backend contract it polls. See the "GET path" decisions above and the poll loop in that logic.
 - Eviction implementation. The plan above is design intent; the actual workflow is a separate PR.

@@ -12,6 +12,8 @@
     'gomod',
     'cargo',
     'custom.regex',
+    'nodenv',
+    'nvm',
   ],
   dependencyDashboardTitle: 'Renovate: Dependency Status',
   dependencyDashboardLabels: [
@@ -90,6 +92,13 @@
       matchDepNames: ['nodejs'],
       dependencyDashboardApproval: false,
       groupName: 'sandbox nodejs',
+    },
+    // A stale Node pin keeps known vulnerabilities in CI, so skip the dashboard approval
+    // for `.node-version` and `.nvmrc` updates. A major bump still waits for approval
+    {
+      matchManagers: ['nodenv', 'nvm'],
+      matchUpdateTypes: ['minor', 'patch'],
+      dependencyDashboardApproval: false,
     },
   ],
 }

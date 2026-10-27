@@ -5,7 +5,7 @@ import { env } from '@/lib/env'
 import { McpSessionResetRequiredError } from '@/lib/errors'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
 import { MCP_NO_DATA_INSTALL_NOTICE_FLAG, type NoDataAction } from '@/lib/no-data-guard'
-import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
+import { buildMCPAnalyticsGroups, type MCPAnalyticsContext } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
     evaluateFeatureFlags,
@@ -63,6 +63,12 @@ export interface ResolvedState {
     isImpersonated?: boolean
     suppressAnalytics?: boolean
     projectHasData?: boolean | undefined
+    /**
+     * The workspace context that the flags and `projectHasData` were resolved against.
+     * A handler such as `switch-project` changes the live context, so tool-call analytics
+     * read this snapshot to keep the project group consistent with the variant.
+     */
+    analyticsContext?: MCPAnalyticsContext | undefined
     /** Set on the per-call state when the no-data notice blocked or warned this call. */
     noDataAction?: NoDataAction | undefined
     oauthClientId: string | undefined
@@ -345,6 +351,7 @@ export class RequestStateResolver {
             isImpersonated: _apiKey?.is_impersonated === true,
             suppressAnalytics: props.suppressAnalytics,
             projectHasData: flagAnalyticsContext?.projectHasData,
+            analyticsContext: flagAnalyticsContext,
             oauthClientId: oauthClientId || undefined,
             clientProfile,
             requestContext,

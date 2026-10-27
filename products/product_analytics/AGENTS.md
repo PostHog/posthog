@@ -70,14 +70,17 @@ When adding another related resource, define its deletion and restore behavior e
 
 These rules apply when you add or move a frontend file for this product.
 
-New frontend code that only this product imports goes in `products/product_analytics/frontend/`.
+Frontend code that belongs to this product goes in `products/product_analytics/frontend/`, also when core imports it.
 Do not put it in `frontend/src/scenes/insights/` or in another scene tree that the placement report maps to this product.
 `resultSeriesName` landed in `scenes/insights/utils/` although only product files import it, so the default still points at core.
 
-A file in those scene trees stays in core while core or another product imports it.
-Moving it would make core import the product.
-Merge-queue lanes come from paths only, so the moved file would report only this product's lane while core still uses it.
-The lazy scene loaders in `frontend/src/scenes/appScenes.ts` do not count: repoint the loader when its scene moves.
+A file that another product also imports stays in core, for example `scenes/insights/filters/ActionFilter/`.
+Products never import from each other, so a move would make that product import this one.
+
+Core imports from this product are accepted.
+The insight charts and the insight editor (`frontend/insights/editor/`) live here, and core's `InsightViz` and insight cards import them.
+Merge-queue lanes come from paths only, so a change to such a file reports only this product's lane.
+Master's post-merge run is the check for a conflict that this lets through.
 
 Read [the placement skill](../../.agents/skills/placing-product-frontend-code/SKILL.md) when you decide where a file goes.
 Its `scripts/scene_product_split.py` is the placement report: it maps each scene tree to its product and shows how far the tree has moved.

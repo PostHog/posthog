@@ -1,3 +1,5 @@
+import { ReactNode } from 'react'
+
 import { LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
 
 import type { TraceNodeApi } from '../../../generated/api.schemas'
@@ -20,12 +22,13 @@ export interface NodeDetailProps {
     raw: Record<string, unknown> | null
     onViewInThread: (() => void) | null
     onSelectNode: (nodeId: string) => void
+    actions?: ReactNode
 }
 
 export function NodeDetail(props: NodeDetailProps): JSX.Element {
     return (
         <div className="flex min-w-0 flex-col gap-2">
-            <NodeDetailHeader node={props.node} />
+            <NodeDetailHeader node={props.node} actions={props.actions} />
             <LemonTabs<NodeDetailTab>
                 size="small"
                 activeKey={props.tab}

@@ -922,6 +922,9 @@ auth:
     gateway:token:
         click: hogli_commands.gateway:gateway_token
         description: Get a short-lived AI gateway token for PostHog staff, approved in your browser
+    gateway:status:
+        click: hogli_commands.gateway:gateway_status
+        description: Show how much budget a developer mode token has left (reads the token from stdin or env)
 tools:
     metabase:databases:
         click: hogli_commands.metabase:metabase_databases
