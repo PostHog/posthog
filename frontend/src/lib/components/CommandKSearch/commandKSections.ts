@@ -244,7 +244,7 @@ export function pickDisplayedQuery(
     return { query: shown, stale: true }
 }
 
-export const exactSettingsMatches = (settings: SearchItem[], localQuery: string): SearchItem[] =>
+const exactSettingsMatches = (settings: SearchItem[], localQuery: string): SearchItem[] =>
     localQuery ? matchLocal('settings', settings, localQuery, true) : []
 
 export const resultsSettled = (query: SectionsQuery, remote: RemoteSlots): boolean =>
@@ -292,7 +292,7 @@ const plainName = (item: SearchItem): string =>
         .replace(/\s*\([^)]*\)\s*$/, '')
         .trim()
 
-function rankableSettings(local: LocalLists, localQuery: string): SearchItem[] {
+export function rankableSettings(local: LocalLists, localQuery: string): SearchItem[] {
     const productNames = new Set(local.products.map(plainName))
     return exactSettingsMatches(local.settings, localQuery).filter((item) => !productNames.has(plainName(item)))
 }
