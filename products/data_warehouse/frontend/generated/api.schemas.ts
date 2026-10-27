@@ -6018,6 +6018,10 @@ export type WarehouseSavedQueryDraftsListParams = {
 
 export type WarehouseTablesListParams = {
     /**
+     * Include table columns. Disable for lightweight table existence or name lookups.
+     */
+    include_columns?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
