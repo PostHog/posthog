@@ -22,7 +22,7 @@ export function QuillSaveAsMenuItems({ targets, onSelect }: SaveAsMenuProps): JS
                 const Icon = target.icon
 
                 return (
-                    <div key={target.id} className="flex min-w-0 items-stretch">
+                    <div key={target.id} className="flex w-full min-w-0 items-stretch">
                         <DropdownMenuItem
                             className="min-w-0 flex-1"
                             onClick={() => onSelect(target.id)}
@@ -49,7 +49,7 @@ export function QuillSaveAsMenuItems({ targets, onSelect }: SaveAsMenuProps): JS
                                     <Button
                                         variant="default"
                                         size="icon-sm"
-                                        className="my-1 me-1 shrink-0 self-start"
+                                        className="my-1 me-1 ms-auto shrink-0 self-start"
                                         tabIndex={-1}
                                         aria-label={`Learn more about ${target.label.toLowerCase()}`}
                                         data-attr={`sql-editor-save-as-${target.id}-help`}

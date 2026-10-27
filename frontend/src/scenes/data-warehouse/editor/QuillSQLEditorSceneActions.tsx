@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBook, IconChevronDown, IconDownload, IconNotebook, IconX } from '@posthog/icons'
+import { IconBook, IconChevronDown, IconDownload, IconInfo, IconNotebook, IconX } from '@posthog/icons'
 import {
     Button,
     ButtonGroup,
@@ -242,9 +242,10 @@ export function QuillSQLEditorSceneActions({
                             <DropdownMenuItem
                                 onClick={() => closeEditingObject()}
                                 data-attr="sql-editor-reset-view"
-                                title={closeObjectTooltip}
+                                tooltip={closeObjectTooltip}
                             >
                                 Reset view
+                                {saveAsChooserEnabled ? <IconInfo className="ms-auto" data-icon="inline-end" /> : null}
                             </DropdownMenuItem>
                         </DropdownMenuContent>
                     </DropdownMenu>

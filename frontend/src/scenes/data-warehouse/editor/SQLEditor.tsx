@@ -3,7 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 
-import { IconBook, IconChevronDown, IconDownload, IconNotebook, IconX } from '@posthog/icons'
+import { IconBook, IconChevronDown, IconDownload, IconInfo, IconNotebook, IconX } from '@posthog/icons'
 import { LemonModal, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -710,10 +710,10 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     const EditingViewButtonIcon = editingViewLoading ? Spinner : IconDownload
 
     const closeObjectTooltip = editingInsight
-        ? 'Close this insight and reset the SQL editor to an unsaved query without clearing your SQL or visualization settings.'
+        ? 'Stop editing this insight. Keep the current SQL and visualization settings in a new unsaved query.'
         : editingView
-          ? 'Close this view and reset the SQL editor to an unsaved query without clearing your SQL or visualization settings.'
-          : 'Reset the SQL editor to an unsaved query without clearing your SQL or visualization settings.'
+          ? 'Stop editing this view. Keep the current SQL and visualization settings in a new unsaved query.'
+          : 'Start a new unsaved query. Keep the current SQL and visualization settings.'
     const continueInNotebookButton = (
         <LemonButton
             type="secondary"
@@ -922,6 +922,12 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                                     'data-attr': 'sql-editor-reset-view',
                                                                     tooltip: closeObjectTooltip,
                                                                     onClick: () => closeEditingObject(),
+                                                                    sideAction: {
+                                                                        icon: <IconInfo />,
+                                                                        tooltip: closeObjectTooltip,
+                                                                        'aria-label': 'About reset view',
+                                                                        onClick: (event) => event.stopPropagation(),
+                                                                    },
                                                                 },
                                                             ],
                                                         ]}

@@ -43,6 +43,7 @@ export const Lemon: Story = {
         <LemonDropdown
             startVisible
             placement="bottom-end"
+            className="w-80"
             overlay={<LemonSaveAsMenuContent {...args} />}
             closeOnClickInside
         >

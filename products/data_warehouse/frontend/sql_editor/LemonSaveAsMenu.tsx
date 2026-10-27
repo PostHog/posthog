@@ -59,7 +59,7 @@ export function LemonSaveAsMenuContent({
     ]
 
     return (
-        <div className="w-80" data-attr="sql-editor-save-as-modal">
+        <div className="min-w-0" data-attr="sql-editor-save-as-modal">
             <LemonMenuOverlay items={items} tooltipPlacement="left" />
         </div>
     )
