@@ -234,7 +234,6 @@ export namespace Schemas {
         timings: boolean | null;
         typeAwareCastSimplification: boolean | null;
         useMaterializedViews: boolean | null;
-        useNewEventsCluster: boolean | null;
         useNewEventsSchema: boolean | null;
         usePreaggregatedIntermediateResults: boolean | null;
         usePreaggregatedTableTransforms: boolean | null;
@@ -9460,23 +9459,23 @@ export namespace Schemas {
         value: string;
     };
     /**
+     * * `semver_eq` - semver_eq
+     * * `semver_neq` - semver_neq
      * * `semver_gt` - semver_gt
      * * `semver_gte` - semver_gte
      * * `semver_lt` - semver_lt
      * * `semver_lte` - semver_lte
-     * * `semver_eq` - semver_eq
-     * * `semver_neq` - semver_neq
      * * `semver_tilde` - semver_tilde
      * * `semver_caret` - semver_caret
      * * `semver_wildcard` - semver_wildcard
      */
-    export type FeatureFlagFilterPropertySemverSchemaOperatorEnum =
+    export type SemverOperatorEnum =
+        | "semver_eq"
+        | "semver_neq"
         | "semver_gt"
         | "semver_gte"
         | "semver_lt"
         | "semver_lte"
-        | "semver_eq"
-        | "semver_neq"
         | "semver_tilde"
         | "semver_caret"
         | "semver_wildcard";
@@ -9491,17 +9490,17 @@ export namespace Schemas {
         /**
          * Semantic version comparison operator.
          *
+         * * `semver_eq` - semver_eq
+         * * `semver_neq` - semver_neq
          * * `semver_gt` - semver_gt
          * * `semver_gte` - semver_gte
          * * `semver_lt` - semver_lt
          * * `semver_lte` - semver_lte
-         * * `semver_eq` - semver_eq
-         * * `semver_neq` - semver_neq
          * * `semver_tilde` - semver_tilde
          * * `semver_caret` - semver_caret
          * * `semver_wildcard` - semver_wildcard
          */
-        operator: FeatureFlagFilterPropertySemverSchemaOperatorEnum;
+        operator: SemverOperatorEnum;
         /**
          * Semantic version string.
          */
@@ -9855,6 +9854,7 @@ export namespace Schemas {
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_cannot_compile` - Metric Cannot Compile
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
@@ -9875,6 +9875,7 @@ export namespace Schemas {
         | "multiple_variants_share"
         | "no_metric"
         | "metric_event_not_ingested"
+        | "metric_cannot_compile"
         | "exposure_criteria_cannot_match"
         | "srm"
         | "zero_exposures"
@@ -9925,6 +9926,7 @@ export namespace Schemas {
          * * `multiple_variants_share` - Multiple Variants Share
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_cannot_compile` - Metric Cannot Compile
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
@@ -9981,6 +9983,7 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_cannot_compile` - Metric Cannot Compile
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
@@ -9999,6 +10002,7 @@ export namespace Schemas {
         | "new_flag_no_traffic"
         | "no_metric"
         | "metric_event_not_ingested"
+        | "metric_cannot_compile"
         | "exposure_criteria_cannot_match"
         | "early_significance"
         | "zero_exposures"
@@ -10030,6 +10034,7 @@ export namespace Schemas {
          * * `new_flag_no_traffic` - New Flag No Traffic
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_cannot_compile` - Metric Cannot Compile
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
          * * `early_significance` - Early Significance
          * * `zero_exposures` - Zero Exposures

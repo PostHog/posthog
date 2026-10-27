@@ -238,6 +238,15 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         return self.owner == PlatformAlertOwner.PLATFORM
 
     @property
+    def platform_owned_since(self) -> datetime | None:
+        """When the platform took this alert over, or None while the insight stack owns it.
+
+        The alert's own checks before then are its history. Its own checks after then are the shadow's,
+        which sent nothing, so the platform's checks replace them.
+        """
+        return self.owner_changed_at if self.platform_owned else None
+
+    @property
     def is_high_frequency_interval(self) -> bool:
         # Real-time counts as high frequency so its checks always run fresh ClickHouse
         # queries (CALCULATE_BLOCKING_ALWAYS) instead of reading a possibly stale cache.

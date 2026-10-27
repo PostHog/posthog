@@ -13,12 +13,14 @@ from django.db.models import Q
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
+from posthog.models.team import Team
 
 from products.ai_observability.backend.dataset_queries import dataset_item_versions_at_revision
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.offline_evaluations import (
     OfflineEvaluationResult,
     OfflineEvaluationResultPayload,
+    OfflineEvaluationUsageLedger,
     OfflineExperiment,
     OfflineExperimentItem,
     OfflineExperimentItemPayload,
@@ -516,6 +518,15 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
                 if result.payload is not None
             ]
         )
+        if new_result_rows:
+            organization_id = Team.objects.values_list("organization_id", flat=True).get(id=experiment.team_id)
+            OfflineEvaluationUsageLedger.objects.for_team(experiment.team_id).create(
+                team_id=experiment.team_id,
+                organization_id=organization_id,
+                experiment_id=experiment.id,
+                accepted_at=accepted_at,
+                quantity=len(new_result_rows),
+            )
         return UploadReceipt(
             items=[
                 ItemReceipt(id=item.id, accepted_at=item.accepted_at, created=item.id in new_item_ids)

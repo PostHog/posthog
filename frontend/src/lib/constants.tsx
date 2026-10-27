@@ -225,7 +225,6 @@ export const FEATURE_FLAGS = {
     SELF_DRIVING_FREE_TRIAL: 'self-driving-free-trial', // owner: #team-self-driving, the org is on a Self-driving free trial: reports only, no pull requests (also checked server-side)
     SELF_DRIVING_QUOTA_ENFORCEMENT: 'self-driving-quota-enforcement', // owner: #team-self-driving, gates self-driving PR-limit enforcement (also checked server-side)
     SELF_DRIVING_UBP: 'self-driving-ubp', // owner: #team-self-driving
-    SELF_OPTIMISING_WORKFLOWS: 'self-optimising-workflows', // owner: #team-workflows, gates agent-suggested workflow changes (also checked server-side)
     SESSION_REPLAY_BACKEND_LOGS: 'session-replay-backend-logs', // owner: #team-replay
     SESSION_REPLAY_DOCTOR: 'session-replay-doctor', // owner: #team-replay
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: #team-web-analytics
@@ -234,6 +233,7 @@ export const FEATURE_FLAGS = {
     SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES: 'web-analytics-pre-aggregated-tables', // owner: @lricoy #team-web-analytics
     SIGNALS_EXPECTED_IMPACT_DISPLAY: 'signals-expected-impact', // owner: #team-self-driving, person-level display gate for metric follow-up graphs and actions
     SIGNALS_INBOX_VALUE_SUMMARY: 'signals-inbox-value-summary', // owner: #team-self-driving
+    SIGNALS_PLAIN_REPORT_TITLES: 'signals-plain-report-titles', // owner: #team-self-driving, removes conventional-commit labels from Inbox report titles
     SIGNALS_PR_REFUNDS: 'signals-pr-refunds', // owner: #team-self-driving, gates the inbox PR refund flow (also checked server-side)
     SIGNALS_REPORT_CHECKS_REPLACE: 'signals-report-checks-replace', // owner: #team-self-driving
     SIGNALS_REPORT_METRICS: 'signals-report-metrics', // owner: #team-self-driving, gates the live impact metrics on inbox report rows and the report detail, and the snapshot refresh calls they make
@@ -284,7 +284,7 @@ export const FEATURE_FLAGS = {
     CODE_BADGE_SELF_DRIVING_LABEL: 'code-badge-self-driving-label', // owner: #team-self-driving, experiment: label the Code badge "Self-driving" and compare setup activations
     COHORT_INLINE_CALCULATION: 'inline-cohort-calculation', // owner: #team-analytics-platform, inlines fast dynamic cohort queries instead of using precomputed cohortpeople table
     COHORTS_TAXONOMIC_BASIC_LIST: 'cohorts-taxonomic-basic-list', // owner: @adamleith, picker sends ?basic=true to the cohorts list endpoint (trimmed payload: no query/groups/last_error_message/experiment_set; filters is kept)
-    COMMAND_K_PERSONS_FIRST_FOR_EMAIL: 'command-k-persons-first-for-email', // owner: @puemos #team-platform-ux multivariate=control,test, experiment: show Persons right below Results when a Command K search contains "@"
+    COMMAND_K_SETTINGS_IN_RESULTS: 'command-k-settings-in-results', // owner: @puemos #team-platform-ux multivariate=control,test, experiment: rank exact-match settings with the Command K results
     CONDENSED_FILTER_BAR: 'condensed_filter_bar', // owner: @jordanm-posthog #team-web-analytics
     CREATE_FORM_TOOL: 'phai-create-form-tool', // owner: @kappa90 #team-posthog-ai
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-customer-analytics
@@ -353,6 +353,7 @@ export const FEATURE_FLAGS = {
     HOGQL_WAREHOUSE_ACCESS_CONTROL: 'hogql-warehouse-access-control', // owner: @a-lider #team-platform-features, gates per-object access control for warehouse tables and views
     IDENTITY_MATCHING: 'identity-matching', // owner: @fercgomes #team-growth, gates new identity matching scene on marketing analytics
     INBOX_GET_IT_MERGED: 'inbox-get-it-merged', // owner: #team-self-driving, gates the Get it merged action in the report Ask AI menu
+    INBOX_INTERVIEW_INVITE: 'inbox-interview-invite', // owner: #team-self-driving, gates the interview invite after report feedback
     INBOX_MCP_USED: 'inbox-mcp-used', // owner: #team-self-driving, hides the MCP banner after confirmed Inbox tool use
     INBOX_MODEL_SORT: 'inbox-model-sort', // owner: #team-self-driving, gates the ranking model sort options and the score tag on inbox cards
     INBOX_REPORT_FEEDBACK_BANG: 'inbox-report-feedback-bang', // owner: #team-self-driving, gates the party hog that pops on a report thumbs-up in the inbox and on the Today home page
@@ -613,7 +614,6 @@ export const FEATURE_FLAGS = {
     WORKFLOW_AI_TASK_ACTION: 'workflow-ai-task-action', // owner: @mayteio #team-workflows
     WORKFLOW_CLASSIFY_ACTION: 'workflow-classify-action', // owner: #team-workflows
     WORKFLOW_OPT_OUT_OF_MESSAGES_ACTION: 'workflow-opt-out-of-messages-action', // owner: #team-workflows
-    WORKFLOWS_AI_EMAIL_DRAFT: 'workflows-ai-email-draft', // owner: @dmarchuk #team-workflows, AI first draft for cross-product entry points
     WORKFLOWS_AI_FIRST_NEW: 'workflows-ai-first-new', // owner: @mayteio #team-workflows
     WORKFLOWS_COHORT_CONDITIONS: 'workflows-cohort-conditions', // owner: @meikelmosby #team-workflows
     WORKFLOWS_EMAIL_DOMAIN_AGENT_SETUP: 'workflows-email-domain-agent-setup', // owner: @silthus #team-workflows
@@ -621,11 +621,8 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_EMAIL_MEDIA_LIBRARY: 'workflows-email-media-library', // owner: @mayteio #team-workflows, backs the email editor's Uploads tab with the media library
     WORKFLOWS_EMAIL_SENDER_ROTATION: 'workflows-email-sender-rotation', // owner: @arthurdedeus #team-workflows
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
-    WORKFLOWS_ISP_SENDING_HEALTH: 'workflows-isp-sending-health', // owner: #team-workflows
     WORKFLOWS_LINEAR_VIEW: 'workflows-linear-view', // owner: #team-workflows
-    WORKFLOWS_OVERVIEW_TAB: 'workflows-overview-tab', // owner: @dmarchuk #team-workflows, experimental Overview tab on a workflow
     WORKFLOWS_PUSH_NOTIFICATIONS: 'workflows-push-notifications', // owner: #team-workflows
-    WORKFLOWS_SEND_CALENDAR: 'workflows-send-calendar', // owner: @meikelmosby #team-workflows, calendar of scheduled email sends in Broadcasts and Workflows
     WORKFLOWS_TILE_CANVAS: 'workflows-tile-canvas', // owner: #team-workflows
     WORKFLOWS_TRANSACTIONAL_EMAIL_API: 'workflows-transactional-email-api', // owner: @mayteio #team-workflows
     XAA_AUTHENTICATION: 'xaa-authentication', // owner: @reecejones #team-platform-features

@@ -423,6 +423,23 @@ Frontend controls use `data-attr` for autocapture action matching.
 Dataset row actions retain their existing resource-specific `data-attr` values and have stable `data-attr` values on their menu wrappers for aggregate matching.
 Existing `llma` event names and attributes remain unchanged so saved actions and dashboards continue to match.
 
+### Durable usage recording
+
+Newly accepted Postgres results produce durable `OfflineEvaluationUsageLedger` entries.
+Each upload transaction that inserts new results writes one entry with a quantity equal to the number of new results, including error, skipped, and not-applicable outcomes.
+Results, payloads, and usage commit together; a ledger write failure rolls back the upload.
+Exact retries add no usage, including retries split or regrouped into different requests.
+Mixed uploads count only new results, and changed content still returns a conflict.
+
+Each entry stores the environment's team ID, the owning organization's ID at acceptance, the experiment ID, and the same server acceptance timestamp as its new results.
+These identifiers are stored independently of the product records, so deleting results, experiments, or their owners does not remove usage.
+Moving a project to another organization does not rewrite historical attribution.
+The ownership snapshots and timestamp preserve the information needed for future aggregation by organization, team, and UTC day.
+
+Recording begins with newly accepted results after deployment; there is no historical backfill, compaction, or ledger cleanup.
+The ledger has no editing API or editable admin interface.
+Organization usage reporting, billing, actual charging, and quota enforcement remain unchanged and do not consume this ledger.
+
 ## Resource tags
 
 Datasets, stable scorer definitions, and offline experiments use the shared project tag vocabulary.
