@@ -42,7 +42,7 @@ describe('EvaluationCategoryEditor', () => {
         }
         render(<EvaluationCategoryEditor config={config} onChange={onChange} showKeys={false} />)
 
-        fireEvent.click(screen.getByRole('switch', { name: 'Grade runs as pass or fail' }))
+        fireEvent.click(screen.getByLabelText('Grade runs as pass or fail'))
 
         expect(onChange).toHaveBeenCalledWith({ passing_rule: null })
     })
