@@ -12,6 +12,7 @@ import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
+from pyarrow.lib import concat_batches
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
@@ -797,14 +798,14 @@ async def hogql_table(
                     await logger.adebug(
                         f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB"
                     )
-                    yield (pa.concat_batches(batches), ch_typings_pairs)
+                    yield (concat_batches(batches), ch_typings_pairs)
                     yielded_results = True
                     batches_size = 0
                     batches = []
 
         if len(batches) > 0:
             await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
-            yield (pa.concat_batches(batches), ch_typings_pairs)
+            yield (concat_batches(batches), ch_typings_pairs)
             yielded_results = True
 
         if not yielded_results:
