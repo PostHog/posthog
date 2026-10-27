@@ -296,7 +296,6 @@ describe('homeTabDefaultTiles', () => {
             'Sessions',
             'First-time users',
             'Avg. session duration',
-            'Avg. DAU',
             'Daily active users',
             'Top pages',
             'Top screens',
@@ -318,7 +317,13 @@ describe('homeTabDefaultTiles', () => {
                 }
             }
         }
-        expect(tiles.slice(0, 5).map((tile) => tile.type === 'INSIGHT' && tile.query)).toMatchObject([
+        expect(tiles.slice(0, 4).map((tile) => tile.layouts!.sm)).toMatchObject([
+            { x: 0, y: 0, w: 3 },
+            { x: 3, y: 0, w: 3 },
+            { x: 6, y: 0, w: 3 },
+            { x: 9, y: 0, w: 3 },
+        ])
+        expect(tiles.slice(0, 4).map((tile) => tile.type === 'INSIGHT' && tile.query)).toMatchObject([
             {
                 source: {
                     series: [{ math: BaseMathType.WeeklyActiveUsers }],
@@ -335,12 +340,6 @@ describe('homeTabDefaultTiles', () => {
                         metricSummary: 'average',
                         aggregationAxisFormat: 'duration',
                     },
-                },
-            },
-            {
-                source: {
-                    interval: 'day',
-                    trendsFilter: { display: ChartDisplayType.Metric, metricSummary: 'average' },
                 },
             },
         ])

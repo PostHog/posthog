@@ -516,7 +516,9 @@ export function getHomeTabDashboardTemplate(): DashboardTemplateType {
         }
         return { name: chart.title, description: chart.description, source: chart.query.source, w, h }
     }
-    const statTiles = getHomeTabStatQueries(dateRange, compare).map((stat): HomeTabDashboardTile => {
+    // A 12-column row holds four equal metric tiles, and the full-width Daily active users chart already shows Avg. DAU.
+    const statQueries = getHomeTabStatQueries(dateRange, compare).filter(({ key }) => key !== 'daily_active_users')
+    const statTiles = statQueries.map((stat): HomeTabDashboardTile => {
         const weeklyActiveUsers = stat.key === 'active_users'
         return {
             name: HOME_TAB_STAT_DASHBOARD_NAMES[stat.key] ?? stat.title,
@@ -537,7 +539,7 @@ export function getHomeTabDashboardTemplate(): DashboardTemplateType {
                     ...(stat.kind === 'duration_s' ? { aggregationAxisFormat: 'duration' } : {}),
                 },
             },
-            w: weeklyActiveUsers || stat.key === 'daily_active_users' ? 3 : 2,
+            w: 3,
             h: 3,
         }
     })
