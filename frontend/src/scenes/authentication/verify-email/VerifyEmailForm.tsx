@@ -231,7 +231,7 @@ export function VerifyEmailForm(): JSX.Element {
     if (view === 'success') {
         return (
             <AuthScene notes={notes}>
-                <AuthSceneCard>
+                <AuthSceneCard showPendingConnection>
                     <div className="flex flex-col items-center text-center">
                         <HedgehogExplorer className="block w-auto mx-auto h-32" />
                         <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
@@ -256,6 +256,7 @@ export function VerifyEmailForm(): JSX.Element {
         return (
             <AuthScene notes={notes}>
                 <AuthSceneCard
+                    showPendingConnection
                     footer={
                         <p className="mt-5 mb-0 text-sm text-secondary text-center">
                             Already verified?{' '}
@@ -303,6 +304,7 @@ export function VerifyEmailForm(): JSX.Element {
     return (
         <AuthScene notes={notes}>
             <AuthSceneCard
+                showPendingConnection
                 footer={
                     <p className="mt-5 mb-0 text-sm text-secondary text-center">
                         Wrong address?{' '}

@@ -76,7 +76,7 @@ export function EmailStep(): JSX.Element {
     }, [login.email, prevEmail, precheckResponse.status, precheck])
 
     return (
-        <AuthSceneCard>
+        <AuthSceneCard showPendingConnection>
             <EmailStepTitle />
             <SessionRiskBanner className="mb-4" />
             <LoginErrorBanner />

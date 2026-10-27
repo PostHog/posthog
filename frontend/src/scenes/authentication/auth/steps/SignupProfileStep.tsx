@@ -64,7 +64,7 @@ export function SignupProfileStep(): JSX.Element {
     )
 
     return (
-        <AuthSceneCard footer={footer}>
+        <AuthSceneCard footer={footer} showPendingConnection>
             <AuthCardTitle
                 title="Tell us about yourself"
                 sub={

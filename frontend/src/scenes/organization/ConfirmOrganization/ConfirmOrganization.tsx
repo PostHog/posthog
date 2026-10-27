@@ -56,7 +56,7 @@ export function ConfirmOrganization(): JSX.Element {
 
     return (
         <AuthScene notes={AUTH_NOTES.confirmOrganization.default}>
-            <AuthSceneCard footer={footer}>
+            <AuthSceneCard footer={footer} showPendingConnection>
                 <AuthCardTitle title="Create a new organization" sub="Your own corner of PostHog." />
                 <Form
                     logic={confirmOrganizationLogic}

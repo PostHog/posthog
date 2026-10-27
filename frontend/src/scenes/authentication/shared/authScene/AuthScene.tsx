@@ -50,10 +50,17 @@ export function AuthScene({
 export function AuthSceneCard({
     top,
     footer,
+    showPendingConnection = false,
     children,
 }: {
     top?: ReactNode
     footer?: ReactNode
+    /**
+     * Shows the pending OAuth app's logo in place of the PostHog logo. Set it only on screens on the way to
+     * OAuth consent. The pending-connection cookie stays after a person abandons a connect, so on any other
+     * screen the logo suggests that the action is for that app.
+     */
+    showPendingConnection?: boolean
     children: ReactNode
 }): JSX.Element {
     const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
@@ -62,7 +69,7 @@ export function AuthSceneCard({
         <>
             {top !== undefined ? (
                 top
-            ) : pendingConnection ? (
+            ) : showPendingConnection && pendingConnection ? (
                 <OAuthConnectionLogos appName={pendingConnection.clientName} logoUri={pendingConnection.logoUri} />
             ) : (
                 <span className="AuthScene__logo block mb-4">

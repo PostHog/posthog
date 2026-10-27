@@ -31,7 +31,7 @@ export function Login2FA(): JSX.Element {
 
     return (
         <AuthScene notes={AUTH_NOTES.login2fa.default}>
-            <AuthSceneCard>
+            <AuthSceneCard showPendingConnection>
                 <AuthCardTitle
                     title="Two-factor authentication"
                     sub={
