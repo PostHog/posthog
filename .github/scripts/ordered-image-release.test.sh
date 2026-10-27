@@ -242,10 +242,19 @@ check_fetch_timeouts() {
     awk -v attempts="$1" -v maximum="$2" '
         NR % 2 == 1 { if ($0 != "--kill-after=10s") exit 1; next }
         $0 !~ /^[1-9][0-9]*s$/ { exit 1 }
-        { sub(/s$/, ""); if ($0 > maximum) exit 1 }
+        { sub(/s$/, ""); if ($0 + 0 > maximum + 0) exit 1 }
         END { if (NR != 2 * attempts) exit 1 }
     ' "$TIMEOUT_ARGUMENTS"
 }
+
+printf '%s\n' --kill-after=10s 9s > "$TIMEOUT_ARGUMENTS"
+check_fetch_timeouts 1 10
+printf '%s\n' --kill-after=10s 100s > "$TIMEOUT_ARGUMENTS"
+if check_fetch_timeouts 1 90; then
+    echo 'FAIL fetch timeout assertion accepted an oversized limit' >&2
+    exit 1
+fi
+echo 'PASS fetch timeout assertions compare seconds numerically'
 
 for failures in 2 3; do
     git clone -q --depth 1 "file://$scratch/executing" "$scratch/retry-$failures"
@@ -290,6 +299,17 @@ for failures in 2 0; do
         echo 'PASS tag shortens its attempt timeout to fit the total fetch budget'
     fi
 done
+git clone -q --depth 1 "file://$scratch/executing" "$scratch/no-attempt"
+printf '0\n' > "$FETCH_CALLS"
+: > "$GITHUB_OUTPUT"
+: > "$TIMEOUT_ARGUMENTS"
+(cd "$scratch/no-attempt" && FETCH_TOTAL_TIMEOUT_SECONDS=10 \
+    FETCH_RETRY_DELAYS_SECONDS='0 0' bash "$helper" tag) > "$scratch/no-attempt-annotations"
+test "$(cat "$FETCH_CALLS")" = 0
+test ! -s "$TIMEOUT_ARGUMENTS"
+test ! -s "$GITHUB_OUTPUT"
+grep -Fxq '::warning title=Ordered release tag skipped::Complete source history is unavailable.' "$scratch/no-attempt-annotations"
+echo 'PASS tag warns without invoking timeout or fetching when no useful attempt fits'
 for delays in '21 0' '0 21'; do
     printf '0\n' > "$FETCH_CALLS"
     : > "$GITHUB_OUTPUT"

@@ -468,6 +468,43 @@ describe('shared-image publication', () => {
     expect(() => validateRequests(loadPolicy(policy()), force, bootstrap)).toThrow(String(_name).startsWith('force') ? 'Force requires' : 'Bootstrap requires')
   })
 
+  test('omitted retry delays wait five and fifteen seconds before the third tree fetch publishes', async () => {
+    put('worker/run.py', 'changed'); commit(); build()
+    delete options.budgets.retryDelaysMs
+    const tree = git('rev-parse', `${options.revision}^{tree}`)
+    let fetchAttempts = 0
+    external.mockImplementation(async (executable, args, configuration) => {
+      if (executable === 'git') {
+        if (args[0] === 'cat-file' && args.includes('--batch-check=%(objectname) %(objecttype)') && fetchAttempts < 3) {
+          return `${tree} missing\n`
+        }
+        if (args[0] === 'fetch') {
+          if (++fetchAttempts < 3) throw new Error('transient tree fetch failure')
+          return ''
+        }
+        return execFileSync('git', args, {
+          cwd: repo, env: {...process.env, ...configuration.env}, input: configuration.input, encoding: 'utf8'
+        })
+      }
+      return invoke(executable, args, configuration)
+    })
+    jest.useFakeTimers()
+    const waits = jest.spyOn(global, 'setTimeout')
+    try {
+      const result = publishChannels(options).catch((error: unknown) => error)
+      await jest.runAllTimersAsync()
+      expect(waits.mock.calls.map(([, delay]) => delay)).toEqual([5000, 15000])
+      expect(fetchAttempts).toBe(3)
+      expect(await result).toContainEqual(expect.objectContaining({
+        channel: 'posthog-cloud/worker', decision: 'published', outcome: 'present-at-expected-digest'
+      }))
+      expect(tags.get('workers/worker')!.get(options.alias)).toBe(options.digest)
+    } finally {
+      waits.mockRestore()
+      jest.useRealTimers()
+    }
+  })
+
   test.each([
     ...[0, -1, 1.5, Infinity].map(value => ['registryMs', value] as const),
     ...[null, 0, '5 15', [], [0], [0, 0, 0], [-1, 0], [0, 1.5], [0, Infinity], [0, Number.MAX_SAFE_INTEGER + 1], [0, '15']]

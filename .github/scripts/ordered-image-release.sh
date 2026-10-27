@@ -25,10 +25,8 @@ compute_tag() {
         remaining_seconds=$((fetch_total_seconds - (SECONDS - fetch_started)))
         attempt_seconds=$((remaining_seconds - kill_grace_seconds))
         if [ "$attempt_seconds" -lt "$minimum_attempt_seconds" ]; then
-            if [ "$fetch_status" -eq 0 ]; then fetch_status=124; fi
             break
         fi
-        if [ "$attempt_seconds" -gt 90 ]; then attempt_seconds=90; fi
         fetch_status=0
         timeout --kill-after="${kill_grace_seconds}s" "${attempt_seconds}s" git fetch \
             --no-tags --prune --no-recurse-submodules --unshallow --filter=tree:0 \
