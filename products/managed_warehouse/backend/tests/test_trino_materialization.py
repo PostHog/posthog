@@ -543,6 +543,32 @@ class TestTrinoIncrementalMaterialization(BaseTest):
                 '"__ph_output"."id" AS "id" FROM (SELECT id, ts FROM orders) AS "__ph_output"'
             )
 
+    def test_skips_the_zero_row_run_when_no_output_can_be_a_row(self) -> None:
+        cursor = _ScriptedCursor(table_exists=False, staged=1, output_types=[("tag", "row(bigint)")])
+        compiled = TrinoCompiledQuery(sql="SELECT id, ts FROM orders", values={}, needs_row_type_probe=False)
+        connection = MagicMock(catalog="cat")
+        connection.cursor.return_value = cursor
+        with (
+            patch(
+                "products.managed_warehouse.backend.trino_materialization.compile_hogql_to_trino_sql",
+                return_value=compiled,
+            ),
+            patch(
+                "products.managed_warehouse.backend.trino_materialization.connect_managed_warehouse_trino"
+            ) as connect,
+        ):
+            connect.return_value.__enter__.return_value = connection
+            execute_trino_model_statements(
+                organization_id=str(self.organization.pk),
+                team_id=self.team.pk,
+                saved_query_id=self.saved_query_id,
+                source_query=self.query,
+            )
+
+        statements = [statement for statement, _ in cursor.statements]
+        assert not any(statement.endswith("LIMIT 0") for statement in statements)
+        assert any(statement.startswith("CREATE OR REPLACE TABLE") for statement in statements)
+
     @parameterized.expand(
         [
             ("quiet_window", _ScriptedCursor(table_exists=True, staged=0), None),

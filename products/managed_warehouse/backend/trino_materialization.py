@@ -77,7 +77,8 @@ def execute_trino_shadow_materialization(
                 merge = False
                 compiled = _compile(team, hogql_query, None)
             sql, parameters = convert_pyformat_placeholders(compiled.sql, compiled.values)
-            sql = _name_anonymous_row_fields(cursor, control, sql, parameters)
+            if compiled.needs_row_type_probe:
+                sql = _name_anonymous_row_fields(cursor, control, sql, parameters)
             if merge:
                 assert incremental is not None
                 stage = f"{schema}.{escape_trino_identifier(table_name + STAGE_SUFFIX)}"
