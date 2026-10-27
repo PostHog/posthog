@@ -37,6 +37,7 @@ class Migration(migrations.Migration):
             "search_suggestions_generated_at",
             "search_last_viewed_at",
         ),
+        untrack_field("replayobservationmedia", "rec_start_ms"),
         untrack_field(
             "teamreplayvisionconfig",
             "search_suggestions",
