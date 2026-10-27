@@ -23,6 +23,7 @@ from posthog.dataclasses import frozen
 
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
+from products.replay_vision.backend.gemini_client import AI_PRODUCT, replay_gemini_client
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import PromptValence, ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_semantics import ReplayScannerSearchTheme
@@ -42,6 +43,8 @@ THEME_MIN_SIMILARITY = 0.40
 THEME_MIN_RAW_SIMILARITY = 0.85
 # A theme with no new member for this long no longer takes members or counts as a suggestion.
 THEME_ACTIVE_WINDOW = timedelta(days=30)
+# Bounds the themes one assignment reads while it holds the scanner's lock.
+MAX_ACTIVE_THEMES = 2_000
 THEME_NAME_SAMPLES = 8
 THEME_NAMING_DAILY_CAP = 100
 MAX_THEME_LABEL_WORDS = 10
@@ -99,7 +102,8 @@ def assign_theme(*, team_id: int, scanner_id: str, space: SemanticSpace, now: da
     themes = list(
         ReplayScannerSearchTheme.objects.for_team(team_id)
         .filter(scanner_id=scanner_id, last_member_at__gte=now - THEME_ACTIVE_WINDOW)
-        .only("id", "vector_sum", "member_count", "rename_at_member_count", "last_member_at")
+        .order_by("-last_member_at")
+        .only("id", "vector_sum", "member_count", "rename_at_member_count", "last_member_at")[:MAX_ACTIVE_THEMES]
     )
     best = nearest_cluster(
         np.array([unpack(theme.vector_sum) for theme in themes], dtype=np.float32).reshape(-1, SEMANTIC_DIMENSIONS),
@@ -166,24 +170,20 @@ def finalize_label(raw: str) -> str:
 
 async def name_theme(team_id: int, theme_id: uuid.UUID, now: datetime) -> str | None:
     """Name a theme that reached its naming size. None when another caller claimed it, or nothing could be named."""
-    if not await sync_to_async(_claim_naming)(team_id, theme_id):
-        return None
+    # Consent and budget come before the claim, so a theme that cannot be named now is tried again on its next member.
     if not await sync_to_async(is_ai_data_processing_approved)(team_id):
         return None
     if not await sync_to_async(_take_naming_budget)(team_id, now):
         logger.info("replay_vision.watch_themes.naming_budget_spent", team_id=team_id)
+        return None
+    if not await sync_to_async(_claim_naming)(team_id, theme_id):
         return None
     context = await sync_to_async(_naming_context)(team_id, theme_id)
     if context is None or not context[1]:
         return None
     scanner, samples = context
     prompt = (scanner.scanner_config or {}).get("prompt") if isinstance(scanner.scanner_config, dict) else None
-    # gemini_client imports the Temporal package, which imports gemini_client back, so a cold import here would fail.
-    from products.replay_vision.backend import gemini_client  # noqa: PLC0415 — circular import through temporal
-
-    client = await gemini_client.replay_gemini_client(
-        team_id, properties={"ai_product": gemini_client.AI_PRODUCT, "feature": "name_search_theme"}
-    )
+    client = await replay_gemini_client(team_id, properties={"ai_product": AI_PRODUCT, "feature": "name_search_theme"})
     try:
         response = await client.models.generate_content(
             model=_THEME_MODEL,

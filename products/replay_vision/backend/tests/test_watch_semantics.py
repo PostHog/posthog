@@ -207,7 +207,7 @@ class TestAssignSemantics(BaseTest):
         client = MagicMock(aclose=AsyncMock())
         client.models.generate_content = AsyncMock(return_value=response)
         with (
-            patch("products.replay_vision.backend.gemini_client.replay_gemini_client", AsyncMock(return_value=client)),
+            patch(f"{_THEMES}.replay_gemini_client", AsyncMock(return_value=client)),
             patch(f"{_THEMES}.is_ai_data_processing_approved", return_value=True),
         ):
             first = async_to_sync(name_theme)(self.team.id, theme_id, timezone.now())

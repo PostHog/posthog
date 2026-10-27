@@ -47,8 +47,6 @@ _POLL_TIMEOUT_S = 1.0
 # A batch stops after this long and goes back to Kafka, so the loop polls well inside the poll interval.
 _BATCH_BUDGET_S = 240.0
 _MAX_POLL_INTERVAL_S = 360.0
-# ClickHouse loads the embeddings table from its own topic some seconds after the worker writes both.
-_CLICKHOUSE_VISIBILITY_DELAY_S = 30.0
 # How long one observation keeps failing, across batches, before the consumer moves past it.
 _RETRY_WINDOW_S = 600.0
 _RETRY_BACKOFF_S = 2.0
@@ -124,13 +122,11 @@ class WatchRankConsumer:
             return True
         return False
 
-    async def handle(self, value: bytes | None, produced_at: float, batch_deadline: float) -> Outcome:
+    async def handle(self, value: bytes | None, batch_deadline: float) -> Outcome:
         """Rank the observation in one message, retrying failures until the batch or retry window ends."""
         request = parse_rank_request(value)
         if request is None:
             return "skipped"
-        if not await self._wait(produced_at + _CLICKHOUSE_VISIBILITY_DELAY_S - time.time()):
-            return "interrupted"
         backoff = _RETRY_BACKOFF_S
         while True:
             # Async ORM calls share one thread, so a connection that broke must be replaced before a retry.
@@ -192,8 +188,7 @@ class WatchRankConsumer:
             if message.error():
                 logger.warning("replay_vision.watch_rank_consumer.kafka_error", error=str(message.error()))
                 continue
-            _, produced_at_ms = message.timestamp()
-            outcome = await self.handle(message.value(), produced_at_ms / 1000, batch_deadline)
+            outcome = await self.handle(message.value(), batch_deadline)
             self._liveness.record_heartbeat()
             if outcome == "interrupted":
                 return

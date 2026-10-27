@@ -54,58 +54,62 @@ def assign_semantics(
     )
     if scanner is None:
         return None
-    with transaction.atomic():
-        center, _ = (
-            ReplayScannerSemanticCenter.objects.for_team(team_id)
-            .select_for_update()
-            .get_or_create(
-                scanner_id=scanner_id,
-                defaults={"team_id": team_id, "vector_sum": pack(np.zeros(SEMANTIC_DIMENSIONS, dtype=np.float32))},
+    try:
+        with transaction.atomic():
+            center, _ = (
+                ReplayScannerSemanticCenter.objects.for_team(team_id)
+                .select_for_update()
+                .get_or_create(
+                    scanner_id=scanner_id,
+                    defaults={"team_id": team_id, "vector_sum": pack(np.zeros(SEMANTIC_DIMENSIONS, dtype=np.float32))},
+                )
             )
-        )
-        row = (
-            ReplayObservation.objects.filter(team_id=team_id, id=observation_id)
-            .values("watch_rank", "scanner_result")
-            .first()
-        )
-        if row is None:
-            return None
-        rank = current_rank({"watch_rank": row["watch_rank"]})
-        if rank is None or rank.get("group") or rank.get("category") not in ISSUE_CATEGORIES:
-            return None
-
-        v = semantic_vector(vector)
-        center_sum = unpack(center.vector_sum)
-        space = scanner_space(center_sum, center.member_count, v)
-        group_id = feed_group_cache.assign(
-            team_id=team_id, scanner_id=scanner_id, space=space, version=center.member_count, now=now
-        )
-        theme = None
-        output = (row["scanner_result"] or {}).get("model_output") or {}
-        if belongs_in_theme(
-            category=rank["category"],
-            scanner_type=scanner["scanner_type"],
-            valence=scanner["prompt_valence"],
-            output=output,
-        ):
-            theme = assign_theme(team_id=team_id, scanner_id=scanner_id, space=space, now=now)
-
-        center.vector_sum = pack(center_sum + v)
-        center.member_count += 1
-        center.save(update_fields=["vector_sum", "member_count"])
-        if center.member_count % _PRUNE_EVERY == 0:
-            _prune(team_id, scanner_id, now)
-
-        keys = {"group": str(group_id)} | ({"theme": str(theme.theme_id)} if theme else {})
-        ReplayObservation.objects.filter(team_id=team_id, id=observation_id).update(
-            watch_rank=Func(
-                F("watch_rank"),
-                Value(keys, output_field=JSONField()),
-                template="%(expressions)s",
-                arg_joiner=" || ",
-                output_field=JSONField(),
+            row = (
+                ReplayObservation.objects.filter(team_id=team_id, id=observation_id)
+                .values("watch_rank", "scanner_result")
+                .first()
             )
-        )
+            if row is None:
+                return None
+            rank = current_rank({"watch_rank": row["watch_rank"]})
+            if rank is None or rank.get("group") or rank.get("category") not in ISSUE_CATEGORIES:
+                return None
+
+            v = semantic_vector(vector)
+            center_sum = unpack(center.vector_sum)
+            space = scanner_space(center_sum, center.member_count, v)
+            group_id = feed_group_cache.assign(
+                team_id=team_id, scanner_id=scanner_id, space=space, version=center.member_count, now=now
+            )
+            theme = None
+            output = (row["scanner_result"] or {}).get("model_output") or {}
+            if belongs_in_theme(
+                category=rank["category"],
+                scanner_type=scanner["scanner_type"],
+                valence=scanner["prompt_valence"],
+                output=output,
+            ):
+                theme = assign_theme(team_id=team_id, scanner_id=scanner_id, space=space, now=now)
+
+            center.vector_sum = pack(center_sum + v)
+            center.member_count += 1
+            center.save(update_fields=["vector_sum", "member_count"])
+            if center.member_count % _PRUNE_EVERY == 0:
+                _prune(team_id, scanner_id, now)
+
+            keys = {"group": str(group_id)} | ({"theme": str(theme.theme_id)} if theme else {})
+            ReplayObservation.objects.filter(team_id=team_id, id=observation_id).update(
+                watch_rank=Func(
+                    F("watch_rank"),
+                    Value(keys, output_field=JSONField()),
+                    template="%(expressions)s",
+                    arg_joiner=" || ",
+                    output_field=JSONField(),
+                )
+            )
+    except Exception:
+        feed_group_cache.forget(scanner_id)
+        raise
     return SemanticAssignment(group_id=group_id, theme=theme)
 
 

@@ -131,7 +131,7 @@ class TestWatchRankConsumer(BaseTest):
             # It would close the connection that holds the test transaction.
             patch(f"{_CONSUMER}.close_old_connections"),
         ):
-            assert async_to_sync(WatchRankConsumer(MagicMock()).handle)(message, 0.0, math.inf) == outcome
+            assert async_to_sync(WatchRankConsumer(MagicMock()).handle)(message, math.inf) == outcome
 
         if outcome == "missing":
             return
@@ -185,4 +185,4 @@ class TestWatchRankConsumer(BaseTest):
             patch(f"{_CONSUMER}.close_old_connections"),
         ):
             for _ in range(2):
-                assert async_to_sync(consumer.handle)(message, 0.0, time.monotonic()) == "deferred"
+                assert async_to_sync(consumer.handle)(message, time.monotonic()) == "deferred"

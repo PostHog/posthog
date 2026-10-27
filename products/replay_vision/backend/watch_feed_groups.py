@@ -34,35 +34,59 @@ MAX_CACHED_GROUPS = 200_000
 
 
 class _ScannerGroups:
-    """One scanner's active groups as arrays, and the centre member count they reflect."""
+    """One scanner's active groups as arrays with spare capacity, and the centre member count they reflect."""
 
     def __init__(self, groups: list[ReplayScannerFeedGroup], version: int) -> None:
-        self.ids = [group.id for group in groups]
-        self.sums = np.array([unpack(group.vector_sum) for group in groups], dtype=np.float32).reshape(
-            -1, SEMANTIC_DIMENSIONS
-        )
-        self.counts = np.array([group.member_count for group in groups], dtype=np.float32)
-        self.last = np.array([group.last_member_at.timestamp() for group in groups], dtype=np.float64)
+        self.size = len(groups)
+        capacity = max(16, self.size * 2)
+        self.ids: list[uuid.UUID] = [group.id for group in groups]
+        self._sums = np.zeros((capacity, SEMANTIC_DIMENSIONS), dtype=np.float32)
+        self._counts = np.zeros(capacity, dtype=np.float32)
+        self._last = np.zeros(capacity, dtype=np.float64)
+        for index, group in enumerate(groups):
+            self._sums[index] = unpack(group.vector_sum)
+            self._counts[index] = group.member_count
+            self._last[index] = group.last_member_at.timestamp()
         self.version = version
 
     def __len__(self) -> int:
-        return len(self.ids)
+        return self.size
+
+    @property
+    def sums(self) -> np.ndarray:
+        return self._sums[: self.size]
+
+    @property
+    def counts(self) -> np.ndarray:
+        return self._counts[: self.size]
+
+    @property
+    def last(self) -> np.ndarray:
+        return self._last[: self.size]
 
     def add(self, group_id: uuid.UUID, vector: np.ndarray, at: datetime) -> None:
+        if self.size == len(self._counts):
+            self._sums = np.concatenate([self._sums, np.zeros_like(self._sums)])
+            self._counts = np.concatenate([self._counts, np.zeros_like(self._counts)])
+            self._last = np.concatenate([self._last, np.zeros_like(self._last)])
         self.ids.append(group_id)
-        self.sums = np.vstack([self.sums, vector[None, :]])
-        self.counts = np.append(self.counts, 1.0)
-        self.last = np.append(self.last, at.timestamp())
+        self._sums[self.size] = vector
+        self._counts[self.size] = 1.0
+        self._last[self.size] = at.timestamp()
+        self.size += 1
 
     def trim(self, now: datetime) -> None:
         """Drop groups that stopped taking members, then the least recent ones above the per-scanner cap."""
         keep = np.nonzero(self.last >= (now - FEED_GROUP_ACTIVE_WINDOW).timestamp())[0]
         if len(keep) > MAX_CACHED_GROUPS_PER_SCANNER:
             keep = keep[np.argsort(self.last[keep])[-MAX_CACHED_GROUPS_PER_SCANNER:]]
-        if len(keep) == len(self.ids):
+        if len(keep) == self.size:
             return
         self.ids = [self.ids[i] for i in keep]
-        self.sums, self.counts, self.last = self.sums[keep], self.counts[keep], self.last[keep]
+        self._sums[: len(keep)] = self.sums[keep]
+        self._counts[: len(keep)] = self.counts[keep]
+        self._last[: len(keep)] = self.last[keep]
+        self.size = len(keep)
 
 
 class FeedGroupCache:
@@ -73,9 +97,8 @@ class FeedGroupCache:
         """Put one observation in its scanner's closest active group, or start a group. Call under the centre lock,
         with the centre's member count before this observation joins."""
         groups = self._load(team_id, scanner_id, version, now)
-        active = np.nonzero(groups.last >= (now - FEED_GROUP_ACTIVE_WINDOW).timestamp())[0]
         best = nearest_cluster(
-            groups.sums[active], groups.counts[active], space, FEED_GROUP_MIN_SIMILARITY, FEED_GROUP_MIN_RAW_SIMILARITY
+            groups.sums, groups.counts, space, FEED_GROUP_MIN_SIMILARITY, FEED_GROUP_MIN_RAW_SIMILARITY
         )
         if best is None:
             group = ReplayScannerFeedGroup.objects.for_team(team_id).create(
@@ -88,19 +111,22 @@ class FeedGroupCache:
             groups.add(group.id, space.vector, now)
             group_id = group.id
         else:
-            index = int(active[best])
-            group_id = groups.ids[index]
-            groups.sums[index] += space.vector
-            groups.counts[index] += 1
-            groups.last[index] = max(groups.last[index], now.timestamp())
+            group_id = groups.ids[best]
+            groups.sums[best] += space.vector
+            groups.counts[best] += 1
+            groups.last[best] = max(groups.last[best], now.timestamp())
             # The backfill replays old rows while the consumer adds new ones, so the latest member time never moves back.
             ReplayScannerFeedGroup.objects.for_team(team_id).filter(id=group_id).update(
-                vector_sum=pack(groups.sums[index]),
+                vector_sum=pack(groups.sums[best]),
                 member_count=F("member_count") + 1,
                 last_member_at=Greatest("last_member_at", now),
             )
         groups.version = version + 1
         return group_id
+
+    def forget(self, scanner_id: str) -> None:
+        """Drop a scanner's groups, so an assignment whose transaction rolled back never leaves them ahead of Postgres."""
+        self._scanners.pop(scanner_id, None)
 
     def _load(self, team_id: int, scanner_id: str, version: int, now: datetime) -> _ScannerGroups:
         groups = self._scanners.get(scanner_id)

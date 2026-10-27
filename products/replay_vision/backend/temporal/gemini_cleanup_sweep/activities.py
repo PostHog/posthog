@@ -11,8 +11,8 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.replay_vision.backend.gemini_client import gemini_api_key
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.gemini import gemini_api_key
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants import (
     DELETE_CONCURRENCY,
     DESCRIBE_CONCURRENCY,
