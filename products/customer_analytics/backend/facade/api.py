@@ -3195,6 +3195,13 @@ def _account_table_field_values(
     return values
 
 
+@frozen
+class _ValidatedAccountTableDefinitions:
+    custom_property_display_types: dict[UUID, DisplayType]
+    selection: contracts.AccountTableColumnSelection
+    sort: contracts.AccountTableSort | None
+
+
 def _validate_account_table_definitions(
     *,
     team_id: int,
@@ -3202,7 +3209,7 @@ def _validate_account_table_definitions(
     filters: tuple[contracts.AccountTableFilter, ...],
     sort: contracts.AccountTableSort | None,
     drop_unknown_columns: bool = False,
-) -> tuple[dict[UUID, DisplayType], contracts.AccountTableColumnSelection, contracts.AccountTableSort | None]:
+) -> _ValidatedAccountTableDefinitions:
     # Saved views keep columns for definitions deleted later. With drop_unknown_columns, those columns
     # (and a sort on them) are dropped instead of failing the whole query. Unknown filters still fail.
     relationship_column_ids = set(selection.relationship_definition_ids)
@@ -3280,7 +3287,9 @@ def _validate_account_table_definitions(
     if non_numeric_history_ids:
         invalid_ids = ", ".join(sorted(str(definition_id) for definition_id in non_numeric_history_ids))
         raise InvalidAccountTableColumn(f"Custom property history requires numeric definitions: {invalid_ids}")
-    return custom_property_display_types, selection, sort
+    return _ValidatedAccountTableDefinitions(
+        custom_property_display_types=custom_property_display_types, selection=selection, sort=sort
+    )
 
 
 LIFECYCLE_ACCOUNT_TABLE_FIELDS = frozenset(
@@ -3487,12 +3496,12 @@ def query_accounts_metrics(
         for metric in metrics
         if isinstance(metric, contracts.AccountTableAggregateMetric | contracts.AccountTableCountThresholdMetric)
     )
-    custom_property_display_types, _, _ = _validate_account_table_definitions(
+    custom_property_display_types = _validate_account_table_definitions(
         team_id=team_id,
         selection=contracts.AccountTableColumnSelection(custom_property_definition_ids=definition_ids),
         filters=filters + tuple(filter_ for group in filter_groups for filter_ in group),
         sort=None,
-    )
+    ).custom_property_display_types
     for definition_id in definition_ids:
         if DATA_TYPE_BY_DISPLAY_TYPE[custom_property_display_types[definition_id]] != DataType.NUMERIC:
             raise InvalidAccountTableColumn("Account table metrics require numeric custom properties.")
@@ -3583,13 +3592,16 @@ def query_accounts_table(
     include_churned: bool = False,
     include_ignored: bool = False,
 ) -> contracts.AccountTablePage:
-    custom_property_display_types, selection, sort = _validate_account_table_definitions(
+    validated = _validate_account_table_definitions(
         team_id=team_id,
         selection=selection,
         filters=filters + tuple(filter_ for group in filter_groups for filter_ in group),
         sort=sort,
         drop_unknown_columns=True,
     )
+    custom_property_display_types = validated.custom_property_display_types
+    selection = validated.selection
+    sort = validated.sort
 
     queryset = _accounts_queryset(team_id, user_access_control)
     if not filter_groups:
