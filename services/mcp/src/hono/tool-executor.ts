@@ -41,6 +41,7 @@ import {
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeErrorToken } from '@/lib/posthog/analytics'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
+import { errorTrackingIssueAnalyticsProperties } from '@/tools/errorTracking/analytics'
 import {
     createExecTool,
     describeApiValidationError,
@@ -490,6 +491,8 @@ export class ToolExecutor {
         // it would let a deleted skill agents keep requesting read as a popular one.
         // The exec path stamps the same properties from its command string.
         const skillShape = skillAnalyticsProperties(tool.name, validation.data)
+        // Which error tracking issue the call targeted, on the same success-only terms.
+        const issueShape = errorTrackingIssueAnalyticsProperties(tool.name, validation.data)
 
         try {
             const isContextSwitch = tool.name === 'switch-project' || tool.name === 'switch-organization'
@@ -546,6 +549,7 @@ export class ToolExecutor {
                 {
                     ...inputShape,
                     ...skillShape,
+                    ...issueShape,
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
                     ...toolResultAnalyticsProperties(response),
@@ -718,9 +722,10 @@ export class ToolExecutor {
         // attributed to `exec`.
         const execToolName = (): string => execMetrics.innerToolName ?? 'exec'
 
-        // Which stored skill an exec-routed read returned. Success only, unlike the
-        // verb above: that records what the agent attempted, this records what it got.
-        const execSkillShape = execSkillAnalyticsProperties(validation.data)
+        // Which stored skill or error tracking issue an exec-routed call returned. Success
+        // only, unlike the verb above: that records what the agent attempted, this records
+        // what it got.
+        const execTargetShape = execTargetAnalyticsProperties(validation.data)
 
         try {
             const handlerResult = await resolved.handler(state.context, validation.data)
@@ -754,7 +759,7 @@ export class ToolExecutor {
                 {
                     ...execShape,
                     ...execInputShape,
-                    ...(failureShape ?? execSkillShape),
+                    ...(failureShape ?? execTargetShape),
                     ...(execMetrics.skillLookupMissKind
                         ? skillLookupMissProperties(execMetrics.skillLookupMissKind)
                         : {}),
@@ -1397,17 +1402,23 @@ function execCommandAnalyticsProperties(execArgs: unknown, state: ResolvedState)
 }
 
 /**
- * The skill properties for an exec-routed read, recovered from the command string.
+ * The skill and error tracking issue properties for an exec-routed call, recovered
+ * from the command string.
  *
  * In single-exec mode the inner tool's arguments never arrive as tool arguments —
  * they are JSON inside `command` — so the direct-mode wiring alone would miss the
  * skill reads that arrive this way, which is nearly all of them. Reads the command with the
  * dispatcher's own parsers so analytics sees exactly the arguments the handler runs.
  */
-function execSkillAnalyticsProperties(execArgs: unknown): Record<string, unknown> {
+function execTargetAnalyticsProperties(execArgs: unknown): Record<string, unknown> {
     const command = (execArgs as { command?: unknown } | undefined)?.command
     if (typeof command !== 'string') {
         return {}
     }
-    return skillAnalyticsProperties(parseExecCallInnerToolName(command), parseExecCallInnerArgs(command))
+    const innerToolName = parseExecCallInnerToolName(command)
+    const innerArgs = parseExecCallInnerArgs(command)
+    return {
+        ...skillAnalyticsProperties(innerToolName, innerArgs),
+        ...errorTrackingIssueAnalyticsProperties(innerToolName, innerArgs),
+    }
 }
