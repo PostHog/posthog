@@ -786,6 +786,8 @@ export interface SignalReport {
   is_suggested_reviewer?: boolean;
   /** Distinct source products contributing signals to this report. */
   source_products?: string[];
+  /** Scout self-improvement reports update a team-owned skill, not a GitHub repository. */
+  is_self_improvement_report?: boolean;
   /** PR URL from the latest implementation task run, if available. */
   implementation_pr_url?: string | null;
   work_state?: "unclaimed" | "working" | "in_review" | "done";

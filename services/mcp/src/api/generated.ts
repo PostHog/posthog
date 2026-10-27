@@ -79879,6 +79879,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly repo_slug: string | null;
+      /** Whether this is a scout self-improvement report. These reports change a team-owned skill in the skills store rather than a GitHub repository. */
+      readonly is_self_improvement_report: boolean;
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
@@ -102527,6 +102529,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly repo_slug: string | null;
+      /** Whether this is a scout self-improvement report. These reports change a team-owned skill in the skills store rather than a GitHub repository. */
+      readonly is_self_improvement_report: boolean;
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];

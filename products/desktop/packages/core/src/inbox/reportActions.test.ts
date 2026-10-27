@@ -263,6 +263,16 @@ describe("buildDiscussReportPrompt", () => {
 });
 
 describe("canCreateImplementationPr", () => {
+  it("does not offer a pull request for scout self-improvement reports", () => {
+    const report = {
+      id: "r",
+      status: "pending_input",
+      is_self_improvement_report: true,
+    } as Partial<SignalReport> as SignalReport;
+
+    expect(canCreateImplementationPr(report)).toBe(false);
+  });
+
   it("a merged PR no longer blocks a fresh attempt, but an open one does", () => {
     const base = {
       id: "r",

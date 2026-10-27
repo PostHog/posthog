@@ -125,6 +125,8 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     source_products?: string[]
     /** skill_name slug of the authoring scout, when scout-authored (raw slug — prettify with `scoutDisplayName`). */
     scout_name?: string | null
+    /** Scout self-improvement reports update a team-owned skill, not a GitHub repository. */
+    is_self_improvement_report?: boolean
     /** PR URL from the latest implementation task run, if available. */
     implementation_pr_url?: string | null
     /** Whether that implementation PR is merged, per the GitHub webhook. Status doesn't imply it: a
