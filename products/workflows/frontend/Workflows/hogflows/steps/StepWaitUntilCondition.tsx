@@ -8,11 +8,12 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
 import { workflowLogic } from '../../workflowLogic'
-import { HogFlowEventFilters, HogFlowPropertyFilters } from '../filters/HogFlowFilters'
+import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { HogFlowAction } from '../types'
 import { joinCohortMembershipEntry, splitCohortMembershipEntry } from './components/cohortMembershipEvent'
 import { CohortMembershipEventPicker } from './components/CohortMembershipEventPicker'
 import { HogFlowDuration } from './components/HogFlowDuration'
+import { HogFlowEventEntriesFilters } from './components/HogFlowEventEntriesFilters'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
 import { useDebouncedNameInput } from './utils'
 
@@ -32,7 +33,6 @@ export function StepWaitUntilConditionConfiguration({
 
     const cohortConditionsEnabled = useFeatureFlag('WORKFLOWS_COHORT_CONDITIONS')
     const { eventEntries, cohort } = splitCohortMembershipEntry(events)
-    const eventFilters = eventEntries[0]?.filters ?? {}
 
     return (
         <>
@@ -46,12 +46,12 @@ export function StepWaitUntilConditionConfiguration({
                 <span className="text-xs text-muted">
                     The workflow continues on the matched path when any of these events fire.
                 </span>
-                <HogFlowEventFilters
+                <HogFlowEventEntriesFilters
                     filtersKey={`wait-until-events-${action.id}`}
-                    filters={eventFilters}
-                    setFilters={(newFilters) =>
+                    entries={eventEntries}
+                    onChange={(nextEventEntries) =>
                         partialSetWorkflowActionConfig(action.id, {
-                            events: joinCohortMembershipEntry(newFilters ? [{ filters: newFilters }] : [], cohort),
+                            events: joinCohortMembershipEntry(nextEventEntries, cohort),
                         })
                     }
                     typeKey="workflow-wait-until-event"

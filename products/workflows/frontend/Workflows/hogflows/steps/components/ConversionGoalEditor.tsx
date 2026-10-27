@@ -5,10 +5,11 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
-import { HogFlowEventFilters, WORKFLOW_OPERATOR_ALLOWLIST } from '../../filters/HogFlowFilters'
+import { WORKFLOW_OPERATOR_ALLOWLIST } from '../../filters/HogFlowFilters'
 import { joinCohortMembershipEntry, splitCohortMembershipEntry } from './cohortMembershipEvent'
 import { CohortMembershipEventPicker } from './CohortMembershipEventPicker'
 import { HogFlowDuration, MAX_CONVERSION_WINDOW_FOR_DURATION_UNIT } from './HogFlowDuration'
+import { HogFlowEventEntriesFilters } from './HogFlowEventEntriesFilters'
 
 // Structural shape of a workflow conversion goal, compatible with both the frontend HogFlow
 // type and the generated HogFlowConversionApi type.
@@ -31,7 +32,6 @@ const DEFAULT_CONVERSION_WINDOW = '90d'
 export function ConversionGoalEditor({ conversion, onChange, pageKey }: ConversionGoalEditorProps): JSX.Element {
     const cohortConditionsEnabled = useFeatureFlag('WORKFLOWS_COHORT_CONDITIONS')
     const { eventEntries, cohort } = splitCohortMembershipEntry(conversion?.events)
-    const conversionEventFilters = eventEntries[0]?.filters ?? {}
     const conversionWindow = conversion?.window ?? DEFAULT_CONVERSION_WINDOW
 
     return (
@@ -56,14 +56,14 @@ export function ConversionGoalEditor({ conversion, onChange, pageKey }: Conversi
 
             <div className="flex flex-col gap-1 items-start w-full">
                 <LemonLabel>Detect conversion from events</LemonLabel>
-                <HogFlowEventFilters
+                <HogFlowEventEntriesFilters
                     filtersKey={`${pageKey}-events`}
-                    filters={conversionEventFilters}
-                    setFilters={(newFilters) =>
+                    entries={eventEntries}
+                    onChange={(nextEventEntries) =>
                         onChange({
                             filters: [],
                             ...conversion,
-                            events: joinCohortMembershipEntry(newFilters ? [{ filters: newFilters }] : [], cohort),
+                            events: joinCohortMembershipEntry(nextEventEntries, cohort),
                         })
                     }
                     typeKey={`${pageKey}-event`}
