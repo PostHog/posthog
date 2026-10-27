@@ -10,6 +10,7 @@ from products.knowledge_writer.backend.facade.contracts import (
     DocsCommandRequest,
     DocsRequest,
     InvalidAdapterVerdict,
+    MergeCheckReport,
 )
 from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsRequestSource
 from products.knowledge_writer.backend.logic import intake
@@ -22,6 +23,15 @@ SAMPLE_EVENTS: dict[DocsRequestSource, Any] = {
         head_sha="abc123",
         note="Document the new retention option.",
         requested_by="@octo",
+    ),
+    DocsRequestSource.REPO_MERGE: MergeCheckReport(
+        commit_sha="a" * 40,
+        commit_url=f"https://github.com/PostHog/posthog/commit/{'a' * 40}",
+        title="Add a retention option to session replay",
+        needs_docs=True,
+        reason="mapped_section_changed",
+        change_kind=DocsChangeKind.UPDATE,
+        page_urls=("https://posthog.com/docs/session-replay/data-retention",),
     ),
 }
 

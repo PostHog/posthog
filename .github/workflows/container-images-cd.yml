@@ -520,6 +520,7 @@ jobs:
                         - 'products/review_hog/backend/**'
                         - 'products/business_knowledge/backend/**'
                         - 'products/customer_analytics/backend/**'
+                        - 'products/knowledge_writer/backend/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/management/commands/start_temporal_worker.py'
                         - pyproject.toml

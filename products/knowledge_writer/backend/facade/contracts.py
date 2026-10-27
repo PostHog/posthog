@@ -51,6 +51,18 @@ class Adapter(Protocol[RawEvent]):
 
 
 @dataclass(frozen=True, config={"extra": "forbid"})
+class MergeCheckReport:
+    commit_sha: Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
+    commit_url: str
+    title: str
+    needs_docs: bool
+    reason: str
+    change_kind: DocsChangeKind | None = None
+    page_urls: Annotated[tuple[str, ...], Field(max_length=3)] = ()
+    evidence: str = ""
+
+
+@dataclass(frozen=True, config={"extra": "forbid"})
 class DocsCommandRequest:
     repository: str
     pull_request_number: int

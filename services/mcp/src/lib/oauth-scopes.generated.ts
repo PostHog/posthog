@@ -122,6 +122,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'insight_variable:write',
     'integration:read',
     'integration:write',
+    'knowledge_writer:read',
+    'knowledge_writer:write',
     'legal_document:read',
     'legal_document:write',
     'link:read',
