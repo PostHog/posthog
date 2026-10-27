@@ -1306,7 +1306,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             (s) => [s.chatMessages],
             (chatMessages: ChatMessage[]): ChatMessage | null => {
                 for (let i = chatMessages.length - 1; i >= 0; i--) {
-                    if (chatMessages[i].authorType === 'AI') {
+                    if (chatMessages[i].authorType === 'AI' && !chatMessages[i].automatedUpdate) {
                         return chatMessages[i]
                     }
                 }

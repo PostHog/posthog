@@ -164,6 +164,19 @@ describe('supportTicketSceneLogic ai reply feedback', () => {
         })
     })
 
+    it('keeps feedback on the AI reply after an automated update', () => {
+        logic.actions.setMessages([
+            makeAiComment('msg-ai-1', false),
+            {
+                ...makeAiComment('pr-update', false),
+                created_at: '2026-01-01T00:01:00Z',
+                item_context: { author_type: 'AI', is_private: false, automated_update_key: 'pr-123' },
+            } as unknown as CommentType,
+        ])
+
+        expect(logic.values.latestAiMessage?.id).toBe('msg-ai-1')
+    })
+
     it('calls backend relay on good feedback', async () => {
         await expectLogic(logic, () => {
             logic.actions.submitAiReplyFeedback('msg-ai-1', 'good')
