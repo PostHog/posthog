@@ -1775,10 +1775,10 @@ class TestSignalReportListAPI(APIBaseTest):
 
         with (
             self.settings(CLOUD_DEPLOYMENT=cloud_deployment),
-            patch(
-                "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", **flag_result
-            ) as get_flag,
+            patch("products.signals.backend.ranking.inbox_sort.posthoganalytics") as analytics,
         ):
+            get_flag = analytics.get_feature_flag
+            get_flag.configure_mock(**flag_result)
             response = self.client.get(self._list_url(status="ready", sort="recommended"))
 
         if cloud_deployment == "EU":
@@ -1827,9 +1827,9 @@ class TestSignalReportListAPI(APIBaseTest):
             content=json.dumps({"old_title": "Old", "new_title": "Stale P0"}),
         )
 
-        with patch(
-            "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", return_value=outcome
-        ) as get_flag:
+        with patch("products.signals.backend.ranking.inbox_sort.posthoganalytics") as analytics:
+            get_flag = analytics.get_feature_flag
+            get_flag.return_value = outcome
             response = self.client.get(self._list_url(status="ready", sort="recommended"))
 
         assert response.status_code == status.HTTP_200_OK

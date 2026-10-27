@@ -76,9 +76,14 @@ INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS = frozenset(
 )
 
 
-def _oauth_application_for_task(task: Task) -> SandboxOAuthApplication:
+def _oauth_application_for_task(task: Task, state: dict[str, Any] | None) -> SandboxOAuthApplication:
     # A metrics import bills the `posthog_ai` gateway product, which accepts only this application.
     if task.origin_product in (Task.OriginProduct.POSTHOG_AI, Task.OriginProduct.METRICS_IMPORT):
+        return "posthog_ai"
+    if (
+        task.origin_product in (Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT)
+        and (state or {}).get("billing_product") == "posthog_ai"
+    ):
         return "posthog_ai"
     if task.origin_product in SIGNALS_ORIGIN_PRODUCTS:
         return "signals"
@@ -203,7 +208,7 @@ def create_oauth_access_token(
 
     token_options: dict[str, Any] = {
         "scopes": scopes,
-        "application": _oauth_application_for_task(task),
+        "application": _oauth_application_for_task(task, run_state),
         "sandbox_task_id": task.id,
     }
     if task.origin_product in {
@@ -219,7 +224,7 @@ def create_oauth_access_token(
         # task needs a member-capable token, or every member-proxy call it was
         # just granted would 403.
         token_options["include_mcp_builtin_agent_scope"] = True
-    if is_interactive_signals_run(task, run_state):
+    if token_options["application"] == "signals" and is_interactive_signals_run(task, run_state):
         token_options["include_interactive_run_scope"] = True
     if task.origin_product == Task.OriginProduct.SLACK:
         token_options["include_slack_run_scope"] = True
