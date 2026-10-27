@@ -296,7 +296,6 @@ def _top_domains(answered: QuerySet[AEOCitationCheck], target_domains: list[str]
     """Domains ranked by how many answers cited them. A domain cited twice in one answer counts once."""
     answers = 0
     domain_answers: Counter[str] = Counter()
-    # Streamed so a long window does not hold every check's URL array in the queryset cache.
     for row in answered.values_list("cited_urls", flat=True).iterator(chunk_size=1000):
         answers += 1
         domain_answers.update(top_domains(list(_strings(row))))
