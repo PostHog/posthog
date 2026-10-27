@@ -392,6 +392,48 @@ jobs:
                           python manage.py check
                       '
 
+            # The pages in this image name content-hashed files that browsers fetch from the CDN, and the
+            # CDN reads each environment's static-assets bucket. Publishing from the pushed digest before
+            # any dispatch below means no pod can serve a page whose files the bucket lacks, whichever sync
+            # path rolls it out. A file that did not land fails the job, and with it every dispatch.
+            - name: Extract the frontend build from the image
+              env:
+                  IMAGE: ${{ steps.docker-meta.outputs.ecr-registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.image.outputs.digest }}
+              run: |
+                  set -euo pipefail
+                  container=$(docker create "$IMAGE")
+                  docker cp "$container:/code/frontend/dist" "$RUNNER_TEMP/frontend-dist"
+                  docker rm "$container" > /dev/null
+
+            - name: Install uv for the asset publisher
+              uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            - name: Assume the dev static-assets role
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ vars.AWS_STATIC_ASSETS_DEV_UPLOAD_IAM_ROLE }}
+                  aws-region: us-east-1
+            - name: Publish frontend assets to dev
+              run: uv run --script .github/scripts/publish_frontend_assets.py "$RUNNER_TEMP/frontend-dist" --bucket posthog-cloud-dev-us-east-1-static-assets --build-sha "$GITHUB_SHA"
+
+            - name: Assume the prod-us static-assets role
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ vars.AWS_STATIC_ASSETS_PROD_US_UPLOAD_IAM_ROLE }}
+                  aws-region: us-east-1
+            - name: Publish frontend assets to prod-us
+              run: uv run --script .github/scripts/publish_frontend_assets.py "$RUNNER_TEMP/frontend-dist" --bucket posthog-cloud-prod-us-east-1-static-assets --build-sha "$GITHUB_SHA"
+
+            - name: Assume the prod-eu static-assets role
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ vars.AWS_STATIC_ASSETS_PROD_EU_UPLOAD_IAM_ROLE }}
+                  aws-region: eu-central-1
+            - name: Publish frontend assets to prod-eu
+              run: uv run --script .github/scripts/publish_frontend_assets.py "$RUNNER_TEMP/frontend-dist" --bucket posthog-cloud-prod-eu-central-1-static-assets --build-sha "$GITHUB_SHA"
+
             - name: get deployer token
               id: deployer
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
