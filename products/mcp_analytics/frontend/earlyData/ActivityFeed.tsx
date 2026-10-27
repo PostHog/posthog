@@ -10,7 +10,7 @@ export function ActivityFeed(): JSX.Element {
 
     return (
         <section className="flex flex-col" data-attr="mcp-analytics-activity-feed">
-            <h3 className="mb-2 text-sm font-semibold">Live activity</h3>
+            <h3 className="mb-2 text-sm font-semibold">Recent activity</h3>
             {/* Capped so the page ends without scrolling past a thousand rows. The cap itself scrolls,
                 because a max-height leaves this box's height indefinite, and the table inside needs a
                 definite height before it can size a scroll region of its own. */}

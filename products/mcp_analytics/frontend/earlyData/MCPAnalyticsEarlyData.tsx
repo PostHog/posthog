@@ -14,11 +14,11 @@ import { mcpEarlyDataLogic } from './mcpEarlyDataLogic'
 
 /**
  * The Activity tab: answers "what are agents doing with my server?" with the
- * live feed as the hero, a one-line summary above it, the next setup step only
- * when there is one, and the dashboard's caller charts below. It refreshes
- * live and is the default landing tab for low-volume projects, where the
- * windowed metrics dashboard would be noise; higher-volume projects land on
- * the Dashboard tab but can always come here for recency.
+ * recent feed as the hero, a one-line summary above it, the next setup step only
+ * when there is one, and the dashboard's caller charts below. It loads once and
+ * refreshes when filters change or the user requests it. Low-volume projects land
+ * here because the windowed metrics dashboard is too sparse. Higher-volume
+ * projects land on the Dashboard tab and can come here to see recent activity.
  */
 export function MCPAnalyticsActivityDashboard(): JSX.Element {
     const { harnessRowsLoading, modelRowsLoading, overviewLoading } = useValues(mcpEarlyDataLogic)
@@ -46,8 +46,7 @@ function ActivitySummary(): JSX.Element {
     const { showFailedCallsOnly } = useActions(mcpEarlyDataLogic)
     // The sentence is derived from the overview, and an absent overview reads as zero calls —
     // so the first load would claim "No tool calls in the last 30 days" until the numbers
-    // arrive. Only the first load skeletons: the 60s refresh keeps the sentence it already has
-    // rather than flashing back to a placeholder every minute.
+    // arrive. Only the first load skeletons: later refreshes keep the sentence already shown.
     const awaitingFirstOverview = overviewLoading && !overview
 
     // Each refreshing value sits in its own element: a bare text node next to siblings breaks under in-page translation.
@@ -69,7 +68,7 @@ function ActivitySummary(): JSX.Element {
                 </h2>
             )}
             <p className="text-muted m-0 mt-1">
-                This view fills in live as agents use your server.
+                This view summarizes the last 30 days of activity.
                 {dashboardStage === 'activity' ? (
                     <>
                         {' '}

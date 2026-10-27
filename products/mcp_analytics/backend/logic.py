@@ -8,13 +8,22 @@ from django.core.cache import cache
 from django.db.models import QuerySet
 from django.utils import timezone
 
-from posthog.schema import AnyPropertyFilterDiscriminated, DateRange, EventPropertyFilter
+from posthog.schema import (
+    AnyPropertyFilterDiscriminated,
+    DateRange,
+    EventPropertyFilter,
+    HogQLFilters,
+    HogQLQuery,
+    QueryLogTags,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.caller_context import map_in_caller_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.person import Person
@@ -513,7 +522,8 @@ def generate_intent_digest(team: Team) -> contracts.IntentDigest:
 # every matching row, and the view is reachable at any project volume. 30 days is
 # effectively all-time for the low-volume servers the activity stage exists for, and a
 # hard cap on the scan for high-volume projects that open the tab.
-ACTIVITY_WINDOW = timedelta(days=30)
+ACTIVITY_WINDOW_DAYS = 30
+ACTIVITY_CACHE_AGE_SECONDS = 6 * 60 * 60
 ACTIVITY_TOP_TOOLS_LIMIT = 5
 ACTIVITY_CLIENTS_LIMIT = 6
 ACTIVITY_RECENT_CALLS_LIMIT = 20
@@ -540,29 +550,30 @@ FROM (
         {mcp_harness.HARNESS_TOKEN_SQL} AS h,
         {mcp_harness.HARNESS_DISPLAY_NAME_SQL} AS client_display
     FROM events
-    WHERE event = {{tool_call_event}} AND timestamp >= {{date_from}}
-        AND {{shared_filters}}
+    WHERE event = {{tool_call_event}} AND timestamp >= now() - INTERVAL {ACTIVITY_WINDOW_DAYS} DAY
+        AND {{filters}}
 )
 """
 
-_ACTIVITY_MISSING_CAPABILITY_SQL = """
+_ACTIVITY_MISSING_CAPABILITY_SQL = f"""
 SELECT count()
 FROM events
-WHERE event = {missing_capability_event} AND timestamp >= {date_from}
-    AND {missing_capability_filters}
+WHERE event = {{missing_capability_event}} AND timestamp >= now() - INTERVAL {ACTIVITY_WINDOW_DAYS} DAY
+    AND {{filters}}
 """
 
-_ACTIVITY_TOP_TOOLS_SQL = """
+_ACTIVITY_TOP_TOOLS_SQL = f"""
 SELECT
     properties.$mcp_tool_name AS tool,
     count() AS calls,
     countIf(toString(properties.$mcp_is_error) IN ('true', '1')) AS errors
 FROM events
-WHERE event = {tool_call_event} AND properties.$mcp_tool_name IS NOT NULL AND timestamp >= {date_from}
-    AND {shared_filters}
+WHERE event = {{tool_call_event}} AND properties.$mcp_tool_name IS NOT NULL
+    AND timestamp >= now() - INTERVAL {ACTIVITY_WINDOW_DAYS} DAY
+    AND {{filters}}
 GROUP BY tool
 ORDER BY calls DESC
-LIMIT {limit}
+LIMIT {{limit}}
 """
 
 # Resolved through the canonical classifier rather than the raw `$mcp_client_name`,
@@ -582,8 +593,8 @@ FROM (
         {mcp_harness.HARNESS_TOKEN_SQL} AS h,
         {mcp_harness.HARNESS_DISPLAY_NAME_SQL} AS client_display
     FROM events
-    WHERE event = {{tool_call_event}} AND timestamp >= {{date_from}}
-        AND {{shared_filters}}
+    WHERE event = {{tool_call_event}} AND timestamp >= now() - INTERVAL {ACTIVITY_WINDOW_DAYS} DAY
+        AND {{filters}}
 )
 GROUP BY client
 ORDER BY calls DESC
@@ -613,8 +624,8 @@ FROM (
         {mcp_harness.HARNESS_TOKEN_SQL} AS h,
         {mcp_harness.HARNESS_DISPLAY_NAME_SQL} AS client_display
     FROM events
-    WHERE event = {{tool_call_event}} AND timestamp >= {{date_from}}
-        AND {{shared_filters}}
+    WHERE event = {{tool_call_event}} AND timestamp >= now() - INTERVAL {ACTIVITY_WINDOW_DAYS} DAY
+        AND {{filters}}
     ORDER BY timestamp DESC
     LIMIT {{limit}}
 )
@@ -653,12 +664,23 @@ def _extract_error_message(raw: Any) -> str | None:
 
 
 def _run_activity_query(
-    team: Team, sql: str, name: str, placeholders: dict[str, ast.Expr], user: User | None
+    team: Team, sql: str, name: str, values: dict[str, Any], filters: HogQLFilters, user: User | None
 ) -> list[Any]:
-    query = parse_select(sql, placeholders={**placeholders})
+    query = HogQLQuery(
+        query=sql,
+        values=values,
+        filters=filters,
+        tags=QueryLogTags(productKey=Product.MCP_ANALYTICS, name=name),
+    )
     with tags_context(product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.id, name=name):
-        response = execute_hogql_query(query=query, team=team, user=user)
-    return response.results or []
+        response = HogQLQueryRunner(query=query, team=team, user=user).run(
+            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+            cache_age_seconds=ACTIVITY_CACHE_AGE_SECONDS,
+        )
+    results = getattr(response, "results", None)
+    if results is None:
+        raise RuntimeError(f"Activity query {name} returned no results")
+    return results or []
 
 
 def get_activity_overview(
@@ -667,40 +689,31 @@ def get_activity_overview(
     filter_test_accounts: bool = False,
     user: User | None = None,
 ) -> contracts.ActivityOverview:
-    """Compute everything the activity view renders, bounded to ``ACTIVITY_WINDOW``.
+    """Compute the activity view's aggregates and recent calls over the last 30 days.
 
-    Always computed fresh: the view's whole point is watching data arrive, so callers
-    poll this endpoint rather than a stale cache.
-
-    The four queries are independent, so they run concurrently. Served serially their
-    latency summed, which left the summary sentence landing long after the live feed
-    below it had rendered — the feed's own total is an index-only ``count()``, while
-    every query here reads properties across the whole window.
+    The independent queries use QueryRunner's cache. A cache miss runs inline; stale
+    results are returned while a background refresh runs.
 
     ``properties`` and ``filter_test_accounts`` are the tabs' shared filters. Event-property
     filters narrow the tool-call sections. Person/session filters and test-account exclusions also
     narrow missing-capability reports, whose events do not carry tool-call properties.
 
-    ``user`` is the caller. It carries through to ``execute_hogql_query`` so property-level access
+    ``user`` is the caller. It carries through to QueryRunner so property-level access
     control is evaluated for that member, not with the project defaults, because ``properties`` is
     caller-supplied and would otherwise read restricted properties.
     """
-    date_from = ast.Constant(value=timezone.now() - ACTIVITY_WINDOW)
-    tool_call_event = ast.Constant(value=MCP_TOOL_CALL_EVENT)
-    shared_filters = shared_filters_expr(team, properties, filter_test_accounts)
-    missing_capability_filters = shared_filters_expr(
-        team,
-        [
+    tool_call_filters = HogQLFilters(properties=properties, filterTestAccounts=filter_test_accounts)
+    missing_capability_filters = HogQLFilters(
+        properties=[
             property_filter
             for property_filter in properties or []
             if not isinstance(property_filter, EventPropertyFilter)
         ],
-        filter_test_accounts,
+        filterTestAccounts=filter_test_accounts,
     )
 
-    def run_query(spec: tuple[str, str, object]) -> list[Any]:
-        assert isinstance(spec[2], dict)
-        return _run_activity_query(team, spec[0], spec[1], {**spec[2], "shared_filters": shared_filters}, user)
+    def run_query(spec: tuple[str, str, dict[str, Any], HogQLFilters]) -> list[Any]:
+        return _run_activity_query(team, spec[0], spec[1], spec[2], spec[3], user)
 
     stats_rows, missing_capability_rows, top_tools_rows, clients_rows, recent_calls_rows = map_in_caller_context(
         run_query,
@@ -708,46 +721,32 @@ def get_activity_overview(
             (
                 _ACTIVITY_STATS_SQL,
                 "mcp_analytics_activity_stats",
-                {
-                    "tool_call_event": tool_call_event,
-                    "date_from": date_from,
-                },
+                {"tool_call_event": MCP_TOOL_CALL_EVENT},
+                tool_call_filters,
             ),
             (
                 _ACTIVITY_MISSING_CAPABILITY_SQL,
                 "mcp_analytics_activity_missing_capabilities",
-                {
-                    "missing_capability_event": ast.Constant(value=MCP_MISSING_CAPABILITY_EVENT),
-                    "missing_capability_filters": missing_capability_filters,
-                    "date_from": date_from,
-                },
+                {"missing_capability_event": MCP_MISSING_CAPABILITY_EVENT},
+                missing_capability_filters,
             ),
             (
                 _ACTIVITY_TOP_TOOLS_SQL,
                 "mcp_analytics_activity_top_tools",
-                {
-                    "tool_call_event": tool_call_event,
-                    "date_from": date_from,
-                    "limit": ast.Constant(value=ACTIVITY_TOP_TOOLS_LIMIT),
-                },
+                {"tool_call_event": MCP_TOOL_CALL_EVENT, "limit": ACTIVITY_TOP_TOOLS_LIMIT},
+                tool_call_filters,
             ),
             (
                 _ACTIVITY_CLIENTS_SQL,
                 "mcp_analytics_activity_clients",
-                {
-                    "tool_call_event": tool_call_event,
-                    "date_from": date_from,
-                    "limit": ast.Constant(value=ACTIVITY_CLIENTS_LIMIT),
-                },
+                {"tool_call_event": MCP_TOOL_CALL_EVENT, "limit": ACTIVITY_CLIENTS_LIMIT},
+                tool_call_filters,
             ),
             (
                 _ACTIVITY_RECENT_CALLS_SQL,
                 "mcp_analytics_activity_recent_calls",
-                {
-                    "tool_call_event": tool_call_event,
-                    "date_from": date_from,
-                    "limit": ast.Constant(value=ACTIVITY_RECENT_CALLS_LIMIT),
-                },
+                {"tool_call_event": MCP_TOOL_CALL_EVENT, "limit": ACTIVITY_RECENT_CALLS_LIMIT},
+                tool_call_filters,
             ),
         ],
         thread_name_prefix="mcp_activity",
