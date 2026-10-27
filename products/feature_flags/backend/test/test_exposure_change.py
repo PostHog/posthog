@@ -15,6 +15,7 @@ from products.feature_flags.backend.facade.config import ConfigFormatError
 EMAIL = [{"key": "email", "type": "person", "operator": "icontains", "value": "@example.com"}]
 OTHER_EMAIL = [{"key": "email", "type": "person", "operator": "icontains", "value": "@example.org"}]
 SPLIT_50_50 = [{"key": "a", "rollout_percentage": 50}, {"key": "b", "rollout_percentage": 50}]
+SPLIT_ALL_A = [{"key": "a", "rollout_percentage": 100}, {"key": "b", "rollout_percentage": 0}]
 
 ENABLED = ExposureChangeKind.ENABLED
 DISABLED = ExposureChangeKind.DISABLED
@@ -70,10 +71,11 @@ class TestClassifyExposureChange(TestCase):
                 set(),
                 KEEPS,
             ),
-            ("enabled", _flag(_condition(50), active=False), _flag(_condition(50)), {ENABLED}, RAISES),
+            ("enabled", _flag(_condition(0), active=False), _flag(_condition(50)), {ENABLED}, RAISES),
             ("enabled_at_zero_rollout", _flag(_condition(0), active=False), _flag(_condition(0)), set(), KEEPS),
-            ("disabled", _flag(_condition(50)), _flag(_condition(50), active=False), {DISABLED}, LOWERS),
-            ("rollout_increased", _flag(_condition(10)), _flag(_condition(50)), {ROLLOUT_INCREASED}, RAISES),
+            ("disabled", _flag(_condition(50)), _flag(_condition(0), active=False), {DISABLED}, LOWERS),
+            ("disabled_at_zero_rollout", _flag(_condition(0)), _flag(_condition(0), active=False), set(), KEEPS),
+            ("rollout_increased", _flag(_condition(0)), _flag(_condition(50)), {ROLLOUT_INCREASED}, RAISES),
             ("rollout_decreased", _flag(_condition(50)), _flag(_condition(10)), {ROLLOUT_DECREASED}, LOWERS),
             (
                 "condition_added",
@@ -90,6 +92,30 @@ class TestClassifyExposureChange(TestCase):
                 KEEPS,
             ),
             (
+                "condition_removed_at_zero_rollout",
+                _flag(_condition(0, EMAIL), _condition(100)),
+                _flag(_condition(100)),
+                set(),
+                KEEPS,
+            ),
+            (
+                "condition_at_zero_rollout_moved",
+                _flag(
+                    _condition(0, OTHER_EMAIL),
+                    _condition(100, EMAIL, variant="a"),
+                    _condition(100, variant="b"),
+                    variants=SPLIT_50_50,
+                ),
+                _flag(
+                    _condition(100, EMAIL, variant="a"),
+                    _condition(100, variant="b"),
+                    _condition(0, OTHER_EMAIL),
+                    variants=SPLIT_50_50,
+                ),
+                set(),
+                KEEPS,
+            ),
+            (
                 "condition_removed",
                 _flag(_condition(100, EMAIL), _condition(20)),
                 _flag(_condition(100, EMAIL)),
@@ -102,6 +128,13 @@ class TestClassifyExposureChange(TestCase):
                 _flag(_condition(100, OTHER_EMAIL)),
                 {PROPERTIES_CHANGED},
                 RAISES,
+            ),
+            (
+                "properties_changed_on_a_condition_turned_off",
+                _flag(_condition(50, EMAIL)),
+                _flag(_condition(0, OTHER_EMAIL)),
+                {ROLLOUT_DECREASED},
+                LOWERS,
             ),
             (
                 "flag_aggregation_changed",
@@ -229,6 +262,13 @@ class TestClassifyExposureChange(TestCase):
                 RAISES,
             ),
             (
+                "conditions_at_full_rollout_reordered_with_early_exit",
+                _flag(_condition(100, EMAIL), _condition(100), early_exit=True),
+                _flag(_condition(100), _condition(100, EMAIL), early_exit=True),
+                set(),
+                KEEPS,
+            ),
+            (
                 "rollout_increased_and_condition_removed",
                 _flag(_condition(10, EMAIL), _condition(20)),
                 _flag(_condition(50, EMAIL)),
@@ -250,14 +290,31 @@ class TestClassifyExposureChange(TestCase):
         assert change.kinds == kinds
         assert change.direction == direction
 
-    def test_lists_the_variants_that_overrides_serve(self) -> None:
-        variants = [{"key": "a", "rollout_percentage": 100}, {"key": "b", "rollout_percentage": 0}]
-        change = classify_exposure_change(
-            before=_flag(_condition(100), variants=variants),
-            after=_flag(_condition(100, EMAIL, variant="b"), _condition(100), variants=variants),
-        )
+    @parameterized.expand(
+        [
+            (
+                "split_and_overrides",
+                _flag(_condition(100, EMAIL, variant="b"), _condition(100), variants=SPLIT_ALL_A),
+                ("a", "b"),
+            ),
+            (
+                "every_condition_has_an_override",
+                _flag(_condition(100, EMAIL, variant="b"), variants=SPLIT_ALL_A),
+                ("b",),
+            ),
+            (
+                "disabled",
+                _flag(_condition(100, EMAIL, variant="b"), _condition(100), variants=SPLIT_ALL_A, active=False),
+                (),
+            ),
+        ]
+    )
+    def test_lists_the_variants_that_the_flag_serves(
+        self, _name: str, after: FlagExposureConfig, served_variants: tuple[str, ...]
+    ) -> None:
+        change = classify_exposure_change(before=_flag(_condition(100), variants=SPLIT_ALL_A), after=after)
 
-        assert change.served_variants == ("a", "b")
+        assert change.served_variants == served_variants
 
     def test_returns_the_group_type_after_the_edit(self) -> None:
         change = classify_exposure_change(

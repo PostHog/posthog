@@ -13,8 +13,9 @@ little, because the exposure query measures who gets each value and closes the w
 rollout through.
 
 Not covered: the holdout, because only experiments write it, and their flags are out of scope. Early access enrollment
-and the other super groups, because the early access product owns those flags. The bucketing settings, because they
-give people a new draw without a change of the share. A change of `early_exit`.
+and the other super groups, because the early access product owns those flags. The flag key, the bucketing identifier
+and experience continuity, because they give people a new draw without a change of the share. A change of
+`early_exit`. The flag-level aggregation is covered, because it decides whether the flag counts persons or groups.
 """
 
 from collections.abc import Mapping
@@ -77,7 +78,7 @@ class ExposureChange:
     direction: ExposureDirection
     # The variants that the flag can serve after the edit, from the split and from the variant overrides. A window on
     # a raise tracks the share of people with any value other than false, and the share of each variant. Empty for a
-    # boolean flag.
+    # boolean flag and for a disabled flag.
     served_variants: tuple[str, ...]
     # The flag-level group type index after the edit, None for persons. A group flag counts groups, not people.
     aggregation: int | None
@@ -111,14 +112,6 @@ class _ChangeBuilder:
         return frozenset(self._kinds)
 
 
-def _served_variants(side: _Side) -> tuple[str, ...]:
-    variants = dict.fromkeys(variant.key for variant in served_slots(side.split) if variant.key)
-    variants.update(
-        dict.fromkeys(condition.variant for condition in side.conditions if condition.rollout > 0 and condition.variant)
-    )
-    return tuple(variants)
-
-
 def _serves_anybody(side: _Side) -> bool:
     return any(condition.rollout > 0 for condition in side.conditions)
 
@@ -127,11 +120,30 @@ def _serves_from_split(side: _Side) -> bool:
     return any(condition.rollout > 0 and condition.variant is None for condition in side.conditions)
 
 
+def _served_variants(side: _Side, *, active: bool) -> tuple[str, ...]:
+    if not active:
+        return ()
+    variants: dict[str, None] = {}
+    if _serves_from_split(side):
+        variants.update(dict.fromkeys(variant.key for variant in served_slots(side.split) if variant.key))
+    variants.update(
+        dict.fromkeys(condition.variant for condition in side.conditions if condition.rollout > 0 and condition.variant)
+    )
+    return tuple(variants)
+
+
 def _decides(condition: ReleaseCondition, side: _Side) -> bool:
     # With early exit, a person whose properties match a condition and whose hash is outside its rollout gets false,
-    # and the flag service reads no later condition for them (`get_match` in rust/feature-flags/src/flags/
-    # flag_matching.rs). A condition at 0% then still decides who gets false.
+    # and the flag service reads no later condition for them.
+    # See `get_match` in rust/feature-flags/src/flags/flag_matching.rs.
+    # A condition at 0% then still decides who gets false.
     return condition.rollout > 0 or side.early_exit
+
+
+def _stops_people(condition: ReleaseCondition, side: _Side) -> bool:
+    # With early exit, a condition below 100% gives false to the people it matches outside its rollout, so the value
+    # of a later condition does not reach them.
+    return side.early_exit and condition.rollout < 100
 
 
 # The variant override of a condition, or None with the group type whose key the split hashes.
@@ -185,7 +197,7 @@ def _compare_pair(
 ) -> None:
     if not _decides(previous, old) and not _decides(condition, new):
         return
-    if previous.criteria != condition.criteria:
+    if previous.criteria != condition.criteria and _decides(condition, new):
         builder.add(ExposureChangeKind.PROPERTIES_CHANGED)
     if condition.rollout > previous.rollout:
         builder.add(ExposureChangeKind.ROLLOUT_INCREASED)
@@ -216,16 +228,22 @@ def _compare_conditions(old: _Side, new: _Side, builder: _ChangeBuilder) -> None
         # With early exit, the people that the removed condition gave false can get the value of a later condition.
         builder.add(
             ExposureChangeKind.CONDITION_REMOVED,
-            gives_another_value=(old.early_exit and removed.rollout < 100)
-            or _gives_another_value(removed, new, served_after),
+            gives_another_value=_stops_people(removed, old) or _gives_another_value(removed, new, served_after),
         )
 
     # A new order gives a person who matches two conditions the value of the one that comes first now. Which pairs
-    # of conditions overlap is not known here, so any reorder of conditions with different values counts.
-    kept_values = {
-        _value(new.conditions[new_index], new) for new_index in pairs if new.conditions[new_index].rollout > 0
+    # of conditions overlap is not known here, so any reorder of conditions with different values counts, and so does
+    # a reorder of a condition that stops people. A condition that decides nothing on either side cannot move anybody.
+    deciding = {
+        new_index: old_index
+        for new_index, old_index in pairs.items()
+        if _decides(new.conditions[new_index], new) and _decides(old.conditions[old_index], old)
     }
-    if _reordered(pairs) and (new.early_exit or len(kept_values) > 1):
+    kept_values = {
+        _value(new.conditions[new_index], new) for new_index in deciding if new.conditions[new_index].rollout > 0
+    }
+    stops_people = any(_stops_people(new.conditions[new_index], new) for new_index in deciding)
+    if _reordered(deciding) and (stops_people or len(kept_values) > 1):
         builder.add(ExposureChangeKind.CONDITIONS_REORDERED)
 
 
@@ -253,6 +271,6 @@ def classify_exposure_change(*, before: FlagExposureConfig, after: FlagExposureC
     return ExposureChange(
         kinds=builder.kinds(),
         direction=builder.direction(),
-        served_variants=_served_variants(new),
+        served_variants=_served_variants(new, active=after.active),
         aggregation=new.aggregation,
     )
