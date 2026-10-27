@@ -1722,7 +1722,10 @@ class SignalReportViewSet(
             return queryset
         value = raw.strip().lower()
         if value == "mine":
-            return queryset.filter(reports_claimed_for_user(team_id=self.team_id, user_id=self.request.user.id))
+            user_id = self.request.user.id
+            if user_id is None:  # unreachable behind authentication
+                raise exceptions.NotAuthenticated()
+            return queryset.filter(reports_claimed_for_user(team_id=self.team_id, user_id=user_id))
         if value != "me":
             raise serializers.ValidationError({"assignee": "Invalid value. Allowed: me, mine."})
         actor = self._request_attribution()

@@ -261,7 +261,7 @@ export interface reportListLogicActions {
     ensureLoaded: () => {
         value: true
     }
-    loadCount: () => any
+    loadCount: (_: void) => void
     loadCountFailure: (
         error: string,
         errorObject?: any
@@ -271,10 +271,10 @@ export interface reportListLogicActions {
     }
     loadCountSuccess: (
         count: number,
-        payload?: any
+        payload?: void
     ) => {
         count: number
-        payload?: any
+        payload?: void
     }
     loadMore: () => {
         value: true
@@ -297,7 +297,7 @@ export interface reportListLogicActions {
     loadReportSourceMeta: (reportIds: string[]) => {
         reportIds: string[]
     }
-    loadReports: () => any
+    loadReports: (_: void) => void
     loadReportsFailure: (
         error: string,
         errorObject?: any
@@ -307,10 +307,10 @@ export interface reportListLogicActions {
     }
     loadReportsSuccess: (
         reportsResponse: ReportListResponse,
-        payload?: any
+        payload?: void
     ) => {
         reportsResponse: ReportListResponse
-        payload?: any
+        payload?: void
     }
     refresh: () => {
         value: true
@@ -484,7 +484,7 @@ export const reportListLogic = kea<reportListLogicType>([
         count: [
             null as number | null,
             {
-                loadCount: async (_, breakpoint) => {
+                loadCount: async (_: void, breakpoint) => {
                     // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
                     const response = await api.signalReports.list({
                         ...listRequestParams(values.listApiParams),
@@ -503,7 +503,7 @@ export const reportListLogic = kea<reportListLogicType>([
                 // `requestParams` records the query that produced the response, so consumers
                 // (impression telemetry) can key off what was actually fetched rather than the
                 // live `listApiParams`, which changes before the refetch lands.
-                loadReports: async (_, breakpoint): Promise<ReportListResponse> => {
+                loadReports: async (_: void, breakpoint): Promise<ReportListResponse> => {
                     const params = values.listApiParams
                     const requestContext = requestContextFromValues(values)
                     cache.firstPageRequestId = (cache.firstPageRequestId ?? 0) + 1
