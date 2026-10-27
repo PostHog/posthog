@@ -117,7 +117,7 @@ export class HogFlowFunctionsService {
             project: {
                 id: hogFunction.team_id,
                 name: '',
-                url: '',
+                url: projectUrl,
             },
         }
 
