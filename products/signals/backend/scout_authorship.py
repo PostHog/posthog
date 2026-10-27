@@ -163,6 +163,7 @@ def inbox_hidden_report_filter(team_id: int) -> RawSQL:
           )
           AND hidden.report_id = {reports}.id::text
     )"""
+    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (identifiers from ORM metadata, values parameterized)
     return RawSQL(sql, (team_id, team_id), output_field=BooleanField())
 
 
