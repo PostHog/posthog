@@ -599,10 +599,11 @@ def test_run_token_defaults_to_the_dispatched_scopes(
     OrganizationMembership.objects.create(organization=organization, user=owner)
     task = Task.objects.create(team=team, title="Run", created_by=owner, origin_product=origin_product)
 
-    if requested is None:
-        create_oauth_access_token_for_run(task, state)
-    else:
-        create_oauth_access_token_for_run(task, state, scopes=requested)
+    with patch("products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=False):
+        if requested is None:
+            create_oauth_access_token_for_run(task, state)
+        else:
+            create_oauth_access_token_for_run(task, state, scopes=requested)
 
     assert mock_create.call_args.kwargs["scopes"] == granted
     if granted == "signals_monitoring":

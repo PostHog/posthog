@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from datetime import timedelta
-from inspect import unwrap
 from types import SimpleNamespace
 from typing import cast
 from uuid import uuid4
@@ -20,7 +18,6 @@ from django.utils import timezone
 from parameterized import parameterized
 from temporalio.client import Client
 from temporalio.exceptions import WorkflowAlreadyStartedError
-from temporalio.testing import ActivityEnvironment
 
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition, Team
@@ -56,13 +53,8 @@ from products.signals.backend.scout_harness.run_gates import check_fleet_gates
 from products.signals.backend.temporal.agentic.monitoring_agents import start_monitoring_agent
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 from products.skills.backend.models.skills import LLMSkill
-from products.tasks.backend.exceptions import TaskInvalidStateError
+from products.tasks.backend.facade.task_run_signals import task_run_start_refusal
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
-    GetTaskProcessingContextInput,
-    TaskProcessingContext,
-    get_task_processing_context,
-)
 
 
 class TestMonitoringWorkflowDispatch(SimpleTestCase):
@@ -332,11 +324,7 @@ class TestFinalAuthoredAgentChecks(BaseTest):
             self.scout.save(update_fields=["enabled"])
         self.task_run.status = TaskRun.Status.QUEUED
         self.task_run.save(update_fields=["status"])
-        provision = cast(
-            Callable[[GetTaskProcessingContextInput], TaskProcessingContext], unwrap(get_task_processing_context)
-        )
-        with self.assertRaises(TaskInvalidStateError):
-            ActivityEnvironment().run(provision, GetTaskProcessingContextInput(run_id=str(self.task_run.id)))
+        assert task_run_start_refusal(str(self.task.id), self.team.id, self.user.id) is not None
 
     @parameterized.expand([(False,), (None,)])
     def test_disabled_or_unavailable_monitoring_never_dispatches(self, flag: bool | None) -> None:

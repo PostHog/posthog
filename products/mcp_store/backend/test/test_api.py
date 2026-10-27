@@ -25,7 +25,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.security.url_validation import PinnedUrlVerdict
-from posthog.temporal.oauth import SIGNALS_APP_CLIENT_ID_DEV
+from posthog.temporal.oauth import SIGNALS_APP_CLIENT_ID_DEV, create_oauth_access_token_for_user
 from posthog.test.authentication_checks import covers_authentication
 
 from products.mcp_store.backend.agents import create_gateway_agent_token, sync_built_in_agents
@@ -56,8 +56,6 @@ from products.mcp_store.backend.presentation.views import (
     _is_valid_posthog_code_callback_url,
 )
 from products.mcp_store.backend.proxy import validate_installation_auth
-from products.tasks.backend.models import Task
-from products.tasks.backend.temporal.oauth import create_oauth_access_token
 
 ALLOWED_VERDICT = PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set())
 ALLOW_URL = patch("products.mcp_store.backend.url_policy.validate_url_and_pin_ips", return_value=ALLOWED_VERDICT)
@@ -2628,17 +2626,13 @@ class TestMCPServiceAccountAPI(APIBaseTest):
                 organization=self.organization,
                 user=self.user,
             )
-            task = Task.objects.create(
-                team=self.team,
-                created_by=self.user,
-                title="Monitoring check",
-                origin_product=Task.OriginProduct.SIGNAL_REPORT,
-                state={"monitoring_authored_check": True},
+            token = create_oauth_access_token_for_user(
+                self.user,
+                self.team.id,
+                application="signals",
+                scopes="signals_monitoring",
+                include_mcp_builtin_agent_scope=True,
             )
-            with patch(
-                "products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=False
-            ):
-                token = create_oauth_access_token(task, scopes="full")
             client = APIClient()
             client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 

@@ -225,6 +225,19 @@ def test_dev_stack_preview_needs_the_flag_and_the_right_shape_of_run(flag_value,
 
 class TestGetTaskProcessingContextActivity:
     @pytest.mark.django_db(transaction=True)
+    def test_registered_product_guard_refuses_provisioning(
+        self, activity_environment: ActivityEnvironment, test_task: Task
+    ) -> None:
+        run = test_task.create_run()
+        with patch.dict(
+            "products.tasks.backend.facade.task_run_signals._task_run_start_guards",
+            {"test_product": lambda task_id, team_id, user_id: "Product execution is paused"},
+            clear=True,
+        ):
+            with pytest.raises(TaskInvalidStateError, match="Product execution is paused"):
+                async_to_sync(_run_context)(activity_environment, GetTaskProcessingContextInput(run_id=str(run.id)))
+
+    @pytest.mark.django_db(transaction=True)
     def test_internal_research_gets_project_and_role_instructions_at_start(
         self, activity_environment: ActivityEnvironment, test_task: Task
     ) -> None:
