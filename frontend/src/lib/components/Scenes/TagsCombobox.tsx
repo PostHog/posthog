@@ -73,7 +73,10 @@ function TagsComboboxInner({
             autoHighlight
             items={items}
             value={value}
-            onValueChange={(next: string[]) => {
+            onValueChange={(next: string[], eventDetails) => {
+                if (eventDetails.reason === 'escape-key') {
+                    return
+                }
                 // Convert any sentinel selection into the real typed value, dedupe.
                 const cleaned = (next ?? []).map((v) =>
                     v.startsWith('__create__:') ? v.slice('__create__:'.length) : v
