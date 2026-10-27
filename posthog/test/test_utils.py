@@ -214,7 +214,7 @@ class TestFormatUrls(SimpleTestCase):
                 "HTTP_HOST": "www.testserver",
                 "HTTP_X_FORWARDED_PROTO": "https",
             }
-            request: Request = Request(build_req)  # ty: ignore[invalid-assignment]
+            request: Request = Request(build_req)
             self.assertEqual("https://www.testserver", format_query_params_absolute_url(request))
 
 

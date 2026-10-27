@@ -5,21 +5,11 @@ so a user who cannot view one of those may not see the subscription either. The 
 subqueries over the target tables, so the access filter stays a single query.
 """
 
+from collections.abc import Callable
+
 from django.contrib.postgres.expressions import ArraySubquery
 from django.contrib.postgres.fields import ArrayField
-from django.db.models import (
-    BigIntegerField,
-    BooleanField,
-    CharField,
-    F,
-    Func,
-    JSONField,
-    Manager,
-    Q,
-    QuerySet,
-    TextField,
-    Value,
-)
+from django.db.models import BigIntegerField, BooleanField, CharField, F, Func, JSONField, Q, QuerySet, TextField, Value
 from django.db.models.functions import Cast, Concat
 
 from posthog.dataclasses import frozen
@@ -42,9 +32,9 @@ class _TargetLookups:
     rendered_snapshot: str | None
     exported_insights: str
     no_selection: str
-    insights: Manager
-    dashboards: Manager
-    tiles: Manager
+    insights: Callable[[], QuerySet[Insight]]
+    dashboards: Callable[[], QuerySet[Dashboard]]
+    tiles: Callable[[], QuerySet[DashboardTile]]
 
 
 _SUBSCRIPTION_TARGETS = _TargetLookups(
@@ -56,9 +46,9 @@ _SUBSCRIPTION_TARGETS = _TargetLookups(
     rendered_snapshot=None,
     exported_insights="dashboard_export_insights__id__in",
     no_selection="dashboard_export_insights__isnull",
-    insights=Insight.objects,
-    dashboards=Dashboard.objects,
-    tiles=DashboardTile.objects,
+    insights=Insight.objects.all,
+    dashboards=Dashboard.objects.all,
+    tiles=DashboardTile.objects.all,
 )
 
 # A delivery keeps the results it rendered, so a soft-deleted target still restricts it.
@@ -71,9 +61,9 @@ _DELIVERY_TARGETS = _TargetLookups(
     rendered_snapshot="content_snapshot",
     exported_insights="subscription__dashboard_export_insights__id__in",
     no_selection="subscription__dashboard_export_insights__isnull",
-    insights=Insight.objects_including_soft_deleted,
-    dashboards=Dashboard.objects_including_soft_deleted,
-    tiles=DashboardTile.objects_including_soft_deleted,
+    insights=Insight.objects_including_soft_deleted.all,
+    dashboards=Dashboard.objects_including_soft_deleted.all,
+    tiles=DashboardTile.objects_including_soft_deleted.all,
 )
 
 
@@ -149,13 +139,14 @@ def _target_filter(user_access_control: UserAccessControl, team_id: int, targets
     if not has_object_rules and not denies_a_target_resource:
         return Q()
 
-    team_dashboards = targets.dashboards.filter(team_id=team_id)  # type: ignore[arg-type]  # django-stubs treats a Manager field as a descriptor
-    target_insights = targets.insights.filter(team_id=team_id)  # type: ignore[arg-type]  # django-stubs treats a Manager field as a descriptor
+    team_dashboards = targets.dashboards().filter(team_id=team_id)
+    target_insights = targets.insights().filter(team_id=team_id)
     blocked_insights = blocked_target_ids(user_access_control, target_insights, "insight")
     blocked_dashboards = blocked_target_ids(user_access_control, team_dashboards, "dashboard")
     # Distinct so the context-ref array below holds one entry per dashboard, not one per blocked tile.
     dashboards_with_blocked_tiles = (
-        targets.tiles.filter(dashboard__in=team_dashboards, insight_id__in=blocked_insights)  # type: ignore[arg-type]  # django-stubs treats a Manager field as a descriptor
+        targets.tiles()
+        .filter(dashboard__in=team_dashboards, insight_id__in=blocked_insights)
         .values("dashboard_id")
         .distinct()
     )
