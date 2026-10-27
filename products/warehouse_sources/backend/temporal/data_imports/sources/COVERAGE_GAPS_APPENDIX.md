@@ -11745,10 +11745,10 @@ Today (6): `dividends`, `eod`, `intraday`, `news`, `quote`, `splits`
 
 Diffed against: <https://www.stockdata.org/documentation>
 
-- [ ] `/v1/entity/search` — ticker/entity lookup that resolves the symbols carried on every eod, intraday, quote, dividend and split row (name, exchange, industry, type) (high)
-- [ ] `/v1/news/stats/aggregation` — per-entity news sentiment and volume aggregates - the headline output of StockData's news analysis (medium)
-- [ ] `/v1/news/sources` — lookup resolving the source identifiers on synced news rows (medium)
-- [ ] `/v1/news/stats/intraday` — intraday time series of entity news volume and sentiment (medium)
+- [x] `/v1/entity/search` — ticker/entity lookup that resolves the symbols carried on every eod, intraday, quote, dividend and split row (name, exchange, industry, type) (high)
+- [x] `/v1/news/stats/aggregation` — per-entity news sentiment and volume aggregates - the headline output of StockData's news analysis (medium)
+- [x] `/v1/news/sources` — lookup resolving the source identifiers on synced news rows (medium)
+- [x] `/v1/news/stats/intraday` — intraday time series of entity news volume and sentiment (medium)
 - [ ] `/v1/news/stats/trending` — trending entities by news activity over a window (medium)
 - [ ] `/v1/entity/industry/list` — industry lookup for grouping tickers in breakdowns (medium)
 - [ ] `/v1/data/intraday/adjusted` — split/dividend-adjusted intraday bars; the synced intraday table uses the unadjusted /data/intraday endpoint, so long-range series are discontinuous (medium)
