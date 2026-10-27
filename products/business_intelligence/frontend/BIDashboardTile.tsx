@@ -1,11 +1,6 @@
 import { deepEqual } from 'fast-equals'
 import { useActions, useValues } from 'kea'
 
-import { LemonTag } from '@posthog/lemon-ui'
-import { Badge } from '@posthog/quill'
-
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 import { Query } from '~/queries/Query/Query'
 import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import { InsightModel } from '~/types'
@@ -31,7 +26,6 @@ export function BIDashboardTile({
 }: BIDashboardTileProps): JSX.Element {
     const { selection, targets, loadQueue } = useValues(biDashboardCrossFilterLogic({ dashboardId }))
     const { selectMark } = useActions(biDashboardCrossFilterLogic({ dashboardId }))
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const filtered = targets[tileId]
     const effectiveQuery = filtered ?? query
     const isActiveFilter = (record: Record<string, unknown>): boolean =>
@@ -40,22 +34,8 @@ export function BIDashboardTile({
             selection,
             createBIDashboardSelection(tileId, insight.name || 'Untitled worksheet', effectiveQuery, record)
         )
-    const filterStatus = filtered
-        ? 'Filtered by selection'
-        : selection?.tileId === tileId
-          ? 'Filter source'
-          : 'Not filtered'
     return (
         <div className="flex h-full min-h-0 flex-col">
-            {selection && (
-                <div className="px-3 pt-1">
-                    {todayRailNav ? (
-                        <Badge>{filterStatus}</Badge>
-                    ) : (
-                        <LemonTag type={filtered ? 'highlight' : 'default'}>{filterStatus}</LemonTag>
-                    )}
-                </div>
-            )}
             <Query
                 query={effectiveQuery}
                 cachedResults={filtered ? undefined : insight}

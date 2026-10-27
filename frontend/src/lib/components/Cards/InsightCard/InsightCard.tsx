@@ -48,6 +48,7 @@ import {
 
 import type { AlertType } from 'products/alerts/frontend/types'
 import { isCrossFilterWorksheet } from 'products/business_intelligence/frontend/biDashboardCrossFilters'
+import { BIDashboardFilterStatus } from 'products/business_intelligence/frontend/BIDashboardFilterStatus'
 import { BIDashboardTile } from 'products/business_intelligence/frontend/BIDashboardTile'
 import { DashboardInsightResultMenu } from 'products/dashboards/frontend/components/DashboardInsightResultMenu'
 import type { TileGroupMoveOptions } from 'products/dashboards/frontend/dashboardTileSections'
@@ -481,6 +482,11 @@ function InsightCardInternal(
             <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
                 <BindLogic logic={insightLogic} props={insightLogicProps}>
                     <InsightMeta
+                        headerStatus={
+                            biDashboardTileId !== undefined && dashboardId && isCrossFilterWorksheet(insight.query) ? (
+                                <BIDashboardFilterStatus dashboardId={dashboardId} tileId={biDashboardTileId} />
+                            ) : undefined
+                        }
                         tile={tile}
                         insight={insight}
                         projectId={projectId}
