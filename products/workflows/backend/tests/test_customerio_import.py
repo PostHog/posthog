@@ -154,6 +154,78 @@ class TestCustomerioCampaignTranslation(BaseTest):
         assert workflow["conversion"]["events"][0]["filters"]["events"][0]["id"] == "subscribed"
         assert any(note.level == NoteLevel.UNSUPPORTED and "SMS" in note.message for note in translated.notes)
 
+    def test_values_the_workflow_checks_would_reject_are_reshaped(self) -> None:
+        source = _onboarding_campaign()
+        edges = [edge for edge in source.campaign["edges"] if edge["from"] != "5"]
+        campaign = {
+            **source.campaign,
+            "workflow_action_ids": [*source.campaign["workflow_action_ids"], "10", "11"],
+            "exit_on_conversion_matched": False,
+            "edges": [
+                *edges,
+                {"from": "5", "to": "10", "type": "continue"},
+                {"from": "10", "to": "11", "type": "continue"},
+                {"from": "11", "to": "9", "type": "continue"},
+            ],
+            "conversion_event_filters": {
+                "or": [
+                    {"foreign_event": {"attribute": {"field": "plan", "operator": "eq", "value": "pro"}}},
+                    {"foreign_event": {"attribute": {"field": "plan", "operator": "eq", "value": "team"}}},
+                ]
+            },
+            "global_exit_conditions": [
+                {"and": [{"event_name": {"name": "subscribed"}}, {"attribute": {"field": "plan", "value": "pro"}}]}
+            ],
+        }
+        actions = [{**action, "delay": 129600} if action["id"] == "3" else action for action in source.actions] + [
+            {"id": "10", "type": "attribute_update_action", "name": "Flags", "template_id": "14"},
+            {"id": "11", "type": "webhook_action", "name": "CRM", "template_id": "15"},
+        ]
+        templates = {
+            **source.templates,
+            "14": {"body": json.dumps([{"name": "active", "value": False}, {"name": "score", "value": 0}])},
+            "15": {
+                "url": "https://crm.example.com",
+                "headers": [
+                    {"name": "Authorization", "value": "Bearer fake-token"},
+                    {"name": "X-Api-Key", "value": "{{customer.key}}"},
+                    {"name": "X-Source", "value": "{{customer.id}}"},
+                ],
+            },
+        }
+        translated = translate_campaign(
+            CampaignSource(campaign=campaign, actions=actions, templates=templates), _OPTIONS
+        )
+        workflow = translated.workflow
+        steps = {action["id"]: action for action in workflow["actions"]}
+
+        assert steps["cio_3"]["config"] == {"delay_duration": "1.5d"}
+        assert steps["cio_10"]["config"]["inputs"]["set_properties"]["value"] == {"active": False, "score": 0}
+        webhook = steps["cio_11"]["config"]["inputs"]
+        assert webhook["headers"]["value"] == {"X-Source": "{{event.distinct_id}}"}
+        assert webhook["secret_headers"]["value"] == {"Authorization": "Bearer fake-token"}
+        assert "properties" not in workflow["conversion"]["events"][0]["filters"]["events"][0]
+        assert workflow["exit_condition"] == "exit_only_at_end"
+        messages = [note.message for note in translated.notes]
+        assert any("`X-Api-Key` header" in message for message in messages)
+        assert any("any of several conditions" in message for message in messages)
+        assert any("removes people from this automation" in message for message in messages)
+
+    def test_long_chain_of_left_out_steps_resolves(self) -> None:
+        source = _onboarding_campaign()
+        ids = [str(index) for index in range(100, 1300)]
+        actions = [{"id": step_id, "type": "twilio_action", "name": "SMS"} for step_id in ids] + [
+            {"id": "99", "type": "exit_action"}
+        ]
+        edges = [{"from": a, "to": b, "type": "continue"} for a, b in zip(ids, [*ids[1:], "99"])]
+        campaign = {**source.campaign, "workflow_action_ids": [*ids, "99"], "edges": edges}
+
+        workflow = translate_campaign(
+            CampaignSource(campaign=campaign, actions=actions, templates={}), _OPTIONS
+        ).workflow
+
+        assert {"from": "trigger_node", "to": "cio_99", "type": "continue"} in workflow["edges"]
+
     def test_segment_trigger_without_a_cohort_still_saves_and_asks_for_one(self) -> None:
         source = _onboarding_campaign()
         campaign = {**source.campaign, "type": "seg_attr", "trigger": {"and": [{"or": [{"segment": {"id": 7}}]}]}}
@@ -280,6 +352,10 @@ class TestCustomerioConditions(SimpleTestCase):
             ("message event", {"type": "message", "event": {"name": "*", "type": "opened_email"}, "inverse": False}),
             ("segment without a cohort", {"type": "segments_negatable", "segments": [3], "negate": False}),
             ("unknown operator", {"type": "attribute", "field": "plan", "operator": "matches", "value": "x"}),
+            (
+                "timestamp out of range",
+                {"type": "attribute", "field": "created_at", "operator": "timestamp_gt", "value": "1700000000000000"},
+            ),
         ]
     )
     def test_reports_conditions_it_cannot_translate(self, _name: str, condition: dict[str, Any]) -> None:
@@ -288,7 +364,7 @@ class TestCustomerioConditions(SimpleTestCase):
         assert len(translated.skipped) == 1
 
     def test_decodes_url_encoded_and_plain_base64(self) -> None:
-        condition = [{"type": "attribute", "field": "plan", "operator": "eq", "value": "a b&c"}]
+        condition = [{"type": "attribute", "field": "url", "operator": "eq", "value": "https://example.com/a%20b&c"}]
         plain = base64.b64encode(json.dumps(condition).encode()).decode()
         assert conditions.decode(_encode(condition)) == condition
         assert conditions.decode(plain) == condition
@@ -305,6 +381,16 @@ class TestCustomerioLiquid(SimpleTestCase):
                 "{% if event.properties.plan == 'pro' %}x{% endif %}",
             ),
             ("text outside tags", "customer.first_name", "customer.first_name"),
+            (
+                "bracket access",
+                "{{ event['plan'] }}{{ trigger[\"x\"] }}",
+                "{{ event.properties['plan'] }}{{ event.properties[\"x\"] }}",
+            ),
+            (
+                "quoted literal",
+                "{{ 'customer.email' | append: customer.email }}",
+                "{{ 'customer.email' | append: person.properties.email }}",
+            ),
             ("unsubscribe tag", '<a href="{% unsubscribe_url %}">', '<a href="{{ unsubscribe_url }}">'),
             (
                 "captured html prints raw",
@@ -360,6 +446,50 @@ class TestWorkflowImportAPI(APIBaseTest):
         third = self._import()
         assert third["status"] == "skipped"
         assert HogFlow.objects.get(pk=first["workflow_id"]).status == "active"
+
+    def test_reimport_leaves_a_workflow_the_user_cannot_edit(self) -> None:
+        first = self._import()
+        with patch(
+            "products.workflows.backend.presentation.views.workflow_import_drafts.UserAccessControl.check_access_level_for_ref",
+            return_value=False,
+        ):
+            second = self._import()
+
+        assert second["status"] == "skipped"
+        assert second["workflow_id"] == first["workflow_id"]
+
+    @parameterized.expand(
+        [
+            ("templates not a container", {"templates": "invalid"}),
+            ("campaign id too long", {"campaign_id": "9" * 201}),
+        ]
+    )
+    def test_rejects_malformed_campaigns_before_saving(self, _name: str, change: dict[str, Any]) -> None:
+        source = _onboarding_campaign()
+        campaign = {**source.campaign, "id": change.get("campaign_id", "42")}
+        entry: dict[str, Any] = {"campaign": campaign, "actions": source.actions}
+        if "templates" in change:
+            entry["templates"] = change["templates"]
+        body = {"source": "customerio", "campaigns": [entry]}
+        response = self.client.post(f"/api/projects/{self.team.id}/workflow_imports/", body, format="json")
+
+        assert response.status_code == 400
+        assert not HogFlow.objects.filter(team=self.team).exists()
+
+    def test_unreadable_delay_fails_only_that_automation(self) -> None:
+        source = _onboarding_campaign()
+        broken = [{**action, "delay": "soon"} if action["id"] == "3" else action for action in source.actions]
+        body = {
+            "source": "customerio",
+            "campaigns": [
+                {"campaign": source.campaign, "actions": broken},
+                {"campaign": {**source.campaign, "id": "43"}, "actions": source.actions},
+            ],
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/workflow_imports/", body, format="json")
+
+        assert response.status_code == 200, response.json()
+        assert [result["status"] for result in response.json()["results"]] == ["failed", "created"]
 
     def test_dry_run_saves_nothing(self) -> None:
         result = self._import(dry_run=True)
@@ -435,9 +565,12 @@ class TestWorkflowImportAPI(APIBaseTest):
         Image.new("RGB", (3, 2)).save(png, "PNG")
         hero = "https://userimg-assets.customeriomail.com/images/client-env-1/hero.png"
         gone = "https://userimg-assets.customeriomail.com/images/client-env-1/gone.png"
+        # A longer URL that starts with `hero`, and one whose query the HTML escapes.
+        hero_webp, sized = f"{hero}.webp", f"{hero}?w=1&amp;h=2"
+        served = {hero, hero_webp, f"{hero}?w=1&h=2"}
 
         def respond(url: str, **kwargs: Any) -> MagicMock:
-            response = MagicMock(status_code=200 if url == hero else 404)
+            response = MagicMock(status_code=200 if url in served else 404)
             response.__enter__.return_value = response
             response.iter_content.return_value = [png.getvalue()]
             return response
@@ -448,29 +581,31 @@ class TestWorkflowImportAPI(APIBaseTest):
             **source.templates,
             "11": {
                 **source.templates["11"],
-                "body": f'<img src="{hero}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">',
+                "body": f'<img src="{hero}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
+                f'<img src="{hero_webp}"><img src="{sized}">',
             },
         }
         campaigns = [{"campaign": source.campaign, "actions": source.actions, "templates": list(templates.values())}]
 
         preview = self._import(campaigns=campaigns, dry_run=True)
-        assert any("2 email images on Customer.io's servers will be copied" in n["message"] for n in preview["notes"])
+        assert any("4 email images on Customer.io's servers will be copied" in n["message"] for n in preview["notes"])
         assert not mock_get.called
 
         first = self._import(campaigns=campaigns)
         html = next(a for a in HogFlow.objects.get(pk=first["workflow_id"]).actions if a["id"] == "cio_1")["config"][
             "inputs"
         ]["email"]["value"]["html"]
-        media = UploadedMedia.objects.get(team=self.team, purpose="email")
-        assert (media.content_type, media.width, media.height) == ("image/png", 3, 2)
-        assert (
-            html
-            == f'<img src="{media.get_absolute_url()}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
+        copies = list(UploadedMedia.objects.filter(team=self.team, purpose="email").order_by("created_at"))
+        assert [(m.content_type, m.width, m.height) for m in copies] == [("image/png", 3, 2)] * 3
+        urls = [media.get_absolute_url() for media in copies]
+        assert html == (
+            f'<img src="{urls[0]}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
+            f'<img src="{urls[1]}"><img src="{urls[2]}">'
         )
         assert any(n["step_id"] == "cio_1" and gone in n["message"] for n in first["notes"])
 
         self._import(campaigns=campaigns)
-        assert UploadedMedia.objects.filter(team=self.team, purpose="email").count() == 1
+        assert UploadedMedia.objects.filter(team=self.team, purpose="email").count() == 3
         assert [call.args[0] for call in mock_get.call_args_list].count(hero) == 1
         assert all(call.kwargs["allow_redirects"] is False for call in mock_get.call_args_list)
 

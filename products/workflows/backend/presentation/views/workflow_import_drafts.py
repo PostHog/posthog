@@ -4,6 +4,8 @@ from dataclasses import asdict
 from typing import Any, cast
 from uuid import UUID
 
+from django.db import IntegrityError, transaction
+
 import structlog
 from rest_framework.exceptions import ValidationError
 
@@ -11,10 +13,20 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.models import Team, User
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.activity import log_workflow_activity
-from products.workflows.backend.facade.contracts import CampaignSource, ImportNote, ImportOptions, WorkflowActor
+from products.workflows.backend.facade.contracts import (
+    CampaignSource,
+    ImportNote,
+    ImportOptions,
+    PreviousImport,
+    WorkflowActor,
+    WorkflowStale,
+)
 from products.workflows.backend.facade.enums import HogFlowState, WorkflowImportNoteLevel
 from products.workflows.backend.facade.workflow_imports import (
+    ImageBudget,
     import_content,
     previous_import,
     record_import,
@@ -47,9 +59,16 @@ def import_campaigns(
     content = import_content(
         team.id, [_campaign_source(payload) for payload in payloads], options, sender_identities, segments
     )
+    budget = ImageBudget()
     results = [
         import_campaign(
-            team, user, source, content.options, dry_run, content.fetch_notes.get(str(source.campaign.get("id")), ())
+            team,
+            user,
+            source,
+            content.options,
+            dry_run,
+            content.fetch_notes.get(str(source.campaign.get("id")), ()),
+            budget,
         )
         for source in content.sources
     ]
@@ -74,26 +93,43 @@ def import_campaign(
     options: ImportOptions,
     dry_run: bool,
     extra_notes: tuple[ImportNote, ...] = (),
+    image_budget: ImageBudget | None = None,
 ) -> dict[str, Any]:
     """Imports one Customer.io automation, or previews it, and returns its result in the response shape."""
-    translated = translate_campaign(source, options)
+    try:
+        translated = translate_campaign(source, options)
+    except (ValueError, TypeError) as error:
+        logger.info("workflows.import.unreadable_campaign", team_id=team.id, error=type(error).__name__)
+        return {
+            "source_id": str(source.campaign.get("id")),
+            "name": str(source.campaign.get("name") or ""),
+            "workflow_id": None,
+            "notes": [asdict(note) for note in extra_notes],
+            "validation_errors": [
+                "Customer.io sent a value PostHog could not read, such as a delay that is not a number. "
+                "Check the automation in Customer.io and import it again."
+            ],
+            "status": "failed",
+        }
     result: dict[str, Any] = {
         "source_id": translated.source_id,
         "name": translated.name,
         "workflow_id": None,
+        "notes": [asdict(note) for note in (*extra_notes, *translated.notes)],
         "validation_errors": [],
     }
     previous = None if dry_run else previous_import(team, translated.source_id)
-    if previous is not None and previous.hog_flow_id is not None and not previous.hog_flow_is_draft:
-        # Someone enabled the earlier import, so a re-import must not change what is running.
-        skipped = ImportNote(
-            level=WorkflowImportNoteLevel.APPROXIMATED,
-            message="This automation was imported before and that workflow is no longer a draft, so it was left "
-            "unchanged.",
+    # Checked before images are copied, so a workflow the import leaves alone costs no downloads.
+    if previous is not None and previous.hog_flow_id is not None and not _can_edit(team, user, previous):
+        return _skipped(
+            result,
+            previous.hog_flow_id,
+            "You can't edit the workflow an earlier import of this automation created, so it was left unchanged.",
         )
-        return {**result, "status": "skipped", "workflow_id": str(previous.hog_flow_id), "notes": [asdict(skipped)]}
+    if previous is not None and previous.hog_flow_id is not None and not previous.hog_flow_is_draft:
+        return _skipped(result, previous.hog_flow_id, _NO_LONGER_DRAFT)
 
-    rehosted = rehost_images(team, user, translated.workflow, dry_run)
+    rehosted = rehost_images(team, user, translated.workflow, dry_run, image_budget or ImageBudget())
     notes = (*extra_notes, *translated.notes, *rehosted.notes)
     result["notes"] = [asdict(note) for note in notes]
     validated, errors = _validated_draft(team, rehosted.workflow)
@@ -101,42 +137,76 @@ def import_campaign(
         return {**result, "status": "failed", "validation_errors": errors}
     if previous is None:
         return {**result, "status": "preview"}
-
-    if previous.hog_flow_id is not None:
-        update_workflow(
-            team_id=team.id,
-            user_id=user.id,
-            hog_flow_id=previous.hog_flow_id,
-            validated_data=validated,
-            route_to_draft=False,
-            base_updated_at=None,
-            base_live_updated_at=None,
-            includes_staged_draft=False,
-            validated_status=HogFlowState.DRAFT.value,
-        )
-        workflow_id, status = previous.hog_flow_id, "updated"
-    else:
-        created = create_workflow(team_id=team.id, user_id=user.id, validated_data=validated)
-        workflow_id, status = cast(UUID, created.current["id"]), "created"
+    created_name: str | None = None
+    try:
+        with transaction.atomic():
+            if previous.hog_flow_id is not None:
+                # Without `status` in the payload, the update refuses a workflow someone enabled since the check above.
+                update_workflow(
+                    team_id=team.id,
+                    user_id=user.id,
+                    hog_flow_id=previous.hog_flow_id,
+                    validated_data={key: value for key, value in validated.items() if key != "status"},
+                    route_to_draft=False,
+                    base_updated_at=None,
+                    base_live_updated_at=None,
+                    includes_staged_draft=False,
+                    validated_status=HogFlowState.DRAFT.value,
+                )
+                workflow_id, status = previous.hog_flow_id, "updated"
+            else:
+                created = create_workflow(team_id=team.id, user_id=user.id, validated_data=validated)
+                workflow_id, status = cast(UUID, created.current["id"]), "created"
+                created_name = cast("str | None", created.current.get("name"))
+            record_import(
+                team=team,
+                user=user,
+                record_id=previous.record_id,
+                source_id=translated.source_id,
+                name=translated.name,
+                hog_flow_id=workflow_id,
+                notes=notes,
+            )
+    except WorkflowStale:
+        return _skipped(result, previous.hog_flow_id, _NO_LONGER_DRAFT)
+    except IntegrityError:
+        # Another request imported the same automation first, and the unique record rolled this one back.
+        return {
+            **result,
+            "status": "failed",
+            "validation_errors": ["Another import of this automation ran at the same time. Import it again."],
+        }
+    if status == "created":
         log_workflow_activity(
             actor=WorkflowActor(
                 organization_id=team.organization_id, team_id=team.id, user=user, was_impersonated=False
             ),
             workflow_id=workflow_id,
-            name=cast("str | None", created.current.get("name")),
+            name=created_name,
             activity="created",
             detail_type="standard",
         )
-    record_import(
-        team=team,
-        user=user,
-        record_id=previous.record_id,
-        source_id=translated.source_id,
-        name=translated.name,
-        hog_flow_id=workflow_id,
-        notes=notes,
-    )
     return {**result, "status": status, "workflow_id": str(workflow_id)}
+
+
+_NO_LONGER_DRAFT = (
+    "This automation was imported before and that workflow is no longer a draft, so it was left unchanged."
+)
+
+
+def _skipped(result: dict[str, Any], workflow_id: UUID | None, message: str) -> dict[str, Any]:
+    note = ImportNote(level=WorkflowImportNoteLevel.APPROXIMATED, message=message)
+    return {**result, "status": "skipped", "workflow_id": str(workflow_id), "notes": [asdict(note)]}
+
+
+def _can_edit(team: Team, user: User, previous: PreviousImport) -> bool:
+    ref = ObjectAccessRef(
+        resource="hog_flow",
+        id=str(previous.hog_flow_id),
+        team_id=team.id,
+        created_by_id=previous.hog_flow_created_by_id,
+    )
+    return UserAccessControl(user=user, team=team).check_access_level_for_ref(ref, "editor")
 
 
 def _validated_draft(team: Team, workflow: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:

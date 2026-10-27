@@ -21,6 +21,14 @@ TRIGGER_ID = "trigger_node"
 _EXIT_ID = "exit_node"
 _MAX_DELAY_SECONDS = 365 * 86400
 _MAX_WAIT_SECONDS = 30 * 86400
+# Unit, seconds per unit, and the largest amount a workflow accepts in that unit.
+_DURATION_UNITS: tuple[tuple[str, int, int | None], ...] = (
+    ("d", 86400, None),
+    ("h", 3600, 24),
+    ("m", 60, 60),
+    ("s", 1, 60),
+)
+_CREDENTIAL_HEADER = re.compile(r"auth|api[-_]?key|token|secret|password|cookie|signature", re.IGNORECASE)
 _DAY_NAMES = {
     "Mon": "monday",
     "Tue": "tuesday",
@@ -230,7 +238,16 @@ class _Builder:
         name = str(self.campaign["conversion_event_name"])
         event: dict[str, Any] = {"id": name, "name": name, "type": "events", "order": 0}
         properties: list[dict[str, Any]] = []
-        for leaf in _foreign_event_leaves(self.campaign.get("conversion_event_filters")):
+        event_filters = self.campaign.get("conversion_event_filters")
+        if _has_alternatives(event_filters):
+            # A flat AND list can't hold "any of", and dropping the OR would make the goal match nothing.
+            self.note(
+                NoteLevel.UNSUPPORTED,
+                "The goal's event filters match any of several conditions, which PostHog goals can't express. "
+                "They were left out, so every conversion event counts. Narrow the goal by hand.",
+            )
+            event_filters = None
+        for leaf in _foreign_event_leaves(event_filters):
             filters = conditions.property_filters(
                 leaf.get("field"), leaf.get("operator"), leaf.get("value"), leaf.get("value2"), "event"
             )
@@ -268,10 +285,11 @@ class _Builder:
     def _exits_match_goal(self) -> bool:
         exits = self.campaign.get("global_exit_conditions") or []
         goal = self.campaign.get("conversion_event_name") if self.campaign.get("conversion") else None
+        goal_is_bare = not self.campaign.get("conversion_event_filters")
         matched = False
         for exit_condition in exits:
             names = _exit_event_names(exit_condition)
-            if goal and names == [goal]:
+            if goal and goal_is_bare and names == [goal] and _is_bare_event(exit_condition):
                 matched = True
             else:
                 self.note(
@@ -538,18 +556,30 @@ class _Builder:
     def _webhook(self, source: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
         template = self._template(source, action)
         body_text = self._liquid(template.get("body") or "", action, "request body")
+        headers: dict[str, str] = {}
+        secret_headers: dict[str, str] = {}
+        for header in template.get("headers") or []:
+            if not isinstance(header, dict) or not header.get("name"):
+                continue
+            name, value = str(header["name"]), str(header.get("value") or "")
+            if not _CREDENTIAL_HEADER.search(name):
+                headers[name] = self._liquid(value, action, "headers")
+            elif "{{" in value or "{%" in value:
+                self.note(
+                    NoteLevel.NEEDS_INPUT,
+                    f"The `{name}` header holds a credential built with Liquid, which secret headers don't run. "
+                    "It was left out. Add its value under Secret headers.",
+                    action,
+                )
+            else:
+                secret_headers[name] = value
         inputs: dict[str, Any] = {
             "url": {"value": self._liquid(template.get("url") or "", action, "URL"), "templating": "liquid"},
             "method": {"value": str(template.get("request_method") or "POST").upper()},
-            "headers": {
-                "value": {
-                    str(header.get("name")): self._liquid(str(header.get("value") or ""), action, "headers")
-                    for header in template.get("headers") or []
-                    if isinstance(header, dict) and header.get("name")
-                },
-                "templating": "liquid",
-            },
+            "headers": {"value": headers, "templating": "liquid"},
         }
+        if secret_headers:
+            inputs["secret_headers"] = {"value": secret_headers}
         if body_text:
             try:
                 inputs["body"] = {"value": json.loads(body_text), "templating": "liquid"}
@@ -582,14 +612,17 @@ class _Builder:
                 continue
             if attributes:
                 break
-        properties: dict[str, str] = {}
+        properties: dict[str, Any] = {}
         for attribute in attributes if isinstance(attributes, list) else []:
             if not isinstance(attribute, dict) or not attribute.get("name"):
                 continue
-            value = str(attribute.get("value") or "")
+            value = attribute.get("value")
             if attribute.get("type") == "profile_attribute":
-                value = "{{customer." + value + "}}"
-            properties[str(attribute["name"])] = self._liquid(value, base, "property value")
+                value = "{{customer." + str(value or "") + "}}"
+            if value is None or isinstance(value, str):
+                properties[str(attribute["name"])] = self._liquid(value or "", base, "property value")
+            else:
+                properties[str(attribute["name"])] = value
         if not properties:
             self.note(NoteLevel.NEEDS_INPUT, "Set the person properties this step updates.", base)
         return {
@@ -777,22 +810,19 @@ class _Builder:
     # Edges
 
     def _edges(self, roots: list[str]) -> list[dict[str, Any]]:
-        def resolve(source_id: str, seen: frozenset[str] = frozenset()) -> str:
+        def resolve(source_id: str) -> str:
             """The PostHog step a link to `source_id` lands on, following steps that were left out."""
-            if source_id == _EXIT_ID:
-                return _EXIT_ID
-            if source_id in self.actions:
-                return self.actions[source_id]["id"]
-            if source_id in seen:
-                return _EXIT_ID
-            outgoing = self.links.get(source_id, [])
-            if not outgoing:
-                return _EXIT_ID
-            # A step that was left out passes people on along its default path: the continue edge, or the last
-            # branch, which Customer.io uses for "everyone else".
-            continue_links = [link for link in outgoing if link[1] == "continue"]
-            chosen = continue_links[0] if continue_links else max(outgoing, key=lambda link: link[2] or 0)
-            return resolve(chosen[0], seen | {source_id})
+            seen: set[str] = set()
+            while source_id != _EXIT_ID and source_id not in self.actions:
+                outgoing = self.links.get(source_id, [])
+                if source_id in seen or not outgoing:
+                    return _EXIT_ID
+                seen.add(source_id)
+                # A step that was left out passes people on along its default path: the continue edge, or the
+                # last branch, which Customer.io uses for "everyone else".
+                continue_links = [link for link in outgoing if link[1] == "continue"]
+                source_id = (continue_links[0] if continue_links else max(outgoing, key=lambda link: link[2] or 0))[0]
+            return _EXIT_ID if source_id == _EXIT_ID else self.actions[source_id]["id"]
 
         edges: list[dict[str, Any]] = []
         if roots:
@@ -828,13 +858,16 @@ def _exit_action(action_id: str, name: str) -> dict[str, Any]:
 
 
 def _duration(seconds: int) -> str:
-    """The shortest exact duration string for a number of seconds: 2d, 36h, 90m, or 45s."""
+    """A duration string for a number of seconds, within the workflow's per-unit limits: 2d, 1.5h, 45m, or 45s."""
     seconds = int(seconds)
     if seconds <= 0:
         return ""
-    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
-        if seconds % size == 0:
+    for unit, size, cap in _DURATION_UNITS:
+        if seconds % size == 0 and (cap is None or seconds // size <= cap):
             return f"{seconds // size}{unit}"
+    for unit, size, cap in reversed(_DURATION_UNITS):
+        if cap is None or seconds / size <= cap:
+            return f"{seconds / size:.4f}".rstrip("0").rstrip(".") + unit
     return f"{seconds}s"
 
 
@@ -896,6 +929,30 @@ def _segment_references(tree: Any) -> list[str]:
             if key in tree:
                 found.extend(_segment_references(tree[key]))
     return found
+
+
+def _has_alternatives(tree: Any) -> bool:
+    if isinstance(tree, list):
+        return any(_has_alternatives(child) for child in tree)
+    if isinstance(tree, dict):
+        alternatives = tree.get("or")
+        if isinstance(alternatives, list) and len(alternatives) > 1:
+            return True
+        return any(_has_alternatives(tree[key]) for key in ("and", "or", "not") if key in tree)
+    return False
+
+
+def _is_bare_event(tree: Any) -> bool:
+    """True when the condition only names an event, with no property, segment or negated part."""
+    if isinstance(tree, list):
+        return all(_is_bare_event(child) for child in tree)
+    if not isinstance(tree, dict):
+        return False
+    extra = [key for key, value in tree.items() if value and key not in ("and", "or", "event_name")]
+    event_name = tree.get("event_name")
+    if isinstance(event_name, dict) and any(value for key, value in event_name.items() if key != "name"):
+        return False
+    return not extra and all(_is_bare_event(tree[key]) for key in ("and", "or") if key in tree)
 
 
 def _exit_event_names(tree: Any) -> list[str]:

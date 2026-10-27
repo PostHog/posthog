@@ -57,8 +57,9 @@ def decode(encoded: str | None) -> list[dict[str, Any]] | None:
         raw = base64.b64decode(encoded, validate=False).decode("utf-8")
     except (binascii.Error, UnicodeDecodeError, ValueError):
         return None
-    # Conditions saved through the app are URL-encoded before base64, older ones are not.
-    for candidate in (unquote(raw), raw):
+    # Conditions saved through the app are URL-encoded before base64, older ones are not. Plain JSON is read
+    # first, so a value that holds a percent escape, like a URL, keeps it.
+    for candidate in (raw, unquote(raw)):
         try:
             parsed = json.loads(candidate)
         except ValueError:
@@ -252,7 +253,6 @@ def _relative_days(value: Any) -> str | None:
 
 def _absolute_date(value: Any) -> str | None:
     try:
-        timestamp = int(str(value))
-    except ValueError:
+        return datetime.fromtimestamp(int(str(value)), tz=UTC).strftime("%Y-%m-%d")
+    except (ValueError, OverflowError, OSError):
         return None
-    return datetime.fromtimestamp(timestamp, tz=UTC).strftime("%Y-%m-%d")

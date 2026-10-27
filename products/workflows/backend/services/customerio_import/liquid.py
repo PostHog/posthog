@@ -8,16 +8,20 @@ _TAG = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.DOTALL)
 _UNSUBSCRIBE_TAG = re.compile(r"\{%-?\s*(?:unsubscribe_url|manage_subscription_preferences_url)\s*-?%\}")
 _SNIPPET_TAG = re.compile(r"\{%-?\s*snippet\s+[\"']([^\"']+)[\"']\s*-?%\}")
 _CAPTURE_TAG = re.compile(r"\{%-?\s*capture\s+(\w+)\s*-?%\}")
+_QUOTED = re.compile(r"(\"[^\"]*\"|'[^']*')")
 _OUTPUT_TAG = re.compile(r"\{\{(-?)(\s*)(\w+)(.*?)(\s*)(-?)\}\}", re.DOTALL)
 # Customer.io's `customer.id` is the id the team identifies people with, which is the distinct id in PostHog.
 _RENAMES = (
     (re.compile(r"(?<![\w.])customer\.id\b"), "event.distinct_id"),
     (re.compile(r"(?<![\w.])customer(?=[.\[])"), "person.properties"),
-    (re.compile(r"(?<![\w.])event(?=\.(?!properties\b|distinct_id\b|event\b|uuid\b|timestamp\b))"), "event.properties"),
+    (
+        re.compile(r"(?<![\w.])event(?=\.(?!properties\b|distinct_id\b|event\b|uuid\b|timestamp\b)|\[)"),
+        "event.properties",
+    ),
     (re.compile(r"(?<![\w.])event_name\b"), "event.event"),
     (re.compile(r"(?<![\w.])event_id\b"), "event.uuid"),
     (re.compile(r"(?<![\w.])event_timestamp\b"), "event.timestamp"),
-    (re.compile(r"(?<![\w.])trigger(?=\.)"), "event.properties"),
+    (re.compile(r"(?<![\w.])trigger(?=[.\[])"), "event.properties"),
 )
 _UNSUPPORTED = {
     "journey": re.compile(r"(?<![\w.])journey\."),
@@ -53,14 +57,18 @@ def rewrite(text: str | None, snippets: dict[str, str]) -> RewrittenLiquid:
     text = _UNSUBSCRIBE_TAG.sub("{{ unsubscribe_url }}", text)
     unsupported: set[str] = set()
 
-    def rewrite_tag(match: re.Match[str]) -> str:
-        tag = match.group(0)
+    def rewrite_code(code: str) -> str:
         for name, pattern in _UNSUPPORTED.items():
-            if pattern.search(tag):
+            if pattern.search(code):
                 unsupported.add(name)
         for pattern, replacement in _RENAMES:
-            tag = pattern.sub(replacement, tag)
-        return tag
+            code = pattern.sub(replacement, code)
+        return code
+
+    def rewrite_tag(match: re.Match[str]) -> str:
+        # Odd parts are quoted strings, which are literal text and keep what they say.
+        parts = _QUOTED.split(match.group(0))
+        return "".join(part if index % 2 else rewrite_code(part) for index, part in enumerate(parts))
 
     text = _TAG.sub(rewrite_tag, text)
     text = _print_captures_raw(text)

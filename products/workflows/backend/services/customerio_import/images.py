@@ -5,6 +5,8 @@ Only those hosts are read, and redirects are not followed.
 """
 
 import re
+import html
+import time
 import hashlib
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
@@ -25,10 +27,25 @@ _ASSET_URL = re.compile(r"https://[a-z0-9-]+\.customeriomail\.com/[^\s\"'()<>]+"
 _MAX_BYTES = 4 * 1024 * 1024
 _MAX_IMAGES_PER_IMPORT = 100
 _TIMEOUT_SECONDS = 10
+_DOWNLOAD_DEADLINE_SECONDS = 30
 _DOWNLOAD_THREADS = 4
 
 
-def rehost_images(team: Team, user: User, workflow: dict[str, Any], dry_run: bool) -> RehostedWorkflow:
+class ImageBudget:
+    """How many more images one import request may download, shared by every automation in it."""
+
+    def __init__(self, remaining: int = _MAX_IMAGES_PER_IMPORT) -> None:
+        self.remaining = remaining
+
+    def take(self, urls: list[str]) -> list[str]:
+        taken = urls[: self.remaining]
+        self.remaining -= len(taken)
+        return taken
+
+
+def rehost_images(
+    team: Team, user: User, workflow: dict[str, Any], dry_run: bool, budget: ImageBudget
+) -> RehostedWorkflow:
     """The workflow with every Customer.io-hosted email image pointing at a copy in the media library."""
     steps = [action for action in workflow["actions"] if _html(action) is not None]
     urls_by_step = {action["id"]: list(dict.fromkeys(_ASSET_URL.findall(_html(action) or ""))) for action in steps}
@@ -47,17 +64,17 @@ def rehost_images(team: Team, user: User, workflow: dict[str, Any], dry_run: boo
             ),
         )
 
-    copied = _copy_images(team, user, all_urls[:_MAX_IMAGES_PER_IMPORT])
+    copied = _copy_images(team, user, all_urls, budget)
     notes: list[ImportNote] = []
     actions = []
     for action in workflow["actions"]:
-        html = _html(action)
-        if html is None:
+        body = _html(action)
+        if body is None:
             actions.append(action)
             continue
-        for url, media_url in copied.items():
-            html = html.replace(url, media_url)
-        actions.append(_with_html(action, html))
+        # One pass over whole matches, so a URL that starts with another copied URL keeps its own copy.
+        body = _ASSET_URL.sub(lambda match: copied.get(match.group(0), match.group(0)), body)
+        actions.append(_with_html(action, body))
         missed = [url for url in urls_by_step.get(action["id"], []) if url not in copied]
         if missed:
             notes.append(
@@ -73,8 +90,8 @@ def rehost_images(team: Team, user: User, workflow: dict[str, Any], dry_run: boo
     return RehostedWorkflow(workflow={**workflow, "actions": actions}, notes=tuple(notes))
 
 
-def _copy_images(team: Team, user: User, urls: list[str]) -> dict[str, str]:
-    """Source URL to media library URL, for every image that is in the library now."""
+def _copy_images(team: Team, user: User, urls: list[str], budget: ImageBudget) -> dict[str, str]:
+    """Source URL, as the HTML writes it, to media library URL, for every image that is in the library now."""
     copied: dict[str, str] = {}
     to_download: list[str] = []
     for url in urls:
@@ -82,6 +99,8 @@ def _copy_images(team: Team, user: User, urls: list[str]) -> dict[str, str]:
             UploadedMedia.objects.filter(
                 team=team, purpose=MEDIA_PURPOSE_EMAIL, file_name=_file_name(url), pending=False
             )
+            .exclude(media_location__isnull=True)
+            .exclude(media_location="")
             .order_by("created_at")
             .first()
         )
@@ -89,27 +108,32 @@ def _copy_images(team: Team, user: User, urls: list[str]) -> dict[str, str]:
             copied[url] = existing.get_absolute_url()
         else:
             to_download.append(url)
+    to_download = budget.take(to_download)
     with ThreadPoolExecutor(max_workers=_DOWNLOAD_THREADS) as pool:
-        downloads = list(pool.map(_download, to_download))
-    for url, content in zip(to_download, downloads):
-        if content is None:
-            continue
-        media = _save(team, user, url, content)
-        if media is not None:
-            copied[url] = media.get_absolute_url()
+        # A few at a time, so at most that many images sit in memory before they are saved.
+        for start in range(0, len(to_download), _DOWNLOAD_THREADS):
+            batch = to_download[start : start + _DOWNLOAD_THREADS]
+            for url, content in zip(batch, pool.map(_download, batch)):
+                media = _save(team, user, url, content) if content is not None else None
+                if media is not None:
+                    copied[url] = media.get_absolute_url()
     return copied
 
 
 def _download(url: str) -> bytes | None:
+    # Browsers read `&amp;` in an attribute as `&`, so the request has to as well.
+    source = html.unescape(url)
+    deadline = time.monotonic() + _DOWNLOAD_DEADLINE_SECONDS
     try:
-        with requests.get(url, timeout=_TIMEOUT_SECONDS, allow_redirects=False, stream=True) as response:
+        with requests.get(source, timeout=_TIMEOUT_SECONDS, allow_redirects=False, stream=True) as response:
             if response.status_code != 200:
                 logger.info("workflows.import.image_download_failed", status=response.status_code)
                 return None
             content = b""
             for chunk in response.iter_content(64 * 1024):
                 content += chunk
-                if len(content) > _MAX_BYTES:
+                if len(content) > _MAX_BYTES or time.monotonic() > deadline:
+                    logger.info("workflows.import.image_download_failed", reason="too_large_or_slow")
                     return None
             return content
     except requests.RequestException as error:
@@ -131,6 +155,10 @@ def _save(team: Team, user: User, url: str, content: bytes) -> UploadedMedia | N
             purpose=MEDIA_PURPOSE_EMAIL,
         )
     except ObjectStorageUnavailable:
+        # `save_content` keeps its row before it raises, and that row has no file behind it.
+        UploadedMedia.objects.filter(
+            team=team, purpose=MEDIA_PURPOSE_EMAIL, file_name=_file_name(url), media_location__isnull=True
+        ).delete()
         return None
     if media is None:
         return None
@@ -143,8 +171,9 @@ def _save(team: Team, user: User, url: str, content: bytes) -> UploadedMedia | N
 
 def _file_name(url: str) -> str:
     # The digest makes the name unique per source URL, so importing again reuses the copy.
-    digest = hashlib.sha256(url.encode()).hexdigest()[:12]
-    base = urlsplit(url).path.rsplit("/", 1)[-1] or "image"
+    source = html.unescape(url)
+    digest = hashlib.sha256(source.encode()).hexdigest()[:12]
+    base = urlsplit(source).path.rsplit("/", 1)[-1] or "image"
     return f"customerio-{digest}-{base}"[:200]
 
 
@@ -156,14 +185,14 @@ def _html(action: dict[str, Any]) -> str | None:
     return html if isinstance(html, str) else None
 
 
-def _with_html(action: dict[str, Any], html: str) -> dict[str, Any]:
+def _with_html(action: dict[str, Any], body: str) -> dict[str, Any]:
     config = action["config"]
     email = config["inputs"]["email"]
     return {
         **action,
         "config": {
             **config,
-            "inputs": {**config["inputs"], "email": {**email, "value": {**email["value"], "html": html}}},
+            "inputs": {**config["inputs"], "email": {**email, "value": {**email["value"], "html": body}}},
         },
     }
 

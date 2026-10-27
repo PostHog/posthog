@@ -16661,7 +16661,7 @@
         }
     },
     "workflows-import-customerio": {
-        "description": "Turn Customer.io automations into draft PostHog workflows. Read each automation with the Customer.io MCP or CLI first: GET /v1/environments/{environment_id}/campaigns/{campaign_id} gives `campaign` and `actions`. Pass them unchanged; never pass people or customer profiles. Leave message templates out on the first call: when the project stored a Customer.io App API key, PostHog reads the content itself and the response says content_fetched=true. Only when it says false, read each message action's template with GET /v1/environments/{environment_id}/templates/{template_id} and pass them. Pass sender identities and segment ids, names and types too, never segment members. Run once with dry_run=true and show the user each automation's notes, then import for real. Drafts never send until a person enables them. Re-importing an automation updates its draft. Share each draft's link and the notes marked needs_input, since the team must set those before enabling.",
+        "description": "Turn Customer.io automations into draft PostHog workflows. Read each automation with the Customer.io MCP or CLI first: GET /v1/environments/{environment_id}/campaigns/{campaign_id} gives `campaign` and `actions`. Pass them unchanged; never pass people or customer profiles. Leave message templates out on the first call: when the project stored a Customer.io App API key, PostHog reads the content itself and the response says content_fetched=true. Only when it says false, read each message action's template with GET /v1/environments/{environment_id}/templates/{template_id} and pass them. Pass sender identities and segment ids, names and types too, never segment members. Run once with dry_run=true and show the user each automation's notes, then import for real. Drafts never send until a person enables them. Re-importing an automation replaces its draft, discarding edits made there since, so confirm with the user first. Share each draft's link and the notes marked needs_input, since the team must set those before enabling.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Import Customer.io automations",
@@ -16669,7 +16669,7 @@
         "required_scopes": ["hog_flow:write"],
         "api_operations": ["POST /api/projects/{project_id}/workflow_imports/"],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false

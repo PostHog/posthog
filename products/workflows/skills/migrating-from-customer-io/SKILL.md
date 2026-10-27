@@ -55,7 +55,7 @@ Push steps import as `unsupported` notes, and device tokens never move with the 
 
 ## Re-running
 
-Importing an automation again updates its draft in place, so you can re-run after fixing something in Customer.io. A workflow that someone already enabled is never changed: its result is `skipped`.
+Importing an automation again replaces its draft, so you can re-run after fixing something in Customer.io. Edits the team made to that draft since are lost, so ask before you re-import. A workflow that someone already enabled, or that the user can't edit, is never changed: its result is `skipped`.
 
 ## After the import
 

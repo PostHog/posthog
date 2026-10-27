@@ -11,6 +11,19 @@ function isObject(value: unknown): value is JsonObject {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+/** Templates as a list, from a list or from an object keyed by template id. */
+function templateList(value: unknown): JsonObject[] {
+    if (Array.isArray(value)) {
+        return value.filter(isObject)
+    }
+    if (isObject(value)) {
+        return Object.entries(value)
+            .filter((entry): entry is [string, JsonObject] => isObject(entry[1]))
+            .map(([id, template]) => ({ id, ...template }))
+    }
+    return []
+}
+
 /** One automation from the Customer.io CLI (`{campaign, actions}`), or the importer's own `{campaign, actions, templates}`. */
 function toCampaign(value: unknown): CustomerioCampaignApi | null {
     if (!isObject(value) || !isObject(value.campaign) || !Array.isArray(value.actions)) {
@@ -19,8 +32,17 @@ function toCampaign(value: unknown): CustomerioCampaignApi | null {
     return {
         campaign: value.campaign,
         actions: value.actions.filter(isObject),
-        templates: value.templates ?? [],
+        templates: templateList(value.templates),
     }
+}
+
+/** Whether a loose template belongs to one of the automation's steps, by template id or by step id. */
+function isReferenced(template: JsonObject, actions: JsonObject[]): boolean {
+    return actions.some(
+        (action) =>
+            (action.template_id !== undefined && String(action.template_id) === String(template.id)) ||
+            (template.action_id !== undefined && String(template.action_id) === String(action.id))
+    )
 }
 
 /** A template from `GET .../templates/{id}`, which the CLI wraps as `{template: {...}}`. */
@@ -33,7 +55,7 @@ function toTemplate(value: unknown): JsonObject | null {
 
 /**
  * Reads the automations out of files a person saved from the Customer.io CLI or MCP. Accepts one automation, a list of
- * them, `{campaigns: [...]}`, and loose template files, which attach to every automation that points at them.
+ * them, `{campaigns: [...]}`, and loose template files, which attach to the automations whose steps use them.
  */
 export function parseCustomerioFiles(contents: string[]): ParsedCustomerioFile {
     const campaigns: CustomerioCampaignApi[] = []
@@ -78,8 +100,9 @@ export function parseCustomerioFiles(contents: string[]): ParsedCustomerioFile {
 
     if (looseTemplates.length) {
         for (const campaign of campaigns) {
-            const own = Array.isArray(campaign.templates) ? (campaign.templates as JsonObject[]) : []
-            campaign.templates = [...own, ...looseTemplates]
+            const actions = campaign.actions as JsonObject[]
+            const used = looseTemplates.filter((template) => isReferenced(template, actions))
+            campaign.templates = [...templateList(campaign.templates), ...used]
         }
     }
     return { campaigns, snippets }

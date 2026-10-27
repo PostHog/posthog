@@ -117,6 +117,7 @@ export function CustomerioImportModal(): JSX.Element {
                         accept=".json"
                         multiple
                         onChange={setFiles}
+                        disabledReason={resultsLoading ? 'Wait for the import to finish' : undefined}
                         showUploadedFiles
                         callToAction="Drop .json files here or click to browse"
                     />
