@@ -161,23 +161,30 @@ describe('emit-event-step', () => {
             expect(mockEventProcessedAndIngestedCounter.inc).not.toHaveBeenCalled()
         })
 
-        it('should serialize event correctly for Kafka', async () => {
-            jest.useFakeTimers()
-            try {
-                const step = createEmitEventStep(config)
-                const input = createInput()
-
-                await step(input)
-
-                expect(mockOutputs.produce).toHaveBeenCalledWith(EVENTS_OUTPUT, {
-                    key: 'test-uuid',
-                    value: Buffer.from(JSON.stringify(serializeEvent(mockProcessedEvent))),
-                    headers: { productTrack: 'general' },
-                    teamId: mockProcessedEvent.team_id,
-                })
-            } finally {
-                jest.useRealTimers()
+        it('should produce the exact Kafka message bytes', async () => {
+            const event: ProcessedEvent = {
+                ...mockProcessedEvent,
+                event: '$pageview',
+                properties: {
+                    $current_url: 'https://example.com/a?b="c"&d=\\e',
+                    text: 'line1\nline2\t ünïcödé 日本語 🎉',
+                    nested: { list: [1, 2.5, null, true], empty: {} },
+                },
+                timestamp: '2023-01-01T10:20:30.456Z' as ISOTimestamp,
+                distinct_id: 'user \ud83d',
+                elements_chain: 'a:href="/x"',
+                created_at: DateTime.fromISO('2023-01-01T12:00:00.789', { zone: 'America/New_York' }),
+                captured_at: new Date('2023-01-01T10:20:31.000Z'),
+                person_properties: { email: 'user@example.com' },
+                person_created_at: DateTime.fromISO('2022-12-31T23:59:59.999Z'),
+                historical_migration: true,
             }
+            const step = createEmitEventStep(config)
+
+            await step(createInput(event))
+
+            const expected = String.raw`{"uuid":"test-uuid","event":"$pageview","properties":"{\"$current_url\":\"https://example.com/a?b=\\\"c\\\"&d=\\\\e\",\"text\":\"line1\\nline2\\t ünïcödé 日本語 🎉\",\"nested\":{\"list\":[1,2.5,null,true],\"empty\":{}}}","timestamp":"2023-01-01 10:20:30.456","team_id":1,"project_id":1,"distinct_id":"user \\ud83d\\","elements_chain":"a:href=\"/x\"","created_at":"2023-01-01 17:00:00.789","captured_at":"2023-01-01 10:20:31.000","person_id":"person-uuid","person_properties":"{\"email\":\"user@example.com\"}","person_created_at":"2022-12-31 23:59:59","person_mode":"full","historical_migration":true}`
+            expect(mockOutputs.produce.mock.calls[0][1].value).toEqual(Buffer.from(expected))
         })
 
         it('should handle events with different UUIDs correctly', async () => {
