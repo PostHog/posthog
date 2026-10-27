@@ -24,6 +24,7 @@ from products.workflows.backend.facade.contracts import (
     ImportOptions,
     ImportSegment,
     ImportSender,
+    SnippetRoom,
 )
 from products.workflows.backend.facade.enums import WorkflowImportNoteLevel as NoteLevel
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -429,7 +430,7 @@ class TestCustomerioLiquid(SimpleTestCase):
         assert rewritten.missing_snippets == ("legal",)
 
     def test_stops_inlining_snippets_past_the_budget(self) -> None:
-        room = liquid.SnippetRoom(remaining=10)
+        room = SnippetRoom(remaining=10)
         rewritten = liquid.rewrite('{% snippet "big" %}' * 3, {"big": "0123456"}, room)
         assert rewritten.text == '0123456{% snippet "big" %}{% snippet "big" %}'
         assert rewritten.missing_snippets == ("big",)
