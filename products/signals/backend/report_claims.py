@@ -121,7 +121,13 @@ def reports_claimed_for_user(*, team_id: int, user_id: int) -> Q:
     """Reports whose active claim the user answers for: their own, their external agents', and their tasks'."""
     claims = active_claims(team_id=team_id)
     legacy = legacy_claims(team_id=team_id)
-    own_task_ids = tasks_facade.task_ids_created_by_subquery(team_id=team_id, user_id=user_id)
+    claimed_task_ids = [
+        *claims.filter(created_by__isnull=True, task_id__isnull=False).values_list("task_id", flat=True),
+        *legacy.filter(actor_user__isnull=True, actor_task_id__isnull=False).values_list("actor_task_id", flat=True),
+    ]
+    own_task_ids = tasks_facade.filter_task_ids_created_by(
+        [task_id for task_id in claimed_task_ids if task_id is not None], team_id=team_id, user_id=user_id
+    )
     own_claims = claims.filter(Q(created_by_id=user_id) | Q(created_by__isnull=True, task_id__in=own_task_ids))
     own_legacy = legacy.filter(Q(actor_user_id=user_id) | Q(actor_user__isnull=True, actor_task_id__in=own_task_ids))
     return Q(id__in=own_claims.values("report_id")) | Q(id__in=own_legacy.values("report_id"))
