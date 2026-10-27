@@ -11,6 +11,7 @@ from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.models import Team
+from posthog.models.team.event_retention import events_retention_months_for_team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationExecutor,
@@ -479,7 +480,8 @@ def _run_daily_unique_persons_pageviews(
         modifiers=modifiers,
     )
 
-    executor = LazyComputationExecutor()
+    # Jobs are built from events, so they must expire with them like every `ensure_precomputed` job.
+    executor = LazyComputationExecutor(events_retention_months=events_retention_months_for_team(team, team.pk))
     result = executor.execute(
         team=team,
         query_info=query_info,
