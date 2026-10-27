@@ -387,6 +387,10 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         definition: { name: 'scopy docs crawler', category: 'ai_crawler', trafficType: 'AI Agent', operator: 'scopy' },
     },
     {
+        pattern: 'unstale-collector',
+        definition: { name: 'unstale', category: 'ai_crawler', trafficType: 'AI Agent', operator: 'unstale' },
+    },
+    {
         pattern: 'llms-txt-sync',
         definition: {
             name: 'llms-txt-sync',
@@ -446,6 +450,76 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
             trafficType: 'AI Agent',
             operator: 'Right AI Choice',
         },
+    },
+    {
+        pattern: 'FlashBrain',
+        definition: { name: 'FlashBrain', category: 'ai_crawler', trafficType: 'AI Agent', operator: 'Flash Teams' },
+    },
+    {
+        pattern: 'NagetBot',
+        definition: { name: 'NagetBot', category: 'ai_crawler', trafficType: 'AI Agent', operator: 'Naget' },
+    },
+    {
+        pattern: 'ContextRocketBot',
+        definition: {
+            name: 'ContextRocket',
+            category: 'ai_crawler',
+            trafficType: 'AI Agent',
+            operator: 'ContextRocket',
+        },
+    },
+    {
+        pattern: 'AgentNativeSearchBot',
+        definition: {
+            name: 'Agent Native Search',
+            category: 'ai_crawler',
+            trafficType: 'AI Agent',
+            operator: 'agent-native-search',
+        },
+    },
+    {
+        pattern: 'ElevenlabsCrawler',
+        definition: {
+            name: 'ElevenLabs Crawler',
+            category: 'ai_crawler',
+            trafficType: 'AI Agent',
+            operator: 'ElevenLabs',
+        },
+    },
+    {
+        pattern: 'rag-customer-support-ingest',
+        definition: {
+            name: 'rag-customer-support-ingest',
+            category: 'ai_crawler',
+            trafficType: 'AI Agent',
+            operator: 'rag-customer-support-ingest',
+        },
+    },
+    {
+        pattern: 'OmnichannelWebsiteIngestionBot',
+        definition: {
+            name: 'Omnichannel Website Ingestion',
+            category: 'ai_crawler',
+            trafficType: 'AI Agent',
+            operator: 'Neurotime',
+        },
+    },
+    {
+        pattern: 'llms-txt-check/',
+        definition: {
+            name: 'llms-txt-check',
+            category: 'ai_crawler',
+            trafficType: 'AI Agent',
+            operator: 'llms-txt-check',
+        },
+    },
+    {
+        pattern: 'ref-tools-crawler',
+        definition: { name: 'Ref', category: 'ai_crawler', trafficType: 'AI Agent', operator: 'Ref' },
+    },
+    {
+        pattern: 'LinkupBot',
+        definition: { name: 'Linkup', category: 'ai_search', trafficType: 'AI Agent', operator: 'Linkup' },
     },
     // Search / index crawlers
     {
@@ -719,6 +793,143 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         pattern: 'AtlasSearchBot',
         definition: { name: 'AtlasSearch', category: 'search_crawler', trafficType: 'Bot', operator: 'AtlasSearch' },
     },
+    {
+        pattern: 'KakaoBot',
+        definition: { name: 'KakaoBot', category: 'search_crawler', trafficType: 'Bot', operator: 'Kakao' },
+    },
+    {
+        pattern: 'ibou-search',
+        definition: { name: 'Ibou Search', category: 'search_crawler', trafficType: 'Bot', operator: 'Ibou' },
+    },
+    {
+        pattern: 'matnx.com/bot',
+        definition: { name: 'AtlasBot', category: 'search_crawler', trafficType: 'Bot', operator: 'matnx' },
+    },
+    {
+        pattern: 'DittaBot',
+        definition: { name: 'DittaBot', category: 'search_crawler', trafficType: 'Bot', operator: 'DittaBot' },
+    },
+    {
+        pattern: 'T2Bot/',
+        definition: { name: 'T2Bot', category: 'search_crawler', trafficType: 'Bot', operator: 'T2' },
+    },
+    {
+        pattern: 'CitePackBot',
+        definition: { name: 'CitePack', category: 'search_crawler', trafficType: 'Bot', operator: 'CitePack' },
+    },
+    {
+        pattern: 'ContextFetchBot',
+        definition: { name: 'ContextFetch', category: 'search_crawler', trafficType: 'Bot', operator: 'ContextFetch' },
+    },
+    {
+        pattern: 'MachBot/',
+        definition: { name: 'MachBot', category: 'search_crawler', trafficType: 'Bot', operator: 'Mach GTM' },
+    },
+    {
+        pattern: 'KERN-OSINT-Crawler',
+        definition: { name: 'KERN OSINT Crawler', category: 'search_crawler', trafficType: 'Bot', operator: 'KERN' },
+    },
+    {
+        pattern: 'NCKU-CSIE-WebMining',
+        definition: {
+            name: 'NCKU CSIE WebMining Crawler',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'NCKU CSIE',
+        },
+    },
+    {
+        pattern: 'PoliasBot',
+        definition: { name: 'PoliasBot', category: 'search_crawler', trafficType: 'Bot', operator: 'Polias' },
+    },
+    {
+        pattern: 'DevParekhResearch',
+        definition: {
+            name: 'DevParekhResearch',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'DevParekhResearch',
+        },
+    },
+    {
+        pattern: 'TalarionSearchBot',
+        definition: { name: 'Talarion Search', category: 'search_crawler', trafficType: 'Bot', operator: 'Talarion' },
+    },
+    {
+        pattern: 'SofyaBot',
+        definition: { name: 'SofyaBot', category: 'search_crawler', trafficType: 'Bot', operator: 'Sofya' },
+    },
+    {
+        pattern: 'PkgSeer Documentation Crawler',
+        definition: {
+            name: 'PkgSeer Documentation Crawler',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'PkgSeer',
+        },
+    },
+    {
+        pattern: 'WorklynSearchBot',
+        definition: { name: 'Worklyn Search', category: 'search_crawler', trafficType: 'Bot', operator: 'Worklyn' },
+    },
+    {
+        pattern: 'SterkinmatchesLeadgen',
+        definition: {
+            name: 'Sterkinmatches Leadgen',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'Sterkinmatches',
+        },
+    },
+    {
+        pattern: 'Brevva/',
+        definition: { name: 'Brevva', category: 'search_crawler', trafficType: 'Bot', operator: 'Brevva' },
+    },
+    {
+        pattern: 'FastCrawler/',
+        definition: { name: 'FastCrawler', category: 'search_crawler', trafficType: 'Bot', operator: 'FastCrawler' },
+    },
+    {
+        pattern: 'GTMStackResearch',
+        definition: { name: 'GTMStack Research', category: 'search_crawler', trafficType: 'Bot', operator: 'GTMStack' },
+    },
+    {
+        pattern: 'JobSearchBot',
+        definition: { name: 'JobSearchBot', category: 'search_crawler', trafficType: 'Bot', operator: 'JobSearchBot' },
+    },
+    {
+        pattern: 'Walsingham/',
+        definition: { name: 'Walsingham', category: 'search_crawler', trafficType: 'Bot', operator: 'Walsingham' },
+    },
+    {
+        pattern: 'SubBegoneBot',
+        definition: { name: 'SubBegoneBot', category: 'search_crawler', trafficType: 'Bot', operator: 'SubBegone' },
+    },
+    {
+        pattern: 'scrape-site/',
+        definition: { name: 'scrape-site', category: 'search_crawler', trafficType: 'Bot', operator: 'scrape-site' },
+    },
+    {
+        pattern: 'RevnoxBot',
+        definition: { name: 'RevnoxBot', category: 'search_crawler', trafficType: 'Bot', operator: 'Revnox' },
+    },
+    {
+        pattern: 'AlterionLabs/',
+        definition: { name: 'AlterionLabs', category: 'search_crawler', trafficType: 'Bot', operator: 'AlterionLabs' },
+    },
+    {
+        pattern: 'usehardal-analytics-crawler',
+        definition: {
+            name: 'Hardal Analytics Crawler',
+            category: 'search_crawler',
+            trafficType: 'Bot',
+            operator: 'Hardal',
+        },
+    },
+    {
+        pattern: 'Yoinka-Events',
+        definition: { name: 'Yoinka Events', category: 'search_crawler', trafficType: 'Bot', operator: 'Yoinka' },
+    },
     // SEO / marketing crawlers
     {
         pattern: 'LaunchReadyCodeBot',
@@ -802,6 +1013,14 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         pattern: 'AutozellaBot',
         definition: { name: 'Autozella', category: 'seo_crawler', trafficType: 'Bot', operator: 'Autozella' },
     },
+    {
+        pattern: 'DottpaceAudit',
+        definition: { name: 'Dottpace Audit', category: 'seo_crawler', trafficType: 'Bot', operator: 'Dottpace' },
+    },
+    {
+        pattern: 'Clearscopebot',
+        definition: { name: 'Clearscope', category: 'seo_crawler', trafficType: 'Bot', operator: 'Clearscope' },
+    },
     // Social / link-preview crawlers
     {
         pattern: 'PagePeeker',
@@ -860,6 +1079,40 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         pattern: 'NimbusBlocklistSync',
         definition: { name: 'Nimbus Blocklist Sync', category: 'monitoring', trafficType: 'Bot', operator: 'Nimbus' },
     },
+    {
+        pattern: 'latency.app/bot',
+        definition: { name: 'Latency', category: 'monitoring', trafficType: 'Bot', operator: 'Latency' },
+    },
+    {
+        pattern: 'HonestClaw-Scanner',
+        definition: { name: 'HonestClaw Scanner', category: 'monitoring', trafficType: 'Bot', operator: 'HonestClaw' },
+    },
+    {
+        pattern: 'PricingWatchBot',
+        definition: {
+            name: 'PricingWatchBot',
+            category: 'monitoring',
+            trafficType: 'Bot',
+            operator: 'PricingWatchBot',
+        },
+    },
+    {
+        pattern: 'ORBIQ Research Lab',
+        definition: { name: 'ORBIQ Research Lab', category: 'monitoring', trafficType: 'Bot', operator: 'ORBIQ' },
+    },
+    {
+        pattern: 'StackClarityWatcher',
+        definition: {
+            name: 'StackClarity Watcher',
+            category: 'monitoring',
+            trafficType: 'Bot',
+            operator: 'StackClarity',
+        },
+    },
+    {
+        pattern: 'RimetryStatusBot',
+        definition: { name: 'Rimetry Status', category: 'monitoring', trafficType: 'Bot', operator: 'Rimetry' },
+    },
     // HTTP clients
     {
         pattern: 'MrAnandPortfolio',
@@ -873,6 +1126,10 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
             trafficType: 'Bot',
             operator: 'PostHog',
         },
+    },
+    {
+        pattern: '1nsight-logo-fetcher',
+        definition: { name: '1nsight Logo Fetcher', category: 'http_client', trafficType: 'Bot', operator: '1nsight' },
     },
 ]
 

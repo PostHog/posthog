@@ -1494,6 +1494,12 @@
     "traffic_type": "AI Agent"
   },
   {
+    "pattern": "unstale-collector",
+    "name": "unstale",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
     "pattern": "llms-txt-sync",
     "name": "llms-txt-sync",
     "category": "ai_crawler",
@@ -1545,6 +1551,66 @@
     "pattern": "RightAIChoiceBot",
     "name": "Right AI Choice",
     "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "FlashBrain",
+    "name": "FlashBrain",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "NagetBot",
+    "name": "NagetBot",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "ContextRocketBot",
+    "name": "ContextRocket",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "AgentNativeSearchBot",
+    "name": "Agent Native Search",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "ElevenlabsCrawler",
+    "name": "ElevenLabs Crawler",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "rag-customer-support-ingest",
+    "name": "rag-customer-support-ingest",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "OmnichannelWebsiteIngestionBot",
+    "name": "Omnichannel Website Ingestion",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "llms-txt-check/",
+    "name": "llms-txt-check",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "ref-tools-crawler",
+    "name": "Ref",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "LinkupBot",
+    "name": "Linkup",
+    "category": "ai_search",
     "traffic_type": "AI Agent"
   },
   {
@@ -1842,6 +1908,174 @@
     "traffic_type": "Bot"
   },
   {
+    "pattern": "KakaoBot",
+    "name": "KakaoBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "ibou-search",
+    "name": "Ibou Search",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "matnx.com/bot",
+    "name": "AtlasBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "DittaBot",
+    "name": "DittaBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "T2Bot/",
+    "name": "T2Bot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "CitePackBot",
+    "name": "CitePack",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "ContextFetchBot",
+    "name": "ContextFetch",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "MachBot/",
+    "name": "MachBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "KERN-OSINT-Crawler",
+    "name": "KERN OSINT Crawler",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "NCKU-CSIE-WebMining",
+    "name": "NCKU CSIE WebMining Crawler",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "PoliasBot",
+    "name": "PoliasBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "DevParekhResearch",
+    "name": "DevParekhResearch",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "TalarionSearchBot",
+    "name": "Talarion Search",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "SofyaBot",
+    "name": "SofyaBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "PkgSeer Documentation Crawler",
+    "name": "PkgSeer Documentation Crawler",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "WorklynSearchBot",
+    "name": "Worklyn Search",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "SterkinmatchesLeadgen",
+    "name": "Sterkinmatches Leadgen",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Brevva/",
+    "name": "Brevva",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "FastCrawler/",
+    "name": "FastCrawler",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "GTMStackResearch",
+    "name": "GTMStack Research",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "JobSearchBot",
+    "name": "JobSearchBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Walsingham/",
+    "name": "Walsingham",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "SubBegoneBot",
+    "name": "SubBegoneBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "scrape-site/",
+    "name": "scrape-site",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "RevnoxBot",
+    "name": "RevnoxBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "AlterionLabs/",
+    "name": "AlterionLabs",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "usehardal-analytics-crawler",
+    "name": "Hardal Analytics Crawler",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Yoinka-Events",
+    "name": "Yoinka Events",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
     "pattern": "LaunchReadyCodeBot",
     "name": "LaunchReadyCodeBot",
     "category": "seo_crawler",
@@ -1916,6 +2150,18 @@
   {
     "pattern": "AutozellaBot",
     "name": "Autozella",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "DottpaceAudit",
+    "name": "Dottpace Audit",
+    "category": "seo_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "Clearscopebot",
+    "name": "Clearscope",
     "category": "seo_crawler",
     "traffic_type": "Bot"
   },
@@ -2004,6 +2250,42 @@
     "traffic_type": "Bot"
   },
   {
+    "pattern": "latency.app/bot",
+    "name": "Latency",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "HonestClaw-Scanner",
+    "name": "HonestClaw Scanner",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "PricingWatchBot",
+    "name": "PricingWatchBot",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "ORBIQ Research Lab",
+    "name": "ORBIQ Research Lab",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "StackClarityWatcher",
+    "name": "StackClarity Watcher",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "RimetryStatusBot",
+    "name": "Rimetry Status",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
     "pattern": "MrAnandPortfolio",
     "name": "MrAnandPortfolio",
     "category": "http_client",
@@ -2012,6 +2294,12 @@
   {
     "pattern": "PostHogImageFetcherBot",
     "name": "PostHog Image Fetcher",
+    "category": "http_client",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "1nsight-logo-fetcher",
+    "name": "1nsight Logo Fetcher",
     "category": "http_client",
     "traffic_type": "Bot"
   }
