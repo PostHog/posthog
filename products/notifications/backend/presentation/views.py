@@ -214,8 +214,10 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def retrieve(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         if not self._is_feature_enabled():
             raise Http404
-        queryset = self._filter_by_access_control(self._get_base_queryset())
-        event = get_object_or_404(queryset, pk=self.kwargs["pk"])  # nosemgrep: idor-taint-user-input-to-model-get
+        queryset = self._get_base_queryset().filter(
+            pk=self.kwargs["pk"]
+        )  # nosemgrep: idor-taint-user-input-to-model-get
+        event = get_object_or_404(self._filter_by_access_control(queryset))
         return Response(NotificationEventSerializer(event).data)
 
     @validated_request(responses={200: OpenApiResponse(response=UnreadSummarySerializer)})
@@ -408,15 +410,24 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     @action(methods=["POST"], detail=False, url_path="archive_all")
     def archive_all(self, request: ValidatedRequest, **kwargs) -> Response:
         if not self._is_feature_enabled():
-            return Response(ArchiveAllResponseSerializer({"updated": 0, "notification_ids": []}).data)
+            return Response(
+                ArchiveAllResponseSerializer({"updated": 0, "notification_ids": [], "unread_notification_ids": []}).data
+            )
 
         user = self._get_user()
-        event_ids = list(
-            self._matching_events(request.validated_query_data, archived=False).values_list("id", flat=True)
-        )
+        archived = list(self._matching_events(request.validated_query_data, archived=False).values_list("id", "read"))
+        event_ids = [event_id for event_id, _ in archived]
         if event_ids:
             self._archive_events(user, event_ids)
-        return Response(ArchiveAllResponseSerializer({"updated": len(event_ids), "notification_ids": event_ids}).data)
+        return Response(
+            ArchiveAllResponseSerializer(
+                {
+                    "updated": len(event_ids),
+                    "notification_ids": event_ids,
+                    "unread_notification_ids": [event_id for event_id, read in archived if not read],
+                }
+            ).data
+        )
 
     @validated_request(
         request_serializer=UnarchiveRequestSerializer,
