@@ -75,6 +75,7 @@ function TagsComboboxInner({
             value={value}
             onValueChange={(next: string[], eventDetails) => {
                 if (eventDetails.reason === 'escape-key') {
+                    eventDetails.allowPropagation()
                     return
                 }
                 // Convert any sentinel selection into the real typed value, dedupe.
