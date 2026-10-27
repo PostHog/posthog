@@ -5,6 +5,7 @@ import { useChartLayout } from '../../core/chart-context'
 import type { BarScaleSet, StackedBand } from '../../core/scales'
 import type { Series, TooltipConfig, TooltipContext } from '../../core/types'
 import { DefaultTooltip } from '../../overlays/DefaultTooltip'
+import { useTooltipCapture } from '../../overlays/Tooltip'
 import {
     type BarLayout,
     findVisibleStackedSegment,
@@ -36,6 +37,7 @@ export function BarTooltip<Meta>({
     tooltipConfig,
 }: BarTooltipProps<Meta>): React.ReactElement | null {
     const { scales, labels } = useChartLayout()
+    const captureTooltip = useTooltipCapture<Meta>()
     const { hitArea = 'bar', ...defaultTooltipConfig } = tooltipConfig ?? {}
     const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
     if (d3Scales && ctx.hoverPosition && ctx.dataIndex >= 0) {
@@ -53,6 +55,7 @@ export function BarTooltip<Meta>({
         if (!narrowed) {
             return null
         }
+        captureTooltip(narrowed)
         return <>{userTooltip ? userTooltip(narrowed) : <DefaultTooltip {...narrowed} {...defaultTooltipConfig} />}</>
     }
     return <>{userTooltip ? userTooltip(ctx) : <DefaultTooltip {...ctx} {...defaultTooltipConfig} />}</>

@@ -98,8 +98,7 @@ describe('TimeSeriesLineChart', () => {
                     labels={labels}
                     theme={THEME}
                     config={{ xAxis: { timezone: 'UTC' } }}
-                />,
-                { nativeTooltip: true }
+                />
             )
             expect(chart.xTicks().some((tick) => /Jun \d+/.test(tick))).toBe(true)
 

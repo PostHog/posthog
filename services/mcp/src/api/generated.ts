@@ -20125,6 +20125,15 @@ export namespace Schemas {
       DeviceId: 'device_id',
     } as const;
 
+    export interface BugherdTaskSignalExtra {
+      status: string | null;
+      priority: string | null;
+      site: string | null;
+      url: string | null;
+      tag_names: unknown[];
+      created_at: string | null;
+    }
+
     export interface BugsnagErrorSignalExtra {
       severity: string | null;
       status: string | null;
@@ -24394,6 +24403,13 @@ export namespace Schemas {
       readonly person: ClickhouseEventPerson;
       readonly elements: readonly EventElement[];
       readonly elements_chain: string;
+    }
+
+    export interface ClickupTaskSignalExtra {
+      status_name: string | null;
+      status_type: string | null;
+      url: string | null;
+      date_created: string | null;
     }
 
     export interface DiffCluster {
@@ -41300,7 +41316,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `flag_off` - AI drafts are not enabled for this project
      * * `ai_not_approved` - The organization has not approved AI data processing
      * * `gateway_unconfigured` - The AI gateway is not configured
      * * `rate_limited` - The project used its hourly AI drafts
@@ -41312,7 +41327,6 @@ export namespace Schemas {
 
 
     export const EmailDraftFallbackReasonEnum = {
-      FlagOff: 'flag_off',
       AiNotApproved: 'ai_not_approved',
       GatewayUnconfigured: 'gateway_unconfigured',
       RateLimited: 'rate_limited',
@@ -41337,7 +41351,6 @@ export namespace Schemas {
       generated_by: EmailDraftOriginEnum;
       /** Why the template was used instead of a model draft. Null for a model draft.
        *
-       * * `flag_off` - AI drafts are not enabled for this project
        * * `ai_not_approved` - The organization has not approved AI data processing
        * * `gateway_unconfigured` - The AI gateway is not configured
        * * `rate_limited` - The project used its hourly AI drafts
@@ -54119,6 +54132,11 @@ export namespace Schemas {
       latest_error: string | null;
     }
 
+    export interface ExternalDataSourceExists {
+      /** Whether the project has any accessible external data sources. */
+      exists: boolean;
+    }
+
     export interface ExternalDataSourceRevenueAnalyticsConfig {
       enabled?: boolean;
       include_invoiceless_charges?: boolean;
@@ -54649,6 +54667,15 @@ export namespace Schemas {
       is_multivariate: boolean;
     }
 
+    export interface FeatureFlagSetActiveRequest {
+      /**
+         * The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2, optional otherwise. When sent, the change is refused with 409 if anyone else changed the flag after that version. Null is the same as leaving it out.
+         * @minimum 0
+         * @nullable
+         */
+      version?: number | null;
+    }
+
     export interface FeatureFlagSetReleaseConditionRolloutRequest {
       /**
          * Zero-based position of the release condition in `filters.groups`, counted from the read that produced `version`.
@@ -54712,7 +54739,7 @@ export namespace Schemas {
          */
       reason_description?: string | null;
       /**
-         * The index of the condition that matched, if applicable
+         * The index of the condition that matched, if applicable. For a flag with config version 2, the zero-based index of the rule in `filters.rules` that decided the result, or null when no rule decided it.
          * @nullable
          */
       condition_index: number | null;
@@ -54725,8 +54752,10 @@ export namespace Schemas {
          * @nullable
          */
       evaluation_distinct_id: string | null;
-      /** Detailed analysis of each condition in the feature flag */
+      /** Detailed analysis of each condition in the feature flag. Always empty for a flag with config version 2, which `conditions_unavailable_reason` then explains. */
       conditions: FeatureFlagConditionAnalysis[];
+      /** Present only when `conditions` is empty because the evaluated config has no per-condition analysis. An empty list then does not mean the flag has no conditions or rules. */
+      conditions_unavailable_reason?: string;
     }
 
     export type FeatureFlagVersionResponseFilters = { [key: string]: unknown };
@@ -102460,6 +102489,20 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface WrikeTaskSignalExtra {
+      status: string | null;
+      importance: string | null;
+      permalink: string | null;
+      created_date: string | null;
+    }
+
+    export interface TrelloCardSignalExtra {
+      url: string | null;
+      id_board: string | null;
+      id_list: string | null;
+      created_at: string | null;
+    }
+
     export interface SentryIssueSignalExtra {
       level: string | null;
       status: string | null;
@@ -102648,7 +102691,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -103212,20 +103255,6 @@ export namespace Schemas {
          */
       agent_response?: string;
     }
-
-    /**
-     * * `accepted` - accepted
-     * * `target_finished` - target_finished
-     * * `rejected` - rejected
-     */
-    export type ResultEnum = typeof ResultEnum[keyof typeof ResultEnum];
-
-
-    export const ResultEnum = {
-      Accepted: 'accepted',
-      TargetFinished: 'target_finished',
-      Rejected: 'rejected',
-    } as const;
 
     export interface ResultReceipt {
       /** Accepted item UUID. */
@@ -117924,84 +117953,6 @@ export namespace Schemas {
     export interface TaskRunLivingArtifactsResponse {
       /** Living artifacts for this task run. */
       artifacts: TaskRunLivingArtifactResponse[];
-    }
-
-    /**
-     * One peer agent run visible to the requesting run (agent peer messaging).
-     */
-    export interface TaskRunPeer {
-      /** The peer run's id — the address send_agent_message targets. */
-      run_id: string;
-      /** Id of the peer run's parent task. */
-      task_id: string;
-      /** Title of the peer run's parent task. */
-      task_title: string;
-      /**
-         * Email of the user whose task the peer run belongs to.
-         * @nullable
-         */
-      created_by_email: string | null;
-      /** Agent runtime of the peer run's task (e.g. 'pi'). */
-      runtime: string;
-      /**
-         * Model the peer run was started with, when recorded.
-         * @nullable
-         */
-      model: string | null;
-      /**
-         * Repository the peer run works on, or null for repo-less (channel-mode) runs.
-         * @nullable
-         */
-      repository: string | null;
-      /**
-         * Current stage of the peer run (e.g. 'build').
-         * @nullable
-         */
-      stage: string | null;
-      /** Run status: 'in_progress' or 'queued' (only these are listed). */
-      status: string;
-      /** Whether the peer accepts messages right now. Only in-progress runs are sendable; a queued run is listed but its workflow may not exist yet. Never infer sendability from status labels. */
-      sendable: boolean;
-      /**
-         * ISO-8601 timestamp of the peer run's last update.
-         * @nullable
-         */
-      updated_at: string | null;
-    }
-
-    export interface TaskRunPeerMessageRequest {
-      /**
-         * Plain-text message body (max 16000 chars). Delivered to the peer below a server-composed provenance envelope; send short summaries, never raw file dumps — use artifact_ids for files.
-         * @maxLength 16000
-         */
-      content: string;
-      /**
-         * Manifest ids of artifacts on the SENDING run to share (max 10). Each is copied into the target run's own artifact storage; the receiver gets an immutable snapshot.
-         * @maxItems 10
-         * @items.maxLength 128
-         */
-      artifact_ids?: string[];
-    }
-
-    export interface TaskRunPeerMessageResponse {
-      /** Send outcome: 'accepted' (queued for delivery — not a delivery confirmation), 'target_finished' (the peer's workflow is gone), or 'rejected' (throttled or invalid).
-       *
-       * * `accepted` - accepted
-       * * `target_finished` - target_finished
-       * * `rejected` - rejected */
-      result: ResultEnum;
-      /** Human-readable explanation of the result. */
-      detail: string;
-      /**
-         * Id of the recorded peer message, when one was created for this send.
-         * @nullable
-         */
-      message_id?: string | null;
-    }
-
-    export interface TaskRunPeersResponse {
-      /** Active agent runs the requesting run may message, most recently updated first. */
-      peers: TaskRunPeer[];
     }
 
     export interface TaskRunPostHogReference {
@@ -141071,6 +141022,10 @@ export namespace Schemas {
     } as const;
 
     export type WarehouseTablesListParams = {
+    /**
+     * Include table columns. Disable for lightweight table existence or name lookups.
+     */
+    include_columns?: boolean;
     /**
      * Number of results to return per page.
      */
