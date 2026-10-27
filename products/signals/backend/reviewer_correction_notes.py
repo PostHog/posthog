@@ -353,7 +353,7 @@ def _build_note_content(
         # for an unexplained self-removal and wrong when the editor said why.
         caveat = (
             "That is the editor's own identity, removed for the reason stated below."
-            if removal_reason in _REASON_GUIDANCE
+            if removal_reason in _REASON_GUIDANCE or removal_note
             else "That is the editor's own identity, which is weaker evidence than a teammate removing someone."
         )
         sections.append(f"{_REMOVED_SECTION_PREFIX}{_listed(self_removed)}. {caveat}")
@@ -376,7 +376,7 @@ def _build_note_content(
 
 
 # A stated reason replaces the generic caution: it tells the scout which of the meanings a removal
-# can have applies, and the two lead to different memory updates.
+# can have applies, and each leads to a different memory update.
 _REASON_GUIDANCE = {
     "wrong_area": (
         "The removed identity is not the right reviewer for this work, because it is outside their area or someone "
@@ -384,9 +384,22 @@ _REASON_GUIDANCE = {
         "work on the strength of the same older evidence. Look for the owner in current ownership evidence, and keep "
         "routing unrelated areas to them."
     ),
+    "moved_off_area": (
+        "The removed identity used to work on this area and no longer does. Their older commits and ownership "
+        "entries here are stale evidence, so do not select them for this area on the strength of that history. "
+        "Look for the current owner, and keep routing unrelated areas to them."
+    ),
+    "already_covered": (
+        "Another reviewer already covers this report. This is not ownership evidence against the removed identity, "
+        "so do not record an exclusion. Avoid adding them as an extra reviewer when others already cover the work."
+    ),
     "unavailable": (
         "The removed identity is not available. This is not ownership evidence, so do not record an "
         "exclusion or an ownership change."
+    ),
+    "overloaded": (
+        "The removed identity has too many reports right now. This is not ownership evidence, so do not record an "
+        "exclusion. For a while, prefer another suitable reviewer for similar work when one exists."
     ),
 }
 _GENERIC_GUIDANCE = (

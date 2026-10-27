@@ -1344,7 +1344,7 @@ Do not select a person based only on broad directory activity, commit counts, jo
 Use broader paths to find candidates, then inspect their relevant changes. Directory depth alone is not evidence.
 If an ownership rule names a team, check individual evidence; do not select the first members in the roster.
 First read `recent_reviewer_corrections` from `scout-project-profile-get`. It lists recent human reviewer edits on every plan.
-A removal can carry `removal_reason` and `removal_note`. `wrong_area` means the person is not the right reviewer for that work, because it is outside their area or someone else owns it: responsibility for it and similar work moves away from them, but unrelated areas still route to them. `unavailable` is not ownership evidence.
+A removal can carry `removal_reason` and `removal_note`. `wrong_area` and `moved_off_area` move that work and similar work away from the person, but unrelated areas still route to them. `moved_off_area` also marks their older history in that area as stale. `already_covered`, `unavailable`, and `overloaded` are not ownership evidence. After `overloaded`, prefer another suitable reviewer for a while. `other` comes with a note that says why.
 Read relevant reviewer corrections with `scout-notes-list`, using `text` searches for the affected area and candidate identities.
 For older history, read `suggested_reviewers_changed` entries with `advanced-activity-logs-list`, scoped to `SignalReport`.
 Match reviewer UUIDs in corrections, including reviewers without GitHub accounts.

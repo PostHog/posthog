@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { initKeaTests } from '~/test/init'
@@ -104,6 +104,14 @@ describe('Suggested reviewer presentation', () => {
         await userEvent.click(row)
         await userEvent.click(await screen.findByText('Without a reason'))
         expect(onRemove).toHaveBeenLastCalledWith([maya], undefined)
+        // "Something else" asks for a note, and the note travels with the removal.
+        await userEvent.click(row)
+        await userEvent.click(await screen.findByText('Something else…'))
+        await userEvent.type(await screen.findByPlaceholderText(/I only work on the billing API/), 'Only the API side')
+        await userEvent.click(screen.getByText('Remove'))
+        await waitFor(() =>
+            expect(onRemove).toHaveBeenLastCalledWith([maya], { reason: 'other', note: 'Only the API side' })
+        )
     })
     test.each([
         ['your own row while your claim is saving', 'me', true, 'Updating…'],

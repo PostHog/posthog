@@ -42,10 +42,13 @@ class ReviewerEditAction(LabeledStrEnum):
 
 
 class ReviewerRemovalReason(LabeledStrEnum):
-    # Why a person removed a reviewer. A wrong-person removal steers later routing away from them,
-    # and availability must not steer it at all.
+    # Why a person removed a reviewer. Each value leads to a different instruction for research and the
+    # scouts, so a new value needs its own guidance in `reviewer_correction_notes`.
     WRONG_AREA = "wrong_area", "Not their area"
+    MOVED_OFF_AREA = "moved_off_area", "Moved off this area"
+    ALREADY_COVERED = "already_covered", "Someone else is on it"
     UNAVAILABLE = "unavailable", "Not available"
+    OVERLOADED = "overloaded", "Too many reports"
     OTHER = "other", "Other"
 
 

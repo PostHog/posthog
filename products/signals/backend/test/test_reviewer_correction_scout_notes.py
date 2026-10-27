@@ -84,6 +84,9 @@ class TestReviewerCorrectionNoteContent(SimpleTestCase):
         [
             ("no_reason", None, "Self-removal alone does not establish"),
             ("wrong_area", "wrong_area", "on the strength of the same older evidence"),
+            ("moved_off_area", "moved_off_area", "are stale evidence"),
+            ("already_covered", "already_covered", "Avoid adding them as an extra reviewer"),
+            ("overloaded", "overloaded", "prefer another suitable reviewer"),
             ("unavailable", "unavailable", "do not record an exclusion"),
         ]
     )

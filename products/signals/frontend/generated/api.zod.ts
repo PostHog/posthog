@@ -990,11 +990,13 @@ export const SignalsReportsReviewersUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Explicit add or remove targets. When supplied, content is only a fallback for older servers.'),
     removal_reason: zod
-        .enum(['wrong_area', 'unavailable', 'other'])
-        .describe('\* `wrong_area` - Not their area\n\* `unavailable` - Not available\n\* `other` - Other')
+        .enum(['wrong_area', 'moved_off_area', 'already_covered', 'unavailable', 'overloaded', 'other'])
+        .describe(
+            '\* `wrong_area` - Not their area\n\* `moved_off_area` - Moved off this area\n\* `already_covered` - Someone else is on it\n\* `unavailable` - Not available\n\* `overloaded` - Too many reports\n\* `other` - Other'
+        )
         .optional()
         .describe(
-            "Why the people in `targets` are removed. Remove action only. 'wrong_area': they are not the right reviewer, because the work is outside their area or someone else owns it. 'unavailable': they are not available, which says nothing about ownership. 'other': explain in removal_note. Research and scouts read the reason when they pick reviewers for later reports.\n\n\* `wrong_area` - Not their area\n\* `unavailable` - Not available\n\* `other` - Other"
+            "Why the people in `targets` are removed. Remove action only. 'wrong_area': the work is outside their area or someone else owns it. 'moved_off_area': they used to work on this area and no longer do. 'already_covered': another reviewer already covers the report. 'unavailable': they are not available. 'overloaded': they have too many reports right now. The last three say nothing about ownership. 'other': explain in removal_note. Research and scouts read the reason when they pick reviewers for later reports.\n\n\* `wrong_area` - Not their area\n\* `moved_off_area` - Moved off this area\n\* `already_covered` - Someone else is on it\n\* `unavailable` - Not available\n\* `overloaded` - Too many reports\n\* `other` - Other"
         ),
     removal_note: zod
         .string()

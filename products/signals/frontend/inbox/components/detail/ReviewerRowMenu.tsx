@@ -1,11 +1,12 @@
 import { useValues } from 'kea'
 import { ReactNode } from 'react'
 
-import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonMenuItem } from '@posthog/lemon-ui'
 
 import { userLogic } from 'scenes/userLogic'
 
 import { EnrichedReviewer, ReviewerRemoval } from '../../types'
+import { openRemoveReviewerNoteDialog } from './RemoveReviewerNoteDialog'
 
 /**
  * Makes a reviewer's name the trigger for the actions on that reviewer, so the row shows no buttons
@@ -29,29 +30,45 @@ export function ReviewerRowMenu({
 }): JSX.Element {
     const { user } = useValues(userLogic)
     const isSelf = !!user?.uuid && (reviewer.user?.uuid ?? reviewer.user_uuid) === user.uuid
+    const title = isSelf ? 'Remove yourself' : `Remove ${displayName}`
+    const reason = (label: string, value: NonNullable<ReviewerRemoval['reason']>): LemonMenuItem => ({
+        label,
+        disabledReason,
+        onClick: () => onRemove({ reason: value }),
+    })
 
     return (
         <LemonMenu
             placement="bottom-start"
             items={[
                 {
-                    title: isSelf ? 'Remove yourself' : `Remove ${displayName}`,
+                    title,
+                    items: [
+                        reason(isSelf ? 'Not my area' : 'Not their area', 'wrong_area'),
+                        reason(isSelf ? 'I moved off this area' : 'They moved off this area', 'moved_off_area'),
+                        reason('Someone else is on it', 'already_covered'),
+                        reason(
+                            isSelf ? "I'm not available right now" : "They're not available right now",
+                            'unavailable'
+                        ),
+                        reason(
+                            isSelf ? 'I have too many reports right now' : 'They have too many reports right now',
+                            'overloaded'
+                        ),
+                    ],
+                },
+                {
                     items: [
                         {
-                            label: isSelf ? 'Not my area' : 'Not their area',
+                            label: 'Something else…',
                             disabledReason,
-                            onClick: () => onRemove({ reason: 'wrong_area' }),
+                            onClick: () =>
+                                openRemoveReviewerNoteDialog({
+                                    title,
+                                    onConfirm: (note) => onRemove({ reason: 'other', note }),
+                                }),
                         },
-                        {
-                            label: isSelf ? "I'm not available right now" : "They're not available right now",
-                            disabledReason,
-                            onClick: () => onRemove({ reason: 'unavailable' }),
-                        },
-                        {
-                            label: 'Without a reason',
-                            disabledReason,
-                            onClick: () => onRemove(),
-                        },
+                        { label: 'Without a reason', disabledReason, onClick: () => onRemove() },
                     ],
                 },
             ]}
