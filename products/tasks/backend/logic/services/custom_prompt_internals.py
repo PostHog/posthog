@@ -22,6 +22,7 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.tasks.backend.exceptions import is_transient_failure_error_type
 from products.tasks.backend.facade.api import upload_task_run_artifacts
 from products.tasks.backend.facade.contracts import AgentTaskRunDTO, SessionFile
 from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun, stamp_pending_user_message_id
@@ -267,6 +268,16 @@ class AgentTurnFailed(RuntimeError):
     @property
     def retryable_upstream(self) -> bool:
         return self.category in UPSTREAM_RETRYABLE_ERROR_CATEGORIES
+
+
+class SandboxRunFailed(RuntimeError):
+    def __init__(self, message: str, *, error_type: str | None) -> None:
+        super().__init__(message)
+        self.error_type = error_type
+
+    @property
+    def transient(self) -> bool:
+        return is_transient_failure_error_type(self.error_type)
 
 
 SESSION_FILE_ARTIFACT_TYPE = "context"
@@ -663,6 +674,7 @@ async def poll_for_turn(
                 task_run,
                 refreshed_status=refreshed.status,
                 error_message=refreshed.error_message,
+                failure_error_type=(refreshed.state or {}).get("failure_error_type"),
                 printed_lines=printed_lines,
                 original_skip_lines=original_skip_lines,
                 verbose=verbose,
@@ -688,6 +700,7 @@ async def poll_for_turn(
             task_run,
             refreshed_status=refreshed.status,
             error_message=refreshed.error_message,
+            failure_error_type=(refreshed.state or {}).get("failure_error_type"),
             printed_lines=printed_lines,
             original_skip_lines=original_skip_lines,
             verbose=verbose,
@@ -870,6 +883,7 @@ async def _drain_final_log(
     *,
     refreshed_status: str,
     error_message: str | None = None,
+    failure_error_type: str | None = None,
     printed_lines: int,
     original_skip_lines: int,
     verbose: bool,
@@ -912,9 +926,10 @@ async def _drain_final_log(
             )
     reason = "end_turn with empty response" if final_state.empty_end_turn else "no agent message"
     cause = f" (cause: {error_message})" if error_message else ""
-    raise RuntimeError(
-        f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
-    )
+    message = f"custom_prompt - drain_final_log: TaskRun reached terminal status={refreshed_status}{cause} — {reason}"
+    if refreshed_status == TaskRun.Status.FAILED:
+        raise SandboxRunFailed(message, error_type=failure_error_type)
+    raise RuntimeError(message)
 
 
 def _extract_agent_error(log_content: str | None, skip_lines: int = 0) -> AgentError | None:
