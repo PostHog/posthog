@@ -2086,7 +2086,6 @@ def get_teams_with_signals_credits_used_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
-    """Signals credits for daily reporting and quota refresh, using each org's billing cutoff."""
     return get_signals_billing_credits_by_team(begin, end)
 
 

@@ -18,7 +18,6 @@ from products.tasks.backend.temporal.observability import log_with_activity_cont
 
 logger = structlog.get_logger(__name__)
 
-# Outcomes for the workflow's quota-recheck loop.
 SELF_DRIVING_QUOTA_PROCEED = "proceed"
 SELF_DRIVING_QUOTA_STOP_CHECKING = "stop_checking"
 SELF_DRIVING_QUOTA_CANCELLED = "cancelled"
@@ -29,8 +28,7 @@ SELF_DRIVING_QUOTA_CANCEL_REASON = (
 )
 
 
-# Only GitHub-hosted PR URLs are billable, so only they attest already-billed work. Run output is
-# caller-writable, which means any other pr_url value must not stop enforcement.
+# Run output is caller-writable; only GitHub PR URLs can stop legacy quota checks.
 def _has_billable_pr_url(output: object) -> bool:
     if not isinstance(output, dict):
         return False
@@ -48,25 +46,10 @@ class EnforceSelfDrivingRunQuotaInput:
 @activity.defn
 @asyncify
 def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> str:
-    """Mid-run quota gate for self-driving-origin implementation runs.
+    """Usage-billed runs keep checking after a PR opens because follow-up work adds spend.
 
-    Returns one of:
-
-    - ``stop_checking``: the run is not self-driving-billable (wrong origin, already terminal) or has
-      already recorded a billable (GitHub) PR URL under legacy report billing. Usage-billed runs
-      keep checking because CI follow-ups continue adding spend after the PR opens.
-    - ``proceed``: the team's org is under its quota, or enforcement is off. Check again later.
-    - ``cancelled``: the team's org is over quota with enforcement on. The run was cancelled through the
-      standard cancellation path (agent interrupted, workflow signalled its own completion) and
-      the report's auto-start records were released so a later cycle can re-implement it with
-      "only the report" left behind.
-
-    Fails open (``proceed``) on unexpected errors in the quota check itself: the periodic recheck
-    and the quota cron are the backstop, and a quota-infra blip must never kill a healthy run. An
-    error inside the cancel round-trip is a different class — the completion signal may already
-    have been delivered — so it is logged loudly instead of being counted as a fail-open, and also
-    returns ``proceed``: a still-alive run gets the cancel retried on the next recheck, while a
-    run the signal did reach is already tearing down and will not be rechecked.
+    Quota lookup failures fail open; the next check retries. Failed cancellation must
+    preserve implementation records until the run is confirmed stopped.
     """
     try:
         run = TaskRun.objects.select_related("task").filter(id=input.run_id, team_id=input.team_id).first()
@@ -84,10 +67,7 @@ def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> st
 
         gate = self_driving_quota_gate(team)
         if gate.limited:
-            # Dark-launch would-blocks are emitted once per run (marker in run state), not once
-            # per 5-minute recheck, so the flag-off measurement counts runs that would have been
-            # cancelled rather than ticks survived. An enforced hit always emits: it cancels the
-            # run, so it fires once by construction.
+            # Count affected runs once during rollout, regardless of how many checks they survive.
             already_reported = bool((run.state or {}).get("self_driving_quota_paused_reported"))
             if gate.enforced or not already_reported:
                 capture_signal_report_quota_paused(
@@ -118,20 +98,13 @@ def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> st
             source="self_driving_quota",
         )
     except Exception:
-        # Not a fail-open: the cancel round-trip died part-way, so the completion signal may or
-        # may not have been delivered. No release either — if the run is still alive, releasing
-        # would let a duplicate implementation start alongside it; the next recheck retries the
-        # cancel (and the release with it). If the signal landed, no recheck will come and the
-        # report keeps its implementation records until someone releases them manually — loud so
-        # it gets followed up, like a release failure.
+        # Releasing an unconfirmed cancellation could allow duplicate implementation.
+        # A live run retries cancellation; an already-stopped run may need manual cleanup.
         logger.exception("self_driving_quota_cancel_failed", run_id=input.run_id, task_id=input.task_id)
         return SELF_DRIVING_QUOTA_PROCEED
 
     if outcome == "already_terminal":
-        # The run reached a terminal state between our snapshot and the cancel — possibly by
-        # shipping its PR (the billable moment). Releasing the report's records here could delete
-        # the very SignalReportTask row the billing usage query counts that PR through, un-billing
-        # shipped work. Nothing is in flight anymore, so just stop checking.
+        # The run may have shipped a PR during cancellation; preserve its billing records.
         return SELF_DRIVING_QUOTA_STOP_CHECKING
     if outcome != "accepted":
         log_with_activity_context(
@@ -141,12 +114,9 @@ def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> st
         )
         return SELF_DRIVING_QUOTA_PROCEED
 
-    # The cancel is irreversible from here on: failures below must not report "proceed", or the
-    # workflow would believe the run is healthy while it is being torn down.
+    # Cancellation was accepted, so cleanup errors must not report the run as healthy.
     try:
-        # Re-read after the cancel round-trip: the agent can ship its PR (agent report or webhook
-        # backstop) while the interrupt is in flight. A billable PR means the report is billed — keep
-        # its records; the run still ends cancelled.
+        # Preserve PRs recorded while the cancellation was in flight.
         refreshed_output = TaskRun.objects.filter(id=input.run_id).values_list("output", flat=True).first()
         if _has_billable_pr_url(refreshed_output):
             log_with_activity_context(

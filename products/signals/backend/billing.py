@@ -1,44 +1,5 @@
-"""Signals billing — legacy report charges and finalized usage in the same credit units.
-
-Usage reporting and quota refresh evaluate the organization's self-driving-usage-based-billing
-date. Reports created before that UTC cutoff retain report billing. Owners created at or
-after it contribute settled spend on their completion days. Missing or invalid dates use report billing.
-
-Legacy mode: a flat credit charge per report that ships an implementation PR.
-
-Signals is billed on outcomes, not LLM spend: each signal report whose implementation task
-opens a pull request is charged a flat number of credits, once. The chargeable moment is
-deterministic — the first implementation `TaskRun` with a `pr_url` set — so a report is
-billed exactly once, in the period that PR first appeared, regardless of any later status
-changes, re-judgements, or additional runs.
-
-Billing eligibility uses the `SignalReportTask` implementation bridge and the first task-run
-PR URL. PR-link artefacts also include external work, so their presence cannot authorize a charge.
-
-Because this is a billing source it fails closed: a run only bills when its PR URL is a GitHub
-URL and the run, task, bridge, and report teams all agree, so malformed bridge rows never
-produce a charge.
-
-Credits use the same unit as ai_credits: 1 credit = $0.01, so the flat $15 charge is 1500
-credits.
-
-Two mechanisms remove a report from billing:
-
-- **Refunds** (retrospective, `SignalReportRefund`): an `excluded`-path refund makes the usage
-  query skip the report entirely — committed strictly on the same UTC day as the first billable
-  PR run, so no usage send (all of which happen ≥3h45m into the next UTC day) can ever observe
-  the exclusion flipping. A `credited`-path refund is deliberately NOT consulted here: usage
-  stays truthful and the money comes back as a billing-service credit.
-- **Exemptions** (prospective, `SignalReport.billing_exempt_reason`): PostHog-system-origin
-  reports are marked never-billable before their billable moment exists, so they never enter
-  usage (nor, via the same query driving quota `todays_usage`, consume a free-tier slot).
-
-Emergent semantic to be aware of: because of the `billed_earlier` idempotency check below, a
-report whose first billable PR run has been refunded can NEVER be billed again — a later, second
-PR run on the same report finds the first run before the period and is skipped, and the first
-run itself is refund-excluded (excluded path) or already handled by a credit (credited path).
-This is why restoring a refunded report is blocked at the API layer: refund → restore → new PR
-would otherwise be repeatable free work.
+"""A report's first implementation PR determines its legacy charge, even after a refund.
+Usage billing counts finalized spend; both meters feed reporting and quota refresh.
 """
 
 import uuid

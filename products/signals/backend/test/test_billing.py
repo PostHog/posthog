@@ -731,9 +731,7 @@ class TestSpendBasedBilling(BaseTest):
             finish_report_spend(team_id=self.team.id, signal_id=signal_id, report_id=str(report.id))
         expected = 1535 if existing_work == "report" else 25
         assert self._day(10) == {self.team.id: expected}
-        assert (
-            first_billable_pr_run(report.id, team_id=report.team_id) is None
-        )  # The fixed-PR refund must not issue 1,500 credits.
+        assert first_billable_pr_run(report.id, team_id=report.team_id) is None
         assert (first_billable_pr_run(legacy_report.id, team_id=legacy_report.team_id) is not None) == (
             existing_work == "report"
         )
@@ -748,7 +746,6 @@ class TestSpendBasedBilling(BaseTest):
         assert {
             str(row.id) for row in annotated if row.__dict__["first_billable_pr_run_at"] is not None
         } == expected_refundable
-        # Changing the report's driver cannot change either owner's eligibility.
         SignalReport.objects.filter(id=report.id).update(triggering_signal_id=legacy_signal)
         assert self._day(10) == {self.team.id: expected}
         assert first_billable_pr_run(report.id, team_id=report.team_id) is None

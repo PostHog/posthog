@@ -1305,13 +1305,7 @@ def update_all_orgs_billing_quotas(
     dry_run: bool = False,
     progress_callback: Callable[[str, str, str], None] | None = None,
 ) -> QuotaLimitingRunResult:
-    """
-    This is called on a cron job every 15 minutes to update all orgs with their quotas.
-    Specifically it's update quota_limited_until and quota_limiting_suspended_until in their usage
-    field on the Organization model.
-
-    # Start and end of the current day
-    """
+    """Refresh organization quotas every 15 minutes, including today's usage."""
     total_start = time()
     period = get_current_day()
     service = UsageCounterService()
