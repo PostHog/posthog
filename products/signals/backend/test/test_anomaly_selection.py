@@ -11,10 +11,12 @@ from posthog.schema import IntervalType
 from products.signals.backend.anomaly_scores.selection import (
     Candidate,
     InsightUsage,
+    ScoreCandidate,
     SelectionConfig,
     Weighting,
     parse_selection_config,
     pick_order,
+    score_order,
     staleness,
 )
 
@@ -115,6 +117,42 @@ class TestPickOrder(SimpleTestCase):
         )
 
         assert staleness(candidate, now=datetime(2026, 10, 14, 12, tzinfo=UTC), max_staleness=MAX_STALENESS) == expected
+
+
+class TestScoreOrder(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "longest_overdue_first_whatever_the_interval",
+                [
+                    # 1 due bucket, which ended 12 hours ago.
+                    ScoreCandidate(
+                        insight_id=1, interval=IntervalType.DAY, scored_through=datetime(2026, 10, 13, tzinfo=UTC)
+                    ),
+                    # 5 due buckets, the oldest of which ended 4 hours ago.
+                    ScoreCandidate(insight_id=2, interval=IntervalType.HOUR, scored_through=TICK - timedelta(hours=6)),
+                    ScoreCandidate(insight_id=3, interval=IntervalType.HOUR, scored_through=TICK - timedelta(hours=3)),
+                    # Nothing completed after it.
+                    ScoreCandidate(insight_id=4, interval=IntervalType.HOUR, scored_through=TICK - timedelta(hours=1)),
+                ],
+                [1, 2, 3],
+            ),
+            (
+                "close_to_the_backfill_cap_goes_first",
+                [
+                    # 2 due buckets, the oldest of which ended 36 hours ago.
+                    ScoreCandidate(
+                        insight_id=5, interval=IntervalType.DAY, scored_through=datetime(2026, 10, 12, tzinfo=UTC)
+                    ),
+                    # 26 due buckets of 30, the oldest of which ended 25 hours ago.
+                    ScoreCandidate(insight_id=6, interval=IntervalType.HOUR, scored_through=TICK - timedelta(hours=27)),
+                ],
+                [6, 5],
+            ),
+        ]
+    )
+    def test_order(self, _name: str, candidates: list[ScoreCandidate], expected: list[int]) -> None:
+        assert score_order(candidates, now=TICK, max_staleness=MAX_STALENESS) == expected
 
 
 class TestParseSelectionConfig(SimpleTestCase):
