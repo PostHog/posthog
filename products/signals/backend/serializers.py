@@ -1567,8 +1567,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
     )
     is_self_improvement_report = serializers.SerializerMethodField(
         help_text=(
-            "Whether this is a scout self-improvement report. These reports change a team-owned skill "
-            "in the skills store rather than a GitHub repository."
+            "Whether this is a scout self-improvement report. Most update a team-owned skill in the skills "
+            "store, but reports with a selected repository can still produce a pull request."
         ),
     )
     is_suggested_reviewer = serializers.BooleanField(read_only=True, default=False)

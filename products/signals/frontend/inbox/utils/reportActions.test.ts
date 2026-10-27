@@ -1,5 +1,6 @@
 import { SignalReport, SignalReportStatus } from '../types'
 import { canCreateImplementationPr, canMonitorReport, canResolveReport } from './reportActions'
+
 describe('reportActions', () => {
     it.each([
         [SignalReportStatus.READY, true],
@@ -52,12 +53,16 @@ describe('reportActions', () => {
         expect(canCreateImplementationPr(report)).toBe(expected)
     })
 
-    it('does not offer a pull request for scout self-improvement reports', () => {
+    it.each([
+        ['without a repository', null, false],
+        ['with a repository', 'posthog/posthog', true],
+    ] as const)('offers implementation on a scout self-improvement report %s: %s', (_, repoSlug, expected) => {
         expect(
             canCreateImplementationPr({
                 status: SignalReportStatus.PENDING_INPUT,
                 is_self_improvement_report: true,
+                repo_slug: repoSlug,
             } as SignalReport)
-        ).toBe(false)
+        ).toBe(expected)
     })
 })
