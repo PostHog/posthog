@@ -2804,6 +2804,12 @@ def create_scout_for_source(
     # holds row locks on the skill and its config.
     max_enabled_scouts = max_enabled_scouts_for_team(team.id)
     _assert_scout_tool_selection_access(request=request, team=team, data=config_options)
+    if "repositories" in config_options:
+        try:
+            repositories = validate_scout_repositories(config_options["repositories"], serializer_context)
+        except exceptions.ValidationError as error:
+            raise exceptions.ValidationError({"repositories": error.detail}) from error
+        config_options = {**config_options, "repositories": repositories}
 
     with transaction.atomic():
         try:

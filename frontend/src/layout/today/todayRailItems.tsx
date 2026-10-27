@@ -3,6 +3,8 @@ import { IconApps, IconChat, IconGear, IconHome, IconSidebarClose, IconSidebarOp
 import { IconAnalyticsBars } from 'lib/lemon-ui/icons'
 import { isMac } from 'lib/utils/dom'
 
+import { productRailPanes } from '~/products'
+
 import { TodayNewAnalyticsButton } from './TodayNewAnalyticsButton'
 import { TodayNewChatButton } from './TodayNewChatButton'
 import type { TodayRailPane } from './todayShellLogic'
@@ -16,6 +18,9 @@ export interface TodayPane {
 }
 
 export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
+    ...Object.fromEntries(
+        productRailPanes.map((pane) => [pane.key, { label: pane.label, title: pane.label, icon: pane.icon }])
+    ),
     home: { label: 'Home', title: 'Today', icon: <IconHome /> },
     spaces: {
         label: 'Chats',

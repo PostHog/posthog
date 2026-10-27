@@ -123,6 +123,7 @@ PRODUCTS_APPS = [
     "products.exports.backend.apps.ExportsConfig",
     "products.annotations.backend.apps.AnnotationsConfig",
     "products.batch_exports.backend.apps.BatchExportsConfig",
+    "products.bets.backend.apps.BetsConfig",
     "products.engineering_analytics.backend.apps.EngineeringAnalyticsConfig",
     "products.managed_migrations.backend.apps.ManagedMigrationsConfig",
     "products.replay.backend.apps.ReplayConfig",
@@ -635,6 +636,7 @@ SPECTACULAR_SETTINGS = {
             # entry decides the name.
             # Matches ErrorTrackingIssue severity (low/medium/high/critical).
             "TicketPriorityEnum": "products.conversations.backend.models.constants.Priority",
+            "PRStateEnum": "products.engineering_analytics.backend.facade.contracts.PRState.choices",
             # ExperimentMetricsRecalculation and ExperimentTimeseriesRecalculation both define this Status.
             "MetricsRecalculationStatusEnum": "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Status",
             # tasks' SpaceGoalPeriod measures a goal over day/week/month and alerts_platform's

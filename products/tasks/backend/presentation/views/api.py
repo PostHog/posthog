@@ -598,6 +598,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         filters["channel"] = getattr(request, "validated_query_data", {}).get("channel")
         filters["hog_flow_id"] = getattr(request, "validated_query_data", {}).get("hog_flow_id")
         filters["sources"] = getattr(request, "validated_query_data", {}).get("sources")
+        filters["exclude_origin_products"] = getattr(request, "validated_query_data", {}).get("exclude_origin_products")
         # Staff can opt into seeing every team task; re-check server-side so a client can't
         # forge the flag to bypass the per-user visibility gate.
         all_team_tasks = bool(getattr(request, "validated_query_data", {}).get("all_team_tasks"))
@@ -1281,7 +1282,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         request_serializer=TaskPullRequestTitlesRequestSerializer,
         responses={200: OpenApiResponse(response=TaskPullRequestTitlesSerializer)},
         summary="Fetch pull request titles for tasks",
-        description="Returns the GitHub titles of the pull requests that the latest run of each task opened.",
+        description="Returns GitHub titles from each task's most recent run with pull requests, including during a follow-up run.",
     )
     @action(
         detail=False,
@@ -2363,6 +2364,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         outcome, started_task_id = tasks_facade.start_task_run(
             pk, task_id, self.team_id, self._user_id(), validated_data=dict(request.validated_data)
         )
+        if outcome.startswith("refused:"):
+            return Response({"error": outcome.split(":", 1)[1]}, status=status.HTTP_400_BAD_REQUEST)
         if outcome == "not_found":
             raise NotFound()
         if outcome.startswith("missing_artifacts:"):
@@ -4326,6 +4329,8 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if one_shot_response := self._one_shot_analysis_response(task_id):
             return one_shot_response
         outcome, run, _ = tasks_facade.resume_task_run_in_cloud(pk, task_id, self.team_id, self._user_id())
+        if outcome.startswith("refused:"):
+            return Response({"error": outcome.split(":", 1)[1]}, status=status.HTTP_400_BAD_REQUEST)
         if outcome == "not_found":
             raise NotFound()
         if outcome == "already_active":

@@ -1,0 +1,759 @@
+.Bets {
+    container-type: inline-size;
+    container-name: bets;
+
+    .TodayHome__body {
+        gap: 0;
+    }
+
+    .Bets__wide {
+        width: min(1080px, 100% - 80px);
+    }
+
+    .Bets__heading {
+        h1 {
+            line-height: 32px;
+        }
+
+        > :last-child:not(:first-child) {
+            min-height: 32px;
+        }
+    }
+
+    .Bets__summary {
+        display: grid;
+        grid-template-columns: 1.1fr 1fr;
+        gap: 56px;
+    }
+
+    .Bets__value {
+        font-size: 30px;
+        font-weight: 560;
+        line-height: 1.3;
+        letter-spacing: -0.035em;
+    }
+
+    .Bets__miniSparkline {
+        width: 92px;
+        height: 28px;
+    }
+
+    .Bets__sectionTitle {
+        margin: 0;
+        font-size: 16px;
+        font-weight: 560;
+    }
+
+    .Bets__table {
+        table {
+            width: 100%;
+        }
+
+        th {
+            font-size: 12px;
+            font-weight: 450;
+            color: var(--today-muted);
+        }
+
+        td {
+            padding-block: 18px;
+        }
+    }
+
+    .Bets__linkedRow {
+        &:hover,
+        &:focus-within {
+            background: var(--today-soft);
+        }
+    }
+
+    .Bets__betLink {
+        font-weight: 530;
+        color: var(--today-ink);
+
+        &::after {
+            position: absolute;
+            inset: 0;
+            content: '';
+        }
+
+        &:focus-visible {
+            outline: none;
+        }
+
+        &:focus-visible::after {
+            outline: 2px solid var(--today-focus-border);
+            outline-offset: -2px;
+        }
+    }
+
+    .Bets__metricCell {
+        display: flex;
+        gap: 18px;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .Bets__formRow {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+    }
+
+    .Bets__goalFields {
+        display: grid;
+        grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr);
+        gap: 20px;
+    }
+
+    .Bets__thesis {
+        font-size: 16px;
+        line-height: 1.6;
+    }
+
+    .Bets__status {
+        grid-template-columns: auto minmax(0, 1fr);
+    }
+
+    .Bets__statusIdea {
+        color: var(--today-ink);
+
+        &:hover {
+            text-decoration: underline;
+            text-underline-offset: 4px;
+        }
+    }
+
+    .Bets__goal {
+        border-block: 1px solid var(--today-line);
+    }
+
+    .Bets__goalMetric {
+        .Bets__resourceLink {
+            padding: 0;
+            margin-bottom: 4px;
+
+            .Bets__resourceLinkTitle {
+                text-wrap: pretty;
+                white-space: normal;
+            }
+        }
+    }
+
+    .Bets__goalValue {
+        font-size: 30px;
+        font-weight: 560;
+        line-height: 1.2;
+        color: var(--today-ink);
+        letter-spacing: -0.035em;
+    }
+
+    .Bets__goalValue--empty {
+        font-size: 22px;
+        font-weight: 500;
+        color: var(--today-muted);
+        letter-spacing: -0.015em;
+    }
+
+    .Bets__goalPanels {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .Bets__goalPanel {
+        dl {
+            grid-auto-columns: minmax(64px, max-content);
+        }
+    }
+
+    .Bets__goalPanel + .Bets__goalPanel {
+        padding-left: 20px;
+        margin-left: -20px;
+        border-left: 1px solid var(--today-line);
+    }
+
+    .Bets__miniChartAxis {
+        font-size: 11px;
+        color: var(--today-faint);
+    }
+
+    .Bets__miniChartEmpty {
+        inset: auto 0 32px;
+        font-size: 12px;
+        color: var(--today-faint);
+    }
+
+    .Bets__goalFact {
+        dt {
+            font-size: 13px;
+            color: var(--today-muted);
+        }
+    }
+
+    .Bets__goalFactValue {
+        font-size: 15px;
+        font-weight: 500;
+        line-height: 1.35;
+        color: var(--today-ink);
+    }
+
+    .Bets__goalFactValue--empty {
+        font-weight: 400;
+        color: var(--today-muted);
+    }
+
+    .Bets__goalFactNote {
+        font-size: 12px;
+        line-height: 1.4;
+        color: var(--today-faint);
+    }
+
+    .Bets__goalSecondaries {
+        border-top: 1px solid var(--today-line);
+
+        ul {
+            grid-template-columns: repeat(auto-fill, minmax(180px, 240px));
+        }
+    }
+
+    .Bets__goalSecondary {
+        .Bets__resourceLink {
+            padding: 0;
+            margin-bottom: 4px;
+        }
+    }
+
+    .Bets__detail {
+        display: grid;
+        grid-template:
+            'intro details' auto
+            'main details' auto
+            'main activity' 1fr / minmax(0, 1fr) 272px;
+        column-gap: 48px;
+        align-items: start;
+    }
+
+    .Bets__detailIntro {
+        grid-area: intro;
+    }
+
+    .Bets__detailMain {
+        grid-area: main;
+    }
+
+    .Bets__details {
+        grid-area: details;
+
+        .Bets__resourceLink {
+            width: 100%;
+            padding-inline: 0;
+
+            &:disabled {
+                color: var(--today-muted);
+                text-align: start;
+                cursor: default;
+                background: none;
+                opacity: 1;
+            }
+        }
+    }
+
+    .Bets__detailsList {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+    }
+
+    .Bets__activity {
+        grid-area: activity;
+        padding-top: 20px;
+        margin-top: 20px;
+        border-top: 1px solid var(--today-line);
+    }
+
+    .Bets__activityDayLabel {
+        font-size: 12px;
+        color: var(--today-muted);
+    }
+
+    .Bets__activityEntry {
+        grid-template-columns: 16px minmax(0, 1fr) auto;
+        align-items: start;
+        padding-block: 4px;
+        font-size: 13px;
+        line-height: 1.4;
+    }
+
+    .Bets__activityIcon {
+        padding-top: 3px;
+        color: var(--today-faint);
+
+        svg {
+            width: 14px;
+            height: 14px;
+        }
+    }
+
+    .Bets__activityText {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        white-space: nowrap;
+    }
+
+    .Bets__activityTitle {
+        color: var(--today-ink);
+    }
+
+    a.Bets__activityTitle:hover {
+        text-decoration: underline;
+    }
+
+    .Bets__activityDetail {
+        font-size: 12px;
+        color: var(--today-muted);
+    }
+
+    .Bets__activityTime {
+        font-size: 12px;
+        color: var(--today-faint);
+    }
+
+    .Bets__ideaRows {
+        .TodayRow__chevron {
+            opacity: 1;
+        }
+    }
+
+    .Bets__ideasBuilding {
+        color: var(--today-ink);
+    }
+
+    .Bets__ideasChevron {
+        transition: transform 0.2s var(--today-ease, ease);
+    }
+
+    .Bets__evidence {
+        max-width: min(100%, 280px);
+        padding: 0 10px 0 4px;
+        font: inherit;
+        font-size: 13px;
+        color: var(--today-ink);
+        text-decoration: none;
+        cursor: pointer;
+        background: none;
+        border: 1px solid var(--today-line);
+        border-radius: 8px;
+        transition: background-color 120ms var(--today-ease, ease);
+
+        &:hover {
+            color: var(--today-ink);
+            background: var(--today-soft);
+        }
+
+        &:focus-visible {
+            outline: 2px solid var(--today-focus-border);
+            outline-offset: 2px;
+        }
+    }
+
+    .Bets__evidence--static {
+        cursor: default;
+
+        &:hover {
+            background: none;
+        }
+    }
+
+    .Bets__evidence--more {
+        padding-inline: 10px;
+        color: var(--today-muted);
+    }
+
+    .Bets__evidenceIcon {
+        --icon-stack-size: 20px;
+    }
+
+    .Bets__ideaToggle.quill-collapsible__trigger {
+        width: auto;
+        margin-inline-start: -8px;
+        color: var(--today-muted);
+
+        &:hover,
+        &[aria-expanded='true'] {
+            color: var(--today-ink);
+        }
+
+        &[aria-expanded='true']:not(:hover) {
+            background-color: transparent;
+        }
+    }
+
+    .Bets__taskFindings {
+        font-size: 14px;
+        line-height: 1.6;
+
+        > :first-child {
+            margin-top: 0;
+        }
+
+        > :last-child {
+            margin-bottom: 0;
+        }
+    }
+
+    .Bets__resourceLink {
+        display: inline-flex;
+        gap: 10px;
+        align-items: center;
+        width: max-content;
+        max-width: 100%;
+        padding: 6px 8px;
+        color: var(--today-ink);
+        text-decoration: none;
+        border-radius: var(--radius);
+
+        &:hover {
+            color: var(--today-ink);
+            background: var(--today-soft);
+        }
+
+        &:focus-visible {
+            outline: 2px solid var(--today-focus-border);
+            outline-offset: 2px;
+        }
+    }
+
+    .Bets__taskResources {
+        .Bets__resourceLink {
+            padding-block: 4px;
+            padding-inline-start: 0;
+        }
+
+        .Bets__resourceLinkDetail {
+            &::before {
+                margin-inline-end: 0.5rem;
+                content: '·';
+            }
+        }
+    }
+
+    .Bets__statusFrame {
+        grid-area: 1 / 1;
+        opacity: 0;
+        animation: Bets__statusFrame 800ms step-end infinite;
+    }
+
+    .Bets__workDescription {
+        line-height: 1.6;
+    }
+
+    .BetsTreemap {
+        height: 220px;
+    }
+
+    .BetsTreemap__tile {
+        position: absolute;
+        align-items: flex-start;
+        justify-content: flex-start;
+        padding: 12px;
+        overflow: hidden;
+        color: var(--today-ink);
+        background: var(--today-soft);
+        border: 2px solid var(--today-paper);
+        border-radius: 5px;
+        box-shadow: none;
+
+        &[data-tone='1'] {
+            background: color-mix(in sRGB, var(--today-ink) 12%, var(--today-paper));
+        }
+
+        &[data-tone='2'] {
+            background: color-mix(in sRGB, var(--today-ink) 18%, var(--today-paper));
+        }
+
+        &[data-tone='3'] {
+            background: color-mix(in sRGB, var(--today-ink) 7%, var(--today-paper));
+        }
+
+        &[data-small] {
+            padding: 0;
+            border-width: 1px;
+
+            .BetsTreemap__text {
+                display: none;
+            }
+        }
+
+        &[data-selected] {
+            box-shadow: inset 0 0 0 2px var(--today-focus-border);
+        }
+    }
+
+    .BetsTreemap__text {
+        display: flex;
+    }
+
+    .BetsTreemap__name {
+        font-size: 12px;
+        line-height: 1.3;
+    }
+
+    .BetsTreemap__value {
+        font-size: 11px;
+    }
+
+    .Bets__allocationPreview {
+        .BetsTreemap {
+            height: 90px;
+        }
+
+        .BetsTreemap__tile {
+            padding: 0;
+            border-width: 1px;
+        }
+
+        .BetsTreemap__text {
+            display: none;
+        }
+    }
+
+    @keyframes Bets__statusFrame {
+        0% {
+            opacity: 1;
+        }
+
+        10%,
+        100% {
+            opacity: 0;
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .Bets__statusFrame {
+            animation: none;
+        }
+
+        .Bets__statusFrame:first-child {
+            opacity: 1;
+        }
+    }
+
+    @container bets (max-width: 860px) {
+        .Bets__detail {
+            grid-template:
+                'intro'
+                'details'
+                'main'
+                'activity' / minmax(0, 1fr);
+        }
+
+        .Bets__details {
+            margin-top: 28px;
+        }
+
+        .Bets__detailsList {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 4px 24px;
+        }
+
+        .Bets__activity {
+            padding-top: 24px;
+            margin-top: 32px;
+        }
+
+        .Bets__activityEntry {
+            align-items: center;
+            min-height: 28px;
+            padding-block: 0;
+        }
+
+        .Bets__activityIcon {
+            padding-top: 0;
+        }
+
+        .Bets__activityText {
+            flex-direction: row;
+            gap: 8px;
+            align-items: baseline;
+        }
+
+        .Bets__activityTitle {
+            flex-shrink: 0;
+        }
+
+        .Bets__activityDetail {
+            font-size: 13px;
+        }
+    }
+
+    @container bets-main (max-width: 600px) {
+        .Bets__goalPanels {
+            grid-template-columns: minmax(0, 1fr);
+        }
+
+        .Bets__goalPanel + .Bets__goalPanel {
+            padding-top: 20px;
+            padding-left: 0;
+            margin-left: 0;
+            border-top: 1px solid var(--today-line);
+            border-left: none;
+        }
+    }
+
+    @container bets (max-width: 700px) {
+        .Bets__wide {
+            width: calc(100% - 40px);
+        }
+
+        .Bets__summary {
+            grid-template-columns: 1fr;
+            gap: 30px;
+        }
+
+        .Bets__table {
+            table {
+                table-layout: fixed;
+            }
+
+            th:first-child {
+                width: 42%;
+            }
+
+            th:last-child {
+                width: 20%;
+            }
+        }
+
+        .Bets__metricCell {
+            flex-direction: column;
+            gap: 4px;
+            align-items: flex-start;
+        }
+
+        .Bets__miniSparkline {
+            height: 22px;
+        }
+    }
+
+    @container bets (max-width: 480px) {
+        .Bets__table {
+            thead {
+                display: none;
+            }
+
+            tr {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: 8px 20px;
+                padding-block: 16px;
+                border-bottom: 1px solid var(--today-line);
+            }
+
+            td {
+                display: block;
+                padding: 0;
+                border: none;
+            }
+
+            td:first-child {
+                grid-column: 1 / -1;
+            }
+
+            td:last-child {
+                text-align: right;
+            }
+        }
+
+        .Bets__goalFields,
+        .Bets__formRow {
+            grid-template-columns: 1fr;
+        }
+    }
+}
+
+.Bets__skeleton {
+    animation: Bets__skeletonIn 500ms 200ms both;
+}
+
+@keyframes Bets__skeletonIn {
+    from {
+        opacity: 0;
+    }
+}
+
+.Bets__skeletonFade {
+    mask-image: linear-gradient(to bottom, #000 20%, transparent);
+}
+
+.Bets__skeleton .quill-skeleton,
+.Bets__skeletonInk.quill-skeleton {
+    background-color: color-mix(in oklab, var(--foreground) 6%, transparent);
+    animation-duration: 2.8s;
+}
+
+.Bets__skeleton .Bets__skeletonArea.quill-skeleton {
+    background-color: color-mix(in oklab, var(--foreground) 4%, transparent);
+    border-radius: 12px;
+}
+
+.Bets__skeletonInk.quill-skeleton {
+    flex: none;
+    max-width: 100%;
+    height: 0.6em;
+    border-radius: 999px;
+}
+
+.Bets__skeletonDetail {
+    display: grid;
+    grid-template-areas:
+        'intro rail'
+        'main rail';
+    grid-template-columns: minmax(0, 1fr) 272px;
+    column-gap: 48px;
+    align-items: start;
+}
+
+.Bets__skeletonIntro {
+    grid-area: intro;
+}
+
+.Bets__skeletonMain {
+    grid-area: main;
+    margin-top: 48px;
+}
+
+.Bets__skeletonRail {
+    grid-area: rail;
+}
+
+@container bets (max-width: 860px) {
+    .Bets__skeletonDetail {
+        grid-template-areas:
+            'intro'
+            'rail'
+            'main';
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .Bets__skeletonRail {
+        margin-top: 24px;
+
+        > :not(:first-child) {
+            display: none;
+        }
+    }
+
+    .Bets__skeletonMain {
+        margin-top: 40px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .Bets__skeleton,
+    .Bets__skeleton .quill-skeleton,
+    .Bets__skeletonInk.quill-skeleton {
+        animation: none;
+    }
+}

@@ -1,5 +1,10 @@
 import { useActions, useValues } from 'kea'
 
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
+
+import { productRailPanes } from '~/products'
+
 import { TodayAccountMenu } from './TodayAccountMenu'
 import { TodayMoreMenu } from './TodayMoreMenu'
 import { TODAY_PANES, TODAY_RAIL_FOOTER_PANES, TODAY_RAIL_PANES } from './todayRailItems'
@@ -11,6 +16,7 @@ const RAIL_DATA_ATTRS: Partial<Record<TodayRailPane, string>> = { settings: 'tod
 
 export function TodayRail(): JSX.Element {
     const { activePane, effectivePhaiView } = useValues(todayShellLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { clickRailPane } = useActions(todayShellLogic)
 
     const renderTile = (pane: TodayRailPane): JSX.Element => (
@@ -33,6 +39,9 @@ export function TodayRail(): JSX.Element {
             style={{ width: TODAY_RAIL_WIDTH }}
         >
             {TODAY_RAIL_PANES.map(renderTile)}
+            {productRailPanes
+                .filter((pane) => isFileSystemImportFlagEnabled(pane, featureFlags))
+                .map((pane) => renderTile(pane.key))}
             <div className="mt-auto flex w-full flex-col items-center gap-3">
                 <TodayMoreMenu />
                 {TODAY_RAIL_FOOTER_PANES.map(renderTile)}

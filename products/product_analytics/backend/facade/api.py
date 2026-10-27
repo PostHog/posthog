@@ -205,6 +205,16 @@ def get_or_create_saved_insight(
     )
 
 
+def saved_insight_for_read(*, team: Team, user: User, short_id: str) -> SavedInsightDefinition | None:
+    """Read a saved insight definition only when the caller can view it in this project."""
+    insight = Insight.objects.filter(team__project_id=team.project_id, short_id=short_id, deleted=False).first()
+    if insight is None or not UserAccessControl(user=user, team=team).check_access_level_for_object(insight, "viewer"):
+        return None
+    return SavedInsightDefinition(
+        id=insight.pk, short_id=insight.short_id, name=insight.name, query=insight.query or {}
+    )
+
+
 def saved_insight_for_update(*, team: Team, user: User, short_id: str) -> SavedInsightDefinition | None:
     access_control = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
     if not access_control.check_access_level_for_resource("insight", "editor"):
@@ -274,6 +284,8 @@ def get_insight_series(
     short_id: str,
     dashboard: InsightDashboardContext | None = None,
     blocking: bool = False,
+    use_saved_date_range: bool = False,
+    force_refresh: bool = False,
 ) -> InsightSeries | None:
     insight = Insight.objects.filter(team__project_id=team.project_id, short_id=short_id, deleted=False).first()
     if insight is None:
@@ -293,4 +305,6 @@ def get_insight_series(
         query=insight.query or {},
         dashboard=dashboard,
         blocking=blocking,
+        use_saved_date_range=use_saved_date_range,
+        force_refresh=force_refresh,
     )

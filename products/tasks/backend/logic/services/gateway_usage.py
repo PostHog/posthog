@@ -228,6 +228,28 @@ def get_task_run_token_usage(*, run_id: UUID, team_id: int) -> TaskRunTokenUsage
 
 
 def _token_cost_microusd(run: TaskRun) -> int | None:
+    state = run.state or {}
+    if (
+        run.environment == TaskRun.Environment.CLOUD
+        and run.status in (TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
+        and run.stage is None
+        and not state.get("sandbox_id")
+        and not state.get("unprocessed_request_ids")
+        and not state.get("token_cost")
+        and not state.get("token_cost_incomplete")
+        and not gateway_usage_enabled(run)
+        and not SandboxSession.objects.for_team(run.team_id).filter(task_run=run).exists()
+    ):
+        return 0
+    adapter = state.get("runtime_adapter")
+    if (
+        adapter in ("codex", "claude")
+        and state.get(f"{adapter}_model_access") == "own-subscription"
+        and not state.get("unprocessed_request_ids")
+    ):
+        # Subscription usage carries no incremental model charge to PostHog. Any
+        # gateway calls made alongside it still count toward the task's budget.
+        return sum(bucket.get("cost_microusd", 0) for bucket in _cost_buckets(state))
     usage = _token_usage(run)
     return usage.cost_microusd if usage.complete else None
 
@@ -245,7 +267,12 @@ def _compute_cost_source(run: TaskRun, *, sessions: list[SandboxSession] | None 
     if sessions is None:
         sessions = list(SandboxSession.objects.for_team(run.team_id).filter(task_run=run))
     if not sessions:
-        return None
+        return (
+            Decimal(0)
+            if run.status in (TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
+            and not (run.state or {}).get("sandbox_id")
+            else None
+        )
     now = timezone.now()
     try:
         return sum(

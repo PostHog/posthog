@@ -57,6 +57,7 @@ export const RECENT_ENVIRONMENT_OPTIONS: FilterOptions<TodayRecentEnvironmentFil
 const SOURCE_LABELS: Record<string, string> = {
     user_created: 'Manual',
     posthog_ai: 'PostHog AI',
+    bets: 'Bets',
     slack: 'Slack',
     signal_report: 'Signals',
     signals_scout: 'Signals scout',
@@ -91,9 +92,9 @@ export function hasActiveRecentFilters(filters: TodayRecentFilters): boolean {
     )
 }
 
-/** The sources in the list plus any still selected, so a selection can always be undone. */
+/** Bets stays selectable when its automated work is excluded from the default list. */
 export function recentSourceOptions(items: TodayWorkItem[], selected: string[]): string[] {
-    const sources = new Set(selected)
+    const sources = new Set([...selected, 'bets'])
     for (const item of items) {
         if (item.source) {
             sources.add(item.source)

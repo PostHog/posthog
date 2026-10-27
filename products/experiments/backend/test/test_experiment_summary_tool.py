@@ -11,6 +11,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.schema import (
+    ExperimentStatsBaseValidated,
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
     MaxExperimentVariantResultBayesian,
@@ -277,6 +278,9 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
         mock_query_result.last_refresh = datetime(2020, 1, 10, 11, 0, tzinfo=ZoneInfo("UTC"))
+        mock_query_result.baseline = ExperimentStatsBaseValidated(
+            key="control", number_of_samples=100, sum=50, sum_squares=2500
+        )
 
         # Create mock exposure result
         mock_exposure_result = MagicMock()
@@ -295,7 +299,18 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
             mock_exposure_runner_class.return_value.run.return_value = mock_exposure_result
 
             data_service = ExperimentSummaryDataService(self.team, self.user)
-            summary_data = await data_service.fetch_experiment_data(experiment.id)
+            for cache_age_seconds in (None, 300):
+                summary_data = await data_service.fetch_experiment_data(
+                    experiment.id, cache_age_seconds=cache_age_seconds
+                )
+                self.assertEqual(
+                    mock_query_runner_class.return_value.run.call_args.kwargs.get("cache_age_seconds"),
+                    cache_age_seconds,
+                )
+                self.assertEqual(
+                    mock_exposure_runner_class.return_value.run.call_args.kwargs.get("cache_age_seconds"),
+                    cache_age_seconds,
+                )
             context, last_refresh, pending_calculation = (
                 summary_data.context,
                 summary_data.last_refresh,
@@ -308,6 +323,7 @@ class TestExperimentSummaryDataService(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(context.exposures, {"control": 500.0, "test": 500.0})
         self.assertIsNotNone(last_refresh)
         self.assertFalse(pending_calculation)
+        self.assertEqual(summary_data.metric_sample_counts, ({"control": 100, "test": 100},))
         self.assertEqual(mock_query_runner_class.call_args.kwargs["limit_context"], LimitContext.QUERY_ASYNC)
         self.assertEqual(mock_exposure_runner_class.call_args.kwargs["limit_context"], LimitContext.QUERY_ASYNC)
         # The real exposure runner rejects a feature_flag dict without a non-empty "key".

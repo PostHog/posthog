@@ -360,6 +360,7 @@ def mint_scoped_token(
     expires_in_seconds: int | None = None,
     gateway_config: "AIGatewayConfig | None" = None,
     raise_on_failure: bool = False,
+    max_cost_cents: int | None = None,
 ) -> str | None:
     """Mint a `phe_` scoped token pinned to (ai_product, obo=team_id), or None on failure.
 
@@ -385,6 +386,10 @@ def mint_scoped_token(
         "product": ai_product,
         "obo": str(team_id),
     }
+    if max_cost_cents is not None:
+        if max_cost_cents <= 0:
+            raise GatewayNotConfiguredError("This run has no admitted token budget.")
+        body["cap_usd"] = str(min(float(body["cap_usd"]), max_cost_cents / 100))
     if user:
         body["user"] = user
     pin = allowed_models if allowed_models is not None else _PRODUCT_ALLOWED_MODELS.get(ai_product)

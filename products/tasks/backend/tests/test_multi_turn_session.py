@@ -1812,6 +1812,35 @@ class TestCreateTaskAndTriggerForwardsContext:
         assert public_state["codex_shared_prompt_cache"] is True
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("connected,enabled", [(True, True), (False, True), (True, False)])
+    async def test_required_connected_plan_never_falls_back_to_gateway(self, connected: bool, enabled: bool) -> None:
+        team, user = await sync_to_async(self._setup_team_and_user)()
+        context = CustomPromptSandboxContext(
+            team_id=team.id, user_id=user.id, runtime_adapter="codex", use_connected_plan=True
+        )
+        with (
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_internals.unattended_model_access_state",
+                return_value={"codex_model_access": "own-subscription"} if connected else {},
+            ),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_internals.own_subscription_cloud_enabled",
+                return_value=enabled,
+            ),
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow") as dispatch,
+        ):
+            if not connected or not enabled:
+                with pytest.raises(ValueError, match="connected ChatGPT plan"):
+                    await agents_facade.create_task_and_trigger("prompt", context)
+                dispatch.assert_not_called()
+                assert await sync_to_async(TaskRun.objects.filter(team=team).count)() == 0
+            else:
+                task_run = await agents_facade.create_task_and_trigger("prompt", context)
+                persisted = await sync_to_async(TaskRun.objects.get)(id=task_run.run_id)
+                assert persisted.state["codex_model_access"] == "own-subscription"
+                assert persisted.state["codex_subscription_user_id"] == user.id
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize(("output_schema", "expected_flag"), [({"type": "object"}, True), (None, None)])
     async def test_marks_a_schema_run_as_ended_by_the_caller(self, output_schema, expected_flag):
         team, user = await sync_to_async(self._setup_team_and_user)()

@@ -91,10 +91,11 @@ class PullRequestReconciler:
 
             transaction.on_commit(enqueue)
 
-    def __init__(self, *, team_id: int, run_id: str, pr_url: str) -> None:
+    def __init__(self, *, team_id: int, run_id: str, pr_url: str, refresh: bool = False) -> None:
         self.team_id = team_id
         self.run_id = run_id
         self.pr_url = pr_url
+        self.refresh = refresh
 
     def _log(self, outcome: str) -> None:
         logger.info("task_pr_reconciliation", team_id=self.team_id, run_id=self.run_id, outcome=outcome)
@@ -108,15 +109,15 @@ class PullRequestReconciler:
             not run.task.deleted
             and run.task.origin_product != Task.OriginProduct.REVIEW_HOG
             and self.pr_url in read_pr_urls(run.output)
-            and self.pr_url not in verified
-            and (canonical_url is None or canonical_url not in verified)
+            and (self.refresh or self.pr_url not in verified)
+            and (self.refresh or canonical_url is None or canonical_url not in verified)
         )
 
-    @staticmethod
-    def _github(run: TaskRun) -> GitHubIntegrationBase | None:
+    def _github(self, run: TaskRun) -> GitHubIntegrationBase | None:
+        priority = Priority.NORMAL if self.refresh else Priority.BATCH
         integration = run.task.github_integration
         if integration is not None and integration.team_id == run.team_id and integration.kind == "github":
-            return GitHubIntegration(integration, source="task_pr_reconciliation", priority=Priority.BATCH)
+            return GitHubIntegration(integration, source="task_pr_reconciliation", priority=priority)
         personal = run.task.github_user_integration
         if (
             personal is not None
@@ -126,7 +127,7 @@ class PullRequestReconciler:
                 user_id=personal.user_id, organization_id=run.team.organization_id
             ).exists()
         ):
-            return UserGitHubIntegration(personal, source="task_pr_reconciliation", priority=Priority.BATCH)
+            return UserGitHubIntegration(personal, source="task_pr_reconciliation", priority=priority)
         return None
 
     def reconcile(self) -> None:

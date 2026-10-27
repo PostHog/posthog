@@ -16,9 +16,10 @@ import { urls } from 'scenes/urls'
 
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { getNavProductPages, navProductHrefForPath } from '~/layout/panel-layout/navbar/tabs/navProductItems'
+import { productRailPanes } from '~/products'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
-export type TodayRailPane = 'home' | 'spaces' | 'analytics' | 'products' | 'settings'
+export type TodayRailPane = 'home' | 'spaces' | 'analytics' | 'products' | 'settings' | `product:${string}`
 
 /** What showed or hid the sidebar. `navigation` is a page change that hides the unpinned sidebar. */
 export type TodaySidebarToggleSource =
@@ -59,7 +60,7 @@ const RAIL_PANE_HOMES: Partial<Record<TodayRailPane, (effectivePhaiView: PhaiVie
 
 /** The page a rail pane opens, or undefined when the pane only opens the sidebar. */
 export function railPaneHref(pane: TodayRailPane, effectivePhaiView: PhaiViewMode): string | undefined {
-    return RAIL_PANE_HOMES[pane]?.(effectivePhaiView)
+    return productRailPanes.find((item) => item.key === pane)?.href() ?? RAIL_PANE_HOMES[pane]?.(effectivePhaiView)
 }
 
 const PHONE_PAGE_LIMIT = 50
@@ -87,6 +88,10 @@ export function nextPhonePages(
 /** The pane a route belongs to, or null for pages that keep whichever pane was open. */
 export function railPaneForPath(pathname: string): TodayRailPane | null {
     const path = removeProjectIdIfPresent(pathname)
+    const productPane = productRailPanes.find((item) => isUnderPath(path, item.path))
+    if (productPane) {
+        return productPane.key
+    }
     if (path === '/' || isUnderPath(path, urls.projectHomepage())) {
         return 'home'
     }

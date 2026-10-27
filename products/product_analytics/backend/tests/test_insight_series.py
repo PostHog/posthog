@@ -403,6 +403,42 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
             ),
         )
 
+    @parameterized.expand([("current_period", False, 3.0, 2.0), ("complete_periods", True, 1.0, 0.0)])
+    def test_saved_measurement_window(
+        self, _name: str, exclude_incomplete: bool, expected_total: float, expected_current: float
+    ) -> None:
+        self._signups((0, "Chrome"), (0, "Chrome"), (2, "Chrome"), (9, "Chrome"))
+        insight = self._insight(
+            series=[{"kind": "EventsNode", "event": "signed up"}],
+            dateRange={"date_from": "-3d", "excludeIncompletePeriods": exclude_incomplete},
+        )
+
+        found = get_insight_series(team=self.team, user=self.user, short_id=insight.short_id, use_saved_date_range=True)
+
+        assert found is not None
+        points = found.series["signed up"]
+        self.assertEqual(sum(value for _, value in points), expected_total)
+        self.assertEqual(points[-1][1], expected_current)
+        self.assertEqual(len(points), 3 if exclude_incomplete else 4)
+
+        _create_event(team=self.team, event="signed up", distinct_id="user-1", timestamp=self._ago(2))
+        flush_persons_and_events()
+        cached = get_insight_series(
+            team=self.team, user=self.user, short_id=insight.short_id, use_saved_date_range=True, blocking=True
+        )
+        assert cached is not None
+        self.assertEqual(sum(value for _, value in cached.series["signed up"]), expected_total)
+        refreshed = get_insight_series(
+            team=self.team,
+            user=self.user,
+            short_id=insight.short_id,
+            use_saved_date_range=True,
+            blocking=True,
+            force_refresh=True,
+        )
+        assert refreshed is not None
+        self.assertEqual(sum(value for _, value in refreshed.series["signed up"]), expected_total + 1)
+
     def test_a_charted_sql_insight_returns_its_daily_series(self) -> None:
         self._signups((2, "Chrome"), (2, "Chrome"), (3, "Chrome"))
         insight = Insight.objects.create(

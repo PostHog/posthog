@@ -74,6 +74,7 @@ function buildProductManifests() {
     const redirects = []
     const fileSystemTypes = []
     const setupProbes = []
+    const railPanes = []
     const treeItemsNew = {}
     const treeItemsGames = {}
     const treeItemsMetadata = {}
@@ -108,6 +109,8 @@ function buildProductManifests() {
                             sceneConfigs.push(cfg)
                         }
                     })
+                } else if (name === 'railPane') {
+                    railPanes.push(cloneNode(node.initializer))
                 } else if (name === 'setupProbe') {
                     // One object per manifest, aggregated into the `productSetupProbes` array.
                     setupProbes.push(cloneNode(node.initializer))
@@ -281,6 +284,7 @@ function buildProductManifests() {
     if (!globalNames.has('ProductSetupProbe')) {
         addImport('lib/components/ProductEmptyState/setupProbes', 'typeNamed', 'ProductSetupProbe')
     }
+    addImport('~/types', 'typeNamed', 'ProductRailPane')
 
     // 5. Serialise gathered imports → valid TypeScript code
     //    (no duplicate names, type/value kept separate)
@@ -332,6 +336,11 @@ function buildProductManifests() {
         ts.factory.createArrayLiteralExpression(setupProbes),
         ts.createSourceFile('', '', ts.ScriptTarget.ESNext)
     )
+    const serializedRailPanes = printer.printNode(
+        ts.EmitHint.Unspecified,
+        ts.factory.createArrayLiteralExpression(railPanes),
+        ts.createSourceFile('', '', ts.ScriptTarget.ESNext)
+    )
     const serializedTreeItemsNew = makeArrExpr(treeItemsNew)
     const serializedTreeItemsProducts = makeArrExpr(treeItemsProducts)
     // A literal union of product tree paths, so code that hardcodes a path (e.g. sidebar companion
@@ -372,6 +381,7 @@ function buildProductManifests() {
 
         ${autogenDisclaimer}
         export const productSetupProbes: ProductSetupProbe[] = ${serializedSetupProbes}
+        export const productRailPanes: ProductRailPane[] = ${serializedRailPanes}
 
         ${autogenDisclaimer}
         export const getTreeItemsNew = (): FileSystemImport[] => ${serializedTreeItemsNew}

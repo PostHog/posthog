@@ -99,6 +99,7 @@ class SignalSourceProduct(StrEnum):
     HEALTH_CHECKS = "health_checks"
     REPLAY_VISION = "replay_vision"
     ANALYTICS = "analytics"
+    BETS = "bets"
     # Tier-1 data-warehouse inbox sources (support / issue trackers / error tracking)
     FRESHDESK = "freshdesk"
     FRESHSERVICE = "freshservice"
@@ -268,6 +269,7 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.ENDPOINTS: "Endpoints",
     SignalSourceProduct.REPLAY_VISION: "Replay Vision",
     SignalSourceProduct.ANALYTICS: "Product analytics",
+    SignalSourceProduct.BETS: "Bets",
     SignalSourceProduct.FRESHDESK: "Freshdesk",
     SignalSourceProduct.FRESHSERVICE: "Freshservice",
     SignalSourceProduct.FRONT: "Front",

@@ -270,6 +270,11 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    from products.bets.backend.tasks.tasks import (
+        reconcile_bets,  # noqa: PLC0415 - register the product sweep after Celery initializes
+    )
+
+    add_periodic_task_with_expiry(sender, crontab(minute="*"), reconcile_bets.s(), name="reconcile-bets")
     add_periodic_task_with_expiry(
         sender, crontab(minute="*"), reconcile_account_audits.s(), name="reconcile-account-audits"
     )

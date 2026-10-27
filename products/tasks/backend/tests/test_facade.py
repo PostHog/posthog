@@ -1284,6 +1284,23 @@ class TestFacadeReadsAndMappers(TestCase):
         trigger.assert_not_called()
         assert not task.runs.exists()
 
+    def test_existing_run_start_and_resume_respect_source_guard(self):
+        task = self._make_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
+        with (
+            patch.dict(
+                "products.tasks.backend.facade.task_run_signals._task_run_start_guards",
+                {"test": lambda *args: "Awaiting approval"},
+                clear=True,
+            ),
+            patch("products.tasks.backend.facade.api._trigger_task_processing_workflow") as trigger,
+        ):
+            start, _ = facade.start_task_run(run.id, task.id, self.team.id, self.user.id, validated_data={})
+            resume, _, _ = facade.resume_task_run_in_cloud(run.id, task.id, self.team.id, self.user.id)
+        assert start == resume == "refused:Awaiting approval"
+        trigger.assert_not_called()
+        assert task.runs.count() == 1
+
     def test_run_task_resumed_from_an_import_run_marks_the_new_run(self):
         task = self._make_task()
         import_run = TaskRun.objects.create(

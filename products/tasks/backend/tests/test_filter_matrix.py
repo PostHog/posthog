@@ -229,12 +229,26 @@ class TestTaskListFilterMatrix(TestCase):
             "peter_mention_me", "peter_plain", "peter_i_commented", "peter_legacy_mention"
         )
 
+    @parameterized.expand([(["bets", "signals_scout"],), ("bets,signals_scout",), ('["bets", "signals_scout"]',)])
+    def test_exclude_multiple_origins_before_pagination(self, exclusions: list[str] | str) -> None:
+        task = self.tasks["peter_plain"]
+        task.origin_product = Task.OriginProduct.BETS
+        task.save(update_fields=["origin_product"])
+
+        assert self._list(exclude_origin_products=exclusions) == self.all_except("peter_plain", "scout_in_channel")
+        assert self._list(sources="bets") == self._ids("peter_plain")
+        response = self.client.get("/api/projects/@current/tasks/", {"exclude_origin_products": exclusions, "limit": 1})
+        assert response.status_code == http_status.HTTP_200_OK
+        assert response.json()["count"] == len(self.all_except("peter_plain", "scout_in_channel"))
+        assert len(response.json()["results"]) == 1
+
     @parameterized.expand(
         [
             ("client_provenance", "unknown"),
             # A typo must not fail open: matching nothing would return the full list including the
             # very tasks the caller asked to drop.
             ("exclude_origin_product", "signal_scout"),
+            ("exclude_origin_products", "bets,signal_scout"),
             ("sources", "signal_scout"),
             ("sources", "user_created"),
             ("sources", "business_knowledge"),

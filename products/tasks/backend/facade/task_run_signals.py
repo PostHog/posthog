@@ -10,8 +10,20 @@ from products.tasks.backend.models import Task, TaskRun
 TaskOriginProduct = Task.OriginProduct
 
 
+def task_has_origin_key(task_id: str | UUID, team_id: int, prefix: str) -> bool:
+    return Task.objects.filter(id=task_id, team_id=team_id, origin_key__startswith=prefix).exists()
+
+
 def connect_task_run_post_save(receiver: Callable[..., None], *, dispatch_uid: str) -> None:
     post_save.connect(receiver, sender=TaskRun, dispatch_uid=dispatch_uid)
+
+
+def connect_task_run_finished(receiver: Callable[..., None], *, dispatch_uid: str) -> None:
+    def forward(sender: object, instance: TaskRun, **kwargs: object) -> None:
+        if instance.status in ("completed", "failed", "cancelled"):
+            receiver(run_id=instance.id, team_id=instance.team_id)
+
+    post_save.connect(forward, sender=TaskRun, dispatch_uid=dispatch_uid, weak=False)
 
 
 # Sent with `task_run=` once an interactive run finishes a turn, so other products react to it
@@ -28,10 +40,20 @@ def connect_task_run_turn_completed(receiver: Callable[..., None], *, dispatch_u
 # A guard gets (task_id, team_id, user_id) before a run starts and returns a message to refuse it with, or None.
 TaskRunStartGuard = Callable[[str, int, int | None], str | None]
 _task_run_start_guards: dict[str, TaskRunStartGuard] = {}
+_task_run_spend_limits: dict[str, Callable[[str, int], int | None]] = {}
 
 
-def register_task_run_start_guard(guard: TaskRunStartGuard, *, name: str) -> None:
+def register_task_run_start_guard(
+    guard: TaskRunStartGuard, *, name: str, spend_limit: Callable[[str, int], int | None] | None = None
+) -> None:
     _task_run_start_guards[name] = guard
+    if spend_limit:
+        _task_run_spend_limits[name] = spend_limit
+
+
+def task_run_spend_limit(run_id: str, team_id: int) -> int | None:
+    limits = [limit for provider in _task_run_spend_limits.values() if (limit := provider(run_id, team_id)) is not None]
+    return min(limits) if limits else None
 
 
 def task_run_start_refusal(task_id: str, team_id: int, user_id: int | None) -> str | None:

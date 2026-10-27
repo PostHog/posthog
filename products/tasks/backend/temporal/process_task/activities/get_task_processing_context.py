@@ -1044,9 +1044,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # that gates other origins. This mirrors the babysitting the Slack coding bot
     # gets for its PRs.
     flags = _fetch_run_flags(distinct_id=distinct_id, organization_id=organization_id, run_id=run_id)
-    pr_loop_enabled = task.origin_product == Task.OriginProduct.SIGNAL_REPORT or _flag_enabled(
-        flags, PR_LOOP_FEATURE_FLAG
-    )
+    pr_loop_enabled = task.origin_product in (
+        Task.OriginProduct.SIGNAL_REPORT,
+        Task.OriginProduct.BETS,
+    ) or _flag_enabled(flags, PR_LOOP_FEATURE_FLAG)
     log_with_activity_context(f"pr_loop_enabled: {pr_loop_enabled} for this task run", run_id=run_id)
     state_updates: dict[str, Any] = {PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled}
     include_live_context = state.get("include_live_context") is not False

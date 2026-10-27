@@ -323,6 +323,10 @@ def _roll_out_variant(
     return new_filters
 
 
+def preview_variant_rollout_filters(current_filters: dict, variant_key: str) -> dict:
+    return _roll_out_variant(current_filters, variant_key, release_to_everyone=False)
+
+
 def ship_variant(
     flag: FeatureFlag,
     variant_key: str,

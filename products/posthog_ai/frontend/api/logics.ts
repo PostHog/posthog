@@ -110,3 +110,5 @@ export { debugLogsLogic } from '../logics/debugLogsLogic'
 
 // One task's record, with its archive (delete) loader, for hosts that act on a task outside the runner scene.
 export { taskLogic } from '../logics/taskLogic'
+export { codexBillingLogic, codexModelAccessForRun } from '../logics/codexBillingLogic'
+export { getDefaultModelForRuntimeAdapter, getRuntimeAdapterForModel } from '../utils/composerModels'

@@ -210,6 +210,25 @@ class TestGatewayUsage(BaseTest):
         assert run.state["token_cost"]["model-a"]["provider-a"]["request_ids"] == ["old-request", "pending"]
         assert run.state["token_cost"]["model-a"]["provider-a"]["cost_microusd"] == 20_000
 
+    @parameterized.expand(
+        [
+            ("failed_before_provisioning", TaskRun.Status.FAILED, {}, 0),
+            ("cancelled_before_provisioning", TaskRun.Status.CANCELLED, {}, 0),
+            ("still_starting", TaskRun.Status.QUEUED, {}, None),
+            ("sandbox_started", TaskRun.Status.FAILED, {"sandbox_id": "sandbox-test"}, None),
+            ("unsettled_request", TaskRun.Status.FAILED, {"unprocessed_request_ids": ["request-1"]}, None),
+            ("untracked_provider", TaskRun.Status.FAILED, {"token_cost_incomplete": True}, None),
+        ]
+    )
+    def test_prelaunch_failures_do_not_leave_model_cost_unknown(
+        self, _name: str, status: str, state: dict, expected: int | None
+    ) -> None:
+        task = Task.objects.create(team=self.team, title="Prelaunch failure", description="")
+        run = TaskRun.objects.create(
+            team=self.team, task=task, status=status, state=state, environment=TaskRun.Environment.CLOUD
+        )
+        assert get_task_run_cost(team_id=self.team.id, run_id=run.id).token_cost == expected
+
     @patch("aiohttp.ClientSession._request")
     def test_getters_use_recorded_cost_and_round_across_runs(self, get: Mock) -> None:
         first = self._run(status=TaskRun.Status.FAILED)
@@ -245,6 +264,14 @@ class TestGatewayUsage(BaseTest):
         run = self._run()
         assert get_task_run_cost(run_id=run.id, team_id=self.team.id).token_cost == 0
         run.state = {}
+        run.save(update_fields=["state"])
+        assert get_task_run_cost(run_id=run.id, team_id=self.team.id).token_cost is None
+
+        run.state = {"runtime_adapter": "codex", "codex_model_access": "own-subscription"}
+        run.status = TaskRun.Status.FAILED
+        run.save(update_fields=["state", "status"])
+        assert get_task_run_cost(run_id=run.id, team_id=self.team.id) == TaskRunCost(token_cost=0, compute_cost=0)
+        run.state["unprocessed_request_ids"] = ["pending-gateway-request"]
         run.save(update_fields=["state"])
         assert get_task_run_cost(run_id=run.id, team_id=self.team.id).token_cost is None
 

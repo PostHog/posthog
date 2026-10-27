@@ -1616,6 +1616,9 @@ async def test_repo_selection_eligibility_reaches_autostart(autostart_eligible):
         ("background", "taken_over", False),
         ("background", "deleted", False),
         ("team", "team", True),
+        ("team", "bets", False),
+        ("team", "bets_legacy", False),
+        ("team", "bets_deleted", False),
     ],
 )
 async def test_background_scout_reports_never_reach_autostart(run_origin, config_after, expect_autostart):
@@ -1650,7 +1653,13 @@ async def test_background_scout_reports_never_reach_autostart(run_origin, config
         TaskRun = apps.get_model("tasks", "TaskRun")
         scout_task = Task.objects.create(team=team, title="scout", description="d")
         with team_scope(team.id):
-            config = SignalScoutConfig.objects.create(team=team, skill_name=SCOUT_SKILL, managed_by=run_origin)
+            config = SignalScoutConfig.objects.create(
+                team=team,
+                skill_name=SCOUT_SKILL,
+                managed_by=run_origin,
+                source_product="bets" if config_after.startswith("bets") else "",
+                source_id="bet-1" if config_after.startswith("bets") else "",
+            )
             SignalScoutRun.objects.create(
                 team=team,
                 task_run=TaskRun.objects.create(team=team, task=scout_task),
@@ -1658,13 +1667,19 @@ async def test_background_scout_reports_never_reach_autostart(run_origin, config
                 skill_name=SCOUT_SKILL,
                 skill_version=1,
                 emitted_report_ids=[str(report.id)],
-                metadata={"managed_by": run_origin} if run_origin == "background" else {},
+                metadata=(
+                    {"managed_by": run_origin}
+                    if run_origin == "background"
+                    else {"source_product": "bets", "source_id": "bet-1"}
+                    if config_after.startswith("bets") and config_after != "bets_legacy"
+                    else {}
+                ),
             )
             if config_after == "taken_over":
                 config.managed_by = SignalScoutConfig.ManagedBy.TEAM
                 config.enabled = False
                 config.save()
-            elif config_after == "deleted":
+            elif config_after in ("deleted", "bets_deleted"):
                 config.delete()
         return team, report
 

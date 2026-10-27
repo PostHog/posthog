@@ -2374,6 +2374,11 @@ class TaskListQuerySerializer(serializers.Serializer):
         choices=tasks_facade.TaskOriginProduct.choices,
         help_text="Exclude tasks with this origin product from the results",
     )
+    exclude_origin_products = TaskSourcesListField(
+        required=False,
+        child=serializers.ChoiceField(choices=tasks_facade.TaskOriginProduct.choices),
+        help_text="Exclude tasks from these origin products. Accepts repeated parameters, comma-separated values, or a JSON array.",
+    )
     sources = TaskSourcesListField(
         required=False,
         child=serializers.ChoiceField(choices=tasks_facade.TaskListSource.choices),

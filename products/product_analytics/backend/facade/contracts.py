@@ -74,6 +74,17 @@ class SavedInsightDefinition:
 
 
 @dataclass(frozen=True)
+class InsightDeliveryEvidence:
+    events: int
+    participants: int
+    first_event_at: datetime | None
+    last_event_at: datetime | None
+    window_start: datetime
+    window_end: datetime
+    event_names: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class InsightDataCheckFilter:
     """A rule in the shape the project's internal and test users filter stores it."""
 

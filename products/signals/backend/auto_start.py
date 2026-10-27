@@ -69,7 +69,11 @@ from products.signals.backend.report_generation.select_repo import RepoSelection
 from products.signals.backend.report_steering import NO_STEERING, ReportSteering, load_report_steering
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.reviewer_rules import ReviewerRules, contains_reviewer
-from products.signals.backend.scout_authorship import report_is_from_background_scout, resolve_touching_scout_skills
+from products.signals.backend.scout_authorship import (
+    report_is_from_background_scout,
+    report_requires_manual_implementation,
+    resolve_touching_scout_skills,
+)
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
 from products.signals.backend.signal_metadata import (
     SignalSourceReference,
@@ -1414,6 +1418,8 @@ async def maybe_autostart_implementation_task(
     """
     if not await database_sync_to_async(assignment_side_effects_allowed)(team_id=team_id, report_id=report_id):
         return AutostartOutcome(status="cancelled", reason="Assignment side effects are disabled")
+    if await database_sync_to_async(report_requires_manual_implementation)(team_id, report_id):
+        return AutostartOutcome(status="blocked", reason="Bet tasks require a person to click Start")
 
     # Cheap pre-check to skip the expensive assignee resolution when a task already exists;
     # the authoritative, race-free check happens under the lock below.
@@ -1756,6 +1762,8 @@ async def maybe_autostart_from_report_artefacts(
     A report that a background-enrolled scout authored never auto-starts. Nobody on the project
     asked for that scout, so its findings must not open pull requests on their own.
     """
+    if await database_sync_to_async(report_requires_manual_implementation)(team_id, report_id):
+        return AutostartOutcome(status="blocked", reason="Bet tasks require a person to click Start")
     if await database_sync_to_async(report_is_from_background_scout)(team_id, report_id):
         logger.info(
             "signals auto-start re-eval skipped",

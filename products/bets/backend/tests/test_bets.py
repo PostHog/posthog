@@ -1,0 +1,495 @@
+from dataclasses import dataclass, field
+from datetime import timedelta
+from types import SimpleNamespace
+from uuid import UUID, uuid4
+
+from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from django.test import SimpleTestCase
+from django.utils import timezone
+
+from parameterized import parameterized
+
+from posthog.models import OrganizationMembership
+
+from products.bets.backend.db import WRITER_DB
+from products.bets.backend.facade.contracts import Metric
+from products.bets.backend.facade.enums import IdeaOutcome, LedgerKind
+from products.bets.backend.logic.ledger import append, totals
+from products.bets.backend.logic.loop import reconcile
+from products.bets.backend.logic.scout import scout_context, scout_job
+from products.bets.backend.logic.spend import reconcile_spend, spend_pending
+from products.bets.backend.logic.verdict import MIN_SAMPLES_PER_VARIANT, verdict
+from products.bets.backend.logic.workspace import get_settings
+from products.bets.backend.models import Bet, LedgerEntry, WorkItem
+from products.tasks.backend.facade.contracts import TaskRunCost
+
+ENOUGH = MIN_SAMPLES_PER_VARIANT
+
+
+def evidence(
+    primary: list[float] | None, *, significant: bool = True, guard: list[float] | None = None, days: int = 1
+) -> dict:
+    variant = {"key": "test", "significant": significant, "credible_interval": primary} if primary else {"key": "test"}
+    return {
+        "start_date": (timezone.now() - timedelta(days=days)).isoformat(),
+        "results": {
+            "variants": ["control", "test"],
+            "exposures": {"control": ENOUGH, "test": ENOUGH},
+            "metric_sample_counts": [{"control": ENOUGH, "test": ENOUGH}],
+            "primary_metrics_results": [{"name": "1. Share rate", "variant_results": [variant]}],
+            "secondary_metrics_results": [
+                {
+                    "name": "1. Uploads",
+                    "variant_results": [{"key": "test", "credible_interval": guard or [-0.01, 0.01]}],
+                }
+            ],
+        },
+    }
+
+
+class TestVerdict(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("win", evidence([0.05, 0.2]), "increase", IdeaOutcome.WON),
+            ("win_when_lower_is_better", evidence([-0.2, -0.05]), "decrease", IdeaOutcome.WON),
+            ("loss", evidence([-0.2, -0.05]), "increase", IdeaOutcome.LOST),
+            ("guardrail_harm_beats_a_win", evidence([0.05, 0.2], guard=[-0.3, -0.1]), "increase", IdeaOutcome.HARMED),
+            ("not_significant_yet", evidence([-0.05, 0.2], significant=False), "increase", None),
+            (
+                "no_clear_effect_after_the_limit",
+                evidence([-0.05, 0.2], significant=False, days=15),
+                "increase",
+                IdeaOutcome.FLAT,
+            ),
+            ("clear_win_before_the_minimum_run_waits", evidence([0.05, 0.2], days=0), "increase", None),
+        ]
+    )
+    def test_outcome(self, _name: str, data: dict, direction: str, expected: IdeaOutcome | None) -> None:
+        guardrails = [{"name": "Uploads", "direction": "increase", "max_regression": 0.05}]
+        outcome = verdict(data, direction=direction, guardrails=guardrails, min_run=timedelta(hours=12)).outcome
+        assert outcome == expected
+
+    def test_small_samples_never_decide(self) -> None:
+        data = evidence([0.05, 0.2])
+        data["results"]["metric_sample_counts"] = [{"control": ENOUGH, "test": ENOUGH - 1}]
+        assert verdict(data, direction="increase", guardrails=[]).outcome is None
+
+
+@dataclass
+class FakeRun:
+    id: UUID
+    task_id: UUID
+    status: str
+    created_at: object = field(default_factory=timezone.now)
+    error_message: str = ""
+
+    @property
+    def is_terminal(self) -> bool:
+        return self.status in ("completed", "failed", "cancelled")
+
+
+class FakeWorld:
+    def __init__(self) -> None:
+        self.runs: dict[UUID, FakeRun] = {}
+        self.prs: dict[str, list[SimpleNamespace]] = {}
+        self.reports: list[SimpleNamespace] = []
+        self.experiments: dict[str, SimpleNamespace] = {}
+        self.results: dict = {}
+        self.concluded: list[tuple[int, str, str]] = []
+        self.metric_values: list[float] = [0.1]
+        self.cleanup_task: UUID = uuid4()
+
+    def create_task_without_run(self, **kwargs: object) -> UUID:
+        return uuid4()
+
+    def run_task(self, task_id: UUID, team_id: int, user_id: int, validated_data: dict) -> SimpleNamespace:
+        run = FakeRun(id=uuid4(), task_id=task_id, status="in_progress")
+        self.runs[run.id] = run
+        return SimpleNamespace(error=None, run_error=None, run_id=run.id)
+
+    def get_task_run(self, run_id: UUID, team_id: int) -> FakeRun | None:
+        return self.runs.get(run_id)
+
+    def get_latest_run_by_task(self, task_ids: list[str]) -> dict[str, FakeRun]:
+        return {str(run.task_id): run for run in self.runs.values() if str(run.task_id) in task_ids}
+
+    def get_pull_requests_for_tasks(self, team_id: int, task_ids: list) -> dict[str, list[SimpleNamespace]]:
+        return {str(task_id): self.prs[str(task_id)] for task_id in task_ids if str(task_id) in self.prs}
+
+    def finish(self, work: WorkItem, *, pr: str = "", flag: str = "") -> None:
+        assert work.task_run_id is not None
+        self.runs[work.task_run_id].status = "completed"
+        if pr:
+            self.prs[str(work.task_id)] = [SimpleNamespace(url=pr, state="open")]
+        if flag:
+            self.experiments[flag] = SimpleNamespace(id=len(self.experiments) + 7)
+
+    def pr_state(self, work: WorkItem, state: str) -> None:
+        self.prs[str(work.task_id)][0].state = state
+
+
+class TestBetLoop(APIBaseTest):
+    databases = {"default", "bets_db_writer", "bets_db_reader"}
+
+    def setUp(self) -> None:
+        super().setUp()
+        OrganizationMembership.objects.filter(user=self.user, organization=self.organization).update(
+            level=OrganizationMembership.Level.ADMIN
+        )
+        self.world = world = FakeWorld()
+        tasks = SimpleNamespace(
+            create_task_without_run=world.create_task_without_run,
+            get_task_by_origin_key=lambda *args: None,
+            TaskOriginProduct=SimpleNamespace(BETS="bets"),
+            update_task=lambda *args, **kwargs: None,
+            run_task=world.run_task,
+            get_task_run=world.get_task_run,
+            get_latest_run_by_task=world.get_latest_run_by_task,
+            get_pull_requests_for_tasks=world.get_pull_requests_for_tasks,
+            refresh_pull_requests_for_tasks=lambda *args: None,
+            read_task_run_logs=lambda *args: "",
+        )
+        signals = SimpleNamespace(
+            scouts_for_source=lambda *args, **kwargs: [SimpleNamespace(config_id=str(uuid4()))],
+            scout_reports_for_source=lambda *args, **kwargs: list(world.reports),
+            update_scout_for_source=lambda *args, **kwargs: True,
+            run_scout_for_source=lambda *args: None,
+            WorkflowScoutRunRejected=RuntimeError,
+            ScoutRunRejectionKind=SimpleNamespace(CONFLICT="conflict", THROTTLED="throttled"),
+        )
+        loop = "products.bets.backend.logic.loop"
+        for target, value in [
+            ("products.bets.backend.logic.access.bets_enabled", True),
+            ("products.bets.backend.logic.bets.validate_goal", None),
+            (f"{loop}.reconcile_spend", None),
+            (f"{loop}.spend_pending", False),
+            (f"{loop}.task_run_usage_limited", False),
+            (f"{loop}.run_settings", {}),
+            (f"{loop}.baseline", SimpleNamespace(ready=True, value=0.1, note="")),
+        ]:
+            self.patch(target, return_value=value)
+        self.patch(f"{loop}.tasks", new=tasks)
+        self.patch(f"{loop}.signals", new=signals)
+        self.patch(f"{loop}.cancel_task_run")
+        self.patch(
+            f"{loop}.experiments.experiment_for_read",
+            side_effect=lambda **kwargs: world.experiments.get(kwargs["feature_flag_key"]),
+        )
+        self.patch(f"{loop}.experiment_evidence", side_effect=lambda **kwargs: world.results)
+        self.patch(
+            f"{loop}.ship",
+            side_effect=lambda **kwargs: world.concluded.append(
+                (kwargs["experiment_id"], kwargs["conclusion"], kwargs["variant"])
+            ),
+        )
+        self.patch(
+            f"{loop}.metric",
+            side_effect=lambda *args: Metric(
+                name="Share rate",
+                values=world.metric_values,
+                dates=[],
+                current=world.metric_values[-1],
+                change=None,
+                message="",
+            ),
+        )
+        get_settings(self.team.id).__class__.objects.for_team(self.team.id).using(WRITER_DB).update(
+            budget_cents=100000, min_run_hours=0, goal_confirm_hours=0
+        )
+        self.patch(f"{loop}.cleanup_task_id", side_effect=lambda **kwargs: world.cleanup_task)
+
+    def patch(self, target: str, **kwargs: object) -> object:
+        patcher = patch(target, **kwargs)
+        mocked = patcher.start()
+        self.addCleanup(patcher.stop)
+        return mocked
+
+    def create(self, **overrides: object) -> dict:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/bets/",
+            {
+                "title": "Make sharing easier",
+                "statement": "A one-click share after upload will make more people share.",
+                "repository": "posthog/example-app",
+                "goal_insight": "abc123",
+                "goal_metric": "Share rate after upload",
+                "target": "0.3",
+                "budget_cents": 20000,
+                **overrides,
+            },
+            format="json",
+        )
+        assert response.status_code == 201, response.content
+        return response.json()
+
+    def tick(self, bet: Bet) -> None:
+        Bet.objects.for_team(self.team.id).using(WRITER_DB).filter(id=bet.id).update(lease=None, lease_until=None)
+        reconcile(self.team.id, bet.id)
+        bet.refresh_from_db(using=WRITER_DB)
+
+    def only(self, bet: Bet, kind: str) -> WorkItem:
+        work = (
+            WorkItem.objects.for_team(self.team.id)
+            .using(WRITER_DB)
+            .filter(bet=bet, kind=kind)
+            .order_by("-created_at")
+            .first()
+        )
+        assert work is not None
+        return work
+
+    def new_report(
+        self, title: str = "Share button after upload", summary: str = "Evidence.", status: str = "ready"
+    ) -> None:
+        self.world.reports.append(
+            SimpleNamespace(
+                report_id=str(uuid4()),
+                status=status,
+                filed_at=timezone.now(),
+                title=title,
+                summary=summary,
+            )
+        )
+
+    def running(self, **overrides: object) -> Bet:
+        bet = Bet.objects.for_team(self.team.id).using(WRITER_DB).get(id=self.create(**overrides)["id"])
+        self.tick(bet)
+        self.world.finish(self.only(bet, "tracking"))
+        self.tick(bet)
+        assert bet.status == "running"
+        return bet
+
+    def work(self, bet: Bet, work: WorkItem, action: str, reason: str = "") -> object:
+        return self.client.post(
+            f"/api/projects/{self.team.id}/bets/{bet.id}/work/",
+            {"work_id": str(work.id), "action": action, "reason": reason},
+            format="json",
+        )
+
+    def build_next(self, bet: Bet) -> WorkItem:
+        self.new_report()
+        self.tick(bet)
+        idea = self.only(bet, "idea")
+        assert idea.stage == "proposed" and idea.task_id is None
+        assert self.work(bet, idea, "build").status_code == 200
+        self.tick(bet)
+        idea.refresh_from_db(using=WRITER_DB)
+        return idea
+
+    def ship_idea(self, bet: Bet, results: dict) -> WorkItem:
+        idea = self.build_next(bet)
+        assert idea.stage == "working" and idea.task_run_id
+        self.world.finish(idea, pr="https://github.com/posthog/example-app/pull/9", flag=idea.flag_key)
+        self.tick(bet)
+        idea.refresh_from_db(using=WRITER_DB)
+        assert idea.stage == "review"
+        self.world.pr_state(idea, "merged")
+        self.world.results = results
+        self.tick(bet)
+        self.tick(bet)
+        idea.refresh_from_db(using=WRITER_DB)
+        return idea
+
+    def test_bet_walks_from_tracking_to_a_won_idea_and_reaches_its_goal(self) -> None:
+        bet = Bet.objects.for_team(self.team.id).using(WRITER_DB).get(id=self.create()["id"])
+        self.tick(bet)
+        tracking = self.only(bet, "tracking")
+        assert tracking.stage == "working" and tracking.task_run_id
+        self.world.finish(tracking)
+        self.tick(bet)
+        assert bet.status == "running" and bet.baseline_value == 0.1
+        idea = self.ship_idea(bet, evidence([0.05, 0.2]))
+        assert idea.stage == "done" and idea.result["outcome"] == IdeaOutcome.WON
+        assert self.world.concluded == [(idea.experiment_id, "won", "test")]
+        cleanup = self.only(bet, "cleanup")
+        assert cleanup.task_id == self.world.cleanup_task and cleanup.stage == "working"
+        self.world.metric_values = [0.31, 0.32, 0.33]
+        self.tick(bet)
+        assert bet.status == "reached"
+
+    def test_losing_ideas_ship_control_and_the_bet_keeps_going(self) -> None:
+        bet = self.running()
+        for _ in range(3):
+            assert self.ship_idea(bet, evidence([-0.2, -0.05])).result["outcome"] == IdeaOutcome.LOST
+        self.tick(bet)
+        assert bet.status == "running"
+        assert {variant for _, _, variant in self.world.concluded} == {"control"}
+
+    def test_scout_ideas_wait_for_the_owner_and_only_one_is_built_at_a_time(self) -> None:
+        bet = self.running()
+        self.new_report(
+            "Bet idea: instant uploads",
+            "Most stop after one file ([funnel](http://localhost/project/1/insights/abc)). "
+            "[Replay 0:42](http://localhost/project/1/replay/xyz?t=42) shows a disabled button.",
+        )
+        self.new_report("Bet idea: add more files after a share")
+        self.tick(bet)
+        self.tick(bet)
+        ideas = list(WorkItem.objects.for_team(self.team.id).using(WRITER_DB).filter(bet=bet, kind="idea"))
+        assert {idea.stage for idea in ideas} == {"proposed"} and all(idea.task_id is None for idea in ideas)
+        first = next(idea for idea in ideas if idea.title == "Instant uploads")
+        assert [item["kind"] for item in first.evidence] == ["insight", "replay"]
+        assert self.work(bet, first, "build").status_code == 200
+        second = next(idea for idea in ideas if idea.id != first.id)
+        assert self.work(bet, second, "build").status_code == 400
+        first.refresh_from_db(using=WRITER_DB)
+        assert first.stage == "working" and first.flag_key == f"bet-{bet.reference}-1"
+
+    @parameterized.expand(
+        [
+            ("not_supported", "Not supported. Uploads finish in 2 s.", "ready", "not_supported"),
+            ("supported", "**Supported.** People wait for the upload.", "ready", "supported"),
+            ("no_marker", "People wait for the upload.", "ready", "pending"),
+            ("needs_owner_input", "Not supported. Uploads finish in 2 s.", "pending_input", "not_supported"),
+        ]
+    )
+    def test_owner_idea_gets_the_scout_check(self, _name: str, summary: str, status: str, expected: str) -> None:
+        bet = self.running(ideas=["Show upload progress as a percent"])
+        owner = WorkItem.objects.for_team(self.team.id).using(WRITER_DB).get(bet=bet, source="owner")
+        assert owner.stage == "proposed" and owner.assessment == "pending"
+        self.new_report("Owner idea 1: Show upload progress as a percent", summary, status)
+        self.tick(bet)
+        owner.refresh_from_db(using=WRITER_DB)
+        assert owner.assessment == expected and owner.report_id is not None, owner.assessment
+        assert WorkItem.objects.for_team(self.team.id).using(WRITER_DB).filter(bet=bet, kind="idea").count() == 1
+
+    def test_scout_job_follows_the_bet_state(self) -> None:
+        bet = self.running()
+        assert scout_job(bet)[0] == "find"
+        self.new_report()
+        self.tick(bet)
+        assert scout_job(bet) == ("", "Choose an idea to build.")
+        assert self.work(bet, self.only(bet, "idea"), "build").status_code == 200
+        assert scout_job(bet) == ("", "The bet is already testing an idea.")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/bets/{bet.id}/ideas/", {"title": "Copy the link after upload"}, format="json"
+        )
+        assert response.status_code == 200
+        assert scout_job(bet)[0] == "check"
+        assert "Do not file ideas of your own" in scout_context(self.team.id, f"{bet.id}:v{bet.goal_version}")
+
+    def test_dismiss_needs_a_reason_and_the_scout_reads_it(self) -> None:
+        bet = self.running()
+        self.new_report()
+        self.tick(bet)
+        idea = self.only(bet, "idea")
+        assert self.work(bet, idea, "dismiss").status_code == 400
+        assert self.work(bet, idea, "dismiss", "Too risky for checkout").status_code == 200
+        assert "Reason: Too risky for checkout" in scout_context(self.team.id, f"{bet.id}:v{bet.goal_version}")
+
+    def test_used_budget_stops_the_bet_and_more_budget_resumes_it(self) -> None:
+        bet = self.running()
+        settings = get_settings(self.team.id)
+        append(settings, bet, LedgerKind.DEALLOCATE, totals(self.team.id, bet).available_cents, "drain")
+        self.tick(bet)
+        assert bet.status == "spent"
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/bets/{bet.id}/",
+            {"budget_cents": totals(self.team.id, bet).allocated_cents + 1000},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        bet.refresh_from_db(using=WRITER_DB)
+        assert bet.status == "running"
+
+    def test_closed_pull_request_drops_the_idea_and_frees_the_scout(self) -> None:
+        bet = Bet.objects.for_team(self.team.id).using(WRITER_DB).get(id=self.create()["id"])
+        self.tick(bet)
+        self.world.finish(self.only(bet, "tracking"))
+        self.tick(bet)
+        idea = self.build_next(bet)
+        self.world.finish(idea, pr="https://github.com/posthog/example-app/pull/9", flag=idea.flag_key)
+        self.tick(bet)
+        self.world.pr_state(idea, "closed")
+        self.tick(bet)
+        idea.refresh_from_db(using=WRITER_DB)
+        assert idea.stage == "dropped" and not self.world.concluded
+        assert self.build_next(bet).id != idea.id
+
+    def test_task_that_never_finishes_its_work_gets_stuck_after_three_attempts(self) -> None:
+        bet = Bet.objects.for_team(self.team.id).using(WRITER_DB).get(id=self.create()["id"])
+        self.tick(bet)
+        self.world.finish(self.only(bet, "tracking"))
+        self.tick(bet)
+        self.build_next(bet)
+        for _ in range(4):
+            self.tick(bet)
+            idea = self.only(bet, "idea")
+            if idea.task_run_id:
+                self.world.finish(idea)
+        self.tick(bet)
+        assert self.only(bet, "idea").stage == "stuck"
+
+    def test_create_retry_keeps_one_bet_and_one_allocation(self) -> None:
+        operation_id = str(uuid4())
+        assert self.create(operation_id=operation_id)["id"] == self.create(operation_id=operation_id)["id"]
+        assert Bet.objects.for_team(self.team.id).using(WRITER_DB).count() == 1
+        assert totals(self.team.id).allocated_cents == 20000
+
+    def test_budget_cannot_be_overallocated_and_close_keeps_spend(self) -> None:
+        bet = Bet.objects.for_team(self.team.id).using(WRITER_DB).get(id=self.create(budget_cents=80000)["id"])
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/bets/",
+            {
+                "title": "Second",
+                "statement": "More",
+                "repository": "PostHog/x",
+                "goal_insight": "def456",
+                "goal_metric": "M",
+                "target": "1",
+                "budget_cents": 30000,
+            },
+            format="json",
+        )
+        assert response.status_code == 400
+        self.tick(bet)
+        work = self.only(bet, "tracking")
+        settings = get_settings(self.team.id)
+        append(settings, bet, LedgerKind.SPEND, 300, "spend", self.user.id, work)
+        append(settings, bet, LedgerKind.SPEND, 300, "spend", self.user.id, work)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/bets/{bet.id}/status/", {"status": "closed"}, format="json"
+        )
+        assert response.status_code == 200, response.content
+        assert response.json()["money"] == {
+            "allocated_cents": 500,
+            "spent_cents": 300,
+            "reserved_cents": 200,
+            "available_cents": 0,
+        }
+        assert LedgerEntry.objects.for_team(self.team.id).using(WRITER_DB).filter(key="spend").count() == 1
+        work.refresh_from_db(using=WRITER_DB)
+        assert work.task_run_id is not None
+        self.world.runs[work.task_run_id].status = "completed"
+        self.tick(bet)
+        money = totals(self.team.id, bet)
+        assert (money.allocated_cents, money.reserved_cents, money.spent_cents) == (300, 0, 300)
+
+    def test_usage_settlement_is_idempotent_and_unknown_cost_stays_pending(self) -> None:
+        bet = Bet.objects.for_team(self.team.id).using(WRITER_DB).get(id=self.create()["id"])
+        self.tick(bet)
+        work = self.only(bet, "tracking")
+        with (
+            patch(
+                "products.bets.backend.logic.spend.tasks.get_latest_run_by_task",
+                return_value={str(work.task_id): object()},
+            ),
+            patch("products.bets.backend.logic.spend.signals.scout_run_ids_for_source", return_value=[]),
+        ):
+            with patch(
+                "products.bets.backend.logic.spend.get_task_cost",
+                return_value=TaskRunCost(token_cost=120, compute_cost=None),
+            ):
+                reconcile_spend(bet)
+                reconcile_spend(bet)
+                assert spend_pending(bet)
+                assert totals(self.team.id, bet).spent_cents == 120
+            with patch(
+                "products.bets.backend.logic.spend.get_task_cost",
+                return_value=TaskRunCost(token_cost=170, compute_cost=30),
+            ):
+                reconcile_spend(bet)
+                assert not spend_pending(bet)
+        assert totals(self.team.id, bet).spent_cents == 200

@@ -19,6 +19,7 @@ interface TodayRowExpansion {
     expanded: boolean
     onToggle: () => void
     detail: ReactNode
+    triggerDataAttr?: string
 }
 
 interface TodayRowProps {
@@ -27,6 +28,7 @@ interface TodayRowProps {
     title: string
     label?: string
     facts: string[]
+    statusIcon?: ReactNode
     to?: string
     onOpen?: () => void
     expansion?: TodayRowExpansion
@@ -43,6 +45,7 @@ export function TodayRow({
     title,
     label,
     facts,
+    statusIcon,
     to,
     onOpen,
     expansion,
@@ -71,7 +74,7 @@ export function TodayRow({
                     <Collapsible.Trigger
                         className="TodayRow__title TodayRow__link TodayRow__toggle"
                         data-today-report={reportId}
-                        data-attr={`${dataAttr}-toggle`}
+                        data-attr={expansion.triggerDataAttr ?? `${dataAttr}-toggle`}
                     >
                         {title}
                     </Collapsible.Trigger>
@@ -89,7 +92,12 @@ export function TodayRow({
                 ) : (
                     <span className="TodayRow__title">{title}</span>
                 )}
-                <p className="TodayRow__meta">
+                <p className={`TodayRow__meta${statusIcon ? ' flex items-center gap-1.5' : ''}`}>
+                    {statusIcon && (
+                        <span aria-hidden="true" className="inline-flex size-3.5 shrink-0 items-center justify-center">
+                            {statusIcon}
+                        </span>
+                    )}
                     {[label, ...facts].filter(Boolean).map((part, index) => (
                         <span
                             key={`${index}-${part}`}

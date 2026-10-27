@@ -17,6 +17,7 @@ import { QuillSceneHeader } from '~/layout/scenes/components/QuillSceneHeader'
 
 import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { TodayPreviewCardProvider } from './TodayPreviewCardProvider'
+import { TodayProductPane } from './TodayProductPane'
 import { TodayRail } from './TodayRail'
 import { TODAY_PANES } from './todayRailItems'
 import { TODAY_RAIL_WIDTH, TODAY_SIDEBAR_CLOSE_THRESHOLD, clampSidebarWidth, todayShellLogic } from './todayShellLogic'
@@ -90,7 +91,9 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
 
     const paneContent = (
         <Suspense fallback={<Skeleton className="m-4 h-24" />}>
-            {activePane === 'home' ? null : activePane === 'spaces' ? (
+            {activePane.startsWith('product:') ? (
+                <TodayProductPane pane={activePane} />
+            ) : activePane === 'home' ? null : activePane === 'spaces' ? (
                 <TodaySpacesPane />
             ) : activePane === 'analytics' ? (
                 <TodayPreviewCardProvider disabled={phoneLayout}>

@@ -3874,6 +3874,7 @@ class TestRunRowProvenanceStamps(BaseTest):
             ("edit_only_custom", ["edit_report"], "custom", "edit", "custom"),
             ("both_tools_canonical", ["emit_report", "edit_report"], "canonical", "both", "canonical"),
             ("legacy_channel_canonical", ["emit_finding"], "canonical", "none", "canonical"),
+            ("source_owned", ["emit_report"], "custom", "emit", "custom", "bets", "bet-1"),
         ]
     )
     def test_stamps_prompt_build_channel_and_origin(
@@ -3883,8 +3884,13 @@ class TestRunRowProvenanceStamps(BaseTest):
         origin: str,
         expected_channel: str,
         expected_origin: str,
+        source_product: str | None = None,
+        source_id: str | None = None,
     ) -> None:
         config, _ = SignalScoutConfig.objects.get_or_create(team=self.team, skill_name="signals-scout-general")
+        config.source_product = source_product
+        config.source_id = source_id
+        config.save(update_fields=["source_product", "source_id"])
         run = _create_run_row(
             run_id=uuid7(),
             task_run_id=_make_task_run(self.team).id,
@@ -3896,6 +3902,12 @@ class TestRunRowProvenanceStamps(BaseTest):
         assert stamped["harness_prompt_version"] == HARNESS_PROMPT_VERSION
         assert stamped["report_channel"] == expected_channel
         assert stamped["skill_origin"] == expected_origin
+        if source_product:
+            assert stamped["source_product"] == source_product
+            assert stamped["source_id"] == source_id
+        else:
+            assert "source_product" not in stamped
+            assert "source_id" not in stamped
         # Always-present provenance key: absence would mean a run predating the field, so a False
         # default must still be stamped, not omitted.
         assert stamped["business_knowledge_maintained"] is False

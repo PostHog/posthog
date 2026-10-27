@@ -50,6 +50,7 @@ class Product(StrEnum):
     API = "api"
     AUTORESEARCH = "autoresearch"
     BATCH_EXPORT = "batch_export"
+    BETS = "bets"
     CANVAS = "canvas"
     COHORTS = "cohorts"
     CONVERSATIONS = "conversations"

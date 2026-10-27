@@ -56,6 +56,7 @@ export type TodaySessionBadge =
     | { kind: 'local' }
 
 const BADGE_SOURCES = new Set([
+    'bets',
     'slack',
     'signal_report',
     'signals_scout',

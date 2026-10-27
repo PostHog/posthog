@@ -18,12 +18,15 @@ from pydantic import JsonValue
 
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.facade.api import upload_task_run_artifacts
 from products.tasks.backend.facade.contracts import AgentTaskRunDTO, SessionFile
+from products.tasks.backend.feature_flags import own_subscription_cloud_enabled
+from products.tasks.backend.logic.services.unattended_plan import unattended_model_access_state
 from products.tasks.backend.models import MCPBuiltInAgentKey, Task, TaskRun, stamp_pending_user_message_id
 
 if TYPE_CHECKING:
@@ -123,6 +126,8 @@ class CustomPromptSandboxContext:
     default. ``None`` keeps the agent server's default harness (only valid when ``model`` is also
     ``None``)."""
     runtime: str = "acp"
+    use_connected_plan: bool = False
+    """Require the acting user's connected plan; never silently fall back to gateway billing."""
     """The agent protocol driving the task's runs (``Task.Runtime``: ``"acp"`` or ``"pi"``)."""
     reasoning_effort: str | None = None
     """Reasoning-effort tier for ``model`` (e.g. ``"xhigh"``). Only meaningful alongside a pinned
@@ -338,6 +343,14 @@ async def _create_task_and_trigger(
         context.posthog_mcp_scopes if context.posthog_mcp_scopes is not None else "full"
     )
     extra_run_state: dict[str, Any] = {}
+    if context.use_connected_plan:
+        owner = await sync_to_async(User.objects.get)(id=context.user_id)
+        plan_state = await sync_to_async(unattended_model_access_state)(owner, runtime_adapter=context.runtime_adapter)
+        if not plan_state or not await sync_to_async(own_subscription_cloud_enabled)(
+            context.runtime_adapter or "", distinct_id=owner.distinct_id, organization_id=str(team.organization_id)
+        ):
+            raise ValueError("This headless run requires an available connected ChatGPT plan.")
+        extra_run_state.update(plan_state)
     if context.system_prompt is not None:
         extra_run_state["systemPrompt"] = context.system_prompt
     if context.mcp_exclude_tools:

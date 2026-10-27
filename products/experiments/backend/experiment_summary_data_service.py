@@ -9,7 +9,6 @@ from posthoganalytics import capture_exception
 
 from posthog.schema import (
     CacheMissResponse,
-    ExperimentExposureQuery,
     ExperimentQuery,
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
@@ -24,12 +23,16 @@ from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 
 from products.experiments.backend.facade.contracts import MAX_METRICS_TO_SUMMARIZE, ExperimentSummaryData
-from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
+from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import (
+    ExperimentExposuresQueryRunner,
+    build_experiment_exposure_query,
+)
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.metric_resolution import (
@@ -41,11 +44,12 @@ from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment, get_experiment_rule, metric_display_rank
 
 
-@dataclass
+@frozen
 class MetricQueryResult:
     metric_result: MaxExperimentMetricResult | None
     refresh_time: datetime | None
     pending: bool
+    sample_counts: dict[str, int] | None = None
 
 
 @dataclass
@@ -126,7 +130,9 @@ class ExperimentSummaryDataService:
         self._team = team
         self._user = user
 
-    async def fetch_experiment_data(self, experiment_id: int) -> ExperimentSummaryData:
+    async def fetch_experiment_data(
+        self, experiment_id: int, *, cache_age_seconds: int | None = None
+    ) -> ExperimentSummaryData:
         """Fetch experiment data from the database and run cached queries concurrently."""
         team_id = self._team.id
 
@@ -187,6 +193,7 @@ class ExperimentSummaryDataService:
                     result = query_runner.run(
                         execution_mode=execution_mode,
                         user=self._user,
+                        cache_age_seconds=cache_age_seconds,
                         analytics_props={"source": EventSource.POSTHOG_AI},
                     )
                 refresh_time = getattr(result, "last_refresh", None)
@@ -202,6 +209,9 @@ class ExperimentSummaryDataService:
                     transform_variant_for_max(v, stats_method, metric_goal) for v in result.variant_results
                 ]
                 metric_name = metric_dict.get("name") or get_default_metric_title(metric_dict)
+                sample_counts = {variant.key: variant.number_of_samples for variant in result.variant_results}
+                if result.baseline is not None:
+                    sample_counts[result.baseline.key] = result.baseline.number_of_samples
 
                 return MetricQueryResult(
                     metric_result=MaxExperimentMetricResult(
@@ -211,6 +221,7 @@ class ExperimentSummaryDataService:
                     ),
                     refresh_time=refresh_time,
                     pending=False,
+                    sample_counts=sample_counts,
                 )
 
             async with semaphore:
@@ -220,15 +231,7 @@ class ExperimentSummaryDataService:
             @database_sync_to_async(thread_sensitive=settings.TEST)
             def _run_query():
                 try:
-                    exposure_query = ExperimentExposureQuery(
-                        experiment_id=experiment_id,
-                        experiment_name=experiment.name,
-                        feature_flag={"key": feature_flag.key, "filters": feature_flag.filters},
-                        start_date=experiment.start_date.isoformat() if experiment.start_date else None,
-                        end_date=experiment.end_date.isoformat() if experiment.end_date else None,
-                        exposure_criteria=experiment.exposure_criteria,
-                        holdout=experiment.holdout,
-                    )
+                    exposure_query = build_experiment_exposure_query(experiment)
                     with tags_context(
                         product=Product.MAX_AI, team_id=experiment.team.pk, org_id=experiment.team.organization_id
                     ):
@@ -243,6 +246,7 @@ class ExperimentSummaryDataService:
                         exposure_result = exposure_runner.run(
                             execution_mode=execution_mode,
                             user=self._user,
+                            cache_age_seconds=cache_age_seconds,
                             analytics_props={"source": EventSource.POSTHOG_AI},
                         )
 
@@ -324,6 +328,7 @@ class ExperimentSummaryDataService:
         # Aggregate results
         latest_refresh: datetime | None = None
         pending_calculation = False
+        metric_sample_counts: list[dict[str, int]] = []
 
         def process_metric_results(
             query_results: list[MetricQueryResult | BaseException],
@@ -338,6 +343,7 @@ class ExperimentSummaryDataService:
                     pending_calculation = True
                 if qr.metric_result:
                     results.append(qr.metric_result)
+                    metric_sample_counts.append(qr.sample_counts or {})
                 if qr.refresh_time and (latest_refresh is None or qr.refresh_time > latest_refresh):
                     latest_refresh = qr.refresh_time
             return results
@@ -372,4 +378,5 @@ class ExperimentSummaryDataService:
             last_refresh=latest_refresh,
             pending_calculation=pending_calculation,
             omitted_metric_count=omitted_metric_count,
+            metric_sample_counts=tuple(metric_sample_counts),
         )

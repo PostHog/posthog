@@ -1492,7 +1492,6 @@ const ExperimentUpdateSchema = () => {
                     repository: true,
                     primary_metrics_ordered_uuids: true,
                     secondary_metrics_ordered_uuids: true,
-                    only_count_matured_users: true,
                     version: true,
                     original_experiment: true,
                 }).shape
@@ -1566,6 +1565,9 @@ const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>,
                 if (params.conclusion_comment !== undefined) {
                     body['conclusion_comment'] = params.conclusion_comment
                 }
+                if (params.only_count_matured_users !== undefined) {
+                    body['only_count_matured_users'] = params.only_count_matured_users
+                }
                 if (params.update_feature_flag_params !== undefined) {
                     body['update_feature_flag_params'] = params.update_feature_flag_params
                 }
@@ -1600,6 +1602,7 @@ const experimentUpdate = (): ToolBase<ReturnType<typeof ExperimentUpdateSchema>,
                     'excluded_variants',
                     'metrics',
                     'metrics_secondary',
+                    'only_count_matured_users',
                     'saved_metrics.*.id',
                     'saved_metrics.*.experiment',
                     'saved_metrics.*.saved_metric',

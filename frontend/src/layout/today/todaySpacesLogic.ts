@@ -422,6 +422,9 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
                         created_by: values.user.id,
                         // Scout runs execute as their author and would fill the capped list.
                         exclude_origin_product: TasksListExcludeOriginProduct.SignalsScout,
+                        exclude_origin_products: values.recentFilters.sources.includes('bets')
+                            ? undefined
+                            : [TasksListExcludeOriginProduct.Bets],
                         ordering: '-last_activity_at',
                         basic: true,
                         limit: RECENT_SESSION_LIMIT,
@@ -643,6 +646,9 @@ export const todaySpacesLogic = kea<todaySpacesLogicType>([
         }
     }),
     listeners(({ actions, values }) => ({
+        setRecentFilters: () => actions.loadRecentTasks(),
+        clearRecentFilters: () => actions.loadRecentTasks(),
+        clearRecentSearchAndFilters: () => actions.loadRecentTasks(),
         setPhoneSection: ({ section }) => {
             posthog.capture('today spaces section picked', { section })
         },

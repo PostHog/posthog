@@ -1862,3 +1862,28 @@ expose = [
 from = [
     "products.authorization",
 ]
+
+[[modules]]
+path = "products.bets"
+depends_on = [
+    "posthog",
+    "products.access_control",
+    "products.annotations",
+    "products.cohorts",
+    "products.event_definitions",
+    "products.experiments",
+    "products.feature_flags",
+    "products.notifications",
+    "products.revenue_analytics",
+    "products.tasks",
+]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.bets",
+]

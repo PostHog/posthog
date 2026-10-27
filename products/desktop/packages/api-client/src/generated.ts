@@ -19819,6 +19819,7 @@ export namespace Schemas {
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
+     * * `bets` - Bets
      * * `signal_report` - Signal Report
      * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
@@ -19847,6 +19848,7 @@ export namespace Schemas {
         | "session_summaries"
         | "posthog_ai"
         | "experiments"
+        | "bets"
         | "signal_report"
         | "autoresearch"
         | "signals_scout"
@@ -23065,6 +23067,7 @@ export namespace Endpoints {
                     | "session_summaries"
                     | "posthog_ai"
                     | "experiments"
+                    | "bets"
                     | "signal_report"
                     | "autoresearch"
                     | "signals_scout"
@@ -23081,6 +23084,35 @@ export namespace Endpoints {
                     | "space_setup"
                     | "business_knowledge"
                     | "metrics_import";
+                exclude_origin_products: Array<
+                    | "onboarding"
+                    | "account_audit"
+                    | "error_tracking"
+                    | "eval_clusters"
+                    | "user_created"
+                    | "slack"
+                    | "support_queue"
+                    | "session_summaries"
+                    | "posthog_ai"
+                    | "experiments"
+                    | "bets"
+                    | "signal_report"
+                    | "autoresearch"
+                    | "signals_scout"
+                    | "scout_suggestions"
+                    | "support_reply"
+                    | "hogdesk"
+                    | "review_hog"
+                    | "image_builder"
+                    | "loop"
+                    | "mcp_analytics"
+                    | "signals_chat"
+                    | "task_analysis"
+                    | "workflow"
+                    | "space_setup"
+                    | "business_knowledge"
+                    | "metrics_import"
+                >;
                 hog_flow_id: string;
                 internal: "true" | "false" | "all";
                 limit: number;
@@ -23095,6 +23127,7 @@ export namespace Endpoints {
                 search: string;
                 sources: Array<
                     | "autoresearch"
+                    | "bets"
                     | "error_tracking"
                     | "eval_clusters"
                     | "experiments"

@@ -129,7 +129,7 @@ def mcp_scopes_for_run_source(run_source: RunSource | None) -> Literal["read_onl
 
 
 # Origins whose runs are meant to carry a human git identity; everything else is bot-authored.
-USER_AUTHORABLE_ORIGIN_PRODUCTS: tuple[str, ...] = ("user_created", "slack", "posthog_ai")
+USER_AUTHORABLE_ORIGIN_PRODUCTS: tuple[str, ...] = ("user_created", "slack", "posthog_ai", "bets")
 
 
 # The labels repeat the values because the published OpenAPI enum lists these exact pairs.
@@ -1590,11 +1590,22 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
             raise GatewayNotConfiguredError("Pi scouts require the AI gateway")
         record_gateway_routing(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=False)
         return {}
+    from products.tasks.backend.facade.task_run_signals import (
+        task_run_spend_limit,  # noqa: PLC0415 - product budget readers run only during sandbox provisioning
+    )
+
+    origin_key = getattr(task, "origin_key", None)
+    may_have_budget = getattr(task, "pk", None) is not None and (
+        (isinstance(origin_key, str) and origin_key.startswith("bets:"))
+        or ctx.origin_product in ("signals_scout", "signal_report")
+    )
+    max_cost_cents = task_run_spend_limit(ctx.run_id, ctx.team_id) if may_have_budget else None
     ai_stage = (ctx.state or {}).get("ai_stage")
     requires_go = resolve_sandbox_ai_product(ctx.origin_product, ai_stage, internal=task.internal) == (
         POSTHOG_CODE_PRODUCT
     )
     requires_pi_scout = ctx.task_runtime == "pi" and ctx.origin_product == "signals_scout"
+    requires_go = requires_go or max_cost_cents is not None
     try:
         env_vars = ai_gateway_env_vars(
             team_id=ctx.team_id,
@@ -1606,7 +1617,10 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
             state=ctx.state,
             model=ctx.model,
             runtime=ctx.task_runtime,
+            **({"max_cost_cents": max_cost_cents} if max_cost_cents is not None else {}),
         )
+        if max_cost_cents is not None and not env_vars.get("AI_GATEWAY_TOKEN"):
+            raise GatewayNotConfiguredError("Bets requires an admitted capped token from the AI gateway.")
         pinned = env_vars.pop(_PIN_KEY_ENV, None) or env_vars.get("AI_GATEWAY_PRODUCT")
         if not _record_pinned_gateway_product(ctx.run_id, ctx.state, pinned):
             if requires_go:
@@ -1709,6 +1723,7 @@ def ai_gateway_env_vars(
     model: str | None = None,
     runtime: str | None = None,
     prior_slack_run: bool = False,
+    max_cost_cents: int | None = None,
 ) -> dict[str, str]:
     """Env vars routing listed products to the Go ai-gateway, shared by every
     injection site so the both-or-nothing guard cannot drift per site. Both
@@ -1801,6 +1816,8 @@ def ai_gateway_env_vars(
             mint_kwargs: dict[str, Any] = {}
             if requires_pi_scout:
                 mint_kwargs["raise_on_failure"] = True
+            if max_cost_cents is not None:
+                mint_kwargs["max_cost_cents"] = max_cost_cents
             if ai_product == POSTHOG_CODE_PRODUCT:
                 free_pin = posthog_code_allowed_models(team_id)
                 if free_pin is not None:
@@ -1809,7 +1826,11 @@ def ai_gateway_env_vars(
             token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id, **mint_kwargs)
             if token:
                 env_vars["AI_GATEWAY_TOKEN"] = token
-                env_vars["AI_GATEWAY_TOKEN_CAP_USD"] = token_cap_usd(team_id, ai_product)
+                env_vars["AI_GATEWAY_TOKEN_CAP_USD"] = (
+                    str(min(float(token_cap_usd(team_id, ai_product)), max_cost_cents / 100))
+                    if max_cost_cents is not None
+                    else token_cap_usd(team_id, ai_product)
+                )
                 env_vars["AI_GATEWAY_PRODUCT"] = ai_product
                 if "allowed_models" in mint_kwargs:
                     env_vars[_PIN_KEY_ENV] = FREE_TIER_PIN_KEY

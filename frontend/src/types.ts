@@ -6162,6 +6162,7 @@ export type PromptFlag = {
 
 // Should be kept in sync with "posthog/models/activity_logging/activity_log.py"
 export enum ActivityScope {
+    BET = 'Bet',
     DATA_QUALITY_CHECK_SCHEDULE = 'DataQualityCheckSchedule',
     DEV_GATEWAY_TOKEN = 'DevGatewayToken',
     ACTION = 'Action',
@@ -7934,8 +7935,19 @@ export interface FeaturePreviewGateConfig {
     productIntent?: ProductKey
 }
 
+export interface ProductRailPane {
+    key: `product:${string}`
+    label: string
+    icon: JSX.Element
+    path: string
+    href: () => string
+    flag: string
+    sidebarScene: string
+}
+
 export interface ProductManifest {
     name: string
+    railPane?: ProductRailPane
     scenes?: Record<string, SceneConfig>
     routes?: Record<string, [string /** Scene */, string /** Scene Key (unique for layout tabs) */]>
     redirects?: Record<string, string | ((params: Params, searchParams: Params, hashParams: Params) => string)>

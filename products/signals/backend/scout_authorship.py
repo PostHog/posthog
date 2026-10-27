@@ -8,6 +8,8 @@ on a request path resolve it from Postgres here.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from django.db.models import CharField, Exists, OuterRef, Q, QuerySet
 from django.db.models.functions import Cast, JSONArray
 
@@ -129,6 +131,26 @@ def resolve_background_authoring_runs(team_id: int, report_ids: list[str]) -> di
 
 def report_is_from_background_scout(team_id: int, report_id: str) -> bool:
     return report_id in resolve_background_authoring_runs(team_id, [report_id])
+
+
+def scout_runs_for_source(
+    team_id: int, source_product: str, source_ids: Sequence[str] | None = None
+) -> QuerySet[SignalScoutRun]:
+    configs = SignalScoutConfig.objects.for_team(team_id).filter(source_product=source_product)
+    provenance = Q(metadata__source_product=source_product)
+    if source_ids is not None:
+        configs = configs.filter(source_id__in=source_ids)
+        provenance &= Q(metadata__source_id__in=source_ids)
+    # The snapshot survives config deletion. Older runs can still resolve through their own
+    # config, but matching a reused skill name would attribute another scout's reports and spend.
+    legacy = Q(scout_config_id__in=configs.values("id")) & (
+        Q(metadata__isnull=True) | ~Q(metadata__has_key="source_product")
+    )
+    return SignalScoutRun.objects.for_team(team_id).filter(provenance | legacy)
+
+
+def report_requires_manual_implementation(team_id: int, report_id: str) -> bool:
+    return scout_runs_for_source(team_id, "bets").filter(emitted_report_ids__contains=[str(report_id)]).exists()
 
 
 def _inbox_opted_out_runs(team_id: int) -> QuerySet[SignalScoutRun]:

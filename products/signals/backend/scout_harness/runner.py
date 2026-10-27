@@ -34,6 +34,7 @@ from products.data_catalog.backend.facade.api import approved_metric_names_for_t
 from products.mcp_store.backend.facade.api import get_sandbox_mcp_server_names
 from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, resolve_agent_runtime
 from products.signals.backend.constants import FIRST_REPORT_SCOUT, FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
+from products.signals.backend.facade.source_events import scout_source_context, scout_source_refusal
 from products.signals.backend.first_report_completion import complete_first_report_investigation
 from products.signals.backend.first_report_experiment import FirstReportExperiment, resolve_first_report_experiment
 from products.signals.backend.first_report_scout import set_first_report_state
@@ -366,6 +367,27 @@ async def _arun_signals_scout(
         config = await database_sync_to_async(_get_trial_config, thread_sensitive=False)(trial)
         config.write_scopes = []
         skill = replace(skill, body=trial.skill_body)
+
+    if config.source_product:
+        refusal = await database_sync_to_async(scout_source_refusal, thread_sensitive=False)(
+            config.source_product, team.id, config.source_id or ""
+        )
+        if refusal:
+            return RunResult(
+                run_id=None,
+                task_run_id=None,
+                status=None,
+                last_message=None,
+                runtime_s=0.0,
+                skill_name=skill.name,
+                skill_version=skill.version,
+                skip_reason=refusal,
+            )
+        context = await database_sync_to_async(scout_source_context, thread_sensitive=False)(
+            config.source_product, team.id, config.source_id or ""
+        )
+        if context:
+            run_note = f"{context}\n\n{run_note or ''}"
 
     # Stale-run recovery, before the skip-if-running guard below. A scout run writes its own
     # terminal `task_run.status` from inside the activity; if the worker/sandbox dies hard
@@ -1059,6 +1081,15 @@ async def _spawn_and_run(
     context = CustomPromptSandboxContext(
         team_id=team.id,
         user_id=user_id,
+        use_connected_plan=(
+            config.source_product == "bets"
+            and bool(
+                await database_sync_to_async(tasks_facade.unattended_model_access_state, thread_sensitive=False)(
+                    await database_sync_to_async(User.objects.get, thread_sensitive=False)(id=user_id),
+                    runtime_adapter=runtime_adapter,
+                )
+            )
+        ),
         repositories=tuple(repositories),
         sandbox_environment_id=sandbox_env_id,
         # `signals_scout` is the harness's own scope posture: project reads +
@@ -1514,6 +1545,9 @@ def _create_run_row(
     # Both inputs can change between runs, so like `github_guidance` this is stamped rather than
     # re-derived at read time, letting an eval or A/B compare only runs that got the same prompt.
     metadata["business_knowledge_maintained"] = business_knowledge_maintained
+    if config.source_product:
+        metadata["source_product"] = config.source_product
+        metadata["source_id"] = config.source_id
     # Stamped only for background-managed scouts, because a person who edits the config takes it over
     # and deleting it nulls `scout_config`. Reports this run authors keep their background origin.
     if config.managed_by == SignalScoutConfig.ManagedBy.BACKGROUND:

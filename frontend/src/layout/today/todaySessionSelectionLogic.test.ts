@@ -86,12 +86,24 @@ describe('todaySessionSelectionLogic', () => {
         jest.restoreAllMocks()
     })
 
-    it('excludes scout runs from Recent but not from Pinned', () => {
+    it('excludes automated scout and Bets work from Recent while keeping pinned work', async () => {
         const pinnedRequest = listRequests.find((params) => params.has('pinned'))
         const recentRequest = listRequests.find((params) => params.has('created_by'))
 
         expect(recentRequest?.get('exclude_origin_product')).toBe('signals_scout')
+        expect(recentRequest?.get('exclude_origin_products')).toBe('bets')
         expect(pinnedRequest?.has('exclude_origin_product')).toBe(false)
+        expect(pinnedRequest?.has('exclude_origin_products')).toBe(false)
+
+        await expectLogic(todaySpacesLogic, () => {
+            todaySpacesLogic.actions.setRecentFilters({ ...todaySpacesLogic.values.recentFilters, sources: ['bets'] })
+        }).toDispatchActions(['loadRecentTasksSuccess'])
+        expect(listRequests.at(-1)?.has('exclude_origin_products')).toBe(false)
+
+        await expectLogic(todaySpacesLogic, () => {
+            todaySpacesLogic.actions.clearRecentFilters()
+        }).toDispatchActions(['loadRecentTasksSuccess'])
+        expect(listRequests.at(-1)?.get('exclude_origin_products')).toBe('bets')
     })
 
     it.each([

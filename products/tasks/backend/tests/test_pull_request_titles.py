@@ -39,6 +39,7 @@ class TestPullRequestTitles(APIBaseTest):
         graphql.return_value = {"pr0": {"pullRequest": {"title": "Fix the example"}}}
 
         first = pull_request_titles(self.team.id, self.user.id, [self.task.id])
+        TaskRun.objects.create(task=self.task, team=self.team, status="in_progress", output={})
         second = pull_request_titles(self.team.id, self.user.id, [self.task.id])
 
         expected = {"https://github.com/example/repo/pull/1": "Fix the example"}

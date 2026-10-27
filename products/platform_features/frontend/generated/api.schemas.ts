@@ -1392,6 +1392,7 @@ export type ActivityLogListParams = {
     /**
      * Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".
      *
+     * * `Bet` - Bet
      * * `Cohort` - Cohort
      * * `CrossProjectDashboard` - CrossProjectDashboard
      * * `DevGatewayToken` - DevGatewayToken
@@ -1508,6 +1509,7 @@ export type ActivityLogListParams = {
 export type ActivityLogListScope = (typeof ActivityLogListScope)[keyof typeof ActivityLogListScope]
 
 export const ActivityLogListScope = {
+    Bet: 'Bet',
     Cohort: 'Cohort',
     CrossProjectDashboard: 'CrossProjectDashboard',
     DevGatewayToken: 'DevGatewayToken',
@@ -1611,6 +1613,7 @@ export const ActivityLogListScope = {
 } as const
 
 /**
+ * * `Bet` - Bet
  * * `Cohort` - Cohort
  * * `CrossProjectDashboard` - CrossProjectDashboard
  * * `DevGatewayToken` - DevGatewayToken
@@ -1715,6 +1718,7 @@ export const ActivityLogListScope = {
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
 export const ActivityLogListScopesItem = {
+    Bet: 'Bet',
     Cohort: 'Cohort',
     CrossProjectDashboard: 'CrossProjectDashboard',
     DevGatewayToken: 'DevGatewayToken',

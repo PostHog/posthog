@@ -387,6 +387,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
         POSTHOG_AI = "posthog_ai", "PostHog AI"
         EXPERIMENTS = "experiments", "Experiments"
+        BETS = "bets", "Bets"
         # Unlike the others (which indicate direct creation from that product, e.g. a "fix this error" button),
         # signal report tasks originate indirectly via signals from other products.
         SIGNAL_REPORT = "signal_report", "Signal Report"
@@ -1474,6 +1475,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         client_provenance: TaskClientProvenance | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        origin_key: str | None = None,
     ) -> "Task":
         """Create the Task row without an initial run or workflow.
 
@@ -1504,6 +1506,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             client_provenance=client_provenance,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            origin_key=origin_key,
         )
         task.save()
         return task

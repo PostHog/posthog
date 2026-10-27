@@ -323,3 +323,5 @@ user_logged_in:posthog.models.activity_logging.signal_handlers.log_user_login_ac
 user_logged_in:posthog.models.activity_logging.signal_handlers.post_login
 user_logged_out:posthog.models.activity_logging.signal_handlers.log_user_logout_activity
 user_logged_out:posthog.models.oauth._revoke_impersonation_oauth_tokens
+model_activity:products.bets.backend.activity_logging.handle_bet_change
+post_save:products.tasks.backend.facade.task_run_signals.connect_task_run_finished.<locals>.forward

@@ -19,7 +19,7 @@ from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
-from products.tasks.backend.facade.api import set_task_run_output, update_task_run
+from products.tasks.backend.facade.api import refresh_pull_requests_for_tasks, set_task_run_output, update_task_run
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.tasks.tasks import reconcile_task_run_pull_request
 from products.tasks.backend.webhooks import handle_pull_request_event
@@ -129,15 +129,23 @@ class TestPullRequestReconciliation(TestCase):
         self._reconcile()
         self.assertEqual(self.link.call_count, calls)
 
-    @parameterized.expand(list(product(("open", "draft", "closed", "merged"), (False, True))))
-    def test_reconciles_current_status(self, state: str, secondary: bool) -> None:
+    @parameterized.expand(list(product(("open", "draft", "closed", "merged"), (False, True), (False, True))))
+    def test_reconciles_current_status(self, state: str, secondary: bool, refresh: bool) -> None:
         self._write(secondary=secondary)
+        if refresh:
+            self._reconcile()
         self.snapshot.update(
             state="closed" if state in {"closed", "merged"} else "open",
             draft=state == "draft",
             merged=state == "merged",
         )
-        self._reconcile()
+        if refresh:
+            self.fetch.reset_mock()
+            refresh_pull_requests_for_tasks(self.team.id + 1000, self.user.id, [self.task.id])
+            self.fetch.assert_not_called()
+            refresh_pull_requests_for_tasks(self.team.id, self.user.id, [self.task.id])
+        else:
+            self._reconcile()
         self.task_run.refresh_from_db()
         assert isinstance(self.task_run.output, dict)
         if secondary:

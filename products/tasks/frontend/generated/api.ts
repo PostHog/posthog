@@ -2868,7 +2868,7 @@ export const getTasksPullRequestTitlesCreateUrl = (projectId: string) => {
 }
 
 /**
- * Returns the GitHub titles of the pull requests that the latest run of each task opened.
+ * Returns GitHub titles from each task's most recent run with pull requests, including during a follow-up run.
  * @summary Fetch pull request titles for tasks
  */
 export const tasksPullRequestTitlesCreate = async (

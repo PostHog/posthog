@@ -9643,6 +9643,9 @@
             "maxLength": 400,
             "type": "string"
         },
+        "only_count_matured_users": {
+            "type": "boolean"
+        },
         "running_time_calculation": {
             "anyOf": [
                 {

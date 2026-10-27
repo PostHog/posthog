@@ -28,6 +28,7 @@ class ExperimentSummaryData:
     last_refresh: datetime | None
     pending_calculation: bool
     omitted_metric_count: int
+    metric_sample_counts: tuple[dict[str, int], ...] = ()
 
 
 @frozen
@@ -328,6 +329,18 @@ class Experiment:
     start_date: datetime | None = None
     end_date: datetime | None = None
     updated_at: datetime | None = None
+    has_primary_metric: bool = False
+
+
+@frozen
+class ExperimentActivityEvent:
+    id: str
+    at: datetime
+    scope: str
+    item_id: str
+    name: str
+    activity: str
+    changes: list[dict[str, Any]]
 
 
 @frozen

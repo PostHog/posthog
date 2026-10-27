@@ -175,6 +175,12 @@ def mint_settings(settings):
     return settings
 
 
+@pytest.fixture(autouse=True)
+def product_spend_limits():
+    with patch("products.tasks.backend.facade.task_run_signals.task_run_spend_limit", return_value=None):
+        yield
+
+
 @pytest.fixture(
     params=[None, AIGatewayConfig(url="https://service-gateway.example.com/v1/", api_key="phs_test_service")],
     ids=["sandbox-settings", "service-settings"],
@@ -188,6 +194,13 @@ def gateway_config(request: pytest.FixtureRequest, mint_settings: Settings) -> A
 
 
 class TestMintScopedToken:
+    @pytest.mark.parametrize("limit,expected", [(25, "0.25"), (5000, "30.0")])
+    def test_product_budget_only_narrows_native_gateway_cap(self, mint_settings, limit: int, expected: str) -> None:
+        with patch.object(requests, "post") as post:
+            post.return_value = self._response(201, {"token": "phe_example"})
+            assert mint_scoped_token(ai_product="signals_scout", team_id=123, max_cost_cents=limit) == "phe_example"
+        assert post.call_args.kwargs["json"]["cap_usd"] == expected
+
     def _response(self, status_code=201, body=None):
         response = MagicMock()
         response.status_code = status_code

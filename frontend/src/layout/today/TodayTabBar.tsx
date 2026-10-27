@@ -4,6 +4,10 @@ import { IconSearch } from '@posthog/icons'
 import { cn } from '@posthog/quill'
 
 import { commandLogic } from 'lib/components/Command/commandLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
+
+import { productRailPanes } from '~/products'
 
 import { TODAY_PANES, TODAY_RAIL_PANES } from './todayRailItems'
 import { todayShellLogic } from './todayShellLogic'
@@ -13,13 +17,19 @@ const TAB_CLASS =
 
 export function TodayTabBar(): JSX.Element {
     const { activePane } = useValues(todayShellLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { clickRailPane } = useActions(todayShellLogic)
     const { toggleCommand } = useActions(commandLogic)
 
     return (
         <div className="TodayTabBar" data-quill>
             <nav aria-label="Main" className="flex h-14 min-w-0 flex-1 gap-1">
-                {TODAY_RAIL_PANES.map((pane) => {
+                {[
+                    ...TODAY_RAIL_PANES,
+                    ...productRailPanes
+                        .filter((pane) => isFileSystemImportFlagEnabled(pane, featureFlags))
+                        .map((pane) => pane.key),
+                ].map((pane) => {
                     const { label, icon } = TODAY_PANES[pane]
                     const active = activePane === pane
                     return (

@@ -111,14 +111,19 @@ describe('experiment variant notes and screenshots', () => {
         expect(stored.parameters.variant_notes).toEqual({ control: 'first edit', test: 'second edit' })
     })
 
-    it('experiment-update does not read or send parameters without variant inputs', async () => {
-        const { context, request } = contextWith({ PATCH: { id: 1 } })
+    it.each([undefined, false, true])(
+        'experiment-update forwards maturity %s without changing variant parameters',
+        async (matured) => {
+            const { context, request } = contextWith({ PATCH: { id: 1, only_count_matured_users: matured } })
+            const maturity = matured === undefined ? {} : { only_count_matured_users: matured }
 
-        await run('experiment-update', context, { id: 1, name: 'Renamed' })
+            const result = await run('experiment-update', context, { id: 1, name: 'Renamed', ...maturity })
 
-        expect(request.mock.calls.map(([options]) => options.method)).toEqual(['PATCH'])
-        expect(sentBody(request, 'PATCH')).toEqual({ name: 'Renamed' })
-    })
+            expect(request.mock.calls.map(([options]) => options.method)).toEqual(['PATCH'])
+            expect(sentBody(request, 'PATCH')).toEqual({ name: 'Renamed', ...maturity })
+            expect(result).toMatchObject(maturity)
+        }
+    )
 
     it('experiment-get maps each variant screenshot media ID to its viewable URL', async () => {
         const { context } = contextWith({

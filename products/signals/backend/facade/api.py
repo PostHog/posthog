@@ -66,6 +66,7 @@ from products.signals.backend.inbox_summary import (
 from products.signals.backend.models import (
     SignalReport,
     SignalReportPullRequest,
+    SignalReportTask,
     SignalScoutConfig,
     SignalScoutRun,
     SignalSourceConfig,
@@ -98,6 +99,7 @@ from products.signals.backend.report_urls import (
     ReportLinkSource as ReportLinkSource,
     report_path as report_path,
 )
+from products.signals.backend.scout_authorship import scout_runs_for_source
 from products.signals.backend.scout_harness.create_access import can_create_scout
 from products.signals.backend.scout_harness.limits import (
     # Re-exported so a workflow step's note is capped at the same length as a manual run's note.
@@ -123,6 +125,8 @@ from products.signals.backend.spend import signal_id_for
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded as ReportTaskCapExceeded
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import is_sandbox_run_request
+
+from .source_events import scout_source_refusal
 
 if TYPE_CHECKING:
     from products.tasks.backend.facade.repo_selection import RepoSelectionResult
@@ -1249,6 +1253,18 @@ class ScoutReport:
     # Charts the scout attached, in the stored `{chart_id, title, query, caption?, size?}` shape. The
     # summary places one inline with a `[label](chart:<chart_id>)` link.
     charts: list[dict[str, Any]]
+    implementation_task_id: uuid.UUID | None = None
+    status: str = "ready"
+
+
+def task_has_source_report(team_id: int, task_id: str | uuid.UUID, source_product: str) -> bool:
+    report_ids = SignalReportTask.objects.filter(
+        team_id=team_id, task_id=task_id, relationship="implementation"
+    ).values_list("report_id", flat=True)
+    return any(
+        scout_runs_for_source(team_id, source_product).filter(emitted_report_ids__contains=[str(report_id)]).exists()
+        for report_id in report_ids
+    )
 
 
 def scout_reports_for_source(
@@ -1261,24 +1277,15 @@ def scout_reports_for_source(
 ) -> list[ScoutReport]:
     """Reports filed by the scouts another product stood up for one of its objects, newest first.
 
-    `(source_product, source_id)` is recorded on the config at creation and is not user-editable, so
+    `(source_product, source_id)` is stamped on the run at dispatch and is not user-editable, so
     this doubles as the ownership check: a report filed by a scout belonging to something else is not
     returned, which lets a caller answer "is this report mine to show?" without reading scout tables.
     """
-    skill_names = list(
-        SignalScoutConfig.objects.for_team(team_id)
-        .filter(source_product=source_product, source_id=source_id)
-        .values_list("skill_name", flat=True)
-    )
-    if not skill_names:
-        return []
-
     # Authorship only, never `edited_report_ids`: `edit_report` resolves its target by team alone, so
     # a scout can edit a report it did not write. Treating an edit as ownership would expose any
     # report one of these scouts happened to touch to a caller who only has access to this source.
     runs = (
-        SignalScoutRun.objects.for_team(team_id)
-        .filter(skill_name__in=skill_names)
+        scout_runs_for_source(team_id, source_product, [source_id])
         # A run that filed nothing cannot contribute a report, and a scout that runs often but files
         # rarely would otherwise stream its whole history through here to return a short list. With
         # empty runs excluded, `limit` rows is always enough, so Postgres stops rather than Python.
@@ -1330,9 +1337,42 @@ def scout_reports_for_source(
                 title=row.title or "",
                 summary=row.summary or "",
                 charts=row.charts or [],
+                status=row.status,
+                implementation_task_id=SignalReportTask.objects.filter(
+                    team_id=team_id, report_id=row.id, relationship="implementation"
+                )
+                .order_by("-created_at")
+                .values_list("task_id", flat=True)
+                .first(),
             )
         )
     return reports
+
+
+def scout_run_ids_for_source(team_id: int, source_product: str, source_ids: list[str]) -> list[uuid.UUID]:
+    return list(scout_runs_for_source(team_id, source_product, source_ids).values_list("task_run_id", flat=True))
+
+
+def scout_source_for_run(team_id: int, run_id: uuid.UUID, source_product: str) -> str | None:
+    run = (
+        scout_runs_for_source(team_id, source_product).filter(task_run_id=run_id).select_related("scout_config").first()
+    )
+    if run is None:
+        return None
+    metadata = run.metadata or {}
+    if "source_product" in metadata:
+        source_id = metadata.get("source_id")
+        return source_id if isinstance(source_id, str) else None
+    return run.scout_config.source_id if run.scout_config else None
+
+
+def run_scout_for_source(team_id: int, source_product: str, config_id: str) -> WorkflowScoutRunStarted:
+    config = SignalScoutConfig.objects.for_team(team_id).filter(id=config_id, source_product=source_product).first()
+    if config is None:
+        raise ValueError("This Scout does not belong to the requested source.")
+    if refusal := scout_source_refusal(source_product, team_id, config.source_id or ""):
+        raise ValueError(refusal)
+    return start_workflow_scout_run(team_id=team_id, skill_name=config.skill_name)
 
 
 def update_scout_for_source(
@@ -1405,6 +1445,7 @@ class SourceScout:
     skill_name: str
     enabled: bool
     created_at: datetime
+    model: str | None = None
 
 
 @frozen
@@ -1436,9 +1477,11 @@ def scouts_for_source(
     if tag is not None:
         configs = configs.filter(tags__contains=[tag])
     return [
-        SourceScout(config_id=str(config_id), skill_name=skill_name, enabled=enabled, created_at=created_at)
-        for config_id, skill_name, enabled, created_at in configs.order_by("created_at").values_list(
-            "id", "skill_name", "enabled", "created_at"
+        SourceScout(
+            config_id=str(config_id), skill_name=skill_name, enabled=enabled, created_at=created_at, model=model
+        )
+        for config_id, skill_name, enabled, created_at, model in configs.order_by("created_at").values_list(
+            "id", "skill_name", "enabled", "created_at", "model"
         )
     ]
 

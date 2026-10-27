@@ -9,13 +9,18 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from django.db.models import Q
+
 import pydantic
 import structlog
 from rest_framework.exceptions import ValidationError
 
+from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
+from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.flag_enrollment import enrolled_people_by_flag
 from products.experiments.backend.health.inputs_payload import health_inputs_payload
@@ -37,12 +42,51 @@ from .contracts import (
     CreateExperimentInput,
     EndedExperiment,
     Experiment,
+    ExperimentActivityEvent,
     ExperimentHealth,
     ExperimentHealthReaderAccess,
     RunningExperiment,
 )
 
 logger = structlog.get_logger(__name__)
+
+
+def activity_for_experiments(
+    *, team: Team, user: User, experiment_ids: list[int], limit: int = 100
+) -> list[ExperimentActivityEvent]:
+    access = UserAccessControl(user=user, team=team)
+    if not access.check_access_level_for_resource("activity_log", "viewer"):
+        return []
+    query = Q(pk__in=[])
+    names: dict[tuple[str, str], str] = {}
+    for experiment in ExperimentModel.objects.filter(team=team, id__in=experiment_ids, deleted=False).select_related(
+        "feature_flag"
+    ):
+        if not access.check_access_level_for_object(experiment, "viewer"):
+            continue
+        key = str(experiment.id)
+        names[("Experiment", key)] = experiment.name
+        query |= Q(scope="Experiment", item_id=key) & ~Q(detail__type__in=["holdout", "shared_metric"])
+        if access.check_access_level_for_object(experiment.feature_flag, "viewer"):
+            flag_key = str(experiment.feature_flag_id)
+            names[("FeatureFlag", flag_key)] = experiment.feature_flag.key
+            query |= Q(scope="FeatureFlag", item_id=flag_key)
+    rows = apply_activity_visibility_restrictions(ActivityLog.objects.filter(team_id=team.id).filter(query), user)
+    since = get_activity_log_lookback_restriction(team.organization)
+    if since:
+        rows = rows.filter(created_at__gte=since)
+    return [
+        ExperimentActivityEvent(
+            id=str(row.id),
+            at=row.created_at,
+            scope=row.scope,
+            item_id=row.item_id,
+            name=names.get((row.scope, row.item_id), row.scope),
+            activity=row.activity,
+            changes=(row.safe_detail or {}).get("changes", []),
+        )
+        for row in rows.order_by("-created_at")[:limit]
+    ]
 
 
 def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInput) -> Experiment:
@@ -233,4 +277,28 @@ def _experiment_model_to_dto(experiment: ExperimentModel) -> Experiment:
         end_date=experiment.end_date,
         created_at=experiment.created_at,
         updated_at=experiment.updated_at,
+        has_primary_metric=bool(experiment.metrics)
+        or any(
+            (link.metadata or {}).get("type", "primary") == "primary"
+            for link in experiment.experimenttosavedmetric_set.all()
+        ),
     )
+
+
+def experiment_for_read(
+    *, team: Team, user: User, experiment_id: int | None = None, feature_flag_key: str | None = None
+) -> Experiment | None:
+    """Resolve a native experiment reference without bypassing its project or object access."""
+    if experiment_id is None and feature_flag_key is None:
+        return None
+    query = ExperimentModel.objects.filter(team=team, deleted=False).select_related("feature_flag")
+    if experiment_id is not None:
+        query = query.filter(id=experiment_id)
+    if feature_flag_key is not None:
+        query = query.filter(feature_flag__key=feature_flag_key)
+    experiment = query.first()
+    if experiment is None or not UserAccessControl(user=user, team=team).check_access_level_for_object(
+        experiment, "viewer"
+    ):
+        return None
+    return _experiment_model_to_dto(experiment)

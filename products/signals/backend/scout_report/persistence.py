@@ -1536,6 +1536,11 @@ def _record_report_emit(*, team_id: int, run_id: uuid.UUID, report_id: str) -> N
     run = SignalScoutRun.objects.for_team(team_id).select_for_update().get(pk=run_id)
     run.emitted_report_ids = [*(run.emitted_report_ids or []), report_id]
     run.save(update_fields=["emitted_report_ids"])
+    from products.signals.backend.facade.source_events import (
+        scout_report_filed,  # noqa: PLC0415 — avoids the facade startup graph
+    )
+
+    transaction.on_commit(lambda: scout_report_filed.send_robust(sender=None, team_id=team_id, run_id=run.task_run_id))
 
 
 def record_report_edit(*, team_id: int, run_id: uuid.UUID, report_id: str) -> None:

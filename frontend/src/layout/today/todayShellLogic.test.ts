@@ -7,6 +7,7 @@ import { getToolSourceItems, isToolItem, toolLabel } from 'scenes/tools/toolsUti
 import { urls } from 'scenes/urls'
 
 import { navProductHrefForPath } from '~/layout/panel-layout/navbar/tabs/navProductItems'
+import { productRailPanes } from '~/products'
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -20,6 +21,13 @@ import {
 describe('todayShellLogic', () => {
     beforeEach(() => {
         initKeaTests()
+    })
+
+    test.each(productRailPanes)('keeps $label deep links in their product pane', (pane) => {
+        expect(railPaneForPath('/project/1' + pane.path)).toBe(pane.key)
+        expect(railPaneForPath('/project/1' + pane.path + '/detail/123')).toBe(pane.key)
+        expect(railPaneForPath('/project/1' + pane.path + '-unrelated')).not.toBe(pane.key)
+        expect(railPaneHref(pane.key, 'new')).toBe(pane.href())
     })
 
     test.each([

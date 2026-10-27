@@ -142,6 +142,7 @@ describe('todayWorkItems', () => {
 
     it('offers a selected source that is no longer in the list, so it can be cleared', () => {
         expect(recentSourceOptions(mixedItems, ['review_hog'])).toEqual([
+            'bets',
             'error_tracking',
             'posthog_ai',
             'review_hog',

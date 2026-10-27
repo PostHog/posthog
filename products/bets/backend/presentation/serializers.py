@@ -1,0 +1,337 @@
+from uuid import uuid4
+
+from drf_spectacular.utils import extend_schema_serializer
+from rest_framework import serializers
+
+from ..facade.enums import (
+    BetActivityResource,
+    BetDirection,
+    BetStatus,
+    BetStatusChange,
+    BetWorkAction,
+    EvidenceKind,
+    IdeaAssessment,
+    IdeaOutcome,
+    IdeaSource,
+    ModelStep,
+    StepBilling,
+    WorkKind,
+    WorkStage,
+)
+
+
+class BetsActivitySerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Stable activity entry identifier.")
+    at = serializers.DateTimeField(help_text="Recorded time of this event.")
+    title = serializers.CharField(help_text="Summary of the recorded event.")
+    detail = serializers.CharField(allow_blank=True, help_text="Related work or changed fields.")
+    resource = serializers.ChoiceField(choices=BetActivityResource.choices, help_text="Native resource to open.")
+    resource_id = serializers.CharField(allow_blank=True, help_text="Identifier or URL of the linked native resource.")
+
+
+class BetsOverviewQuerySerializer(serializers.Serializer):
+    refresh = serializers.BooleanField(
+        required=False, default=False, help_text="Recalculate the saved North Star insight before returning."
+    )
+
+
+class BetsSecondaryMetricSerializer(serializers.Serializer):
+    insight = serializers.CharField(max_length=32, help_text="Saved PostHog insight used as a guardrail.")
+    name = serializers.CharField(max_length=255, help_text="Name of the guardrail metric.")
+    direction = serializers.ChoiceField(
+        choices=BetDirection.choices, default=BetDirection.INCREASE, help_text="Whether higher or lower is better."
+    )
+    max_regression = serializers.FloatField(
+        min_value=0, max_value=1, default=0.05, help_text="Largest tolerated relative regression, 0.05 for 5%."
+    )
+
+
+class BetsWriteSerializer(serializers.Serializer):
+    operation_id = serializers.UUIDField(default=uuid4, help_text="Stable ID for retrying creation without duplicates.")
+    title = serializers.CharField(max_length=160, help_text="Short name of the bet.")
+    statement = serializers.CharField(max_length=10000, help_text="What you believe will improve and why.")
+    audience = serializers.CharField(
+        max_length=500, allow_blank=True, default="", help_text="People this bet aims to help."
+    )
+    area = serializers.CharField(max_length=120, allow_blank=True, default="", help_text="Product area for filtering.")
+    repository = serializers.RegexField(
+        r"^[\w.-]+/[\w.-]+$", max_length=255, help_text="Connected GitHub repository in owner/repository form."
+    )
+    goal_insight = serializers.CharField(
+        max_length=32, help_text="Saved insight with one series that measures the goal."
+    )
+    goal_metric = serializers.CharField(max_length=255, help_text="Name of the primary metric.")
+    ideas = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        max_length=5,
+        required=False,
+        default=list,
+        help_text="The owner's own ideas. The Scout checks each one against the data before anyone chooses.",
+    )
+    secondary_metrics = BetsSecondaryMetricSerializer(
+        many=True, default=list, help_text="Guardrails that must not get worse."
+    )
+    target = serializers.DecimalField(max_digits=20, decimal_places=4, help_text="Target value of the primary metric.")
+    direction = serializers.ChoiceField(
+        choices=BetDirection.choices, default=BetDirection.INCREASE, help_text="Whether higher or lower is better."
+    )
+    unit = serializers.CharField(max_length=32, allow_blank=True, default="", help_text="Display unit, for example %.")
+    budget_cents = serializers.IntegerField(
+        min_value=0, max_value=1000000000, help_text="Budget for this bet in USD cents."
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        secondary = attrs.get("secondary_metrics", self.context.get("secondary_metrics", []))
+        ids = [item["insight"] for item in secondary]
+        if len(ids) > 5:
+            raise serializers.ValidationError({"secondary_metrics": "Choose up to five guardrails."})
+        primary = attrs.get("goal_insight", self.context.get("primary_insight", ""))
+        if len(ids) != len(set(ids)) or primary in ids:
+            raise serializers.ValidationError({"secondary_metrics": "Each insight can appear only once."})
+        return attrs
+
+
+class BetsMetricSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Metric name.")
+    unit = serializers.CharField(allow_blank=True, help_text="Display unit from the saved insight.")
+    values = serializers.ListField(child=serializers.FloatField(), help_text="Values in chronological order.")
+    dates = serializers.ListField(child=serializers.CharField(), help_text="Dates corresponding to values.")
+    current = serializers.FloatField(allow_null=True, help_text="Latest available value.")
+    change = serializers.FloatField(allow_null=True, help_text="Percentage change across the displayed period.")
+    message = serializers.CharField(allow_blank=True, help_text="Reason a measurement is unavailable.")
+
+
+class BetsMoneySerializer(serializers.Serializer):
+    allocated_cents = serializers.IntegerField(help_text="Allocated budget in USD cents.")
+    spent_cents = serializers.IntegerField(help_text="Settled spend in USD cents.")
+    reserved_cents = serializers.IntegerField(help_text="Budget held for running work in USD cents.")
+    available_cents = serializers.IntegerField(help_text="Uncommitted budget in USD cents.")
+
+
+class BetsIdeaResultSerializer(serializers.Serializer):
+    outcome = serializers.ChoiceField(choices=IdeaOutcome.choices, required=False, help_text="How the idea ended.")
+    variant = serializers.CharField(required=False, help_text="Variant kept when the experiment ended.")
+    verdict = serializers.CharField(required=False, help_text="Why the experiment ended this way.")
+    exposures = serializers.DictField(
+        child=serializers.IntegerField(), required=False, help_text="People exposed per variant."
+    )
+    primary = serializers.DictField(
+        child=serializers.ListField(child=serializers.FloatField(), allow_null=True),
+        required=False,
+        help_text="Relative effect interval on the primary metric per test variant.",
+    )
+    smallest_sample = serializers.IntegerField(required=False, help_text="People in the smallest group.")
+    harmed_guardrails = serializers.ListField(
+        child=serializers.CharField(), required=False, help_text="Guardrails that got worse."
+    )
+    summary = serializers.CharField(required=False, help_text="What we learned.")
+
+
+class BetsEvidenceSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=EvidenceKind.choices, help_text="What the evidence link points to.")
+    label = serializers.CharField(help_text="Short text that describes the evidence.")
+    url = serializers.CharField(help_text="Link to the PostHog data, or chart:<id> for a chart in the report.")
+
+
+class BetsWorkSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Work item ID.")
+    goal_version = serializers.IntegerField(help_text="Goal revision this work belongs to.")
+    kind = serializers.ChoiceField(choices=WorkKind.choices, help_text="Tracking check or idea.")
+    stage = serializers.ChoiceField(choices=WorkStage.choices, help_text="Where this work is in its lifecycle.")
+    title = serializers.CharField(help_text="Work title.")
+    summary = serializers.CharField(allow_blank=True, help_text="The idea's evidence and proposed change.")
+    note = serializers.CharField(allow_blank=True, help_text="Latest status in plain language.")
+    pr_url = serializers.CharField(allow_blank=True, help_text="Pull request opened by the task.")
+    pr_state = serializers.CharField(allow_blank=True, help_text="Pull request state from Tasks.")
+    flag_key = serializers.CharField(allow_blank=True, help_text="Feature flag the change ships behind.")
+    experiment_id = serializers.IntegerField(allow_null=True, help_text="Native experiment measuring the idea.")
+    result = BetsIdeaResultSerializer(help_text="Measured outcome, effect intervals, exposures and verdict.")
+    task_id = serializers.UUIDField(allow_null=True, help_text="Native task doing the work.")
+    task_status = serializers.CharField(help_text="Latest native task run status.")
+    attempts = serializers.IntegerField(help_text="Task runs started for this work.")
+    spent_cents = serializers.IntegerField(help_text="Settled cost in USD cents.")
+    created_at = serializers.DateTimeField(help_text="When the work started.")
+    finished_at = serializers.DateTimeField(allow_null=True, help_text="When the work finished.")
+    source = serializers.ChoiceField(choices=IdeaSource.choices, help_text="Who proposed the idea.")
+    assessment = serializers.ChoiceField(
+        choices=[("", "None"), *IdeaAssessment.choices],
+        allow_blank=True,
+        help_text="The Scout's check of the idea against the data.",
+    )
+    evidence = BetsEvidenceSerializer(many=True, help_text="Links to the PostHog data behind the idea.")
+    report_id = serializers.UUIDField(allow_null=True, help_text="Scout report that describes the idea.")
+    dismissed_reason = serializers.CharField(allow_blank=True, help_text="Why the owner dismissed the idea.")
+    moves_metric = serializers.CharField(allow_blank=True, help_text="The metric the Scout expects this idea to move.")
+
+
+class BetsOwnerSerializer(serializers.Serializer):
+    user_id = serializers.IntegerField(help_text="User who owns the bet.")
+    name = serializers.CharField(help_text="Display name.")
+    email = serializers.CharField(allow_blank=True, help_text="Email address.")
+
+
+class BetsEntrySerializer(serializers.Serializer):
+    owner = BetsOwnerSerializer(help_text="The person who owns and controls this bet.")
+    id = serializers.UUIDField(help_text="Bet ID.")
+    reference = serializers.IntegerField(help_text="Human-readable bet number.")
+    title = serializers.CharField(help_text="Bet name.")
+    statement = serializers.CharField(help_text="What we believe and why.")
+    audience = serializers.CharField(allow_blank=True, help_text="Intended audience.")
+    area = serializers.CharField(allow_blank=True, help_text="Product area.")
+    repository = serializers.CharField(help_text="Connected repository.")
+    goal_insight = serializers.CharField(help_text="Primary metric insight.")
+    goal_metric = serializers.CharField(help_text="Primary metric name.")
+    secondary_metrics = BetsSecondaryMetricSerializer(many=True, help_text="Guardrails.")
+    target = serializers.DecimalField(max_digits=20, decimal_places=4, help_text="Primary metric target.")
+    direction = serializers.ChoiceField(choices=BetDirection.choices, help_text="Whether higher or lower is better.")
+    unit = serializers.CharField(allow_blank=True, help_text="Primary metric unit.")
+    status = serializers.ChoiceField(choices=BetStatus.choices, help_text="Bet lifecycle state.")
+    note = serializers.CharField(allow_blank=True, help_text="What the bet is doing now.")
+    baseline_value = serializers.FloatField(allow_null=True, help_text="Primary metric when the bet started running.")
+    baseline_at = serializers.DateTimeField(allow_null=True, help_text="When the baseline was recorded.")
+    money = BetsMoneySerializer(help_text="Budget accounting.")
+    metric = BetsMetricSerializer(help_text="Primary metric history.")
+    spend_pending = serializers.BooleanField(help_text="Some task usage is still settling.")
+    ideas_tried = serializers.IntegerField(help_text="Ideas measured to a conclusion.")
+    ideas_won = serializers.IntegerField(help_text="Ideas that improved the primary metric.")
+    updated_at = serializers.DateTimeField(help_text="Latest change.")
+
+
+class BetsScoutSerializer(serializers.Serializer):
+    config_id = serializers.UUIDField(help_text="Native Scout configuration.")
+    name = serializers.CharField(help_text="Native Scout name.")
+    enabled = serializers.BooleanField(help_text="Whether the Scout may run.")
+    running = serializers.BooleanField(help_text="Whether the Scout is searching for an idea right now.")
+
+
+class BetsNextActionSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Stable identifier.")
+    bet_id = serializers.UUIDField(help_text="Bet requiring attention.")
+    bet_title = serializers.CharField(help_text="Name of the bet.")
+    title = serializers.CharField(help_text="What needs attention.")
+    description = serializers.CharField(allow_blank=True, help_text="What to do next.")
+    label = serializers.CharField(help_text="Why this needs attention.")  # type: ignore[assignment]
+    work_id = serializers.UUIDField(allow_null=True, help_text="Related work item.")
+    url = serializers.CharField(allow_blank=True, help_text="Pull request or other place to act.")
+
+
+class BetsSpendPointSerializer(serializers.Serializer):
+    at = serializers.DateTimeField(help_text="When this usage settled.")
+    spent_cents = serializers.IntegerField(help_text="Total settled spend up to this time, in USD cents.")
+
+
+class BetsDetailSerializer(BetsEntrySerializer):
+    is_owner = serializers.BooleanField(help_text="Whether the viewer owns this bet and can change it.")
+    spend_history = BetsSpendPointSerializer(many=True, help_text="Cumulative settled spend over time.")
+    goal_version = serializers.IntegerField(help_text="Current goal revision.")
+    build_estimate_cents = serializers.IntegerField(
+        allow_null=True, help_text="Average settled cost of building one idea in this project, in USD cents."
+    )
+    build_cap_cents = serializers.IntegerField(help_text="Most that one build run can spend, in USD cents.")
+    goal_met_since = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the goal metric reached the target; the bet counts as reached after the confirm time.",
+    )
+    work = BetsWorkSerializer(many=True, help_text="Tracking checks and ideas, newest first.")
+    secondary_values = BetsMetricSerializer(many=True, help_text="Current guardrail readings.")
+    scout = BetsScoutSerializer(allow_null=True, help_text="The Scout looking for ideas.")
+    next_action = BetsNextActionSerializer(allow_null=True, help_text="The most urgent next step.")
+    can_edit = serializers.BooleanField(help_text="Whether the viewer can change this bet.")
+
+
+class BetsStepModelSerializer(serializers.Serializer):
+    step = serializers.ChoiceField(choices=ModelStep.choices, help_text="Which step uses this model.")
+    model = serializers.CharField(allow_blank=True, help_text="Model ID, or empty for the project default.")
+    reasoning_effort = serializers.CharField(allow_blank=True, help_text="Reasoning effort, or empty for the default.")
+    billing = serializers.ChoiceField(choices=StepBilling.choices, help_text="Who pays for this step's model use.")
+    model_label = serializers.CharField(help_text="Display name of the model.")
+
+
+class BetsModelOptionSerializer(serializers.Serializer):
+    model = serializers.CharField(help_text="Model ID.")
+    label = serializers.CharField(help_text="Display name.")  # type: ignore[assignment]
+    runtime_adapter = serializers.CharField(help_text="Runtime that drives the model.")
+    supported_efforts = serializers.ListField(child=serializers.CharField(), help_text="Reasoning efforts it supports.")
+    cost_multiplier = serializers.CharField(allow_null=True, help_text="Cost compared with the baseline model.")
+
+
+class BetsSettingsSerializer(serializers.Serializer):
+    budget_cents = serializers.IntegerField(help_text="Project budget in USD cents.")
+    north_star_insight = serializers.CharField(allow_blank=True, help_text="Saved insight for the project North Star.")
+    models = BetsStepModelSerializer(many=True, help_text="Model and billing for each step.")
+    model_options = BetsModelOptionSerializer(many=True, help_text="Models a step may use.")
+    plan_available = serializers.BooleanField(help_text="Whether a connected ChatGPT plan can pay for unattended runs.")
+    min_run_hours = serializers.IntegerField(help_text="Hours an experiment runs before Bets reads a win or a loss.")
+    goal_confirm_hours = serializers.IntegerField(
+        help_text="Hours the goal metric must stay at the target before the bet counts as reached."
+    )
+
+
+class BetsStepModelWriteSerializer(serializers.Serializer):
+    model = serializers.CharField(
+        allow_blank=True, max_length=200, help_text="Model ID, or empty for the project default."
+    )
+    reasoning_effort = serializers.CharField(allow_blank=True, max_length=20, default="", help_text="Reasoning effort.")
+    billing = serializers.ChoiceField(choices=StepBilling.choices, help_text="Who pays for this step's model use.")
+
+
+class BetsStepModelsWriteSerializer(serializers.Serializer):
+    scout = BetsStepModelWriteSerializer(required=False, help_text="Model for the Scout.")
+    tracking = BetsStepModelWriteSerializer(required=False, help_text="Model for tracking checks.")
+    idea = BetsStepModelWriteSerializer(required=False, help_text="Model for building ideas.")
+
+
+class BetsSettingsWriteSerializer(serializers.Serializer):
+    budget_cents = serializers.IntegerField(
+        min_value=0, max_value=1000000000, required=False, help_text="Project budget in USD cents."
+    )
+    north_star_insight = serializers.CharField(
+        max_length=32, allow_blank=True, required=False, help_text="Saved insight for the project North Star."
+    )
+    min_run_hours = serializers.IntegerField(
+        min_value=0,
+        max_value=24 * 60,
+        required=False,
+        help_text="Hours an experiment runs before Bets reads a win or a loss.",
+    )
+    goal_confirm_hours = serializers.IntegerField(
+        min_value=0,
+        max_value=24 * 60,
+        required=False,
+        help_text="Hours the goal metric must stay at the target before the bet counts as reached.",
+    )
+    step_models = BetsStepModelsWriteSerializer(required=False, help_text="Model and billing per step.")
+
+
+@extend_schema_serializer(many=False)
+class BetsOverviewSerializer(serializers.Serializer):
+    next_actions = BetsNextActionSerializer(many=True, help_text="Everything that needs attention, most urgent first.")
+    bets = BetsEntrySerializer(many=True, help_text="Bets in this project.")
+    north_star = BetsMetricSerializer(help_text="Current project North Star.")
+    settings = BetsSettingsSerializer(help_text="Project budget, North Star and models.")
+    allocated_cents = serializers.IntegerField(help_text="Total allocated project budget.")
+    unallocated_cents = serializers.IntegerField(help_text="Project budget still available.")
+    can_edit = serializers.BooleanField(help_text="Whether the viewer can create or change bets.")
+
+
+class BetsStatusSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=BetStatusChange.choices, help_text="Resume, pause or close the bet.")
+
+
+class BetsWorkActionSerializer(serializers.Serializer):
+    work_id = serializers.UUIDField(help_text="Work item belonging to this bet.")
+    action = serializers.ChoiceField(
+        choices=BetWorkAction.choices,
+        help_text="Build a proposed idea, dismiss it, retry stuck work, or drop an idea in progress.",
+    )
+    reason = serializers.CharField(
+        max_length=1000, required=False, allow_blank=True, default="", help_text="Why the idea is dismissed."
+    )
+
+
+class BetsIdeaSerializer(serializers.Serializer):
+    title = serializers.CharField(max_length=255, help_text="The owner's idea, in one sentence.")
+
+
+class BetsEmptySerializer(serializers.Serializer):
+    pass

@@ -10,7 +10,8 @@ from posthog.models.github_integration_base import GitHubIntegrationError, PullR
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user_integration import UserGitHubIntegration
 
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.facade.api import get_prior_pr_output_by_task
+from products.tasks.backend.models import Task
 from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.visibility import task_visibility_q
 
@@ -77,14 +78,8 @@ def pull_request_titles(team_id: int, user_id: int, task_ids: list[UUID]) -> dic
         .filter(task_visibility_q(user_id))
         .select_related("github_user_integration")
     }
-    latest_outputs = (
-        TaskRun.objects.filter(team_id=team_id, task_id__in=tasks.keys())
-        .order_by("task_id", "-created_at", "-id")
-        .distinct("task_id")
-        .values_list("task_id", "output")
-    )
     refs_by_task: dict[str, list[PullRequestRef]] = {}
-    for task_id, output in latest_outputs:
+    for task_id, output in get_prior_pr_output_by_task(team_id, tasks.keys()).items():
         task = tasks[str(task_id)]
         repositories = {repo.lower() for repo in [task.repository, *(task.repositories or [])] if repo}
         for url in read_pr_urls(output):

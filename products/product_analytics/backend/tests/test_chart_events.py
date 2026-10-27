@@ -13,6 +13,8 @@ from posthog.hogql.query import execute_hogql_query
 
 from products.actions.backend.models.action import Action
 from products.product_analytics.backend.chart_events import ChartEvents, chart_events
+from products.product_analytics.backend.facade.measurement import insight_delivery_evidence
+from products.product_analytics.backend.facade.models import Insight
 
 SERIES = {"kind": "EventsNode", "event": "signed up"}
 STEPS = [SERIES, {"kind": "EventsNode", "event": "paid"}]
@@ -84,6 +86,29 @@ class TestChartEventsCounts(ClickhouseTestMixin, BaseTest):
             name="Signed up or paid for pro",
             steps_json=[{"event": "paid", "properties": PAID_PRO["properties"]}, {"event": "signed up"}],
         )
+
+    @parameterized.expand([("saved_window", None, 2), ("recent_period", 4, 1), ("empty_period", 2, 0)])
+    def test_delivery_can_scope_population_and_maturity_to_the_current_metric_period(
+        self, name: str, days: int | None, expected: int
+    ) -> None:
+        insight = Insight.objects.create(
+            team=self.team,
+            created_by=self.user,
+            saved=True,
+            query={
+                "kind": "InsightVizNode",
+                "source": {"kind": "TrendsQuery", "series": [SERIES], "dateRange": LAST_WEEK},
+            },
+        )
+        since = NOW - timedelta(days=days) if days is not None else None
+        evidence = insight_delivery_evidence(team=self.team, user=self.user, short_id=insight.short_id, since=since)
+        assert evidence is not None
+        assert evidence.events == expected
+        assert evidence.participants == int(expected > 0)
+        if since:
+            assert evidence.window_start == since
+            if evidence.first_event_at:
+                assert evidence.first_event_at >= since
 
     def _chart_events(self, query: dict[str, Any]) -> ChartEvents:
         query = json.loads(json.dumps(query).replace('"ACTION_ID"', str(self.action.pk)))

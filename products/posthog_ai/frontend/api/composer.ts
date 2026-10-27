@@ -8,6 +8,8 @@
 // deep `../components/*` paths. See ../README.md for the tier model and ../AGENTS.md for the coupling rule.
 
 export { Composer } from '../components/composer/Composer'
+export { ComposerCodexBillingPickers } from '../components/composer/ComposerCodexBillingPickers'
+export { ComposerModelEffortPickers } from '../components/composer/ComposerModelEffortPickers'
 export type {
     ComposerRootProps,
     ComposerFrameProps,

@@ -367,6 +367,7 @@ const tasksList = (): ToolBase<
                 commented_by: params.commented_by,
                 created_by: params.created_by,
                 exclude_origin_product: params.exclude_origin_product,
+                exclude_origin_products: params.exclude_origin_products,
                 hog_flow_id: params.hog_flow_id,
                 internal: params.internal,
                 limit: params.limit,

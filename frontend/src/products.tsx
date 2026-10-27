@@ -4,6 +4,8 @@
 import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { IconPieChart } from '@posthog/icons'
+
 import type { ProductSetupProbe } from 'lib/components/ProductEmptyState/setupProbes'
 import { FEATURE_FLAGS, INSIGHT_VISUAL_ORDER } from 'lib/constants'
 import { toParams } from 'lib/utils/url'
@@ -29,6 +31,7 @@ import {
     TileFilters,
 } from '~/queries/schema/schema-general'
 import { isBIVisualizationNode, isDataTableNode, isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
+import type { ProductRailPane } from '~/types'
 import { ActivityScope, ExperimentsTabs } from '~/types'
 
 import { AlertType } from 'products/alerts/frontend/types'
@@ -120,6 +123,12 @@ export const productRoutes: Record<string, [string, string]> = {
     '/autoresearch': ['Autoresearch', 'autoresearch'],
     '/autoresearch/new': ['AutoresearchNew', 'autoresearchNew'],
     '/autoresearch/:id': ['AutoresearchPipeline', 'autoresearchPipeline'],
+    '/bets': ['BetsOverview', 'bets'],
+    '/bets/all': ['BetsAll', 'betsAll'],
+    '/bets/new': ['BetEdit', 'betsNew'],
+    '/bets/settings': ['BetsSettings', 'betsSettings'],
+    '/bets/:id/edit': ['BetEdit', 'betEdit'],
+    '/bets/:id': ['BetDetail', 'bet'],
     '/bi': ['BusinessIntelligenceHome', 'businessIntelligence'],
     '/bi/new': ['BusinessIntelligence', 'businessIntelligenceNew'],
     '/bi/:insightShortId': ['BusinessIntelligence', 'businessIntelligenceWorksheet'],
@@ -515,6 +524,17 @@ export const productRedirects: Record<
         combineUrl(urls.aiObservabilityUsers(), searchParams, hashParams).url,
     '/llm-observability/playground': (_params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityPlayground(), searchParams, hashParams).url,
+    '/portfolio': '/bets',
+    '/portfolio/bets': '/bets/all',
+    '/portfolio/new': '/bets/new',
+    '/portfolio/settings': '/bets/settings',
+    '/portfolio/setup': '/bets/settings',
+    '/portfolio/map': '/bets',
+    '/portfolio/bets/:id': ({ id }) => '/bets/' + id,
+    '/portfolio/theses/:id': '/bets',
+    '/portfolio/research/:id': '/bets',
+    '/bets/positions/:id': ({ id }) => '/bets/' + id,
+    '/bets/setup': '/bets/settings',
     '/support': '/support/tickets',
     '/customer_analytics': (_params, searchParams, hashParams) => {
         const defaultTab = posthog.getFeatureFlag(FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP)
@@ -761,6 +781,12 @@ export const productConfiguration: Record<string, any> = {
     },
     AutoresearchNew: { name: 'New model', projectBased: true },
     AutoresearchPipeline: { name: 'Autoresearch model', projectBased: true },
+    BetsSidebar: { name: 'Bets', projectBased: true, iconType: 'experiment' },
+    BetsOverview: { name: 'Overview', projectBased: true, iconType: 'experiment' },
+    BetsAll: { name: 'All bets', projectBased: true, iconType: 'experiment' },
+    BetDetail: { name: 'Bet', projectBased: true, iconType: 'experiment' },
+    BetEdit: { name: 'Define a bet', projectBased: true, iconType: 'experiment' },
+    BetsSettings: { name: 'Bets settings', projectBased: true, iconType: 'experiment' },
     BusinessIntelligenceHome: { name: 'Worksheets', projectBased: true, iconType: 'business_intelligence' },
     BusinessIntelligence: {
         name: 'Business intelligence',
@@ -1437,6 +1463,12 @@ export const productUrls = {
     autoresearch: (): string => '/autoresearch',
     autoresearchNew: (): string => '/autoresearch/new',
     autoresearchPipeline: (id: string): string => `/autoresearch/${id}`,
+    bets: (): string => '/bets',
+    betsAll: (): string => '/bets/all',
+    betsNew: (): string => '/bets/new',
+    betsSettings: (): string => '/bets/settings',
+    bet: (id: string): string => `/bets/${id}`,
+    betEdit: (id: string): string => `/bets/${id}/edit`,
     businessIntelligenceNew: (): string => '/bi/new',
     businessIntelligenceWorksheet: (insightShortId: string): string => `/bi/${encodeURIComponent(insightShortId)}`,
     businessIntelligence: ({
@@ -2159,6 +2191,17 @@ export const productSetupProbes: ProductSetupProbe[] = [
     { productKey: ProductKey.MCP_ANALYTICS, hasDataEvents: ['$mcp_tool_call'], waitingEvents: ['$mcp_initialize'] },
     { productKey: ProductKey.WEB_ANALYTICS, hasDataEvents: ['$pageview'] },
 ]
+export const productRailPanes: ProductRailPane[] = [
+    {
+        key: 'product:portfolio',
+        label: 'Bets',
+        icon: <IconPieChart />,
+        path: '/bets',
+        href: () => urls.bets(),
+        flag: 'bets',
+        sidebarScene: 'BetsSidebar',
+    },
+]
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsNew = (): FileSystemImport[] => [
@@ -2350,6 +2393,7 @@ export type ProductTreePath =
     | 'Application observability'
     | 'Apps'
     | 'Autoresearch'
+    | 'Bets'
     | 'Broadcasts'
     | 'Business intelligence'
     | 'Business knowledge'
@@ -2436,6 +2480,18 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         tags: ['alpha'],
         sceneKey: 'Autoresearch',
         sceneKeys: ['Autoresearch', 'AutoresearchNew', 'AutoresearchPipeline'],
+    },
+    {
+        path: 'Bets',
+        category: ProductItemCategory.UNRELEASED,
+        href: urls.bets(),
+        searchKeywords: ['bets', 'portfolio', 'north star'],
+        iconType: 'experiment',
+        flag: 'bets',
+        tags: ['alpha'],
+        sceneKey: 'BetsOverview',
+        intents: [],
+        sceneKeys: ['BetsSidebar', 'BetsOverview', 'BetsAll', 'BetDetail', 'BetEdit', 'BetsSettings'],
     },
     {
         path: 'Broadcasts',

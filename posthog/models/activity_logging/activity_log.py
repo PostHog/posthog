@@ -47,6 +47,7 @@ ACTIVITY_LOG_WRITE_FAILURES = Counter(
 )
 
 ActivityScope = Literal[
+    "Bet",
     "Cohort",
     "CrossProjectDashboard",
     "DevGatewayToken",
@@ -597,6 +598,7 @@ platform_alert_runtime_fields = [
 
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
+    "Bet": ["updated_at", "preview"],
     "DataQualityCheckSchedule": ["next_run_at", "last_run_at", "last_suite_run", "updated_at"],
     "AlertConfiguration": [
         "last_checked_at",
@@ -741,6 +743,7 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 ]
 
 field_exclusions: dict[AuditableScope, list[str]] = {
+    "Bet": ["preview", "synthetic", "work_items", "measurements", "ledger"],
     "AccountView": ["version"],
     # Tiles are edited through their own endpoint, so diffing the reverse relation only reads every tile row.
     "CrossProjectDashboard": ["tiles", "organization"],

@@ -417,6 +417,7 @@ __all__ = [
     "task_exists",
     "task_ids_with_pr_url_subquery",
     "get_pull_requests_for_tasks",
+    "refresh_pull_requests_for_tasks",
     "get_prior_pr_output_by_task",
     "read_pr_urls",
     "task_run_has_slack_mapping",
@@ -2212,6 +2213,7 @@ def create_task_without_run(
     repository: str | None = None,
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     channel: Channel | None = None,
+    origin_key: str | None = None,
 ) -> UUID:
     """Create a Task row with no initial run, returning its id.
 
@@ -2231,6 +2233,7 @@ def create_task_without_run(
         repository=repository,
         channel=channel,
         mcp_builtin_agent_key=mcp_builtin_agent_key,
+        origin_key=origin_key,
     )
     return task.id
 
@@ -6817,6 +6820,9 @@ def start_task_run(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return "not_found", None
+    refusal = task_run_start_refusal(str(task_id), team_id, user_id)
+    if refusal:
+        return f"refused:{refusal}", None
     ensure_subscription_owner(run.state, user_id)
     task = run.task
 
@@ -6896,6 +6902,9 @@ def resume_task_run_in_cloud(
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
         return "not_found", None, None
+    refusal = task_run_start_refusal(str(task_id), team_id, user_id)
+    if refusal:
+        return f"refused:{refusal}", None, None
     ensure_subscription_owner(run.state, user_id)
 
     from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
@@ -7094,6 +7103,31 @@ def task_review(team_id: int, task_id: str, user_id: int, page: int) -> dict:
     )
 
     return build_task_review(team_id, task_id, user_id, page)
+
+
+def refresh_pull_requests_for_tasks(team_id: int, user_id: int, task_ids: list[UUID]) -> None:
+    """Refresh visible tasks' PR facts from GitHub when a webhook was missed."""
+    from products.tasks.backend.logic.services.pr_reconciliation import (  # noqa: PLC0415 — avoids the facade/webhook import cycle
+        PullRequestReconciler,
+    )
+
+    visible = _visible_task_qs(team_id, user_id).filter(id__in=task_ids[:30])
+    seen: set[tuple[UUID, str]] = set()
+    for run in TaskRun.objects.filter(team_id=team_id, task__in=visible).order_by("-created_at", "-id")[:100]:
+        for url in read_pr_urls(run.output):
+            key = (run.task_id, url)
+            if key in seen:
+                continue
+            if len(seen) >= 30:
+                return
+            seen.add(key)
+            if (
+                isinstance(run.output, dict)
+                and url == run.output.get("pr_url")
+                and _pull_request_state(run.output) == "merged"
+            ):
+                continue
+            PullRequestReconciler(team_id=team_id, run_id=str(run.id), pr_url=url, refresh=True).reconcile()
 
 
 def get_pull_request_titles(team_id: int, user_id: int, task_ids: list[UUID]) -> dict[str, str]:
@@ -7396,6 +7430,10 @@ def _list_tasks_queryset(
     exclude_origin_product = filters.get("exclude_origin_product")
     if exclude_origin_product:
         qs = qs.exclude(origin_product=exclude_origin_product)
+
+    exclude_origin_products = filters.get("exclude_origin_products")
+    if exclude_origin_products:
+        qs = qs.exclude(origin_product__in=exclude_origin_products)
 
     sources = filters.get("sources")
     if sources:

@@ -18513,6 +18513,851 @@ export namespace Schemas {
       explicit_datetime_to?: string | null;
     }
 
+    /**
+     * * `` -
+     * * `task` - Task
+     * * `experiment` - Experiment
+     * * `flag` - Flag
+     * * `insight` - Insight
+     * * `pull_request` - Pull request
+     */
+    export type BetActivityResourceEnum = typeof BetActivityResourceEnum[keyof typeof BetActivityResourceEnum];
+
+
+    export const BetActivityResourceEnum = {
+      Task: 'task',
+      Experiment: 'experiment',
+      Flag: 'flag',
+      Insight: 'insight',
+      PullRequest: 'pull_request',
+    } as const;
+
+    /**
+     * * `increase` - Increase
+     * * `decrease` - Decrease
+     */
+    export type BetDirectionEnum = typeof BetDirectionEnum[keyof typeof BetDirectionEnum];
+
+
+    export const BetDirectionEnum = {
+      Increase: 'increase',
+      Decrease: 'decrease',
+    } as const;
+
+    /**
+     * * `running` - Start or resume
+     * * `paused` - Pause
+     * * `closed` - Close
+     */
+    export type BetStatusChangeEnum = typeof BetStatusChangeEnum[keyof typeof BetStatusChangeEnum];
+
+
+    export const BetStatusChangeEnum = {
+      Running: 'running',
+      Paused: 'paused',
+      Closed: 'closed',
+    } as const;
+
+    /**
+     * * `setting_up` - Setting up
+     * * `running` - Running
+     * * `paused` - Paused
+     * * `reached` - Goal reached
+     * * `spent` - Budget used
+     * * `closed` - Closed
+     */
+    export type BetStatusEnum = typeof BetStatusEnum[keyof typeof BetStatusEnum];
+
+
+    export const BetStatusEnum = {
+      SettingUp: 'setting_up',
+      Running: 'running',
+      Paused: 'paused',
+      Reached: 'reached',
+      Spent: 'spent',
+      Closed: 'closed',
+    } as const;
+
+    /**
+     * * `retry` - Retry
+     * * `drop` - Drop
+     * * `build` - Build
+     * * `dismiss` - Dismiss
+     */
+    export type BetWorkActionEnum = typeof BetWorkActionEnum[keyof typeof BetWorkActionEnum];
+
+
+    export const BetWorkActionEnum = {
+      Retry: 'retry',
+      Drop: 'drop',
+      Build: 'build',
+      Dismiss: 'dismiss',
+    } as const;
+
+    export const BetsActivityResource = {...BetActivityResourceEnum,...BlankEnum,} as const
+    export interface BetsActivity {
+      /** Stable activity entry identifier. */
+      id: string;
+      /** Recorded time of this event. */
+      at: string;
+      /** Summary of the recorded event. */
+      title: string;
+      /** Related work or changed fields. */
+      detail: string;
+      /** Native resource to open.
+       *
+       * * `` -
+       * * `task` - Task
+       * * `experiment` - Experiment
+       * * `flag` - Flag
+       * * `insight` - Insight
+       * * `pull_request` - Pull request */
+      resource: typeof BetsActivityResource[keyof typeof BetsActivityResource];
+      /** Identifier or URL of the linked native resource. */
+      resource_id: string;
+    }
+
+    export interface BetsOwner {
+      /** User who owns the bet. */
+      user_id: number;
+      /** Display name. */
+      name: string;
+      /** Email address. */
+      email: string;
+    }
+
+    export interface BetsSecondaryMetric {
+      /**
+         * Saved PostHog insight used as a guardrail.
+         * @maxLength 32
+         */
+      insight: string;
+      /**
+         * Name of the guardrail metric.
+         * @maxLength 255
+         */
+      name: string;
+      /** Whether higher or lower is better.
+       *
+       * * `increase` - Increase
+       * * `decrease` - Decrease */
+      direction?: BetDirectionEnum;
+      /**
+         * Largest tolerated relative regression, 0.05 for 5%.
+         * @minimum 0
+         * @maximum 1
+         */
+      max_regression?: number;
+    }
+
+    export interface BetsMoney {
+      /** Allocated budget in USD cents. */
+      allocated_cents: number;
+      /** Settled spend in USD cents. */
+      spent_cents: number;
+      /** Budget held for running work in USD cents. */
+      reserved_cents: number;
+      /** Uncommitted budget in USD cents. */
+      available_cents: number;
+    }
+
+    export interface BetsMetric {
+      /** Metric name. */
+      name: string;
+      /** Display unit from the saved insight. */
+      unit: string;
+      /** Values in chronological order. */
+      values: number[];
+      /** Dates corresponding to values. */
+      dates: string[];
+      /**
+         * Latest available value.
+         * @nullable
+         */
+      current: number | null;
+      /**
+         * Percentage change across the displayed period.
+         * @nullable
+         */
+      change: number | null;
+      /** Reason a measurement is unavailable. */
+      message: string;
+    }
+
+    export interface BetsSpendPoint {
+      /** When this usage settled. */
+      at: string;
+      /** Total settled spend up to this time, in USD cents. */
+      spent_cents: number;
+    }
+
+    /**
+     * * `tracking` - Tracking
+     * * `idea` - Idea
+     * * `cleanup` - Cleanup
+     */
+    export type WorkKindEnum = typeof WorkKindEnum[keyof typeof WorkKindEnum];
+
+
+    export const WorkKindEnum = {
+      Tracking: 'tracking',
+      Idea: 'idea',
+      Cleanup: 'cleanup',
+    } as const;
+
+    /**
+     * * `proposed` - Proposed
+     * * `dismissed` - Dismissed
+     * * `working` - Working
+     * * `review` - In review
+     * * `live` - Live
+     * * `done` - Done
+     * * `dropped` - Dropped
+     * * `stuck` - Stuck
+     */
+    export type WorkStageEnum = typeof WorkStageEnum[keyof typeof WorkStageEnum];
+
+
+    export const WorkStageEnum = {
+      Proposed: 'proposed',
+      Dismissed: 'dismissed',
+      Working: 'working',
+      Review: 'review',
+      Live: 'live',
+      Done: 'done',
+      Dropped: 'dropped',
+      Stuck: 'stuck',
+    } as const;
+
+    /**
+     * * `won` - Won
+     * * `lost` - Lost
+     * * `flat` - No clear effect
+     * * `harmed` - Guardrail regression
+     * * `dropped` - Dropped
+     */
+    export type IdeaOutcomeEnum = typeof IdeaOutcomeEnum[keyof typeof IdeaOutcomeEnum];
+
+
+    export const IdeaOutcomeEnum = {
+      Won: 'won',
+      Lost: 'lost',
+      Flat: 'flat',
+      Harmed: 'harmed',
+      Dropped: 'dropped',
+    } as const;
+
+    /**
+     * People exposed per variant.
+     */
+    export type BetsIdeaResultExposures = {[key: string]: number};
+
+    /**
+     * Relative effect interval on the primary metric per test variant.
+     */
+    export type BetsIdeaResultPrimary = {[key: string]: number[] | null};
+
+    export interface BetsIdeaResult {
+      /** How the idea ended.
+       *
+       * * `won` - Won
+       * * `lost` - Lost
+       * * `flat` - No clear effect
+       * * `harmed` - Guardrail regression
+       * * `dropped` - Dropped */
+      outcome?: IdeaOutcomeEnum;
+      /** Variant kept when the experiment ended. */
+      variant?: string;
+      /** Why the experiment ended this way. */
+      verdict?: string;
+      /** People exposed per variant. */
+      exposures?: BetsIdeaResultExposures;
+      /** Relative effect interval on the primary metric per test variant. */
+      primary?: BetsIdeaResultPrimary;
+      /** People in the smallest group. */
+      smallest_sample?: number;
+      /** Guardrails that got worse. */
+      harmed_guardrails?: string[];
+      /** What we learned. */
+      summary?: string;
+    }
+
+    /**
+     * * `scout` - Scout
+     * * `owner` - Owner
+     */
+    export type IdeaSourceEnum = typeof IdeaSourceEnum[keyof typeof IdeaSourceEnum];
+
+
+    export const IdeaSourceEnum = {
+      Scout: 'scout',
+      Owner: 'owner',
+    } as const;
+
+    /**
+     * * `` - None
+     * * `pending` - Pending
+     * * `supported` - Supported
+     * * `not_supported` - Not supported
+     */
+    export type IdeaAssessmentEnum = typeof IdeaAssessmentEnum[keyof typeof IdeaAssessmentEnum];
+
+
+    export const IdeaAssessmentEnum = {
+      Pending: 'pending',
+      Supported: 'supported',
+      NotSupported: 'not_supported',
+    } as const;
+
+    /**
+     * * `replay` - Session replay
+     * * `insight` - Insight
+     * * `chart` - Chart
+     * * `experiment` - Experiment
+     * * `error` - Error
+     * * `link` - Link
+     */
+    export type EvidenceKindEnum = typeof EvidenceKindEnum[keyof typeof EvidenceKindEnum];
+
+
+    export const EvidenceKindEnum = {
+      Replay: 'replay',
+      Insight: 'insight',
+      Chart: 'chart',
+      Experiment: 'experiment',
+      Error: 'error',
+      Link: 'link',
+    } as const;
+
+    export interface BetsEvidence {
+      /** What the evidence link points to.
+       *
+       * * `replay` - Session replay
+       * * `insight` - Insight
+       * * `chart` - Chart
+       * * `experiment` - Experiment
+       * * `error` - Error
+       * * `link` - Link */
+      kind: EvidenceKindEnum;
+      /** Short text that describes the evidence. */
+      label: string;
+      /** Link to the PostHog data, or chart:<id> for a chart in the report. */
+      url: string;
+    }
+
+    export const BetsWorkAssessment = {...IdeaAssessmentEnum,...BlankEnum,} as const
+    export interface BetsWork {
+      /** Work item ID. */
+      id: string;
+      /** Goal revision this work belongs to. */
+      goal_version: number;
+      /** Tracking check or idea.
+       *
+       * * `tracking` - Tracking
+       * * `idea` - Idea
+       * * `cleanup` - Cleanup */
+      kind: WorkKindEnum;
+      /** Where this work is in its lifecycle.
+       *
+       * * `proposed` - Proposed
+       * * `dismissed` - Dismissed
+       * * `working` - Working
+       * * `review` - In review
+       * * `live` - Live
+       * * `done` - Done
+       * * `dropped` - Dropped
+       * * `stuck` - Stuck */
+      stage: WorkStageEnum;
+      /** Work title. */
+      title: string;
+      /** The idea's evidence and proposed change. */
+      summary: string;
+      /** Latest status in plain language. */
+      note: string;
+      /** Pull request opened by the task. */
+      pr_url: string;
+      /** Pull request state from Tasks. */
+      pr_state: string;
+      /** Feature flag the change ships behind. */
+      flag_key: string;
+      /**
+         * Native experiment measuring the idea.
+         * @nullable
+         */
+      experiment_id: number | null;
+      /** Measured outcome, effect intervals, exposures and verdict. */
+      result: BetsIdeaResult;
+      /**
+         * Native task doing the work.
+         * @nullable
+         */
+      task_id: string | null;
+      /** Latest native task run status. */
+      task_status: string;
+      /** Task runs started for this work. */
+      attempts: number;
+      /** Settled cost in USD cents. */
+      spent_cents: number;
+      /** When the work started. */
+      created_at: string;
+      /**
+         * When the work finished.
+         * @nullable
+         */
+      finished_at: string | null;
+      /** Who proposed the idea.
+       *
+       * * `scout` - Scout
+       * * `owner` - Owner */
+      source: IdeaSourceEnum;
+      /** The Scout's check of the idea against the data.
+       *
+       * * `` - None
+       * * `pending` - Pending
+       * * `supported` - Supported
+       * * `not_supported` - Not supported */
+      assessment: typeof BetsWorkAssessment[keyof typeof BetsWorkAssessment];
+      /** Links to the PostHog data behind the idea. */
+      evidence: BetsEvidence[];
+      /**
+         * Scout report that describes the idea.
+         * @nullable
+         */
+      report_id: string | null;
+      /** Why the owner dismissed the idea. */
+      dismissed_reason: string;
+      /** The metric the Scout expects this idea to move. */
+      moves_metric: string;
+    }
+
+    export interface BetsScout {
+      /** Native Scout configuration. */
+      config_id: string;
+      /** Native Scout name. */
+      name: string;
+      /** Whether the Scout may run. */
+      enabled: boolean;
+      /** Whether the Scout is searching for an idea right now. */
+      running: boolean;
+    }
+
+    export interface BetsNextAction {
+      /** Stable identifier. */
+      id: string;
+      /** Bet requiring attention. */
+      bet_id: string;
+      /** Name of the bet. */
+      bet_title: string;
+      /** What needs attention. */
+      title: string;
+      /** What to do next. */
+      description: string;
+      /** Why this needs attention. */
+      label: string;
+      /**
+         * Related work item.
+         * @nullable
+         */
+      work_id: string | null;
+      /** Pull request or other place to act. */
+      url: string;
+    }
+
+    export interface BetsDetail {
+      /** The person who owns and controls this bet. */
+      owner: BetsOwner;
+      /** Bet ID. */
+      id: string;
+      /** Human-readable bet number. */
+      reference: number;
+      /** Bet name. */
+      title: string;
+      /** What we believe and why. */
+      statement: string;
+      /** Intended audience. */
+      audience: string;
+      /** Product area. */
+      area: string;
+      /** Connected repository. */
+      repository: string;
+      /** Primary metric insight. */
+      goal_insight: string;
+      /** Primary metric name. */
+      goal_metric: string;
+      /** Guardrails. */
+      secondary_metrics: BetsSecondaryMetric[];
+      /**
+         * Primary metric target.
+         * @pattern ^-?\d{0,16}(?:\.\d{0,4})?$
+         */
+      target: string;
+      /** Whether higher or lower is better.
+       *
+       * * `increase` - Increase
+       * * `decrease` - Decrease */
+      direction: BetDirectionEnum;
+      /** Primary metric unit. */
+      unit: string;
+      /** Bet lifecycle state.
+       *
+       * * `setting_up` - Setting up
+       * * `running` - Running
+       * * `paused` - Paused
+       * * `reached` - Goal reached
+       * * `spent` - Budget used
+       * * `closed` - Closed */
+      status: BetStatusEnum;
+      /** What the bet is doing now. */
+      note: string;
+      /**
+         * Primary metric when the bet started running.
+         * @nullable
+         */
+      baseline_value: number | null;
+      /**
+         * When the baseline was recorded.
+         * @nullable
+         */
+      baseline_at: string | null;
+      /** Budget accounting. */
+      money: BetsMoney;
+      /** Primary metric history. */
+      metric: BetsMetric;
+      /** Some task usage is still settling. */
+      spend_pending: boolean;
+      /** Ideas measured to a conclusion. */
+      ideas_tried: number;
+      /** Ideas that improved the primary metric. */
+      ideas_won: number;
+      /** Latest change. */
+      updated_at: string;
+      /** Whether the viewer owns this bet and can change it. */
+      is_owner: boolean;
+      /** Cumulative settled spend over time. */
+      spend_history: BetsSpendPoint[];
+      /** Current goal revision. */
+      goal_version: number;
+      /**
+         * Average settled cost of building one idea in this project, in USD cents.
+         * @nullable
+         */
+      build_estimate_cents: number | null;
+      /** Most that one build run can spend, in USD cents. */
+      build_cap_cents: number;
+      /**
+         * When the goal metric reached the target; the bet counts as reached after the confirm time.
+         * @nullable
+         */
+      goal_met_since: string | null;
+      /** Tracking checks and ideas, newest first. */
+      work: BetsWork[];
+      /** Current guardrail readings. */
+      secondary_values: BetsMetric[];
+      /** The Scout looking for ideas. */
+      scout: BetsScout | null;
+      /** The most urgent next step. */
+      next_action: BetsNextAction | null;
+      /** Whether the viewer can change this bet. */
+      can_edit: boolean;
+    }
+
+    export interface BetsEntry {
+      /** The person who owns and controls this bet. */
+      owner: BetsOwner;
+      /** Bet ID. */
+      id: string;
+      /** Human-readable bet number. */
+      reference: number;
+      /** Bet name. */
+      title: string;
+      /** What we believe and why. */
+      statement: string;
+      /** Intended audience. */
+      audience: string;
+      /** Product area. */
+      area: string;
+      /** Connected repository. */
+      repository: string;
+      /** Primary metric insight. */
+      goal_insight: string;
+      /** Primary metric name. */
+      goal_metric: string;
+      /** Guardrails. */
+      secondary_metrics: BetsSecondaryMetric[];
+      /**
+         * Primary metric target.
+         * @pattern ^-?\d{0,16}(?:\.\d{0,4})?$
+         */
+      target: string;
+      /** Whether higher or lower is better.
+       *
+       * * `increase` - Increase
+       * * `decrease` - Decrease */
+      direction: BetDirectionEnum;
+      /** Primary metric unit. */
+      unit: string;
+      /** Bet lifecycle state.
+       *
+       * * `setting_up` - Setting up
+       * * `running` - Running
+       * * `paused` - Paused
+       * * `reached` - Goal reached
+       * * `spent` - Budget used
+       * * `closed` - Closed */
+      status: BetStatusEnum;
+      /** What the bet is doing now. */
+      note: string;
+      /**
+         * Primary metric when the bet started running.
+         * @nullable
+         */
+      baseline_value: number | null;
+      /**
+         * When the baseline was recorded.
+         * @nullable
+         */
+      baseline_at: string | null;
+      /** Budget accounting. */
+      money: BetsMoney;
+      /** Primary metric history. */
+      metric: BetsMetric;
+      /** Some task usage is still settling. */
+      spend_pending: boolean;
+      /** Ideas measured to a conclusion. */
+      ideas_tried: number;
+      /** Ideas that improved the primary metric. */
+      ideas_won: number;
+      /** Latest change. */
+      updated_at: string;
+    }
+
+    export interface BetsIdea {
+      /**
+         * The owner's idea, in one sentence.
+         * @maxLength 255
+         */
+      title: string;
+    }
+
+    export interface BetsModelOption {
+      /** Model ID. */
+      model: string;
+      /** Display name. */
+      label: string;
+      /** Runtime that drives the model. */
+      runtime_adapter: string;
+      /** Reasoning efforts it supports. */
+      supported_efforts: string[];
+      /**
+         * Cost compared with the baseline model.
+         * @nullable
+         */
+      cost_multiplier: string | null;
+    }
+
+    /**
+     * * `scout` - Scout
+     * * `tracking` - Tracking
+     * * `idea` - Idea
+     */
+    export type ModelStepEnum = typeof ModelStepEnum[keyof typeof ModelStepEnum];
+
+
+    export const ModelStepEnum = {
+      Scout: 'scout',
+      Tracking: 'tracking',
+      Idea: 'idea',
+    } as const;
+
+    /**
+     * * `credits` - PostHog credits
+     * * `subscription` - ChatGPT plan
+     */
+    export type StepBillingEnum = typeof StepBillingEnum[keyof typeof StepBillingEnum];
+
+
+    export const StepBillingEnum = {
+      Credits: 'credits',
+      Subscription: 'subscription',
+    } as const;
+
+    export interface BetsStepModel {
+      /** Which step uses this model.
+       *
+       * * `scout` - Scout
+       * * `tracking` - Tracking
+       * * `idea` - Idea */
+      step: ModelStepEnum;
+      /** Model ID, or empty for the project default. */
+      model: string;
+      /** Reasoning effort, or empty for the default. */
+      reasoning_effort: string;
+      /** Who pays for this step's model use.
+       *
+       * * `credits` - PostHog credits
+       * * `subscription` - ChatGPT plan */
+      billing: StepBillingEnum;
+      /** Display name of the model. */
+      model_label: string;
+    }
+
+    export interface BetsSettings {
+      /** Project budget in USD cents. */
+      budget_cents: number;
+      /** Saved insight for the project North Star. */
+      north_star_insight: string;
+      /** Model and billing for each step. */
+      models: BetsStepModel[];
+      /** Models a step may use. */
+      model_options: BetsModelOption[];
+      /** Whether a connected ChatGPT plan can pay for unattended runs. */
+      plan_available: boolean;
+      /** Hours an experiment runs before Bets reads a win or a loss. */
+      min_run_hours: number;
+      /** Hours the goal metric must stay at the target before the bet counts as reached. */
+      goal_confirm_hours: number;
+    }
+
+    export interface BetsOverview {
+      /** Everything that needs attention, most urgent first. */
+      next_actions: BetsNextAction[];
+      /** Bets in this project. */
+      bets: BetsEntry[];
+      /** Current project North Star. */
+      north_star: BetsMetric;
+      /** Project budget, North Star and models. */
+      settings: BetsSettings;
+      /** Total allocated project budget. */
+      allocated_cents: number;
+      /** Project budget still available. */
+      unallocated_cents: number;
+      /** Whether the viewer can create or change bets. */
+      can_edit: boolean;
+    }
+
+    export interface BetsStatus {
+      /** Resume, pause or close the bet.
+       *
+       * * `running` - Start or resume
+       * * `paused` - Pause
+       * * `closed` - Close */
+      status: BetStatusChangeEnum;
+    }
+
+    export interface BetsStepModelWrite {
+      /**
+         * Model ID, or empty for the project default.
+         * @maxLength 200
+         */
+      model: string;
+      /**
+         * Reasoning effort.
+         * @maxLength 20
+         */
+      reasoning_effort?: string;
+      /** Who pays for this step's model use.
+       *
+       * * `credits` - PostHog credits
+       * * `subscription` - ChatGPT plan */
+      billing: StepBillingEnum;
+    }
+
+    export interface BetsStepModelsWrite {
+      /** Model for the Scout. */
+      scout?: BetsStepModelWrite;
+      /** Model for tracking checks. */
+      tracking?: BetsStepModelWrite;
+      /** Model for building ideas. */
+      idea?: BetsStepModelWrite;
+    }
+
+    export interface BetsWorkAction {
+      /** Work item belonging to this bet. */
+      work_id: string;
+      /** Build a proposed idea, dismiss it, retry stuck work, or drop an idea in progress.
+       *
+       * * `retry` - Retry
+       * * `drop` - Drop
+       * * `build` - Build
+       * * `dismiss` - Dismiss */
+      action: BetWorkActionEnum;
+      /**
+         * Why the idea is dismissed.
+         * @maxLength 1000
+         */
+      reason?: string;
+    }
+
+    export interface BetsWrite {
+      /** Stable ID for retrying creation without duplicates. */
+      operation_id?: string;
+      /**
+         * Short name of the bet.
+         * @maxLength 160
+         */
+      title: string;
+      /**
+         * What you believe will improve and why.
+         * @maxLength 10000
+         */
+      statement: string;
+      /**
+         * People this bet aims to help.
+         * @maxLength 500
+         */
+      audience?: string;
+      /**
+         * Product area for filtering.
+         * @maxLength 120
+         */
+      area?: string;
+      /**
+         * Connected GitHub repository in owner/repository form.
+         * @maxLength 255
+         * @pattern ^[\w.-]+/[\w.-]+$
+         */
+      repository: string;
+      /**
+         * Saved insight with one series that measures the goal.
+         * @maxLength 32
+         */
+      goal_insight: string;
+      /**
+         * Name of the primary metric.
+         * @maxLength 255
+         */
+      goal_metric: string;
+      /**
+         * The owner's own ideas. The Scout checks each one against the data before anyone chooses.
+         * @maxItems 5
+         * @items.maxLength 255
+         */
+      ideas?: string[];
+      /** Guardrails that must not get worse. */
+      secondary_metrics?: BetsSecondaryMetric[];
+      /**
+         * Target value of the primary metric.
+         * @pattern ^-?\d{0,16}(?:\.\d{0,4})?$
+         */
+      target: string;
+      /** Whether higher or lower is better.
+       *
+       * * `increase` - Increase
+       * * `decrease` - Decrease */
+      direction?: BetDirectionEnum;
+      /**
+         * Display unit, for example %.
+         * @maxLength 32
+         */
+      unit?: string;
+      /**
+         * Budget for this bet in USD cents.
+         * @minimum 0
+         * @maximum 1000000000
+         */
+      budget_cents: number;
+    }
+
     export interface BettermodeFeedbackSignalExtra {
       status: string | null;
       url: string | null;
@@ -63449,6 +64294,7 @@ export namespace Schemas {
      * * `endpoints` - Endpoints
      * * `replay_vision` - Replay Vision
      * * `analytics` - Product analytics
+     * * `bets` - Bets
      * * `freshdesk` - Freshdesk
      * * `freshservice` - Freshservice
      * * `front` - Front
@@ -63566,6 +64412,7 @@ export namespace Schemas {
       Endpoints: 'endpoints',
       ReplayVision: 'replay_vision',
       Analytics: 'analytics',
+      Bets: 'bets',
       Freshdesk: 'freshdesk',
       Freshservice: 'freshservice',
       Front: 'front',
@@ -63733,6 +64580,7 @@ export namespace Schemas {
        * * `endpoints` - Endpoints
        * * `replay_vision` - Replay Vision
        * * `analytics` - Product analytics
+       * * `bets` - Bets
        * * `freshdesk` - Freshdesk
        * * `freshservice` - Freshservice
        * * `front` - Front
@@ -84357,6 +85205,104 @@ export namespace Schemas {
       readonly import_config?: unknown;
     }
 
+    export interface PatchedBetsSettingsWrite {
+      /**
+         * Project budget in USD cents.
+         * @minimum 0
+         * @maximum 1000000000
+         */
+      budget_cents?: number;
+      /**
+         * Saved insight for the project North Star.
+         * @maxLength 32
+         */
+      north_star_insight?: string;
+      /**
+         * Hours an experiment runs before Bets reads a win or a loss.
+         * @minimum 0
+         * @maximum 1440
+         */
+      min_run_hours?: number;
+      /**
+         * Hours the goal metric must stay at the target before the bet counts as reached.
+         * @minimum 0
+         * @maximum 1440
+         */
+      goal_confirm_hours?: number;
+      /** Model and billing per step. */
+      step_models?: BetsStepModelsWrite;
+    }
+
+    export interface PatchedBetsWrite {
+      /** Stable ID for retrying creation without duplicates. */
+      operation_id?: string;
+      /**
+         * Short name of the bet.
+         * @maxLength 160
+         */
+      title?: string;
+      /**
+         * What you believe will improve and why.
+         * @maxLength 10000
+         */
+      statement?: string;
+      /**
+         * People this bet aims to help.
+         * @maxLength 500
+         */
+      audience?: string;
+      /**
+         * Product area for filtering.
+         * @maxLength 120
+         */
+      area?: string;
+      /**
+         * Connected GitHub repository in owner/repository form.
+         * @maxLength 255
+         * @pattern ^[\w.-]+/[\w.-]+$
+         */
+      repository?: string;
+      /**
+         * Saved insight with one series that measures the goal.
+         * @maxLength 32
+         */
+      goal_insight?: string;
+      /**
+         * Name of the primary metric.
+         * @maxLength 255
+         */
+      goal_metric?: string;
+      /**
+         * The owner's own ideas. The Scout checks each one against the data before anyone chooses.
+         * @maxItems 5
+         * @items.maxLength 255
+         */
+      ideas?: string[];
+      /** Guardrails that must not get worse. */
+      secondary_metrics?: BetsSecondaryMetric[];
+      /**
+         * Target value of the primary metric.
+         * @pattern ^-?\d{0,16}(?:\.\d{0,4})?$
+         */
+      target?: string;
+      /** Whether higher or lower is better.
+       *
+       * * `increase` - Increase
+       * * `decrease` - Decrease */
+      direction?: BetDirectionEnum;
+      /**
+         * Display unit, for example %.
+         * @maxLength 32
+         */
+      unit?: string;
+      /**
+         * Budget for this bet in USD cents.
+         * @minimum 0
+         * @maximum 1000000000
+         */
+      budget_cents?: number;
+    }
+
     export interface PatchedBilling {
       /** @maxLength 100 */
       plan?: string;
@@ -92464,6 +93410,7 @@ export namespace Schemas {
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
+     * * `bets` - Bets
      * * `signal_report` - Signal Report
      * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
@@ -92495,6 +93442,7 @@ export namespace Schemas {
       SessionSummaries: 'session_summaries',
       PosthogAi: 'posthog_ai',
       Experiments: 'experiments',
+      Bets: 'bets',
       SignalReport: 'signal_report',
       Autoresearch: 'autoresearch',
       SignalsScout: 'signals_scout',
@@ -92557,6 +93505,7 @@ export namespace Schemas {
        * * `session_summaries` - Session Summaries
        * * `posthog_ai` - PostHog AI
        * * `experiments` - Experiments
+       * * `bets` - Bets
        * * `signal_report` - Signal Report
        * * `autoresearch` - Autoresearch
        * * `signals_scout` - Signals Scout
@@ -102121,6 +103070,7 @@ export namespace Schemas {
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
      * * `analytics` - analytics
+     * * `bets` - bets
      * * `freshdesk` - freshdesk
      * * `freshservice` - freshservice
      * * `front` - front
@@ -102238,6 +103188,7 @@ export namespace Schemas {
       HealthChecks: 'health_checks',
       ReplayVision: 'replay_vision',
       Analytics: 'analytics',
+      Bets: 'bets',
       Freshdesk: 'freshdesk',
       Freshservice: 'freshservice',
       Front: 'front',
@@ -102680,6 +103631,7 @@ export namespace Schemas {
        * * `health_checks` - health_checks
        * * `replay_vision` - replay_vision
        * * `analytics` - analytics
+       * * `bets` - bets
        * * `freshdesk` - freshdesk
        * * `freshservice` - freshservice
        * * `front` - front
@@ -116734,6 +117686,7 @@ export namespace Schemas {
        * * `session_summaries` - Session Summaries
        * * `posthog_ai` - PostHog AI
        * * `experiments` - Experiments
+       * * `bets` - Bets
        * * `signal_report` - Signal Report
        * * `autoresearch` - Autoresearch
        * * `signals_scout` - Signals Scout
@@ -116973,6 +117926,7 @@ export namespace Schemas {
 
     /**
      * * `autoresearch` - autoresearch
+     * * `bets` - bets
      * * `error_tracking` - error_tracking
      * * `eval_clusters` - eval_clusters
      * * `experiments` - experiments
@@ -117003,6 +117957,7 @@ export namespace Schemas {
 
     export const TaskListSourceEnum = {
       Autoresearch: 'autoresearch',
+      Bets: 'bets',
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       Experiments: 'experiments',
@@ -118506,6 +119461,7 @@ export namespace Schemas {
        * * `session_summaries` - Session Summaries
        * * `posthog_ai` - PostHog AI
        * * `experiments` - Experiments
+       * * `bets` - Bets
        * * `signal_report` - Signal Report
        * * `autoresearch` - Autoresearch
        * * `signals_scout` - Signals Scout
@@ -127213,6 +128169,7 @@ export namespace Schemas {
     /**
      * Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".
      *
+     * * `Bet` - Bet
      * * `Cohort` - Cohort
      * * `CrossProjectDashboard` - CrossProjectDashboard
      * * `DevGatewayToken` - DevGatewayToken
@@ -127330,6 +128287,7 @@ export namespace Schemas {
 
 
     export const ActivityLogListScope = {
+      Bet: 'Bet',
       Cohort: 'Cohort',
       CrossProjectDashboard: 'CrossProjectDashboard',
       DevGatewayToken: 'DevGatewayToken',
@@ -127433,6 +128391,7 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `Bet` - Bet
      * * `Cohort` - Cohort
      * * `CrossProjectDashboard` - CrossProjectDashboard
      * * `DevGatewayToken` - DevGatewayToken
@@ -127538,6 +128497,7 @@ export namespace Schemas {
 
 
     export const ActivityLogListScopesItem = {
+      Bet: 'Bet',
       Cohort: 'Cohort',
       CrossProjectDashboard: 'CrossProjectDashboard',
       DevGatewayToken: 'DevGatewayToken',
@@ -128478,6 +129438,13 @@ export namespace Schemas {
      * @minLength 1
      */
     search?: string;
+    };
+
+    export type BetsListParams = {
+    /**
+     * Recalculate the saved North Star insight before returning.
+     */
+    refresh?: boolean;
     };
 
     export type BillingProjectSpendExportDownloadParams = {
@@ -137908,6 +138875,7 @@ export namespace Schemas {
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
+     * * `bets` - Bets
      * * `signal_report` - Signal Report
      * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
@@ -137943,6 +138911,7 @@ export namespace Schemas {
       SessionSummaries: 'session_summaries',
       PosthogAi: 'posthog_ai',
       Experiments: 'experiments',
+      Bets: 'bets',
       SignalReport: 'signal_report',
       Autoresearch: 'autoresearch',
       SignalsScout: 'signals_scout',
@@ -139367,6 +140336,7 @@ export namespace Schemas {
      * * `session_summaries` - Session Summaries
      * * `posthog_ai` - PostHog AI
      * * `experiments` - Experiments
+     * * `bets` - Bets
      * * `signal_report` - Signal Report
      * * `autoresearch` - Autoresearch
      * * `signals_scout` - Signals Scout
@@ -139386,6 +140356,10 @@ export namespace Schemas {
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct;
+    /**
+     * Exclude tasks from these origin products. Accepts repeated parameters, comma-separated values, or a JSON array.
+     */
+    exclude_origin_products?: TasksListExcludeOriginProductsItem[];
     /**
      * Filter tasks to the runs spawned by this workflow's 'Create AI task' action.
      */
@@ -139520,6 +140494,69 @@ export namespace Schemas {
       SessionSummaries: 'session_summaries',
       PosthogAi: 'posthog_ai',
       Experiments: 'experiments',
+      Bets: 'bets',
+      SignalReport: 'signal_report',
+      Autoresearch: 'autoresearch',
+      SignalsScout: 'signals_scout',
+      ScoutSuggestions: 'scout_suggestions',
+      SupportReply: 'support_reply',
+      Hogdesk: 'hogdesk',
+      ReviewHog: 'review_hog',
+      ImageBuilder: 'image_builder',
+      Loop: 'loop',
+      McpAnalytics: 'mcp_analytics',
+      SignalsChat: 'signals_chat',
+      TaskAnalysis: 'task_analysis',
+      Workflow: 'workflow',
+      SpaceSetup: 'space_setup',
+      BusinessKnowledge: 'business_knowledge',
+      MetricsImport: 'metrics_import',
+    } as const;
+
+    /**
+     * * `onboarding` - Onboarding
+     * * `account_audit` - Account audit
+     * * `error_tracking` - Error Tracking
+     * * `eval_clusters` - Eval Clusters
+     * * `user_created` - User Created
+     * * `slack` - Slack
+     * * `support_queue` - Support Queue
+     * * `session_summaries` - Session Summaries
+     * * `posthog_ai` - PostHog AI
+     * * `experiments` - Experiments
+     * * `bets` - Bets
+     * * `signal_report` - Signal Report
+     * * `autoresearch` - Autoresearch
+     * * `signals_scout` - Signals Scout
+     * * `scout_suggestions` - Signals Scout Suggestions
+     * * `support_reply` - Support Reply
+     * * `hogdesk` - HogDesk
+     * * `review_hog` - ReviewHog
+     * * `image_builder` - Image Builder
+     * * `loop` - Loop
+     * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat
+     * * `task_analysis` - Task Analysis
+     * * `workflow` - Workflow
+     * * `space_setup` - Space Setup
+     * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import
+     */
+    export type TasksListExcludeOriginProductsItem = typeof TasksListExcludeOriginProductsItem[keyof typeof TasksListExcludeOriginProductsItem];
+
+
+    export const TasksListExcludeOriginProductsItem = {
+      Onboarding: 'onboarding',
+      AccountAudit: 'account_audit',
+      ErrorTracking: 'error_tracking',
+      EvalClusters: 'eval_clusters',
+      UserCreated: 'user_created',
+      Slack: 'slack',
+      SupportQueue: 'support_queue',
+      SessionSummaries: 'session_summaries',
+      PosthogAi: 'posthog_ai',
+      Experiments: 'experiments',
+      Bets: 'bets',
       SignalReport: 'signal_report',
       Autoresearch: 'autoresearch',
       SignalsScout: 'signals_scout',
@@ -139567,6 +140604,7 @@ export namespace Schemas {
 
     /**
      * * `autoresearch` - autoresearch
+     * * `bets` - bets
      * * `error_tracking` - error_tracking
      * * `eval_clusters` - eval_clusters
      * * `experiments` - experiments
@@ -139597,6 +140635,7 @@ export namespace Schemas {
 
     export const TasksListSourcesItem = {
       Autoresearch: 'autoresearch',
+      Bets: 'bets',
       ErrorTracking: 'error_tracking',
       EvalClusters: 'eval_clusters',
       Experiments: 'experiments',

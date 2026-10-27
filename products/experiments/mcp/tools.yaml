@@ -1569,6 +1569,7 @@ tools:
             - metrics_secondary
             - saved_metrics_ids
             - stats_config
+            - only_count_matured_users
             - exposure_criteria
             - holdout_id
             - conclusion
@@ -1625,6 +1626,7 @@ tools:
                 - excluded_variants
                 - metrics
                 - metrics_secondary
+                - only_count_matured_users
                 - saved_metrics.*.id
                 - saved_metrics.*.experiment
                 - saved_metrics.*.saved_metric

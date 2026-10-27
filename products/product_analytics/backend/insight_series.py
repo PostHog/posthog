@@ -52,15 +52,19 @@ def _run(
     filters: dict[str, Any] | None,
     variables: dict[str, Any] | None,
     blocking: bool = False,
+    force_refresh: bool = False,
 ) -> dict[str, Any]:
     from posthog.api.services.query import process_query_dict  # noqa: PLC0415
 
+    execution_mode = BLOCKING_EXECUTION_MODE if blocking else EXECUTION_MODE
+    if force_refresh:
+        execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS if blocking else ExecutionMode.CALCULATE_ASYNC_ALWAYS
     response = process_query_dict(
         team,
         source,
         dashboard_filters_json=filters,
         variables_override_json=variables,
-        execution_mode=BLOCKING_EXECUTION_MODE if blocking else EXECUTION_MODE,
+        execution_mode=execution_mode,
         user=user,
     )
     return response.model_dump() if isinstance(response, BaseModel) else response
@@ -128,13 +132,14 @@ def _sql_series(
     filters: dict[str, Any],
     variables: dict[str, Any] | None,
     blocking: bool = False,
+    force_refresh: bool = False,
 ) -> InsightSeries | None:
     settings = query.get("chartSettings") or {}
     x_column = (settings.get("xAxis") or {}).get("column")
     y_axes = [axis for axis in settings.get("yAxis") or [] if axis.get("column")]
     if query.get("display") not in CHARTED_SQL_DISPLAYS or not x_column or not y_axes:
         return None
-    response = _run(team, user, query["source"], filters, variables, blocking)
+    response = _run(team, user, query["source"], filters, variables, blocking, force_refresh)
     if response.get("hasMore"):
         return None
     position = {column: index for index, column in enumerate(response.get("columns") or [])}
@@ -203,6 +208,8 @@ def insight_series(
     query: dict[str, Any],
     dashboard: InsightDashboardContext | None,
     blocking: bool = False,
+    use_saved_date_range: bool = False,
+    force_refresh: bool = False,
 ) -> InsightSeries | None:
     dashboard_filters: dict[str, Any] = {}
     variables: dict[str, Any] | None = None
@@ -223,6 +230,7 @@ def insight_series(
             filters=filters,
             variables=variables,
             blocking=blocking,
+            force_refresh=force_refresh,
         )
     trends = source.get("trendsFilter") or {}
     if source.get("kind") != "TrendsQuery" or trends.get("display") in UNCHARTED_DISPLAYS:
@@ -237,10 +245,12 @@ def insight_series(
     bounded = {key: value for key, value in source.items() if key != "compareFilter"}
     bounded.update(
         interval=interval,
-        dateRange={**kept, "date_from": LOOKBACK[interval], "excludeIncompletePeriods": True},
+        dateRange=date_range
+        if use_saved_date_range
+        else {**kept, "date_from": LOOKBACK[interval], "excludeIncompletePeriods": True},
         trendsFilter={**{k: v for k, v in trends.items() if k != "smoothingIntervals"}, "metricShowChange": False},
     )
-    response = _run(team, user, bounded, filters, variables, blocking)
+    response = _run(team, user, bounded, filters, variables, blocking, force_refresh)
     formula = bool(trends.get("formula") or trends.get("formulas") or trends.get("formulaNodes"))
     several = len(source.get("series") or []) > 1
     # `_run` executes the upgraded query, which stamps `kind` on series saved without one.
