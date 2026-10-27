@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconInfo, IconLightBulb } from '@posthog/icons'
-import { LemonBadge, LemonBanner, LemonButton, LemonDropdown, LemonSkeleton, Popover, Tooltip } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonDropdown, LemonSkeleton, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 import { formatMarketingMoney } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
@@ -78,9 +78,22 @@ export function RecommendationsSection(): JSX.Element {
             'marketing_analytics_recommendations'
         ),
         'data-attr': 'marketing-recommendations-connect-google-ads',
+        sideIcon: null,
     }
 
     const showGroups = sources.length > 0 && !responseError && !!firstRule
+    const idleMessage =
+        connectedSourceTypes.length === 0
+            ? 'Connect Google Ads to get recommendations on budgets, search terms and wasted spend.'
+            : sources.length === 0
+              ? 'Select a Google Ads or Google Search Console source with synced tables to see recommendations.'
+              : responseError
+                ? null
+                : 'No recommendations for this period.'
+    const idleReason =
+        connectedSourceTypes.length > 0 && sources.length > 0 && !responseError
+            ? 'Campaign rules compare active campaigns in the same ad account, so an account with one campaign gets few. Search term rules need synced search term tables, and Google Search Console for the organic ones.'
+            : (idleMessage ?? 'Recommendations could not load.')
 
     return (
         <div className="@container flex flex-col gap-3 pt-2" data-attr="marketing-recommendations">
@@ -145,41 +158,39 @@ export function RecommendationsSection(): JSX.Element {
                     ) : sourcesLoading || (responseLoading && sources.length > 0) ? (
                         <LemonSkeleton className="h-6 w-60" />
                     ) : (
-                        <span className="font-semibold">Recommendations</span>
+                        <>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconLightBulb />}
+                                sideIcon={null}
+                                disabledReason={idleReason}
+                            >
+                                Recommendations
+                            </LemonButton>
+                            {idleMessage && <span className="text-secondary">{idleMessage}</span>}
+                            {connectedSourceTypes.length === 0 && (
+                                <LemonButton type="secondary" size="small" {...connectGoogleAds} />
+                            )}
+                        </>
+                    )}
+                    {showGroups && !hasAdsSource && (
+                        <span className="text-secondary">
+                            Connect Google Ads and sync its campaign tables to also get campaign recommendations.
+                        </span>
+                    )}
+                    {showGroups && !hasAdsSource && !connectedSourceTypes.includes('GoogleAds') && (
+                        <LemonButton type="tertiary" size="small" {...connectGoogleAds} />
                     )}
                 </div>
             </Popover>
-            {!hasAdsSource && sources.length > 0 && (
-                <LemonBanner
-                    type="info"
-                    action={connectedSourceTypes.includes('GoogleAds') ? undefined : connectGoogleAds}
-                >
-                    Connect Google Ads and sync its campaign and campaign_stats tables to get campaign recommendations.
-                </LemonBanner>
-            )}
-            {sourcesLoading ? null : connectedSourceTypes.length === 0 ? (
-                <LemonBanner type="info" action={connectGoogleAds}>
-                    Connect Google Ads to get recommendations on budgets, search terms and wasted spend. Add Google
-                    Search Console too for organic search recommendations.
-                </LemonBanner>
-            ) : sources.length === 0 ? (
-                <LemonBanner type="info">
-                    Select a Google Ads or Google Search Console source with synced campaign or search query tables to
-                    see recommendations.
-                </LemonBanner>
-            ) : responseError ? (
+            {!sourcesLoading && sources.length > 0 && responseError ? (
                 <MarketingQueryError
                     message="Could not load recommendations. Try again, and contact support if it keeps happening."
                     queryId={queryId}
                     onRetry={() => loadData('force_async')}
                     loading={responseLoading}
                 />
-            ) : !responseLoading && groups.length === 0 ? (
-                <p className="text-secondary mb-0">
-                    No recommendations. Campaign rules compare active campaigns in the same ad account, so an account
-                    with one campaign gets few. Search term rules need synced search term tables, and Google Search
-                    Console for the organic ones.
-                </p>
             ) : null}
             <RecommendationsModal
                 isOpen={selectedRule !== null}
