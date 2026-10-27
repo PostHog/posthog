@@ -1,4 +1,5 @@
-import { defineGroup } from '../../core/command'
+import { defineGroup } from '@/core/command'
+
 import check from './check'
 import run from './run'
 

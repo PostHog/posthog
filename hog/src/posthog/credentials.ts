@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 
-import { HogError } from '../core/errors'
-import type { Env, Runtime } from '../core/runtime'
+import { HogError } from '@/core/errors'
+import type { Env, Runtime } from '@/core/runtime'
 
 // posthog-cli falls back to this host when neither --host nor the credentials name one.
 export const DEFAULT_HOST = 'https://us.i.posthog.com'

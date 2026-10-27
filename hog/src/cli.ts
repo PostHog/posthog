@@ -1,16 +1,16 @@
 import { Command as Commander, CommanderError, Option } from 'commander'
 import { parseArgs, type ParseArgsOptionsConfig } from 'node:util'
 
-import pkg from '../package.json' with { type: 'json' }
-import { COMMANDS } from './commands'
-import { resolveMode, type Mode, type OutputFormat } from './core/agent'
-import { argumentSyntax, optionFlags, type Command, type Group, type Legacy, type OptionSpec } from './core/command'
-import { Context, GLOBAL_OPTIONS, type GlobalOptions } from './core/context'
-import { EXIT_USAGE, HogError } from './core/errors'
-import { Output } from './core/output'
-import type { Runtime } from './core/runtime'
-import { kebabCase } from './core/text'
-import { ApiError } from './posthog/api'
+import { COMMANDS } from '@/commands'
+import { resolveMode, type Mode, type OutputFormat } from '@/core/agent'
+import { argumentSyntax, optionFlags, type Command, type Group, type Legacy, type OptionSpec } from '@/core/command'
+import { Context, GLOBAL_OPTIONS, type GlobalOptions } from '@/core/context'
+import { EXIT_USAGE, HogError } from '@/core/errors'
+import { Output } from '@/core/output'
+import type { Runtime } from '@/core/runtime'
+import { kebabCase } from '@/core/text'
+import { ApiError } from '@/posthog/api'
+import { VERSION } from '@/version'
 
 const ROOT_HELP = `
 hog prints JSON when an agent such as Claude Code or Codex runs it, or when stdout is not a terminal.
@@ -139,7 +139,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: { exitCode: number }
 
     const program = new Commander('hog')
         .description('The PostHog command line')
-        .version(pkg.version, '-V, --version', 'Show the version')
+        .version(VERSION, '-V, --version', 'Show the version')
         .helpOption('-h, --help', 'Show help')
         // Listed in help only: run() turns `hog help <command...>` into `hog <command...> --help`.
         .helpCommand('help [command...]', 'Show help for a command')

@@ -1,13 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 
-import pkg from '../package.json' with { type: 'json' }
-import { LEGACY_COMMANDS } from './commands/legacy'
+import { LEGACY_COMMANDS } from '@/commands/legacy'
+import { VERSION } from '@/version'
+
 import { runHog } from './testing'
 
 describe('hog', () => {
     test.each([
         ['no arguments prints help', [], 'Usage: hog'],
-        ['--version prints the version', ['--version'], pkg.version],
+        ['--version prints the version', ['--version'], VERSION],
         ['help for a command prints its usage', ['help', 'query', 'run'], 'Usage: hog query run'],
         [
             'help after a global option still finds the command',

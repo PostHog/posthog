@@ -1,5 +1,6 @@
+import type { Env, Runtime } from '@/core/runtime'
+
 import { run } from './cli'
-import type { Env, Runtime } from './core/runtime'
 
 export interface FakeRuntimeOptions {
     env?: Env

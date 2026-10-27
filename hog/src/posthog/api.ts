@@ -1,8 +1,9 @@
-import pkg from '../../package.json' with { type: 'json' }
-import { HogError } from '../core/errors'
+import { HogError } from '@/core/errors'
+import { VERSION } from '@/version'
+
 import type { Credentials } from './credentials'
 
-const USER_AGENT = `hog/${pkg.version}`
+const USER_AGENT = `hog/${VERSION}`
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 

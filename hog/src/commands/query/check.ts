@@ -1,6 +1,6 @@
-import { defineCommand } from '../../core/command'
-import type { Output, Style } from '../../core/output'
-import { plural } from '../../core/text'
+import { defineCommand } from '@/core/command'
+import type { Output, Style } from '@/core/output'
+import { plural } from '@/core/text'
 
 interface MetadataNotice {
     message: string

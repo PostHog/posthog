@@ -1,5 +1,6 @@
-import { PostHogApi } from '../posthog/api'
-import { resolveCredentials } from '../posthog/credentials'
+import { PostHogApi } from '@/posthog/api'
+import { resolveCredentials } from '@/posthog/credentials'
+
 import type { Mode } from './agent'
 import type { CommandTree, OptionSpec, OptionValues } from './command'
 import type { Runtime } from './runtime'

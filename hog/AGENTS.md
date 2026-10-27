@@ -12,6 +12,8 @@
 | `src/cli.ts`     | Turns the command tree into a commander program, runs it, and maps errors to exit codes                                                      |
 | `src/testing.ts` | `runHog` and a fake runtime, so tests run the real CLI without a process or a network                                                        |
 
+Import from another folder with `@/`, which `tsconfig.json` maps to `src/`, as in `import { defineCommand } from '@/core/command'`. Use `./` only inside the same folder.
+
 ## Add a command
 
 1. Write `src/commands/<group>/<name>.ts` with `defineCommand`. Put it in a `defineGroup` when it has siblings.

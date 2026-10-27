@@ -1,6 +1,6 @@
-import pkg from '../../package.json' with { type: 'json' }
-import { defineCommand } from '../core/command'
-import { describeCommands, describeGlobalOptions } from '../core/manifest'
+import { defineCommand } from '@/core/command'
+import { describeCommands, describeGlobalOptions } from '@/core/manifest'
+import { VERSION } from '@/version'
 
 export default defineCommand({
     description: 'List every command, for agents and scripts',
@@ -9,7 +9,7 @@ export default defineCommand({
 
     run: ({ ctx }) => ({
         cli: 'hog',
-        version: pkg.version,
+        version: VERSION,
         agent: ctx.mode.agent ?? null,
         agentReason: ctx.mode.agentReason,
         globalOptions: describeGlobalOptions(),

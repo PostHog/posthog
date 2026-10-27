@@ -1,6 +1,6 @@
-import { defineCommand } from '../../core/command'
-import { plural } from '../../core/text'
-import { ApiError } from '../../posthog/api'
+import { defineCommand } from '@/core/command'
+import { plural } from '@/core/text'
+import { ApiError } from '@/posthog/api'
 
 interface QueryResponse {
     columns?: string[] | null

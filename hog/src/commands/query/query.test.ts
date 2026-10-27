@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { runHog, TEST_CREDENTIALS } from '../../testing'
+import { runHog, TEST_CREDENTIALS } from '@/testing'
 
 const ROWS = {
     columns: ['event', 'total'],

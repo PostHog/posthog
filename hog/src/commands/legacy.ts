@@ -1,4 +1,4 @@
-import { defineLegacy, type CommandTree } from '../core/command'
+import { defineLegacy, type CommandTree } from '@/core/command'
 
 export const LEGACY_COMMANDS: CommandTree = {
     login: defineLegacy({

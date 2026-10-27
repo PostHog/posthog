@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 
-import { HogError } from '../core/errors'
-import { fakeRuntime } from '../testing'
+import { HogError } from '@/core/errors'
+import { fakeRuntime } from '@/testing'
+
 import { DEFAULT_HOST, resolveCredentials } from './credentials'
 
 const ENV = { POSTHOG_CLI_API_KEY: 'phx_env', POSTHOG_CLI_PROJECT_ID: '1', POSTHOG_CLI_HOST: 'https://env.example.com' }
