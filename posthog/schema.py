@@ -100,6 +100,7 @@ from posthog.schema_enums import (
     DaysOfWeekEnum as DaysOfWeekEnum,
     DeepResearchType as DeepResearchType,
     DefaultChannelTypes as DefaultChannelTypes,
+    DefaultSort as DefaultSort,
     DetailedResultsAggregationType as DetailedResultsAggregationType,
     DetectorType as DetectorType,
     Display as Display,
@@ -492,6 +493,17 @@ class AlertScheduleRestrictionWindow(BaseModel):
     )
     end: str
     start: str
+
+
+class AnalyticsListDisplayConfiguration(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    default_sort: DefaultSort | None = Field(
+        default=None,
+        description=("The sort a list opens with. A column header click still changes the sort for that visit."),
+    )
+    hide_insights: bool | None = Field(default=None, description="Leaves insights out of the All list.")
 
 
 class ApprovalResumePayload(BaseModel):
@@ -3504,6 +3516,7 @@ class UserBasicType(BaseModel):
 
 
 class UserUIConfiguration(BaseModel):
+    analytics_list: AnalyticsListDisplayConfiguration | None = None
     sql_editor: SQLEditorConfiguration | None = None
     version: int = Field(
         ...,

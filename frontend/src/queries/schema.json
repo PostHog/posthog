@@ -1559,6 +1559,22 @@
             "enum": ["amazon", "amazon_ads"],
             "type": "string"
         },
+        "AnalyticsListDisplayConfiguration": {
+            "additionalProperties": false,
+            "description": "One person's display choices for the Analytics lists.",
+            "properties": {
+                "default_sort": {
+                    "description": "The sort a list opens with. A column header click still changes the sort for that visit.",
+                    "enum": ["-last_viewed_at", "-created_at"],
+                    "type": "string"
+                },
+                "hide_insights": {
+                    "description": "Leaves insights out of the All list.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "AnalyticsQueryResponseBase": {
             "additionalProperties": false,
             "properties": {
@@ -57083,8 +57099,10 @@
         },
         "UserUIConfiguration": {
             "additionalProperties": {},
-            "description": "Per-user UI customization, persisted on the User model as a single JSONB blob. A null configuration and any absent key mean \"default\". Writers must send the complete object; the server validates and replaces it wholesale.",
             "properties": {
+                "analytics_list": {
+                    "$ref": "#/definitions/AnalyticsListDisplayConfiguration"
+                },
                 "sql_editor": {
                     "$ref": "#/definitions/SQLEditorConfiguration"
                 },
