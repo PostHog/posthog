@@ -13,6 +13,8 @@ import type {
     BetsDetailApi,
     BetsIdeaApi,
     BetsListParams,
+    BetsMetricApi,
+    BetsMetricPreviewRetrieveParams,
     BetsOverviewApi,
     BetsSettingsApi,
     BetsStatusApi,
@@ -176,6 +178,33 @@ export const betsWorkCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(betsWorkActionApi),
+    })
+}
+
+export const getBetsMetricPreviewRetrieveUrl = (projectId: string, params: BetsMetricPreviewRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/bets/metric_preview/?${stringifiedParams}`
+        : `/api/projects/${projectId}/bets/metric_preview/`
+}
+
+export const betsMetricPreviewRetrieve = async (
+    projectId: string,
+    params: BetsMetricPreviewRetrieveParams,
+    options?: RequestInit
+): Promise<BetsMetricApi> => {
+    return apiMutator<BetsMetricApi>(getBetsMetricPreviewRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

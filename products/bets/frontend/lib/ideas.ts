@@ -27,7 +27,7 @@ export const IDEA_ICON_COLOR = 'var(--color-product-early-access-features-light)
 
 const ASSESSMENT_MARKER = /^\s*(?:not supported|supported)\s*[.:]\s*/i
 
-export function ideaBadge(item: BetsWorkApi): IdeaBadge | null {
+function ideaBadge(item: BetsWorkApi): IdeaBadge | null {
     return ASSESSMENT_BADGES[item.assessment] ?? null
 }
 
@@ -50,7 +50,7 @@ export function firstSupportedIdea(ideas: BetsWorkApi[]): string | null {
     return ideas.find((item) => item.assessment === 'supported')?.id ?? null
 }
 
-export function ideaReport(item: BetsWorkApi): string {
+function ideaReport(item: BetsWorkApi): string {
     return item.summary.replace(ASSESSMENT_MARKER, '').trim()
 }
 
@@ -69,7 +69,7 @@ export function hasMoreReport(item: BetsWorkApi): boolean {
     return ideaReportRest(item).length > 0
 }
 
-export function isCurrentIdea(item: BetsWorkApi, bet: Pick<BetsDetailApi, 'goal_version'>): boolean {
+function isCurrentIdea(item: BetsWorkApi, bet: Pick<BetsDetailApi, 'goal_version'>): boolean {
     return item.kind === 'idea' && item.goal_version === bet.goal_version
 }
 

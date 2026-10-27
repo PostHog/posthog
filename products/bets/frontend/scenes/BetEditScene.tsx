@@ -1,15 +1,32 @@
 import { useActions, useValues } from 'kea'
 
-import { Button, Field, FieldDescription, FieldLabel, Input, Text, Textarea } from '@posthog/quill'
+import {
+    Field,
+    FieldDescription,
+    FieldError,
+    FieldLabel,
+    Input,
+    InputGroup,
+    InputGroupAddon,
+    InputGroupInput,
+    InputGroupText,
+    Text,
+    Textarea,
+} from '@posthog/quill'
 
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { BetsPage } from '../BetsPage'
+import { BetAreaField } from '../components/BetAreaField'
 import { BetEditSkeleton } from '../components/BetEditSkeleton'
-import { BetMetricFields } from '../components/BetMetricFields'
+import { BetFormActions } from '../components/BetFormActions'
+import { BetFormSection } from '../components/BetFormSection'
+import { BetGuardrailsField } from '../components/BetGuardrailsField'
+import { BetInsightPicker } from '../components/BetInsightPicker'
 import { BetOwnerIdeasField } from '../components/BetOwnerIdeasField'
+import { BetRepositoryField } from '../components/BetRepositoryField'
+import { BetTargetField } from '../components/BetTargetField'
+import { BetThesisCard } from '../components/BetThesisCard'
 import { money } from '../lib/format'
 import { betFormLogic } from '../logics/betFormLogic'
 
@@ -20,115 +37,177 @@ export const scene: SceneExport = {
 }
 
 export function BetEditScene({ id = 'new' }: { id?: string }): JSX.Element {
-    const { form, busy, error, existing, existingLoading, breadcrumbs, budgetLimitCents } = useValues(
-        betFormLogic({ id })
-    )
-    const { change, submit } = useActions(betFormLogic({ id }))
+    const logic = betFormLogic({ id })
+    const {
+        form,
+        title,
+        budget,
+        error,
+        existing,
+        existingLoading,
+        breadcrumbs,
+        budgetLimitCents,
+        insightOptions,
+        previewNote,
+        previewLoading,
+        fieldErrors,
+        isNew,
+    } = useValues(logic)
+    const { change, setTitle, setBudget, selectPrimaryInsight, touch, submit } = useActions(logic)
+    const insightNote = !form.goal_insight
+        ? 'A saved trends insight with one series.'
+        : previewLoading
+          ? 'Loading the current value…'
+          : previewNote
     return (
-        <BetsPage title={id === 'new' ? 'New bet' : 'Edit bet'} breadcrumbs={breadcrumbs}>
+        <BetsPage
+            title={isNew ? 'New bet' : 'Edit bet'}
+            description={
+                isNew ? 'A bet is a belief, one metric that proves it, and a budget for Bets to test ideas.' : undefined
+            }
+            breadcrumbs={breadcrumbs}
+        >
             {existingLoading ? (
                 <BetEditSkeleton />
-            ) : id !== 'new' && !existing ? (
+            ) : !isNew && !existing ? (
                 <Text variant="destructive">{error || 'This bet could not be loaded.'}</Text>
             ) : (
-                <form
-                    className="flex max-w-170 flex-col gap-6 pt-7"
-                    onSubmit={(event) => {
-                        event.preventDefault()
-                        submit()
-                    }}
-                >
-                    <Field>
-                        <FieldLabel htmlFor="bet-title">Bet</FieldLabel>
-                        <Input
-                            id="bet-title"
-                            required
-                            maxLength={160}
-                            value={form.title}
-                            onChange={(event) => change({ title: event.target.value })}
-                            placeholder="Help people find what they need"
-                        />
-                    </Field>
-                    <Field>
-                        <FieldLabel htmlFor="bet-statement">What do you believe will improve?</FieldLabel>
-                        <Textarea
-                            id="bet-statement"
-                            required
-                            value={form.statement}
-                            onChange={(event) => change({ statement: event.target.value })}
-                            placeholder="We believe that… because…"
-                            className="min-h-28"
-                        />
-                    </Field>
-                    <Field>
-                        <FieldLabel htmlFor="bet-audience">Who is this for?</FieldLabel>
-                        <Input
-                            id="bet-audience"
-                            value={form.audience ?? ''}
-                            onChange={(event) => change({ audience: event.target.value })}
-                            placeholder="For example, new workspace members"
-                        />
-                    </Field>
-                    <BetMetricFields id={id} />
-                    <div className="Bets__formRow">
-                        <Field>
-                            <FieldLabel htmlFor="bet-area">Product area</FieldLabel>
-                            <Input
-                                id="bet-area"
-                                value={form.area ?? ''}
-                                onChange={(event) => change({ area: event.target.value })}
-                                placeholder="Search"
-                            />
-                        </Field>
-                        <Field>
-                            <FieldLabel htmlFor="bet-budget">Budget (USD)</FieldLabel>
-                            <Input
-                                id="bet-budget"
-                                required
-                                type="number"
-                                min={0}
-                                max={budgetLimitCents === null ? undefined : budgetLimitCents / 100}
-                                step="0.01"
-                                value={form.budget_cents / 100}
-                                onChange={(event) =>
-                                    change({ budget_cents: Math.round(Number(event.target.value) * 100) })
-                                }
-                            />
-                            {budgetLimitCents !== null && (
-                                <FieldDescription>
-                                    Up to {money(budgetLimitCents)} available for this bet.
-                                </FieldDescription>
-                            )}
-                        </Field>
-                    </div>
-                    {id === 'new' && <BetOwnerIdeasField />}
-                    <Field>
-                        <FieldLabel htmlFor="bet-repository">Repository</FieldLabel>
-                        <Input
-                            id="bet-repository"
-                            value={form.repository ?? ''}
-                            onChange={(event) => change({ repository: event.target.value })}
-                            placeholder="organization/repository"
-                        />
-                        <FieldDescription>Use a repository connected to this PostHog project.</FieldDescription>
-                    </Field>
-                    {error && (
-                        <Text variant="destructive" render={<p role="alert" />}>
-                            {error}
-                        </Text>
-                    )}
-                    <div className="flex flex-wrap gap-2">
-                        <Button
-                            variant="outline"
-                            render={<LinkPrimitive to={id === 'new' ? urls.betsAll() : urls.bet(id)} />}
+                <div className="Bets__formLayout">
+                    <form
+                        id="bet-form"
+                        className="Bets__form"
+                        noValidate
+                        onSubmit={(event) => {
+                            event.preventDefault()
+                            submit()
+                        }}
+                    >
+                        <BetFormSection
+                            id="bet-section-bet"
+                            title="Your bet"
+                            description="The hypothesis you want to test, in your own words."
                         >
-                            Cancel
-                        </Button>
-                        <Button type="submit" variant="primary" loading={busy}>
-                            {id === 'new' ? 'Create bet' : 'Save changes'}
-                        </Button>
+                            <Field data-invalid={!!fieldErrors.statement || undefined}>
+                                <FieldLabel htmlFor="bet-statement">What do you believe will improve?</FieldLabel>
+                                <Textarea
+                                    id="bet-statement"
+                                    autoFocus={isNew}
+                                    maxLength={10000}
+                                    value={form.statement}
+                                    aria-invalid={!!fieldErrors.statement || undefined}
+                                    onChange={(event) => change({ statement: event.target.value })}
+                                    onBlur={() => touch('statement')}
+                                    placeholder="Shoppers who see the full price before checkout will finish more orders, because surprise shipping costs at the last step make them leave."
+                                    className="Bets__belief"
+                                />
+                                {fieldErrors.statement ? (
+                                    <FieldError>{fieldErrors.statement}</FieldError>
+                                ) : (
+                                    <FieldDescription>Write the change you expect, then why.</FieldDescription>
+                                )}
+                            </Field>
+                            <div className="Bets__formRow Bets__formRow--name">
+                                <Field data-invalid={!!fieldErrors.title || undefined}>
+                                    <FieldLabel htmlFor="bet-title">Name</FieldLabel>
+                                    <Input
+                                        id="bet-title"
+                                        maxLength={160}
+                                        value={title}
+                                        aria-invalid={!!fieldErrors.title || undefined}
+                                        onChange={(event) => setTitle(event.target.value)}
+                                        onBlur={() => touch('title')}
+                                        placeholder="Full price before checkout"
+                                    />
+                                    {fieldErrors.title ? (
+                                        <FieldError>{fieldErrors.title}</FieldError>
+                                    ) : (
+                                        isNew && (
+                                            <FieldDescription>
+                                                Filled in from your belief until you change it.
+                                            </FieldDescription>
+                                        )
+                                    )}
+                                </Field>
+                                <BetAreaField id={id} />
+                            </div>
+                        </BetFormSection>
+                        <BetFormSection
+                            id="bet-section-measure"
+                            title="How we measure it"
+                            description="Pick the insight that shows whether the bet worked."
+                        >
+                            <Field data-invalid={!!fieldErrors.goal_insight || undefined}>
+                                <FieldLabel htmlFor="bet-insight">Measure with</FieldLabel>
+                                <BetInsightPicker
+                                    id={id}
+                                    inputId="bet-insight"
+                                    value={form.goal_insight}
+                                    options={insightOptions}
+                                    placeholder="Choose a saved insight"
+                                    invalid={!!fieldErrors.goal_insight}
+                                    onSelect={(insight) => {
+                                        selectPrimaryInsight(insight)
+                                        window.setTimeout(() => document.getElementById('bet-target')?.focus())
+                                    }}
+                                    onClose={() => touch('goal_insight')}
+                                />
+                                {fieldErrors.goal_insight ? (
+                                    <FieldError>{fieldErrors.goal_insight}</FieldError>
+                                ) : (
+                                    insightNote && <FieldDescription>{insightNote}</FieldDescription>
+                                )}
+                            </Field>
+                            <BetTargetField id={id} />
+                            <BetGuardrailsField id={id} />
+                        </BetFormSection>
+                        <BetFormSection
+                            id="bet-section-run"
+                            title="Run it"
+                            description="Set what Bets can spend and where it opens pull requests."
+                        >
+                            <div className="Bets__formRow Bets__formRow--run">
+                                <Field data-invalid={!!fieldErrors.budget || undefined}>
+                                    <FieldLabel htmlFor="bet-budget">Budget</FieldLabel>
+                                    <InputGroup className="max-w-60">
+                                        <InputGroupAddon align="inline-start">
+                                            <InputGroupText>$</InputGroupText>
+                                        </InputGroupAddon>
+                                        <InputGroupInput
+                                            id="bet-budget"
+                                            inputMode="decimal"
+                                            autoComplete="off"
+                                            value={budget}
+                                            aria-invalid={!!fieldErrors.budget || undefined}
+                                            onChange={(event) => setBudget(event.target.value.replace(',', '.'))}
+                                            onBlur={() => touch('budget')}
+                                            placeholder="20"
+                                        />
+                                        <InputGroupAddon align="inline-end">
+                                            <InputGroupText>USD</InputGroupText>
+                                        </InputGroupAddon>
+                                    </InputGroup>
+                                    {fieldErrors.budget ? (
+                                        <FieldError>{fieldErrors.budget}</FieldError>
+                                    ) : (
+                                        <FieldDescription>
+                                            {budgetLimitCents === null
+                                                ? 'Checking the project budget…'
+                                                : isNew
+                                                  ? `${money(budgetLimitCents)} left in the project.`
+                                                  : `Up to ${money(budgetLimitCents)}.`}
+                                        </FieldDescription>
+                                    )}
+                                </Field>
+                                <BetRepositoryField id={id} />
+                            </div>
+                            {isNew && <BetOwnerIdeasField />}
+                        </BetFormSection>
+                        <BetFormActions id={id} className="Bets__formFooter" />
+                    </form>
+                    <div className="Bets__formAside">
+                        <BetThesisCard id={id} />
                     </div>
-                </form>
+                </div>
             )}
         </BetsPage>
     )

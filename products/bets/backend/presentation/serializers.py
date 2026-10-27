@@ -194,6 +194,9 @@ class BetsEntrySerializer(serializers.Serializer):
     spend_pending = serializers.BooleanField(help_text="Some task usage is still settling.")
     ideas_tried = serializers.IntegerField(help_text="Ideas measured to a conclusion.")
     ideas_won = serializers.IntegerField(help_text="Ideas that improved the primary metric.")
+    needs_you = serializers.BooleanField(
+        help_text="Whether the bet waits for the owner, for example to choose an idea."
+    )
     updated_at = serializers.DateTimeField(help_text="Latest change.")
 
 
@@ -312,6 +315,10 @@ class BetsOverviewSerializer(serializers.Serializer):
     allocated_cents = serializers.IntegerField(help_text="Total allocated project budget.")
     unallocated_cents = serializers.IntegerField(help_text="Project budget still available.")
     can_edit = serializers.BooleanField(help_text="Whether the viewer can create or change bets.")
+
+
+class BetsMetricPreviewQuerySerializer(serializers.Serializer):
+    insight = serializers.CharField(max_length=32, help_text="Short ID of the saved insight to preview.")
 
 
 class BetsStatusSerializer(serializers.Serializer):

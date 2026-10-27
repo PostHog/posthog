@@ -5,15 +5,22 @@ import { Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } 
 import { betsLogic } from '../logics/betsLogic'
 
 export function BetsFilters(): JSX.Element {
-    const { search, status, area, areas } = useValues(betsLogic)
-    const { setSearch, setStatus, setArea } = useActions(betsLogic)
+    const { search, status, area, areas, owner, owners } = useValues(betsLogic)
+    const { setSearch, setStatus, setArea, setOwner } = useActions(betsLogic)
     const statuses = [
+        { value: 'all', label: 'All bets' },
         { value: 'open', label: 'Open bets' },
-        { value: 'active', label: 'Active' },
-        { value: 'preparing', label: 'Preparing' },
+        { value: 'running', label: 'Running' },
+        { value: 'setting_up', label: 'Setting up' },
+        { value: 'reached', label: 'Goal reached' },
+        { value: 'spent', label: 'Budget used' },
         { value: 'paused', label: 'Paused' },
         { value: 'closed', label: 'Closed' },
-        { value: 'all', label: 'All bets' },
+    ]
+    const people = [
+        { value: '', label: 'Any owner' },
+        { value: 'me', label: 'Me' },
+        ...owners.map((person) => ({ value: String(person.id), label: person.name })),
     ]
     const products = [{ value: '', label: 'All product areas' }, ...areas.map((value) => ({ value, label: value }))]
     return (
@@ -25,6 +32,18 @@ export function BetsFilters(): JSX.Element {
                 onChange={(event) => setSearch(event.target.value)}
                 className="w-56 max-w-full"
             />
+            <Select value={owner} items={people} onValueChange={(value) => setOwner(value ?? '')}>
+                <SelectTrigger aria-label="Owner">
+                    <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                    {people.map((item) => (
+                        <SelectItem key={item.value} value={item.value}>
+                            {item.label}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
             <Select value={status} items={statuses} onValueChange={(value) => setStatus(value ?? 'open')}>
                 <SelectTrigger aria-label="Status">
                     <SelectValue />

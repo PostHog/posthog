@@ -15,6 +15,8 @@ from .serializers import (
     BetsDetailSerializer,
     BetsEmptySerializer,
     BetsIdeaSerializer,
+    BetsMetricPreviewQuerySerializer,
+    BetsMetricSerializer,
     BetsOverviewQuerySerializer,
     BetsOverviewSerializer,
     BetsSettingsSerializer,
@@ -112,6 +114,14 @@ class BetsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(
             BetsDetailSerializer(api.add_idea(self.team, self.user, id, serializer.validated_data["title"])).data
         )
+
+    @extend_schema(parameters=[BetsMetricPreviewQuerySerializer], responses=BetsMetricSerializer)
+    @action(detail=False, methods=["get"], url_path="metric_preview")
+    def metric_preview(self, request: Request, **kwargs: object) -> Response:
+        serializer = BetsMetricPreviewQuerySerializer(data=request.query_params)
+        serializer.is_valid(raise_exception=True)
+        preview = api.metric_preview(self.team, self.user, serializer.validated_data["insight"])
+        return Response(BetsMetricSerializer(preview).data)
 
     @extend_schema(request=BetsSettingsWriteSerializer, responses=BetsSettingsSerializer)
     @action(detail=False, methods=["get", "patch"], url_path="settings")

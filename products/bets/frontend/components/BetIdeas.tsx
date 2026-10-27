@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconChevronDown, IconLightBulb, IconPlus, IconTelescope } from '@posthog/icons'
 import { Button, Collapsible, CollapsibleContent, CollapsibleTrigger, Text } from '@posthog/quill'
 
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { TodayRow } from 'scenes/project-homepage/today/TodayRow'
 import { urls } from 'scenes/urls'
 
@@ -45,18 +46,31 @@ export function BetIdeas({ bet }: { bet: BetsDetailApi }): JSX.Element | null {
             <div className="flex flex-col gap-0.5">
                 <div className="flex min-h-7 items-center justify-between gap-2">
                     <h2 className="Bets__sectionTitle">Ideas</h2>
-                    {canAdd && !addingIdea && (
-                        <Button
-                            size="sm"
-                            variant="link-muted"
-                            disabled={busy}
-                            onClick={() => setAddingIdea(true)}
-                            data-attr="bets-add-idea"
-                        >
-                            <IconPlus />
-                            Add an idea
-                        </Button>
-                    )}
+                    <div className="flex items-center gap-3">
+                        {bet.scout && (
+                            <Button
+                                size="sm"
+                                variant="link-muted"
+                                render={<LinkPrimitive to={urls.inboxScout(bet.scout.name)} />}
+                                data-attr="bets-ideas-open-scout"
+                            >
+                                <IconTelescope />
+                                View Scout
+                            </Button>
+                        )}
+                        {canAdd && !addingIdea && (
+                            <Button
+                                size="sm"
+                                variant="link-muted"
+                                disabled={busy}
+                                onClick={() => setAddingIdea(true)}
+                                data-attr="bets-add-idea"
+                            >
+                                <IconPlus />
+                                Add an idea
+                            </Button>
+                        )}
+                    </div>
                 </div>
                 {ideaInProgress ? (
                     <Text size="sm" variant="muted" render={<p className="m-0 flex min-w-0 items-baseline" />}>

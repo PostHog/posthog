@@ -30,7 +30,7 @@ const OUTCOME_LABELS: Record<string, string> = {
     dropped: 'Dropped',
 }
 
-export function outcomeLabel(item: BetsWorkApi): string {
+function outcomeLabel(item: BetsWorkApi): string {
     return item.result.outcome ? OUTCOME_LABELS[item.result.outcome] : ''
 }
 

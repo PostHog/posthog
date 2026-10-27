@@ -35,15 +35,6 @@ export function errorMessage(error: unknown): string {
     return 'Something went wrong. Please try again.'
 }
 
-export function compactMoney(cents: number): string {
-    return new Intl.NumberFormat('en-US', {
-        style: 'currency',
-        currency: 'USD',
-        notation: 'compact',
-        maximumFractionDigits: cents < 100000 ? 0 : 1,
-    }).format(cents / 100)
-}
-
 export function progressPercent(progress: number): string {
     return `${Math.round(progress * 100)}%`
 }

@@ -9,10 +9,11 @@ from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import Integration, Team, User
 
 from ..db import WRITER_DB
+from ..facade.contracts import Metric
 from ..facade.enums import BetStatus
 from ..logic import access, bets, loop, read
 from ..logic.activity import ActivityEntry, recent_activity
-from ..logic.metrics import refresh_metrics, validate_goal
+from ..logic.metrics import metric, refresh_metrics, validate_goal
 from ..logic.spend import bet_for_run
 from ..logic.workspace import get_settings, project_id
 from ..models import Bet
@@ -43,6 +44,12 @@ def overview(team: Team, user: User, *, force_refresh: bool = False) -> dict:
     if force_refresh:
         refresh_metrics(team, user, [get_settings(project_id(team)).north_star_insight])
     return read.overview(team, user)
+
+
+def metric_preview(team: Team, user: User, short_id: str) -> Metric:
+    validate_goal(team, user, short_id)
+    refresh_metrics(team, user, [short_id])
+    return metric(team, user, short_id)
 
 
 def detail(team: Team, user: User, bet_id: str | UUID) -> dict:

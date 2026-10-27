@@ -192,6 +192,8 @@ export interface BetsEntryApi {
     ideas_tried: number
     /** Ideas that improved the primary metric. */
     ideas_won: number
+    /** Whether the bet waits for the owner, for example to choose an idea. */
+    needs_you: boolean
     /** Latest change. */
     updated_at: string
 }
@@ -683,6 +685,8 @@ export interface BetsDetailApi {
     ideas_tried: number
     /** Ideas that improved the primary metric. */
     ideas_won: number
+    /** Whether the bet waits for the owner, for example to choose an idea. */
+    needs_you: boolean
     /** Latest change. */
     updated_at: string
     /** Whether the viewer owns this bet and can change it. */
@@ -948,4 +952,13 @@ export type BetsListParams = {
      * Recalculate the saved North Star insight before returning.
      */
     refresh?: boolean
+}
+
+export type BetsMetricPreviewRetrieveParams = {
+    /**
+     * Short ID of the saved insight to preview.
+     * @minLength 1
+     * @maxLength 32
+     */
+    insight: string
 }

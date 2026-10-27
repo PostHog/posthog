@@ -1,12 +1,12 @@
-import { Popover, PopoverContent, PopoverTrigger, cn } from '@posthog/quill'
+import { useActions } from 'kea'
 
-import { TodayPaneOption } from '~/layout/today/TodayPaneOption'
+import { PopoverTrigger } from '@posthog/quill'
+
+import { TodaySpacesRow } from '~/layout/today/TodaySpacesRow'
 
 import type { BetsEntryApi } from '../generated/api.schemas'
-import { betPerformance } from '../lib/betPerformance'
-import { compactMoney } from '../lib/format'
-import { BET_RATING_CLASSES } from './betRatingClasses'
-import { BetsSidebarHoverCard } from './BetsSidebarHoverCard'
+import { betsSidebarPreviewLogic } from '../logics/betsSidebarPreviewLogic'
+import { BetsStatusGlyph } from './BetsStatusGlyph'
 
 const OPEN_DELAY_MS = 400
 const CLOSE_DELAY_MS = 100
@@ -18,31 +18,30 @@ interface BetsSidebarRowProps {
 }
 
 export function BetsSidebarRow({ bet, to, active }: BetsSidebarRowProps): JSX.Element {
-    const performance = betPerformance(bet)
+    const { suppressPreview, releasePreview } = useActions(betsSidebarPreviewLogic)
     return (
-        <Popover>
-            <PopoverTrigger
-                openOnHover
-                delay={OPEN_DELAY_MS}
-                closeDelay={CLOSE_DELAY_MS}
-                nativeButton={false}
-                render={<div className="min-w-0" />}
-            >
-                <TodayPaneOption value={bet.id} to={to} active={active} data-attr="bets-sidebar-bet">
-                    <span className="min-w-0 flex-1 truncate">{bet.title}</span>
-                    <span
-                        className={cn(
-                            'shrink-0 text-xs font-normal tabular-nums',
-                            performance ? BET_RATING_CLASSES[performance.rating] : 'text-muted-foreground'
-                        )}
-                    >
-                        {compactMoney(bet.money.spent_cents)}
-                    </span>
-                </TodayPaneOption>
-            </PopoverTrigger>
-            <PopoverContent side="right" align="start" sideOffset={10} initialFocus={false} className="w-60 p-0">
-                <BetsSidebarHoverCard bet={bet} />
-            </PopoverContent>
-        </Popover>
+        <PopoverTrigger
+            openOnHover
+            delay={OPEN_DELAY_MS}
+            closeDelay={CLOSE_DELAY_MS}
+            payload={bet.id}
+            nativeButton={false}
+            render={<div className="min-w-0" />}
+            onClick={(event) => {
+                event.preventBaseUIHandler()
+                suppressPreview()
+            }}
+            onPointerLeave={releasePreview}
+        >
+            <TodaySpacesRow
+                label={bet.title}
+                icon={<BetsStatusGlyph bet={bet} />}
+                to={to}
+                active={active}
+                dataAttr="bets-sidebar-bet"
+                optionValue={bet.id}
+                ticker
+            />
+        </PopoverTrigger>
     )
 }

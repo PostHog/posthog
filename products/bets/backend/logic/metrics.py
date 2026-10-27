@@ -5,6 +5,8 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
+from django.core.cache import cache
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -14,10 +16,13 @@ from products.product_analytics.backend.facade.measurement import insight_delive
 
 from ..facade.contracts import Metric
 
+DELIVERY_CACHE_SECONDS = 300
+MISSING = object()
+
 if TYPE_CHECKING:
     from posthog.models import Team, User
 
-    from products.product_analytics.backend.facade.contracts import InsightSeries
+    from products.product_analytics.backend.facade.contracts import InsightDeliveryEvidence, InsightSeries
 
 
 def _insight_series(team: Team, user: User, short_id: str, *, force_refresh: bool = False) -> InsightSeries | None:
@@ -30,6 +35,17 @@ def _insight_series(team: Team, user: User, short_id: str, *, force_refresh: boo
             blocking=force_refresh,
             force_refresh=force_refresh,
         )
+
+
+def _delivery(team: Team, user: User, short_id: str) -> InsightDeliveryEvidence | None:
+    key = f"bets:delivery:{team.id}:{user.id}:{short_id}"
+    cached = cache.get(key, MISSING)
+    if cached is not MISSING:
+        return cached
+    with tags_context(product=Product.BETS, feature=Feature.QUERY, team_id=team.id, user_id=user.id):
+        delivery = insight_delivery_evidence(team=team, user=user, short_id=short_id)
+    cache.set(key, delivery, DELIVERY_CACHE_SECONDS)
+    return delivery
 
 
 def refresh_metrics(team: Team, user: User, insight_ids: Sequence[str]) -> None:
@@ -66,8 +82,7 @@ def metric(team: Team, user: User, short_id: str) -> Metric:
         name = result.name or "Goal"
         unit = result.value_postfix or ""
         if values and 0 in values and result.averaged_series:
-            with tags_context(product=Product.BETS, feature=Feature.QUERY, team_id=team.id, user_id=user.id):
-                delivery = insight_delivery_evidence(team=team, user=user, short_id=short_id)
+            delivery = _delivery(team, user, short_id)
             first_observed_day = (
                 delivery.first_event_at.astimezone(ZoneInfo(team.timezone)).date()
                 if delivery and delivery.first_event_at
