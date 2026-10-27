@@ -6,7 +6,6 @@ import re
 from enum import StrEnum
 from typing import TYPE_CHECKING, NotRequired, Optional, Required, TypedDict
 from urllib.parse import urlparse
-from uuid import UUID
 
 from django.contrib.auth.models import AnonymousUser
 
@@ -590,7 +589,7 @@ def get_mcp_properties(request) -> McpProps:
     }
 
 
-def get_request_analytics_properties(request, *, include_http_request_id: bool = False) -> AnalyticsProps:
+def get_request_analytics_properties(request) -> AnalyticsProps:
     """Extract standard analytics properties from a request."""
     current_url = request.headers.get("Referer")
     host: str | None = None
@@ -604,7 +603,7 @@ def get_request_analytics_properties(request, *, include_http_request_id: bool =
     # Auth classes tag the query context with access_method during DRF dispatch
     # (personal_api_key, oauth, id_jag, ...); session auth leaves it unset.
     access_method = get_query_tag_value("access_method")
-    analytics_props: AnalyticsProps = {
+    return {
         "source": get_event_source(request),
         "$current_url": current_url,
         "$host": host,
@@ -615,9 +614,6 @@ def get_request_analytics_properties(request, *, include_http_request_id: bool =
         "user_agent": sanitize_header_value(request.headers.get("User-Agent")),
         **get_mcp_properties(request),
     }
-    if include_http_request_id and isinstance(http_request_id := get_query_tag_value("http_request_id"), UUID):
-        analytics_props["http_request_id"] = str(http_request_id)
-    return analytics_props
 
 
 _tracer = trace.get_tracer(__name__)

@@ -2895,7 +2895,7 @@ def test_chqueries_middleware_correlates_query_response(
     from rest_framework.request import Request
     from rest_framework.response import Response
 
-    from posthog.api.query import QueryViewSet
+    from posthog.api.query import QueryViewSet, get_query_request_analytics_properties
     from posthog.event_usage import get_request_analytics_properties
     from posthog.middleware import CHQueries
 
@@ -2908,7 +2908,7 @@ def test_chqueries_middleware_correlates_query_response(
 
     def get_response(request: HttpRequest) -> HttpResponseBase:
         assert "http_request_id" not in get_request_analytics_properties(request)
-        analytics_props.update(get_request_analytics_properties(request, include_http_request_id=True))
+        analytics_props.update(get_query_request_analytics_properties(request))
         response = Response(
             {"results": []},
             status=status_code,
