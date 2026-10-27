@@ -247,9 +247,15 @@ async def _load_previous_research(team_id: int, report_id: str) -> ReportResearc
     )
 
 
-def _load_tag_context(team_id: int, report_id: str) -> tuple[list[str], list[str]]:
+@frozen
+class _TagContext:
+    current_tags: list[str]
+    team_tags: list[str]
+
+
+def _load_tag_context(team_id: int, report_id: str) -> _TagContext:
     current = SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("tags", flat=True).first()
-    return list(current or []), team_tag_vocabulary(team_id)
+    return _TagContext(current_tags=list(current or []), team_tags=team_tag_vocabulary(team_id))
 
 
 def _parse_stored_charts(raw: object, report_id: str) -> list[ReportChart]:
@@ -1210,7 +1216,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             await database_sync_to_async(_capture_research_steering_attached, thread_sensitive=False)(
                 team_id=input.team_id, report_id=input.report_id, steering=steering
             )
-            current_tags, team_tags = await database_sync_to_async(_load_tag_context, thread_sensitive=False)(
+            tag_context = await database_sync_to_async(_load_tag_context, thread_sensitive=False)(
                 input.team_id, input.report_id
             )
             # 3. Run the agentic research in the sandbox
@@ -1239,8 +1245,8 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 agent_checks_enabled=agent_checks_enabled,
                 steering_section=steering.section,
                 suggestable_products=suggestable_products,
-                current_tags=current_tags,
-                team_tags=team_tags,
+                current_tags=tag_context.current_tags,
+                team_tags=tag_context.team_tags,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(
