@@ -5,10 +5,12 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import '@testing-library/jest-dom'
 
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { expectLogic } from 'kea-test-utils'
 
 import { ensureJsdom } from '@posthog/quill-charts/testing'
 
 import { promiseResolveReject } from 'lib/utils/async'
+import { sampleDataStateLogic } from 'scenes/insights/EmptyStates/sampleDataStateLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -19,6 +21,8 @@ import type { DataNode } from '~/queries/schema/schema-general'
 import { isInsightQueryNode, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
+
+import { dataWarehouseSetupLogic } from 'products/data_warehouse/frontend/emptyState/dataWarehouseSetupLogic'
 
 import { HomeTabDefault } from './HomeTabDefault'
 import { homeTabDefaultLogic } from './homeTabDefaultLogic'
@@ -166,6 +170,9 @@ describe('HomeTabDefault query reuse', () => {
     it('replaces sample metrics and charts with live queries when the project starts receiving events', async () => {
         ensureJsdom()
         teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: false, is_demo: false })
+        // Sample data waits for warehouse detection, and live queries run until it settles.
+        sampleDataStateLogic.mount()
+        await expectLogic(dataWarehouseSetupLogic).toDispatchActions(['detectStatusSuccess'])
         const { container } = render(<HomeTabDefault />)
 
         await waitFor(() =>
