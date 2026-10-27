@@ -2,13 +2,13 @@ from collections.abc import Mapping
 
 from django.urls import reverse
 
-from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
+from posthog.rate_limit import _UserBucketRateThrottle
 
 from ..facade import api
 from .trace_ids import encode_trace_id_segment
 
 
-class TraceExportRateThrottle(PersonalApiKeyOrUserRateThrottle):
+class TraceExportRateThrottle(_UserBucketRateThrottle):
     scope = "ai_trace_export"
     rate = "20/hour"
 

@@ -41,19 +41,27 @@ def test_a_context_that_is_not_a_trace_export_is_refused(_name: str, context: di
 
 @parameterized.expand(
     [
-        ("content", True, None, 1, ("complete", None)),
-        ("a recorded failure", False, "Boom", 1, ("failed", "Boom")),
-        ("a failure with content", True, "Boom", 1, ("failed", "Boom")),
-        ("no content yet", False, None, 1, ("pending", None)),
-        ("no content past the deadline", False, None, 61, ("failed", TRACE_EXPORT_STUCK_MESSAGE)),
+        ("content", True, None, True, 1, ("complete", None)),
+        ("a final failure", False, "Boom", True, 1, ("failed", "Boom")),
+        ("a final failure with content", True, "Boom", True, 1, ("failed", "Boom")),
+        ("a failure the workflow retries", False, "Boom", False, 1, ("pending", None)),
+        ("a retried failure past the deadline", False, "Boom", False, 61, ("failed", "Boom")),
+        ("no content yet", False, None, True, 1, ("pending", None)),
+        ("no content past the deadline", False, None, True, 61, ("failed", TRACE_EXPORT_STUCK_MESSAGE)),
     ]
 )
 def test_export_state(
-    _name: str, has_content: bool, exception: str | None, minutes_old: int, expected: tuple[str, str | None]
+    _name: str,
+    has_content: bool,
+    exception: str | None,
+    failure_is_final: bool,
+    minutes_old: int,
+    expected: tuple[str, str | None],
 ) -> None:
     state = TraceExportState.of(
         has_content=has_content,
         exception=exception,
+        failure_is_final=failure_is_final,
         created_at=T0,
         now=T0 + timedelta(minutes=minutes_old),
         stuck_after=timedelta(minutes=60),

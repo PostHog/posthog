@@ -7,6 +7,7 @@ from django.utils.timezone import now
 
 from posthog.schema import HogQLPropertyFilter
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 
@@ -16,6 +17,7 @@ from products.exports.backend.facade.api import (
     ExportedAsset,
     create_export_asset_async,
     get_export_asset,
+    is_export_failure_final,
 )
 
 from ..logic.evaluations.evaluation_metas import load_evaluation_meta, load_evaluation_metas
@@ -394,17 +396,17 @@ def write_trace_export(team: Team, user: User, export_context: Mapping[str, obje
         "llm_analytics", "viewer"
     ):
         raise TraceExportForbiddenError(request.trace_id)
-    loaded = load_trace(team, user, request.trace_id, request.timestamp_hint)
+    loaded = load_trace(team, user, request.trace_id, request.timestamp_hint, workload=Workload.OFFLINE)
     if not loaded.rows:
         raise TraceNotFoundError(request.trace_id)
     trace = Trace(request.trace_id, loaded.rows, loaded.person)
     writer = TraceExportWriter(
         stream, _to_trace(trace).model_dump_json(by_alias=True), max_bytes=MAX_TRACE_EXPORT_BYTES
     )
-    root = load_trace_root(team, user, trace.id, trace.created_at)
+    root = load_trace_root(team, user, trace.id, trace.created_at, workload=Workload.OFFLINE)
     writer.add_node(_to_root_detail(trace.id, root.trace_event).model_dump_json(by_alias=True))
     for node_ids in batched([row.event.id for row in trace.timeline.rows], TRACE_EXPORT_NODE_BATCH_SIZE, strict=False):
-        for row in load_trace_nodes(team, user, trace.id, node_ids, trace.created_at):
+        for row in load_trace_nodes(team, user, trace.id, node_ids, trace.created_at, workload=Workload.OFFLINE):
             writer.add_node(_to_node_detail(row.uuid, NodeEvent(row=row)).model_dump_json(by_alias=True))
     writer.close()
 
@@ -413,6 +415,7 @@ def _to_trace_export(asset: ExportedAsset) -> contracts.TraceExport:
     state = TraceExportState.of(
         has_content=asset.has_content,
         exception=asset.exception,
+        failure_is_final=is_export_failure_final(asset),
         created_at=asset.created_at,
         now=now(),
         stuck_after=_TRACE_EXPORT_STUCK_AFTER,

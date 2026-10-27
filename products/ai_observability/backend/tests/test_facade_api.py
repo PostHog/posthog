@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.clickhouse.client.connection import Workload
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.ai_events.test_util import bulk_create_ai_events
@@ -20,6 +21,7 @@ from posthog.tasks import exporter
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.facade import api, contracts
+from products.ai_observability.backend.logic.traces import trace_queries
 from products.ai_observability.backend.logic.traces.trace_export import TraceExportRequest
 from products.ai_observability.backend.logic.traces.trace_queries import LoadedTrace
 from products.ai_observability.backend.models.evaluations import Evaluation
@@ -211,11 +213,15 @@ class TestTraceExportFile(TraceEventsMixin, ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand([("one batch", 20), ("a batch per node", 1)])
     def test_writes_the_trace_and_every_node_with_its_io(self, _name: str, batch_size: int) -> None:
-        with patch.object(api, "TRACE_EXPORT_NODE_BATCH_SIZE", batch_size):
+        with (
+            patch.object(api, "TRACE_EXPORT_NODE_BATCH_SIZE", batch_size),
+            patch.object(trace_queries, "query_ai_events", wraps=trace_queries.query_ai_events) as reads,
+        ):
             asset = self._export()
 
         file = self._file(asset)
         assert asset.exception is None
+        assert {call.kwargs["workload"] for call in reads.call_args_list} == {Workload.OFFLINE}
         assert file.trace.id == "trace-1"
         assert [node.id for node in file.nodes] == ["trace-1", SPAN, GENERATION, LATER]
         root, generation = file.nodes[0].event, file.nodes[2].event

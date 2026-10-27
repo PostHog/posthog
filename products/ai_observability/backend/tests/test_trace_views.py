@@ -397,7 +397,9 @@ class TestTraceExportViews(APIBaseTest):
 
     def test_a_failed_export_reports_its_reason(self) -> None:
         export_id = self._create()["id"]
-        ExportedAsset.objects.filter(id=export_id).update(exception="This trace is no longer available.")
+        ExportedAsset.objects.filter(id=export_id).update(
+            exception="This trace is no longer available.", exception_type="InvalidExportContext"
+        )
 
         status = self.client.get(self._url(_encode("a/b"), export_id)).json()
         content = self.client.get(self._url(_encode("a/b"), export_id, "content/"))
@@ -414,7 +416,9 @@ class TestTraceExportViews(APIBaseTest):
 
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     @patch("products.ai_observability.backend.presentation.trace_exports.TraceExportRateThrottle.rate", new="1/day")
-    def test_throttles_exports(self, _rate_limit: MagicMock) -> None:
+    def test_throttles_exports_per_user(self, _rate_limit: MagicMock) -> None:
         self._create()
 
         assert self.client.post(self._url(_encode("a/b")), {}, format="json").status_code == 429
+        self.client.force_login(User.objects.create_and_join(self.organization, "peer@example.com", "testtest"))
+        self._create()

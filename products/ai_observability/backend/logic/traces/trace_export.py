@@ -61,14 +61,23 @@ class TraceExportState:
 
     @classmethod
     def of(
-        cls, *, has_content: bool, exception: str | None, created_at: datetime, now: datetime, stuck_after: timedelta
+        cls,
+        *,
+        has_content: bool,
+        exception: str | None,
+        failure_is_final: bool,
+        created_at: datetime,
+        now: datetime,
+        stuck_after: timedelta,
     ) -> Self:
-        if exception:
+        past_deadline = now > created_at + stuck_after
+        # The workflow retries a failure that is not final, and a later attempt clears the exception.
+        if exception and (failure_is_final or past_deadline):
             return cls(status="failed", exception=exception)
         if has_content:
             return cls(status="complete", exception=None)
         # Nothing records a failure when the workflow dies, so an export without content past its deadline has failed.
-        if now > created_at + stuck_after:
+        if past_deadline:
             return cls(status="failed", exception=TRACE_EXPORT_STUCK_MESSAGE)
         return cls(status="pending", exception=None)
 
