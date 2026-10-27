@@ -321,7 +321,6 @@ export interface llmEvaluationLogicValues {
     byokModels: ModelOption[] // modelPickerLogic
     evaluationProviderModelGroups: ProviderModelGroup[] // modelPickerLogic
     activeTab: string
-    formStep: string
     breadcrumbs: Breadcrumb[]
     canEnable: boolean
     canEnableReason: string | null
@@ -337,6 +336,7 @@ export interface llmEvaluationLogicValues {
     evaluationRunsHasMore: boolean
     evaluationRunsLoading: boolean
     filteredEvaluationRuns: EvaluationRun[]
+    formStep: string
     formValid: boolean
     hasUnsavedChanges: boolean
     hogTestMessage: string | null
@@ -486,9 +486,6 @@ export interface llmEvaluationLogicActions {
     setActiveTab: (tab: string) => {
         tab: string
     }
-    setFormStep: (step: string) => {
-        step: string
-    }
     setAllowsNA: (allowsNA: boolean) => {
         allowsNA: boolean
     }
@@ -525,6 +522,9 @@ export interface llmEvaluationLogicActions {
     }
     setEvaluationType: (evaluationType: EvaluationType) => {
         evaluationType: EvaluationType
+    }
+    setFormStep: (step: string) => {
+        step: string
     }
     setHogSource: (source: string) => {
         source: string
