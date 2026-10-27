@@ -29,7 +29,8 @@ const targetMocks = (target: RunningTimeTargetApi): Parameters<typeof mswDecorat
         [`${EXPERIMENT_PATH}running_time_target/`]: target,
         '/api/projects/:team_id/experiment_holdouts': [],
         '/api/projects/:team_id/experiment_saved_metrics/': [],
-        [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_MEAN_METRIC.feature_flag.id}/`]: {},
+        [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_MEAN_METRIC.feature_flag.id}/`]:
+            EXPERIMENT_WITH_MEAN_METRIC.feature_flag,
         [`/api/projects/:team_id/feature_flags/${EXPERIMENT_WITH_MEAN_METRIC.feature_flag.id}/status/`]: {},
         '/api/environments/:team_id/default_release_conditions/': [],
         '/api/projects/:team_id/experiments_config/': {},
