@@ -145,6 +145,12 @@ def _fields_of(sensitive_config: Any) -> dict[str, Any] | None:
     # The field encrypts each leaf, and a leaf that fails to decrypt comes back as raw ciphertext
     # rather than raising. Peel extra layers a read-then-save added, and treat any leaf no key can
     # open as an unreadable row, so ciphertext is never handed out as a credential.
+    return recover_encrypted_leaves(fields)
+
+
+def recover_encrypted_leaves(fields: Mapping[str, Any]) -> dict[str, Any] | None:
+    """``fields`` with every ciphertext leaf decrypted through all its layers, or None when a leaf
+    cannot be opened by any configured key."""
     try:
         return _recover_leaves(dict(fields))
     except _UndecryptableLeaf:

@@ -10,6 +10,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.utils import timezone
 
+from cryptography.fernet import Fernet
 from parameterized import parameterized
 
 from posthog.models.integration import Integration
@@ -156,6 +157,16 @@ class TestBackfillWarehouseSourceCredentials(_CredentialsCommandTestCase):
             self._run("backfill_warehouse_source_credentials", "--execute")
 
         assert WarehouseSourceCredentialsStore.get(source) == {k: rotated[k] for k in POSTGRES_CONNECTION}
+
+    def test_an_undecryptable_leaf_is_skipped_and_keeps_the_existing_row(self) -> None:
+        foreign_ciphertext = Fernet(Fernet.generate_key()).encrypt(b"fake-password-value").decode()
+        source = self._source({**POSTGRES_INPUTS, "password": foreign_ciphertext})
+        WarehouseSourceCredentialsStore.upsert(source, POSTGRES_CONNECTION)
+
+        output = self._run("backfill_warehouse_source_credentials", "--execute")
+
+        assert "skipped_unreadable=1" in output
+        assert WarehouseSourceCredentialsStore.get(source) == POSTGRES_CONNECTION
 
     def test_batches_and_limit(self) -> None:
         for _ in range(5):

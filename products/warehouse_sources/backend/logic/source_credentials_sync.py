@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.logic.source_credentials import (
     CredentialRowRef,
     CredentialsUnreadable,
     WarehouseSourceCredentialsStore,
+    recover_encrypted_leaves,
 )
 from products.warehouse_sources.backend.logic.source_credentials_rollout import (
     connection_fields_equal,
@@ -138,7 +139,7 @@ def _process_batch(batch: Iterable[ExternalDataSource], execute: bool, counts: B
     for source in batch:
         source_type = str(source.source_type)
         try:
-            fields = split_connection_fields(source_type, SourceInputsStore.load_stored(source))
+            fields = _stored_connection_fields(source)
         except UnreadableSourceInputsError:
             counts[(source_type, SKIPPED_UNREADABLE)] += 1
             continue
@@ -169,6 +170,16 @@ def _process_batch(batch: Iterable[ExternalDataSource], execute: bool, counts: B
         counts[(source_type, outcome)] += 1
 
 
+def _stored_connection_fields(source: ExternalDataSource) -> dict[str, object]:
+    """The connection fields of the stored `job_inputs`. A leaf that no key can decrypt raises
+    `UnreadableSourceInputsError`, so its ciphertext never overwrites a row."""
+    fields = split_connection_fields(str(source.source_type), SourceInputsStore.load_stored(source))
+    recovered = recover_encrypted_leaves(fields)
+    if recovered is None:
+        raise UnreadableSourceInputsError(f"job_inputs of source {source.id} hold an undecryptable value")
+    return recovered
+
+
 def _write_row(source: ExternalDataSource, fields: dict[str, object]) -> None:
     """Upsert the row from the batch snapshot, then re-read the stored `job_inputs` while the row is locked.
 
@@ -187,7 +198,7 @@ def _write_row(source: ExternalDataSource, fields: dict[str, object]) -> None:
         )
         if fresh is None:
             return
-        fresh_fields = split_connection_fields(str(fresh.source_type), SourceInputsStore.load_stored(fresh))
+        fresh_fields = _stored_connection_fields(fresh)
         if not connection_fields_equal(fresh_fields, fields):
             WarehouseSourceCredentialsStore.upsert(fresh, fresh_fields)
 
