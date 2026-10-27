@@ -1326,14 +1326,14 @@ class TestReplayScannerTags(_VisionAPITestCase):
             self.assertEqual(report.call_args.args[2]["edited_fields"], ["tags"])
 
     def test_create_rolls_back_scanner_when_tag_write_fails(self) -> None:
-        with patch("posthog.api.tagged_item.set_tags_on_object", side_effect=RuntimeError("boom")):
+        with patch("posthog.api.tagged_item.replace_tags_on_object", side_effect=RuntimeError("boom")):
             resp = self.client.post(self.scanners_url, data=self._scanner_payload("atomic", tags=["a"]), format="json")
         self.assertEqual(resp.status_code, 500)
         self.assertFalse(ReplayScanner.objects.filter(team=self.team, name="atomic").exists())
 
     def test_update_rolls_back_columns_when_tag_write_fails(self) -> None:
         scanner = self._create_scanner(description="before")
-        with patch("posthog.api.tagged_item.set_tags_on_object", side_effect=RuntimeError("boom")):
+        with patch("posthog.api.tagged_item.replace_tags_on_object", side_effect=RuntimeError("boom")):
             resp = self.client.patch(
                 f"{self.scanners_url}{scanner.id}/", data={"description": "after", "tags": ["a"]}, format="json"
             )
