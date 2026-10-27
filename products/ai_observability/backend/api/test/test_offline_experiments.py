@@ -2,7 +2,7 @@ from uuid import uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -113,13 +113,27 @@ class TestOfflineExperimentsAPI(APIBaseTest):
             input="What is 2 + 2?",
         )
 
-    @parameterized.expand([("session",), ("personal_key",), ("project_key",)])
-    def test_ingestion_and_both_lifecycle_actions(self, auth_kind: str) -> None:
+    @parameterized.expand([("session", False), ("personal_key", False), ("project_key", False), ("session", True)])
+    @patch("products.ai_observability.backend.api.offline_experiments.report_user_action")
+    def test_ingestion_and_both_lifecycle_actions(
+        self, auth_kind: str, analytics_failure: bool, report_action: Mock
+    ) -> None:
+        if analytics_failure:
+            report_action.side_effect = RuntimeError("Analytics unavailable")
         definition = ScoreDefinition.objects.create(team=self.team, name="Correct", kind="boolean")
         version = definition.create_new_version(config={"true_label": "Yes", "false_label": "No"}, created_by=self.user)
+        other_definition = ScoreDefinition.objects.create(team=self.team, name="Relevant", kind="boolean")
+        other_version = other_definition.create_new_version(
+            config={"true_label": "Yes", "false_label": "No"}, created_by=self.user
+        )
         self._authenticate(auth_kind)
-        body = self._experiment_body() | {"expected_item_count": 1, "expected_result_count": 1}
-        created = self.client.post(self._endpoint(), body, format="json")
+        body = self._experiment_body() | {
+            "expected_item_count": 2,
+            "expected_result_count": 4,
+            "dataset_source": "https://private.example.com/datasets/customer-evals",
+        }
+        with self.captureOnCommitCallbacks(execute=True):
+            created = self.client.post(self._endpoint(), body, format="json")
         self.assertEqual(created.status_code, status.HTTP_201_CREATED, created.data)
         experiment_id = str(body["id"])
         self.assertEqual(created.data["id"], experiment_id)
@@ -127,49 +141,89 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         self.assertEqual(
             OfflineExperiment.objects.for_team(self.team.id).get(pk=experiment_id).created_by_id, expected_author
         )
-        incomplete = self.client.post(self._endpoint(experiment_id, "complete"), {}, format="json")
+        with self.captureOnCommitCallbacks(execute=True):
+            incomplete = self.client.post(self._endpoint(experiment_id, "complete"), {}, format="json")
         self.assertEqual(incomplete.status_code, status.HTTP_409_CONFLICT, incomplete.data)
         self.assertEqual(incomplete.data["code"], "expected_count_mismatch")
-        self.assertEqual(incomplete.data["expected_item_count"], 1)
-        self.assertEqual(incomplete.data["expected_result_count"], 1)
+        self.assertEqual(incomplete.data["expected_item_count"], 2)
+        self.assertEqual(incomplete.data["expected_result_count"], 4)
         self.assertEqual(incomplete.data["accepted_item_count"], 0)
         self.assertEqual(incomplete.data["accepted_result_count"], 0)
 
-        item_id = str(uuid4())
-        uploaded = self.client.post(
-            self._endpoint(experiment_id, "upload"),
-            {
-                "items": [{"id": item_id, "payload": {"input": "What is 2 + 2?", "output": "5"}}],
-                "results": [{"item_id": item_id, "scorer_version_id": str(version.id), "status": "ok", "value": False}],
-            },
-            format="json",
-        )
+        item_ids = [str(uuid4()), str(uuid4())]
+        upload_body = {
+            "items": [{"id": item_id, "payload": {"input": "What is 2 + 2?", "output": "5"}} for item_id in item_ids],
+            "results": [
+                {"item_id": item_id, "scorer_version_id": str(scorer_version.id), "status": "ok", "value": False}
+                for item_id in item_ids
+                for scorer_version in (version, other_version)
+            ],
+        }
+        with self.captureOnCommitCallbacks(execute=True):
+            uploaded = self.client.post(self._endpoint(experiment_id, "upload"), upload_body, format="json")
         self.assertEqual(uploaded.status_code, status.HTTP_200_OK, uploaded.data)
         result = OfflineEvaluationResult.objects.for_team(self.team.id).get(pk=uploaded.data["results"][0]["id"])
         self.assertIs(result.boolean_value, False)
         self.assertEqual(result.scorer_version_id, version.id)
 
-        completed = self.client.post(self._endpoint(experiment_id, "complete"), {}, format="json")
+        with self.captureOnCommitCallbacks(execute=True):
+            completed = self.client.post(self._endpoint(experiment_id, "complete"), {}, format="json")
         self.assertEqual(completed.status_code, status.HTTP_200_OK, completed.data)
         self.assertEqual(completed.data["status"], "completed")
-        self.assertEqual(completed.data["accepted_item_count"], 1)
-        self.assertEqual(completed.data["accepted_result_count"], 1)
+        self.assertEqual(completed.data["accepted_item_count"], 2)
+        self.assertEqual(completed.data["accepted_result_count"], 4)
 
         failed_body = self._experiment_body() | {"expected_result_count": 10}
-        self.assertEqual(
-            self.client.post(self._endpoint(), failed_body, format="json").status_code, status.HTTP_201_CREATED
-        )
-        failed = self.client.post(self._endpoint(str(failed_body["id"]), "fail"), {}, format="json")
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(
+                self.client.post(self._endpoint(), failed_body, format="json").status_code, status.HTTP_201_CREATED
+            )
+            failed = self.client.post(self._endpoint(str(failed_body["id"]), "fail"), {}, format="json")
         self.assertEqual(failed.status_code, status.HTTP_200_OK, failed.data)
         self.assertEqual(failed.data["status"], "failed")
         self.assertEqual(failed.data["accepted_result_count"], 0)
 
         self._authenticate("project_key" if auth_kind != "project_key" else "session")
-        retried = self.client.post(self._endpoint(), body, format="json")
+        with self.captureOnCommitCallbacks(execute=True):
+            retried = self.client.post(self._endpoint(), body, format="json")
+            upload_retry = self.client.post(self._endpoint(experiment_id, "upload"), upload_body, format="json")
+            complete_retry = self.client.post(self._endpoint(experiment_id, "complete"), {}, format="json")
+            fail_retry = self.client.post(self._endpoint(str(failed_body["id"]), "fail"), {}, format="json")
         self.assertEqual(retried.status_code, status.HTTP_200_OK)
+        self.assertEqual(upload_retry.status_code, status.HTTP_200_OK)
+        self.assertEqual(complete_retry.status_code, status.HTTP_200_OK)
+        self.assertEqual(fail_retry.status_code, status.HTTP_200_OK)
         self.assertEqual(
             OfflineExperiment.objects.for_team(self.team.id).get(pk=experiment_id).created_by_id, expected_author
         )
+        self.assertEqual(
+            [call.args[1] for call in report_action.call_args_list],
+            [
+                "llma offline experiment created",
+                "llma offline experiment results uploaded",
+                "llma offline experiment completed",
+                "llma offline experiment created",
+                "llma offline experiment failed",
+            ],
+        )
+        upload_event = report_action.call_args_list[1]
+        self.assertEqual(
+            upload_event.args[2],
+            {"experiment_id": experiment_id, "created_item_count": 2, "created_result_count": 4},
+        )
+        completed_event = report_action.call_args_list[2]
+        self.assertEqual(report_action.call_args_list[0].args[2]["dataset_source"], "external")
+        self.assertEqual(completed_event.args[2]["dataset_source"], "external")
+        self.assertEqual(report_action.call_args_list[3].args[2]["dataset_source"], "unknown")
+        self.assertEqual(report_action.call_args_list[4].args[2]["dataset_source"], "unknown")
+        for call in report_action.call_args_list:
+            self.assertNotIn(body["dataset_source"], call.args[2].values())
+        self.assertEqual(completed_event.args[2]["status"], "completed")
+        self.assertEqual(completed_event.args[2]["accepted_item_count"], 2)
+        self.assertEqual(completed_event.args[2]["accepted_result_count"], 4)
+        self.assertEqual(completed_event.kwargs["team"], self.team)
+        self.assertEqual(completed_event.args[0], completed_event.kwargs["request"].user)
+        self.assertTrue(completed_event.args[0].distinct_id)
 
     @parameterized.expand(
         [
@@ -230,8 +284,15 @@ class TestOfflineExperimentsAPI(APIBaseTest):
             ("project_key", "project_key", "none", "none", True),
         ]
     )
+    @patch("products.ai_observability.backend.api.offline_experiments.report_user_action")
     def test_references_require_viewer_access(
-        self, _name: str, auth_kind: str, resource_access: str, object_access: str | None, allowed: bool
+        self,
+        _name: str,
+        auth_kind: str,
+        resource_access: str,
+        object_access: str | None,
+        allowed: bool,
+        report_action: Mock,
     ) -> None:
         membership = self._evaluation_member()
         dataset_version = self._dataset_item_version()
@@ -252,10 +313,15 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         self._authenticate(auth_kind, user=membership.user)
         body = self._experiment_body() | {"dataset_revision_id": str(dataset_version.dataset_revision_id)}
 
-        created = self.client.post(self._endpoint(), body, format="json")
+        with self.captureOnCommitCallbacks(execute=True):
+            created = self.client.post(self._endpoint(), body, format="json")
         self.assertEqual(
             created.status_code, status.HTTP_201_CREATED if allowed else status.HTTP_400_BAD_REQUEST, created.data
         )
+        if allowed:
+            self.assertEqual(report_action.call_args.args[2]["dataset_source"], "posthog")
+        else:
+            report_action.assert_not_called()
         if not allowed:
             missing = self.client.post(self._endpoint(), body | {"dataset_revision_id": str(uuid4())}, format="json")
             self.assertEqual(created.data, missing.data)
