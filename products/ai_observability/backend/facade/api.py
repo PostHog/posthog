@@ -415,7 +415,7 @@ def _to_trace_export(asset: ExportedAsset) -> contracts.TraceExport:
     state = TraceExportState.of(
         has_content=asset.has_content,
         exception=asset.exception,
-        failure_is_final=is_export_failure_final(asset),
+        failure_is_final=is_export_failure_final(asset.exception_type),
         created_at=asset.created_at,
         now=now(),
         stuck_after=_TRACE_EXPORT_STUCK_AFTER,

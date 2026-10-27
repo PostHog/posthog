@@ -103,10 +103,10 @@ def get_export_asset(*, team_id: int, asset_id: int) -> ExportedAsset | None:
     return ExportedAsset.objects.filter(team_id=team_id, id=asset_id).first()
 
 
-def is_export_failure_final(asset: ExportedAsset) -> bool:
-    """Whether the export workflow gives up on the recorded failure instead of retrying it."""
+def is_export_failure_final(exception_type: str | None) -> bool:
+    """Whether the export workflow gives up on a recorded failure of this type instead of retrying it."""
     # Mirrors the non-retryable error types of EXPORT_RETRY_POLICY.
-    return asset.exception_type in USER_QUERY_ERROR_NAMES
+    return exception_type in USER_QUERY_ERROR_NAMES
 
 
 def get_export_asset_content_response(*, asset: ExportedAsset, download: bool) -> HttpResponseBase:
