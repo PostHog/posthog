@@ -30,8 +30,7 @@ const WORKFLOW_TEMPLATES: WorkflowTemplate[] = [
     {
         id: 'a638999a-bf53-4fde-af36-c85ad9827076',
         title: 'Team reply → email customer',
-        description:
-            'When a team member replies on a ticket, email the customer so they receive the response in their inbox.',
+        description: 'When a team member replies on a ticket, email the customer to let them know a reply is waiting.',
         trigger: '$conversation_message_sent',
     },
 ]
