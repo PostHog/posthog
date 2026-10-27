@@ -1,8 +1,6 @@
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 
-import { IconBell } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -10,7 +8,6 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { ChannelCatalogCard } from '../../Channels/ChannelCatalogCard'
 import { ChannelSetupModal } from '../../Channels/ChannelSetupModal'
 import { summarizeChannel } from '../../Channels/channelSummary'
-import { workflowsOnboardingWizardLogic } from './workflowsOnboardingWizardLogic'
 
 const SDK_REQUIREMENTS = [
     { platform: 'iOS', version: '3.69.0' },
@@ -22,47 +19,6 @@ const SDK_REQUIREMENTS = [
 export function WizardPushStep(): JSX.Element {
     const { integrations, setupModalOpen, setupModalType, selectedIntegration } = useValues(integrationsLogic)
     const { closeSetupModal, markTaskAsCompleted } = useActions(integrationsLogic)
-    const { stepDone, pushSetupStarted } = useValues(workflowsOnboardingWizardLogic)
-    const { next, startPushSetup } = useActions(workflowsOnboardingWizardLogic)
-
-    const answer = (wantsPush: boolean): void => {
-        // pinned: analytics event name - renaming breaks dashboards
-        posthog.capture('workflows onboarding wizard push answered', { wants_push: wantsPush })
-        if (wantsPush) {
-            startPushSetup()
-        } else {
-            next()
-        }
-    }
-
-    if (!pushSetupStarted && !stepDone?.push) {
-        return (
-            <div className="flex flex-col items-center gap-3 py-6 text-center">
-                <div className="flex items-center justify-center size-12 rounded-full bg-surface-secondary">
-                    <IconBell className="size-6" />
-                </div>
-                <p className="mb-0 max-w-md text-secondary">
-                    If you have a mobile app, workflows can send push notifications to Android and iOS devices.
-                </p>
-                <div className="flex flex-wrap justify-center gap-2">
-                    <LemonButton
-                        type="secondary"
-                        onClick={() => answer(false)}
-                        data-attr="workflows-onboarding-wizard-push-no"
-                    >
-                        No, just email
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={() => answer(true)}
-                        data-attr="workflows-onboarding-wizard-push-yes"
-                    >
-                        Yes, set up push
-                    </LemonButton>
-                </div>
-            </div>
-        )
-    }
 
     return (
         <>
