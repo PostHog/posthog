@@ -3,7 +3,7 @@ import { VERSION } from '@/version'
 
 import type { Credentials } from './credentials'
 
-export const USER_AGENT = `hog/${VERSION}`
+const USER_AGENT = `hog/${VERSION}`
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 

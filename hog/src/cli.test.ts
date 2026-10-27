@@ -65,13 +65,12 @@ describe('hog', () => {
         const manifest = result.json()
         expect(manifest).toMatchObject({ cli: 'hog', agent: 'claude-code' })
         expect(manifest.globalOptions).toContainEqual(expect.objectContaining({ flags: '-o, --output <format>' }))
-        expect(manifest.commands.find((command: { name: string }) => command.name === 'query run')).toMatchObject({
+        expect(manifest.commands[0]).toMatchObject({
             name: 'query run',
             arguments: [{ name: 'query', required: true, stdin: true }],
             scopes: ['query:read'],
         })
         expect(manifest.commands.map((command: { name: string }) => command.name)).toEqual([
-            'login',
             'query run',
             'query check',
             'commands',

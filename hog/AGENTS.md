@@ -51,7 +51,6 @@ export default defineCommand({
 - Agent output is JSON only, on stdout, with no color and no prose. Prefer `out.jsonLines` for lists, so an agent can stream them.
 - `out.table` colors each column by kind (number, date, boolean, JSON) and fits the terminal width. Pass a `kind` when the API declares column types, as `hog query run` does with ClickHouse types. Otherwise the kind comes from the values.
 - A failure throws a `HogError` with a stable `code` and a `hint` that names the next step. `cli.ts` prints it as text or as JSON on stderr. Do not catch errors to print them yourself.
-- Ask questions only through `ctx.prompts`. It is undefined for agents, pipes and `-o json`, so a command that needs an answer must take it as an option there, or fail with a hint that names the option. Never block an agent on a person: split the work into a call that returns at once and a call that finishes it, like `hog login` and `hog login --wait`.
 - `exitCode` is for results that are not failures but that a script must branch on, like `hog query check` finding errors.
 - `--raw` is global: it prints the result of `run` as JSON and skips both views. Do not add per-command `--raw` or `--debug` flags; return enough data from `run` instead.
 - An argument with `stdin: true` reads stdin when the caller passes `-`, and fails when it is empty. `hog commands` tells agents which arguments accept it.

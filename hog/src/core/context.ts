@@ -3,7 +3,6 @@ import { resolveCredentials } from '@/posthog/credentials'
 
 import type { Mode } from './agent'
 import type { CommandTree, OptionSpec, OptionValues } from './command'
-import type { Prompts } from './prompts'
 import type { Runtime } from './runtime'
 
 export const GLOBAL_OPTIONS = {
@@ -43,13 +42,6 @@ export class Context {
         readonly mode: Mode,
         readonly tree: CommandTree
     ) {}
-
-    // Undefined unless a person is at the terminal, so a command can ask questions only when
-    // someone can answer them. Agents, pipes and `-o json` never get prompts.
-    get prompts(): Prompts | undefined {
-        const person = this.mode.format === 'text' && this.mode.agent === undefined
-        return person && this.runtime.stdinIsTTY && this.runtime.stdoutIsTTY ? this.runtime.prompts : undefined
-    }
 
     // The PostHog API client. Credentials resolve on first use, so commands that never call
     // the API work without them.
