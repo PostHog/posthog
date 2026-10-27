@@ -1,11 +1,13 @@
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from cryptography.fernet import Fernet
 from parameterized import parameterized
 
+from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.integration import Integration
 from posthog.models.team import Team
 
@@ -73,6 +75,31 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
             WarehouseSourceCredentialsStore.get(source)
         assert "fake-password" not in str(raised.exception)
         assert WarehouseSourceCredentialsStore.get_many([source]) == {source.id: CredentialsUnreadable()}
+
+    def test_undecryptable_leaf_is_unreadable_and_extra_layers_are_peeled(self) -> None:
+        source, double_encrypted = self._source(), self._source()
+        field = cast(EncryptedJSONField, Integration._meta.get_field("sensitive_config"))  # type: ignore[misc]
+        foreign_ciphertext = Fernet(Fernet.generate_key()).encrypt(b"fake-password").decode()
+        Integration.objects.create(
+            team=self.team,
+            kind="warehouse-source",
+            integration_id=str(source.id),
+            sensitive_config={"fields": {"host": "db.example.com", "password": foreign_ciphertext}},
+        )
+        Integration.objects.create(
+            team=self.team,
+            kind="warehouse-source",
+            integration_id=str(double_encrypted.id),
+            sensitive_config={"fields": {"password": field.encrypt("fake-password")}},
+        )
+
+        with self.assertRaises(CredentialsUnreadableError):
+            WarehouseSourceCredentialsStore.get(source)
+        assert WarehouseSourceCredentialsStore.get(double_encrypted) == {"password": "fake-password"}
+        assert WarehouseSourceCredentialsStore.get_many([source, double_encrypted]) == {
+            source.id: CredentialsUnreadable(),
+            double_encrypted.id: {"password": "fake-password"},
+        }
 
     def test_get_many_uses_one_query_and_skips_missing_and_other_teams(self) -> None:
         with_row, without_row, other_team_source = self._source(), self._source(), self._source()

@@ -138,6 +138,22 @@ CASES: list[tuple[str, ExternalDataSourceType, dict[str, Any], SplitJobInputs]] 
         ),
     ),
     (
+        "aliased_field_under_its_stored_name",
+        ExternalDataSourceType.BIGQUERY,
+        {
+            "dataset_id": "analytics",
+            "temporary_dataset": {"enabled": True, "temporary_dataset_id": "staging"},
+        },
+        SplitJobInputs(
+            connection={},
+            settings={
+                "dataset_id": "analytics",
+                "temporary_dataset": {"enabled": True, "temporary_dataset_id": "staging"},
+            },
+            runtime={},
+        ),
+    ),
+    (
         "empty_inputs",
         ExternalDataSourceType.POSTGRES,
         {},
