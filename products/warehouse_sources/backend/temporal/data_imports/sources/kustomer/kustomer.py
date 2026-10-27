@@ -29,7 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.s
 PAGE_SIZE = 100
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class KustomerResumeConfig:
     # Kustomer paginates via a JSON:API `links.next` URL (absolutized against
     # the org host), so the URL is all we persist.
