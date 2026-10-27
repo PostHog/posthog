@@ -31,11 +31,16 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.direct_sql import get_adapter_for_source
 from posthog.hogql.errors import (
+    BaseHogQLError,
     ExposedHogQLError,
     NotImplementedError as HogQLNotImplementedError,
 )
 from posthog.hogql.filters import replace_filters
-from posthog.hogql.flag_called_warnings import FLAG_CALLED_EVENT, flag_called_on_events_warnings
+from posthog.hogql.flag_called_warnings import (
+    FLAG_CALLED_EVENT,
+    FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE,
+    flag_called_on_events_warnings,
+)
 from posthog.hogql.index_eligibility import IndexEligibilityReport, build_index_eligibility_report
 from posthog.hogql.metadata_heuristics import run_metadata_heuristics
 from posthog.hogql.modifiers import create_default_modifiers_for_team
@@ -49,6 +54,7 @@ from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.hogql.taxonomy_validation import validate_taxonomy_references
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import rewrite_flag_calls_to_flag_evaluations
 from posthog.hogql.type_system import runtime_type_from_constant_type
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
@@ -217,7 +223,9 @@ def get_hogql_metadata(
                 response.ch_table_names = get_table_names(prepared_ast)
 
             if source is None and FLAG_CALLED_EVENT in query.query:
-                heuristic_warnings.extend(_flag_called_on_events_warnings(hogql_ast, context, team))
+                flag_called_warnings, flag_called_notices = _flag_called_on_events_warnings(hogql_ast, context, team)
+                heuristic_warnings.extend(flag_called_warnings)
+                context.notices.extend(flag_called_notices)
 
             if source is None and query.indexUsage and _index_usage_enabled(team):
                 _attach_index_usage(response, hogql_ast, context)
@@ -327,21 +335,52 @@ def _flag_called_announcement_url(payload: object) -> str | None:
 
 def _flag_called_on_events_warnings(
     hogql_ast: Union[ast.SelectQuery, ast.SelectSetQuery], context: HogQLContext, team: Team
-) -> list[HogQLNotice]:
+) -> tuple[list[HogQLNotice], list[HogQLNotice]]:
+    """The move warning on each flag-call literal that reads events, and a notice on each literal whose query
+    reads posthog.flag_evaluations instead."""
     try:
         move_notices = _flag_called_move_notices(team)
         if move_notices is None or not move_notices.enabled:
-            return []
+            return [], []
         warnings = flag_called_on_events_warnings(hogql_ast, context)
         if not warnings:
-            return []
+            return [], []
         url = _flag_called_announcement_url(move_notices.payload)
-        return [warning.model_copy(update={"url": url}) for warning in warnings]
+        swapped = _flag_called_spans_read_from_flag_evaluations(hogql_ast, context, warnings)
+        return (
+            [
+                warning.model_copy(update={"url": url})
+                for warning in warnings
+                if (warning.start, warning.end) not in swapped
+            ],
+            [
+                warning.model_copy(update={"message": FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE, "url": url})
+                for warning in warnings
+                if (warning.start, warning.end) in swapped
+            ],
+        )
     except Exception:
         # The warning is advisory. A query that compiles must not be reported as invalid because this
         # check failed, and the caller turns any exception here into an invalid query.
         logger.exception("hogql_flag_called_warning_failed", team_id=context.team_id)
-        return []
+        return [], []
+
+
+def _flag_called_spans_read_from_flag_evaluations(
+    hogql_ast: Union[ast.SelectQuery, ast.SelectSetQuery], context: HogQLContext, warnings: list[HogQLNotice]
+) -> set[tuple[int | None, int | None]]:
+    """The spans of the warned literals that the query reads from posthog.flag_evaluations when it runs."""
+    rewritten = rewrite_flag_calls_to_flag_evaluations(hogql_ast, context)
+    if rewritten is None:
+        return set()
+    try:
+        still_on_events = {
+            (warning.start, warning.end) for warning in flag_called_on_events_warnings(rewritten, context)
+        }
+    except BaseHogQLError:
+        # The printer falls back to events when the swapped query does not resolve.
+        return set()
+    return {(warning.start, warning.end) for warning in warnings} - still_on_events
 
 
 def _attach_index_usage(

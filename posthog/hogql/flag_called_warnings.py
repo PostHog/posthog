@@ -17,6 +17,11 @@ FLAG_CALLED_ON_EVENTS_WARNING = (
     "posthog.flag_evaluations instead."
 )
 
+FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE = (
+    f"This query reads {FLAG_CALLED_EVENT} events from posthog.flag_evaluations, which keeps the last 90 days "
+    "of flag calls."
+)
+
 
 class _FlagCalledOnEventsFinder(TraversingVisitor):
     def __init__(self) -> None:

@@ -1,6 +1,7 @@
 import re
 import zoneinfo
 import itertools
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from itertools import groupby
@@ -12,6 +13,7 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
+    _create_flag_evaluations,
     _create_person,
     also_test_with_materialized_columns,
     flush_persons_and_events,
@@ -83,7 +85,31 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
+
+
+def _flag_call_event_series(team: Team, flag_keys: list[str]) -> EventsNode:
+    return EventsNode(
+        event="$feature_flag_called",
+        properties=[EventPropertyFilter(key="$feature_flag", value=flag_keys, operator=PropertyOperator.EXACT)],
+    )
+
+
+def _flag_call_action_series(team: Team, flag_keys: list[str]) -> ActionsNode:
+    action = Action.objects.create(
+        team=team,
+        name="called a flag",
+        steps_json=[
+            {
+                "event": "$feature_flag_called",
+                "properties": [{"key": "$feature_flag", "type": "event", "value": flag_key, "operator": "exact"}],
+            }
+            for flag_key in flag_keys
+        ],
+    )
+    return ActionsNode(id=action.id)
 
 
 @dataclass
@@ -6615,6 +6641,37 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         assert response.results[0]["count"] == 2
         assert response.results[0]["data"] == [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+    @parameterized.expand(
+        [
+            ("event_series", _flag_call_event_series, ["probe-flag"], 2),
+            ("event_series_with_two_flag_keys", _flag_call_event_series, ["probe-flag", "other-flag"], 3),
+            ("action_series", _flag_call_action_series, ["probe-flag"], 2),
+            ("action_with_two_flag_call_steps", _flag_call_action_series, ["probe-flag", "other-flag"], 3),
+        ]
+    )
+    def test_flag_call_series_reads_flag_evaluations_when_the_rewrite_is_on(
+        self,
+        _name: str,
+        series: Callable[[Team, list[str]], EventsNode | ActionsNode],
+        flag_keys: list[str],
+        expected_count: int,
+    ):
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+        )
+        _create_flag_evaluations(self.team.pk, "probe-flag", count=2)
+        _create_flag_evaluations(self.team.pk, "other-flag")
+        _create_flag_evaluations(self.team.pk, "unselected-flag")
+
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda key, *args, **kwargs: key == "hogql-flag-calls-from-flag-evaluations",
+        ):
+            response = self._run_trends_query("-7d", None, IntervalType.DAY, [series(self.team, flag_keys)])
+
+        assert response.results[0]["count"] == expected_count
 
     def test_multiple_breakdowns_work_with_formula(self):
         self._create_test_events()

@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from functools import partial
 from typing import TYPE_CHECKING, cast
 
 from posthog.schema_enums import InCohortVia, PropertyGroupsMode
@@ -13,7 +14,7 @@ from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect, HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import InternalHogQLError
+from posthog.hogql.errors import BaseHogQLError, InternalHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
 from posthog.hogql.observability import (
     collect_hogql_sql_shape,
@@ -32,6 +33,7 @@ from posthog.hogql.printer.snowflake import SnowflakePrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.events_read_in_order import order_events_reads_by_sort_key
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import rewrite_flag_calls_to_flag_evaluations
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.json_property_pushdown import (
     has_rewritable_json_extract,
@@ -258,14 +260,28 @@ def prepare_ast_for_printing(
         with context.timings.measure("resolve_in_cohorts_conjoined"):
             resolve_in_cohorts_conjoined(node, dialect, context, stack, resolver_factory=resolver_factory)
 
+    rewritten = None
+    if dialect == "clickhouse":
+        with context.timings.measure("flag_calls_from_flag_evaluations"):
+            rewritten = rewrite_flag_calls_to_flag_evaluations(node, context)
+
     with context.timings.measure("resolve_types"):
-        node = resolve_types(
-            node,
-            context,
+        resolve = partial(
+            resolve_types,
+            context=context,
             dialect=dialect,
-            scopes=[node.type for node in stack if node.type is not None] if stack else None,
+            scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
             resolver_factory=resolver_factory,
         )
+        resolved = None
+        if rewritten is not None:
+            try:
+                resolved = resolve(rewritten)
+            except BaseHogQLError:
+                # Expected for a query that reads a field flag_evaluations lacks, such as $window_id. Resolving
+                # the original next surfaces any real error in the query unchanged.
+                pass
+        node = resolved if resolved is not None else resolve(node)
 
     # Project constant-key JSONExtractString on argMax lazy tables (groups/persons) into the
     # aggregate, so it does not materialize the whole JSON blob per row. Rewrites the call to a

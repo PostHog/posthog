@@ -9,11 +9,14 @@ from parameterized import parameterized
 
 from posthog.schema import (
     DataWarehousePropertyFilter,
+    DateRange,
     ElementPropertyFilter,
     EventPropertyFilter,
     GroupPropertyFilter,
+    HogQLFilters,
     HogQLPropertyFilter,
     HogQLQueryModifiers,
+    HogQLQueryResponse,
     PersonPropertyFilter,
     PropertyGroupsMode,
     PropertyOperator,
@@ -40,11 +43,19 @@ from products.access_control.backend.models.property_access_control import Prope
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import insert_static_cohort
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 EVENT_PROBE = "from-event-properties"
 
 # The sessions tables join only on a UUIDv7 session id.
 SESSION_ID = str(uuid7())
+
+FLAG_CALL_CONJUNCTS = (
+    "event = '$feature_flag_called' AND properties.$feature_flag = 'probe-flag' AND timestamp >= now() - INTERVAL 7 DAY"
+)
+FLAG_CALLS_ON_EVENTS = f"SELECT count() FROM events WHERE {FLAG_CALL_CONJUNCTS}"
+PAGEVIEW_CONJUNCTS = "event = '$pageview' AND timestamp >= now() - INTERVAL 7 DAY"
 
 # Compares greater than 9 as a number and less than it as a string, so the assertion tells the two
 # apart rather than passing under either.
@@ -174,6 +185,19 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         placeholders: dict[str, ast.Expr] | None = None,
     ):
         return self._execute(columns, where, row_uuids=row_uuids, placeholders=placeholders).results
+
+    def _query_events(
+        self, query: str, *, rewrite: bool = True, filters: HogQLFilters | None = None
+    ) -> HogQLQueryResponse:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+        )
+        with patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda key, *args, **kwargs: rewrite and key == "hogql-flag-calls-from-flag-evaluations",
+        ):
+            return execute_hogql_query(query, team=self.team, filters=filters, pretty=False)
 
     def _override(self, person_id: uuid.UUID, version: int, is_deleted: bool = False) -> None:
         sync_execute(
@@ -589,3 +613,117 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         ).clickhouse
 
         assert f"toIntervalDay({SESSION_BUFFER_DAYS})" in clickhouse
+
+    def test_flag_call_query_on_events_reads_no_flag_evaluations_with_the_flag_off(self):
+        assert self._query_events(FLAG_CALLS_ON_EVENTS, rewrite=False).results == [(0,)]
+
+    @parameterized.expand(
+        [
+            ("unaliased", FLAG_CALLS_ON_EVENTS, [(1,)]),
+            (
+                "qualified_without_an_alias",
+                "SELECT count() FROM events WHERE events.event = '$feature_flag_called' "
+                "AND events.properties.$feature_flag = 'probe-flag' AND events.timestamp >= now() - INTERVAL 7 DAY",
+                [(1,)],
+            ),
+            (
+                "aliased",
+                "SELECT count() FROM events AS e WHERE e.event = '$feature_flag_called' "
+                "AND e.properties.$feature_flag = 'probe-flag' AND e.timestamp >= now() - INTERVAL 7 DAY",
+                [(1,)],
+            ),
+            ("subquery_in_from", f"SELECT count() FROM (SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS})", [(1,)]),
+            (
+                "cte",
+                f"WITH calls AS (SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS}) SELECT count() FROM calls",
+                [(1,)],
+            ),
+            (
+                "subquery_in_an_expression",
+                f"SELECT count() FROM events WHERE {PAGEVIEW_CONJUNCTS} "
+                f"AND distinct_id IN (SELECT distinct_id FROM events WHERE {FLAG_CALL_CONJUNCTS})",
+                [(1,)],
+            ),
+            (
+                "union_members",
+                f"SELECT 'calls', count() FROM events WHERE {FLAG_CALL_CONJUNCTS} "
+                f"UNION ALL SELECT 'pageviews', count() FROM events WHERE {PAGEVIEW_CONJUNCTS}",
+                [("calls", 1), ("pageviews", 1)],
+            ),
+            (
+                "filters_placeholder",
+                "SELECT count() FROM events WHERE event = '$feature_flag_called' "
+                "AND properties.$feature_flag = 'probe-flag' AND {filters}",
+                [(1,)],
+                HogQLFilters(dateRange=DateRange(date_from="-7d")),
+            ),
+        ]
+    )
+    def test_each_select_on_events_reads_flag_evaluations_on_its_own(
+        self, _name: str, query: str, expected: list[tuple], filters: HogQLFilters | None = None
+    ):
+        _create_event(team=self.team, event="$pageview", distinct_id="probe-distinct-id", timestamp=self.occurred_at)
+        flush_persons_and_events()
+
+        assert sorted(self._query_events(query, filters=filters).results) == expected
+
+    @parameterized.expand(
+        [
+            ("window_id", "$window_id"),
+            ("event_person_id", "event_person_id"),
+            ("pdi", "pdi.person_id"),
+            ("goe", "goe_0.key"),
+        ]
+    )
+    def test_query_reading_a_field_that_only_events_has_falls_back_to_events(self, _name: str, field: str):
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="events-distinct-id",
+            timestamp=self.occurred_at,
+            properties={"$feature_flag": "probe-flag", "$window_id": "probe-window"},
+        )
+        create_person(team=self.team, distinct_ids=["events-distinct-id"])
+        flush_persons_and_events()
+
+        results = self._query_events(f"SELECT distinct_id, {field} FROM events WHERE {FLAG_CALL_CONJUNCTS}").results
+
+        assert [row[0] for row in results] == ["events-distinct-id"]
+
+    @parameterized.expand(
+        [
+            ("string", "variant-a"),
+            ("escaped_characters", 'say "hi" \\ bye'),
+            ("number_as_string", "100"),
+            ("number", 100),
+            ("boolean", True),
+        ]
+    )
+    def test_swapped_query_returns_what_events_returns_for_the_same_flag_calls(self, _name: str, response: str | int):
+        # Mode 1 writes each flag call to both tables, so the two reads must agree row for row.
+        row_uuid = uuid.uuid4()
+        properties: dict[str, str | int | None] = {"$feature_flag": "parity-flag", "$feature_flag_response": response}
+        self._insert_row(row_uuid, properties)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="probe-distinct-id",
+            timestamp=self.occurred_at,
+            properties=properties,
+            event_uuid=str(row_uuid),
+        )
+        flush_persons_and_events()
+        query = (
+            "SELECT uuid, distinct_id, properties.$feature_flag_response FROM events "
+            "WHERE event = '$feature_flag_called' AND properties.$feature_flag = 'parity-flag' "
+            "AND timestamp >= now() - INTERVAL 7 DAY"
+        )
+
+        from_events = self._query_events(query, rewrite=False).results
+        from_flag_evaluations = self._query_events(query).results
+
+        assert len(from_events) == 1
+        assert from_flag_evaluations == from_events
+
+    def test_flag_call_query_on_events_prints_a_read_of_flag_evaluations(self):
+        self.assertQueryMatchesSnapshot(self._query_events(FLAG_CALLS_ON_EVENTS).clickhouse)

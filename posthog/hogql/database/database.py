@@ -251,6 +251,7 @@ class HogQLDatabaseSources:
     is_billing_usage_records_enabled: bool
     # Not the flag's value: a direct-connection catalog excludes the table whatever the org has.
     include_flag_evaluations_table: bool
+    read_flag_calls_from_flag_evaluations: bool
     # Userless internal contexts that must resolve every warehouse table/view; skips access control
     bypass_warehouse_access_control: bool
     direct_connection_metadata: dict[str, Any] | None
@@ -454,7 +455,7 @@ _DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
 # LRU, and fresh entries survive the sweep. Reads are lock-free (dict.get is atomic under the
 # GIL); mutations and the sweep hold the lock, because the sweep iterates the dict and concurrent
 # inserts would raise RuntimeError mid-iteration.
-_CACHEABLE_TEAM_FLAGS = frozenset({"managed-viewsets"})
+_CACHEABLE_TEAM_FLAGS = frozenset({"managed-viewsets", "hogql-flag-calls-from-flag-evaluations"})
 _TEAM_FLAG_CACHE: dict[tuple[str, str], tuple[float, bool]] = {}  # key -> (evaluated_at, value)
 _TEAM_FLAG_CACHE_LOCK = threading.Lock()
 _TEAM_FLAG_CACHE_MAX_ENTRIES = 50_000
@@ -829,6 +830,7 @@ class Database(BaseModel):
     # because a warehouse table merged into the root first can hold the bare stored name.
     _models_alias_nodes: dict[str, TableNode] = {}
     _connection_id: str | None = None
+    _read_flag_calls_from_flag_evaluations: bool = False
     _direct_connection_metadata: dict[str, Any] | None = None
     _direct_access_warehouse_table_names: set[str] = set()
     # Warnings about data warehouse tables (failed/paused/billing-limited/stale syncs),
@@ -889,6 +891,7 @@ class Database(BaseModel):
         self._models_aliases = {}
         self._models_alias_nodes = {}
         self._connection_id = None
+        self._read_flag_calls_from_flag_evaluations = False
         self._direct_connection_metadata = None
         self._direct_access_warehouse_table_names = set()
         self._data_warehouse_sync_warnings = {}
@@ -1257,6 +1260,11 @@ class Database(BaseModel):
 
     def _is_direct_query(self) -> bool:
         return self._connection_id is not None
+
+    @property
+    def read_flag_calls_from_flag_evaluations(self) -> bool:
+        # A catalog without the table, such as a direct-connection one, cannot read from it.
+        return self._read_flag_calls_from_flag_evaluations and self.has_table(["posthog", "flag_evaluations"])
 
     @staticmethod
     def _is_helper_function_table(table: object) -> bool:
@@ -1936,6 +1944,7 @@ class Database(BaseModel):
             # Resolving the org gate needs a Postgres read. This path exists to avoid that I/O,
             # so it prunes the table as it prunes the other gated tables.
             include_flag_evaluations_table=False,
+            read_flag_calls_from_flag_evaluations=False,
             group_types=[],
             saved_queries=[],
             endpoint_saved_queries=[],
@@ -2028,10 +2037,31 @@ class Database(BaseModel):
             )
 
             # Function-local + facade-only: keeps the products off the django.setup() path.
-            from products.feature_flags.backend.facade.flags import is_flag_evaluations_table_enabled  # noqa: PLC0415
+            from products.feature_flags.backend.facade.enums import FlagEvaluationsMode  # noqa: PLC0415
+            from products.feature_flags.backend.facade.flags import (  # noqa: PLC0415
+                get_flag_evaluations_read_mode,
+                is_flag_evaluations_table_enabled,
+            )
 
             # A direct-connection catalog has no "posthog" node to hold the table.
             include_flag_evaluations_table = not is_direct_query and is_flag_evaluations_table_enabled(team)
+            # This checks the read mode, not is_flag_evaluations_table_enabled. That one is true under DEBUG for an
+            # organization still on EVENTS. The flag goes first because it reads no row.
+            read_flag_calls_from_flag_evaluations = (
+                include_flag_evaluations_table
+                and _cached_team_flag(
+                    "hogql-flag-calls-from-flag-evaluations",
+                    team,
+                    lambda: feature_enabled_or_false(
+                        "hogql-flag-calls-from-flag-evaluations",
+                        str(team.uuid),
+                        groups={"organization": str(team.organization_id)},
+                        group_properties={"organization": {"id": str(team.organization_id)}},
+                        send_feature_flag_events=False,
+                    ),
+                )
+                and get_flag_evaluations_read_mode(team.organization_id) != FlagEvaluationsMode.EVENTS
+            )
 
         with timings.measure("database", emit_span=True):
             # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
@@ -2296,6 +2326,7 @@ class Database(BaseModel):
             is_billing_usage_records_enabled="*" in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS
             or team.organization_id in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS,
             include_flag_evaluations_table=include_flag_evaluations_table,
+            read_flag_calls_from_flag_evaluations=read_flag_calls_from_flag_evaluations,
             # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)
@@ -2349,6 +2380,7 @@ class Database(BaseModel):
                 week_start_day=team.week_start_day,
                 include_posthog_tables=sources.connection_id is None,
             )
+            database._read_flag_calls_from_flag_evaluations = sources.read_flag_calls_from_flag_evaluations
             if sources.connection_id is not None:
                 database._connection_id = sources.connection_id
                 if sources.direct_connection_metadata is not None:

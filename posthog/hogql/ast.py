@@ -1384,6 +1384,10 @@ class SampleExpr(Expr):
     sample_value: RatioExpr
     offset_value: Optional[RatioExpr] = None
 
+    def samples_all_rows(self) -> bool:
+        """`SAMPLE 1` with no denominator and no offset reads every row. The printers drop it."""
+        return self.sample_value.left.value == 1 and self.sample_value.right is None and self.offset_value is None
+
 
 @dataclass(kw_only=True, slots=True)
 class HogQLXAttribute(AST):
