@@ -380,19 +380,23 @@ export function extractEmailsFromAddressList(value: string | undefined): string[
 // RFC-822 `"Name" <email>` framing (whitespace, quotes, angle brackets, list separators).
 const FROM_OVERRIDE_EMAIL_REGEX = /^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$/
 
-// A display name can come from Liquid output, so it may hold line breaks. Dropping control
-// characters stops a templated name from injecting a header.
+const PRINTABLE_ASCII = /^[\x20-\x7E]*$/
+const ENCODED_WORD_PREFIX = '=?UTF-8?B?'
+const ENCODED_WORD_SUFFIX = '?='
+const RFC_2047_MAX_ENCODED_WORD_LENGTH = 75
+const BASE64_CHARACTERS_PER_3_BYTES = 4
+const MAX_BYTES_PER_ENCODED_WORD =
+    Math.floor(
+        (RFC_2047_MAX_ENCODED_WORD_LENGTH - ENCODED_WORD_PREFIX.length - ENCODED_WORD_SUFFIX.length) /
+            BASE64_CHARACTERS_PER_3_BYTES
+    ) * 3
+
 function cleanDisplayName(name: string | undefined): string {
     return (name ?? '').replace(/[\x00-\x1F\x7F]/g, '').trim()
 }
 
-// 45 bytes encode to 60 base64 characters, which keeps each word within RFC 2047's 75-character limit.
-const ENCODED_WORD_MAX_BYTES = 45
-
-// SES passes the mailbox through to the header as given, and it requires a non-ASCII display name
-// as an RFC 2047 encoded word. An ASCII name stays an RFC 5322 quoted string.
 function encodeDisplayName(name: string): string {
-    return /^[\x20-\x7E]*$/.test(name) ? quoteDisplayName(name) : toEncodedWords(name)
+    return PRINTABLE_ASCII.test(name) ? quoteDisplayName(name) : toEncodedWords(name)
 }
 
 function quoteDisplayName(name: string): string {
@@ -400,12 +404,11 @@ function quoteDisplayName(name: string): string {
 }
 
 function toEncodedWords(name: string): string {
-    return splitOnCodePoints(name, ENCODED_WORD_MAX_BYTES)
-        .map((chunk) => `=?UTF-8?B?${Buffer.from(chunk).toString('base64')}?=`)
+    return splitOnCodePoints(name, MAX_BYTES_PER_ENCODED_WORD)
+        .map((chunk) => `${ENCODED_WORD_PREFIX}${Buffer.from(chunk).toString('base64')}${ENCODED_WORD_SUFFIX}`)
         .join(' ')
 }
 
-// An encoded word must hold whole characters, so a chunk never splits a code point or a surrogate pair.
 function splitOnCodePoints(text: string, maxBytes: number): string[] {
     const chunks: string[] = []
     let chunk = ''
@@ -424,7 +427,6 @@ export function formatMailbox(name: string | undefined, email: string): string {
     return displayName ? `${encodeDisplayName(displayName)} <${email}>` : email
 }
 
-// Nodemailer encodes a structured address itself, and it would quote an encoded word as literal text.
 function toNodemailerAddress(name: string | undefined, email: string): { name: string; address: string } {
     return { name: cleanDisplayName(name), address: email }
 }
