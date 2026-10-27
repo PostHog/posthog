@@ -8,6 +8,7 @@ the team can review the draft before enabling it. Nothing about people is read.
 import re
 import json
 from collections import deque
+from collections.abc import Iterator
 from email.utils import parseaddr
 from typing import Any
 
@@ -39,8 +40,6 @@ _DAY_NAMES = {
     "Sun": "sunday",
 }
 _WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday"]
-# Steps that pass people straight through to their only next step in PostHog.
-_PASS_THROUGH = {"filter_match_delay_action"}
 _LAYOUT_CONTENT = re.compile(r"\{\{-?\s*content\s*-?\}\}")
 _STATIC_SEGMENT_TYPES = {"static", "manual"}
 _SEGMENT_IDS = re.compile(r"\b(segments?) (\d+(?:, \d+)*)\b")
@@ -106,7 +105,7 @@ class _Builder:
 
         edges = self._edges(roots)
         posthog_actions.extend(self.actions.values())
-        if any(edge["to"] == _EXIT_ID for edge in edges) and _EXIT_ID not in {a["id"] for a in posthog_actions}:
+        if any(edge["to"] == _EXIT_ID for edge in edges):
             posthog_actions.append(_exit_action(_EXIT_ID, "Exit"))
         pruned = _prune_unreachable(posthog_actions, edges)
         posthog_actions, edges = pruned.actions, pruned.edges
@@ -136,8 +135,6 @@ class _Builder:
             workflow=workflow,
             notes=notes,
         )
-
-    # Trigger
 
     def _trigger(self) -> dict[str, Any]:
         kind = self.campaign.get("type")
@@ -178,7 +175,7 @@ class _Builder:
 
     def _segment_trigger(self) -> dict[str, Any]:
         trigger_tree = self.campaign.get("trigger")
-        segments = conditions.segment_ids(trigger_tree)
+        segments = _segment_references(trigger_tree)
         attributes = _attribute_leaves(trigger_tree)
         if len(segments) == 1 and not attributes and segments[0] in self.options.segment_cohorts:
             inverse = _segment_is_inverse(trigger_tree)
@@ -222,8 +219,6 @@ class _Builder:
             return {"hash": "{person.id}", "ttl": int(self.campaign["restart_min_interval"]), "threshold": None}
         return None
 
-    # Goals and exits
-
     def _conversion(self) -> dict[str, Any] | None:
         if not self.campaign.get("conversion"):
             return None
@@ -248,9 +243,7 @@ class _Builder:
             )
             event_filters = None
         for leaf in _foreign_event_leaves(event_filters):
-            filters = conditions.property_filters(
-                leaf.get("field"), leaf.get("operator"), leaf.get("value"), leaf.get("value2"), "event"
-            )
+            filters = conditions.property_filters(leaf, "event")
             if filters is None:
                 self.note(NoteLevel.UNSUPPORTED, f"The goal's event filter `{conditions.describe(leaf)}` was left out.")
             else:
@@ -338,8 +331,6 @@ class _Builder:
                 "static cohort, so rebuild it as person property conditions or a realtime cohort.",
             )
 
-    # Actions
-
     def _action(self, source: dict[str, Any]) -> dict[str, Any] | None:
         kind = source.get("type")
         action_id = f"cio_{source['id']}"
@@ -390,7 +381,8 @@ class _Builder:
                     "languages with a branch on the person's language property.",
                 )
                 return None
-            case _ if kind in _PASS_THROUGH:
+            case "filter_match_delay_action":
+                # People pass straight through to the only next step in PostHog.
                 return None
             case _:
                 label = _CHANNEL_NAMES.get(str(kind), f"`{kind}` step")
@@ -520,20 +512,19 @@ class _Builder:
         if not template:
             return {"email": "", "name": ""}
         found = self._address(template, "from_identity_id", "from_id", "from")
-        address, name = found.email, found.name
-        sender = self.options.senders.get(address.lower()) if address else None
+        sender = self.options.senders.get(found.email.lower()) if found.email else None
         if sender is not None:
-            return {"integrationId": sender.integration_id, "email": sender.email, "name": name or sender.name}
-        if address:
+            return {"integrationId": sender.integration_id, "email": sender.email, "name": found.name or sender.name}
+        if found.email:
             self.note(
                 NoteLevel.NEEDS_INPUT,
-                f"Customer.io sends this email from {address}, which is not a PostHog email sender yet. Add it "
+                f"Customer.io sends this email from {found.email}, which is not a PostHog email sender yet. Add it "
                 "as a sender, or choose another one.",
                 action,
             )
         else:
             self.note(NoteLevel.NEEDS_INPUT, "Choose the email sender.", action)
-        return {"email": address, "name": name}
+        return {"email": found.email, "name": found.name}
 
     def _category(self, source: dict[str, Any], config: dict[str, Any], action: dict[str, Any]) -> None:
         topic_id = source.get("subscription_topic_id")
@@ -807,8 +798,6 @@ class _Builder:
         self.links[str(source["id"])] = [*branch_links, (last_target, "continue", None)]
         return {**base, "type": "random_cohort_branch", "config": {"cohorts": cohorts}}
 
-    # Edges
-
     def _edges(self, roots: list[str]) -> list[dict[str, Any]]:
         def resolve(source_id: str) -> str:
             """The PostHog step a link to `source_id` lands on, following steps that were left out."""
@@ -865,81 +854,61 @@ def _duration(seconds: int) -> str:
     for unit, size, cap in _DURATION_UNITS:
         if seconds % size == 0 and (cap is None or seconds // size <= cap):
             return f"{seconds // size}{unit}"
-    for unit, size, cap in reversed(_DURATION_UNITS):
-        if cap is None or seconds / size <= cap:
-            return f"{seconds / size:.4f}".rstrip("0").rstrip(".") + unit
-    return f"{seconds}s"
+    unit, size = next(
+        (unit, size) for unit, size, cap in reversed(_DURATION_UNITS) if cap is None or seconds / size <= cap
+    )
+    return f"{seconds / size:.4f}".rstrip("0").rstrip(".") + unit
+
+
+def _nodes(tree: Any, keys: tuple[str, ...] = ("and", "or", "not")) -> Iterator[dict[str, Any]]:
+    """Every dict in a condition tree, parents before their children."""
+    if isinstance(tree, list):
+        for child in tree:
+            yield from _nodes(child, keys)
+    elif isinstance(tree, dict):
+        yield tree
+        for key in keys:
+            if key in tree:
+                yield from _nodes(tree[key], keys)
 
 
 def _attribute_leaves(tree: Any) -> list[dict[str, Any]]:
-    found: list[dict[str, Any]] = []
-    if isinstance(tree, list):
-        for child in tree:
-            found.extend(_attribute_leaves(child))
-    elif isinstance(tree, dict):
-        if isinstance(tree.get("attribute"), dict):
-            found.append({**tree["attribute"], "inverse": tree["attribute"].get("inverse") or tree.get("inverse")})
-        for key in ("and", "or", "not"):
-            if key in tree:
-                found.extend(_attribute_leaves(tree[key]))
-    return found
+    return [
+        {**node["attribute"], "inverse": node["attribute"].get("inverse") or node.get("inverse")}
+        for node in _nodes(tree)
+        if isinstance(node.get("attribute"), dict)
+    ]
 
 
 def _segment_is_inverse(tree: Any) -> bool:
-    if isinstance(tree, list):
-        return any(_segment_is_inverse(child) for child in tree)
-    if isinstance(tree, dict):
-        segment = tree.get("segment")
-        if isinstance(segment, dict):
-            return bool(segment.get("inverse") or tree.get("inverse"))
-        return any(_segment_is_inverse(tree[key]) for key in ("and", "or", "not") if key in tree)
-    return False
+    return any(
+        bool(node["segment"].get("inverse") or node.get("inverse"))
+        for node in _nodes(tree)
+        if isinstance(node.get("segment"), dict)
+    )
 
 
 def _foreign_event_leaves(tree: Any) -> list[dict[str, Any]]:
-    found: list[dict[str, Any]] = []
-    if isinstance(tree, list):
-        for child in tree:
-            found.extend(_foreign_event_leaves(child))
-    elif isinstance(tree, dict):
-        attribute = (
-            (tree.get("foreign_event") or {}).get("attribute") if isinstance(tree.get("foreign_event"), dict) else None
-        )
-        if isinstance(attribute, dict):
-            found.append(attribute)
-        for key in ("and", "or"):
-            if key in tree:
-                found.extend(_foreign_event_leaves(tree[key]))
-    return found
+    return [
+        node["foreign_event"]["attribute"]
+        for node in _nodes(tree, ("and", "or"))
+        if isinstance(node.get("foreign_event"), dict) and isinstance(node["foreign_event"].get("attribute"), dict)
+    ]
 
 
 def _segment_references(tree: Any) -> list[str]:
-    """Every segment id a condition tree or a decoded condition list names."""
     found: list[str] = []
-    if isinstance(tree, list):
-        for child in tree:
-            found.extend(_segment_references(child))
-    elif isinstance(tree, dict):
-        segment = tree.get("segment")
+    for node in _nodes(tree):
+        segment = node.get("segment")
         if isinstance(segment, dict) and segment.get("id") is not None:
             found.append(str(segment["id"]))
-        if tree.get("type") in ("segments_negatable", "segments"):
-            found.extend(str(segment) for segment in tree.get("segments") or [])
-        for key in ("and", "or", "not"):
-            if key in tree:
-                found.extend(_segment_references(tree[key]))
+        if node.get("type") in ("segments_negatable", "segments"):
+            found.extend(str(segment) for segment in node.get("segments") or [])
     return found
 
 
 def _has_alternatives(tree: Any) -> bool:
-    if isinstance(tree, list):
-        return any(_has_alternatives(child) for child in tree)
-    if isinstance(tree, dict):
-        alternatives = tree.get("or")
-        if isinstance(alternatives, list) and len(alternatives) > 1:
-            return True
-        return any(_has_alternatives(tree[key]) for key in ("and", "or", "not") if key in tree)
-    return False
+    return any(isinstance(node.get("or"), list) and len(node["or"]) > 1 for node in _nodes(tree))
 
 
 def _is_bare_event(tree: Any) -> bool:
@@ -957,18 +926,12 @@ def _is_bare_event(tree: Any) -> bool:
 
 def _exit_event_names(tree: Any) -> list[str]:
     names: list[str] = []
-    if isinstance(tree, list):
-        for child in tree:
-            names.extend(_exit_event_names(child))
-    elif isinstance(tree, dict):
-        event_name = tree.get("event_name")
+    for node in _nodes(tree, ("and", "or")):
+        event_name = node.get("event_name")
         if isinstance(event_name, dict) and event_name.get("name"):
             names.append(str(event_name["name"]))
-        elif tree.get("segment") is not None:
+        elif node.get("segment") is not None:
             names.append("__segment__")
-        for key in ("and", "or"):
-            if key in tree:
-                names.extend(_exit_event_names(tree[key]))
     return names
 
 
