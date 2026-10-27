@@ -53,19 +53,35 @@ function ScheduleRow({ schedule, editing }: { schedule: HogFlowSchedule; editing
         selectSchedule(schedule)
     }
 
+    const summary = summarizeSchedule(schedule.rrule, schedule.starts_at, schedule.timezone)
+
     return (
-        <div
-            className={`flex items-center gap-2 py-1.5 px-2 border-b last:border-b-0 cursor-pointer ${
-                editing ? 'bg-accent-highlight-secondary' : 'hover:bg-surface-secondary'
-            }`}
+        <LemonButton
+            fullWidth
+            active={editing}
             onClick={pickThisRow}
             data-attr="workflow-schedule-row"
+            sideAction={{
+                icon: <IconTrash />,
+                status: 'danger',
+                tooltip: 'Remove this schedule',
+                'data-attr': 'remove-workflow-schedule',
+                onClick: () =>
+                    LemonDialog.open({
+                        title: 'Remove this schedule?',
+                        description: `${summary}. The workflow stops running on it. Any other schedules keep going.`,
+                        primaryButton: {
+                            children: 'Remove',
+                            status: 'danger',
+                            onClick: () => deleteSchedule(schedule.id),
+                        },
+                        secondaryButton: { children: 'Cancel' },
+                    }),
+            }}
         >
-            <div className="flex-1 min-w-0">
+            <div className="flex-1 min-w-0 py-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                    <span className="truncate">
-                        {summarizeSchedule(schedule.rrule, schedule.starts_at, schedule.timezone)}
-                    </span>
+                    <span className="truncate">{summary}</span>
                     <ScheduleStateTag status={schedule.status} />
                     {editing && (
                         <LemonTag type="highlight" size="small">
@@ -73,7 +89,7 @@ function ScheduleRow({ schedule, editing }: { schedule: HogFlowSchedule; editing
                         </LemonTag>
                     )}
                 </div>
-                <div className="text-xs text-muted">
+                <div className="text-xs text-muted font-normal">
                     {schedule.timezone ?? 'UTC'}
                     {schedule.next_run_at
                         ? ` · next run ${dayjs(schedule.next_run_at)
@@ -82,27 +98,7 @@ function ScheduleRow({ schedule, editing }: { schedule: HogFlowSchedule; editing
                         : ''}
                 </div>
             </div>
-            <LemonButton
-                icon={<IconTrash />}
-                size="small"
-                status="danger"
-                tooltip="Remove this schedule"
-                data-attr="remove-workflow-schedule"
-                onClick={(event) => {
-                    event.stopPropagation()
-                    LemonDialog.open({
-                        title: 'Remove this schedule?',
-                        description: `${summarizeSchedule(schedule.rrule, schedule.starts_at, schedule.timezone)}. The workflow stops running on it. Any other schedules keep going.`,
-                        primaryButton: {
-                            children: 'Remove',
-                            status: 'danger',
-                            onClick: () => deleteSchedule(schedule.id),
-                        },
-                        secondaryButton: { children: 'Cancel' },
-                    })
-                }}
-            />
-        </div>
+        </LemonButton>
     )
 }
 
@@ -145,7 +141,7 @@ export function ScheduleList(): JSX.Element | null {
             <p className="text-xs text-muted mb-0">
                 They all run. Pick one to edit it below, or remove any you did not mean to add.
             </p>
-            <div className="border rounded bg-surface-primary">
+            <div className="border rounded bg-surface-primary divide-y">
                 {schedules.map((schedule) => (
                     <ScheduleRow key={schedule.id} schedule={schedule} editing={schedule.id === currentSchedule?.id} />
                 ))}

@@ -285,6 +285,7 @@ export interface workflowLogicValues {
     currentProjectId: number | null // projectLogic
     user: UserType | null // userLogic
     actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
+    addingSchedule: boolean
     aiEmailDraft: AiEmailDraftResult | null
     aiEmailDraftApplied: boolean
     aiEmailDraftLoading: boolean
@@ -335,7 +336,6 @@ export interface workflowLogicValues {
     scheduleState: ScheduleState
     scheduleTimezone: string
     schedules: HogFlowSchedule[]
-    addingSchedule: boolean
     selectedScheduleId: string | null
     showDraftActions: boolean
     showWorkflowErrors: boolean
@@ -362,15 +362,12 @@ export interface workflowLogicActions {
     resourceEdited: (event: ResourceEditedEvent) => {
         event: ResourceEditedEvent
     } // resourceEditedLogic
-    addSchedule: () => {
-        value: true
-    }
-    setAddingSchedule: (adding: boolean) => {
-        adding: boolean
-    }
     archiveWorkflow: (workflow: HogFlow) => {
         workflow: HogFlow
     } // workflowsLogic
+    addSchedule: () => {
+        value: true
+    }
     autoSaveWorkflow: () => {
         value: true
     }
@@ -2580,6 +2577,9 @@ export interface workflowLogicActions {
     selectSchedule: (schedule: HogFlowSchedule) => {
         schedule: HogFlowSchedule
     }
+    setAddingSchedule: (adding: boolean) => {
+        adding: boolean
+    }
     setAutoSaveEnabled: (enabled: boolean) => {
         enabled: boolean
     }
@@ -3032,7 +3032,7 @@ export interface workflowLogicMeta {
         ) => AiEmailDraftStatusProps | null
         logicProps: (arg: WorkflowLogicProps) => WorkflowLogicProps
         workflowUserAccessLevel: (originalWorkflow: HogFlow | null) => AccessControlLevel | null
-        currentSchedule: (schedules: HogFlowSchedule[]) => HogFlowSchedule | null
+        currentSchedule: (schedules: HogFlowSchedule[], selectedScheduleId: string | null) => HogFlowSchedule | null
         pendingSchedule: (
             currentSchedule: HogFlowSchedule | null,
             scheduleState: ScheduleState,
