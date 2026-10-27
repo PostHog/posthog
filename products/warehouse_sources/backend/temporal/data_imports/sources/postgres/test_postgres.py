@@ -6,6 +6,7 @@ from collections.abc import Generator, Iterable, Iterator
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -98,6 +99,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     UNFILTERED_COUNT_CLIENT_DEADLINE_SECONDS,
     XMIN_PROJECTED_COLUMN,
     JsonAsStringLoader,
+    LenientTextLoader,
     NetworkAsStringLoader,
     PostgresDiscoveredSchema,
     PostgresImplementation,
@@ -734,6 +736,14 @@ class TestPostgresSourceNonRetryableErrors:
             # recycling the connection, an admin cancel) hit the query. Neither is a verdict on this
             # query, so a fresh connection on retry recovers.
             "canceling statement due to user request",
+            # CockroachDB's serialization-conflict wrapper (its Postgres-compatible wire protocol
+            # means customers configure it as a plain Postgres source). CockroachDB expects the
+            # whole transaction to be retried on conflict, which the whole-activity Temporal retry
+            # already does, so it's self-recovering like the other entries here. Timestamps and txn
+            # ids are invented; CockroachDB embeds both in every message of this class.
+            "restart transaction: TransactionRetryWithProtoRefreshError: ReadWithinUncertaintyIntervalError: "
+            "read at time 100.000000000,0 encountered previous write with future timestamp 100.000000000,1: "
+            '"sql txn" meta={id=00000000}',
         ],
     )
     def test_exhausted_connection_drops_are_classified_retryable(self, source, error_msg):
@@ -762,6 +772,11 @@ class TestPostgresSourceNonRetryableErrors:
             (
                 "canceling statement due to user request",
                 "canceled",
+            ),
+            (
+                "restart transaction: TransactionRetryWithProtoRefreshError: ReadWithinUncertaintyIntervalError: "
+                "read at time 100.000000000,0",
+                "serialization conflict",
             ),
         ],
     )
@@ -5654,6 +5669,11 @@ class TestValidateCredentialsErrorMapping:
                 "The database rejected the username or password. Check the user and password for this source and try again.",
             ),
             (
+                'connection failed: connection to server at "203.0.113.20", port 5432 failed: '
+                "FATAL:  password authentication failed",
+                "The database rejected the username or password. Check the user and password for this source and try again.",
+            ),
+            (
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 'FATAL:  PAM authentication failed for user "example_user"',
                 "The database rejected the username or password. Check the user and password for this source and try again.",
@@ -5731,6 +5751,14 @@ class TestValidateCredentialsErrorMapping:
                 "through an SSH tunnel, which can't carry that information to Neon. Update the "
                 "host to the hostname your database provider gave you, or connect directly instead "
                 "of through an SSH tunnel, then try again.",
+            ),
+            # A truncated certificate authority. Host and temp path are invented, not real values.
+            (
+                'connection failed: connection to server at "203.0.113.7", port 5432 failed: could not read '
+                'root certificate file "/tmp/source-tls-xxxxxxxx/ca.crt": bad end line',
+                "The certificate authority you configured isn't a valid PEM certificate. Paste the complete "
+                "certificate (including the BEGIN/END lines), or remove it and turn off certificate "
+                "verification instead.",
             ),
             # Unmapped errors fall back to the generic message.
             (
@@ -8598,6 +8626,27 @@ class TestNetworkAsStringLoader:
 
     def test_none_returns_none(self, loader):
         assert loader.load(None) is None
+
+
+class TestLenientTextLoader:
+    @pytest.mark.parametrize(
+        "encoding,data,expected",
+        [
+            (None, b"plain text", "plain text"),
+            (None, "café 日本".encode(), "café 日本"),
+            (None, b"\xff\xd8\xffbinary", "\ufffd\ufffd\ufffdbinary"),
+            (None, memoryview(b"ok\xfe"), "ok\ufffd"),
+            (None, None, None),
+            ("utf-8", b"ok\xff", "ok\ufffd"),
+            ("iso8859-1", "café".encode("latin-1"), "café"),
+            ("ascii", b"caf\xc3\xa9\xff", "café\ufffd"),
+        ],
+    )
+    def test_load(self, encoding, data, expected):
+        context = (
+            SimpleNamespace(connection=SimpleNamespace(info=SimpleNamespace(encoding=encoding))) if encoding else None
+        )
+        assert LenientTextLoader(oid=25, context=context).load(data) == expected
 
 
 class TestSSLRequiredAfterDate:

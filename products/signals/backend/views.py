@@ -3365,7 +3365,8 @@ class SignalReportViewSet(
         summary="Start a report action as a background agent run",
         description=(
             "Create a task linked to the report and start its first run in the background, with the "
-            "instructions the inbox uses for the same action. The run shows in the report's runs and counts "
+            "instructions the inbox uses for the same action. `ask` sends your own message with the framing "
+            "of the inbox's Ask AI. The run shows in the report's runs and counts "
             "toward the report's task limit. Nobody can answer questions in a background run, so the agent "
             "writes a note to the report's work log when it needs a decision."
         ),
@@ -3392,7 +3393,7 @@ class SignalReportViewSet(
         kind = ReportTaskActionKind(data["action"])
         state = ReportActionState.read(report)
         report_action = resolve_report_task_action(
-            context, report, kind, data.get("suggested_prompt_index"), state=state
+            context, report, kind, data.get("suggested_prompt_index"), state=state, message=data.get("message")
         )
         if report_action is None:
             raise exceptions.NotFound("This report has no suggested prompt at that index.")

@@ -24,7 +24,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Cohorts]: () => import('./cohorts/Cohorts'),
     [Scene.CustomCss]: () => import('./themes/CustomCssScene'),
     [Scene.Dashboard]: () => import('./dashboard/Dashboard'),
-    [Scene.Dashboards]: () => import('./dashboard/dashboards/Dashboards'),
+    [Scene.Dashboards]: () => import('products/dashboards/frontend/dashboards/Dashboards'),
     [Scene.DataManagement]: () => import('./data-management/DataManagementScene'),
     [Scene.DataPipelinesNew]: () => import('./data-pipelines/DataPipelinesNewScene'),
     [Scene.DeadLetterQueue]: () => import('./instance/DeadLetterQueue/DeadLetterQueue'),
@@ -96,7 +96,8 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Replay]: () => import('./session-recordings/SessionRecordings'),
     [Scene.ResourceTransfer]: () => import('./resource-transfer/ResourceTransfer'),
     [Scene.RealTimeUsage]: () => import('./real-time-usage/RealTimeUsage'),
-    [Scene.DashboardTemplateCopy]: () => import('./dashboard/dashboards/templates/DashboardTemplateCopyScene'),
+    [Scene.DashboardTemplateCopy]: () =>
+        import('products/dashboards/frontend/dashboards/templates/DashboardTemplateCopyScene'),
     [Scene.SQLEditor]: () => import('./data-warehouse/editor/EditorScene'),
     [Scene.SavedInsights]: () => import('products/product_analytics/frontend/insights/savedInsights/SavedInsights'),
     [Scene.WebScripts]: () => import('./data-pipelines/WebScriptsScene'),
