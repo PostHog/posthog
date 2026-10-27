@@ -95,10 +95,15 @@ class _KillSwitchChildWindow:
         self._team_id = team_id
         self._limit = MAX_CONCURRENT_CHILDREN
         self._running = 0
+        self._waiting = 0
         self._checked_at: dt.datetime | None = None
         self._reading = False
+        self._closed = False
+        self._refresher: asyncio.Task[None] | None = None
 
     async def _refresh(self) -> None:
+        if self._closed:
+            return
         # The children of a level all arrive in the same instant. Without this wait they would enter
         # with the old limit while the first one is still reading the new one.
         if self._reading:
@@ -114,15 +119,30 @@ class _KillSwitchChildWindow:
         finally:
             self._reading = False
 
+    async def _refresh_while_children_wait(self) -> None:
+        # One shared timer rereads the level. A timeout on each waiter would put a timer in the history
+        # for every waiter on every completion, and frequent completions would keep resetting those
+        # timeouts so that the level was never read again.
+        while True:
+            await temporalio.workflow.wait_condition(lambda: self._waiting > 0 or self._closed)
+            if self._closed:
+                return
+            await temporalio.workflow.sleep(KILL_SWITCH_RECHECK_INTERVAL)
+            await self._refresh()
+
+    def close(self) -> None:
+        self._closed = True
+
     async def __aenter__(self) -> None:
+        if self._refresher is None:
+            self._refresher = asyncio.create_task(self._refresh_while_children_wait())
         await self._refresh()
         while self._running >= self._limit:
+            self._waiting += 1
             try:
-                await temporalio.workflow.wait_condition(
-                    lambda: self._running < self._limit, timeout=KILL_SWITCH_RECHECK_INTERVAL
-                )
-            except TimeoutError:
-                await self._refresh()
+                await temporalio.workflow.wait_condition(lambda: self._running < self._limit)
+            finally:
+                self._waiting -= 1
         self._running += 1
 
     async def __aexit__(self, *_: object) -> None:
@@ -583,6 +603,9 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                     failed_node_set.add(nr.node_id)
                     if nr.quality_failed:
                         quality_failed_node_set.add(nr.node_id)
+
+        if isinstance(child_window, _KillSwitchChildWindow):
+            child_window.close()
 
         if skipped_jobs:
             await temporalio.workflow.execute_activity(
