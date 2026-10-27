@@ -16,6 +16,7 @@ import {
   createPiToolCallRecord,
   type PiSubagentToolCall,
 } from "@posthog/agent-contracts";
+import { POSTHOG_PROVIDER_NAME } from "../posthog-provider/provider";
 import { createWebAccessExtension } from "../web-access/extension";
 import type { AgentConfig } from "./agents";
 import {
@@ -319,7 +320,18 @@ export async function runAgent(
       ) ??
       false;
     const extensionFactories = wantsWebAccess
-      ? [{ name: "web-access", factory: createWebAccessExtension() }]
+      ? [
+          {
+            name: "web-access",
+            // Web tools always call the PostHog gateway; another provider's headers can carry its credentials.
+            factory: createWebAccessExtension({
+              headers:
+                modelAuth.model.provider === POSTHOG_PROVIDER_NAME
+                  ? modelAuth.headers
+                  : undefined,
+            }),
+          },
+        ]
       : [];
     const systemPrompt = effectiveAgent.systemPrompt.trim() || undefined;
     const resourceLoader = new DefaultResourceLoader({

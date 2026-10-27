@@ -48,10 +48,7 @@ class TestAlertUtils:
         ]
     )
     def test_detector_verdict_event_fields(self, _name: str, metadata: dict | None, expected: dict) -> None:
-        alert_check = MagicMock(spec=AlertCheck)
-        alert_check.triggered_metadata = metadata
-
-        assert detector_verdict_event_fields(alert_check) == expected
+        assert detector_verdict_event_fields(metadata) == expected
 
     def test_next_check_time_advances_by_2_minutes(self) -> None:
         alert = MagicMock(spec=AlertConfiguration)

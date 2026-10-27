@@ -184,12 +184,17 @@ export class CdpDeadLetterService implements InvocationFailureSink {
         return true
     }
 
-    /** For a message that never became an event, so there are no globals to attach it to. */
-    public recordMessageFailure(message: Message, failure: Omit<PendingFailure, 'sourceId' | 'sourceKind'>): void {
+    /**
+     * For a message that never became an event, so there are no globals to attach it to.
+     *
+     * False means the message was not retained.
+     */
+    public recordMessageFailure(message: Message, failure: Omit<PendingFailure, 'sourceId' | 'sourceKind'>): boolean {
         if (!this.config.CDP_DLQ_ENABLED) {
-            return
+            return false
         }
         this.messageFailures.push({ message, failure })
+        return true
     }
 
     /**

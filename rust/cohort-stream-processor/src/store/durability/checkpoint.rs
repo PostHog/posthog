@@ -2,9 +2,9 @@
 //!
 //! [`CheckpointSweeper`] takes a frozen whole-DB RocksDB checkpoint to the local volume on every
 //! tick, beside an offset manifest read from the consumer groups, and uploads it to S3 every Nth
-//! tick and once more on a graceful stop, unless that upload would be full. [`run_checkpoints`]
-//! drives it. One `create_checkpoint` at a time, never two racing: the final checkpoint runs on the
-//! periodic loop's task, after the loop.
+//! tick and whenever an operator requests one. A graceful stop takes a final checkpoint that stays
+//! local. [`run_checkpoints`] drives it. One `create_checkpoint` at a time, never two racing:
+//! requested and final checkpoints run on the periodic loop's task.
 //!
 //! ## Interior mutability without a lock across `.await`
 //!
@@ -35,8 +35,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use lifecycle::Handle;
 use serde::{Deserialize, Serialize};
-use tokio::sync::OnceCell;
-use tokio::time::Instant;
+use tokio::sync::{Notify, OnceCell};
+use tokio::time::{Instant, MissedTickBehavior};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
@@ -46,19 +46,25 @@ use super::{
     OffsetManifest, S3Uploader, METADATA_FILENAME,
 };
 use crate::consumers::events::{DrainWait, DrainedOwnership};
-use crate::consumers::EventDispatcher;
+use crate::consumers::{BootReadiness, EventDispatcher};
 use crate::observability::metrics::{
     CHECKPOINT_CAPTURE_FAILURES_TOTAL, CHECKPOINT_FILE_COUNT,
     CHECKPOINT_LAST_CAPTURE_TIMESTAMP_SECONDS, CHECKPOINT_LAST_FULL_UPLOAD_TIMESTAMP_SECONDS,
     CHECKPOINT_LAST_UPLOAD_TIMESTAMP_SECONDS, CHECKPOINT_SIZE_BYTES,
-    CHECKPOINT_UPLOADED_BYTES_TOTAL, CHECKPOINT_UPLOADS_TOTAL,
+    CHECKPOINT_UPLOADED_BYTES_TOTAL, CHECKPOINT_UPLOADS_TOTAL, SWEEP_CYCLES_TOTAL,
+    SWEEP_CYCLE_DURATION_SECONDS,
 };
 use crate::partitions::{ClaimedSplit, InputGroups, PositionsError};
 use crate::store::{CohortStore, DbIdentity};
-use crate::sweep::{run_sweep_loop, Sweeper};
+use crate::sweep::Sweeper;
 
 /// The loop-name label for the checkpoint sweep cycle metrics.
 pub const CHECKPOINT_LOOP_NAME: &str = "checkpoint";
+
+/// Size past which a range of an unowned partition is compacted before the first checkpoint. A
+/// compacted range keeps about one partial block per straddling file, far below it, so a routine
+/// boot compacts nothing. The straddling files of a reshard leave far more.
+const UNOWNED_COMPACTION_THRESHOLD_BYTES: u64 = 16 * 1024 * 1024;
 
 /// The last successful upload's [`UploadBaseline`], in the lineage's local directory. A restarted
 /// process builds its first upload on it when the store's DB id and the bucket still match. A
@@ -132,18 +138,20 @@ pub fn upload_cadence(checkpoint_interval_ms: u64, s3_upload_interval_ms: u64) -
 /// Why a checkpoint runs.
 #[derive(Debug)]
 pub(crate) enum Trigger {
-    Periodic,
-    /// A graceful stop, after every consumer's final commit. Its upload is cancelled at `deadline`.
-    Final {
-        drained: DrainedOwnership,
-        deadline: Instant,
-    },
+    /// A tick of the periodic loop. Every `upload_every_n`-th tick uploads.
+    Periodic { upload: bool },
+    /// An operator asked for an upload now, ahead of a planned stop.
+    Requested,
+    /// A graceful stop, after every consumer's final commit. It stays local, so the stop takes
+    /// seconds, and the next start uploads what changed.
+    Final { drained: DrainedOwnership },
 }
 
 impl Trigger {
     fn label(&self) -> &'static str {
         match self {
-            Self::Periodic => "periodic",
+            Self::Periodic { .. } => "periodic",
+            Self::Requested => "requested",
             Self::Final { .. } => "final",
         }
     }
@@ -152,8 +160,8 @@ impl Trigger {
     /// because closing the events consumer empties the live set.
     fn owned(&self, live: impl FnOnce() -> Vec<i32>) -> BTreeSet<u16> {
         let partitions = match self {
-            Self::Periodic => live(),
-            Self::Final { drained, .. } => drained.partitions().iter().copied().collect(),
+            Self::Periodic { .. } | Self::Requested => live(),
+            Self::Final { drained } => drained.partitions().iter().copied().collect(),
         };
         partitions
             .into_iter()
@@ -161,13 +169,11 @@ impl Trigger {
             .collect()
     }
 
-    /// A final checkpoint uploads off cadence, so a planned stop leaves nothing to replay past it.
-    /// It uploads only an incremental plan: a full one cannot finish within its budget, and the
-    /// next start uploads in full anyway.
-    fn uploads(&self, tick: u64, every_n: u64, kind: &UploadKind<'_>) -> bool {
+    fn uploads(&self) -> bool {
         match self {
-            Self::Periodic => should_upload(tick, every_n),
-            Self::Final { .. } => matches!(kind, UploadKind::Incremental(_)),
+            Self::Periodic { upload } => *upload,
+            Self::Requested => true,
+            Self::Final { .. } => false,
         }
     }
 }
@@ -246,7 +252,10 @@ pub struct CheckpointSweeper {
     upload_every_n: u64,
     /// Baseline for the next incremental upload. Updated only after a successful upload.
     baseline: Mutex<Option<CheckpointMetadata>>,
-    /// Cancels a periodic upload at shutdown, so the final checkpoint does not wait behind it.
+    /// Holds at most one permit, so requests made while a checkpoint runs become one upload after
+    /// it.
+    upload_requested: Notify,
+    /// Cancels an upload in flight at shutdown, so the final checkpoint does not wait behind it.
     stop: CancellationToken,
 }
 
@@ -269,9 +278,14 @@ impl CheckpointSweeper {
                 .join(UPLOADED_FILENAME),
             &config.s3_bucket,
         );
-        let started = Utc::now().timestamp() as f64;
-        metrics::gauge!(CHECKPOINT_LAST_CAPTURE_TIMESTAMP_SECONDS).set(started);
-        metrics::gauge!(CHECKPOINT_LAST_UPLOAD_TIMESTAMP_SECONDS).set(started);
+        let started = Utc::now();
+        metrics::gauge!(CHECKPOINT_LAST_CAPTURE_TIMESTAMP_SECONDS).set(started.timestamp() as f64);
+        // A restart must not make the last upload look new.
+        let last_upload = baseline
+            .as_ref()
+            .map_or(started, |uploaded| uploaded.attempt_timestamp);
+        metrics::gauge!(CHECKPOINT_LAST_UPLOAD_TIMESTAMP_SECONDS)
+            .set(last_upload.timestamp() as f64);
         Self {
             store,
             dispatcher,
@@ -283,6 +297,7 @@ impl CheckpointSweeper {
             tick: AtomicU64::new(0),
             upload_every_n,
             baseline: Mutex::new(baseline),
+            upload_requested: Notify::new(),
             stop,
         }
     }
@@ -292,16 +307,17 @@ impl CheckpointSweeper {
             .local_dir(Path::new(&self.config.local_checkpoint_dir))
     }
 
+    /// Asks the checkpoint loop for a checkpoint that uploads at once, whatever the cadence.
+    pub fn request_upload(&self) {
+        self.upload_requested.notify_one();
+    }
+
     /// The checkpoint a graceful stop takes once every consumer has made its final commit. Skipped
     /// when the worker drain never finished, because the positions are then not settled.
     pub async fn final_checkpoint(&self) {
-        // The budget starts before the WAL flush and the checkpoint, so the upload's cancel lands
-        // inside this component's shutdown window.
-        let deadline = Instant::now() + self.config.final_upload_timeout;
         match self.dispatcher.wait_for_worker_drain(Duration::ZERO).await {
             DrainWait::Drained(drained) => {
-                self.checkpoint_once(Trigger::Final { drained, deadline })
-                    .await;
+                self.checkpoint_once(Trigger::Final { drained }).await;
             }
             DrainWait::TimedOut => warn!(
                 "final checkpoint skipped: the worker drain did not finish, so positions are unsettled",
@@ -309,22 +325,82 @@ impl CheckpointSweeper {
         }
     }
 
-    async fn checkpoint_once(&self, trigger: Trigger) {
-        let tick = self.tick.fetch_add(1, Ordering::SeqCst);
+    /// Boot drops the whole files of the partitions this pod does not own, but a file that also
+    /// holds an owned partition keeps their data until a compaction rewrites it. Compacting those
+    /// ranges before the first checkpoint keeps the data out of the uploads. A stop waits for the
+    /// range in progress.
+    async fn compact_unowned_ranges(&self) {
+        let store = self.store.clone();
+        let ownership = self.claimed.ownership();
+        let stop = self.stop.clone();
+        let started = Instant::now();
+        let compaction = tokio::task::spawn_blocking(move || {
+            store.compact_unowned(&ownership, UNOWNED_COMPACTION_THRESHOLD_BYTES, &stop)
+        })
+        .await;
+        match compaction {
+            Ok(Ok(pass)) if pass.ranges == 0 => {}
+            Ok(Ok(pass)) => info!(
+                ranges = pass.ranges,
+                compacted = pass.compacted,
+                bytes_before = pass.bytes_before,
+                bytes_after = pass.bytes_after,
+                elapsed_secs = started.elapsed().as_secs_f64(),
+                "compacted the unowned ranges above the threshold",
+            ),
+            Ok(Err(e)) => warn!(
+                error = %e,
+                "compacting the unowned ranges failed; the uploads carry their data",
+            ),
+            Err(join_err) => error!(
+                error = %join_err,
+                "compacting the unowned ranges panicked; the uploads carry their data",
+            ),
+        }
+    }
 
+    /// One task takes the periodic and the requested checkpoints, so two never race.
+    async fn run_loop(&self, interval: Duration) {
+        let mut ticker = tokio::time::interval(interval);
+        ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        info!(
+            interval_ms = interval.as_millis(),
+            "checkpoint loop started"
+        );
+        loop {
+            tokio::select! {
+                biased;
+                _ = self.stop.cancelled() => break,
+                // Before the ticker: a checkpoint that outlasts the interval leaves a tick ready
+                // at once, so a request polled after it would wait behind every such tick.
+                _ = self.upload_requested.notified() => {
+                    self.checkpoint_once(Trigger::Requested).await;
+                }
+                _ = ticker.tick() => {
+                    let started = Instant::now();
+                    self.run_once().await;
+                    metrics::histogram!(SWEEP_CYCLE_DURATION_SECONDS, "loop" => CHECKPOINT_LOOP_NAME)
+                        .record(started.elapsed().as_secs_f64());
+                    metrics::counter!(SWEEP_CYCLES_TOTAL, "loop" => CHECKPOINT_LOOP_NAME).increment(1);
+                }
+            }
+        }
+    }
+
+    async fn checkpoint_once(&self, trigger: Trigger) {
         // 1. fsync the WAL before the snapshot. The checkpoint must hold at least what the commits
         //    read in step 3 cover, and each of those followed its own fsync.
         let flush_store = self.store.clone();
         match tokio::task::spawn_blocking(move || flush_store.flush_wal_sync()).await {
             Ok(Ok(())) => {}
             Ok(Err(e)) => {
-                warn!(error = %e, "checkpoint tick: WAL fsync failed; skipping tick");
+                warn!(error = %e, trigger = trigger.label(), "checkpoint tick: WAL fsync failed; skipping tick");
                 metrics::counter!(CHECKPOINT_UPLOADS_TOTAL, "result" => "flush_failed")
                     .increment(1);
                 return;
             }
             Err(join_err) => {
-                error!(error = %join_err, "checkpoint tick: WAL fsync task panicked; skipping tick");
+                error!(error = %join_err, trigger = trigger.label(), "checkpoint tick: WAL fsync task panicked; skipping tick");
                 metrics::counter!(CHECKPOINT_UPLOADS_TOTAL, "result" => "flush_failed")
                     .increment(1);
                 return;
@@ -357,13 +433,13 @@ impl CheckpointSweeper {
                     PositionsError::Foreign { .. } => "foreign",
                     PositionsError::Kafka(_) | PositionsError::Negative(_) => "positions",
                 };
-                warn!(error = %e, "checkpoint tick: reading input positions failed; skipping tick");
+                warn!(error = %e, trigger = trigger.label(), "checkpoint tick: reading input positions failed; skipping tick");
                 metrics::counter!(CHECKPOINT_CAPTURE_FAILURES_TOTAL, "reason" => reason)
                     .increment(1);
                 return;
             }
             Err(join_err) => {
-                error!(error = %join_err, "checkpoint tick: reading input positions panicked; skipping tick");
+                error!(error = %join_err, trigger = trigger.label(), "checkpoint tick: reading input positions panicked; skipping tick");
                 metrics::counter!(CHECKPOINT_CAPTURE_FAILURES_TOTAL, "reason" => "positions")
                     .increment(1);
                 return;
@@ -374,7 +450,7 @@ impl CheckpointSweeper {
         let manifest = match OffsetManifest::capture(&owned, positions) {
             Ok(manifest) => manifest,
             Err(e) => {
-                warn!(error = %e, "checkpoint tick: incomplete manifest; skipping tick");
+                warn!(error = %e, trigger = trigger.label(), "checkpoint tick: incomplete manifest; skipping tick");
                 metrics::counter!(CHECKPOINT_CAPTURE_FAILURES_TOTAL, "reason" => "incomplete")
                     .increment(1);
                 return;
@@ -388,7 +464,7 @@ impl CheckpointSweeper {
         let attempt_dir = self.local_dir().join(&checkpoint_id);
         // `create_checkpoint` requires the leaf to NOT exist; it creates it and errors if it does.
         if let Err(e) = tokio::fs::create_dir_all(self.local_dir()).await {
-            warn!(error = %e, dir = %self.local_dir().display(), "checkpoint tick: cannot create attempt parent dir; skipping tick");
+            warn!(error = %e, dir = %self.local_dir().display(), trigger = trigger.label(), "checkpoint tick: cannot create attempt parent dir; skipping tick");
             return;
         }
         let checkpoint_store = self.store.clone();
@@ -400,12 +476,12 @@ impl CheckpointSweeper {
         match create_result {
             Ok(Ok(())) => {}
             Ok(Err(e)) => {
-                warn!(error = %e, "checkpoint tick: create_checkpoint failed; skipping tick");
+                warn!(error = %e, trigger = trigger.label(), "checkpoint tick: create_checkpoint failed; skipping tick");
                 drop(tokio::fs::remove_dir_all(&attempt_dir).await);
                 return;
             }
             Err(join_err) => {
-                error!(error = %join_err, "checkpoint tick: create_checkpoint task panicked; skipping tick");
+                error!(error = %join_err, trigger = trigger.label(), "checkpoint tick: create_checkpoint task panicked; skipping tick");
                 drop(tokio::fs::remove_dir_all(&attempt_dir).await);
                 return;
             }
@@ -414,7 +490,7 @@ impl CheckpointSweeper {
         // 6. Write offsets.json after create_checkpoint (so it is never frozen mid-write) but before
         //    planning, so the planner tracks it as a non-SST file and the S3 upload carries it.
         if let Err(e) = manifest.write_to_dir(&attempt_dir) {
-            warn!(error = %e, "checkpoint tick: writing offsets.json failed; skipping tick");
+            warn!(error = %e, trigger = trigger.label(), "checkpoint tick: writing offsets.json failed; skipping tick");
             drop(tokio::fs::remove_dir_all(&attempt_dir).await);
             return;
         }
@@ -423,7 +499,7 @@ impl CheckpointSweeper {
         let db = match self.store.db_identity() {
             Ok(db) => db,
             Err(e) => {
-                warn!(error = %e, "checkpoint tick: reading the DB id failed; skipping tick");
+                warn!(error = %e, trigger = trigger.label(), "checkpoint tick: reading the DB id failed; skipping tick");
                 drop(tokio::fs::remove_dir_all(&attempt_dir).await);
                 return;
             }
@@ -449,7 +525,7 @@ impl CheckpointSweeper {
         ) {
             Ok(plan) => plan,
             Err(e) => {
-                warn!(error = %e, "checkpoint tick: planning failed; skipping tick");
+                warn!(error = %e, trigger = trigger.label(), "checkpoint tick: planning failed; skipping tick");
                 drop(tokio::fs::remove_dir_all(&attempt_dir).await);
                 return;
             }
@@ -459,15 +535,15 @@ impl CheckpointSweeper {
             .metadata
             .save(&attempt_dir.join(METADATA_FILENAME))
         {
-            warn!(error = %e, "checkpoint tick: writing metadata.json failed; skipping tick");
+            warn!(error = %e, trigger = trigger.label(), "checkpoint tick: writing metadata.json failed; skipping tick");
             drop(tokio::fs::remove_dir_all(&attempt_dir).await);
             return;
         }
 
         // 8. Emit local-checkpoint size and file-count metrics.
         let (size_bytes, file_count) = dir_size_and_count(&attempt_dir);
-        metrics::histogram!(CHECKPOINT_SIZE_BYTES).record(size_bytes as f64);
-        metrics::histogram!(CHECKPOINT_FILE_COUNT).record(file_count as f64);
+        metrics::gauge!(CHECKPOINT_SIZE_BYTES).set(size_bytes as f64);
+        metrics::gauge!(CHECKPOINT_FILE_COUNT).set(file_count as f64);
         metrics::gauge!(CHECKPOINT_LAST_CAPTURE_TIMESTAMP_SECONDS)
             .set(manifest.captured_at().timestamp() as f64);
         info!(
@@ -480,7 +556,7 @@ impl CheckpointSweeper {
         );
 
         // 9. Upload when due, and advance the baseline on success.
-        if trigger.uploads(tick, self.upload_every_n, &kind) {
+        if trigger.uploads() {
             match &kind {
                 UploadKind::Full(reason) => {
                     info!(checkpoint_id, ?reason, "uploading a full checkpoint")
@@ -492,11 +568,10 @@ impl CheckpointSweeper {
                 ),
             }
             self.upload(&plan, kind.label(), &trigger).await;
-        } else if let (Trigger::Final { .. }, UploadKind::Full(reason)) = (&trigger, &kind) {
-            warn!(
+        } else if matches!(trigger, Trigger::Final { .. }) {
+            info!(
                 checkpoint_id,
-                ?reason,
-                "final checkpoint kept local: a full upload cannot finish within its budget",
+                "final checkpoint kept local; the next start uploads what changed",
             );
         }
 
@@ -519,45 +594,18 @@ impl CheckpointSweeper {
             Err(e) => {
                 metrics::counter!(CHECKPOINT_UPLOADS_TOTAL, "result" => "unavailable", "trigger" => trigger.label())
                     .increment(1);
-                warn!(error = %format!("{e:#}"), "checkpoint S3 uploader unavailable; retrying on the next upload");
+                warn!(error = %format!("{e:#}"), trigger = trigger.label(), "checkpoint S3 uploader unavailable; retrying on the next upload");
                 return;
             }
         };
 
         // A cancelled upload never writes metadata.json, so the last finished upload stays the newest
         // restorable one, and the baseline stays where it was.
-        let result = match trigger {
-            Trigger::Periodic => {
-                exporter
-                    .export_checkpoint_with_plan_cancellable(
-                        plan,
-                        Some(&self.stop),
-                        trigger.label(),
-                    )
-                    .await
-            }
-            Trigger::Final { deadline, .. } => {
-                let cancel = CancellationToken::new();
-                let upload = exporter.export_checkpoint_with_plan_cancellable(
-                    plan,
-                    Some(&cancel),
-                    trigger.label(),
-                );
-                tokio::pin!(upload);
-                tokio::select! {
-                    result = &mut upload => result,
-                    // Cancel, then await, instead of dropping the upload with a timeout. A
-                    // cancelled upload aborts its multipart writes, and S3 keeps the parts of a
-                    // dropped one.
-                    _ = tokio::time::sleep_until(*deadline) => {
-                        cancel.cancel();
-                        upload.await
-                    }
-                }
-            }
-        };
-        if let Err(e) = result {
-            warn!(error = %format!("{e:#}"), "checkpoint S3 upload failed; baseline unchanged");
+        if let Err(e) = exporter
+            .export_checkpoint_with_plan_cancellable(plan, Some(&self.stop), trigger.label())
+            .await
+        {
+            warn!(error = %format!("{e:#}"), trigger = trigger.label(), "checkpoint S3 upload failed; baseline unchanged");
             return;
         }
 
@@ -569,7 +617,7 @@ impl CheckpointSweeper {
             .sum();
         metrics::counter!(CHECKPOINT_UPLOADED_BYTES_TOTAL, "kind" => kind).increment(bytes);
         metrics::gauge!(CHECKPOINT_LAST_UPLOAD_TIMESTAMP_SECONDS)
-            .set(Utc::now().timestamp() as f64);
+            .set(plan.info.metadata.attempt_timestamp.timestamp() as f64);
         metrics::gauge!(CHECKPOINT_LAST_FULL_UPLOAD_TIMESTAMP_SECONDS)
             .set(plan.info.metadata.full_upload_at.timestamp() as f64);
 
@@ -586,6 +634,8 @@ impl CheckpointSweeper {
             .lock()
             .expect("the baseline lock is never held across a panic") = Some(uploaded);
         info!(
+            checkpoint_id = %plan.info.metadata.id,
+            trigger = trigger.label(),
             kind,
             uploaded_files = plan.files_to_upload.len(),
             bytes,
@@ -623,17 +673,31 @@ impl CheckpointSweeper {
 #[async_trait]
 impl Sweeper for CheckpointSweeper {
     async fn run_once(&self) {
-        self.checkpoint_once(Trigger::Periodic).await;
+        let tick = self.tick.fetch_add(1, Ordering::Relaxed);
+        let upload = should_upload(tick, self.upload_every_n);
+        self.checkpoint_once(Trigger::Periodic { upload }).await;
     }
 }
 
-/// Takes periodic checkpoints until the sweeper's stop token fires, then a final one once
-/// `handle`'s shutdown phase begins. Register `handle` in a later shutdown phase than every
-/// consumer, so the final checkpoint runs after their final commits.
-pub async fn run_checkpoints(sweeper: Arc<CheckpointSweeper>, interval: Duration, handle: Handle) {
+/// Waits until the pod is ready, so the first upload does not compete with the eviction rebuilds
+/// for the disk. Then takes periodic and requested checkpoints until the sweeper's stop token
+/// fires, and a final one once `handle`'s shutdown phase begins. Register `handle` in a later
+/// shutdown phase than every consumer, so the final checkpoint runs after their final commits.
+pub async fn run_checkpoints(
+    sweeper: Arc<CheckpointSweeper>,
+    readiness: &BootReadiness,
+    interval: Duration,
+    handle: Handle,
+) {
     let _scope = handle.process_scope();
-    let stop = sweeper.stop.clone();
-    run_sweep_loop(sweeper.clone(), interval, CHECKPOINT_LOOP_NAME, stop).await;
+    tokio::select! {
+        biased;
+        _ = sweeper.stop.cancelled() => {}
+        _ = readiness.wait_until_ready() => {
+            sweeper.compact_unowned_ranges().await;
+            sweeper.run_loop(interval).await;
+        }
+    }
     handle.shutdown_recv().await;
     sweeper.final_checkpoint().await;
 }
@@ -699,28 +763,25 @@ mod tests {
     }
 
     #[test]
-    fn the_final_trigger_captures_the_drained_ownership_and_uploads_only_an_incremental_plan() {
+    fn the_final_trigger_captures_the_drained_ownership_and_stays_local_while_requested_uploads() {
         let final_trigger = Trigger::Final {
             drained: DrainedOwnership::for_test([3, 7]),
-            deadline: Instant::now(),
         };
-        let baseline = CheckpointMetadata::new(
-            PodOrdinal::STANDALONE,
-            Utc::now(),
-            DbIdentity::for_test("db"),
-        );
-        let incremental = UploadKind::Incremental(&baseline);
-        let full = UploadKind::Full(FullReason::ChainExpired);
         assert_eq!(final_trigger.owned(Vec::new), BTreeSet::from([3, 7]));
-        assert!(final_trigger.uploads(1, 3, &incremental));
-        assert!(!final_trigger.uploads(0, 3, &full));
-
         assert_eq!(
-            Trigger::Periodic.owned(|| vec![1, 2]),
+            Trigger::Requested.owned(|| vec![1, 2]),
             BTreeSet::from([1, 2])
         );
-        assert!(!Trigger::Periodic.uploads(1, 3, &incremental));
-        assert!(Trigger::Periodic.uploads(0, 3, &full));
+
+        let uploads = [
+            (final_trigger, false),
+            (Trigger::Requested, true),
+            (Trigger::Periodic { upload: true }, true),
+            (Trigger::Periodic { upload: false }, false),
+        ];
+        for (trigger, expected) in uploads {
+            assert_eq!(trigger.uploads(), expected, "{trigger:?}");
+        }
     }
 
     #[test]

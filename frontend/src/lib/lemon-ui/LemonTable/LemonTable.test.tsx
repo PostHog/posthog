@@ -37,52 +37,97 @@ describe('LemonTable', () => {
 
     const renderedOrder = (): string[] => screen.getAllByTestId('cell-name').map((el) => el.textContent ?? '')
 
-    it.each([false, true])('windows wide tables horizontally with row virtualization %s', (virtualized) => {
-        const height = jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(180)
-        const width = jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800)
-        const columns = Array.from({ length: 1801 }, (_, index) => ({
-            title: `Column ${index}`,
-            key: `column-${index}`,
-            render: (_: unknown, record: { id: number }): string => `${record.id}:${index}`,
-        }))
-        const data = [{ id: 1 }, { id: 2 }]
-        try {
-            const { container, rerender } = render(
-                <LemonTable
-                    columns={columns}
-                    dataSource={data}
-                    virtualizedColumnWidth={192}
-                    allowContentScroll
-                    virtualized={virtualized}
-                />
-            )
-            const table = container.querySelector('table')!
-            const scroll = container.querySelector('.ScrollableShadows__inner')!
-            expect(table).toHaveAttribute('aria-colcount', '1801')
-            expect(screen.getByText('1:0')).toBeVisible()
-            expect(container.querySelectorAll('tbody td:not([aria-hidden])').length).toBeLessThan(30)
+    it.each([false, true].flatMap((virtualized) => [false, true].map((pivot) => ({ virtualized, pivot }))))(
+        'windows wide tables with $virtualized row virtualization and $pivot pivot headers',
+        ({ virtualized, pivot }) => {
+            const height = jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(180)
+            const width = jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800)
+            const columns = Array.from({ length: 1801 }, (_, index) => ({
+                title: `Column ${index}`,
+                key: `column-${index}`,
+                width: index === 0 ? 280 : index % 2 ? 240 : undefined,
+                render: (_: unknown, record: { id: number }): string => `${record.id}:${index}`,
+            }))
+            const totalWidth = columns.reduce((sum, column) => sum + (column.width ?? 192), 0)
+            const data = [{ id: 1 }, { id: 2 }]
+            try {
+                const { container, rerender } = render(
+                    <LemonTable
+                        columns={columns}
+                        dataSource={data}
+                        virtualizedColumnWidth={192}
+                        firstColumnSticky={pivot}
+                        headerRows={
+                            pivot
+                                ? [
+                                      [
+                                          { title: 'Dimensions', colSpan: 1 },
+                                          ...Array.from({ length: 900 }, (_, index) => ({
+                                              title: `Group ${index}`,
+                                              colSpan: 2,
+                                          })),
+                                      ],
+                                      [
+                                          { title: 'Detail', colSpan: 1 },
+                                          ...Array.from({ length: 1800 }, (_, index) => ({
+                                              title: `Member ${index}`,
+                                              colSpan: 1,
+                                          })),
+                                      ],
+                                  ]
+                                : undefined
+                        }
+                        allowContentScroll
+                        virtualized={virtualized}
+                    />
+                )
+                const table = container.querySelector('table')!
+                const scroll = container.querySelector('.ScrollableShadows__inner')!
+                expect(table).toHaveAttribute('aria-colcount', '1801')
+                expect(screen.getByText('1:0')).toBeVisible()
+                expect(container.querySelectorAll('tbody td:not([aria-hidden])').length).toBeLessThan(30)
+                expect(table.querySelector('col')).toHaveStyle({ width: '280px' })
 
-            fireEvent.scroll(scroll, { target: { scrollLeft: 900 * 192 } })
-            expect(screen.queryByText('1:0')).not.toBeInTheDocument()
-            expect(screen.getByText('2:900').closest('td')).toHaveAttribute('aria-colindex', '901')
-            expect(screen.getByText('Column 900').closest('th')).toHaveAttribute('aria-colindex', '901')
-            expect(container.querySelectorAll('tbody td:not([aria-hidden])').length).toBeLessThan(30)
+                fireEvent.scroll(scroll, {
+                    target: {
+                        scrollLeft: columns.slice(0, 900).reduce((sum, column) => sum + (column.width ?? 192), 0),
+                    },
+                })
+                if (pivot) {
+                    expect(screen.getByText('1:0').closest('td')).toHaveClass('LemonTable__cell--sticky')
+                    expect(screen.getByText('Group 450')).toHaveAttribute('colspan', '2')
+                    const headerRows = table.querySelectorAll('thead tr:not(.LemonTable__loader-row)')
+                    const spanCounts = Array.from(headerRows, (row) =>
+                        Array.from(row.querySelectorAll('th')).reduce((sum, cell) => sum + cell.colSpan, 0)
+                    )
+                    expect(new Set(spanCounts).size).toBe(1)
+                    expect(headerRows[0].querySelectorAll('th').length).toBeLessThan(15)
+                } else {
+                    expect(screen.queryByText('1:0')).not.toBeInTheDocument()
+                }
+                expect(screen.getByText('2:900').closest('td')).toHaveAttribute('aria-colindex', '901')
+                expect(screen.getByText('Column 900').closest('th')).toHaveAttribute('aria-colindex', '901')
+                expect(container.querySelectorAll('tbody td:not([aria-hidden])').length).toBeLessThan(30)
+                expect(
+                    Array.from(table.querySelectorAll('col')).reduce((sum, col) => sum + parseFloat(col.style.width), 0)
+                ).toBe(totalWidth)
 
-            fireEvent.scroll(scroll, { target: { scrollLeft: 1801 * 192 - 800 } })
-            expect(screen.getByText('1:1800')).toBeVisible()
-            expect(screen.getByText('2:1800')).toBeVisible()
+                fireEvent.scroll(scroll, { target: { scrollLeft: totalWidth - 800 } })
+                expect(screen.getByText('1:1800')).toBeVisible()
+                expect(screen.getByText('2:1800')).toBeVisible()
 
-            rerender(<LemonTable columns={columns.slice(0, 2)} dataSource={data} />)
-            expect(table).not.toHaveAttribute('aria-colcount')
-            expect(screen.getByText('1:0')).toBeVisible()
-            expect(screen.getByText('2:1')).toBeVisible()
-            expect(container.querySelectorAll('tbody td')).toHaveLength(4)
-        } finally {
-            cleanup()
-            height.mockRestore()
-            width.mockRestore()
+                rerender(<LemonTable columns={columns.slice(0, 2)} dataSource={data} />)
+                expect(table).not.toHaveAttribute('aria-colcount')
+                expect(screen.getByText('1:0')).toBeVisible()
+                expect(screen.getByText('2:1')).toBeVisible()
+                expect(container.querySelectorAll('tbody td')).toHaveLength(4)
+            } finally {
+                cleanup()
+                height.mockRestore()
+                width.mockRestore()
+            }
         }
-    })
+    )
 
     it('does not rerender retained virtualized cells when scrolling', () => {
         const height = jest

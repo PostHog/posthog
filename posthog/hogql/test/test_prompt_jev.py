@@ -4,7 +4,7 @@ import time
 import asyncio
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -122,15 +122,41 @@ class TestPromptJev(SimpleTestCase):
             PromptJevRunner(team_id=1, distinct_id=None).evaluate(PromptJevCall.parse(node), [value])
         post.assert_not_called()
 
-    @parameterized.expand([(429, "could not evaluate"), (402, "used all its AI credits")])
-    def test_gateway_failure_does_not_return_a_decision(self, status: int, message: str) -> None:
+    @parameterized.expand(
+        [
+            (429, "could not evaluate", 5),
+            (529, "could not evaluate", 5),
+            (500, "could not evaluate", 1),
+            (402, "used all its AI credits", 1),
+        ]
+    )
+    def test_gateway_failure_does_not_return_a_decision(self, status: int, message: str, attempts: int) -> None:
         node = parse_expr("jev('refund', 'Refund?')")
         assert isinstance(node, ast.Call)
         with (
-            patch("httpx.AsyncClient.post", return_value=httpx.Response(status)),
+            patch("httpx.AsyncClient.post", return_value=httpx.Response(status)) as post,
+            patch("posthog.hogql.transforms.prompt_jev.asyncio.sleep", new=AsyncMock()),
             self.assertRaisesRegex(QueryError, message),
         ):
             PromptJevRunner(team_id=1, distinct_id=None).evaluate(PromptJevCall.parse(node), ["refund"])
+        self.assertEqual(post.call_count, attempts)
+
+    def test_full_model_server_is_retried_until_it_answers(self) -> None:
+        node = parse_expr("jev(body, 'Refund?')")
+        assert isinstance(node, ast.Call)
+        responses = [httpx.Response(429), httpx.Response(429)]
+
+        def full_then_answer(url: str, *, json: dict, headers: dict) -> httpx.Response:
+            return responses.pop(0) if responses else gateway_response(url, json=json, headers=headers)
+
+        with (
+            patch("httpx.AsyncClient.post", side_effect=full_then_answer) as post,
+            patch("posthog.hogql.transforms.prompt_jev.asyncio.sleep", new=AsyncMock()) as sleep,
+        ):
+            decisions = PromptJevRunner(team_id=1, distinct_id=None).evaluate(PromptJevCall.parse(node), ["refund"])
+        self.assertEqual(decisions, [0.9])
+        self.assertEqual(post.call_count, 3)
+        self.assertEqual(sleep.await_count, 2)
 
     def test_deadline_cancels_inflight_requests_and_pending_batches(self) -> None:
         node = parse_expr("jev(body, 'Refund?', batch_size := 1)")

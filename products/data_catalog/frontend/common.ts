@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 import type { Sorting } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
+import { slugify } from 'lib/utils/strings'
 
 import type {
     DataCatalogMetricNameConflictApi,
@@ -41,9 +42,14 @@ export function humanizeDefinitionKind(kind: string | null): string {
     return kind
 }
 
+export function sqlNameFromDisplayName(displayName: string): string {
+    const sqlName = slugify(displayName).replace(/-/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '')
+    return /^[0-9]/.test(sqlName) ? `metric_${sqlName}` : sqlName
+}
+
 export function validateMetricName(name: string): string | undefined {
     if (!name) {
-        return 'Name is required'
+        return 'SQL name is required'
     }
     if (!METRIC_NAME_REGEX.test(name)) {
         return 'Use letters, numbers, and underscores, starting with a letter'

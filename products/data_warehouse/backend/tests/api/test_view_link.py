@@ -11,10 +11,12 @@ from posthog.schema import HogQLQueryResponse
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import HogQLQueryExecutor
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.data_warehouse.backend.direct_postgres import rename_direct_postgres_join_references
 from products.data_warehouse.backend.presentation.views.view_link import NO_MATCHING_ROWS_MSG
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
@@ -246,6 +248,36 @@ class TestViewLinkQuery(APIBaseTest):
         self.assertEqual(response.status_code, 204, response.content)
 
         self.assertEqual(DataWarehouseJoin.objects.all().count(), 0)
+
+        logs = ActivityLog.objects.filter(scope="DataWarehouseJoin", item_id=view_link["id"]).order_by("created_at")
+        assert [(log.activity, log.user, (log.detail or {}).get("name")) for log in logs] == [
+            ("created", self.user, "events.some_field"),
+            ("deleted", self.user, "events.some_field"),
+        ]
+
+    def test_table_rename_is_written_to_the_activity_log_of_each_join(self):
+        join = DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="uuid",
+            joining_table_name="old_name",
+            joining_table_key="id",
+            field_name="some_field",
+        )
+
+        rename_direct_postgres_join_references(team_id=self.team.id, old_name="old_name", new_name="new_name")
+
+        log = ActivityLog.objects.get(scope="DataWarehouseJoin", item_id=str(join.id), activity="updated")
+        assert log.detail is not None
+        assert log.detail["changes"] == [
+            {
+                "type": "DataWarehouseJoin",
+                "field": "joining_table_name",
+                "action": "changed",
+                "before": "masked",
+                "after": "masked",
+            }
+        ]
 
     def test_list_empty_does_not_build_database(self):
         # An empty list must not eagerly build the full HogQL database, which is a heavy

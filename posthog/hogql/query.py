@@ -33,7 +33,11 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
 )
 from posthog.hogql.database.schema.information_schema import InformationSchemaTable
 from posthog.hogql.database.schema.logs import get_hogql_max_bytes_to_read_for_logs_user_queries
-from posthog.hogql.database.warehouse_usage import WarehouseSourceUsage, extract_warehouse_sources
+from posthog.hogql.database.warehouse_usage import (
+    WarehouseSourceUsage,
+    extract_warehouse_sources,
+    merge_warehouse_sources,
+)
 from posthog.hogql.direct_connection import (
     INVALID_CONNECTION_ID_ERROR,
     RAW_QUERY_TABLE_DENIED_ERROR,
@@ -69,11 +73,11 @@ from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
-from posthog.clickhouse.query_tagging import Product, get_query_tag_value, get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
-from posthog.models.event.new_events_schema import new_events_cluster_host_scope, use_new_events_cluster
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
@@ -89,6 +93,7 @@ if TYPE_CHECKING:
 tracer = trace.get_tracer(__name__)
 
 TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
+MAIN_CLUSTER_WORKLOADS = (Workload.DEFAULT, Workload.ONLINE, Workload.OFFLINE)
 
 
 @frozen
@@ -161,8 +166,6 @@ class HogQLQueryExecutor:
             self.context.user_access_control = self.user_access_control
 
         self.query_modifiers = create_default_modifiers_for_team(self.team, self.modifiers)
-        if self.connection_id and self.query_modifiers.useNewEventsCluster:
-            raise ExposedHogQLError("Native events cluster queries cannot use a warehouse connection.")
         self.debug = self.modifiers is not None and self.modifiers.debug
         self.error: Optional[str] = None
         self.explain: Optional[list[str]] = None
@@ -248,9 +251,10 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._apply_optimizers")
     def _apply_optimizers(self):
-        if self.query_modifiers.useNewEventsCluster:
-            return
-        if self.query_modifiers.usePreaggregatedTableTransforms:
+        # The preaggregated tables are built from the legacy events table, so a read of events_json skips them.
+        if self.query_modifiers.usePreaggregatedTableTransforms and not use_new_events_schema(
+            self.team.pk, self.query_modifiers
+        ):
             with self.timings.measure("preaggregated_table_transforms"):
                 assert self.hogql_context is not None
                 assert self.hogql_context.team is not None
@@ -635,7 +639,7 @@ class HogQLQueryExecutor:
         except Exception:
             sources = []
         # jev source queries read their tables in separate executions.
-        sources = list({source.id: source for source in [*sources, *self._prompt_jev_warehouse_sources]}.values())
+        sources = merge_warehouse_sources([*sources, *self._prompt_jev_warehouse_sources])
         self.used_data_warehouse_sources = sources
         return sources
 
@@ -964,21 +968,9 @@ class HogQLQueryExecutor:
             )
 
             workload = self.workload
-            if workload == Workload.DEFAULT and clickhouse_context.workload is not None:
-                workload = clickhouse_context.workload
-            if use_new_events_cluster(self.team.pk, self.query_modifiers):
-                if get_query_tags().product == Product.ENDPOINTS or workload not in (
-                    Workload.DEFAULT,
-                    Workload.ONLINE,
-                    Workload.OFFLINE,
-                    Workload.NEW_EVENTS_CLUSTER,
-                ):
-                    raise ExposedHogQLError(
-                        "New events cluster opt-ins support analytics workloads only. Remove useNewEventsCluster for logs or endpoints queries."
-                    )
-                if not clickhouse_context.uses_new_events_schema():
-                    raise ExposedHogQLError("New events cluster queries require the native events schema.")
-                workload = Workload.NEW_EVENTS_CLUSTER
+            table_workload = clickhouse_context.workload
+            if table_workload is not None and table_workload != Workload.DEFAULT and workload in MAIN_CLUSTER_WORKLOADS:
+                workload = table_workload
 
             def run_clickhouse_query() -> Any:
                 return sync_execute(
@@ -1070,7 +1062,6 @@ class HogQLQueryExecutor:
         )
 
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
-    @new_events_cluster_host_scope()
     def execute(self) -> HogQLQueryResponse:
         self._executing = True
         trace.get_current_span().set_attribute("team_id", self.team.pk)
@@ -1134,7 +1125,12 @@ class HogQLQueryExecutor:
         if self.user is None or not self.user.is_authenticated:
             return None
         return [
-            DataWarehouseSourceUsage(id=s.id, source_type=s.source_type, table_name=s.table_name)
+            DataWarehouseSourceUsage(
+                id=s.id,
+                source_type=s.source_type,
+                table_name=s.table_name,
+                uses_history_table=s.uses_history_table or None,
+            )
             for s in self.used_data_warehouse_sources
         ]
 

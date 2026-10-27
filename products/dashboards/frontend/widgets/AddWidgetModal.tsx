@@ -10,6 +10,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -78,13 +79,16 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
     const { toggleAddWidgetSelectedType, toggleAddWidgetCollapsedGroup, toggleAddWidgetFilteredGroup } =
         useActions(dashboardLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const pickerGroups = DASHBOARD_WIDGET_CATALOG_GROUPS.map((group) => ({
+        ...group,
+        widgets: group.widgets.filter(({ entry }) => !entry.featureFlag || !!featureFlags[entry.featureFlag]),
+    })).filter((group) => group.widgets.length > 0)
     const selectedTypes = new Set(addWidgetSelectedTypes)
     const collapsedGroups = new Set(addWidgetCollapsedGroups)
     const filteredGroups = new Set(addWidgetFilteredGroups)
     const visibleGroups =
-        filteredGroups.size > 0
-            ? DASHBOARD_WIDGET_CATALOG_GROUPS.filter((group) => filteredGroups.has(group.groupId))
-            : DASHBOARD_WIDGET_CATALOG_GROUPS
+        filteredGroups.size > 0 ? pickerGroups.filter((group) => filteredGroups.has(group.groupId)) : pickerGroups
 
     const selectedCount = selectedTypes.size
 
@@ -114,7 +118,7 @@ export function AddWidgetModal({ isOpen, onClose, loading, onAdd }: AddWidgetMod
                 <>
                     <span>Bring context from your different PostHog products into one dashboard.</span>
                     <span className="mt-2 flex flex-wrap gap-2" data-attr="dashboard-widget-product-badges">
-                        {[...DASHBOARD_WIDGET_CATALOG_GROUPS]
+                        {[...pickerGroups]
                             .sort((a, b) => a.groupLabel.localeCompare(b.groupLabel))
                             .map((group) => {
                                 const GroupIcon = getDashboardWidgetGroupIcon(group.groupId)

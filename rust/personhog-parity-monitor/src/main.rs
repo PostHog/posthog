@@ -11,7 +11,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, EnvFilter};
 
 use personhog_parity_monitor::config::Config;
-use personhog_parity_monitor::feed::TopicReader;
+use personhog_parity_monitor::feed::{PersonSample, TopicReader};
 use personhog_parity_monitor::join::{Event, Join, JoinConfig, Kind, SampleRing};
 use personhog_parity_monitor::{pipeline, server};
 
@@ -42,6 +42,7 @@ async fn main() -> Result<()> {
         warmup: config.warmup(),
         person_ignored_properties: config.person_ignored_properties(),
     };
+    let person_sample = config.person_sample_percent().map_err(anyhow::Error::msg)?;
     let mut kinds = vec![Kind::DistinctIds, Kind::MergeEvents];
     if config.compares_persons().map_err(anyhow::Error::msg)? {
         kinds.push(Kind::Persons);
@@ -51,6 +52,7 @@ async fn main() -> Result<()> {
         max_entries = config.parity_max_entries,
         teams = ?join_config.teams,
         persons = kinds.contains(&Kind::Persons),
+        person_sample_percent = person_sample,
         debug_api = config.debug_api_secret().is_some(),
         "starting personhog-parity-monitor"
     );
@@ -79,10 +81,12 @@ async fn main() -> Result<()> {
         for &kind in &kinds {
             let feed_for_reader = feed.clone();
             // rdkafka's metadata fetch and assignment block the thread.
-            let (reader, partitions) =
-                tokio::task::spawn_blocking(move || TopicReader::connect(&feed_for_reader, kind))
-                    .await
-                    .context("the reader setup task panicked")??;
+            let sample = PersonSample::new(person_sample);
+            let (reader, partitions) = tokio::task::spawn_blocking(move || {
+                TopicReader::connect(&feed_for_reader, kind, sample)
+            })
+            .await
+            .context("the reader setup task panicked")??;
             let topic = reader.topic();
             info!(
                 feed = topic.side.label(),

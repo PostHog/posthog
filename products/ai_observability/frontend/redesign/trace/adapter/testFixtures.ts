@@ -2,6 +2,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import type {
     TraceApi,
+    TraceEvaluationResultApi,
     TraceNodeApi,
     TraceNodeDetailApi,
     TraceNodeIOKeysApi,
@@ -120,6 +121,21 @@ export function makeTraceResource(overrides: Partial<TraceApi> = {}): TraceApi {
         threadNodeIds: ['gen-2'],
         defaultNodeId: 'trace-1',
         nodeIdsByAlias: {},
+        ...overrides,
+    }
+}
+
+export function makeEvaluationResult(overrides: Partial<TraceEvaluationResultApi> = {}): TraceEvaluationResultApi {
+    return {
+        id: 'r1',
+        evaluationId: 'ev-helpful',
+        evaluationName: 'Answers the question',
+        targetNodeId: 'trace-1',
+        outcome: 'pass',
+        label: 'True',
+        reasoning: 'Direct answer.',
+        timestamp: '2026-09-01T10:16:00Z',
+        isBackfill: false,
         ...overrides,
     }
 }

@@ -101,7 +101,12 @@ class TestHogFlowScheduleAPI(APIBaseTest):
 
         response = self.client.get(self._schedules_url(workflow["id"]))
         assert response.status_code == status.HTTP_200_OK
-        assert len(response.json()) == 2
+        # Oldest first, the order the workflow response embeds them in, so both screens call the
+        # same schedule the first one.
+        assert [schedule["rrule"] for schedule in response.json()] == [
+            SCHEDULE_DATA["rrule"],
+            "FREQ=DAILY;INTERVAL=1",
+        ]
 
     def test_update_schedule(self):
         workflow = self._create_batch_workflow()

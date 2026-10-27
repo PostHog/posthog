@@ -48,7 +48,7 @@ THROTTLED_RESPONSE = OpenApiResponse(description="Too many queries are running f
 
 class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "llm_analytics"
-    scope_object_read_actions = ["retrieve", "node"]
+    scope_object_read_actions = ["retrieve", "node", "evaluations"]
     # Traces are project-wide data, so a grant on a single llm_analytics object must not open them.
     requires_resource_level_access = True
     serializer_class = _FallbackSerializer
@@ -108,3 +108,22 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except api.TraceNodeNotFoundError:
             return Response({"detail": "Node not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(node.model_dump(mode="json", by_alias=True))
+
+    @validated_request(
+        parameters=[TRACE_ID_PARAMETER],
+        responses={
+            200: OpenApiResponse(response=contracts.TraceEvaluationResults),
+            400: OpenApiResponse(description="The encoded trace id is malformed."),
+            429: THROTTLED_RESPONSE,
+        },
+        operation_id="ai_observability_traces_evaluations_retrieve",
+    )
+    @action(detail=True, methods=["GET"], url_path="evaluations")
+    def evaluations(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
+        """A trace's evaluation results, newest first and at most 250, each with its outcome and label ready to render."""
+        try:
+            trace_id = decode_trace_id_segment(pk)
+        except MalformedTraceIdSegmentError:
+            return Response({"detail": "Malformed encoded trace id."}, status=status.HTTP_400_BAD_REQUEST)
+        results = self._read(request, lambda user, _hint: api.get_trace_evaluation_results(self.team, user, trace_id))
+        return Response(results.model_dump(mode="json", by_alias=True))

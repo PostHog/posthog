@@ -7,6 +7,7 @@ import { register } from 'prom-client'
 import { getExternalRequestConfig } from '~/common/config'
 
 import { parseJSON } from './json-parse'
+import { logger } from './logger'
 import {
     FetchOptions,
     SecureRequestError,
@@ -151,6 +152,56 @@ describe('fetch', () => {
         ])('should raise against unsafe URLs: %s', async (url, error) => {
             await expect(raiseIfUserProvidedUrlUnsafe(url)).rejects.toThrow(error)
         })
+    })
+
+    describe('out-of-band domain detection', () => {
+        const originalCloudDeployment = process.env.CLOUD_DEPLOYMENT
+        let info: jest.SpyInstance
+
+        beforeEach(() => {
+            process.env.CLOUD_DEPLOYMENT = 'US'
+            info = jest.spyOn(logger, 'info').mockImplementation(() => undefined)
+            // A real lookup of a listed name is the interaction this detection reports, so answer
+            // it here instead of letting the suite query the collaborator.
+            jest.mocked(dns.lookup).mockResolvedValue([{ address: '93.184.216.34', family: 4 }] as any)
+        })
+
+        afterEach(() => {
+            info.mockRestore()
+            if (originalCloudDeployment === undefined) {
+                delete process.env.CLOUD_DEPLOYMENT
+            } else {
+                process.env.CLOUD_DEPLOYMENT = originalCloudDeployment
+            }
+        })
+
+        // Both modes run the check, because it sits above the `allowUnsafe` early return. Every
+        // caller passes `!isProdEnv()`, so a check below that return never runs in a test.
+        it.each(['production', 'test'])(
+            'logs a listed host in NODE_ENV=%s and still allows the request',
+            async (nodeEnv) => {
+                const originalNodeEnv = process.env.NODE_ENV
+                process.env.NODE_ENV = nodeEnv
+                try {
+                    // A host per case: noteOobDomain logs one line per host, team and guard per
+                    // window, so a shared host would suppress the second case.
+                    await expect(
+                        raiseIfUserProvidedUrlUnsafe(`https://${nodeEnv}.abc.oast.me/path`)
+                    ).resolves.not.toThrow()
+                } finally {
+                    process.env.NODE_ENV = originalNodeEnv
+                }
+
+                expect(info).toHaveBeenCalledWith(
+                    'security.oob_domain_seen',
+                    expect.objectContaining({
+                        host: `${nodeEnv}.abc.oast.me`,
+                        domain: 'oast.me',
+                        guard: 'node_request',
+                    })
+                )
+            }
+        )
     })
 
     describe('fetch call', () => {

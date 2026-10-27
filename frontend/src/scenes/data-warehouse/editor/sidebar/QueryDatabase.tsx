@@ -54,6 +54,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { endpointModelUrl } from 'products/data_modeling/frontend/endpointModelName'
 import { MaterializationStatusIcon } from 'products/data_modeling/frontend/MaterializationStatusIcon'
+import { RenameViewModal } from 'products/data_warehouse/frontend/shared/components/RenameViewModal'
 import { TableCertificationIcon } from 'products/data_warehouse/frontend/shared/components/TableCertificationBadge'
 import { POSTHOG_WAREHOUSE } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 import { expressionModalLogic } from 'products/data_warehouse/frontend/shared/logics/expressionModalLogic'
@@ -118,6 +119,18 @@ const filterTreeSections = (sections: TreeDataItem[], searchTerm: string): TreeD
     })
 }
 
+export const getQueryDatabaseTreeData = (
+    displayedTreeData: TreeDataItem[],
+    extraTreeSections: TreeDataItem[] | undefined,
+    searchText: string
+): TreeDataItem[] => {
+    if (!extraTreeSections?.length) {
+        return displayedTreeData
+    }
+
+    return [...filterTreeSections(extraTreeSections, searchText), ...displayedTreeData]
+}
+
 export const QueryDatabase = ({
     virtualizationScrollContainerRef,
     extraTreeSections,
@@ -132,7 +145,7 @@ export const QueryDatabase = ({
     extraTreeSections?: TreeDataItem[]
 }): JSX.Element => {
     const {
-        searchTerm,
+        searchText,
         joinsByFieldName,
         editingDraftId,
         displayedTreeData,
@@ -143,6 +156,9 @@ export const QueryDatabase = ({
         highlightViewsSectionDrop,
         featureFlags,
         editingPropertyDefinition,
+        materializationStatusFilters,
+        dataWarehouseSavedQueriesLoading,
+        renameView,
     } = useValues(queryDatabaseLogic)
     const {
         setExpandedFolders,
@@ -163,7 +179,13 @@ export const QueryDatabase = ({
         openPropertyDefinitionEditor,
         closePropertyDefinitionEditor,
         updatePropertyDefinition,
+        openRenameView,
+        closeRenameView,
+        setRenameViewName,
+        submitRenameView,
     } = useActions(queryDatabaseLogic)
+    const { dataWarehouseSavedQueriesLoaded, dataWarehouseSavedQueryDownstreamReferences } =
+        useValues(dataWarehouseViewsLogic)
     const {
         createDataWarehouseSavedQueryFolder,
         deleteDataWarehouseSavedQueryFolder,
@@ -198,6 +220,7 @@ export const QueryDatabase = ({
     // item there opens nothing. Most embedded callers hide the tree entirely, but not all.
     const warehouseAccessControlEnabled =
         !!featureFlags[FEATURE_FLAGS.HOGQL_WAREHOUSE_ACCESS_CONTROL] && !isEmbeddedMode
+    const renameSavedViewEnabled = !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_RENAME_SAVED_VIEW]
     const formatTraversalChain = (chain?: (string | number)[]): string | null => {
         if (!chain || chain.length === 0) {
             return null
@@ -389,24 +412,21 @@ export const QueryDatabase = ({
     }, [treeRef, setTreeRef])
 
     const treeData = useMemo(() => {
-        if (!extraTreeSections?.length) {
-            return displayedTreeData
-        }
         // Filtered here rather than by the caller: the tree swaps in its own filtered data while
         // searching, so an unfiltered section would sit above the results still listing
         // everything — and keeping the search term on this side means an embedder doesn't have to
         // mount this logic just to read it.
-        return [...filterTreeSections(extraTreeSections, searchTerm), ...displayedTreeData]
-    }, [extraTreeSections, displayedTreeData, searchTerm])
+        return getQueryDatabaseTreeData(displayedTreeData, extraTreeSections, searchText)
+    }, [extraTreeSections, displayedTreeData, searchText])
 
     const tree = (
         <LemonTree
             ref={treeRef}
             data={treeData}
-            enableDragAndDrop={!searchTerm}
-            isItemDraggable={(item) => !searchTerm && item.record?.type === 'view' && item.record?.isSavedQuery}
+            enableDragAndDrop={!searchText}
+            isItemDraggable={(item) => !searchText && item.record?.type === 'view' && item.record?.isSavedQuery}
             isItemDroppable={(item) =>
-                !searchTerm &&
+                !searchText &&
                 ((item.record?.type === 'folder' && item.record?.folderType === 'view-folder') ||
                     item.record?.type === 'views')
             }
@@ -425,7 +445,7 @@ export const QueryDatabase = ({
             }}
             expandedItemIds={expandedItemIds}
             onSetExpandedItemIds={
-                searchTerm ? setExpandedSearchFolders : (folderIds) => setExpandedFolders(folderIds, connectionId)
+                searchText ? setExpandedSearchFolders : (folderIds) => setExpandedFolders(folderIds, connectionId)
             }
             onFolderClick={(folder, isExpanded) => {
                 if (folder) {
@@ -506,10 +526,10 @@ export const QueryDatabase = ({
                                     {item.record?.type === 'view' && item.record.isSavedQuery ? (
                                         <MaterializationStatusIcon view={item.record.view} />
                                     ) : null}
-                                    {hasMatches && searchTerm ? (
+                                    {hasMatches && searchText ? (
                                         <SearchHighlightMultiple
                                             string={itemLabel}
-                                            substring={searchTerm}
+                                            substring={searchText}
                                             className={cn(isColumn && 'font-mono text-xs')}
                                         />
                                     ) : (
@@ -1053,6 +1073,31 @@ export const QueryDatabase = ({
                             >
                                 <ButtonPrimitive menuItem>Query</ButtonPrimitive>
                             </DropdownMenuItem>
+                            {renameSavedViewEnabled &&
+                            !isEmbeddedMode &&
+                            item.record.type === 'view' &&
+                            item.record.isSavedQuery &&
+                            item.record.view?.managed_viewset_kind === null ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (!editViewAccessDisabledReason && item.record?.view) {
+                                            openRenameView({ id: item.record.view.id, name: item.record.view.name })
+                                        }
+                                    }}
+                                >
+                                    <ButtonPrimitive
+                                        menuItem
+                                        disabledReasons={
+                                            editViewAccessDisabledReason ? { [editViewAccessDisabledReason]: true } : {}
+                                        }
+                                        data-attr="data-warehouse-view-rename"
+                                    >
+                                        Rename view
+                                    </ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
                             {!isEmbeddedMode && item.record.type === 'view' && item.record.isSavedQuery ? (
                                 <SeeLineageMenuItem target={{ lookup: 'saved_query', id: item.record.view.id }} />
                             ) : null}
@@ -1417,12 +1462,35 @@ export const QueryDatabase = ({
 
     return (
         <>
+            {!connectionId &&
+                materializationStatusFilters.length > 0 &&
+                dataWarehouseSavedQueriesLoaded &&
+                !dataWarehouseSavedQueriesLoading &&
+                treeData.length === 0 && (
+                    <p className="px-3 py-2 text-muted text-sm">No materialized views match your filters.</p>
+                )}
             {tree}
             {editingPropertyDefinition ? (
                 <PropertyDefinitionEditModal
                     propertyDefinition={editingPropertyDefinition}
                     onClose={closePropertyDefinitionEditor}
                     onSave={updatePropertyDefinition}
+                />
+            ) : null}
+            {renameSavedViewEnabled && renameView ? (
+                <RenameViewModal
+                    key={renameView.id}
+                    viewName={renameView.originalName}
+                    name={renameView.name}
+                    nameError={renameView.nameError}
+                    submitError={renameView.submitError}
+                    isSaving={renameView.isSaving}
+                    references={dataWarehouseSavedQueryDownstreamReferences[renameView.id]?.references ?? []}
+                    referencesLoading={dataWarehouseSavedQueryDownstreamReferences[renameView.id]?.loading ?? true}
+                    referencesError={dataWarehouseSavedQueryDownstreamReferences[renameView.id]?.error ?? false}
+                    onNameChange={setRenameViewName}
+                    onClose={closeRenameView}
+                    onSubmit={submitRenameView}
                 />
             ) : null}
         </>

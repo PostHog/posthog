@@ -5,9 +5,11 @@ import {
     LocalLists,
     RECENTS_LIMIT,
     SectionsInput,
+    SectionsQuery,
     ViewAll,
     buildSections,
     emptyRemoteSlots,
+    pickDisplayedQuery,
 } from './commandKSections'
 import { RESULTS_LIMIT } from './commandKSources'
 
@@ -48,12 +50,26 @@ const input = (mode: CommandKMode, overrides: Partial<SectionsInput>): SectionsI
     themeItem: null,
     askAiQuestion: null,
     viewAll: null,
+    stale: false,
+    personsFirst: false,
     ...overrides,
 })
 
+const query = (overrides: Partial<SectionsQuery>): SectionsQuery => ({
+    remoteQueries: {},
+    localQuery: '',
+    themeItem: null,
+    askAiQuestion: null,
+    viewAll: null,
+    ...overrides,
+})
+
+const sectionKinds = (sections: ReturnType<typeof buildSections>): [string, string[]][] =>
+    sections.map((section) => [section.key, section.rows.map((row) => row.kind)])
+
 const remoteResults = (items: SearchItem[]): Partial<SectionsInput> => {
     const remote = emptyRemoteSlots()
-    remote.results = { cache: { 'type:dashboard': items }, displayedKey: 'type:dashboard' }
+    remote.results = { cache: { 'type:dashboard': items } }
     return { remote, remoteQueries: { results: 'type:dashboard' } }
 }
 
@@ -99,7 +115,6 @@ describe('buildSections', () => {
         const remote = emptyRemoteSlots()
         remote.results = {
             cache: { 'type:dashboard revenue': [{ ...dashboard('a', '1'), rankKey: [-1, 0, 0, 0, -1, 0, 2, 0, 0] }] },
-            displayedKey: null,
         }
         const sections = buildSections(
             input('search', {
@@ -117,10 +132,7 @@ describe('buildSections', () => {
 
     it('lists filter-only results without ranking them', () => {
         const remote = emptyRemoteSlots()
-        remote.results = {
-            cache: { 'type:dashboard': [{ ...dashboard('a', '1'), rankKey: [] }] },
-            displayedKey: 'type:dashboard',
-        }
+        remote.results = { cache: { 'type:dashboard': [{ ...dashboard('a', '1'), rankKey: [] }] } }
         const sections = buildSections(input('search', { remote, remoteQueries: { results: 'type:dashboard' } }))
         expect(sections.find((section) => section.key === 'results')?.rows.map((row) => row.key)).toEqual([
             'results/dashboard:1',
@@ -135,9 +147,12 @@ describe('buildSections', () => {
             parentName: 'Session replay',
             searchKeywords: ['playlists'],
         }
+        const remote = emptyRemoteSlots()
+        remote.results = { cache: { playlists: [] } }
         const sections = buildSections(
             input('search', {
                 local: { ...emptyLocal(), products: [tab] },
+                remote,
                 remoteQueries: { results: 'playlists' },
                 localQuery: 'playlists',
             })
@@ -147,15 +162,103 @@ describe('buildSections', () => {
 
     it('shows skeletons instead of unranked filter-only rows while ranked results load', () => {
         const remote = emptyRemoteSlots()
-        remote.results = { cache: { 'type:dashboard': [dashboard('a', '1')] }, displayedKey: 'type:dashboard' }
+        remote.results = { cache: { 'type:dashboard': [dashboard('a', '1')] } }
+        const current = query({ remoteQueries: { results: 'type:dashboard revenue' }, localQuery: 'revenue' })
+        const shown = query({ remoteQueries: { results: 'type:dashboard' } })
+
+        expect(pickDisplayedQuery(current, shown, remote)).toEqual({ query: current, stale: false })
+    })
+
+    it('shows the current query loading when the last loaded one had nothing to search', () => {
+        const current = query({ remoteQueries: { results: 'type:dashboard' } })
+
+        expect(pickDisplayedQuery(current, query({}), emptyRemoteSlots())).toEqual({ query: current, stale: false })
+    })
+
+    it('keeps the last loaded query on screen until the current one loads', () => {
+        const remote = emptyRemoteSlots()
+        remote.results = { cache: { rev: [dashboard('a', '1')] } }
+        const shown = query({ remoteQueries: { results: 'rev' }, localQuery: 'rev' })
+        const current = query({ remoteQueries: { results: 'reve' }, localQuery: 'reve' })
+
+        expect(pickDisplayedQuery(current, shown, remote)).toEqual({ query: shown, stale: true })
+
+        remote.results = { cache: { ...remote.results.cache, reve: [] } }
+        expect(pickDisplayedQuery(current, shown, remote)).toEqual({ query: current, stale: false })
+    })
+
+    test.each<[string, Partial<Record<'events' | 'persons', SearchItem[]>>, boolean, string[]]>([
+        [
+            'only a loading row below Results while an earlier source loads',
+            { persons: [dashboard('p', '9')] },
+            false,
+            ['results', 'loading-more'],
+        ],
+        [
+            'PostHog AI without waiting for slow person searches',
+            { events: [dashboard('e', '8')] },
+            false,
+            ['results', 'events', 'ask-ai', 'loading-more'],
+        ],
+        [
+            'persons last, below PostHog AI, once they load',
+            { events: [dashboard('e', '8')], persons: [dashboard('p', '9')] },
+            false,
+            ['results', 'events', 'ask-ai', 'persons'],
+        ],
+        [
+            'only result skeletons while persons that go first load',
+            { events: [dashboard('e', '8')] },
+            true,
+            ['results'],
+        ],
+        [
+            'persons above filter-only Results when they go first',
+            { persons: [dashboard('p', '9')] },
+            true,
+            ['persons', 'results', 'loading-more'],
+        ],
+    ])('reveals %s', (_, loaded, personsFirst, expectedKeys) => {
+        const remote = emptyRemoteSlots()
+        remote.results = { cache: { 'type:dashboard': [dashboard('a', '1')] } }
+        for (const [source, items] of Object.entries(loaded)) {
+            remote[source as 'events' | 'persons'] = { cache: { rev: items } }
+        }
         const sections = buildSections(
-            input('search', { remote, remoteQueries: { results: 'type:dashboard revenue' }, localQuery: 'revenue' })
+            input('search', {
+                remote,
+                remoteQueries: { results: 'type:dashboard', events: 'rev', persons: 'rev' },
+                askAiQuestion: 'rev',
+                personsFirst,
+            })
         )
-        expect(sections.find((section) => section.key === 'results')?.rows.map((row) => row.kind)).toEqual([
-            'skeleton',
-            'skeleton',
-            'skeleton',
-        ])
+        expect(sections.map((section) => section.key)).toEqual(expectedKeys)
+    })
+
+    it('ranks a person who matches every word of an email search above results that match fewer', () => {
+        const person: SearchItem = {
+            id: 'person-1',
+            name: 'ada.l@example.com',
+            displayName: 'ada.l@example.com',
+            category: 'persons',
+            record: { type: 'person', ref: '1' },
+        }
+        const remote = emptyRemoteSlots()
+        remote.results = {
+            cache: { 'ada.l@': [{ ...dashboard('a', '1'), name: 'Ada', rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0] }] },
+        }
+        remote.persons = { cache: { 'ada.l@': [person] } }
+        const sections = buildSections(
+            input('search', {
+                remote,
+                remoteQueries: { results: 'ada.l@', persons: 'ada.l@' },
+                localQuery: 'ada.l@',
+                personsFirst: true,
+            })
+        )
+
+        expect(sections.map((section) => section.key)).toEqual(['best-matches'])
+        expect(sections[0].rows).toMatchObject([{ kind: 'item', section: 'persons', item: { id: 'person-1' } }])
     })
 
     it('says which words were dropped when a filter is active', () => {
@@ -176,7 +279,6 @@ describe('buildSections', () => {
                     },
                 ],
             },
-            displayedKey: 'type:dashboard xyzzy report',
         }
         const sections = buildSections(
             input('search', { remote, remoteQueries: { results: 'type:dashboard xyzzy report' }, localQuery: '' })
@@ -184,20 +286,13 @@ describe('buildSections', () => {
         expect(sections.map((section) => section.key)).toContain('notice')
     })
 
-    it('shows ranked products while saved objects load', () => {
-        const sections = buildSections(
-            input('search', {
-                local: {
-                    ...emptyLocal(),
-                    products: [{ id: 'product-surveys', name: 'Surveys', category: 'products' }],
-                },
-                remoteQueries: { results: 'surv' },
-                localQuery: 'surv',
-            })
-        )
-        expect(sections.map((section) => [section.key, section.rows.map((row) => row.kind)])).toEqual([
-            ['best-matches', ['item']],
-            ['results', ['skeleton', 'skeleton', 'skeleton']],
-        ])
+    it('holds ranked products back until saved objects load, so they never reorder', () => {
+        const local = { ...emptyLocal(), products: [{ id: 'product-surveys', name: 'Surveys', category: 'products' }] }
+        const loading = input('search', { local, remoteQueries: { results: 'surv' }, localQuery: 'surv' })
+        const remote = emptyRemoteSlots()
+        remote.results = { cache: { surv: [] } }
+
+        expect(sectionKinds(buildSections(loading))).toEqual([['results', ['skeleton', 'skeleton', 'skeleton']]])
+        expect(sectionKinds(buildSections({ ...loading, remote }))).toEqual([['best-matches', ['item']]])
     })
 })
