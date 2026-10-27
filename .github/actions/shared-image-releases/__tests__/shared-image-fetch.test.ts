@@ -16,12 +16,9 @@ const git = (cwd: string, ...args: string[]): string => execFileSync('git', ['-c
 beforeEach(() => { scratch = mkdtempSync(path.join(tmpdir(), 'shared-image-fetch-')) })
 afterEach(() => { jest.restoreAllMocks(); rmSync(scratch, {recursive: true, force: true}) })
 
-describe('publisher bounded tree fetching with the real command runner', () => {
-  test.each(['available', 'slow policy fetch', 'missing subtrees', 'missing', 'probe failure', 'fetch and probe failure',
-    'tree retry', 'policy retry', 'tree retries exhausted', 'policy retries exhausted'])('bounded tree fetch: %s', async mode => {
-    const retry = mode.startsWith('tree ') || mode.startsWith('policy ')
-    const exhausted = mode.endsWith('exhausted')
-    const available = retry || mode === 'available' || mode === 'slow policy fetch' || mode === 'missing subtrees' || mode === 'probe failure'
+describe('publisher bounded policy fetching with the real command runner', () => {
+  test.each(['available', 'slow policy fetch', 'policy retry', 'policy retries exhausted'])('bounded policy fetch: %s', async mode => {
+    const exhausted = mode === 'policy retries exhausted'
     const source = path.join(scratch, 'source')
     const cwd = path.join(scratch, 'executing')
     const origin = path.join(scratch, 'origin.git')
@@ -38,36 +35,22 @@ describe('publisher bounded tree fetching with the real command runner', () => {
     const alias = (revision: string): string => `r${git(cwd, 'rev-list', '--first-parent', '--count', revision).padStart(12, '0')}-${revision.slice(0, 6)}`
     put(POLICY_PATH, JSON.stringify({version: 1, filters: {worker: ['worker/**']}, images: {'posthog-cloud': {channels: {worker: {repository: 'workers/worker', filter: 'worker'}}}}}))
     put('worker/run.py', 'base'); const base = commit()
-    git(source, 'push', 'origin', 'main')
     put('worker/run.py', 'unpublished'); const relevant = commit()
     put(POLICY_PATH, JSON.stringify({version: 1, filters: {worker: ['new-worker/**']}, images: {'posthog-cloud': {channels: {worker: {repository: 'workers/worker', filter: 'worker'}}}}})); commit()
     put('unrelated.txt', 'later successful build'); const revision = commit()
     git(source, 'push', 'origin', 'main')
-    git(scratch, 'clone', '--no-local', '--depth', '1', `file://${origin}`, cwd)
-    expect(git(cwd, 'rev-parse', '--is-shallow-repository')).toBe('true')
-    git(cwd, 'fetch', '--unshallow', '--filter=tree:0', 'origin')
+    git(scratch, 'clone', '--filter=blob:none', '--no-checkout', `file://${origin}`, cwd)
+    git(cwd, 'sparse-checkout', 'set', '--no-cone', '.github')
+    execFileSync('git', ['-c', 'core.hooksPath=/dev/null', 'checkout'], {
+      cwd, env: {...process.env, GIT_NO_LAZY_FETCH: undefined}, stdio: 'pipe'
+    })
     expect(git(cwd, 'rev-parse', '--is-shallow-repository')).toBe('false')
     expect(git(cwd, 'config', 'remote.origin.promisor')).toBe('true')
-    expect(git(cwd, 'config', 'remote.origin.partialclonefilter')).toBe('tree:0')
+    expect(git(cwd, 'config', 'remote.origin.partialclonefilter')).toBe('blob:none')
     const tree = git(source, 'rev-parse', `${relevant}^{tree}`)
     const policyBlob = git(source, 'rev-parse', `${base}:${POLICY_PATH}`)
-    expect(() => git(cwd, 'cat-file', '-e', tree)).toThrow()
+    expect(() => git(cwd, 'cat-file', '-e', tree)).not.toThrow()
     expect(() => git(cwd, 'cat-file', '-e', policyBlob)).toThrow()
-    if (mode === 'missing subtrees') {
-      const roots = git(source, 'rev-list', '--all', '--no-commit-header', '--format=%T').split('\n')
-      for (const root of roots) {
-        const raw = execFileSync('git', ['cat-file', 'tree', root], {cwd: source})
-        execFileSync('git', ['hash-object', '-w', '-t', 'tree', '--stdin'], {cwd, input: raw})
-      }
-      expect(() => git(cwd, 'cat-file', '-e', tree)).not.toThrow()
-      expect(() => git(cwd, 'cat-file', '-e', git(source, 'rev-parse', `${base}:.github`))).toThrow()
-    }
-    if (!available) {
-      const incomplete = path.join(scratch, 'incomplete.git')
-      git(scratch, 'init', '--bare', '-b', 'main', incomplete)
-      git(source, 'push', incomplete, `${base}:refs/heads/main`)
-      git(cwd, 'remote', 'set-url', 'origin', `file://${incomplete}`)
-    }
     const regctl = path.join(scratch, 'regctl')
     writeFileSync(regctl, '#!/bin/sh\nexit 1\n'); chmodSync(regctl, 0o755)
     const destination = {repository: 'workers/worker', registry: '123456789012.dkr.ecr.us-east-1.amazonaws.com'}
@@ -90,69 +73,48 @@ describe('publisher bounded tree fetching with the real command runner', () => {
     if (mode === 'slow policy fetch') options.budgets.comparisonMs = 1000
     const run = commands.command
     const fetches: {args: string[]; input?: string}[] = []
-    const probes: {args: string[]; output: string}[] = []
-    let fetched = false
     let policyFetchMs = 0
     let discoveryTimeoutMs = 0
     let failedFetches = 0
-    const isRetryTarget = (args: string[], input?: string): boolean => args[0] === 'fetch' && (mode.startsWith('tree ')
-      ? args.includes('--filter=blob:none') : Boolean(input?.includes(policyBlob)))
     jest.spyOn(commands, 'command').mockImplementation(async (executable, args, configuration) => {
-      if (mode.includes('probe failure') && fetched && executable === 'git' && args[0] === 'cat-file' && args.includes('--batch-check=%(objectname) %(objecttype)')) {
-        throw new Error('post-fetch availability probe timed out')
+      if (executable === 'git' && args[0] === 'fetch') {
+        fetches.push({args, input: configuration.input})
+        if (exhausted || (mode === 'policy retry' && failedFetches === 0)) {
+          throw new Error(`transient fetch failure ${++failedFetches}`)
+        }
       }
-      if (executable === 'git' && args[0] === 'fetch') fetches.push({args, input: configuration.input})
-      if (retry && executable === 'git' && isRetryTarget(args, configuration.input) && (exhausted || failedFetches === 0)) {
-        throw new Error(`transient fetch failure ${++failedFetches}`)
-      }
-      const delayed = mode === 'slow policy fetch' && executable === 'git' && args[0] === 'fetch' && configuration.input?.includes(policyBlob)
+      const delayed = mode === 'slow policy fetch' && executable === 'git' && args[0] === 'fetch'
       const started = performance.now()
       if (delayed) await new Promise<void>(resolve => setTimeout(resolve, 2000))
       if (executable === 'git' && args[0] === 'log' && args.includes('--format=%H')) discoveryTimeoutMs = configuration.timeoutMs
-      try {
-        const output = await run(executable, args, configuration)
-        if (delayed) policyFetchMs = performance.now() - started
-        if (executable === 'git') probes.push({args, output})
-        return output
-      } finally {
-        if (executable === 'git' && args[0] === 'fetch') fetched = true
-      }
+      const output = await run(executable, args, configuration)
+      if (delayed) policyFetchMs = performance.now() - started
+      return output
     })
     const [result] = await publishChannels(options)
-    if (mode === 'available' || mode === 'slow policy fetch' || mode === 'missing subtrees' || (retry && !exhausted)) {
+    expect(fetches).toHaveLength(exhausted ? 3 : mode === 'policy retry' ? 2 : 1)
+    for (const fetch of fetches) {
+      expect(fetch.args).toContain('--stdin')
+      expect(fetch.args.some(arg => arg.startsWith('--filter='))).toBe(false)
+      expect(fetch.input).toBe(policyBlob + '\n')
+    }
+    if (exhausted) {
+      expect(result).toMatchObject({decision: 'blocked'})
+      for (let attempt = 1; attempt <= 3; attempt++) expect(result.reason).toContain(`attempt ${attempt} of 3: Error: transient fetch failure ${attempt}`)
+      expect(published.size).toBe(0)
+    } else {
       expect(result).toMatchObject({decision: 'published', outcome: 'present-at-expected-digest'})
+      expect(published.has(options.alias)).toBe(true)
+      expect(() => git(cwd, 'cat-file', '-e', policyBlob)).not.toThrow()
       if (mode === 'slow policy fetch') {
         expect(policyFetchMs).toBeGreaterThan(options.budgets.comparisonMs)
         expect(policyFetchMs).toBeLessThan(options.budgets.fetchMs)
         expect(discoveryTimeoutMs).toBeGreaterThan(options.budgets.comparisonMs)
         process.stdout.write(JSON.stringify({comparisonMs: options.budgets.comparisonMs, fetchMs: options.budgets.fetchMs, policyFetchMs, discoveryTimeoutMs}) + '\n')
       }
-      expect(() => git(cwd, 'cat-file', '-e', tree)).not.toThrow()
-      expect(() => git(cwd, 'cat-file', '-e', policyBlob)).not.toThrow()
-      expect(published.has(options.alias)).toBe(true)
-      if (mode === 'available') {
-        const missingRoot = probes.findIndex(probe => probe.args[0] === 'cat-file' && probe.output.split('\n').some(line => line.endsWith(' missing')))
-        expect(missingRoot).toBeGreaterThanOrEqual(0)
-        expect(probes[missingRoot + 1].args[0]).toBe('fetch')
-      }
-      expect(fetches.some(fetch => fetch.args.includes('--filter=blob:none') && fetch.args.includes('--stdin'))).toBe(true)
-      expect(fetches.some(fetch => !fetch.args.some(arg => arg.startsWith('--filter=')) && fetch.input?.includes(policyBlob))).toBe(true)
       const comparison = await new SourceHistory(cwd, {...options.budgets, retryDelaysMs: [0, 0]}).compare(base, revision)
       expect(comparison.policies.map(policy => policyDigest(policy!.filters.worker))).toEqual([policyDigest(['worker/**']), policyDigest(['new-worker/**'])])
       expect(new Filter(JSON.stringify({worker: ['new-worker/**']})).match(comparison.files).worker).toEqual([])
-    } else {
-      expect(result).toMatchObject({decision: 'blocked', reason: expect.stringContaining(mode === 'policy retries exhausted'
-        ? 'attempt 1 of 3' : 'remain unavailable after bounded fetch')})
-      if (retry) {
-        for (let attempt = 1; attempt <= 3; attempt++) expect(result.reason).toContain(`attempt ${attempt} of 3: Error: transient fetch failure ${attempt}`)
-      }
-      if (mode.includes('probe failure')) expect(result.reason).toContain('post-fetch availability probe timed out')
-      if (!available) expect(result.reason).toContain('git: exited')
-      expect(published.size).toBe(0)
-    }
-    if (retry) {
-      expect(failedFetches).toBe(exhausted ? 3 : 1)
-      expect(fetches.filter(fetch => isRetryTarget(fetch.args, fetch.input))).toHaveLength(exhausted ? 3 : 2)
     }
   }, 15000)
 })

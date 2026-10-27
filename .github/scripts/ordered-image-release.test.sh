@@ -196,7 +196,6 @@ git -C "$scratch/executing" -c core.hooksPath=/dev/null -c commit.gpgsign=false 
 git -C "$scratch/executing" -c core.hooksPath=/dev/null -c commit.gpgsign=false merge -q --no-ff feature -m merge
 GITHUB_SHA="$(git -C "$scratch/executing" rev-parse HEAD)"
 export GITHUB_SHA
-export GITHUB_REF=refs/heads/main GITHUB_REF_NAME=main
 test "$(git -C "$scratch/executing" rev-list --first-parent --count HEAD)" = 3
 test "$(git -C "$scratch/executing" rev-list --count HEAD)" = 4
 : > "$GITHUB_OUTPUT"
@@ -212,138 +211,35 @@ git -C "$scratch/mirror" -c advice.detachedHead=false checkout -q --detach "$GIT
 (cd "$scratch/mirror" && bash "$helper" tag)
 test "$(cat "$GITHUB_OUTPUT")" = "$executing_tag"
 echo 'PASS two clones of one history preserve first-parent ordinal and tag'
-git clone -q --depth 1 "file://$scratch/executing" "$scratch/shallow"
-test "$(git -C "$scratch/shallow" rev-parse --is-shallow-repository)" = true
-test "$(git -C "$scratch/shallow" rev-list --first-parent --count HEAD)" = 1
-: > "$GITHUB_OUTPUT"
-(cd "$scratch/shallow" && bash "$helper" tag)
-test "$(git -C "$scratch/shallow" rev-parse --is-shallow-repository)" = false
-test "$(cat "$GITHUB_OUTPUT")" = "$executing_tag"
-echo 'PASS shallow checkout fetches its configured origin and recovers first-parent ordinal'
 export REAL_GIT
 REAL_GIT="$(command -v git)"
-export FETCH_CALLS="$scratch/fetch-calls" FETCH_RETRY_DELAYS_SECONDS='0 0'
+export FETCH_CALLS="$scratch/fetch-calls"
 cat > "$scratch/shims/git" <<'SHIM'
 #!/usr/bin/env bash
 if [ "$1" = fetch ]; then
-    calls="$(cat "$FETCH_CALLS")"
-    calls=$((calls + 1))
-    printf '%s\n' "$calls" > "$FETCH_CALLS"
-    if [ "$calls" -le "$FETCH_FAILURES" ]; then
-        if [ "${COMPLETE_FAILED_FETCH:-0}" = 1 ]; then "$REAL_GIT" "$@"; fi
-        exit "$((120 + calls))"
-    fi
+    printf '%s\n' "$*" >> "$FETCH_CALLS"
+    exit 1
 fi
 exec "$REAL_GIT" "$@"
 SHIM
 chmod +x "$scratch/shims/git"
-
-check_fetch_timeouts() {
-    awk -v attempts="$1" -v maximum="$2" '
-        NR % 2 == 1 { if ($0 != "--kill-after=10s") exit 1; next }
-        $0 !~ /^[1-9][0-9]*s$/ { exit 1 }
-        { sub(/s$/, ""); if ($0 + 0 > maximum + 0) exit 1 }
-        END { if (NR != 2 * attempts) exit 1 }
-    ' "$TIMEOUT_ARGUMENTS"
-}
-
-printf '%s\n' --kill-after=10s 9s > "$TIMEOUT_ARGUMENTS"
-check_fetch_timeouts 1 10
-printf '%s\n' --kill-after=10s 100s > "$TIMEOUT_ARGUMENTS"
-if check_fetch_timeouts 1 90; then
-    echo 'FAIL fetch timeout assertion accepted an oversized limit' >&2
-    exit 1
-fi
-echo 'PASS fetch timeout assertions compare seconds numerically'
-
-for failures in 2 3; do
-    git clone -q --depth 1 "file://$scratch/executing" "$scratch/retry-$failures"
-    export FETCH_FAILURES="$failures"
-    printf '0\n' > "$FETCH_CALLS"
-    : > "$GITHUB_OUTPUT"
-    : > "$TIMEOUT_ARGUMENTS"
-    (cd "$scratch/retry-$failures" && bash "$helper" tag) > "$scratch/retry-annotations"
-    test "$(cat "$FETCH_CALLS")" = 3
-    test "$(grep -c '^::notice ' "$scratch/retry-annotations")" = 2
-    grep -Fq 'attempt 1 of 3 failed (status 121); retrying in 0 seconds.' "$scratch/retry-annotations"
-    grep -Fq 'attempt 2 of 3 failed (status 122); retrying in 0 seconds.' "$scratch/retry-annotations"
-    check_fetch_timeouts 3 90
-    if [ "$failures" -eq 2 ]; then
-        test "$(cat "$GITHUB_OUTPUT")" = "$executing_tag"
-        test "$(git -C "$scratch/retry-$failures" rev-parse --is-shallow-repository)" = false
-        if grep -q '^::warning ' "$scratch/retry-annotations"; then exit 1; fi
-        echo 'PASS tag retries two failed fetches and succeeds with two notices'
-    else
-        test ! -s "$GITHUB_OUTPUT"
-        grep -Fxq '::warning title=Ordered release tag skipped::Source history could not be fetched (status 123).' "$scratch/retry-annotations"
-        echo 'PASS tag stops after three failed fetches with the last status and no tag'
-    fi
-done
-for failures in 2 0; do
-    git clone -q --depth 1 "file://$scratch/executing" "$scratch/budget-$failures"
-    printf '0\n' > "$FETCH_CALLS"
-    : > "$GITHUB_OUTPUT"
-    : > "$TIMEOUT_ARGUMENTS"
-    (cd "$scratch/budget-$failures" && FETCH_FAILURES="$failures" FETCH_TOTAL_TIMEOUT_SECONDS=20 \
-        FETCH_RETRY_DELAYS_SECONDS='8 0' bash "$helper" tag) > "$scratch/budget-annotations"
-    test "$(cat "$FETCH_CALLS")" = 1
-    check_fetch_timeouts 1 10
-    if [ "$failures" -gt 0 ]; then
-        test ! -s "$GITHUB_OUTPUT"
-        grep -Fxq '::warning title=Ordered release tag skipped::Source history could not be fetched (status 121).' "$scratch/budget-annotations"
-        if grep -q '^::notice ' "$scratch/budget-annotations"; then exit 1; fi
-        echo 'PASS tag skips a retry that cannot fit the total fetch budget and warns'
-    else
-        test "$(cat "$GITHUB_OUTPUT")" = "$executing_tag"
-        test ! -s "$scratch/budget-annotations"
-        echo 'PASS tag shortens its attempt timeout to fit the total fetch budget'
-    fi
-done
-git clone -q --depth 1 "file://$scratch/executing" "$scratch/no-attempt"
-printf '0\n' > "$FETCH_CALLS"
+: > "$FETCH_CALLS"
 : > "$GITHUB_OUTPUT"
-: > "$TIMEOUT_ARGUMENTS"
-(cd "$scratch/no-attempt" && FETCH_TOTAL_TIMEOUT_SECONDS=10 \
-    FETCH_RETRY_DELAYS_SECONDS='0 0' bash "$helper" tag) > "$scratch/no-attempt-annotations"
-test "$(cat "$FETCH_CALLS")" = 0
-test ! -s "$TIMEOUT_ARGUMENTS"
-test ! -s "$GITHUB_OUTPUT"
-grep -Fxq '::warning title=Ordered release tag skipped::Complete source history is unavailable.' "$scratch/no-attempt-annotations"
-echo 'PASS tag warns without invoking timeout or fetching when no useful attempt fits'
-for delays in '21 0' '0 21'; do
-    printf '0\n' > "$FETCH_CALLS"
-    : > "$GITHUB_OUTPUT"
-    : > "$TIMEOUT_ARGUMENTS"
-    if (cd "$scratch/executing" && FETCH_TOTAL_TIMEOUT_SECONDS=20 \
-        FETCH_RETRY_DELAYS_SECONDS="$delays" bash "$helper" tag) > "$scratch/invalid-fetch-budget" 2>&1; then
-        echo 'FAIL tag accepted a retry wait beyond its total budget' >&2
-        exit 1
-    fi
-    test "$(cat "$FETCH_CALLS")" = 0
-    test ! -s "$GITHUB_OUTPUT"
-    test ! -s "$TIMEOUT_ARGUMENTS"
-    grep -Fq 'Invalid ordered source fetch retry delays' "$scratch/invalid-fetch-budget"
-done
-echo 'PASS tag rejects either retry wait beyond the total fetch budget'
-printf '0\n' > "$FETCH_CALLS"
-: > "$GITHUB_OUTPUT"
-: > "$TIMEOUT_ARGUMENTS"
-(cd "$scratch/executing" && bash "$helper" tag) > "$scratch/retry-annotations"
-test "$(cat "$FETCH_CALLS")" = 0
-test ! -s "$TIMEOUT_ARGUMENTS"
-test ! -s "$scratch/retry-annotations"
+(cd "$scratch/executing" && bash "$helper" tag) > "$scratch/tag-annotations"
+test ! -s "$FETCH_CALLS"
+test ! -s "$scratch/tag-annotations"
 test "$(cat "$GITHUB_OUTPUT")" = "$executing_tag"
 echo 'PASS complete checkout generates a tag without fetching'
-git clone -q --depth 1 "file://$scratch/executing" "$scratch/completed-fetch"
-printf '0\n' > "$FETCH_CALLS"
+git clone -q --depth 1 "file://$scratch/executing" "$scratch/shallow"
+test "$(git -C "$scratch/shallow" rev-parse --is-shallow-repository)" = true
+test "$(git -C "$scratch/shallow" rev-list --first-parent --count HEAD)" = 1
 : > "$GITHUB_OUTPUT"
-(cd "$scratch/completed-fetch" && COMPLETE_FAILED_FETCH=1 bash "$helper" tag) > "$scratch/retry-annotations"
-test "$(cat "$FETCH_CALLS")" = 1
-test "$(cat "$GITHUB_OUTPUT")" = "$executing_tag"
-test "$(grep -c '^::notice ' "$scratch/retry-annotations")" = 1
-echo 'PASS tag rechecks shallow state after a failed fetch completes history'
+(cd "$scratch/shallow" && bash "$helper" tag) > "$scratch/shallow-annotations"
+test ! -s "$FETCH_CALLS"
+test ! -s "$GITHUB_OUTPUT"
+grep -Fxq '::warning title=Ordered release tag skipped::The checkout must fetch full history.' "$scratch/shallow-annotations"
+echo 'PASS shallow checkout warns without fetching or producing a tag'
 rm "$scratch/shims/git"
-unset FETCH_RETRY_DELAYS_SECONDS
 GITHUB_SHA="$(git -C "$scratch/mirror" rev-parse HEAD^1)"
 git -C "$scratch/mirror" cat-file -e "$GITHUB_SHA^{commit}"
 test "$GITHUB_SHA" != "$(git -C "$scratch/mirror" rev-parse HEAD)"

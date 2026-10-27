@@ -468,18 +468,18 @@ describe('shared-image publication', () => {
     expect(() => validateRequests(loadPolicy(policy()), force, bootstrap)).toThrow(String(_name).startsWith('force') ? 'Force requires' : 'Bootstrap requires')
   })
 
-  test('omitted retry delays wait five and fifteen seconds before the third tree fetch publishes', async () => {
+  test('omitted retry delays wait five and fifteen seconds before the third policy blob fetch publishes', async () => {
     put('worker/run.py', 'changed'); commit(); build()
     delete options.budgets.retryDelaysMs
-    const tree = git('rev-parse', `${options.revision}^{tree}`)
+    const policyBlob = git('rev-parse', `${options.revision}:${POLICY_PATH}`)
     let fetchAttempts = 0
     external.mockImplementation(async (executable, args, configuration) => {
       if (executable === 'git') {
-        if (args[0] === 'cat-file' && args.includes('--batch-check=%(objectname) %(objecttype)') && fetchAttempts < 3) {
-          return `${tree} missing\n`
+        if (args[0] === 'cat-file' && args[1] === '-e' && args[2] === policyBlob && fetchAttempts < 3) {
+          throw new Error('policy blob is missing')
         }
         if (args[0] === 'fetch') {
-          if (++fetchAttempts < 3) throw new Error('transient tree fetch failure')
+          if (++fetchAttempts < 3) throw new Error('transient policy blob fetch failure')
           return ''
         }
         return execFileSync('git', args, {

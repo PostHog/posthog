@@ -4,7 +4,7 @@ import {tmpdir} from 'os'
 import * as path from 'path'
 import * as yaml from 'js-yaml'
 import {parseGitDiffOutput} from '../../paths-filter/src/git'
-import {ChangeStatus, Filter, GitRunner, intervalFiles} from '../src/shared-image'
+import {ChangeStatus, Filter, GitRunner, intervalFiles, POLICY_PATH} from '../src/shared-image'
 import {SourceHistory} from '../src/shared-image-history'
 import * as commands from '../src/shared-image-command'
 
@@ -152,6 +152,19 @@ describe('executing checkout first-parent interval', () => {
     }
   })
 
+  test.each(['root', 'subtree'])('missing %s trees require a complete checkout without fetching', async missing => {
+    const history = new SourceHistory(repo, {fetchMs: 30000, comparisonMs: 30000, maxBuffer: 1024, retryDelaysMs: [0, 0]})
+    const tree = 'b'.repeat(40)
+    const runner = jest.spyOn(history, 'git').mockImplementation(async args => {
+      if (args[0] === 'cat-file') return missing === 'root' ? `${tree} missing\n` : `${tree} tree\n`
+      if (args.includes('--format=%T')) return tree + '\n'
+      if (args.includes('--objects')) return '?' + 'c'.repeat(40) + '\n'
+      throw new Error('Unexpected Git command')
+    })
+    await expect(history.policyAt('a'.repeat(40))).rejects.toThrow('The checkout must provide full history with trees')
+    expect(runner.mock.calls.some(([args]) => args[0] === 'fetch')).toBe(false)
+  })
+
   test.each(['fetch', 'action'])('fetch retries stop when the %s deadline cannot fit the next wait', async budget => {
     jest.useFakeTimers()
     const deadline = Date.now() + 7999
@@ -160,12 +173,16 @@ describe('executing checkout first-parent interval', () => {
     const runner = jest.spyOn(commands, 'command').mockImplementation(async (_executable, args) => {
       if (args[0] === 'fetch') throw new Error('transient fetch failure')
       if (args[0] === 'rev-list') return `${tree}\n`
-      if (args[0] === 'cat-file') return `${tree} missing\n`
+      if (args[0] === 'cat-file') {
+        if (args[1] === '-e') throw new Error('policy blob is missing')
+        return `${tree} tree\n`
+      }
+      if (args[0] === 'ls-tree') return `100644 blob ${'c'.repeat(40)}\t${POLICY_PATH}\n`
       throw new Error('Unexpected Git command')
     })
     try {
       const result = expect(history.policyAt('a'.repeat(40)))
-        .rejects.toThrow(/^Interval trees remain unavailable after bounded fetch: Error: attempt 1 of 3: Error: transient fetch failure; retries skipped: fetch budget exhausted$/)
+        .rejects.toThrow(/^attempt 1 of 3: Error: transient fetch failure; retries skipped: fetch budget exhausted$/)
       await jest.runAllTimersAsync()
       await result
       expect(runner.mock.calls.filter(([_executable, args]) => args[0] === 'fetch')).toHaveLength(1)

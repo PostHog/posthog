@@ -2,52 +2,8 @@
 set -uo pipefail
 
 compute_tag() {
-    local fetch_started="$SECONDS" fetch_total_seconds="${FETCH_TOTAL_TIMEOUT_SECONDS:-100}"
-    local fetch_status=0 attempt wait_seconds remaining_seconds attempt_seconds
-    local minimum_attempt_seconds=3 kill_grace_seconds=10
-    local -a fetch_retry_delays
-    if ! [[ "$fetch_total_seconds" =~ ^[1-9][0-9]{0,2}$ ]] || [ "$fetch_total_seconds" -gt 100 ]; then
-        echo 'Invalid ordered source fetch budget' >&2
-        return 1
-    fi
-    read -r -a fetch_retry_delays <<< "${FETCH_RETRY_DELAYS_SECONDS:-5 15}"
-    if [ "${#fetch_retry_delays[@]}" -ne 2 ] ||
-        ! [[ "${fetch_retry_delays[0]}" =~ ^(0|[1-9][0-9]{0,2})$ && "${fetch_retry_delays[1]}" =~ ^(0|[1-9][0-9]{0,2})$ ]] ||
-        [ "${fetch_retry_delays[0]}" -gt "$fetch_total_seconds" ] || [ "${fetch_retry_delays[1]}" -gt "$fetch_total_seconds" ]; then
-        echo 'Invalid ordered source fetch retry delays' >&2
-        return 1
-    fi
-    for attempt in 1 2 3; do
-        if [ "$(git rev-parse --is-shallow-repository)" != "true" ]; then
-            fetch_status=0
-            break
-        fi
-        remaining_seconds=$((fetch_total_seconds - (SECONDS - fetch_started)))
-        attempt_seconds=$((remaining_seconds - kill_grace_seconds))
-        if [ "$attempt_seconds" -lt "$minimum_attempt_seconds" ]; then
-            break
-        fi
-        fetch_status=0
-        timeout --kill-after="${kill_grace_seconds}s" "${attempt_seconds}s" git fetch \
-            --no-tags --prune --no-recurse-submodules --unshallow --filter=tree:0 \
-            origin "+${GITHUB_REF}:refs/remotes/origin/${GITHUB_REF_NAME}" || fetch_status=$?
-        if [ "$fetch_status" -eq 0 ]; then
-            break
-        fi
-        if [ "$attempt" -lt 3 ]; then
-            wait_seconds="${fetch_retry_delays[$((attempt - 1))]}"
-            remaining_seconds=$((fetch_total_seconds - (SECONDS - fetch_started)))
-            if [ "$remaining_seconds" -lt "$((wait_seconds + minimum_attempt_seconds + kill_grace_seconds))" ]; then break; fi
-            echo "::notice title=Ordered source fetch retry::Source history fetch attempt $attempt of 3 failed (status $fetch_status); retrying in $wait_seconds seconds."
-            sleep "$wait_seconds"
-        fi
-    done
-    if [ "$fetch_status" -ne 0 ]; then
-        echo "::warning title=Ordered release tag skipped::Source history could not be fetched (status $fetch_status)."
-        return 0
-    fi
     if [ "$(git rev-parse --is-shallow-repository 2>/dev/null)" != "false" ]; then
-        echo "::warning title=Ordered release tag skipped::Complete source history is unavailable."
+        echo "::warning title=Ordered release tag skipped::The checkout must fetch full history."
         return 0
     fi
     if ! head_revision="$(git rev-parse HEAD)" || [ "$head_revision" != "$GITHUB_SHA" ]; then

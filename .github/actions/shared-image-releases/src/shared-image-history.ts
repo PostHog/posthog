@@ -46,7 +46,7 @@ export class SourceHistory {
     return base === revision ? 'equal' : newer === base ? 'older' : 'newer'
   }
 
-  private async fetch(objects: string[], filter: string | undefined, deadline: number): Promise<void> {
+  private async fetch(objects: string[], deadline: number): Promise<void> {
     if (!objects.length) return
     const failures: string[] = []
     const attempts = this.budgets.retryDelaysMs.length + 1
@@ -62,7 +62,7 @@ export class SourceHistory {
       try {
         await this.git([
           'fetch', '--no-tags', '--no-recurse-submodules', '--no-write-fetch-head', '--no-auto-maintenance',
-          ...(filter ? [`--filter=${filter}`] : []), 'origin', '--stdin'
+          'origin', '--stdin'
         ], deadline, [...new Set(objects)].join('\n') + '\n')
         return
       } catch (error) {
@@ -76,17 +76,11 @@ export class SourceHistory {
     const trees = [...new Set((await this.git([
       'rev-list', '--no-walk', '--no-commit-header', '--format=%T', '--stdin'
     ], fetchDeadline, revisions.join('\n') + '\n')).split('\n').filter(Boolean))]
-    const missing = async (): Promise<boolean> => {
-      const roots = await this.git(['cat-file', '--batch-check=%(objectname) %(objecttype)'], fetchDeadline, trees.join('\n') + '\n')
-      if (roots.split('\n').some(line => line.endsWith(' missing'))) return true
-      const output = await this.git(['rev-list', '--objects', '--missing=print', '--filter=blob:none', '--stdin'], fetchDeadline, trees.join('\n') + '\n')
-      return output.split('\n').some(line => line.startsWith('?'))
-    }
-    if (await missing()) {
-      const failures: unknown[] = []
-      try { await this.fetch(trees, 'blob:none', fetchDeadline) } catch (error) { failures.push(error) }
-      const available = await missing().then(result => !result, error => { failures.push(error); return false })
-      if (!available) throw new Error(`Interval trees remain unavailable after bounded fetch${failures.length ? `: ${failures.map(String).join('; ')}` : ''}`)
+    const roots = await this.git(['cat-file', '--batch-check=%(objectname) %(objecttype)'], fetchDeadline, trees.join('\n') + '\n')
+    if (roots.split('\n').some(line => line.endsWith(' missing')) ||
+      (await this.git(['rev-list', '--objects', '--missing=print', '--filter=blob:none', '--stdin'], fetchDeadline, trees.join('\n') + '\n'))
+        .split('\n').some(line => line.startsWith('?'))) {
+      throw new Error('The checkout must provide full history with trees')
     }
   }
 
@@ -104,7 +98,7 @@ export class SourceHistory {
       if (!blob) continue
       try { await this.git(['cat-file', '-e', blob], fetchDeadline) } catch { missing.push(blob) }
     }
-    await this.fetch(missing, undefined, fetchDeadline)
+    await this.fetch(missing, fetchDeadline)
     const policies: (Policy | undefined)[] = []
     for (const blob of blobs) {
       if (!blob) { policies.push(undefined); continue }
