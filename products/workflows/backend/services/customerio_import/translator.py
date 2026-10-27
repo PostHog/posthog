@@ -436,7 +436,7 @@ class _Builder:
         email: dict[str, Any] = {
             "to": {"email": self._liquid(recipient, action, "recipient"), "name": ""},
             "from": self._sender(template, action),
-            "replyTo": self._address(template, "reply_to_identity_id", "reply_to_id", "reply_to")[0],
+            "replyTo": self._address(template, "reply_to_identity_id", "reply_to_id", "reply_to").email,
             "subject": self._liquid(template.get("subject") or source.get("subject") or "", action, "subject"),
             "preheader": self._liquid(template.get("preheader_text") or "", action, "preheader"),
             "html": html,
@@ -486,7 +486,7 @@ class _Builder:
             )
         return body
 
-    def _address(self, template: dict[str, Any], *keys: str) -> tuple[str, str]:
+    def _address(self, template: dict[str, Any], *keys: str) -> "_Address":
         """The email address and display name a template names under any of `keys`: an identity id or an address."""
         for key in keys:
             value = template.get(key)
@@ -495,13 +495,14 @@ class _Builder:
             address = self.options.sender_addresses.get(str(value))
             name, email = parseaddr(address if address is not None else str(value))
             if "@" in email:
-                return email, name
-        return "", ""
+                return _Address(email=email, name=name)
+        return _Address(email="", name="")
 
     def _sender(self, template: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
         if not template:
             return {"email": "", "name": ""}
-        address, name = self._address(template, "from_identity_id", "from_id", "from")
+        found = self._address(template, "from_identity_id", "from_id", "from")
+        address, name = found.email, found.name
         sender = self.options.senders.get(address.lower()) if address else None
         if sender is not None:
             return {"integrationId": sender.integration_id, "email": sender.email, "name": name or sender.name}
@@ -912,6 +913,12 @@ def _exit_event_names(tree: Any) -> list[str]:
             if key in tree:
                 names.extend(_exit_event_names(tree[key]))
     return names
+
+
+@frozen
+class _Address:
+    email: str
+    name: str
 
 
 @frozen
