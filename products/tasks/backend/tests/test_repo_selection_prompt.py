@@ -8,7 +8,6 @@ from posthog.egress.limiter.policies import Priority
 from posthog.models.repo_routing_rule import RepoRoutingRule
 
 from products.tasks.backend.logic.repo_selection.agent import (
-    PINNED_REPOSITORY_REASON,
     RepoSelectionUsageLimitError,
     _build_repo_selection_prompt,
     _routing_rules_block,
@@ -240,18 +239,42 @@ def test_select_repository_reports_a_usage_limit_refusal() -> None:
         )
 
 
+def test_source_repository_section_included_only_when_given() -> None:
+    base = _build_repo_selection_prompt("ctx", ["acme/a", "acme/b"])
+    assert "## Source repository" not in base
+
+    with_source = _build_repo_selection_prompt(
+        "ctx",
+        ["acme/a", "acme/b"],
+        routing_rules="1. Support app asks → `acme/b`",
+        source_repository="acme/b",
+    )
+    assert "filed as an issue in `acme/b`" in with_source
+    assert (
+        with_source.index("`acme/b`")
+        < with_source.index("## Source repository")
+        < with_source.index("Team routing rules")
+    )
+
+
 @pytest.mark.parametrize(
-    "pinned,expected_repository",
+    "source,expected_in_prompt",
     [("Acme/B", "acme/b"), (" acme/b ", "acme/b"), ("acme/gone", None)],
 )
-def test_pinned_repository_answers_without_running_the_agent(pinned: str, expected_repository: str | None) -> None:
-    start = AsyncMock()
+def test_source_repository_is_a_default_for_the_agent_not_an_answer(
+    source: str, expected_in_prompt: str | None
+) -> None:
+    result = RepoSelectionResult(repository="acme/a", reason="the code lives in acme/a")
+    session = MagicMock()
+    session.end = AsyncMock()
+    start = AsyncMock(return_value=(session, result))
     github = MagicMock()
     github.list_all_cached_repositories.return_value = [{"full_name": "acme/a"}, {"full_name": "acme/b"}]
 
     with (
         patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
         patch(f"{_AGENT}._list_eligible_full_names", return_value={"acme/a", "acme/b"}),
+        patch(f"{_AGENT}._routing_rules_block", return_value=None),
         patch(f"{_AGENT}.MultiTurnSession.start", start),
     ):
         cache.return_value.sync_full_cache = AsyncMock()
@@ -263,35 +286,12 @@ def test_pinned_repository_answers_without_running_the_agent(pinned: str, expect
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
-            pinned_repository=pinned,
+            source_repository=source,
         )
 
-    assert selected.repository == expected_repository
-    if expected_repository:
-        assert selected.reason == PINNED_REPOSITORY_REASON
+    assert selected.repository == "acme/a"
+    prompt = start.call_args.kwargs["prompt"]
+    if expected_in_prompt:
+        assert f"filed as an issue in `{expected_in_prompt}`" in prompt
     else:
-        assert "acme/gone" in selected.reason
-    start.assert_not_awaited()
-
-
-def test_pinned_repository_beats_the_single_candidate_shortcut() -> None:
-    github = MagicMock()
-    github.list_all_cached_repositories.return_value = [{"full_name": "acme/a"}]
-
-    with (
-        patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
-        patch(f"{_AGENT}._list_eligible_full_names", return_value={"acme/a"}),
-    ):
-        cache.return_value.sync_full_cache = AsyncMock()
-        selected = async_to_sync(select_repository)(
-            1,
-            1,
-            "which repo?",
-            origin_product=Task.OriginProduct.SLACK,
-            priority=Priority.NORMAL,
-            github=github,
-            candidate_repos=["acme/a"],
-            pinned_repository="acme/b",
-        )
-
-    assert selected.repository is None
+        assert "## Source repository" not in prompt

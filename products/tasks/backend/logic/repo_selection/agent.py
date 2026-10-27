@@ -310,6 +310,7 @@ def _build_repo_selection_prompt(
     past_corrections: str | None = None,
     routing_rules: str | None = None,
     visibility: Mapping[str, bool | None] | None = None,
+    source_repository: str | None = None,
 ) -> str:
     """Build the prompt for the sandbox agent to select the most relevant repository.
 
@@ -330,6 +331,10 @@ def _build_repo_selection_prompt(
     `visibility` maps each candidate to its GitHub `private` flag (see `_candidate_visibility`).
     A candidate missing from it, or the whole argument left None, renders as unknown visibility,
     which the source privacy rule treats as unconfirmed.
+
+    `source_repository` is a candidate the request was filed against (e.g. a GitHub issue's
+    repository). It is the default answer, not the only one: an issue filed in one repository
+    often asks for a change in another, such as an SDK.
     """
     schema = RepoSelectionResult.model_json_schema()
     # `task_id` is system-set after the run — keep it out of the agent's output contract.
@@ -341,6 +346,20 @@ def _build_repo_selection_prompt(
     visibility = visibility or {}
     repo_list = "\n".join(
         f"{i + 1}. `{repo}` ({_visibility_label(visibility.get(repo))})" for i, repo in enumerate(candidate_repos)
+    )
+
+    source_section = (
+        f"""
+## Source repository
+
+The request was filed as an issue in `{source_repository}`. Select it by default. Select a different
+candidate only on specific evidence that the code the request describes lives there: cache paths
+or README content, a matching team routing rule, or a past correction below. An issue filed in one
+repository often asks for a change in an SDK or another sibling repository. When both repositories
+contain the matching files, keep `{source_repository}`.
+"""
+        if source_repository
+        else ""
     )
 
     rules_section = (
@@ -403,7 +422,7 @@ If no relevant private candidate exists, or the relevant candidate's visibility 
 ## Candidate repositories (lowercased; full_name format is `owner/repo`; visibility in parentheses)
 
 {repo_list}
-{rules_section}{corrections_section}
+{source_section}{rules_section}{corrections_section}
 ## The cache (your source of truth — query it before answering)
 
 A Postgres-backed cache of every candidate repo's README, full file-tree paths, and metadata lives
@@ -574,30 +593,15 @@ def _salvage_repo_selection(text: str, candidate_repos: list[str]) -> RepoSelect
     )
 
 
-# Tells a pinned pick from an agent's pick when reading a stored `repo_selection` artefact.
-PINNED_REPOSITORY_REASON = "The request names this repository as its source."
+def _eligible_source_repository(source_repository: str | None, candidate_repos: list[str]) -> str | None:
+    """The source repository when it is a candidate, lowercased like the candidates, else None.
 
-
-def _pinned_selection(pinned_repository: str, candidate_repos: list[str]) -> RepoSelectionResult:
-    """Honor a repository the request names, or refuse to select a different one.
-
-    Matched against the eligible candidates rather than the raw connected list, so the pin and the
-    agent agree on what is reachable: a repository the agent could not have picked is not one a pin
-    may reach either. That is what puts this check after the cache hydration above, whose result the
-    pinned path otherwise does not need. Candidates are lowercased, so the pin is too.
+    A default the agent may not select would only steer it toward a rejected answer.
     """
-    pinned = pinned_repository.strip().lower()
-    if pinned in candidate_repos:
-        return RepoSelectionResult(repository=pinned, reason=PINNED_REPOSITORY_REASON)
-    logger.info("repo_selection.pinned_repository_unavailable", extra={"pinned": pinned})
-    return RepoSelectionResult(
-        repository=None,
-        reason=(
-            f"This report comes from `{pinned}`, which this project's GitHub installation cannot "
-            "reach. Connect that repository, or pick one yourself. No other repository is a "
-            "substitute for the one the report names."
-        ),
-    )
+    if source_repository is None:
+        return None
+    source = source_repository.strip().lower()
+    return source if source in candidate_repos else None
 
 
 async def select_repository(
@@ -620,7 +624,7 @@ async def select_repository(
     reasoning_effort: str | None = None,
     service_tier: str | None = None,
     past_corrections: str | None = None,
-    pinned_repository: str | None = None,
+    source_repository: str | None = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request context.
 
@@ -630,11 +634,10 @@ async def select_repository(
     `past_corrections` is an optional pre-rendered block of the caller's previous selections
     that a reviewer marked wrong; see `_build_repo_selection_prompt`.
 
-    `pinned_repository` is a repository the request itself names — a GitHub issue says which
-    repository it was filed against, and that is the answer, not a question for the agent. When it
-    is an eligible candidate it is returned as-is. When it is not, the result is `repository=None`
-    carrying the mismatch: the agent would otherwise pick a similar-looking repository and send the
-    work somewhere the request never pointed at.
+    `source_repository` is a repository the request itself names — a GitHub issue says which
+    repository it was filed against. When it is an eligible candidate the prompt makes it the
+    default, and the agent still decides: the code an issue describes can live in another
+    repository. When it is not a candidate it is ignored.
 
     Callers that have already resolved the integration and candidate list (e.g. to run their
     own cheap early-exit first) may pass `github` and `candidate_repos` to skip the redundant
@@ -682,8 +685,6 @@ async def select_repository(
         raise RepoSelectionUnavailableError(
             "No connected GitHub repositories are eligible (archived or missing cache data)."
         )
-    if pinned_repository is not None:
-        return _pinned_selection(pinned_repository, candidate_repos)
     if len(candidate_repos) == 1:
         return RepoSelectionResult(
             repository=candidate_repos[0],
@@ -700,6 +701,7 @@ async def select_repository(
         past_corrections=past_corrections,
         routing_rules=routing_rules,
         visibility=visibility,
+        source_repository=_eligible_source_repository(source_repository, candidate_repos),
     )
     sandbox_context = CustomPromptSandboxContext(
         team_id=team_id,
