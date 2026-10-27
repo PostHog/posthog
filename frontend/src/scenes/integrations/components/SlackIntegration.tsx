@@ -11,12 +11,10 @@ import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { SLACK_INTEGRATION_SCOPES } from '~/types'
-
 import { useSlackRequiredScopes } from './slackScopes'
 
 // Modified version of https://app.slack.com/app-settings/TSS5W8YQZ/A03KWE2FJJ2/app-manifest to match current instance.
-const getSlackAppManifest = (): any => ({
+const getSlackAppManifest = (botScopes: string[]): any => ({
     display_information: {
         name: 'PostHog',
         description: 'Product insights right where you need them',
@@ -37,7 +35,7 @@ const getSlackAppManifest = (): any => ({
     oauth_config: {
         redirect_urls: [`${window.location.origin.replace('http://', 'https://')}/integrations/slack/callback`],
         scopes: {
-            bot: SLACK_INTEGRATION_SCOPES,
+            bot: botScopes,
         },
     },
     settings: {
@@ -123,7 +121,7 @@ export function SlackIntegration({ next, centered }: { next?: string; centered?:
                                     </ol>
 
                                     <CodeSnippet language={Language.JSON}>
-                                        {JSON.stringify(getSlackAppManifest(), null, 2)}
+                                        {JSON.stringify(getSlackAppManifest(requiredScopesArr), null, 2)}
                                     </CodeSnippet>
                                 </p>
                             </>

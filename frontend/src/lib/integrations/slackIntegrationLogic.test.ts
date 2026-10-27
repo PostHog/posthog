@@ -1,10 +1,14 @@
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SlackChannelType } from '~/types'
+
+import type { SlackChannelJoinApi } from 'products/integrations/frontend/generated/api.schemas'
 
 import {
     getRecentSlackChannelIds,
@@ -26,6 +30,9 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
     let nextChannelByIdResponse: SlackChannelType | null = null
     // Set by the out-of-order test so the by-id lookup answers only when it releases this.
     let holdChannelByIdLookup: Promise<void> | null = null
+    let holdJoin: Promise<void> | null = null
+    let joinedIds: string[] = []
+    let channelLookupInactive = false
 
     const buildChannel = (id: string, name: string): SlackChannelType => ({
         id,
@@ -41,11 +48,24 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
         lastChannelByIdQuery = {}
         nextChannelByIdResponse = null
         holdChannelByIdLookup = null
+        holdJoin = null
+        joinedIds = []
+        channelLookupInactive = false
         nextChannelsResponse = [
             { id: 'C1', name: 'general' },
             { id: 'C2', name: 'engineering' },
         ]
         useMocks({
+            post: {
+                '/api/projects/:team_id/integrations/:id/channels/join': async ({ request }) => {
+                    const { channel_id } = (await request.json()) as SlackChannelJoinApi
+                    joinedIds.push(channel_id)
+                    if (holdJoin) {
+                        await holdJoin
+                    }
+                    return [200, { channels: [buildChannel(channel_id, 'joined')] }]
+                },
+            },
             get: {
                 '/api/environments/:team_id/integrations/:id/channels': async ({ request }) => {
                     const query = Object.fromEntries(new URL(request.url).searchParams.entries())
@@ -53,6 +73,12 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
                         lastChannelByIdQuery = query
                         if (holdChannelByIdLookup) {
                             await holdChannelByIdLookup
+                        }
+                        if (channelLookupInactive) {
+                            return [
+                                400,
+                                { code: 'slack_integration_inactive', detail: 'Reconnect this test connection.' },
+                            ]
                         }
                         return [200, { channels: nextChannelByIdResponse ? [nextChannelByIdResponse] : [] }]
                     }
@@ -78,6 +104,64 @@ describe('slackIntegrationLogic — loadAllSlackChannels search & pagination', (
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    it('joins multiple selected channels once while each request is pending', async () => {
+        nextChannelsResponse = [
+            { id: 'C1', name: 'one', is_member: false },
+            { id: 'C2', name: 'two', is_member: false },
+        ]
+        await expectLogic(logic, () => logic.actions.loadAllSlackChannels()).toFinishAllListeners()
+        let release!: () => void
+        holdJoin = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        logic.actions.joinSelectedSlackChannels(['C1', 'C2'], true)
+        logic.actions.joinSelectedSlackChannels(['C1', 'C2'], true)
+        await waitFor(() => expect(joinedIds).toEqual(['C1', 'C2']))
+        expect(logic.values.slackChannelJoinStatus).toEqual({ C1: { status: 'joining' }, C2: { status: 'joining' } })
+        release()
+        await waitFor(() =>
+            expect(logic.values.slackChannelJoinStatus).toEqual({ C1: { status: 'joined' }, C2: { status: 'joined' } })
+        )
+        expect(logic.values.slackChannels.every((channel) => channel.is_member)).toBe(true)
+        expect(posthog.capture).toHaveBeenCalledWith('slack channel join started')
+        expect(posthog.capture).toHaveBeenCalledWith('slack channel join finished', { success: true })
+    })
+
+    it('keeps joined membership when a lookup started before joining completes later', async () => {
+        nextChannelsResponse = [{ id: 'C1', name: 'one', is_member: false }]
+        nextChannelByIdResponse = { ...buildChannel('C1', 'one'), is_member: false }
+        await expectLogic(logic, () => logic.actions.loadAllSlackChannels()).toFinishAllListeners()
+        let release!: () => void
+        holdChannelByIdLookup = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        logic.actions.loadSlackChannelById('C1')
+        await waitFor(() => expect(lastChannelByIdQuery.channel_id).toEqual('C1'))
+        logic.actions.joinSelectedSlackChannels(['C1'], true)
+        await waitFor(() => expect(logic.values.isMemberOfSlackChannel('C1')).toBe(true))
+        release()
+        await waitFor(() => expect(logic.values.slackChannelByIdLoading).toBe(false))
+        expect(logic.values.isMemberOfSlackChannel('C1')).toBe(true)
+    })
+
+    it('ignores an inactive-token error from a lookup overtaken by a join', async () => {
+        const notJoined = { ...buildChannel('C1', 'one'), is_member: false }
+        logic.actions.loadSlackChannelByIdSuccess(notJoined)
+        let release!: () => void
+        holdChannelByIdLookup = new Promise<void>((resolve) => {
+            release = resolve
+        })
+        channelLookupInactive = true
+        logic.actions.loadSlackChannelById('C1')
+        await waitFor(() => expect(lastChannelByIdQuery.channel_id).toEqual('C1'))
+        logic.actions.joinSelectedSlackChannels(['C1'], true)
+        await waitFor(() => expect(logic.values.isMemberOfSlackChannel('C1')).toBe(true))
+        release()
+        await waitFor(() => expect(logic.values.slackChannelByIdLoading).toBe(false))
+        expect(logic.values.isMemberOfSlackChannel('C1')).toBe(true)
+        expect(logic.values.slackIntegrationInactiveMessage).toBeNull()
     })
 
     it('forwards search to the channels endpoint when search is provided', async () => {

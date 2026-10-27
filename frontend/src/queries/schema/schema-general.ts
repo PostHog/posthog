@@ -55,6 +55,7 @@ import {
     SessionPropertyFilter,
     SessionRecordingType,
     SlackIntegrationScope,
+    SlackIntegrationScopeInReview,
     StepOrderValue,
     StickinessFilterType,
     TrendsFilterType,
@@ -66,7 +67,7 @@ import { integer, numerical_key, positive_integer } from './type-utils'
 export { ChartDisplayCategory }
 // Re-exported so the codegen picks it up and emits a matching `StrEnum` in posthog/schema.py.
 // The runtime const lives in `~/types` as `SLACK_INTEGRATION_SCOPES`.
-export { SlackIntegrationScope }
+export { SlackIntegrationScope, SlackIntegrationScopeInReview }
 
 /**
  * PostHog Query Schema definition.
