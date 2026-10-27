@@ -5199,8 +5199,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     | undefined
                 cache.pendingDashboardGridCompaction = undefined
                 if (pendingLayoutCompaction) {
-                    actions.setDashboardGridCompaction(pendingLayoutCompaction)
-                    actions.saveDashboardGridCompaction(pendingLayoutCompaction)
+                    // Replaying cancels any choice still in its debounce, so save the latest choice, not the queued one.
+                    const latestLayoutCompaction =
+                        (cache.unsavedLayoutCompaction as DashboardGridCompaction | undefined) ??
+                        pendingLayoutCompaction
+                    actions.setDashboardGridCompaction(latestLayoutCompaction)
+                    actions.saveDashboardGridCompaction(latestLayoutCompaction)
                 } else if (cache.unsavedLayoutCompaction === layoutCompaction) {
                     cache.unsavedLayoutCompaction = undefined
                 }

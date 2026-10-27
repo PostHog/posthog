@@ -3448,6 +3448,40 @@ describe('dashboardLogic', () => {
                 expect(dialogOpenSpy).not.toHaveBeenCalled()
             })
 
+            it('saves the latest mode when a queued save replays while a newer choice waits', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                let resolveFirstSave: (dashboard: DashboardType) => void = () => {}
+                ;(api.update as jest.Mock)
+                    .mockClear()
+                    .mockImplementationOnce(() => new Promise((resolve) => (resolveFirstSave = resolve)))
+                jest.useFakeTimers()
+
+                try {
+                    logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+                    await jest.advanceTimersByTimeAsync(750)
+                    logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Stable)
+                    await jest.advanceTimersByTimeAsync(750)
+                    logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Vertical)
+                    await jest.advanceTimersByTimeAsync(100)
+
+                    resolveFirstSave({
+                        ...logic.values.dashboard!,
+                        customization: { layout_compaction: DashboardGridCompaction.Horizontal },
+                    })
+                    await jest.advanceTimersByTimeAsync(750)
+                    await expectLogic(logic).toFinishAllListeners()
+
+                    expect((api.update as jest.Mock).mock.calls.at(-1)?.[1]).toMatchObject({
+                        layout_compaction: DashboardGridCompaction.Vertical,
+                    })
+                    expect(logic.values.dashboard?.customization?.layout_compaction).toBe(
+                        DashboardGridCompaction.Vertical
+                    )
+                } finally {
+                    jest.useRealTimers()
+                }
+            })
+
             it('keeps the chosen mode when another dashboard update lands before the mode save', async () => {
                 await expectLogic(logic).toFinishAllListeners()
                 const staleDashboard = {
