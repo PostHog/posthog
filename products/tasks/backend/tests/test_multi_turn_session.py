@@ -2077,11 +2077,13 @@ class TestPollForTurnConnectionDrop:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("origin", [Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT])
-@pytest.mark.parametrize("closed", [False, True])
-async def test_pipeline_session_releases_activity_slot_after_signalling(origin: str, closed: bool) -> None:
+@pytest.mark.parametrize("rpc_status", [None, RPCStatusCode.NOT_FOUND, RPCStatusCode.UNAVAILABLE])
+async def test_pipeline_session_releases_activity_slot_after_signalling(
+    origin: str, rpc_status: RPCStatusCode | None
+) -> None:
     handle = AsyncMock()
-    if closed:
-        handle.signal.side_effect = RPCError("workflow closed", RPCStatusCode.NOT_FOUND, b"")
+    if rpc_status is not None:
+        handle.signal.side_effect = RPCError("completion signal failed", rpc_status, b"")
     session = MultiTurnSession(task=MagicMock(origin_product=origin), task_run=MagicMock(), _workflow_handle=handle)
     await session.end()
     handle.signal.assert_awaited_once()
