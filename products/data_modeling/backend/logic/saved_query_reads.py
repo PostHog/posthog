@@ -124,7 +124,17 @@ def saved_query_definitions(team_id: int, *, ids: Collection[UUID] | None = None
         saved_queries_in_team = saved_queries_in_team.filter(id__in=ids)
     saved_queries = list(
         saved_queries_in_team.exclude(deleted=True)
-        .only("id", "name", "query", "is_test", "managed_viewset_id", "origin", "created_at", "incremental_config")
+        .only(
+            "id",
+            "name",
+            "query",
+            "is_test",
+            "managed_viewset_id",
+            "origin",
+            "created_at",
+            "created_by_id",
+            "incremental_config",
+        )
         .order_by("created_at", "id")
     )
     materializing_ids = set(
@@ -150,6 +160,7 @@ def _definition(saved_query: DataWarehouseSavedQuery, *, materializes: bool) -> 
         created_at=saved_query.created_at,
         refreshes_incrementally=get_incremental_config(saved_query) is not None,
         calls_decision_functions=calls_decision_functions(hogql),
+        created_by_id=saved_query.created_by_id,
     )
 
 
