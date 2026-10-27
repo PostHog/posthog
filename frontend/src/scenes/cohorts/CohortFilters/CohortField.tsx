@@ -13,6 +13,7 @@ import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomic
 import { ExcludedOperators, TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -162,6 +163,7 @@ export function CohortTaxonomicField({
     criteria,
     taxonomicGroupTypes = [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
     hideUnsupportedRecentOperators,
+    includeHiddenEvents,
     placeholder = 'Choose event',
     onChange: _onChange,
 }: CohortTaxonomicFieldProps): JSX.Element {
@@ -177,6 +179,8 @@ export function CohortTaxonomicField({
     const { calculatedValue, calculatedValueLoading } = useValues(logic)
     const { onChange } = useActions(logic)
     const { getPropertyDefinition, propertyDefinitionStorage } = useValues(propertyDefinitionsModel)
+    // Without the rewrite, the cohorts API refuses every new flag-call criterion, so the event stays hidden.
+    const flagCallsReadFromFlagEvaluations = useFeatureFlag('HOGQL_FLAG_CALLS_FROM_FLAG_EVALUATIONS')
     const groupType = (criteria[groupTypeFieldKey] as TaxonomicFilterGroupType) ?? taxonomicGroupTypes[0]
     const excludedOperators = useMemo<ExcludedOperators | undefined>(() => {
         if (!hideUnsupportedRecentOperators) {
@@ -218,6 +222,7 @@ export function CohortTaxonomicField({
                 [TaxonomicFilterGroupType.Events]: [null], // "All events" isn't supported by Cohorts currently
             }}
             excludedOperators={excludedOperators}
+            includeHiddenEvents={includeHiddenEvents && flagCallsReadFromFlagEvaluations}
             groupTypes={taxonomicGroupTypes}
             placeholder={placeholder}
             data-attr={`cohort-taxonomic-field-${fieldKey}`}

@@ -81,7 +81,7 @@ def parse_and_validate_positive_integer(value: Optional[Union[str, int]], value_
     return parsed_value
 
 
-def _behavioral_date_range(prop: Property) -> tuple[str, Optional[str]]:
+def behavioral_date_range(prop: Property) -> tuple[str, Optional[str]]:
     if prop.explicit_datetime:
         # Explicit datetime filter, can be a relative or absolute date, follows same convention
         # as all analytics datetime filters
@@ -344,7 +344,7 @@ class HogQLCohortQuery:
             filter = parse_property_group_data(prop.event_filters)
             series[0].properties = filter
 
-        date_from, date_to = _behavioral_date_range(prop)
+        date_from, date_to = behavioral_date_range(prop)
 
         trends_query = TrendsQuery(
             dateRange=DateRange(date_from=date_from, date_to=date_to),
@@ -357,7 +357,7 @@ class HogQLCohortQuery:
     def get_performed_event_multiple(self, prop: Property) -> ast.SelectQuery:
         count = parse_and_validate_positive_integer(prop.operator_value, "operator_value")
 
-        date_from, date_to = _behavioral_date_range(prop)
+        date_from, date_to = behavioral_date_range(prop)
 
         events_query = EventsQuery(after=date_from, before=date_to, select=["person_id", "count()"])
         if prop.event_type == "events":
@@ -414,7 +414,7 @@ class HogQLCohortQuery:
         else:
             raise ValueError(f"Event type must be 'events' or 'actions'")
 
-        date_from, date_to = _behavioral_date_range(prop)
+        date_from, date_to = behavioral_date_range(prop)
 
         date_value = parse_and_validate_positive_integer(prop.seq_time_value, "seq_time_value")
         date_interval = validate_interval(prop.seq_time_interval)

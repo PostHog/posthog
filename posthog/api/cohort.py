@@ -1,9 +1,11 @@
 import io
+import re
 import csv
 import json
 import time
 import uuid
 import hashlib
+import collections
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Sequence
 from copy import deepcopy
@@ -37,9 +39,11 @@ from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT, LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.errors import TableAccessDeniedError
+from posthog.hogql.errors import BaseHogQLError, TableAccessDeniedError
+from posthog.hogql.flag_called_warnings import count_flag_calls_read_from_events
 from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -63,7 +67,7 @@ from posthog.helpers.trigram_search import (
     normalize_search_term,
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery, behavioral_date_range
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.hogql_queries.serialized_actors import get_serialized_people
 from posthog.metrics import LABEL_TEAM_ID
@@ -83,9 +87,15 @@ from posthog.models.activity_logging.activity_page import (
 )
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.filters.utils import earliest_timestamp_func
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT, FLAG_EVALUATIONS_TTL_DAYS
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
-from posthog.models.property.property import SEMVER_OPERATORS, STRING_PREFIX_SUFFIX_OPERATORS, Property
+from posthog.models.property.property import (
+    SEMVER_OPERATORS,
+    STRING_PREFIX_SUFFIX_OPERATORS,
+    BehavioralPropertyType,
+    Property,
+)
 from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 from posthog.models.team.team import DEPRECATED_ATTRS, Team
 from posthog.models.utils import UUIDT
@@ -94,7 +104,7 @@ from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
 from posthog.renderers import SafeJSONRenderer
 from posthog.scopes import scopes_not_covered
-from posthog.taxonomy.hidden_events import HIDDEN_EVENT_REASON, added_hidden_event
+from posthog.taxonomy.hidden_events import EVENTS_HIDDEN_IN_QUERY_BUILDERS, HIDDEN_EVENT_REASON
 from posthog.utils import format_query_params_absolute_url, safe_int, str_to_bool
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -950,14 +960,138 @@ def _flat_properties(filters: object) -> list[Property]:
     return parse_property_group_data(filters["properties"]).flat
 
 
-def _behavioral_event_names(properties: Iterable[Property]) -> Iterator[object]:
+def _behavioral_event_names(prop: Property) -> Iterator[object]:
+    if prop.type != "behavioral":
+        return
+    if prop.event_type == "events":
+        yield prop.key
+    if prop.seq_event_type == "events":
+        yield prop.seq_event
+
+
+def _hidden_event_references(properties: Iterable[Property]) -> Iterator[tuple[str, Property]]:
     for prop in properties:
-        if prop.type != "behavioral":
-            continue
-        if prop.event_type == "events":
-            yield prop.key
-        if prop.seq_event_type == "events":
-            yield prop.seq_event
+        for event in _behavioral_event_names(prop):
+            if event in EVENTS_HIDDEN_IN_QUERY_BUILDERS:
+                yield str(event), prop
+
+
+# The criterion types whose flag calls both the batch calculation and the realtime backfill read from flag_evaluations.
+_FLAG_CALL_CRITERION_TYPES = frozenset(
+    {BehavioralPropertyType.PERFORMED_EVENT, BehavioralPropertyType.PERFORMED_EVENT_MULTIPLE}
+)
+# The batch calculation reads flag_evaluations only for a window that starts after UTC midnight
+# FLAG_EVALUATIONS_COMPLETE_DAYS back. It starts a window at midnight in the team's timezone. That midnight can fall
+# on the previous UTC day. So a window of N days reads flag_evaluations at every hour only when N + 1 days fit.
+_MAX_FLAG_CALL_LOOKBACK_HOURS = (FLAG_EVALUATIONS_COMPLETE_DAYS - 1) * 24
+_RELATIVE_DATE_UNIT_MAX_HOURS = {"h": 1, "d": 24, "w": 7 * 24, "m": 31 * 24}
+_RELATIVE_DATE_PATTERN = re.compile(r"-(\d+)([hdwm])")
+
+_FLAG_CALL_CRITERION_TYPE_REASON = (
+    'Only "Completed event", "Did not complete event" and "Completed an event multiple times" can use this event.'
+)
+_FLAG_CALL_WINDOW_REASON = (
+    f"PostHog keeps this event for {FLAG_EVALUATIONS_TTL_DAYS} days, so pick a range relative to today that goes back "
+    f'{_MAX_FLAG_CALL_LOOKBACK_HOURS // 24} days or less, such as "Last 30 days".'
+)
+_FLAG_CALL_KEY_REASON = (
+    'Add an event property filter where "Feature flag" equals one or more flag keys, and filter only on event '
+    "properties."
+)
+_FLAG_CALL_COMPILE_REASON = "PostHog can't calculate this criterion. Check its count and its event property filters."
+
+
+def _flag_call_window_fits_retention(prop: Property) -> bool:
+    try:
+        date_from, _ = behavioral_date_range(prop)
+    except ValidationError:
+        return False
+    match = _RELATIVE_DATE_PATTERN.fullmatch(date_from)
+    if match is None:
+        return False
+    count, unit = match.groups()
+    return int(count) * _RELATIVE_DATE_UNIT_MAX_HOURS[unit] <= _MAX_FLAG_CALL_LOOKBACK_HOURS
+
+
+def flag_call_criterion_shape_problem(prop: Property) -> str | None:
+    """Why a criterion on $feature_flag_called has a type or window that flag_evaluations can't serve, or None."""
+    if prop.value not in _FLAG_CALL_CRITERION_TYPES:
+        return _FLAG_CALL_CRITERION_TYPE_REASON
+    if not _flag_call_window_fits_retention(prop):
+        return _FLAG_CALL_WINDOW_REASON
+    return None
+
+
+def _static_hidden_event_reasons(references: Iterable[tuple[str, Property]]) -> collections.Counter[tuple[str, str]]:
+    reasons: collections.Counter[tuple[str, str]] = collections.Counter()
+    for event, prop in references:
+        reason = (
+            HIDDEN_EVENT_REASON if event != FLAG_EVALUATIONS_SOURCE_EVENT else flag_call_criterion_shape_problem(prop)
+        )
+        if reason is not None:
+            reasons[(event, reason)] += 1
+    return reasons
+
+
+@frozen
+class _BatchFlagCallReads:
+    rewrite_enabled: bool
+    reads_from_events: int
+
+
+def _batch_flag_call_reads(criteria: Sequence[Property], team: Team) -> _BatchFlagCallReads | None:
+    """How many flag-call reads the batch query for these criteria leaves on events, or None when it doesn't compile.
+
+    It compiles the criteria the way the batch calculation does. The batch calculation keeps the flag_evaluations
+    swap only when the whole rewritten query resolves. So one criterion that reads a field flag_evaluations lacks
+    sends every flag-call criterion in the cohort to events, and the criteria compile together.
+    """
+    # The query reads the same events scans with or without negation. A cohort can't negate every criterion.
+    values = [{**prop.to_dict(), "negation": False} for prop in criteria]
+    cohort = Cohort(team=team, filters={"properties": {"type": "OR", "values": values}})
+    try:
+        executor = HogQLCohortQuery(cohort=cohort, team=team).get_query_executor(bypass_warehouse_access_control=True)
+        _, context = executor.generate_clickhouse_sql()
+    except (BaseHogQLError, ValidationError, ValueError):
+        return None
+    prepared = executor.clickhouse_prepared_ast
+    return _BatchFlagCallReads(
+        rewrite_enabled=context.database is not None and context.database.read_flag_calls_from_flag_evaluations,
+        reads_from_events=count_flag_calls_read_from_events(prepared) if prepared is not None else 0,
+    )
+
+
+def added_unsupported_hidden_event_reference(
+    new_properties: Sequence[Property], existing_properties: Sequence[Property], team: Team
+) -> tuple[str, str] | None:
+    """A reference to a hidden event that a save adds and some reader of the cohort can't answer in full, with the
+    reason, or None.
+
+    On an organization that hides flag calls, every reader of a criterion on $feature_flag_called reads
+    flag_evaluations. A save may keep or edit an unsupported reference that the stored cohort already has. Only a
+    count above the stored count is an addition.
+    """
+    new_references = list(_hidden_event_references(new_properties))
+    existing_references = list(_hidden_event_references(existing_properties))
+    added = _static_hidden_event_reasons(new_references) - _static_hidden_event_reasons(existing_references)
+    if added:
+        return next(iter(added))
+
+    new_flag_calls = [prop for event, prop in new_references if event == FLAG_EVALUATIONS_SOURCE_EVENT]
+    existing_flag_calls = [prop for event, prop in existing_references if event == FLAG_EVALUATIONS_SOURCE_EVENT]
+    if collections.Counter(_criteria_key(prop.to_dict()) for prop in new_flag_calls) == collections.Counter(
+        _criteria_key(prop.to_dict()) for prop in existing_flag_calls
+    ):
+        return None
+    new_reads = _batch_flag_call_reads(new_flag_calls, team)
+    if new_reads is None:
+        return FLAG_EVALUATIONS_SOURCE_EVENT, _FLAG_CALL_COMPILE_REASON
+    if new_reads.reads_from_events == 0:
+        return None
+    existing_reads = _batch_flag_call_reads(existing_flag_calls, team) if existing_flag_calls else None
+    if existing_reads is not None and new_reads.reads_from_events <= existing_reads.reads_from_events:
+        return None
+    return FLAG_EVALUATIONS_SOURCE_EVENT, _FLAG_CALL_KEY_REASON if new_reads.rewrite_enabled else HIDDEN_EVENT_REASON
 
 
 def _team_from_serializer_context(context: dict[str, Any]) -> Optional[Team]:
@@ -1753,16 +1887,19 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if self.instance is not None and "filters" not in attrs and "groups" not in attrs:
             return
         team = _team_from_serializer_context(self.context)
+        new_properties = _flat_properties(self._effective_filters_after_update(attrs, team=team))
+        if team is None or next(_hidden_event_references(new_properties), None) is None:
+            return
+        if not hides_flag_calls_from_query_builders(team.organization_id):
+            return
         # Passing no attrs reads the stored definition. Cohort.properties would rewrite the stored
         # legacy groups in place.
         existing = self._effective_filters_after_update({}, team=team)
-        hidden_event = added_hidden_event(
-            _behavioral_event_names(_flat_properties(self._effective_filters_after_update(attrs, team=team))),
-            _behavioral_event_names(_flat_properties(existing)),
-        )
-        if hidden_event and team is not None and hides_flag_calls_from_query_builders(team.organization_id):
+        added = added_unsupported_hidden_event_reference(new_properties, _flat_properties(existing), team)
+        if added is not None:
+            hidden_event, reason = added
             raise ValidationError(
-                {"filters": f"You can't add a new criterion on {hidden_event}. {HIDDEN_EVENT_REASON}"},
+                {"filters": f"You can't save this criterion on {hidden_event}. {reason}"},
                 code="hidden_event",
             )
 

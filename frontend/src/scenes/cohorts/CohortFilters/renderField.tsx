@@ -21,7 +21,14 @@ import {
     FilterType,
 } from 'scenes/cohorts/CohortFilters/types'
 
-import { PropertyOperator } from '~/types'
+import { BehavioralEventType, PropertyOperator } from '~/types'
+
+// The criterion types the cohorts API accepts on an event hidden in query builders. "Did not complete
+// event" stores PerformEvent with negation.
+const CRITERIA_ACCEPTING_HIDDEN_EVENTS: string[] = [
+    BehavioralEventType.PerformEvent,
+    BehavioralEventType.PerformMultipleEvents,
+]
 
 // Building blocks of a row
 export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.Element> = {
@@ -74,6 +81,7 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
                 {...(p as CohortTaxonomicFieldProps)}
                 taxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
                 placeholder="Choose event or action"
+                includeHiddenEvents={CRITERIA_ACCEPTING_HIDDEN_EVENTS.includes(String(p.criteria.value))}
             />
         )
     },
