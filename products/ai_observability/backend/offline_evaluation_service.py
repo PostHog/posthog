@@ -53,6 +53,7 @@ class ExperimentReceipt:
     experiment: OfflineExperiment
     counts: ExperimentCounts
     created: bool = False
+    status_changed: bool = False
 
 
 @frozen
@@ -259,7 +260,7 @@ class OfflineExperimentService(_OfflineEvaluationService):
             experiment.status = status
             experiment.finished_at = timezone.now()
             experiment.save(update_fields=["status", "finished_at"])
-            receipt = ExperimentReceipt(experiment=experiment, counts=counts)
+            receipt = ExperimentReceipt(experiment=experiment, counts=counts, status_changed=True)
         return receipt
 
 
