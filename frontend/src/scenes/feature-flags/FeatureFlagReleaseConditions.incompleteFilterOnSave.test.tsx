@@ -119,6 +119,39 @@ describe('a save blocked by a collapsed condition set', () => {
         ])
     })
 
+    it('drops a new value-less filter that sits next to a finished one, and saves', async () => {
+        const filters = buildFilters()
+        filters.groups[0].properties = [
+            ...(filters.groups[0].properties ?? []),
+            { key: 'country', value: null, operator: PropertyOperator.Exact, type: PropertyFilterType.Person },
+        ]
+        filters.groups[1].properties = [
+            { key: 'plan', value: ['free'], operator: PropertyOperator.Exact, type: PropertyFilterType.Person },
+        ]
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagSuccess'])
+        logic.actions.setFeatureFlag({ ...NEW_FLAG, id: 1234, key: 'test-flag', filters } as FeatureFlagType)
+        render(
+            <Provider>
+                <FeatureFlagReleaseConditionsCollapsible
+                    id="1234"
+                    flagId={1234}
+                    filters={filters}
+                    onChange={logic.actions.setFeatureFlagFilters}
+                />
+            </Provider>
+        )
+        await waitFor(() => expect(screen.getByLabelText('Toggle condition 2 details')).toBeInTheDocument())
+
+        await expectLogic(logic, () => {
+            logic.actions.submitFeatureFlag()
+        }).toDispatchActions([
+            (action) =>
+                action.type === logic.actionTypes.saveFeatureFlag &&
+                action.payload.filters.groups[0].properties.map((property: { key: string }) => property.key).join() ===
+                    'email',
+        ])
+    })
+
     it('blocks the save when a person removes the last value from a filter', async () => {
         const filters = buildFilters('free')
         logic.actions.setFeatureFlag({ ...NEW_FLAG, id: 1234, key: 'test-flag', filters } as FeatureFlagType)

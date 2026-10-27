@@ -167,6 +167,7 @@ import {
     hasDeniedApprovalRequest,
     isSchedulePaused,
 } from './scheduleOccurrences'
+import { UnfinishedFilterPositions, findDroppableFilters, withoutFilters } from './unfinishedReleaseConditionFilters'
 import { flagToggleKey, updateFlagActiveInProject } from './updateFlagActiveInProject'
 
 const BROADCAST_COHORT_POLL_MS = 2000
@@ -1246,6 +1247,7 @@ export interface featureFlagLogicValues {
     dependentFlags: DependentFlag[]
     dependentFlagsLoading: boolean
     disableCopiedFlag: boolean
+    droppableFilters: UnfinishedFilterPositions
     earlyAccessFeaturesList: MinimalEarlyAccessFeatureType[]
     editorKind: FeatureFlagEditorKind
     emailDomain: string
@@ -2488,6 +2490,10 @@ export interface featureFlagLogicMeta {
             version?: number
         }
         activeTab: (selectedTab: FeatureFlagsTab, availableTabs: FeatureFlagsTab[]) => FeatureFlagsTab
+        droppableFilters: (
+            featureFlag: FeatureFlagType,
+            originalFeatureFlag: FeatureFlagType | null
+        ) => UnfinishedFilterPositions
         hasUnsavedChanges: (featureFlag: FeatureFlagType, originalFeatureFlag: FeatureFlagType | null) => boolean
         isFormDirty: (
             originalFeatureFlag: FeatureFlagType | null,
@@ -2754,10 +2760,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                 })
                             ),
                         },
-                        groups: values.propertySelectErrors as DeepPartialMap<
-                            FeatureFlagGroupType,
-                            ValidationErrorType
-                        >[],
+                        groups: (values.propertySelectErrors as PropertySelectError[] | null)?.map(
+                            (groupErrors, groupIndex) => {
+                                const droppable = values.droppableFilters[groupIndex]
+                                if (!groupErrors || !droppable?.length) {
+                                    return groupErrors
+                                }
+                                return {
+                                    ...groupErrors,
+                                    properties: groupErrors.properties?.map((propertyError, propertyIndex) =>
+                                        droppable.includes(propertyIndex) ? {} : propertyError
+                                    ),
+                                }
+                            }
+                        ) as DeepPartialMap<FeatureFlagGroupType, ValidationErrorType>[],
                         payloads: {
                             true: validatePayloadRequired(is_remote_configuration, filters?.payloads?.['true']),
                         } as any,
@@ -4442,6 +4458,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
             const conditionSetErrors = getConditionSetErrors(filtersErrors?.groups as PropertySelectError[] | undefined)
             openConditionSets(String(props.id), conditionSetErrors)
+            // A scroll can land on the field without the person seeing why the save stopped, so
+            // a blocked condition set always gets a toast that names it.
+            if (conditionSetErrors.length) {
+                lemonToast.error(
+                    `Condition set ${conditionSetErrors[0].index + 1} needs a fix: ${conditionSetErrors[0].message}`
+                )
+            }
             // Yield so React flushes the expand-actions re-render before scrollToFormError schedules
             // its requestAnimationFrame callback — otherwise on browsers/scheduler combinations where
             // the render lands after RAF, `.Field--error` isn't in the DOM yet and the fallback toast
@@ -4449,7 +4472,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             await Promise.resolve()
             scrollToFormError({
                 fallbackErrorMessage: conditionSetErrors.length
-                    ? `Condition set ${conditionSetErrors[0].index + 1} needs a fix: ${conditionSetErrors[0].message}`
+                    ? undefined
                     : 'This flag has validation errors. Please review the highlighted fields above.',
             })
         },
@@ -5298,7 +5321,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         submitFeatureFlagWithValidation: async (_payload, breakpoint, action, previousState) => {
-            const featureFlag = values.featureFlag
+            let featureFlag = values.featureFlag
+            const droppedCount = values.droppableFilters.flat().length
+            if (droppedCount && isV1FeatureFlagConfig(featureFlag.filters)) {
+                featureFlag = {
+                    ...featureFlag,
+                    filters: {
+                        ...featureFlag.filters,
+                        groups: withoutFilters(featureFlag.filters.groups, values.droppableFilters),
+                    },
+                }
+                lemonToast.info(
+                    droppedCount === 1
+                        ? 'Removed a filter with no value from the release conditions'
+                        : `Removed ${droppedCount} filters with no value from the release conditions`
+                )
+            }
             const originalFlag = values.originalFeatureFlag
             const keyChanged = originalFlag && featureFlag.id && originalFlag.key !== featureFlag.key
 
@@ -5410,6 +5448,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.selectedTab, s.availableTabs],
             (selectedTab: FeatureFlagsTab, availableTabs: FeatureFlagsTab[]): FeatureFlagsTab =>
                 availableTabs.includes(selectedTab) ? selectedTab : FeatureFlagsTab.OVERVIEW,
+        ],
+        droppableFilters: [
+            (s) => [s.featureFlag, s.originalFeatureFlag],
+            (featureFlag: FeatureFlagType, originalFeatureFlag: FeatureFlagType | null): UnfinishedFilterPositions =>
+                isV1FeatureFlagConfig(featureFlag.filters)
+                    ? findDroppableFilters(
+                          featureFlag.filters.groups,
+                          originalFeatureFlag && isV1FeatureFlagConfig(originalFeatureFlag.filters)
+                              ? originalFeatureFlag.filters.groups
+                              : undefined
+                      )
+                    : [],
         ],
         hasUnsavedChanges: [
             (s) => [s.featureFlag, s.originalFeatureFlag],
