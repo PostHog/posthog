@@ -11814,6 +11814,7 @@
             "readOnlyHint": true
         },
         "feature_flag": "marketing-analytics-recommendations",
+        "reads_ingested_data": "events_or_warehouse",
         "system_prompt_hint": "Google Ads and Search Console recommendations - wasted spend, budgets, brand and organic overlap"
     },
     "query-mcp-harness-breakdown": {
