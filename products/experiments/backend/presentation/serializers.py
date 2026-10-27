@@ -53,6 +53,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthInputsTrafficStatus,
     ExperimentHealthMetricCompileErrorKind,
+    ExperimentValidationError,
     HealthExposureInputsStatus,
 )
 from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
@@ -1081,11 +1082,14 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
         # Route through facade
         team = Team.objects.get(id=self.context["team_id"])
-        experiment_dto = create_experiment(
-            team=team,
-            user=self.context["request"].user,
-            input_dto=input_dto,
-        )
+        try:
+            experiment_dto = create_experiment(
+                team=team,
+                user=self.context["request"].user,
+                input_dto=input_dto,
+            )
+        except ExperimentValidationError as error:
+            raise ValidationError(str(error)) from error
 
         # Load instance for return (DRF expects model instance)
         instance = Experiment.objects.get(id=experiment_dto.id)

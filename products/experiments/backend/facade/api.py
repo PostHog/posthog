@@ -11,7 +11,6 @@ from uuid import UUID
 
 import pydantic
 import structlog
-from rest_framework.exceptions import ValidationError
 
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -39,6 +38,7 @@ from .contracts import (
     Experiment,
     ExperimentHealth,
     ExperimentHealthReaderAccess,
+    ExperimentValidationError,
     RunningExperiment,
 )
 
@@ -60,7 +60,8 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
         Experiment DTO
 
     Raises:
-        ValidationError: If validation fails in service layer
+        ExperimentValidationError: If the holdout does not exist for this team
+        rest_framework.exceptions.ValidationError: If validation fails in service layer
     """
 
     # Load holdout if ID provided
@@ -71,7 +72,7 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
         try:
             holdout = ExperimentHoldout.objects.get(id=input_dto.holdout_id, team_id=team.id)
         except ExperimentHoldout.DoesNotExist:
-            raise ValidationError(f"Holdout with id {input_dto.holdout_id} does not exist for this team")
+            raise ExperimentValidationError(f"Holdout with id {input_dto.holdout_id} does not exist for this team")
 
     # Convert tuple to list for ordering fields (DTO uses tuple for immutability)
     primary_metrics_ordered_uuids = list(input_dto.metrics_ordering) if input_dto.metrics_ordering else None

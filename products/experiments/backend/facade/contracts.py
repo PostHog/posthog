@@ -250,6 +250,11 @@ class ExperimentHealthReaderAccess:
     denied_event_properties: frozenset[str]
 
 
+class ExperimentValidationError(Exception):
+    """Raised when the facade refuses an experiment write for its input. The message is written for the person who
+    sent the input, so a caller at an HTTP boundary can return it as a 400."""
+
+
 @dataclass(frozen=True)
 class CreateExperimentInput:
     """
