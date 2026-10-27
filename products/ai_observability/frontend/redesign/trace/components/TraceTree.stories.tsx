@@ -9,12 +9,22 @@ import { TraceTree } from './TraceTree'
 function Stateful({
     nodes,
     initialSelectedId = 'gen-answer',
+    matchingNodeIds = null,
 }: {
     nodes: TraceNodeApi[]
     initialSelectedId?: string
+    matchingNodeIds?: ReadonlySet<string> | null
 }): JSX.Element {
     const [selected, setSelected] = useState<string | null>(initialSelectedId)
-    return <TraceTree nodes={nodes} selectedNodeId={selected} onSelectNode={setSelected} onPrefetchNode={() => {}} />
+    return (
+        <TraceTree
+            nodes={nodes}
+            selectedNodeId={selected}
+            onSelectNode={setSelected}
+            onPrefetchNode={() => {}}
+            matchingNodeIds={matchingNodeIds}
+        />
+    )
 }
 
 const meta: Meta<typeof Stateful> = {
@@ -29,6 +39,9 @@ type Story = StoryObj<typeof Stateful>
 export const Default: Story = { args: { nodes: FIXTURE_TREE } }
 export const DeepAgentTree: Story = {
     args: { nodes: claudeCodePluginSession.tree, initialSelectedId: claudeCodePluginSession.initialNodeId },
+}
+export const WithSearchMatches: Story = {
+    args: { nodes: FIXTURE_TREE, matchingNodeIds: new Set(['span-search', 'gen-answer']) },
 }
 export const WithError: Story = {
     args: {

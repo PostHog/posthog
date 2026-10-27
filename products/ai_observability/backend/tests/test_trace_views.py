@@ -9,6 +9,7 @@ from parameterized import parameterized
 from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.constants import AvailableFeature
+from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import Team
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
@@ -18,6 +19,7 @@ from posthog.models.user import User
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.ai_observability.backend.facade import api
 from products.ai_observability.backend.models.review_queues import ReviewQueue
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
@@ -156,6 +158,7 @@ class TestTraceViewSet(ClickhouseTestMixin, APIBaseTest):
                 ("trace", ""),
                 ("node", f"nodes/{_encode('trace-1')}/"),
                 ("evaluations", "evaluations/"),
+                ("search", "search/?q=invoice"),
             ]
         ]
     )
@@ -314,6 +317,50 @@ class TestTraceEvaluationsView(ClickhouseTestMixin, APIBaseTest):
         result = self.client.get(self._url(_encode("trace-1"))).json()["results"][0]
 
         assert (result["reasoning"], result["outcome"]) == (None, "pass")
+
+
+class TestTraceSearchView(ClickhouseTestMixin, APIBaseTest):
+    def _url(self, trace_id: str) -> str:
+        return f"/api/projects/{self.team.id}/ai_observability/traces/{_encode(trace_id)}/search/"
+
+    def test_returns_matches_in_camel_case(self) -> None:
+        _create_node_trace(self.team)
+
+        response = self.client.get(self._url("trace-1"), {"q": "Invoice"})
+
+        assert response.status_code == 200, response.content
+        assert response.json() == {"total": 2, "matches": [{"nodeId": GENERATION, "count": 2}]}
+
+    @parameterized.expand([("no query", {}), ("a blank query", {"q": "  "}), ("a long query", {"q": "a" * 201})])
+    def test_rejects_a_bad_query(self, _name: str, query: dict[str, str]) -> None:
+        _create_node_trace(self.team)
+
+        assert self.client.get(self._url("trace-1"), query).status_code == 400
+
+    def test_unknown_trace_is_not_found(self) -> None:
+        assert self.client.get(self._url("trace-2"), {"q": "invoice"}).status_code == 404
+
+    def test_restricted_content_never_matches(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="$ai_input", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=definition,
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        _create_node_trace(self.team)
+
+        assert self.client.get(self._url("trace-1"), {"q": "go up"}).json() == {"total": 0, "matches": []}
+
+    def test_a_timeout_is_a_504(self) -> None:
+        with patch.object(api, "load_trace_search", side_effect=ClickHouseQueryTimeOut()):
+            assert self.client.get(self._url("trace-1"), {"q": "invoice"}).status_code == 504
 
 
 class TestTraceViewSetResourceLevelAccess(ClickhouseTestMixin, APIBaseTest):

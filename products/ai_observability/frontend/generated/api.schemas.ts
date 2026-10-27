@@ -1487,6 +1487,20 @@ export interface TraceNodeDetailApi {
     event: TraceNodeEventApi | null
 }
 
+export interface TraceSearchMatchApi {
+    /** A step whose stored data contains the query. The root's id is the trace id. */
+    nodeId: string
+    /** How many times the query occurs in the step's stored inputs, outputs, state, tools, name, model, provider and error, ignoring case. Keys of the stored JSON count too. */
+    count: number
+}
+
+export interface TraceSearchResultsApi {
+    /** Occurrences of the query across every matching step. */
+    total: number
+    /** Matching steps in tree order, the root first. Steps without a match are left out. */
+    matches: TraceSearchMatchApi[]
+}
+
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
 
 /**
@@ -5473,6 +5487,19 @@ export type AiObservabilityTracesRetrieveParams = {
 }
 
 export type AiObservabilityTracesNodesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
+export type AiObservabilityTracesSearchRetrieveParams = {
+    /**
+     * The text to find in the trace's steps, ignoring case.
+     * @minLength 1
+     * @maxLength 200
+     */
+    q: string
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */

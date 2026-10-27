@@ -12,6 +12,8 @@ export interface TraceTreeRowProps {
     selectedNodeId: string | null
     onSelectNode: (id: string) => void
     onPrefetchNode: (id: string) => void
+    /** The steps that contain the search query, or null when nothing is searched. */
+    matchingNodeIds?: ReadonlySet<string> | null
 }
 
 export function TraceTreeRow({
@@ -20,6 +22,7 @@ export function TraceTreeRow({
     selectedNodeId,
     onSelectNode,
     onPrefetchNode,
+    matchingNodeIds = null,
 }: TraceTreeRowProps): JSX.Element {
     const isSelected = node.id === selectedNodeId
     return (
@@ -33,7 +36,8 @@ export function TraceTreeRow({
                 data-attr="trace-view-tree-node"
                 className={cn(
                     'flex w-full min-w-0 items-start gap-2 rounded py-1 pr-1.5 text-left hover:bg-fill-button-tertiary-hover',
-                    isSelected && 'bg-fill-button-tertiary-active'
+                    isSelected && 'bg-fill-button-tertiary-active',
+                    matchingNodeIds && !matchingNodeIds.has(node.id) && 'opacity-50'
                 )}
                 // Depth is data, so the indent cannot be a static Tailwind class.
                 style={{ paddingLeft: `${0.375 + depth * 0.75}rem` }}
@@ -63,6 +67,7 @@ export function TraceTreeRow({
                             selectedNodeId={selectedNodeId}
                             onSelectNode={onSelectNode}
                             onPrefetchNode={onPrefetchNode}
+                            matchingNodeIds={matchingNodeIds}
                         />
                     ))}
                 </ul>

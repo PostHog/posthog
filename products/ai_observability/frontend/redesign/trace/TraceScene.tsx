@@ -4,7 +4,7 @@ import { aiObservabilityTraceLogic } from '../../aiObservabilityTraceLogic'
 import { SaveToDatasetButton } from '../../datasets/SaveToDatasetButton'
 import { traceViewAdapterLogic, traceViewAdapterLogicValues } from './adapter/traceViewAdapterLogic'
 import { TraceView, TraceViewProps, TraceViewReadyProps } from './components/TraceView'
-import { NodeDetailTab, TraceMode } from './types'
+import { MatchDirection, NodeDetailTab, TraceMode } from './types'
 
 type ReadyValues = Pick<
     traceViewAdapterLogicValues,
@@ -19,6 +19,9 @@ type ReadyValues = Pick<
     | 'canViewInThread'
     | 'thread'
     | 'timeline'
+    | 'searchBox'
+    | 'matchingNodeIds'
+    | 'highlightQuery'
 >
 
 interface ReadyActions {
@@ -28,6 +31,8 @@ interface ReadyActions {
     setDetailTab: (tab: NodeDetailTab) => void
     viewInThread: () => void
     prefetchNode: (id: string) => void
+    setQuery: (query: string) => void
+    stepMatch: (direction: MatchDirection) => void
 }
 
 function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewReadyProps | null {
@@ -55,6 +60,9 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
             : null,
         thread: values.thread,
         timeline: values.timeline,
+        search: { ...values.searchBox, onQueryChange: actions.setQuery, onStep: actions.stepMatch },
+        matchingNodeIds: values.matchingNodeIds,
+        highlightQuery: values.highlightQuery,
     }
 }
 
@@ -77,6 +85,9 @@ export function TraceScene(): JSX.Element {
         canViewInThread,
         thread,
         timeline,
+        searchBox,
+        matchingNodeIds,
+        highlightQuery,
     } = useValues(logic)
     const actions = useActions(logic)
 
@@ -95,6 +106,9 @@ export function TraceScene(): JSX.Element {
                       canViewInThread,
                       thread,
                       timeline,
+                      searchBox,
+                      matchingNodeIds,
+                      highlightQuery,
                   },
                   actions
               )

@@ -31,6 +31,10 @@ class TraceQuerySerializer(serializers.Serializer):
         return value
 
 
+class TraceSearchQuerySerializer(TraceQuerySerializer):
+    q = serializers.CharField(max_length=200, help_text="The text to find in the trace's steps, ignoring case.")
+
+
 TRACE_ID_PARAMETER = OpenApiParameter(
     "id",
     OpenApiTypes.STR,
@@ -48,7 +52,7 @@ THROTTLED_RESPONSE = OpenApiResponse(description="Too many queries are running f
 
 class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "llm_analytics"
-    scope_object_read_actions = ["retrieve", "node", "evaluations"]
+    scope_object_read_actions = ["retrieve", "node", "evaluations", "search"]
     # Traces are project-wide data, so a grant on a single llm_analytics object must not open them.
     requires_resource_level_access = True
     serializer_class = _FallbackSerializer
@@ -126,4 +130,32 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except MalformedTraceIdSegmentError:
             return Response({"detail": "Malformed encoded trace id."}, status=status.HTTP_400_BAD_REQUEST)
         results = self._read(request, lambda user, _hint: api.get_trace_evaluation_results(self.team, user, trace_id))
+        return Response(results.model_dump(mode="json", by_alias=True))
+
+    @validated_request(
+        query_serializer=TraceSearchQuerySerializer,
+        parameters=[TRACE_ID_PARAMETER],
+        responses={
+            200: OpenApiResponse(response=contracts.TraceSearchResults),
+            400: OpenApiResponse(
+                description="The query is missing or too long, or the timestamp hint or the encoded trace id is malformed."
+            ),
+            404: OpenApiResponse(description="No trace with this id in the project."),
+            429: THROTTLED_RESPONSE,
+            504: OpenApiResponse(description="The search took too long on this trace."),
+        },
+        operation_id="ai_observability_traces_search_retrieve",
+    )
+    @action(detail=True, methods=["GET"], url_path="search")
+    def search(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
+        """Find text in a trace's steps: each matching step in tree order with its number of occurrences."""
+        try:
+            trace_id = decode_trace_id_segment(pk)
+        except MalformedTraceIdSegmentError:
+            return Response({"detail": "Malformed encoded trace id."}, status=status.HTTP_400_BAD_REQUEST)
+        query = request.validated_query_data["q"]
+        try:
+            results = self._read(request, lambda user, hint: api.search_trace(self.team, user, trace_id, query, hint))
+        except api.TraceNotFoundError:
+            return Response({"detail": "Trace not found."}, status=status.HTTP_404_NOT_FOUND)
         return Response(results.model_dump(mode="json", by_alias=True))

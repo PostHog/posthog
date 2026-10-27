@@ -12,11 +12,13 @@ from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
 
 from products.ai_observability.backend.logic.traces.trace_queries import (
+    SearchNeedles,
     TraceRootLookup,
     is_truthy_json,
     load_trace,
     load_trace_node,
     load_trace_root,
+    load_trace_search,
 )
 
 T0 = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
@@ -54,6 +56,18 @@ INGESTED_SOURCE = """(
 )
 def test_is_truthy_json(_name: str, raw: str, expected: bool) -> None:
     assert is_truthy_json(raw) is expected
+
+
+@parameterized.expand(
+    [
+        ("plain text", "invoice", "invoice", "invoice"),
+        ("a double quote", 'say "hi"', 'say "hi"', 'say \\"hi\\"'),
+        ("a backslash", "C:\\tmp", "C:\\tmp", "C:\\\\tmp"),
+        ("non-ASCII text", "café", "café", "café"),
+    ]
+)
+def test_search_needles_match_text_and_stored_json(_name: str, query: str, text: str, json_needle: str) -> None:
+    assert SearchNeedles.of(query) == SearchNeedles(text=text, json=json_needle)
 
 
 class TraceEventsMixin:
@@ -256,3 +270,50 @@ class TestEventsFallback(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
 
         assert load_trace_node(self.team, None, "trace-1", NODE, None) is None
         assert load_trace_root(self.team, None, "trace-1", None) == TraceRootLookup(trace_event=None, trace_found=False)
+
+    def test_search_falls_back_to_events_with_a_hint_only(self) -> None:
+        bulk_create_events([self._event(NODE, properties={"$ai_span_name": "Fetch invoice"})])
+
+        assert load_trace_search(self.team, None, "trace-1", "invoice", T0).counts == {NODE: 1}
+        assert load_trace_search(self.team, None, "trace-1", "invoice", None).rows == ()
+
+
+SPAN = "00000000-0000-0000-0000-000000000011"
+GENERATION = "00000000-0000-0000-0000-000000000012"
+QUIET_GENERATION = "00000000-0000-0000-0000-000000000013"
+
+
+class TestLoadTraceSearch(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
+    def test_counts_occurrences_per_event_across_content_and_names(self) -> None:
+        bulk_create_ai_events(
+            [
+                self._event(
+                    GENERATION,
+                    event="$ai_generation",
+                    properties={"$ai_input": [{"role": "user", "content": "Invoice total? The invoice is late."}]},
+                ),
+                self._event(
+                    SPAN, properties={"$ai_span_name": "Fetch invoice", "$ai_output_state": {"note": "nothing here"}}
+                ),
+                self._event(QUIET_GENERATION, event="$ai_generation", properties={"$ai_model": "gpt-4o-mini"}),
+            ]
+        )
+
+        loaded = load_trace_search(self.team, None, "trace-1", "INVOICE", None)
+
+        assert loaded.counts == {GENERATION: 2, SPAN: 1}
+        assert len(loaded.rows) == 3
+
+    @parameterized.expand(
+        [
+            ("a quoted phrase", '"late"', {"$ai_input": [{"content": 'It said "late" twice'}]}),
+            ("a backslash", "C:\\tmp", {"$ai_output": "saved to C:\\tmp"}),
+            ("a percent sign", "50%", {"$ai_output": "50% done, 500 left"}),
+            ("an underscore", "a_b", {"$ai_output": "a_b and axb"}),
+            ("an error object", "quota", {"$ai_error": {"message": "Quota exceeded"}}),
+        ]
+    )
+    def test_matches_text_as_stored_in_json(self, _name: str, query: str, properties: dict[str, object]) -> None:
+        self._ingest(NODE, properties, event="$ai_generation")
+
+        assert load_trace_search(self.team, None, "trace-1", query, None).counts == {NODE: 1}

@@ -107,3 +107,9 @@ export interface LabeledLink {
     label: string
     href: string
 }
+
+export type TraceSearchStatus = 'idle' | 'loading' | 'ready' | 'error'
+
+export type TraceSearchFailure = 'too_slow' | 'failed'
+
+export type MatchDirection = 'next' | 'previous'

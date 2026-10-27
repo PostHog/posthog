@@ -7,7 +7,9 @@ export interface TraceSplitViewProps {
     selectedNodeId: string | null
     onSelectNode: (id: string) => void
     onPrefetchNode: (id: string) => void
-    detail: Omit<NodeDetailProps, 'onSelectNode'> | null
+    detail: Omit<NodeDetailProps, 'onSelectNode' | 'highlightQuery'> | null
+    matchingNodeIds?: ReadonlySet<string> | null
+    highlightQuery?: string | null
 }
 
 export function TraceSplitView({
@@ -16,6 +18,8 @@ export function TraceSplitView({
     onSelectNode,
     onPrefetchNode,
     detail,
+    matchingNodeIds = null,
+    highlightQuery = null,
 }: TraceSplitViewProps): JSX.Element {
     return (
         <div className="@container">
@@ -26,11 +30,12 @@ export function TraceSplitView({
                         selectedNodeId={selectedNodeId}
                         onSelectNode={onSelectNode}
                         onPrefetchNode={onPrefetchNode}
+                        matchingNodeIds={matchingNodeIds}
                     />
                 </aside>
                 <div className="min-w-0 flex-1 @3xl:sticky @3xl:top-[var(--scene-title-section-height,50px)] @3xl:max-h-[calc(100vh-var(--scene-title-section-height,50px))] @3xl:overflow-y-auto">
                     {detail ? (
-                        <NodeDetail {...detail} onSelectNode={onSelectNode} />
+                        <NodeDetail {...detail} onSelectNode={onSelectNode} highlightQuery={highlightQuery} />
                     ) : (
                         <p className="m-0 text-secondary">Select a step to see its details.</p>
                     )}

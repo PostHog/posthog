@@ -4,6 +4,7 @@ import { NodeDetailProps } from './NodeDetail'
 import { Thread } from './Thread'
 import { TraceHeader, TraceHeaderProps } from './TraceHeader'
 import { TraceModeTabs } from './TraceModeTabs'
+import { TraceSearchBoxProps } from './TraceSearchBox'
 import { TraceSplitView } from './TraceSplitView'
 import { TraceSummaryBar, TraceSummaryBarProps } from './TraceSummaryBar'
 import { TraceTimeline } from './TraceTimeline'
@@ -11,7 +12,7 @@ import { TraceViewError } from './TraceViewError'
 import { TraceViewLoading } from './TraceViewLoading'
 
 export interface TraceViewReadyProps {
-    header: TraceHeaderProps
+    header: Omit<TraceHeaderProps, 'search'>
     summary: TraceSummaryBarProps
     mode: TraceMode
     onModeChange: (mode: TraceMode) => void
@@ -20,9 +21,13 @@ export interface TraceViewReadyProps {
     onSelectNode: (id: string) => void
     onPrefetchNode: (id: string) => void
     onSelectFromView: (id: string) => void
-    detail: Omit<NodeDetailProps, 'onSelectNode'> | null
+    detail: Omit<NodeDetailProps, 'onSelectNode' | 'highlightQuery'> | null
     thread: ConversationState
     timeline: { rows: TraceTimelineRowApi[]; totalMs: number }
+    search?: TraceSearchBoxProps | null
+    /** The steps that contain the search query, or null when nothing is searched. */
+    matchingNodeIds?: ReadonlySet<string> | null
+    highlightQuery?: string | null
 }
 
 export type TraceViewProps =
@@ -39,7 +44,7 @@ export function TraceView(props: TraceViewProps): JSX.Element {
     }
     return (
         <div className="flex flex-col gap-3">
-            <TraceHeader {...props.header} />
+            <TraceHeader {...props.header} search={props.search} />
             <TraceSummaryBar {...props.summary} />
             <TraceModeTabs mode={props.mode} onModeChange={props.onModeChange} />
             {props.mode === 'spans' ? (
@@ -49,9 +54,15 @@ export function TraceView(props: TraceViewProps): JSX.Element {
                     onSelectNode={props.onSelectNode}
                     onPrefetchNode={props.onPrefetchNode}
                     detail={props.detail}
+                    matchingNodeIds={props.matchingNodeIds}
+                    highlightQuery={props.highlightQuery}
                 />
             ) : props.mode === 'thread' ? (
-                <Thread conversation={props.thread} onSelectMessage={props.onSelectFromView} />
+                <Thread
+                    conversation={props.thread}
+                    onSelectMessage={props.onSelectFromView}
+                    highlightQuery={props.highlightQuery}
+                />
             ) : (
                 <TraceTimeline
                     rows={props.timeline.rows}
@@ -59,6 +70,7 @@ export function TraceView(props: TraceViewProps): JSX.Element {
                     selectedNodeId={props.selectedNodeId}
                     onSelectNode={props.onSelectFromView}
                     onPrefetchNode={props.onPrefetchNode}
+                    matchingNodeIds={props.matchingNodeIds}
                 />
             )}
         </div>

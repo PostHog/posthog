@@ -1,13 +1,16 @@
 import json
 import math
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from datetime import datetime
-from typing import Any
+from functools import reduce
+from typing import Any, Self
 from uuid import UUID
 
 import structlog
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
@@ -231,6 +234,8 @@ def _read(
     user: User | None,
     trace_id: str,
     window: FallbackWindow | None,
+    *,
+    settings: HogQLGlobalSettings | None = None,
 ) -> list[Sequence[Any]]:
     tag_queries(name=name)
     response = query_ai_events(
@@ -246,6 +251,7 @@ def _read(
             )
         },
         posthog_tables_only=True,
+        settings=settings,
     )
     return list(response.results or [])
 
@@ -351,14 +357,15 @@ def _read_trace(
     timestamp_hint: datetime | None,
     *,
     widen_unhinted: bool,
+    settings: HogQLGlobalSettings | None = None,
 ) -> list[Sequence[Any]]:
     if timestamp_hint is not None:
-        return _read(name, build_query(), team, user, trace_id, fallback_window(timestamp_hint))
-    results = _read(name, build_query(), team, user, trace_id, None)
+        return _read(name, build_query(), team, user, trace_id, fallback_window(timestamp_hint), settings=settings)
+    results = _read(name, build_query(), team, user, trace_id, None, settings=settings)
     if results or not widen_unhinted:
         return results
     logger.warning("ai_trace_unhinted_events_fallback", team_id=team.pk, trace_id_length=len(trace_id), read=name)
-    return _read(name, build_query(), team, user, trace_id, unhinted_window())
+    return _read(name, build_query(), team, user, trace_id, unhinted_window(), settings=settings)
 
 
 def load_trace(team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None) -> LoadedTrace:
@@ -418,3 +425,74 @@ def load_trace_root(team: Team, user: User | None, trace_id: str, timestamp_hint
         return TraceRootLookup(trace_event=_trace_node_row(results[0]), trace_found=True)
     # Most traces have no $ai_trace event, so the existence check reads light columns instead of a step's payload.
     return TraceRootLookup(trace_event=None, trace_found=bool(read("ai_trace_exists", _trace_exists_query)))
+
+
+_SEARCH_TIMEOUT_SECONDS = 10
+_JSON_SEARCHED = (*(ast.Field(chain=[column]) for column in _HEAVY_COLUMNS), _raw_property("$ai_error"))
+_TEXT_SEARCHED = tuple(ast.Field(chain=[column]) for column in ("span_name", "trace_name", "model", "provider"))
+
+
+@frozen
+class SearchNeedles:
+    text: str
+    # The heavy columns hold raw JSON, so quotes and backslashes in the query match only in their escaped form.
+    json: str
+
+    @classmethod
+    def of(cls, query: str) -> Self:
+        return cls(text=query, json=json.dumps(query, ensure_ascii=False)[1:-1])
+
+
+@frozen
+class LoadedTraceSearch:
+    rows: tuple[TraceEventRow, ...]
+    counts: dict[str, int]
+
+
+def _search_settings() -> HogQLGlobalSettings:
+    # Search reads every stored byte of the trace, so it fails fast instead of holding a request for the default minute.
+    return HogQLGlobalSettings(max_execution_time=_SEARCH_TIMEOUT_SECONDS, timeout_overflow_mode="throw")
+
+
+def _occurrences(haystack: ast.Expr, needle: str) -> ast.Expr:
+    return ast.Call(
+        name="ifNull",
+        args=[
+            ast.Call(name="countSubstringsCaseInsensitiveUTF8", args=[haystack, ast.Constant(value=needle)]),
+            ast.Constant(value=0),
+        ],
+    )
+
+
+def _trace_search_query(needles: SearchNeedles) -> ast.SelectQuery:
+    counts = [
+        *(_occurrences(column, needles.json) for column in _JSON_SEARCHED),
+        *(_occurrences(column, needles.text) for column in _TEXT_SEARCHED),
+    ]
+    match_count = reduce(lambda left, right: ast.Call(name="plus", args=[left, right]), counts)
+    query = _trace_rows_query()
+    return replace(query, select=[*query.select, ast.Alias(alias="match_count", expr=match_count)])
+
+
+def load_trace_search(
+    team: Team, user: User | None, trace_id: str, query: str, timestamp_hint: datetime | None
+) -> LoadedTraceSearch:
+    needles = SearchNeedles.of(query)
+    results = _read_trace(
+        "ai_trace_search",
+        lambda: _trace_search_query(needles),
+        team,
+        user,
+        trace_id,
+        timestamp_hint,
+        widen_unhinted=False,
+        settings=_search_settings(),
+    )
+    rows: list[TraceEventRow] = []
+    counts: dict[str, int] = {}
+    for *values, match_count in results:
+        row = _trace_event_row(values)
+        rows.append(row)
+        if match_count:
+            counts[row.uuid] = int(match_count)
+    return LoadedTraceSearch(rows=tuple(rows), counts=counts)

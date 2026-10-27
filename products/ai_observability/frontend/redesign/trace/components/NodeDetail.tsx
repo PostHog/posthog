@@ -10,6 +10,7 @@ import { NodeDetailHeader } from './NodeDetailHeader'
 import { NodeMessagesTab } from './NodeMessagesTab'
 import { NodePropertyList } from './NodePropertyList'
 import { NodeRawTab } from './NodeRawTab'
+import { useSearchHighlight } from './useSearchHighlight'
 
 export interface NodeDetailProps {
     node: TraceNodeApi
@@ -23,11 +24,13 @@ export interface NodeDetailProps {
     onViewInThread: (() => void) | null
     onSelectNode: (nodeId: string) => void
     actions?: ReactNode
+    highlightQuery?: string | null
 }
 
 export function NodeDetail(props: NodeDetailProps): JSX.Element {
+    const highlightRef = useSearchHighlight(props.highlightQuery ?? null)
     return (
-        <div className="flex min-w-0 flex-col gap-2">
+        <div className="flex min-w-0 flex-col gap-2" ref={highlightRef}>
             <NodeDetailHeader node={props.node} actions={props.actions} />
             <LemonTabs<NodeDetailTab>
                 size="small"

@@ -26,6 +26,7 @@ const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
 const DATASETS_URL = '/api/projects/:team_id/datasets/'
+const SEARCH_URL = '/api/projects/:team_id/ai_observability/traces/:id/search/'
 const answeredGeneration = makeNodeDetail({
     id: 'gen-2',
     properties: {
@@ -80,6 +81,7 @@ describe('TraceScene', () => {
                 get: {
                     [TRACE_URL]: () => [200, makeTraceResource({ defaultNodeId: 'gen-2' })],
                     [DATASETS_URL]: () => [200, { count: 0, results: [] }],
+                    [SEARCH_URL]: () => [200, { total: 1, matches: [{ nodeId: 'gen-1', count: 1 }] }],
                     ...nodeMock,
                     ...evaluationsMock,
                 },
@@ -105,6 +107,34 @@ describe('TraceScene', () => {
             fireEvent.mouseEnter(row)
 
             await waitFor(() => expect(nodeRequests).toContain('span-1'))
+        })
+
+        it('searches from the header, fades the steps without a match and steps to the match', async () => {
+            const { container, findAllByText, findByText } = renderNewView()
+            const treeRow = async (name: string): Promise<Element> => {
+                const row = (await findAllByText(name))
+                    .map((element) => element.closest('[data-attr="trace-view-tree-node"]'))
+                    .find((element) => element !== null)
+                if (!row) {
+                    throw new Error(`expected ${name} to render as a tree row`)
+                }
+                return row
+            }
+            await treeRow('gen-1')
+            const input = container.querySelector('input[data-attr="trace-view-search-input"]')
+            if (!input) {
+                throw new Error('expected the header to render the search input')
+            }
+
+            fireEvent.change(input, { target: { value: 'invoice' } })
+
+            expect(await findByText('1 match')).toBeTruthy()
+            expect((await treeRow('gen-2')).className).toContain('opacity-50')
+            expect((await treeRow('gen-1')).className).not.toContain('opacity-50')
+
+            fireEvent.keyDown(input, { key: 'Enter' })
+
+            await waitFor(async () => expect((await treeRow('gen-1')).getAttribute('aria-current')).toBe('true'))
         })
 
         it.each([true, false])('offers add to dataset on the step only when datasets are on (%s)', async (enabled) => {

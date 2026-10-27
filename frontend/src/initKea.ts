@@ -137,6 +137,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     updateProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     deleteProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     loadEvaluationResults: 'products.ai_observability.frontend.redesign.trace.traceViewLogic', // The trace view's Evals tab shows the error
+    loadSearchResults: 'products.ai_observability.frontend.redesign.trace.traceSearchLogic', // The trace view's search box shows the error
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.

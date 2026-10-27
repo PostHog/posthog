@@ -1,21 +1,40 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tryDecodeURIComponent } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
 import type { SaveToDatasetButtonProps } from '../../../datasets/SaveToDatasetButton'
-import type { TraceEvaluationResultApi, TraceNodeApi, TraceTimelineRowApi } from '../../../generated/api.schemas'
+import type {
+    TraceEvaluationResultApi,
+    TraceNodeApi,
+    TraceSearchResultsApi,
+    TraceTimelineRowApi,
+} from '../../../generated/api.schemas'
 import { TraceHeaderProps } from '../components/TraceHeader'
+import type { TraceSearchBoxData } from '../components/TraceSearchBox'
 import { TraceSummaryBarProps } from '../components/TraceSummaryBar'
+import { SEARCH_DEBOUNCE_MS, traceSearchLogic } from '../traceSearchLogic'
 import { TraceViewStatus, traceViewLogic } from '../traceViewLogic'
-import { ConversationState, LabeledLink, NodeDetailTab, NodeLoad, TraceMode } from '../types'
+import {
+    ConversationState,
+    LabeledLink,
+    MatchDirection,
+    NodeDetailTab,
+    NodeLoad,
+    TraceMode,
+    TraceSearchFailure,
+    TraceSearchStatus,
+} from '../types'
 import { toDatasetItemSource } from './toDatasetItemSource'
 import { toBackLink, toHeader } from './toHeader'
 import { NodeDetailData, toNodeDetail } from './toNodeDetail'
+import { steppedMatchId, toMatchingNodeIds, toSearchBox } from './toSearch'
 import { toThread } from './toThread'
 import { findTreeNode } from './toTraceTree'
 
@@ -35,6 +54,10 @@ export interface traceViewAdapterLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     searchParams: Record<string, any> // router
     currentTeamId: number | null // teamLogic
+    query: string // traceSearchLogic
+    searchFailure: TraceSearchFailure | null // traceSearchLogic
+    searchResults: TraceSearchResultsApi | null // traceSearchLogic
+    searchStatus: TraceSearchStatus // traceSearchLogic
     createdAt: string | null // traceViewLogic
     defaultNodeId: string // traceViewLogic
     errorMessage: string // traceViewLogic
@@ -60,10 +83,15 @@ export interface traceViewAdapterLogicValues {
     detailData: NodeDetailData | null
     detailTab: NodeDetailTab
     header: TraceHeaderProps
+    highlightQuery: string | null
+    matchingNodeIds: ReadonlySet<string> | null
     mode: TraceMode
+    readySearchResults: TraceSearchResultsApi | null
+    searchBox: TraceSearchBoxData
     selectedNodeId: string
     selectedNodeLoad: NodeLoad
     selectedTreeNode: TraceNodeApi | null
+    shownSelectedNodeId: string | null
     thread: ConversationState
     threadNodeLoad: NodeLoad | null
 }
@@ -80,6 +108,9 @@ export interface traceViewAdapterLogicActions {
     setEventId: (eventId: string | null) => {
         eventId: string | null
     } // aiObservabilityTraceLogic
+    setQuery: (query: string) => {
+        query: string
+    } // traceSearchLogic
     loadNode: (
         nodeId: string,
         trigger: import('../types').NodeLoadTrigger
@@ -108,6 +139,9 @@ export interface traceViewAdapterLogicActions {
     }
     setMode: (mode: TraceMode) => {
         mode: TraceMode
+    }
+    stepMatch: (direction: MatchDirection) => {
+        direction: MatchDirection
     }
     viewInThread: () => {
         value: true
@@ -165,6 +199,20 @@ export interface traceViewAdapterLogicMeta {
             traceId: string
         ) => ConversationState
         canViewInThread: (selectedNodeId: string, threadNodeIds: string[], traceId: string) => boolean
+        readySearchResults: (
+            searchStatus: TraceSearchStatus,
+            searchResults: TraceSearchResultsApi | null
+        ) => TraceSearchResultsApi | null
+        shownSelectedNodeId: (mode: TraceMode, selectedNodeId: string) => string | null
+        searchBox: (
+            query: string,
+            searchStatus: TraceSearchStatus,
+            readySearchResults: TraceSearchResultsApi | null,
+            searchFailure: TraceSearchFailure | null,
+            shownSelectedNodeId: string | null
+        ) => TraceSearchBoxData
+        matchingNodeIds: (readySearchResults: TraceSearchResultsApi | null) => ReadonlySet<string> | null
+        highlightQuery: (query: string, searchStatus: TraceSearchStatus) => string | null
     }
 }
 
@@ -212,12 +260,16 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             ['searchParams'],
             featureFlagLogic,
             ['featureFlags'],
+            traceSearchLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
+            ['query', 'searchResults', 'searchStatus', 'searchFailure'],
         ],
         actions: [
             aiObservabilityTraceLogic,
             ['setEventId', 'loadNeighbors'],
             traceViewLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
             ['loadNode', 'loadTraceSuccess'],
+            traceSearchLogic({ traceId: props.traceId, timestampHint: props.timestampHint }),
+            ['setQuery'],
         ],
     })),
     actions({
@@ -227,6 +279,7 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
         selectAndShowSpans: (id: string) => ({ id }),
         viewInThread: true,
         prefetchNode: (id: string) => ({ id }),
+        stepMatch: (direction: MatchDirection) => ({ direction }),
     }),
     reducers({
         mode: [
@@ -375,14 +428,55 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             (selectedNodeId: string, threadNodeIds: string[], traceId: string): boolean =>
                 selectedNodeId === traceId || threadNodeIds.includes(selectedNodeId),
         ],
+        // Results of an older query stay in the loader while a newer one loads or after it fails.
+        readySearchResults: [
+            (s) => [s.searchStatus, s.searchResults],
+            (status: TraceSearchStatus, results: TraceSearchResultsApi | null): TraceSearchResultsApi | null =>
+                status === 'ready' ? results : null,
+        ],
+        // Only Spans shows the selected step, so in other modes it is no place to count or step from.
+        shownSelectedNodeId: [
+            (s) => [s.mode, s.selectedNodeId],
+            (mode: TraceMode, selectedNodeId: string): string | null => (mode === 'spans' ? selectedNodeId : null),
+        ],
+        searchBox: [
+            (s) => [s.query, s.searchStatus, s.readySearchResults, s.searchFailure, s.shownSelectedNodeId],
+            (
+                query: string,
+                status: TraceSearchStatus,
+                results: TraceSearchResultsApi | null,
+                failure: TraceSearchFailure | null,
+                shownSelectedNodeId: string | null
+            ): TraceSearchBoxData => toSearchBox(query, status, results, failure, shownSelectedNodeId),
+        ],
+        matchingNodeIds: [
+            (s) => [s.readySearchResults],
+            (results: TraceSearchResultsApi | null): ReadonlySet<string> | null => toMatchingNodeIds(results),
+        ],
+        highlightQuery: [
+            (s) => [s.query, s.searchStatus],
+            (query: string, status: TraceSearchStatus): string | null => (status === 'ready' ? query.trim() : null),
+        ],
     }),
-    listeners(({ actions, props }) => {
+    listeners(({ actions, values, props }) => {
         // The click's read starts before the selection moves, so the selectedNodeId subscription's navigation read
         // for the same id is deduped and the load event reports a click. Selecting the node that is already
         // selected changes no value and the subscription does not fire, so this read also retries a failed node.
+        // The legacy logic resets its selection from the URL on every location change, so a URL that carries the
+        // search carries the selection too. Each change also records a product intent there.
+        const writeUrl = (query: string): void => {
+            router.actions.replace(
+                urls.aiObservabilityTrace(props.traceId),
+                { ...values.searchParams, search: query || undefined, event: values.eventId ?? undefined },
+                router.values.hashParams
+            )
+        }
         const select = ({ id }: { id: string }): void => {
             actions.loadNode(id, 'selection')
             actions.setEventId(id)
+            if (values.query.trim() && values.searchParams.event !== id) {
+                writeUrl(values.query)
+            }
         }
         return {
             selectNode: select,
@@ -392,8 +486,30 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 actions.loadNode(id, 'prefetch')
             },
             loadTraceSuccess: ({ trace }) => actions.loadNeighbors(props.traceId, trace.createdAt),
+            stepMatch: ({ direction }) => {
+                const matches = values.readySearchResults?.matches ?? []
+                const id = steppedMatchId(matches, values.shownSelectedNodeId, direction)
+                if (id) {
+                    actions.selectAndShowSpans(id)
+                }
+            },
+            // The URL follows the debounced query rather than each keystroke.
+            setQuery: async ({ query }, breakpoint) => {
+                await breakpoint(SEARCH_DEBOUNCE_MS)
+                if (String(values.searchParams.search ?? '') !== query) {
+                    writeUrl(query)
+                }
+            },
         }
     }),
+    urlToAction(({ actions, values, props }) => ({
+        [`${urls.aiObservabilityTraces()}/:id`]: ({ id }, { search }) => {
+            const query = search === undefined || search === null ? '' : String(search)
+            if (tryDecodeURIComponent(id ?? '') === props.traceId && query !== values.query) {
+                actions.setQuery(query)
+            }
+        },
+    })),
     subscriptions(({ actions }) => ({
         selectedNodeId: (selectedNodeId: string) => actions.loadNode(selectedNodeId, 'navigation'),
     })),

@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
@@ -19,6 +20,7 @@ jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), 
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
+const SEARCH_URL = '/api/projects/:team_id/ai_observability/traces/:id/search/'
 
 const answeredGeneration = makeNodeDetail({
     id: 'gen-2',
@@ -35,6 +37,7 @@ describe('traceViewAdapterLogic', () => {
     let traceGate: Promise<void>
     let nodeRequests: string[]
     let failingNodeId: string | null
+    let searchStatus: number
 
     function mountAt(params: Record<string, string> = {}): void {
         router.actions.push(urls.aiObservabilityTrace('trace-1', params))
@@ -47,6 +50,7 @@ describe('traceViewAdapterLogic', () => {
         traceGate = Promise.resolve()
         nodeRequests = []
         failingNodeId = null
+        searchStatus = 200
         useMocks({
             get: {
                 [TRACE_URL]: async () => {
@@ -54,6 +58,19 @@ describe('traceViewAdapterLogic', () => {
                     return [200, traceResource]
                 },
                 [EVALUATIONS_URL]: () => [200, { results: [] }],
+                [SEARCH_URL]: () =>
+                    searchStatus === 200
+                        ? [
+                              200,
+                              {
+                                  total: 3,
+                                  matches: [
+                                      { nodeId: 'gen-1', count: 2 },
+                                      { nodeId: 'gen-2', count: 1 },
+                                  ],
+                              },
+                          ]
+                        : [searchStatus, { detail: 'Search timed out.' }],
                 [NODE_URL]: ({ params }) => {
                     const nodeId = decodeIdSegment(String(params.node_id))
                     nodeRequests.push(nodeId)
@@ -77,6 +94,7 @@ describe('traceViewAdapterLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+        resumeKeaLoadersErrors()
         jest.restoreAllMocks()
     })
 
@@ -218,5 +236,95 @@ describe('traceViewAdapterLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         await expectLogic(logic, () => logic.actions.selectNode(nodeId)).toMatchValues({ canViewInThread: expected })
+    })
+
+    it('reads the search from the link and keeps the list it came from', async () => {
+        mountAt({ search: 'invoice', back_to: 'generations' })
+
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                searchBox: expect.objectContaining({ query: 'invoice', status: 'ready', total: 3 }),
+                backLink: expect.objectContaining({ label: 'Back to generations' }),
+            })
+    })
+
+    it('writes the settled search to the URL once, keeping the selection and the other params', async () => {
+        mountAt({ back_to: 'generations', timestamp: '2026-09-01T10:15:00Z' })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.selectNode('gen-1')
+        const replace = jest.spyOn(router.actions, 'replace')
+
+        await expectLogic(logic, () => {
+            logic.actions.setQuery('two')
+            logic.actions.setQuery('two words + 50%')
+        })
+            .toDispatchActions(['setQuery', 'setQuery'])
+            .toFinishAllListeners()
+            .toNotHaveDispatchedActions(['setQuery'])
+
+        expect(replace).toHaveBeenCalledTimes(1)
+        expect(router.values.searchParams).toEqual({
+            back_to: 'generations',
+            timestamp: '2026-09-01T10:15:00Z',
+            search: 'two words + 50%',
+            event: 'gen-1',
+        })
+        expect(logic.values.selectedNodeId).toBe('gen-1')
+    })
+
+    it('steps to the next match from another mode and shows it in spans', async () => {
+        mountAt({ search: 'invoice' })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setMode('thread')
+
+        await expectLogic(logic, () => logic.actions.stepMatch('next')).toMatchValues({
+            mode: 'spans',
+            selectedNodeId: 'gen-1',
+            searchBox: expect.objectContaining({ position: 1 }),
+        })
+    })
+
+    it('keeps the selection in the URL while a search is active', async () => {
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.selectNode('gen-1')
+        logic.actions.setQuery('invoice')
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.stepMatch('next')
+        expect(router.values.searchParams).toMatchObject({ search: 'invoice', event: 'gen-2' })
+
+        logic.actions.selectNode('span-1')
+        expect(router.values.searchParams).toMatchObject({ search: 'invoice', event: 'span-1' })
+    })
+
+    it('steps to the first match from a mode that does not show the selected step', async () => {
+        mountAt({ search: 'invoice' })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.selectNode('gen-1')
+        logic.actions.setMode('thread')
+
+        expect(logic.values.searchBox.position).toBeNull()
+
+        logic.actions.stepMatch('next')
+        expect(logic.values).toMatchObject({ mode: 'spans', selectedNodeId: 'gen-1' })
+    })
+
+    it('drops the previous matches when a newer search fails', async () => {
+        silenceKeaLoadersErrors()
+        mountAt({ search: 'invoice' })
+        await expectLogic(logic).toFinishAllListeners()
+        searchStatus = 504
+
+        logic.actions.setQuery('refund')
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.stepMatch('next')
+
+        expect(logic.values).toMatchObject({
+            matchingNodeIds: null,
+            selectedNodeId: 'trace-1',
+            searchBox: expect.objectContaining({ status: 'error', failure: 'too_slow', matchingSteps: 0 }),
+        })
     })
 })

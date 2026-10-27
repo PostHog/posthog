@@ -22,7 +22,8 @@ from ..logic.traces.events_fallback import fallback_window
 from ..logic.traces.node import NodeEvent
 from ..logic.traces.timeline import TimelineRow
 from ..logic.traces.trace import Trace
-from ..logic.traces.trace_queries import load_trace, load_trace_node, load_trace_root
+from ..logic.traces.trace_queries import load_trace, load_trace_node, load_trace_root, load_trace_search
+from ..logic.traces.trace_search import TraceSearchResult
 from ..logic.traces.tree import TreeNode
 from ..logic.traces.usage import Usage
 from . import contracts
@@ -170,6 +171,20 @@ def _to_node_detail(node_id: str, event: NodeEvent) -> contracts.TraceNodeDetail
             properties=event.row.properties,
             io_keys=contracts.TraceNodeIOKeys(input=keys.input, output=keys.output, tools=keys.tools),
         ),
+    )
+
+
+def search_trace(
+    team: Team, user: User | None, trace_id: str, query: str, timestamp_hint: datetime | None
+) -> contracts.TraceSearchResults:
+    """Raises `TraceNotFoundError`, and `ClickHouseQueryTimeOut` when the search outlasts its time limit."""
+    loaded = load_trace_search(team, user, trace_id, query, timestamp_hint)
+    if not loaded.rows:
+        raise TraceNotFoundError(trace_id)
+    result = TraceSearchResult.of(Trace(trace_id, loaded.rows, None), loaded.counts)
+    return contracts.TraceSearchResults(
+        total=result.total,
+        matches=[contracts.TraceSearchMatch(node_id=match.node_id, count=match.count) for match in result.matches],
     )
 
 
