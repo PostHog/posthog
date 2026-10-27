@@ -70,6 +70,7 @@ from products.access_control.backend.presentation.access_control import (
 from products.conversations.backend.ai.evidence import citations_for_ticket, hydrate_ai_sources
 from products.conversations.backend.ai.human_outcome import AiDraftHumanOutcome, record_human_outcome
 from products.conversations.backend.api.serializers import TicketAssignmentSerializer
+from products.conversations.backend.api.ticket_brief import TicketBriefSerializer
 from products.conversations.backend.api.ticket_filters import (
     AI_TRIAGE_FILTER_VALUES,
     apply_ticket_filters,
@@ -413,6 +414,9 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
     person = TicketPersonSerializer(read_only=True, allow_null=True)
     email_to = serializers.SerializerMethodField()
     session_context = TicketSessionContextField(read_only=True)
+    ticket_brief = serializers.SerializerMethodField(
+        help_text="Structured summary of the ticket for the support engineer. Null until support triage writes it."
+    )
 
     class Meta:
         model = Ticket
@@ -430,6 +434,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "ai_resolved",
             "escalation_reason",
             "ai_triage",
+            "ticket_brief",
             "created_at",
             "updated_at",
             "message_count",
@@ -537,6 +542,12 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             return config.from_email
         return None
 
+    @extend_schema_field(TicketBriefSerializer(allow_null=True))
+    def get_ticket_brief(self, obj: Ticket) -> dict[str, Any] | None:
+        # An empty brief reads as null rather than {}, so a client cannot mistake a ticket
+        # support triage never routed for one with an empty ask.
+        return obj.ticket_brief or None
+
 
 class UserTicketAssigneeRequestSerializer(serializers.Serializer):
     type = serializers.CharField(help_text="Assign the ticket to a user.")
@@ -583,6 +594,10 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
         required=False,
         help_text="Tag names to set on the ticket.",
     )
+    ticket_brief = TicketBriefSerializer(
+        required=False,
+        help_text="Structured summary of the ticket for the support engineer. Replaces the whole brief.",
+    )
 
     class Meta:
         model = Ticket
@@ -596,6 +611,7 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
             "sla_due_at",
             "snoozed_until",
             "tags",
+            "ticket_brief",
         ]
         extra_kwargs = {
             "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved."},
