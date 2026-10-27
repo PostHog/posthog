@@ -54,7 +54,7 @@ export class ApiRequestTimingRecorder {
     private resourceEntries: PerformanceResourceTiming[] = []
     private resourceCollectionOverflowed = false
 
-    constructor(private readonly clock: Pick<Performance, 'now' | 'getEntriesByName'> = performance) {
+    constructor(private readonly clock: Pick<Performance, 'now'> = performance) {
         this.startedAt = clock.now()
         this.fetchStartedAt = this.startedAt
         try {
@@ -186,18 +186,14 @@ export class ApiRequestTimingRecorder {
     }
 
     private resourceTiming(requestId: string, finishedAt: number): ResourceTiming {
+        if (!this.observer) {
+            return { resource_timing_status: 'unavailable' }
+        }
         if (this.resourceCollectionOverflowed) {
             // Truncation may have hidden a duplicate identity; retained entries cannot prove ownership.
             return { resource_timing_status: 'overflow' }
         }
-        const entries = this.observer
-            ? this.resourceEntries
-            : this.responseUrl
-              ? this.clock.getEntriesByName(this.responseUrl, 'resource')
-              : []
-        const matches = (entries as PerformanceResourceTiming[]).filter((entry) =>
-            serverRequestIds(entry).includes(requestId)
-        )
+        const matches = this.resourceEntries.filter((entry) => serverRequestIds(entry).includes(requestId))
         if (matches.length !== 1) {
             return { resource_timing_status: matches.length > 1 ? 'ambiguous' : 'not_found' }
         }
