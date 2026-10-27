@@ -2,7 +2,9 @@ from posthog.schema import HogQLNotice
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -23,9 +25,10 @@ FLAG_CALLED_FROM_FLAG_EVALUATIONS_NOTICE = (
 )
 
 
-class _FlagCalledOnEventsFinder(TraversingVisitor):
-    def __init__(self) -> None:
+class _FlagCalledLiteralFinder(TraversingVisitor):
+    def __init__(self, table_class: type[Table]) -> None:
         super().__init__()
+        self.table_class = table_class
         self.literals: list[ast.Constant] = []
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
@@ -48,12 +51,12 @@ class _FlagCalledOnEventsFinder(TraversingVisitor):
     def visit_compare_operation(self, node: ast.CompareOperation) -> None:
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.In, ast.CompareOperationOp.GlobalIn):
             for field_side, value_side in ((node.left, node.right), (node.right, node.left)):
-                if _is_events_event_field(field_side):
+                if _is_event_field_of(field_side, self.table_class):
                     self.literals.extend(_flag_called_constants(value_side))
         super().visit_compare_operation(node)
 
 
-def _is_events_event_field(expr: ast.Expr) -> bool:
+def _is_event_field_of(expr: ast.Expr, table_class: type[Table]) -> bool:
     while isinstance(expr, ast.Alias):
         expr = expr.expr
     if not isinstance(expr, ast.Field):
@@ -67,7 +70,7 @@ def _is_events_event_field(expr: ast.Expr) -> bool:
     table_type = field_type.table_type
     while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
         table_type = table_type.table_type
-    return isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable)
+    return isinstance(table_type, ast.TableType) and isinstance(table_type.table, table_class)
 
 
 def _flag_called_constants(expr: ast.Expr) -> list[ast.Constant]:
@@ -89,7 +92,7 @@ def flag_called_on_events_warnings(
     # A caller that passes an already printed AST never builds the database, and its AST may be rewritten.
     if context.database is None:
         return []
-    finder = _FlagCalledOnEventsFinder()
+    finder = _FlagCalledLiteralFinder(EventsTable)
     with context.timings.measure("flag_called_warnings"):
         finder.visit(resolve_types(clone_expr(node), context, dialect="clickhouse"))
     # A literal that a variable supplies has no span, and a notice without one marks the whole query.
@@ -98,3 +101,10 @@ def flag_called_on_events_warnings(
         for literal in finder.literals
         if literal.start is not None and literal.end is not None
     ]
+
+
+def flag_called_spans_read_from_flag_evaluations(prepared: ast.AST) -> set[tuple[int | None, int | None]]:
+    """The spans of the `$feature_flag_called` literals that a prepared AST compares to `flag_evaluations.event`."""
+    finder = _FlagCalledLiteralFinder(FlagEvaluationsTable)
+    finder.visit(prepared)
+    return {(literal.start, literal.end) for literal in finder.literals}

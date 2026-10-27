@@ -18,6 +18,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     HogQLQueryResponse,
     PersonPropertyFilter,
+    PersonsOnEventsMode,
     PropertyGroupsMode,
     PropertyOperator,
     SessionPropertyFilter,
@@ -187,7 +188,12 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         return self._execute(columns, where, row_uuids=row_uuids, placeholders=placeholders).results
 
     def _query_events(
-        self, query: str, *, rewrite: bool = True, filters: HogQLFilters | None = None
+        self,
+        query: str,
+        *,
+        rewrite: bool = True,
+        filters: HogQLFilters | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
     ) -> HogQLQueryResponse:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization,
@@ -197,7 +203,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             "posthog.hogql.database.database.feature_enabled_or_false",
             side_effect=lambda key, *args, **kwargs: rewrite and key == "hogql-flag-calls-from-flag-evaluations",
         ):
-            return execute_hogql_query(query, team=self.team, filters=filters, pretty=False)
+            return execute_hogql_query(query, team=self.team, filters=filters, modifiers=modifiers, pretty=False)
 
     def _override(self, person_id: uuid.UUID, version: int, is_deleted: bool = False) -> None:
         sync_execute(
@@ -724,6 +730,37 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
         assert len(from_events) == 1
         assert from_flag_evaluations == from_events
+
+    @parameterized.expand(
+        [
+            (
+                "with_name_that_a_flag_evaluations_column_shadows",
+                f"WITH 'all calls' AS flag_key SELECT flag_key FROM events WHERE {FLAG_CALL_CONJUNCTS}",
+            ),
+            (
+                "root_cte_named_events_in_a_union_branch",
+                "WITH events AS (SELECT uuid, event, properties, timestamp FROM posthog.events) "
+                f"SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS} "
+                f"UNION ALL SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS}",
+            ),
+            (
+                "columns_inside_an_expression",
+                f"SELECT tuple(*COLUMNS('^(created|inserted)_at$')) FROM events WHERE {FLAG_CALL_CONJUNCTS}",
+            ),
+        ]
+    )
+    def test_query_whose_names_bind_elsewhere_after_the_swap_keeps_reading_events(self, _name: str, query: str):
+        assert self._query_events(query).clickhouse == self._query_events(query, rewrite=False).clickhouse
+
+    def test_swapped_prewhere_that_reads_an_overridden_person_id_runs(self):
+        response = self._query_events(
+            f"SELECT count() FROM events PREWHERE person_id IS NOT NULL WHERE {FLAG_CALL_CONJUNCTS}",
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+            ),
+        )
+
+        assert response.results == [(1,)]
 
     def test_flag_call_query_on_events_prints_a_read_of_flag_evaluations(self):
         self.assertQueryMatchesSnapshot(self._query_events(FLAG_CALLS_ON_EVENTS).clickhouse)

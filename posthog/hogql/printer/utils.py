@@ -33,7 +33,10 @@ from posthog.hogql.printer.snowflake import SnowflakePrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.events_read_in_order import order_events_reads_by_sort_key
-from posthog.hogql.transforms.flag_calls_from_flag_evaluations import rewrite_flag_calls_to_flag_evaluations
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
+    rewrite_flag_calls_to_flag_evaluations,
+    swap_keeps_bindings,
+)
 from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
 from posthog.hogql.transforms.json_property_pushdown import (
     has_rewritable_json_extract,
@@ -273,15 +276,15 @@ def prepare_ast_for_printing(
             scopes=[scope.type for scope in stack if scope.type is not None] if stack else None,
             resolver_factory=resolver_factory,
         )
-        resolved = None
+        node = resolve(node)
         if rewritten is not None:
             try:
-                resolved = resolve(rewritten)
+                swapped = resolve(rewritten)
             except BaseHogQLError:
-                # Expected for a query that reads a field flag_evaluations lacks, such as $window_id. Resolving
-                # the original next surfaces any real error in the query unchanged.
-                pass
-        node = resolved if resolved is not None else resolve(node)
+                # Expected for a query that reads a field flag_evaluations lacks, such as $window_id.
+                swapped = None
+            if swapped is not None and swap_keeps_bindings(node, swapped):
+                node = swapped
 
     # Project constant-key JSONExtractString on argMax lazy tables (groups/persons) into the
     # aggregate, so it does not materialize the whole JSON blob per row. Rewrites the call to a

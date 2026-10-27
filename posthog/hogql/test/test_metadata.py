@@ -460,6 +460,17 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 True,
                 0,
             ),
+            (
+                "falls_back_when_a_name_binds_to_a_flag_evaluations_column",
+                "WITH 'all calls' AS flag_key SELECT flag_key FROM events WHERE event = '$feature_flag_called' "
+                "AND properties.$feature_flag = 'my-flag' AND timestamp >= now() - INTERVAL 7 DAY",
+                True,
+                1,
+                _MOVE_NOTICES_WITHOUT_URL,
+                None,
+                True,
+                0,
+            ),
         ]
     )
     def test_metadata_warns_for_flag_called_read_from_events(

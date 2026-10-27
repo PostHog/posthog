@@ -323,6 +323,24 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
             ("select_star", f"SELECT * FROM events WHERE {FLAG_CALLED} AND {FLAG_KEY} AND {BOUND}"),
             ("qualified_select_star", f"SELECT e.* FROM events e WHERE {FLAG_CALLED} AND {FLAG_KEY} AND {BOUND}"),
             ("columns_expression", f"SELECT COLUMNS('^p') FROM events WHERE {FLAG_CALLED} AND {FLAG_KEY} AND {BOUND}"),
+            ("flag_key_that_reads_as_a_number", _where(FLAG_CALLED, "properties.$feature_flag = '100'", BOUND)),
+            ("flag_key_that_reads_as_a_boolean", _where(FLAG_CALLED, "properties.$feature_flag = 'true'", BOUND)),
+            ("flag_key_that_reads_as_json_null", _where(FLAG_CALLED, "properties.$feature_flag = 'null'", BOUND)),
+            (
+                "flag_key_list_with_an_object",
+                _where(FLAG_CALLED, "properties.$feature_flag IN ('my-flag', '{\"a\": 1}')", BOUND),
+            ),
+            (
+                "column_aliases",
+                "SELECT count() FROM events AS e (uuid, event, properties, timestamp, distinct_id, x) "
+                "WHERE e.event = '$feature_flag_called' AND e.properties.$feature_flag = 'my-flag' "
+                "AND e.timestamp >= now() - INTERVAL 7 DAY",
+            ),
+            (
+                "bare_star_with_an_array_join",
+                "SELECT * FROM events ARRAY JOIN [1] AS n WHERE events.event = '$feature_flag_called' "
+                "AND events.properties.$feature_flag = 'my-flag' AND events.timestamp >= now() - INTERVAL 7 DAY",
+            ),
             ("bound_near_year_one", _bounded_by("'0001-01-01'")),
             ("interval_past_datetime_range", _bounded_by("now() - INTERVAL 999999999 YEAR")),
         ]
