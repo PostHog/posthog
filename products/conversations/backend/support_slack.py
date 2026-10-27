@@ -30,7 +30,7 @@ SUPPORT_SLACK_CUSTOM_IDENTITY_SCOPE = "chat:write.customize"
 
 
 def automated_update_channel_allowed(team: "Team", channel_id: str) -> bool:
-    project_team = team.parent_team if team.parent_team_id else team
+    project_team = team.parent_team or team
     settings = project_team.conversations_settings
     channel_ids = settings.get(AUTOMATED_UPDATE_SLACK_CHANNEL_IDS) if isinstance(settings, dict) else None
     return isinstance(channel_ids, list) and channel_id in channel_ids

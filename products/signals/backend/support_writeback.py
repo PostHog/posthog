@@ -113,6 +113,7 @@ def post_pull_request_to_tickets(team: Team, report_id: str, pr_url: str, signal
     )
     public_body = f"[PostHog bot] Self-driving opened a pull request related to this ticket: {pr_url}"
     posted = 0
+    first_error: Exception | None = None
     for ticket_id in ticket_ids:
         try:
             comment_id = conversations_facade.post_ticket_automated_update(
@@ -122,16 +123,20 @@ def post_pull_request_to_tickets(team: Team, report_id: str, pr_url: str, signal
                 private_content=body,
                 dedupe_key=f"signals_pr:{report_id}:{pr_url}",
             )
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 "Failed to post signals pull request to support ticket",
                 report_id=report_id,
                 ticket_id=ticket_id,
                 team_id=team.pk,
             )
+            if first_error is None:
+                first_error = exc
             continue
         if comment_id is not None:
             posted += 1
+    if first_error is not None:
+        raise first_error
     logger.info(
         "Posted signals pull request to support tickets",
         report_id=report_id,

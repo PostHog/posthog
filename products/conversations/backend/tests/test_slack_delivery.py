@@ -134,7 +134,9 @@ class TestSlackDelivery(BaseTest):
             },
         )
         part = self._part()
-        assert part.payload["internal_channel_only"] is True
+        payload = part.payload
+        assert isinstance(payload, dict)
+        assert payload["internal_channel_only"] is True
         client = MagicMock()
         client.conversations_info.return_value = {"channel": channel_info}
         client.chat_postMessage.return_value = {"ts": "1700.1"}

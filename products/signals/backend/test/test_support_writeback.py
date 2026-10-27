@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from posthog.models.comment import Comment
 
+from products.conversations.backend.facade import api as conversations_facade
 from products.conversations.backend.models import ConversationDelivery, TeamConversationsSlackConfig, Ticket
 from products.conversations.backend.models.constants import TicketMessageType
 from products.conversations.backend.services.messages import ticket_message_type
@@ -89,6 +90,30 @@ class TestPostReportFindingsToTickets(BaseTest):
         assert pr_url in note.content
         assert f"/project/{self.team.pk}/inbox/reports/{self.report.id}?link_source=support" in note.content
         assert self.report.summary not in note.content
+
+    @parameterized.expand([("first", 1), ("second", 2)])
+    def test_pull_request_note_failure_retries_without_duplicate_notes(self, _name, failing_call):
+        other_ticket = _make_ticket(self.team)
+        signals = [self.signal, {"source_product": "conversations", "source_id": str(other_ticket.id)}]
+        pr_url = "https://github.com/PostHog/posthog/pull/123"
+        original_post = conversations_facade.post_ticket_automated_update
+        calls = 0
+
+        def fail_once(**kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == failing_call:
+                raise ConnectionError("temporary write failure")
+            return original_post(**kwargs)
+
+        with patch(f"{WRITEBACK_MODULE_PATH}.conversations_facade.post_ticket_automated_update", side_effect=fail_once):
+            with pytest.raises(ConnectionError, match="temporary write failure"):
+                post_pull_request_to_tickets(self.team, str(self.report.id), pr_url, signals)
+            post_pull_request_to_tickets(self.team, str(self.report.id), pr_url, signals)
+
+        assert _ticket_notes(self.team, self.ticket).count() == 1
+        assert _ticket_notes(self.team, other_ticket).count() == 1
+        assert calls == 4
 
     @parameterized.expand(
         [
