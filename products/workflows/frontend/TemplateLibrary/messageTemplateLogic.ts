@@ -451,7 +451,7 @@ export interface messageTemplateLogicMeta {
         transactionalHogFlowId: (originalTemplate: MessageTemplate) => string | null
         isTransactional: (transactionalHogFlowId: string | null, createAsTransactional: boolean) => boolean
         section: (location: { hash: string; pathname: string; search: string }) => TemplateSection
-        listUrl: (isTransactional: boolean, section: any) => string
+        listUrl: (isTransactional: boolean, section: TemplateSection) => string
         draftsEnabled: (transactionalHogFlowId: string | null) => boolean
         hasDraft: (
             savedDraft: {
