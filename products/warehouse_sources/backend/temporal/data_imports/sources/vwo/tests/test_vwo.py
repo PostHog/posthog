@@ -135,3 +135,16 @@ def test_deleted_campaign_does_not_stop_other_children() -> None:
     )
     assert result.raised is None
     assert result.rows == [{"id": 1, "campaign_id": 12}]
+
+
+def test_campaign_without_sections_does_not_stop_other_children() -> None:
+    result = driver().run(
+        "campaign_sections",
+        [
+            collection([{"id": 11}, {"id": 12}], False),
+            ScriptedResponse(status=400, json={}),
+            collection([{"id": 1}], False),
+        ],
+    )
+    assert result.raised is None
+    assert result.rows == [{"id": 1, "campaign_id": 12}]

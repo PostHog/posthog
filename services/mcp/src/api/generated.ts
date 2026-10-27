@@ -79661,6 +79661,8 @@ export namespace Schemas {
       agent: string | null;
       /** @nullable */
       claimed_at: string | null;
+      /** The person who answers for the claim: the user for a user claim, the user an MCP agent acts for, or the user who started an internal task. Null when no person stands behind the claim. */
+      responsible_user: _User | null;
     }
 
     /**
@@ -108773,7 +108775,7 @@ export namespace Schemas {
     /**
      * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
      */
-    export type SendTransactionalEmailMessageData = {[key: string]: unknown};
+    export type SendEmailMessageData = {[key: string]: unknown};
 
     export interface TransactionalEmailIdentifiers {
       /**
@@ -108783,6 +108785,27 @@ export namespace Schemas {
          */
       distinct_id?: string | null;
     }
+
+    export interface SendEmailTemplate {
+      /** ID of the email template to send. The template must be made transactional first. */
+      id: string;
+    }
+
+    export interface SendEmail {
+      /** Email address of the recipient. */
+      to: string;
+      /** Who the email is for, used to attribute engagement events. */
+      identifiers?: TransactionalEmailIdentifiers;
+      /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
+      message_data?: SendEmailMessageData;
+      /** The transactional email template to send. */
+      template: SendEmailTemplate;
+    }
+
+    /**
+     * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
+     */
+    export type SendTransactionalEmailMessageData = {[key: string]: unknown};
 
     export interface SendTransactionalEmail {
       /** Email address of the recipient. */
@@ -139013,7 +139036,7 @@ export namespace Schemas {
      */
     already_addressed?: boolean;
     /**
-     * Use 'me' to return reports claimed by the current user, task, or MCP agent.
+     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, claims by MCP agents acting for them, and claims by internal tasks they started.
      */
     assignee?: SignalsReportsListAssignee;
     /**
@@ -139140,6 +139163,7 @@ export namespace Schemas {
 
     export const SignalsReportsListAssignee = {
       Me: 'me',
+      Mine: 'mine',
     } as const;
 
     export type SignalsReportPrChecksParams = {
