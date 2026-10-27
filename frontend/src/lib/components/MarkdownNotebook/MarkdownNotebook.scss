@@ -1453,6 +1453,14 @@ h3.MarkdownNotebook__text-block--heading {
     transform: translateY(-50%);
 }
 
+// Sits inside the top-left corner, because the scroll container clips anything outside the grid
+.MarkdownNotebook__table-delete-zone {
+    top: var(--table-control-top);
+    left: var(--table-control-left);
+    width: 1.5rem;
+    height: 1.5rem;
+}
+
 .MarkdownNotebook__table-structure-control {
     --lemon-button-height: 1.25rem;
     --lemon-button-icon-size: 0.875rem;
