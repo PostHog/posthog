@@ -134,7 +134,7 @@ dependencies = [
     "semantic-version==2.8.5",
     "simple-salesforce~=1.12.9",
     "slack-sdk==3.42.0",
-    "snowflake-connector-python==4.4.0",
+    "snowflake-connector-python==4.7.5",
     "social-auth-app-django~=5.8.0",
     "social-auth-core~=4.8.7",
     "django-scim2==0.23.0",
