@@ -9379,10 +9379,10 @@ Today (7): `accounts`, `income_payouts`, `income_transactions`, `profiles`, `soc
 
 Diffed against: <https://rapidapi.com/phyllo-phyllo-default/api/phyllo-apis-v1>
 
-- [ ] `/v1/audience` — audience demographics and follower breakdowns - the headline output of the Identity & Audience product (high)
-- [ ] `/v1/social/comments` — comment-level engagement for the contents we already sync; the Comments API is one of Phyllo's three product lines (high)
-- [ ] `/v1/social/content-groups` — stories/albums/series groupings that contents belong to; needed to roll engagement up above the individual post (medium)
-- [ ] `/v1/commerce/income/transactions` — commerce-platform earnings; the synced income_transactions table only covers the social income path (medium)
+- [x] `/v1/audience` — audience demographics and follower breakdowns - the headline output of the Identity & Audience product (high)
+- [x] `/v1/social/comments` — comment-level engagement for the contents we already sync; the Comments API is one of Phyllo's three product lines (high)
+- [x] `/v1/social/content-groups` — stories/albums/series groupings that contents belong to; needed to roll engagement up above the individual post (medium)
+- [x] `/v1/commerce/income/transactions` — commerce-platform earnings; the synced income_transactions table only covers the social income path (medium)
 - [ ] `/v1/commerce/income/payouts` — commerce payout records, same coverage gap as commerce transactions (medium)
 - [ ] `/v1/commerce/income/balances` — current and pending balances per connected commerce account, not derivable from payouts alone (medium)
 - [ ] `/v1/media/activity/contents` — media-activity (listening/watching) items for accounts on media platforms (medium)
@@ -11253,10 +11253,10 @@ Today (7): `campaign_analytics`, `campaign_leads`, `campaign_sequences`, `campai
 
 Diffed against: <https://api.smartlead.ai/llms-full.txt>
 
-- [ ] `Get Lead Categories (GET /api/v1/leads/fetch-categories)` — resolve lead_category_id in campaign leads to meaningful sales outcome labels (high)
+- [x] `Get Lead Categories (GET /api/v1/leads/fetch-categories)` — resolve lead_category_id in campaign leads to meaningful sales outcome labels (high)
 - [ ] `Get Lead Message History (GET /api/v1/campaigns/{campaign_id}/leads/{lead_id}/message-history)` — analyze complete conversations, including replies absent from sent email statistics (high)
-- [ ] `Get All Leads Activities (GET /api/v1/campaigns/all-leads-activities)` — analyze engagement events over time rather than the current state of each sent email (high)
-- [ ] `Get Warmup Statistics (GET /api/v1/email-accounts/{email_account_id}/warmup-stats)` — measure mailbox reputation, spam placement, and warmup performance (medium)
+- [x] `Get All Leads Activities (GET /api/v1/campaigns/all-leads-activities)` — analyze engagement events over time rather than the current state of each sent email (high)
+- [x] `Get Warmup Statistics (GET /api/v1/email-accounts/{email_account_id}/warmup-stats)` — measure mailbox reputation, spam placement, and warmup performance (medium)
 - [ ] `Get Campaign Email Accounts (GET /api/v1/campaigns/{campaign_id}/email-accounts)` — join campaigns to rotating sender accounts for mailbox performance analysis (medium)
 - [ ] `Get Day-wise Overall Stats (GET /api/v1/analytics/day-wise-overall-stats)` — track daily engagement totals and compare outreach performance over time (medium)
 - [ ] `Get Lead Notes (GET /api/v1/crm/leads/notes/{lead_id})` — analyze sales context and follow-up information attached to prospects (medium)
@@ -11339,10 +11339,10 @@ Today (4): `issues`, `organizations`, `projects`, `targets`
 
 Diffed against: <https://api.snyk.io/rest/openapi/2026-03-25>
 
-- [ ] `GET /orgs/{org_id}/memberships` — user-to-org membership with role - the lookup that resolves who owns the projects and issues we sync (high)
+- [x] `GET /orgs/{org_id}/memberships` — user-to-org membership with role - the lookup that resolves who owns the projects and issues we sync (high)
 - [ ] `GET /groups and GET /groups/{group_id}/orgs` — group is the parent of every org; without it multi-org rollups have no hierarchy to aggregate on (high)
-- [ ] `GET /groups/{group_id}/memberships and /org_memberships` — group-level membership and role assignment across all orgs (medium)
-- [ ] `GET /orgs/{org_id}/collections and /collections/{collection_id}/relationships/projects` — collection membership - the standard breakdown dimension for grouping projects in reporting (medium)
+- [x] `GET /groups/{group_id}/memberships and /org_memberships` — group-level membership and role assignment across all orgs (medium)
+- [x] `GET /orgs/{org_id}/collections and /collections/{collection_id}/relationships/projects` — collection membership - the standard breakdown dimension for grouping projects in reporting (medium)
 - [ ] `GET /orgs/{org_id}/policies and GET /orgs/{org_id}/policies/{policy_id}/events` — ignore/severity policies plus their event log explain why issues we sync are suppressed or re-rated (medium)
 - [ ] `GET /orgs/{org_id}/container_images (and /relationships/image_target_refs)` — container image inventory joining images to the targets already synced (medium)
 - [ ] `GET /orgs/{org_id}/audit_logs/search (and group-level equivalent)` — state/transition history for org and project changes (medium)
@@ -11745,10 +11745,10 @@ Today (6): `dividends`, `eod`, `intraday`, `news`, `quote`, `splits`
 
 Diffed against: <https://www.stockdata.org/documentation>
 
-- [ ] `/v1/entity/search` — ticker/entity lookup that resolves the symbols carried on every eod, intraday, quote, dividend and split row (name, exchange, industry, type) (high)
-- [ ] `/v1/news/stats/aggregation` — per-entity news sentiment and volume aggregates - the headline output of StockData's news analysis (medium)
-- [ ] `/v1/news/sources` — lookup resolving the source identifiers on synced news rows (medium)
-- [ ] `/v1/news/stats/intraday` — intraday time series of entity news volume and sentiment (medium)
+- [x] `/v1/entity/search` — ticker/entity lookup that resolves the symbols carried on every eod, intraday, quote, dividend and split row (name, exchange, industry, type) (high)
+- [x] `/v1/news/stats/aggregation` — per-entity news sentiment and volume aggregates - the headline output of StockData's news analysis (medium)
+- [x] `/v1/news/sources` — lookup resolving the source identifiers on synced news rows (medium)
+- [x] `/v1/news/stats/intraday` — intraday time series of entity news volume and sentiment (medium)
 - [ ] `/v1/news/stats/trending` — trending entities by news activity over a window (medium)
 - [ ] `/v1/entity/industry/list` — industry lookup for grouping tickers in breakdowns (medium)
 - [ ] `/v1/data/intraday/adjusted` — split/dividend-adjusted intraday bars; the synced intraday table uses the unadjusted /data/intraday endpoint, so long-range series are discontinuous (medium)

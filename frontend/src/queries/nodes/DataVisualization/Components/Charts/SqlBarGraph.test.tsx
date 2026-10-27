@@ -146,7 +146,7 @@ describe('SqlBarGraph', () => {
             if (dateBucket === 'year') {
                 expect(getChart().xTicks()).toContain('2025')
             } else if (chartType !== ChartDisplayType.ActionsBarValue) {
-                expect((await sqlChart.hoverTooltip(HOVER, dates.length)).label()).toBe('Dec 1, 00:00')
+                expect((await sqlChart.hoverTooltip(HOVER)).label()).toBe('Dec 1, 00:00')
             }
             await clickAtIndex(canvas.parentElement!, HOVER, dates.length)
             expect(await screen.findByText('Explore this result')).toBeVisible()
@@ -307,7 +307,7 @@ describe('SqlBarGraph', () => {
             )
 
             await screen.findByLabelText(/chart with/i)
-            const tooltip = await sqlChart.hoverTooltip(HOVER, MONTHS.length)
+            const tooltip = await sqlChart.hoverTooltip(HOVER)
 
             // formatSqlSeriesValue output — matches the line/combo tooltips, not toLocaleString.
             expect(tooltip.value('a')).toBe('3000')

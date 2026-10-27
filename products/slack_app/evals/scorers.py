@@ -560,3 +560,50 @@ class NoForcedTip(Scorer):
             score=1.0 if got == "none" else 0.0,
             metadata={"actual": got, "verdict": (output or {}).get("verdict")},
         )
+
+
+INTERVIEW_SENTIMENT_KEY = "interview_sentiment"
+
+
+class InterviewSentimentMatch(Scorer):
+    def _name(self) -> str:
+        return INTERVIEW_SENTIMENT_KEY
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        want = (expected or {}).get(INTERVIEW_SENTIMENT_KEY) or {}
+        if "unhappy" not in want:
+            return Score(name=self._name(), score=None, metadata={"reason": "No expectation for this case"})
+        if output and output.get("error"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": output["error"]})
+
+        got = (output or {}).get("unhappy")
+        return Score(
+            name=self._name(),
+            score=1.0 if got == want["unhappy"] else 0.0,
+            metadata={"expected": want["unhappy"], "actual": got, "verdict": (output or {}).get("verdict")},
+        )
+
+
+class NoUnaskedInvite(Scorer):
+    """The expensive direction: an interview invitation to a person who is not unhappy reads as spam.
+
+    Skips on unhappy cases, so the score reads as a rate over the calm messages.
+    """
+
+    def _name(self) -> str:
+        return "no_unasked_invite"
+
+    def _run_eval_sync(self, output: dict | None, expected=None, **kwargs) -> Score:
+        want = (expected or {}).get(INTERVIEW_SENTIMENT_KEY) or {}
+        if want.get("unhappy") is not False:
+            return Score(name=self._name(), score=None, metadata={"reason": "Case is unhappy"})
+        if output and output.get("error"):
+            # A failed call invites nobody, this scorer's passing answer, so it would hide an outage.
+            return Score(name=self._name(), score=None, metadata={"reason": output["error"]})
+
+        got = (output or {}).get("unhappy")
+        return Score(
+            name=self._name(),
+            score=1.0 if got is False else 0.0,
+            metadata={"actual": got, "verdict": (output or {}).get("verdict")},
+        )

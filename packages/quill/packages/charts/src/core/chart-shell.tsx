@@ -39,6 +39,8 @@ export interface ChartShellProps {
     /** Show the crosshair cursor — a drag gesture (e.g. drag-to-zoom) is available. */
     crosshair?: boolean
     ariaLabel: string
+    /** Number of x labels. Tests read it to hover a label by index. */
+    labelCount?: number
     handlers: Required<Pick<React.DOMAttributes<HTMLDivElement>, 'onMouseMove' | 'onMouseLeave' | 'onClick'>> &
         Pick<React.DOMAttributes<HTMLDivElement>, 'onMouseDown' | 'onPointerDown'>
     /** Render the overlay layer — bases gate this on layout readiness (dimensions + scales). */
@@ -67,6 +69,7 @@ export function ChartShell({
     pointer,
     crosshair = false,
     ariaLabel,
+    labelCount,
     handlers,
     showOverlay,
     children,
@@ -76,6 +79,7 @@ export function ChartShell({
             ref={wrapperRef}
             className={[WRAPPER_CLASS, cursorClass(pointer, crosshair), className].filter(Boolean).join(' ')}
             data-attr={dataAttr}
+            data-hog-charts-label-count={labelCount}
             onMouseDown={handlers.onMouseDown}
             onMouseMove={handlers.onMouseMove}
             onMouseLeave={handlers.onMouseLeave}
