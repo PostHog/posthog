@@ -1094,6 +1094,16 @@ Suppression is per direction, so an edit that reverses an earlier one inside the
 Authorization, the 30-day TTL, the child-environment rule, and the read-side withholding are the dismissal ones (`dismissal_notes.principal_may_steer_scouts`); the key scopes aren't demanded on top, because the logins already reach scouts through the report's reviewers artefact and the profile.
 Forwarding runs after commit and is best-effort, and `signals_suggested_reviewers_resolved` carries `correction_notes_written` / `correction_note_targets` so what it achieved is measurable next to the edit itself.
 
+**Removal reasons.** A person who removes a reviewer through the reviewers PUT `remove` action can say why with `removal_reason` (`wrong_area`, `already_covered`, `unavailable`, `other`) and an optional `removal_note`.
+The reason rides on the `suggested_reviewers_changed` activity row as extra changes, with `removal_reason_reviewers` naming whom it covers, so `recent_reviewer_corrections` hands both to research and the scouts. Only the people the editor chose to remove carry the reason: a reviewer that member validation drops in the same write gets neither the reason nor a correction note.
+It also rides on the forwarded correction note, where it replaces the generic caution with guidance for that reason.
+Each reason maps to its own guidance in `reviewer_correction_notes._REASON_GUIDANCE`. `wrong_area` steers similar work away from the person and marks their older history in that area as stale. `already_covered` and `unavailable` are never ownership evidence. The list stays short on purpose: `wrong_area` covers "moved off it" and "someone else owns it", and `unavailable` covers being away and having too many reports.
+The note is quoted line by line, so it cannot pose as a section that the suppression parser reads back.
+The note goes only to the forwarded scout note, and only when its author passes `principal_may_steer_scouts`, the gate a hand-written scout note passes. It stays out of the activity row and the profile, because activity-log readers need no report access and a note can quote dismissal text. The reason code is a fixed choice and needs no gate.
+The web dismiss dialog no longer offers `wrong_assignee`: a removal with a reason reaches research, and a dismissal closes the report for everyone. The state API still accepts the code from older clients.
+A `wrong_assignee` dismissal from an older client or an agent also takes the caller off the reviewers with `wrong_area` and the dismissal note, because research reads the reviewer corrections and never the dismissal note.
+A bulk dismissal processes only the reports that name the caller, and it skips the per-report correction notes, because the dismissal already sends each scout one note for the batch.
+
 **Wrong-repo dismissals.** The `wrong_repo` reason code carries an optional `corrected_repository` (`owner/repo`, refused with any other reason).
 The dismissal artefact denormalizes `selected_repository` (the report's latest `repo_selection` at dismissal time) next to the correction, so a selection mistake is one self-contained record.
 When the corrected repository is currently connected to the team, the state action also appends it as a user-attributed `repo_selection` artefact, latest-wins.
