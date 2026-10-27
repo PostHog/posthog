@@ -8120,7 +8120,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(run.environment, TaskRun.Environment.CLOUD)
         if expected_status == status.HTTP_200_OK:
             self.assertEqual(run.status, TaskRun.Status.QUEUED)
-            mock_reset_stream.assert_called_once_with(str(run.id), use_dedicated=False)
+            mock_reset_stream.assert_called_once_with(str(run.id), use_dedicated=False, force_rotation=False)
             mock_resume.assert_called_once_with(str(run.id), run.workflow_id)
         else:
             self.assertEqual(run.status, TaskRun.Status.COMPLETED)
@@ -17198,10 +17198,14 @@ class TestCloudUsageGate(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_workflow.assert_called_once()
 
+    @parameterized.expand([False, True])
+    @override_settings(TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED=False)
     @patch("products.tasks.backend.temporal.client.resume_task_in_cloud_workflow")
     @patch("products.tasks.backend.facade.streams.reset_task_run_stream", return_value=True)
     @patch("products.tasks.backend.logic.services.code_usage_gate.get_posthog_code_usage", return_value=None)
-    def test_resume_in_cloud_on_inbox_task_needs_no_code_access(self, _mock_gate, _mock_reset, mock_resume):
+    def test_resume_in_cloud_on_inbox_task_needs_no_code_access(
+        self, agent_callbacks, _mock_gate, mock_reset, mock_resume
+    ):
         self.set_tasks_feature_flag(False)
         task = self._inbox_task(Task.OriginProduct.SIGNALS_CHAT)
         run = TaskRun.objects.create(
@@ -17209,7 +17213,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
             team=self.team,
             environment=TaskRun.Environment.CLOUD,
             status=TaskRun.Status.COMPLETED,
-            state={"pr_authorship_mode": "bot"},
+            state={"pr_authorship_mode": "bot", "agent_sends_callbacks": agent_callbacks},
         )
 
         response = self.client.post(
@@ -17219,6 +17223,7 @@ class TestCloudUsageGate(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_resume.assert_called_once()
+        mock_reset.assert_called_once_with(str(run.id), use_dedicated=False, force_rotation=agent_callbacks)
 
         task.refresh_from_db()
         self.assertEqual((task.state or {})["mobile_push_user_ids"], [self.user.id])

@@ -6684,6 +6684,7 @@ def resume_task_run_in_cloud(
     Mirrors ``TaskRunViewSet.resume_in_cloud``.
     """
     from products.tasks.backend.facade.streams import reset_task_run_stream  # noqa: PLC0415
+    from products.tasks.backend.feature_flags import run_agent_sends_callbacks  # noqa: PLC0415
     from products.tasks.backend.redis import run_uses_dedicated_stream  # noqa: PLC0415
     from products.tasks.backend.temporal.client import (  # noqa: PLC0415 — keep temporalio off the api import path
         resume_task_in_cloud_workflow,
@@ -6790,6 +6791,7 @@ def resume_task_run_in_cloud(
         if not reset_task_run_stream(
             str(run.id),
             use_dedicated=run_uses_dedicated_stream(run.state),
+            force_rotation=run_agent_sends_callbacks(run.state),
         ):
             raise RuntimeError("Failed to reset task run event stream")
         resume_task_in_cloud_workflow(str(run.id), run.workflow_id)

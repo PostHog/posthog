@@ -777,7 +777,7 @@ class TaskRunRedisStream:
             return False
 
 
-def reset_task_run_stream(run_id: str, use_dedicated: bool = False) -> bool:
+def reset_task_run_stream(run_id: str, use_dedicated: bool = False, *, force_rotation: bool = False) -> bool:
     """Clear a run's stream state for a restart, keeping the watched lease so an attached reader stays marked."""
     stream_key = get_task_run_stream_key(run_id)
     sequence_key = get_task_run_stream_sequence_key(stream_key)
@@ -799,7 +799,7 @@ def reset_task_run_stream(run_id: str, use_dedicated: bool = False) -> bool:
                 first_command_key,
                 first_activity_key,
             )
-            if settings.TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED:
+            if force_rotation or settings.TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED:
                 pipe.set(f"{stream_key}:generation", uuid4().hex, ex=TASK_RUN_STREAM_SEQUENCE_TIMEOUT)
             pipe.execute()
         return True

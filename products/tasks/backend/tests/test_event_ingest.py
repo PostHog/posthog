@@ -672,17 +672,18 @@ class TestTaskRunEventIngest(TestCase):
             ("interactive", "interactive", True, True),
             ("background", "background", True, False),
             ("web", "interactive", False, False),
+            ("agent_callbacks", "interactive", True, True, True),
         ]
     )
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_permission_request_ingest_pushes_awaiting_input(
-        self, _name: str, mode: str, created_on_mobile: bool, expect_push: bool
+        self, _name: str, mode: str, created_on_mobile: bool, expect_push: bool, agent_callbacks: bool = False
     ) -> None:
         creator = User.objects.create_and_join(self.organization, "awaiting-push@posthog.com", None)
         self.task.created_by = creator
         self.task.state = {"created_on_mobile": created_on_mobile}
         self.task.save(update_fields=["created_by", "state"])
-        self.task_run.state = {**(self.task_run.state or {}), "mode": mode}
+        self.task_run.state = {**(self.task_run.state or {}), "mode": mode, "agent_sends_callbacks": agent_callbacks}
         self.task_run.save(update_fields=["state"])
         token = self._create_token()
         permission_request_params: dict[str, object] = {
@@ -702,10 +703,18 @@ class TestTaskRunEventIngest(TestCase):
             patch("products.tasks.backend.push_dispatcher.send_user_push.delay") as send_push,
             self.captureOnCommitCallbacks(execute=True),
         ):
-            status, body = self._call_ingest(token, [{"seq": 1, "event": permission_request}])
+            status, body = self._call_ingest(
+                token,
+                [{"seq": 1, "event": permission_request}],
+                extra_headers=[(b"x-posthog-agent-callbacks", b"1")] if agent_callbacks else [],
+            )
             self.assertEqual((status, body["accepted"]), (200, 1))
             permission_request_params["requestId"] = "request-2"
-            status, body = self._call_ingest(token, [{"seq": 2, "event": permission_request}])
+            status, body = self._call_ingest(
+                token,
+                [{"seq": 2, "event": permission_request}],
+                extra_headers=[(b"x-posthog-agent-callbacks", b"1")] if agent_callbacks else [],
+            )
 
         self.assertEqual((status, body["accepted"]), (200, 1))
         if not expect_push:

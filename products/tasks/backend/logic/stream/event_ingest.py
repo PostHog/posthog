@@ -316,6 +316,7 @@ async def _ingest_event_lines(
 
             result.accepted += 1
             result.last_accepted_seq = sequence
+            await _notify_permission_request_if_needed(claims.run_id, event)
             if not agent_sends_callbacks:
                 await _heartbeat_workflow_if_needed(redis_stream, claims.run_id, event)
     except EventIngestPayloadTooLarge as error:
@@ -604,6 +605,13 @@ def _parse_ingest_line(line: str) -> EventIngestEventLine | EventIngestCompleteL
     return EventIngestEventLine(sequence=sequence, event=event)
 
 
+async def _notify_permission_request_if_needed(run_id: str, event: dict) -> None:
+    if permission_request := parse_permission_request(event):
+        # A pending permission request or question holds the turn open, so no turn-complete push
+        # reaches the user until they answer it.
+        await sync_to_async(_notify_awaiting_input, thread_sensitive=True)(run_id, permission_request["request_id"])
+
+
 async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id: str, event: dict) -> None:
     if is_agent_command_dispatched(event) and await redis_stream.claim_first_agent_command():
         dispatched = await sync_to_async(_signal_agent_boot_milestone, thread_sensitive=True)(
@@ -617,11 +625,6 @@ async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id
         )
         if not dispatched:
             await redis_stream.release_first_agent_activity()
-
-    if permission_request := parse_permission_request(event):
-        # A pending permission request or question holds the turn open, so no turn-complete push
-        # reaches the user until they answer it.
-        await sync_to_async(_notify_awaiting_input, thread_sensitive=True)(run_id, permission_request["request_id"])
 
     if is_turn_complete(event):
         await redis_stream.set_agent_active(False)

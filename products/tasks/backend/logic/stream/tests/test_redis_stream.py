@@ -289,8 +289,8 @@ def test_publish_task_run_stream_event_honors_presence_gating(watched: bool) -> 
         reset_task_run_stream(run_id)
 
 
-@override_settings(TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED=True)
-def test_reset_task_run_stream_keeps_watched_lease() -> None:
+@pytest.mark.parametrize("rotation_enabled,force_rotation", [(True, False), (False, True)])
+def test_reset_task_run_stream_keeps_watched_lease(rotation_enabled: bool, force_rotation: bool) -> None:
     run_id = f"test:{uuid4()}"
     stream_key = get_task_run_stream_key(run_id)
     watched_key = get_task_run_stream_watched_key(stream_key)
@@ -300,7 +300,8 @@ def test_reset_task_run_stream_keeps_watched_lease() -> None:
         client.xadd(stream_key, {"data": "{}"})
         generation = get_task_run_stream_generation(run_id)
 
-        assert reset_task_run_stream(run_id)
+        with override_settings(TASK_RUN_STREAM_GENERATION_ROTATION_ENABLED=rotation_enabled):
+            assert reset_task_run_stream(run_id, force_rotation=force_rotation)
         assert get_task_run_stream_generation(run_id) != generation
         assert publish_task_run_stream_complete(run_id, expected_generation=generation)
 
