@@ -29,12 +29,7 @@ def _config(**overrides: object) -> SentryProjectConfig:
 
 
 def _planner() -> SentryMigrationPlanner:
-    return SentryMigrationPlanner(existing_suppression_filters=[], project_rate_limit=None)
-
-
-CHROME_UA = (
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36"
-)
+    return SentryMigrationPlanner(existing_suppression_filters=[], enabled_built_in_filters=[], project_rate_limit=None)
 
 
 class TestSentryMigrationRuleMatching(BaseTest):
@@ -138,103 +133,6 @@ class TestSentryMigrationRuleMatching(BaseTest):
                     ({}, False),
                 ],
             ),
-            (
-                "localhost",
-                {"localhost": True},
-                [
-                    ({"$current_url": "http://localhost:3000/settings"}, True),
-                    ({"$current_url": "http://127.0.0.1/"}, True),
-                    ({"$current_url": "http://app.localhost"}, True),
-                    ({"$current_url": "file:///Users/someone/index.html"}, True),
-                    ({"$current_url": "https://localhost.example.com/"}, False),
-                    ({"$current_url": "https://app.example.com/?next=http://localhost"}, False),
-                    ({}, False),
-                ],
-            ),
-            (
-                "web_crawlers",
-                {"web_crawlers": True},
-                [
-                    (
-                        {"$raw_user_agent": "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"},
-                        True,
-                    ),
-                    (
-                        {
-                            "$raw_user_agent": "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; GPTBot/1.2)"
-                        },
-                        True,
-                    ),
-                    ({"$raw_user_agent": "Slackbot 1.0 (+https://api.slack.com/robots)"}, False),
-                    ({"$raw_user_agent": CHROME_UA}, False),
-                    ({}, False),
-                ],
-            ),
-            (
-                "legacy_safari",
-                {"legacy_browsers": ("safari",)},
-                [
-                    ({"$browser": "Mobile Safari", "$browser_version": 15.4}, True),
-                    ({"$browser": "Safari", "$browser_version": 16}, False),
-                    ({"$browser": "Chrome", "$browser_version": 100}, False),
-                    ({"$browser": "Safari"}, False),
-                ],
-            ),
-            (
-                "legacy_internet_explorer",
-                {"legacy_browsers": ("ie",)},
-                [
-                    ({"$browser": "Internet Explorer", "$browser_version": 11}, True),
-                    ({"$browser": "Microsoft Edge", "$browser_version": 11}, False),
-                ],
-            ),
-            (
-                "react_hydration_errors",
-                {"react_hydration_errors": True},
-                [
-                    (
-                        {
-                            "$exception_values": [
-                                "Minified React error #418; visit https://react.dev/errors/418?args[]="
-                            ]
-                        },
-                        True,
-                    ),
-                    (
-                        {
-                            "$exception_values": [
-                                "https://reactjs.org/docs/error-decoder.html?invariant=425 for details"
-                            ]
-                        },
-                        True,
-                    ),
-                    ({"$exception_values": ["Minified React error #310; visit https://react.dev/errors/310"]}, False),
-                ],
-            ),
-            (
-                "chunk_load_errors",
-                {"chunk_load_errors": True},
-                [
-                    ({"$exception_types": ["ChunkLoadError"], "$exception_values": ["Loading chunk 5 failed."]}, True),
-                    (
-                        {
-                            "$exception_types": ["Error"],
-                            "$exception_values": ["Uncaught (in promise): ChunkLoadError: Loading chunk 5 failed."],
-                        },
-                        True,
-                    ),
-                    ({"$exception_types": ["Error"], "$exception_values": ["Loading CSS failed"]}, False),
-                ],
-            ),
-            (
-                "browser_extension_messages",
-                {"browser_extensions": True},
-                [
-                    ({"$exception_values": ["Extension context invalidated."]}, True),
-                    ({"$exception_values": ["Cannot redefine property: ethereum"]}, True),
-                    ({"$exception_values": ["Cannot read properties of undefined"]}, False),
-                ],
-            ),
         ]
     )
     def test_converted_rule_matches_what_sentry_filtered(
@@ -284,27 +182,42 @@ class TestSentryMigrationPlanConversion(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("all_old_ie_subfilters_merge", ("ie_pre_9", "ie9", "ie10", "ie11"), ["Internet Explorer, all versions"]),
-            ("disjoint_ie_ranges", ("ie_pre_9", "ie11"), ["Internet Explorer 8 and older", "Internet Explorer 11"]),
-            ("new_key_covers_deprecated_one", ("safari", "safari_pre_6"), ["Safari 15 and older"]),
+            ("localhost", {"localhost": True}, "On", "localhost", SentryMigrationFit.PARTIAL),
+            ("web_crawlers", {"web_crawlers": True}, "On", "web_crawlers", SentryMigrationFit.PARTIAL),
             (
-                "default_table",
-                ("default",),
-                [
-                    "Internet Explorer 9 and older",
-                    "Safari 5 and older",
-                    "Opera 14 and older",
-                    "Opera Mini 7 and older",
-                    "Android browser 3 and older",
-                ],
+                "react_hydration_errors",
+                {"react_hydration_errors": True},
+                "On",
+                "react_hydration_errors",
+                SentryMigrationFit.GOOD,
             ),
-            ("unknown_subfilter", ("netscape",), []),
+            ("chunk_load_errors", {"chunk_load_errors": True}, "On", "chunk_load_errors", SentryMigrationFit.PARTIAL),
+            (
+                "legacy_browsers",
+                {"legacy_browsers": ("ie11", "safari_pre_6", "netscape")},
+                "Internet Explorer 11, Safari 5 and older, netscape",
+                "legacy_browsers",
+                SentryMigrationFit.PARTIAL,
+            ),
+            ("browser_extensions", {"browser_extensions": True}, "On", None, SentryMigrationFit.UNSUPPORTED),
         ]
     )
-    def test_legacy_browser_subfilters_become_one_rule_per_range(
-        self, _name: str, subfilters: tuple[str, ...], expected_values: list[str]
+    def test_inbound_filters_turn_on_the_matching_automatic_rule(
+        self,
+        _name: str,
+        config_overrides: dict,
+        expected_value: str,
+        expected_key: str | None,
+        expected_fit: SentryMigrationFit,
     ) -> None:
-        items = _planner().build(_config(legacy_browsers=subfilters))
+        planner = SentryMigrationPlanner(
+            existing_suppression_filters=[], enabled_built_in_filters=["localhost"], project_rate_limit=None
+        )
 
-        assert [item.sentry_value for item in items] == expected_values
-        assert len({item.id for item in items}) == len(items)
+        [item] = planner.build(_config(**config_overrides))
+
+        assert item.sentry_value == expected_value
+        assert (item.built_in_filter.key if item.built_in_filter else None) == expected_key
+        assert item.fit == expected_fit
+        assert item.suppression_rule_filters is None
+        assert item.already_in_posthog == (expected_key == "localhost")

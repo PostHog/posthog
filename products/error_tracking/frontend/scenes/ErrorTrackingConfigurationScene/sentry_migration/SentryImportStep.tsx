@@ -21,11 +21,17 @@ import { sentryMigrationLogic } from './sentryMigrationLogic'
 import { SentryMigrationProjectPicker } from './SentryMigrationProjectPicker'
 import { isSelectable } from './sentryMigrationSelection'
 
-const CATEGORY_TITLES: Record<SentryMigrationCategoryEnumApi, string> = {
-    rate_limit: 'Rate limits',
-    error_message: 'Error message filters',
-    release: 'Release filters',
-    inbound_filter: 'Inbound filters',
+const CATEGORIES: Record<SentryMigrationCategoryEnumApi, { title: string; description: string }> = {
+    rate_limit: { title: 'Rate limits', description: 'Sets the rate limit for this project.' },
+    error_message: {
+        title: 'Error message filters',
+        description: 'Each one becomes a manual suppression rule.',
+    },
+    release: { title: 'Release filters', description: 'Each one becomes a manual suppression rule.' },
+    inbound_filter: {
+        title: 'Inbound filters',
+        description: 'Each one turns on the matching automatic suppression rule, which PostHog keeps up to date.',
+    },
 }
 
 export function SentryImportStep(): JSX.Element {
@@ -107,16 +113,21 @@ export function SentryImportStep(): JSX.Element {
                         </Empty>
                     ) : (
                         <>
-                            {(Object.keys(CATEGORY_TITLES) as SentryMigrationCategoryEnumApi[]).map((category) => {
+                            {(Object.keys(CATEGORIES) as SentryMigrationCategoryEnumApi[]).map((category) => {
                                 const categoryItems = items.filter((item) => item.category === category)
                                 if (categoryItems.length === 0) {
                                     return null
                                 }
                                 return (
                                     <div key={category} className="flex flex-col gap-2">
-                                        <Heading size="sm" render={<h4 className="m-0" />}>
-                                            {CATEGORY_TITLES[category]}
-                                        </Heading>
+                                        <div className="flex flex-col gap-0.5">
+                                            <Heading size="sm" render={<h4 className="m-0" />}>
+                                                {CATEGORIES[category].title}
+                                            </Heading>
+                                            <Text size="xs" variant="muted" className="m-0">
+                                                {CATEGORIES[category].description}
+                                            </Text>
+                                        </div>
                                         <CardGroup size="sm">
                                             {categoryItems.map((item) => (
                                                 <SentryMigrationItemCard
@@ -127,7 +138,9 @@ export function SentryImportStep(): JSX.Element {
                                                         item.fit === 'unsupported'
                                                             ? "PostHog can't import this setting"
                                                             : item.already_in_posthog
-                                                              ? 'This project already has this setting'
+                                                              ? item.built_in_filter
+                                                                  ? 'This automatic suppression rule is already on'
+                                                                  : 'This project already has this setting'
                                                               : null
                                                     }
                                                     onToggle={() => toggleItem(item.id)}
@@ -157,7 +170,7 @@ export function SentryImportStep(): JSX.Element {
                                         : `Import ${selectedItemIds.length} settings`}
                                 </Button>
                                 <Text size="xs" variant="muted" className="m-0">
-                                    Imported filters become suppression rules. You can edit or delete them afterwards.
+                                    You can change or remove anything you import later, on this page.
                                 </Text>
                             </div>
                         </>
