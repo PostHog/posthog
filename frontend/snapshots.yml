@@ -11252,6 +11252,14 @@ snapshots:
         hash: v1.k794b7964.4b4f9908a2552fc97dd30fe179ca38caeb074f454f46ade87b3ca90ef0cd7f70.0GRyu-AtfFknvRJUEg03KJaNlwPBv9-SzOo4hXWpgoY
     scenes-app-experiments--experiment-results-row-recording-links-unselectable-metric--light:
         hash: v1.k794b7964.08f0ff958ed2d355bc6a0c9f5048f35e7f75b2cd34bacb867dd56f4ae5e4bf93.BNe46IwANTcBPvWEWBrpf78YOLf5cgWoIF1K-cni1J0
+    scenes-app-experiments--experiment-running-time-on-track--dark:
+        hash: v1.k794b7964.afa5d2bc13065d7380ed28208c4e2eabdb1f4c45121ed0208c403ea955b674e6.MO0qXYuaERQK6SXloMRlNHcmGocr0DyiesdR3ZayFtk
+    scenes-app-experiments--experiment-running-time-on-track--light:
+        hash: v1.k794b7964.36487dd075f2235217d9b4fad812b91e9d51f2b22c9500120c81bb0bcc3548c7.0IhzfZMJNdt1pAKXr5f3bvcK9hFC2IvE_EfSlNUcwgQ
+    scenes-app-experiments--experiment-running-time-out-of-reach--dark:
+        hash: v1.k794b7964.76ee3239ae3823c6749b82d2d0f39d9e345f86aec33c8553847b59867ca1993d.RHLG1HcCDNxMpGjZ18XoRArDCNhQC2xDXjeGKXC5aNI
+    scenes-app-experiments--experiment-running-time-out-of-reach--light:
+        hash: v1.k794b7964.9dc2d830c6fc93df43da8d7ca01861af94d85aacaa7ab6ba202ce9d89ff46236.XVTEPecb7FA5Q0n3544d00ftbnOvv5tGWMxl0oR9VeE
     scenes-app-experiments--experiment-stopped-with-conclusion--dark:
         hash: v1.k794b7964.578ffd24470c381648d034ab3f9454d9f448430ae15d09e34b4e61b6441c3258.aOoEZotWjnQ2NmVYfdoTIz3AF8y1Y8DTCrF9YeavSQk
     scenes-app-experiments--experiment-stopped-with-conclusion--light:
