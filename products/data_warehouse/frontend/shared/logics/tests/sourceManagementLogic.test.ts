@@ -16,9 +16,9 @@ jest.mock('lib/api')
 jest.mock('~/queries/query')
 
 const SORTABLE_SOURCES = [
-    { id: 'recent', source_type: 'Stripe', prefix: 'b', last_run_at: '2026-01-02T00:00:00Z' },
-    { id: 'starred', source_type: 'Stripe', prefix: 'c', last_run_at: '2026-01-01T00:00:00Z' },
-    { id: 'never-run', source_type: 'Stripe', prefix: 'a' },
+    { id: 'recent', source_type: 'Stripe', prefix: 'b', status: 'Completed', last_run_at: '2026-01-02T00:00:00Z' },
+    { id: 'starred', source_type: 'Stripe', prefix: 'c', status: 'Completed', last_run_at: '2026-01-01T00:00:00Z' },
+    { id: 'never-run', source_type: 'Stripe', prefix: 'a', status: 'Failed' },
 ].map((source) => ({ ...source, access_method: 'warehouse', schemas: [] }) as unknown as ExternalDataSource)
 
 const sortableSource = (id: string): ExternalDataSource =>
@@ -70,14 +70,15 @@ describe('sourceManagementLogic', () => {
     }
 
     it.each([
-        ['ascending', 1 as const, '', ['starred', 'never-run', 'recent']],
-        ['descending', -1 as const, '', ['starred', 'recent', 'never-run']],
-        ['searching', 1 as const, 'stripe', ['never-run', 'starred', 'recent']],
-    ])('orders managed sources by last run, %s', async (_, order, searchTerm, expectedIds) => {
+        ['last run, ascending', 'last_run_at', 1 as const, '', ['starred', 'never-run', 'recent']],
+        ['last run, descending', 'last_run_at', -1 as const, '', ['starred', 'recent', 'never-run']],
+        ['last run, while searching', 'last_run_at', 1 as const, 'stripe', ['never-run', 'starred', 'recent']],
+        ['status of sources without schemas', 'status', 1 as const, '', ['starred', 'never-run', 'recent']],
+    ])('orders managed sources by %s', async (_, columnKey, order, searchTerm, expectedIds) => {
         await mountWithSortableSources(['starred'])
 
         logic.actions.setManagedSearchTerm(searchTerm)
-        logic.actions.setManagedSourcesSorting({ columnKey: 'last_run_at', order })
+        logic.actions.setManagedSourcesSorting({ columnKey, order })
 
         expect(logic.values.sortedManagedSources.map((source) => source.id)).toEqual(expectedIds)
     })
