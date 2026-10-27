@@ -62,6 +62,7 @@ from products.tasks.backend.logic.stream.redis_stream import publish_task_run_st
 from products.tasks.backend.metrics import (
     observe_task_run_created,
     observe_task_run_dispatch_callback,
+    observe_task_run_started_beside_live_run,
     observe_task_run_terminal,
 )
 from products.tasks.backend.pr_urls import read_pr_urls
@@ -80,6 +81,23 @@ def execute_after_commit(callback: Callable[[], object]) -> None:
         callback()
     else:
         transaction.on_commit(callback)
+
+
+def log_run_started_beside_live_run(task_run: "TaskRun", live_run_ids: list[uuid.UUID]) -> None:
+    observe_task_run_started_beside_live_run(task_run)
+    state = task_run.state or {}
+    logger.warning(
+        "task_run_started_beside_live_run",
+        task_id=str(task_run.task_id),
+        team_id=task_run.team_id,
+        run_id=str(task_run.id),
+        live_run_ids=[str(run_id) for run_id in live_run_ids],
+        origin_product=task_run.task.origin_product,
+        mode=state.get("mode"),
+        interaction_origin=state.get("interaction_origin"),
+        resume_from_run_id=state.get("resume_from_run_id"),
+        prewarmed=bool(state.get("prewarmed")),
+    )
 
 
 LogLevel = Literal["debug", "info", "warn", "error"]
@@ -807,6 +825,27 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             state["initial_permission_mode"] = permission_mode
         state["ai_defaults_source"] = resolved.source
 
+    def live_cloud_run_ids(self, exclude_run_id: uuid.UUID) -> list[uuid.UUID]:
+        live_runs = (
+            self.runs.filter(
+                team_id=self.team_id,
+                environment=TaskRun.Environment.CLOUD,
+                status__in=[TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS],
+            )
+            .exclude(id=exclude_run_id)
+            .values_list("id", "state")
+        )
+        return [
+            run_id
+            for run_id, state in live_runs
+            if not (state or {}).get("await_user_message") and not (state or {}).get("cancel_requested_at")
+        ]
+
+    def observe_run_started_beside_live_runs(self, task_run: "TaskRun") -> None:
+        live_run_ids = self.live_cloud_run_ids(exclude_run_id=task_run.id)
+        if live_run_ids:
+            execute_after_commit(lambda: log_run_started_beside_live_run(task_run, live_run_ids))
+
     def create_run(
         self,
         environment: Optional["TaskRun.Environment"] = None,
@@ -948,6 +987,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 state=state,
                 branch=branch,
             )
+            if effective_environment == TaskRun.Environment.CLOUD and scheduled_at is None:
+                task.observe_run_started_beside_live_runs(task_run)
 
             def emit_created_events() -> None:
                 task_run.publish_stream_state_event()
@@ -2409,6 +2450,7 @@ class TaskRun(models.Model):
         "sandbox_connect_token",
         "sandbox_backend",
         "failure_error_type",
+        "cancel_requested_at",
     )
 
     def restore_cloud_resume_state(self, prior_state: dict[str, Any]) -> None:
