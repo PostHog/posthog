@@ -11,6 +11,7 @@ import type {
     BreakdownFilter,
     CompareFilter,
     DataWarehouseNode,
+    EntityNode,
     FunnelsQuery,
     GroupNode,
     InsightQueryNode,
@@ -74,6 +75,14 @@ function breakdownSplitsAWhole(breakdownFilter: BreakdownFilter | null | undefin
         hasBreakdownFilter(breakdownFilter) &&
         breakdownFilter.breakdown_type !== 'cohort' &&
         !breakdownFilter.breakdown_hide_other_aggregation
+    )
+}
+
+// The query sums once per session and breakdown value, so a session lands in every value it touched.
+function isSessionPropertySum(entity: EntityNode): boolean {
+    return (
+        entity.math === 'sum' &&
+        (entity.math_property === '$session_duration' || entity.math_property_type === 'session_properties')
     )
 }
 
@@ -360,7 +369,11 @@ export const insightsTableDataLogic = kea<insightsTableDataLogicType>([
             ): boolean =>
                 allowAggregation &&
                 (isNonTimeSeriesDisplay || aggregation === AggregationType.Total) &&
-                !!series?.every((entity) => !entity.math || entity.math === 'total' || entity.math === 'sum') &&
+                !!series?.every(
+                    (entity) =>
+                        (!entity.math || entity.math === 'total' || entity.math === 'sum') &&
+                        !isSessionPropertySum(entity)
+                ) &&
                 breakdownSplitsAWhole(breakdownFilter) &&
                 !hasFormulaResults(querySource),
         ],
@@ -392,7 +405,9 @@ export const insightsTableDataLogic = kea<insightsTableDataLogicType>([
             ): boolean =>
                 isTrends &&
                 !isNonTimeSeriesDisplay &&
-                !!series?.every((entity) => !entity.math || DAY_ADDITIVE_MATHS.has(entity.math)) &&
+                !!series?.every(
+                    (entity) => (!entity.math || DAY_ADDITIVE_MATHS.has(entity.math)) && !isSessionPropertySum(entity)
+                ) &&
                 breakdownSplitsAWhole(breakdownFilter) &&
                 !hasFormulaResults(querySource),
         ],

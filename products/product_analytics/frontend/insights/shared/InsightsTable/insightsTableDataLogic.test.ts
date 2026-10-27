@@ -137,6 +137,37 @@ describe('insightsTableDataLogic', () => {
                 false,
                 false,
             ],
+            [
+                'a sum of session duration',
+                {
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$pageview',
+                            math: PropertyMathType.Sum,
+                            math_property: '$session_duration',
+                        },
+                    ],
+                },
+                false,
+                false,
+            ],
+            [
+                'a sum of a session property',
+                {
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$pageview',
+                            math: PropertyMathType.Sum,
+                            math_property: '$pageview_count',
+                            math_property_type: 'session_properties',
+                        },
+                    ],
+                },
+                false,
+                false,
+            ],
             ['a formula', { trendsFilter: { formulaNodes: [{ formula: 'A * 2' }] } }, false, false],
         ] as [string, Partial<TrendsQuery>, boolean, boolean][])(
             'percent of total columns with %s',
