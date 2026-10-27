@@ -619,7 +619,6 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_COHORT_CONDITIONS: 'workflows-cohort-conditions', // owner: @meikelmosby #team-workflows
     WORKFLOWS_EMAIL_DOMAIN_AGENT_SETUP: 'workflows-email-domain-agent-setup', // owner: @silthus #team-workflows
     WORKFLOWS_EMAIL_DOMAIN_WIZARD: 'workflows-email-domain-wizard', // owner: @silthus #team-workflows
-    WORKFLOWS_EMAIL_MEDIA_LIBRARY: 'workflows-email-media-library', // owner: @mayteio #team-workflows, backs the email editor's Uploads tab with the media library
     WORKFLOWS_EMAIL_SENDER_ROTATION: 'workflows-email-sender-rotation', // owner: @arthurdedeus #team-workflows
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
     WORKFLOWS_LINEAR_VIEW: 'workflows-linear-view', // owner: #team-workflows
