@@ -547,6 +547,7 @@ describe('loginLogic', () => {
             initKeaTests()
             // getCurrentTeamIdOrNone() reads the current project from the app context.
             window.POSTHOG_APP_CONTEXT = { current_team: { id: 5 } } as any
+            window.sessionStorage.clear()
             hrefSpy = jest.fn()
             Object.defineProperty(window, 'location', {
                 value: {
@@ -578,6 +579,27 @@ describe('loginLogic', () => {
             router.actions.push(`/login?next=${encodeURIComponent('/project/5/pipeline/destinations/hog-abc')}`)
             handleLoginRedirect()
             expect(hrefSpy).not.toHaveBeenCalled()
+        })
+
+        it('does a full navigation from a page rendered for a signed-out visitor', () => {
+            // That page holds only the signed-out part of the stable chunk import map, so a client-side
+            // route to an app scene fails to import its chunk.
+            window.POSTHOG_APP_CONTEXT = { anonymous: true, current_team: { id: 5 } } as any
+            router.actions.push(`/login?next=${encodeURIComponent('/project/5/dashboard/1')}`)
+            handleLoginRedirect()
+            expect(hrefSpy).toHaveBeenCalledWith('/project/5/dashboard/1')
+        })
+
+        it('stays client-side when the full navigation came straight back signed out', () => {
+            // A server that keeps rendering the session signed out sends the new document back to /login.
+            window.POSTHOG_APP_CONTEXT = { anonymous: true, current_team: { id: 5 } } as any
+            router.actions.push(`/login?next=${encodeURIComponent('/project/5/dashboard/1')}`)
+            handleLoginRedirect()
+            router.actions.push(`/login?next=${encodeURIComponent('/project/5/dashboard/1')}`)
+            handleLoginRedirect()
+
+            expect(hrefSpy).toHaveBeenCalledTimes(1)
+            expect(posthog.capture).toHaveBeenCalledWith('signed-out page redirect repeated')
         })
 
         it('does a full navigation for a project token the middleware resolves server-side', () => {

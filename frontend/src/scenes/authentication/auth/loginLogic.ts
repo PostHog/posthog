@@ -13,7 +13,7 @@ import { getSocialLoginUrl } from 'lib/components/SocialLoginButton/socialLoginU
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isWebKitBrowser } from 'lib/utils/dom'
-import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
+import { getCurrentTeamIdOrNone, isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getRelativeNextPath, isEmail } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
 import {
@@ -123,11 +123,39 @@ function loginRedirectTarget(): string {
     return '/'
 }
 
+const SIGNED_OUT_PAGE_FULL_LOAD_KEY = 'ph_signed_out_page_full_load'
+const SIGNED_OUT_PAGE_FULL_LOAD_WINDOW_MS = 30_000
+
+/** A server that keeps rendering the session signed out would send the new document straight back to
+ * /login, so a target gets one full load per window and the next attempt stays client-side. */
+function claimFullLoadFromSignedOutPage(nextURL: string): boolean {
+    try {
+        const previous = JSON.parse(window.sessionStorage.getItem(SIGNED_OUT_PAGE_FULL_LOAD_KEY) ?? 'null')
+        if (previous?.url === nextURL && Date.now() - previous.at < SIGNED_OUT_PAGE_FULL_LOAD_WINDOW_MS) {
+            return false
+        }
+        window.sessionStorage.setItem(SIGNED_OUT_PAGE_FULL_LOAD_KEY, JSON.stringify({ url: nextURL, at: Date.now() }))
+        return true
+    } catch {
+        return false
+    }
+}
+
 /** Leave the login screen for a session that is already authenticated, e.g. someone opening
- * `/login` in a second tab. The app context in this document is already the logged-in one, so the
+ * `/login` in a second tab. When the app context in this document is already the logged-in one, the
  * redirect can stay client-side. Straight after authenticating, use `redirectAfterLogin` instead. */
 export function handleLoginRedirect(): void {
     const nextURL = loginRedirectTarget()
+
+    // The server rendered this page for a signed-out visitor, so its app context has no user and its
+    // stable chunk import map holds only the signed-out scenes. The app must arrive as a new document.
+    if (!isUserLoggedIn()) {
+        if (claimFullLoadFromSignedOutPage(nextURL)) {
+            window.location.href = nextURL
+            return
+        }
+        posthog.capture('signed-out page redirect repeated')
+    }
 
     // Check if this is a backend-only route that shouldn't go through the React router
     if (BACKEND_ONLY_ROUTES.some((route) => nextURL.startsWith(route))) {
