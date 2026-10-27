@@ -189,7 +189,6 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { startNewWorkflow } = useActions(newWorkflowLogic)
     const { setTypeFilter } = useActions(workflowTemplatesLogic)
     const { filters } = useValues(workflowsLogic)
-    const showCalendar = useFeatureFlag('WORKFLOWS_SEND_CALENDAR')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const workflowsTab = {
@@ -257,17 +256,15 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
             />
             <EmailSuspensionBanner />
             <LemonTabs<WorkflowsTopTab>
-                activeKey={currentTab === 'calendar' && !showCalendar ? 'workflows' : topTabFor(currentTab)}
+                activeKey={topTabFor(currentTab)}
                 tabs={[
                     workflowsTab,
-                    showCalendar
-                        ? {
-                              label: <SendCalendarTabLabel />,
-                              key: 'calendar',
-                              link: urls.workflows('calendar'),
-                              content: <SendCalendar />,
-                          }
-                        : null,
+                    {
+                        label: <SendCalendarTabLabel />,
+                        key: 'calendar',
+                        link: urls.workflows('calendar'),
+                        content: <SendCalendar />,
+                    },
                     {
                         label: 'Templates',
                         key: 'templates',
