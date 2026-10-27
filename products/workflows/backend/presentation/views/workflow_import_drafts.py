@@ -32,8 +32,7 @@ from products.workflows.backend.facade.workflow_imports import (
     translate_campaign,
 )
 from products.workflows.backend.facade.writes import create_workflow, update_workflow
-from products.workflows.backend.presentation.views.graph_validation import validate_graph
-from products.workflows.backend.presentation.views.hog_flow import HogFlowSerializer
+from products.workflows.backend.presentation.views.data_suggestion_drafts import checked_draft
 
 logger = structlog.get_logger(__name__)
 
@@ -69,11 +68,11 @@ def import_campaigns(
 def _campaign_source(payload: dict[str, Any]) -> CampaignSource:
     templates = payload.get("templates") or {}
     if isinstance(templates, list):
-        templates = {str(template.get("id")): template for template in templates if isinstance(template, dict)}
+        templates = {str(template.get("id")): template for template in templates}
     return CampaignSource(
         campaign=payload["campaign"],
         actions=payload["actions"],
-        templates={str(key): value for key, value in templates.items() if isinstance(value, dict)},
+        templates={str(key): value for key, value in templates.items()},
     )
 
 
@@ -83,7 +82,7 @@ def import_campaign(
     source: CampaignSource,
     options: ImportOptions,
     dry_run: bool,
-    extra_notes: tuple[ImportNote, ...] = (),
+    extra_notes: tuple[ImportNote, ...],
 ) -> dict[str, Any]:
     """Imports one Customer.io automation, or previews it, and returns its result in the response shape."""
     try:
@@ -197,18 +196,11 @@ def _can_edit(team: Team, user: User, previous: PreviousImport) -> bool:
 
 
 def _validated_draft(team: Team, workflow: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:
-    """The draft as the create endpoint would store it, or the reasons it would reject it."""
-    serializer = HogFlowSerializer(
-        data={**workflow, "status": HogFlowState.DRAFT.value},
-        context={"team_id": team.id, "get_team": lambda: team, "is_draft": True, "event_source": EventSource.API},
-    )
     try:
-        validate_graph(workflow["actions"], workflow["edges"])
-        serializer.is_valid(raise_exception=True)
+        return checked_draft(team, workflow, EventSource.API), []
     except ValidationError as error:
         logger.info("workflows.import.invalid_workflow", team_id=team.id, errors=str(error.detail)[:500])
         return None, _flatten_errors(error.detail)
-    return dict(serializer.validated_data), []
 
 
 def _flatten_errors(detail: Any, prefix: str = "") -> list[str]:

@@ -78,13 +78,7 @@ def translate_condition(conditions: list[dict[str, Any]], segment_cohorts: dict[
     for condition in conditions:
         kind = condition.get("type")
         if kind in ("attribute", "event_attribute"):
-            filters = property_filters(
-                condition.get("field"),
-                condition.get("operator"),
-                condition.get("value"),
-                condition.get("value2"),
-                "person" if kind == "attribute" else "event",
-            )
+            filters = property_filters(condition, "person" if kind == "attribute" else "event")
             if filters is None:
                 skipped.append(describe(condition))
             else:
@@ -99,13 +93,7 @@ def translate_condition(conditions: list[dict[str, Any]], segment_cohorts: dict[
             name = str(condition["event_name"])
             events.append({"id": name, "name": name, "type": "events", "order": len(events), "properties": []})
         elif kind == "foreign_event_attribute" and events:
-            filters = property_filters(
-                condition.get("field"),
-                condition.get("operator"),
-                condition.get("value"),
-                condition.get("value2"),
-                "event",
-            )
+            filters = property_filters(condition, "event")
             if filters is None:
                 skipped.append(describe(condition))
             else:
@@ -131,22 +119,14 @@ def translate_filter_tree(tree: Any, property_type: str) -> tuple[list[dict[str,
             skipped.extend(child_skipped)
         return properties, skipped
     if "field" in tree:
-        filters = property_filters(
-            tree.get("field"),
-            tree.get("operator"),
-            tree.get("value"),
-            tree.get("value2"),
-            property_type,
-            negate=bool(tree.get("inverse")),
-        )
+        filters = property_filters(tree, property_type, negate=bool(tree.get("inverse")))
         return (filters, []) if filters is not None else ([], [describe(tree)])
     return [], [describe(tree)]
 
 
-def property_filters(
-    field: Any, operator: Any, value: Any, value2: Any, property_type: str, *, negate: bool = False
-) -> list[dict[str, Any]] | None:
+def property_filters(leaf: dict[str, Any], property_type: str, *, negate: bool = False) -> list[dict[str, Any]] | None:
     """PostHog property filters for one Customer.io leaf, or None when the operator has no equivalent."""
+    field, operator, value, value2 = leaf.get("field"), leaf.get("operator"), leaf.get("value"), leaf.get("value2")
     if not isinstance(field, str) or not field or not isinstance(operator, str):
         return None
 
@@ -186,24 +166,7 @@ def property_filters(
     return None
 
 
-def segment_ids(tree: Any) -> list[str]:
-    """Every segment id a trigger or exit tree references."""
-    found: list[str] = []
-    if isinstance(tree, list):
-        for child in tree:
-            found.extend(segment_ids(child))
-    elif isinstance(tree, dict):
-        segment = tree.get("segment")
-        if isinstance(segment, dict) and segment.get("id") is not None:
-            found.append(str(segment["id"]))
-        for key in ("and", "or", "not"):
-            if key in tree:
-                found.extend(segment_ids(tree[key]))
-    return found
-
-
 def describe(condition: Any) -> str:
-    """A short readable form of a condition, for the import report."""
     if not isinstance(condition, dict):
         return json.dumps(condition, sort_keys=True)[:200]
     kind = condition.get("type")
