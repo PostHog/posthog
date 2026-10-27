@@ -33,6 +33,7 @@ from products.replay_vision.backend.embeddings import (
 )
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.watch_rank import (
+    ANCHOR_VERSION,
     WatchCategory,
     WatchRank,
     anchor_vectors,
@@ -44,6 +45,7 @@ from products.replay_vision.backend.watch_rank import (
 logger = structlog.get_logger(__name__)
 
 _VECTOR_CHUNK = 500
+WATCH_RANK_BACKFILL_DAYS = 7
 _QUERY_TIMEOUT_S = 60
 _CAPACITY_RETRY_BASE_S = 15
 _CAPACITY_RETRY_ATTEMPTS = 6
@@ -148,11 +150,11 @@ def backfill_team_watch_ranks(team_id: int, since: datetime, *, dry_run: bool = 
             written = _rank_scanner(list(batch), vectors, anchors)
             ranked += len(written)
             if not dry_run and written:
-                # The ids come from the team-scoped query above, so the update needs no team filter of its own.
-                ReplayObservation.objects.bulk_update(
-                    [ReplayObservation(id=observation_id, watch_rank=rank) for observation_id, rank in written.items()],
-                    ["watch_rank"],
-                )
+                # Only rows still without a current rank, so a rank the consumer wrote meanwhile, with its group, stays.
+                for observation_id, rank in written.items():
+                    ReplayObservation.objects.filter(team_id=team_id, id=observation_id).exclude(
+                        watch_rank__anchor_version=ANCHOR_VERSION
+                    ).update(watch_rank=rank)
     without_embedding = len(rows) - embedded
     logger.info(
         "replay_vision.watch_rank_backfill.team_done",

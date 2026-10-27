@@ -1,4 +1,4 @@
-"""Gemini API key resolution and error classification for Replay Vision."""
+"""Gemini error classification for Replay Vision."""
 
 import httpx
 import aiohttp

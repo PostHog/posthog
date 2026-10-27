@@ -30,7 +30,8 @@ FEED_GROUP_MIN_RAW_SIMILARITY = 0.90
 # A group with no new member for this long stops taking members, so a story that returns later starts a new card.
 FEED_GROUP_ACTIVE_WINDOW = timedelta(days=30)
 MAX_CACHED_GROUPS_PER_SCANNER = 20_000
-MAX_CACHED_GROUPS = 200_000
+# Spare capacity counts too, so the cap bounds the memory the arrays actually hold.
+MAX_CACHED_GROUPS = 100_000
 
 
 class _ScannerGroups:
@@ -51,6 +52,10 @@ class _ScannerGroups:
 
     def __len__(self) -> int:
         return self.size
+
+    @property
+    def capacity(self) -> int:
+        return len(self._counts)
 
     @property
     def sums(self) -> np.ndarray:
@@ -146,10 +151,10 @@ class FeedGroupCache:
         return groups
 
     def _evict(self) -> None:
-        total = sum(len(groups) for groups in self._scanners.values())
+        total = sum(groups.capacity for groups in self._scanners.values())
         while total > MAX_CACHED_GROUPS and len(self._scanners) > 1:
             _, evicted = self._scanners.popitem(last=False)
-            total -= len(evicted)
+            total -= evicted.capacity
 
     def clear(self) -> None:
         self._scanners.clear()

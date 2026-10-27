@@ -49,6 +49,7 @@ _BATCH_BUDGET_S = 240.0
 _MAX_POLL_INTERVAL_S = 360.0
 # How long one observation keeps failing, across batches, before the consumer moves past it.
 _RETRY_WINDOW_S = 600.0
+_NAMING_DRAIN_S = 20.0
 _RETRY_BACKOFF_S = 2.0
 _RETRY_BACKOFF_MAX_S = 60.0
 
@@ -260,4 +261,7 @@ class WatchRankConsumer:
                 await self.process_batch(consumer, messages)
         finally:
             consumer.close()
+            # A theme claimed for naming stays unnamed until it doubles, so in-flight names get a moment to finish.
+            if self._naming:
+                await asyncio.wait(self._naming, timeout=_NAMING_DRAIN_S)
             logger.info("replay_vision.watch_rank_consumer.stopped")
