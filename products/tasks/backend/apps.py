@@ -10,6 +10,4 @@ class TasksConfig(AppConfig):
         # Signal receivers live in their own import-light modules so every
         # process type (celery, temporal, migrate) wires them without pulling
         # the viewset import graph into django.setup().
-        from products.tasks.backend import search_index, task_profiles, team_deletion  # noqa: F401, PLC0415
-
-        task_profiles.register()
+        from products.tasks.backend import search_index, team_deletion  # noqa: F401, PLC0415

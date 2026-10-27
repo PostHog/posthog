@@ -27,6 +27,7 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
+from products.tasks.backend.facade.profiles import TaskProfileError, get_task_profile
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
@@ -1728,6 +1729,60 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertTrue(Task.objects.filter(id=created.task_id).exists())
         assert created.latest_run is not None
         self.assertEqual(created.latest_run.task_id, created.task_id)
+
+    @parameterized.expand(
+        [
+            (
+                "create_and_run_task_origin",
+                "create_and_run_task",
+                {"origin_product": facade.TaskOriginProduct.BUSINESS_KNOWLEDGE, "internal": True},
+                ("business_knowledge", True, None),
+            ),
+            (
+                "create_and_run_task_profile",
+                "create_and_run_task",
+                {"profile": get_task_profile("business_knowledge")},
+                ("business_knowledge", True, "business_knowledge"),
+            ),
+            (
+                "create_task_without_run_origin",
+                "create_task_without_run",
+                {"origin_product": facade.TaskOriginProduct.BUSINESS_KNOWLEDGE},
+                ("business_knowledge", False, None),
+            ),
+            (
+                "create_task_without_run_profile",
+                "create_task_without_run",
+                {"profile": get_task_profile("business_knowledge")},
+                ("business_knowledge", True, "business_knowledge"),
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_facade_creates_a_task_from_an_origin_or_a_profile(
+        self, _name: str, entry: str, origin_kwargs: dict, expected: tuple[str, bool, str | None], _mock_workflow
+    ) -> None:
+        created = getattr(facade, entry)(
+            team=self.team, title="t", description="d", user_id=self.user.id, **origin_kwargs
+        )
+
+        task = Task.objects.get(id=created if isinstance(created, UUID) else created.task_id)
+        self.assertEqual((task.origin_product, task.internal, task.profile), expected)
+
+    @parameterized.expand(
+        [
+            ("create_and_run_task_neither", "create_and_run_task", {}),
+            ("create_and_run_task_internal_only", "create_and_run_task", {"internal": True}),
+            ("create_and_run_task_empty_origin", "create_and_run_task", {"origin_product": ""}),
+            ("create_task_without_run_neither", "create_task_without_run", {}),
+            ("create_task_without_run_empty_origin", "create_task_without_run", {"origin_product": ""}),
+        ]
+    )
+    def test_facade_refuses_a_task_with_no_profile_or_origin(self, _name: str, entry: str, origin_kwargs: dict) -> None:
+        with self.assertRaises(TaskProfileError):
+            getattr(facade, entry)(team=self.team, title="t", description="d", user_id=self.user.id, **origin_kwargs)
+
+        self.assertFalse(Task.objects.filter(team=self.team, title="t").exists())
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_slack_report_link_is_idempotent_and_does_not_claim_implementation(self, _mock_workflow):

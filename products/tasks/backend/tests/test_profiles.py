@@ -8,10 +8,12 @@ from products.tasks.backend.facade.profiles import (
     Read,
     TaskProfile,
     TaskProfileError,
+    get_task_profile,
     register_task_profile,
     resolve_task_origin,
 )
-from products.tasks.backend.task_profiles import TASK_ANALYSIS
+
+BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
 
 
 class TestTaskProfileRegistry(SimpleTestCase):
@@ -22,22 +24,29 @@ class TestTaskProfileRegistry(SimpleTestCase):
         ]
     )
     def test_rejects_a_profile_that_disagrees_with_its_origin(self, _name: str, overrides: dict) -> None:
-        conflicting = replace(TASK_ANALYSIS, key="test.conflicting", **overrides)
+        conflicting = replace(BUSINESS_KNOWLEDGE, key="test.conflicting", **overrides)
 
         with self.assertRaises(TaskProfileError):
             register_task_profile(conflicting)
 
     @parameterized.expand(
         [
-            ("profile_only", TASK_ANALYSIS, None, None, ("task_analysis", True, "task_analysis")),
+            ("profile_only", BUSINESS_KNOWLEDGE, None, None, ("business_knowledge", True, "business_knowledge")),
             (
                 "profile_and_matching_origin",
-                TASK_ANALYSIS,
-                "task_analysis",
-                True,
-                ("task_analysis", True, "task_analysis"),
+                BUSINESS_KNOWLEDGE,
+                "business_knowledge",
+                None,
+                ("business_knowledge", True, "business_knowledge"),
             ),
-            ("origin_only", None, "task_analysis", True, ("task_analysis", True, None)),
+            (
+                "profile_and_matching_internal",
+                BUSINESS_KNOWLEDGE,
+                None,
+                True,
+                ("business_knowledge", True, "business_knowledge"),
+            ),
+            ("origin_and_internal", None, "business_knowledge", True, ("business_knowledge", True, None)),
             ("origin_without_internal", None, "user_created", None, ("user_created", False, None)),
         ]
     )
@@ -56,8 +65,10 @@ class TestTaskProfileRegistry(SimpleTestCase):
     @parameterized.expand(
         [
             ("neither", None, None, None),
-            ("origin_mismatch", TASK_ANALYSIS, "loop", None),
-            ("internal_mismatch", TASK_ANALYSIS, None, False),
+            ("empty_origin", None, "", None),
+            ("internal_without_origin", None, None, True),
+            ("origin_mismatch", BUSINESS_KNOWLEDGE, "loop", None),
+            ("internal_mismatch", BUSINESS_KNOWLEDGE, None, False),
         ]
     )
     def test_resolve_task_origin_rejects_conflicting_input(
