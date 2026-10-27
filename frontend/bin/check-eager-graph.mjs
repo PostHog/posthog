@@ -172,6 +172,9 @@ const ROOTS = [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
             'src/scenes/project-homepage/today/TodayReportPage.tsx',
             'src/queries/Query/Query.tsx',
+            // esbuild splits chunks by what can reach a file, so one static import through the quill-charts
+            // barrel puts every chart type on the home load. The home sparklines load lazily instead.
+            'packages/quill/packages/charts/',
         ],
     },
     {
@@ -181,7 +184,8 @@ const ROOTS = [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
         ],
         label: 'AI-first home path',
-        budgetBytes: 9_400_000,
+        // 2026-10-23: 7.53 MiB (2616 files), stable CSS included. ~5% headroom.
+        budgetBytes: 8_290_000,
         forbidden: [
             'products/posthog_ai/frontend/components/tool/widgets/VisualizationWidget.tsx',
             'products/posthog_ai/frontend/components/tool/widgets/RecordingsWidget.tsx',

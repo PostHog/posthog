@@ -1,6 +1,8 @@
 from dataclasses import asdict
 from typing import Any
 
+from django.db import models
+
 from drf_spectacular.utils import OpenApiResponse, extend_schema_serializer
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -21,19 +23,98 @@ from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import APIScopePermission, is_service_auth
 
+from products.signals.backend.activity_summary.prompt import ActivitySummaryMode
 from products.signals.backend.activity_summary.read import DEFAULT_VERSIONS_LIMIT, ActivitySummaryStatus
+from products.signals.backend.activity_summary.render import Product
 from products.signals.backend.facade import api as signals_facade
 
 READ_EVENT = "activity summary read"
 
 
-class ActivitySummaryFocusAreaSerializer(serializers.Serializer):
-    topic = serializers.CharField(help_text="A main thread of the user's work, in the words of their activity.")
+# Built from `Product`, so the API enum cannot drift from the keys that `computed.py` writes.
+ActivitySummaryProduct = models.TextChoices(  # type: ignore[call-overload]  # the stubs lack the functional API
+    "ActivitySummaryProduct", [(product.name, product.value) for product in Product]
+)
+
+
+class ActivitySummaryThemeSerializer(serializers.Serializer):
+    label = serializers.CharField(  # type: ignore[assignment]  # DRF Field.label collides with a field named label
+        help_text="A main thread of the user's work, in at most 60 characters."
+    )
+    mode = serializers.ChoiceField(
+        choices=ActivitySummaryMode.choices,
+        allow_null=True,
+        help_text="How the user works on this thread. Null on summaries from before themes had a mode.",
+    )
     strength = serializers.CharField(
         allow_null=True, help_text="How much of the recent activity is about this thread: high, medium or low."
     )
+    refs = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Refs into `computed.owned`, `computed.watched` and `computed.pages` of the same version, "
+        "such as `o1` or `p2`, that show this thread. A ref is valid only inside one version.",
+    )
     last_seen = serializers.CharField(
-        allow_null=True, help_text="The last day with activity on this thread, as YYYY-MM-DD."
+        allow_null=True, help_text="The last day of activity on the refs of this thread, as YYYY-MM-DD."
+    )
+
+
+class ActivitySummaryOwnedObjectSerializer(serializers.Serializer):
+    ref = serializers.CharField(help_text="The ref that themes cite, such as `o1`.")
+    type = serializers.CharField(help_text="The object type in snake case, such as `dashboard` or `feature_flag`.")
+    id = serializers.CharField(help_text="The id of the object.")
+    name = serializers.CharField(help_text="The latest name of the object.")
+    edit_days = serializers.IntegerField(help_text="The number of distinct days the user changed the object.")
+    last_at = serializers.CharField(help_text="The last day the user changed the object, as YYYY-MM-DD.")
+    created = serializers.BooleanField(help_text="True when the user created the object in the window.")
+
+
+class ActivitySummaryWatchedObjectSerializer(serializers.Serializer):
+    ref = serializers.CharField(help_text="The ref that themes cite, such as `o21`.")
+    type = serializers.CharField(help_text="The object type, such as `dashboard` or `insight`.")
+    id = serializers.CharField(help_text="The id of the object.")
+    name = serializers.CharField(help_text="The name of the object.")
+    open_days = serializers.IntegerField(help_text="The number of distinct days the user opened the object.")
+    last_at = serializers.CharField(help_text="The last day the user opened the object, as YYYY-MM-DD.")
+    not_theirs = serializers.BooleanField(help_text="True when someone else made the object.")
+
+
+class ActivitySummaryPageVisitsSerializer(serializers.Serializer):
+    ref = serializers.CharField(help_text="The ref that themes cite, such as `p1`.")
+    product = serializers.ChoiceField(
+        choices=ActivitySummaryProduct.choices, help_text="The product whose pages the user opened."
+    )
+    open_days = serializers.IntegerField(help_text="The number of distinct days the user opened its pages.")
+    last_at = serializers.CharField(help_text="The last day the user opened its pages, as YYYY-MM-DD.")
+
+
+class ActivitySummaryProductSplitSerializer(serializers.Serializer):
+    works_in = serializers.ListField(
+        child=serializers.ChoiceField(choices=ActivitySummaryProduct.choices),
+        help_text="Products where the user changed something or tagged a task, the most active first.",
+    )
+    visits = serializers.ListField(
+        child=serializers.ChoiceField(choices=ActivitySummaryProduct.choices),
+        help_text="Products the user only opened, the most opened first.",
+    )
+
+
+class ActivitySummaryComputedSerializer(serializers.Serializer):
+    schema_version = serializers.IntegerField(help_text="The version of the shape of these fields.")
+    owned = ActivitySummaryOwnedObjectSerializer(
+        many=True, help_text="Objects the user created or changed, the most edited first."
+    )
+    watched = ActivitySummaryWatchedObjectSerializer(
+        many=True, help_text="Objects the user opened on 3 or more days, the most opened first."
+    )
+    pages = ActivitySummaryPageVisitsSerializer(
+        many=True, help_text="Products whose pages the user opened, the most opened first."
+    )
+    products = ActivitySummaryProductSplitSerializer(
+        help_text="The products the user works in and the products they only visit."
+    )
+    task_count = serializers.IntegerField(
+        help_text="The number of tasks the user gave to PostHog AI or the Slack agent."
     )
 
 
@@ -43,17 +124,25 @@ class ActivitySummarySerializer(serializers.Serializer):
         choices=ActivitySummaryStatus.choices,
         help_text="`ready` when a summary exists. `not_ready` when no summary exists yet, which is normal for new or quiet users.",
     )
-    headline = serializers.CharField(allow_null=True, help_text="Two or three sentences that capture the profile.")
+    headline = serializers.CharField(
+        allow_null=True, help_text="One or two sentences about what the user works on and cares about in this project."
+    )
     profile = serializers.CharField(
         allow_null=True,
         help_text="A one-page markdown profile of the user's work in this project. Null on summaries from before profiles existed.",
     )
-    focus_areas = ActivitySummaryFocusAreaSerializer(many=True, help_text="The main threads of the user's work.")
-    products = serializers.ListField(
-        child=serializers.CharField(), help_text="The PostHog products the user works with, by name."
+    themes = ActivitySummaryThemeSerializer(many=True, help_text="The main threads of the user's work.")
+    modes = serializers.ListField(
+        child=serializers.ChoiceField(choices=ActivitySummaryMode.choices),
+        help_text="How the user works in this project overall, the main mode first.",
     )
     recent_shift = serializers.CharField(
         allow_null=True, help_text="What changed since the version before this one, or null when nothing changed."
+    )
+    computed = ActivitySummaryComputedSerializer(
+        allow_null=True,
+        help_text="Exact fields that code computed from the user's activity, with ids. The theme refs point into them. "
+        "Null before the first update that computed them.",
     )
     generated_at = serializers.DateTimeField(allow_null=True, help_text="When this version of the summary was written.")
     version = serializers.IntegerField(help_text="The number of this version of the summary. 0 before the first.")
@@ -67,14 +156,25 @@ class ActivitySummaryVersionSerializer(serializers.Serializer):
     version = serializers.IntegerField(help_text="The number of this version. Higher numbers are newer.")
     generated_at = serializers.DateTimeField(help_text="When this version was written.")
     prompt_version = serializers.IntegerField(help_text="The version of the prompt that wrote this version.")
-    headline = serializers.CharField(allow_null=True, help_text="Two or three sentences that capture the profile.")
+    headline = serializers.CharField(
+        allow_null=True, help_text="One or two sentences about what the user works on and cares about in this project."
+    )
     recent_shift = serializers.CharField(
         allow_null=True, help_text="What changed since the version before this one, or null when nothing changed."
     )
-    focus_areas = ActivitySummaryFocusAreaSerializer(many=True, help_text="The main threads of the user's work.")
+    themes = ActivitySummaryThemeSerializer(many=True, help_text="The main threads of the user's work.")
+    modes = serializers.ListField(
+        child=serializers.ChoiceField(choices=ActivitySummaryMode.choices),
+        help_text="How the user works in this project overall, the main mode first.",
+    )
     profile = serializers.CharField(
         allow_null=True,
         help_text="The one-page markdown profile. Set only when the request asks for one version with `version`.",
+    )
+    computed = ActivitySummaryComputedSerializer(
+        allow_null=True,
+        help_text="Exact fields that code computed from the user's activity, with ids. The theme refs point into them. "
+        "Set only when the request asks for one version with `version`.",
     )
 
 

@@ -16,6 +16,8 @@ from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_b
 
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
 from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
+from products.slack_app.backend.logic.feature_tips.offer import TipRequest, offer_feature_tip
+from products.slack_app.backend.logic.interview_recruitment import FrustrationInviteRequest, offer_frustration_invite
 from products.slack_app.backend.logic.reply_suggestions import (
     ReplySuggestionAttribution,
     SuggestedReply,
@@ -555,7 +557,7 @@ class SlackThreadHandler:
         append_attachments: Callable[[], None] | None = None,
         mention_sent: bool = False,
         reply_suggestions_for: str | None = None,
-    ) -> None:
+    ) -> bool:
         """Final flush: mark the last plan-block step complete, stream the answer, then chat.stopStream.
 
         The answer starts with the @-mention, so the one notification lands with it. With no
@@ -566,15 +568,19 @@ class SlackThreadHandler:
 
         With no stream timestamp, the answer goes out as an ordinary thread reply.
         When Slack already closed the stream, the answer also goes out as a plain thread reply,
-        and nothing else is sent to the closed stream."""
+        and nothing else is sent to the closed stream.
+
+        Returns whether the answer reached the thread.
+        """
         if ts is None:
             self.stream_ended = True
+            delivered = False
             if final_markdown:
                 delivered = self._post_answer_outside_stream(final_markdown)
                 if delivered:
                     self.offer_reply_suggestions(reply_suggestions_for)
                 self.capture_reply_posted(ReplyKind.ANSWER, delivered=delivered)
-            return
+            return delivered
         answer_chunks: list[dict[str, Any]] = []
         if plan_title:
             answer_chunks.append(_plan_update_chunk(plan_title))
@@ -600,6 +606,7 @@ class SlackThreadHandler:
         # A turn stopped before it answered still closes its stream, which then holds only status lines.
         if final_markdown or mention_sent:
             self.capture_reply_posted(ReplyKind.ANSWER, delivered=answer_delivered)
+        return answer_delivered
 
     def _close_stream(
         self,
@@ -1121,6 +1128,41 @@ class SlackThreadHandler:
             run_id=self.run_footer.run_id,
         )
 
+    def offer_feature_tip(self) -> None:
+        """Offer one private prompt under the answer: an interview invitation if the reader is frustrated, else a tip."""
+        if not self.actor_slack_user_id:
+            return
+        try:
+            if offer_frustration_invite(
+                FrustrationInviteRequest(
+                    integration=self._get_integration(),
+                    slack_user_id=self.actor_slack_user_id,
+                    posthog_user=self._actor_posthog_user,
+                    channel=self.context.channel,
+                    thread_ts=self.context.thread_ts,
+                    signal="message",
+                    person_message=self.turn_person_message,
+                    trace_id=self.turn_trace_id,
+                )
+            ):
+                return
+        except Exception:
+            logger.warning("slack_app_interview_invite_failed", exc_info=True)
+        try:
+            offer_feature_tip(
+                TipRequest(
+                    integration=self._get_integration(),
+                    slack_user_id=self.actor_slack_user_id,
+                    posthog_user=self._actor_posthog_user,
+                    channel=self.context.channel,
+                    thread_ts=self.context.thread_ts,
+                    person_message=self.turn_person_message,
+                    trace_id=self.turn_trace_id,
+                )
+            )
+        except Exception:
+            logger.warning("slack_app_feature_tip_failed", exc_info=True)
+
     def capture_reply_posted(self, reply_kind: ReplyKind, *, delivered: bool) -> None:
         """Capture a reply the run posted to this thread, so a mention can be followed to its answer.
 
@@ -1139,6 +1181,7 @@ class SlackThreadHandler:
                 slack_session_id=self._session_id(),
                 task_id=self.run_footer.task_id,
                 run_id=self.run_footer.run_id,
+                chart_links=self.run_footer.chart_links,
             )
         except Exception:
             logger.warning("slack_app_reply_posted_capture_failed", reply_kind=str(reply_kind), exc_info=True)

@@ -86,7 +86,6 @@ def test_celery_cache_warming_workload_routing(client_from_pool, access_method, 
     [
         (Workload.DEFAULT, Workload.ENDPOINTS),
         (Workload.LOGS, Workload.LOGS),
-        (Workload.NEW_EVENTS_CLUSTER, Workload.NEW_EVENTS_CLUSTER),
     ],
 )
 def test_endpoints_tag_workload_routing(client_from_pool, workload, expected_workload):

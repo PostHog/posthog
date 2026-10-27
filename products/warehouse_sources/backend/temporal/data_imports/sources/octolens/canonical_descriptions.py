@@ -94,4 +94,43 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "createdAt": "When the member joined the workspace.",
         },
     },
+    "usage": {
+        "description": "Usage counters for the current billing cycle and the plan limits of the authenticated Octolens workspace, as a single row.",
+        "docs_url": "https://octolens.com/docs/api/v2/overview",
+        "columns": {
+            "plan": "Current subscription plan, for example `Pro_v3`. Null if there is no active plan.",
+            "mentions": "Mentions consumed in the current billing cycle (`count`), the cycle allowance (`limit`) and when the counter resets (`resetAt`).",
+            "keywords": "Live keyword count (`count`) and the keyword allowance (`limit`).",
+            "searches": "Lifetime on-demand search allowance (`used`, `limit`, `remaining`). Only present on the Agents plan.",
+            "aiCredits": "AI credits the hosted agents used this calendar month, with the allowance, the remainder and the reset time.",
+            "flex": "Usage-based pricing state (budget, use and reset time). Only present when flex pricing is on.",
+        },
+    },
+    "searches": {
+        "description": "Past on-demand searches run in the workspace. On-demand results are separate from the monitored mentions feed.",
+        "docs_url": "https://octolens.com/docs/api/v2/overview",
+        "columns": {
+            "searchId": "Search id.",
+            "status": "Search state: `running`, `completed`, `failed` or `quota_exhausted`.",
+            "query": "Search query text.",
+            "timeWindow": "Look-back window of the search: `1d`, `7d` or `30d`.",
+            "sources": "Platforms the search covered.",
+            "createdAt": "When the search started.",
+            "completedAt": "When the search finished. Null while it runs.",
+            "mentionsConsumed": "Mentions the search consumed from the workspace allowance.",
+        },
+    },
+    "search_results": {
+        "description": "Scored posts that each on-demand search returned, one row per search and post.",
+        "docs_url": "https://octolens.com/docs/api/v2/overview",
+        "columns": {
+            "searchId": "Id of the search that returned this post.",
+            "id": "Internal numeric post id.",
+            "sourceId": "Stable composite key for the post across the collection pipeline, for example `reddit_t3_1abc234`.",
+            "url": "Canonical URL of the original post.",
+            "timestamp": "When the post was published, as `YYYY-MM-DD HH:MM:SS.SSS` in UTC with no offset suffix.",
+            "relevance": "AI relevance verdict, either `relevant` or `not_relevant`.",
+            "alreadyInWorkspace": "Whether the post is already in the workspace's monitored mentions.",
+        },
+    },
 }

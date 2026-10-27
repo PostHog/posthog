@@ -117,6 +117,9 @@ jobs:
                         # its Rust tests; a rust-side change (incl. the shared fixtures) must run it.
                         - 'rust/replay-anonymizer/**'
                         - 'rust/replay-anonymizer-node/**'
+                        # The v4 image fetcher's Jest tests load the URL policy through this addon.
+                        - 'rust/ai-research/replay-core-v4/**'
+                        - 'rust/ai-research/replay-core-v4-node/**'
                         # These native addons are built by Turbo before Node.js tests. Their Rust
                         # dependencies are not part of the ingestion consumer's targeted e2e set.
                         - 'rust/common/hogvm/**'

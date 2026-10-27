@@ -40,7 +40,7 @@ export interface InboxReviewerOption {
     email: string
 }
 
-export type InboxRankingSortField = 'ranking_open' | 'ranking_action' | 'ranking_fixed'
+export type InboxRankingSortField = 'ranking_open' | 'ranking_action' | 'ranking_fix'
 export type InboxSortField = 'recommended' | 'priority' | 'created_at' | 'updated_at' | InboxRankingSortField
 export type InboxSortDirection = 'asc' | 'desc'
 /** Preset for the created-in window filter. Null means any time. */
@@ -86,6 +86,13 @@ const VALID_STATE_VALUES = new Set<string>(INBOX_REPORT_SECTION_KEYS)
 const VALID_SORT_KEYS = new Set(INBOX_SORT_OPTIONS.map((o) => `${o.field}:${o.direction}`))
 const VALID_MODEL_SORT_KEYS = new Set(INBOX_MODEL_SORT_OPTIONS.map((o) => `${o.field}:${o.direction}`))
 const VALID_CREATED_WINDOWS = new Set<string>(INBOX_CREATED_WINDOW_OPTIONS.map((o) => o.value))
+
+// Old sort field names that URLs and local storage can still hold, so a stored sort does not fall back to the default.
+const RENAMED_SORT_FIELDS: Record<string, InboxSortField> = { ranking_fixed: 'ranking_fix' }
+
+function currentSortField(field: string): InboxSortField {
+    return RENAMED_SORT_FIELDS[field] ?? (field as InboxSortField)
+}
 
 function isOfferedSortKey(key: string, modelSortAvailable: boolean): boolean {
     return VALID_SORT_KEYS.has(key) || (modelSortAvailable && VALID_MODEL_SORT_KEYS.has(key))
@@ -163,10 +170,13 @@ export function parseFilterSearchParams(
 ): InboxFilterState {
     let sortField = DEFAULT_SORT_FIELD
     let sortDirection = DEFAULT_SORT_DIRECTION
-    if (typeof searchParams.sort === 'string' && isOfferedSortKey(searchParams.sort, modelSortAvailable)) {
-        const [field, direction] = searchParams.sort.split(':')
-        sortField = field as InboxSortField
-        sortDirection = direction as InboxSortDirection
+    if (typeof searchParams.sort === 'string') {
+        const [rawField, direction] = searchParams.sort.split(':')
+        const field = currentSortField(rawField)
+        if (isOfferedSortKey(`${field}:${direction}`, modelSortAvailable)) {
+            sortField = field
+            sortDirection = direction as InboxSortDirection
+        }
     }
     return {
         scope: parseScopeParam(searchParams.scope),
@@ -762,7 +772,9 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 sortDirection: InboxSortDirection,
                 modelSortAvailable: boolean
             ): InboxSortField =>
-                isOfferedSort(sortField, sortDirection, modelSortAvailable) ? sortField : DEFAULT_SORT_FIELD,
+                isOfferedSort(currentSortField(sortField), sortDirection, modelSortAvailable)
+                    ? currentSortField(sortField)
+                    : DEFAULT_SORT_FIELD,
         ],
         activeSortDirection: [
             (s) => [s.sortField, s.sortDirection, s.modelSortAvailable],
@@ -771,7 +783,9 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                 sortDirection: InboxSortDirection,
                 modelSortAvailable: boolean
             ): InboxSortDirection =>
-                isOfferedSort(sortField, sortDirection, modelSortAvailable) ? sortDirection : DEFAULT_SORT_DIRECTION,
+                isOfferedSort(currentSortField(sortField), sortDirection, modelSortAvailable)
+                    ? sortDirection
+                    : DEFAULT_SORT_DIRECTION,
         ],
         timeWindowAvailable: [
             (s) => [s.featureFlags],

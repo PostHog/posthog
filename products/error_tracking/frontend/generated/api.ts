@@ -50,6 +50,7 @@ import type {
     ErrorTrackingIssueSplitRequestApi,
     ErrorTrackingIssueSplitResponseApi,
     ErrorTrackingIssueSuccessResponseApi,
+    ErrorTrackingIssueSummaryResponseApi,
     ErrorTrackingIssueValuesResponseApi,
     ErrorTrackingIssueWriteApi,
     ErrorTrackingIssuesListParams,
@@ -1131,6 +1132,39 @@ export const errorTrackingIssuesSplitCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(errorTrackingIssueSplitRequestApi),
     })
+}
+
+export const getErrorTrackingIssuesSummaryRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/issues/${id}/summary/`
+}
+
+export const errorTrackingIssuesSummaryRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingIssueSummaryResponseApi> => {
+    return apiMutator<ErrorTrackingIssueSummaryResponseApi>(getErrorTrackingIssuesSummaryRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingIssuesSummaryRegenerateCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/issues/${id}/summary/regenerate/`
+}
+
+export const errorTrackingIssuesSummaryRegenerateCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingIssueSummaryResponseApi> => {
+    return apiMutator<ErrorTrackingIssueSummaryResponseApi>(
+        getErrorTrackingIssuesSummaryRegenerateCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getErrorTrackingIssuesAllActivityRetrieveUrl = (projectId: string) => {

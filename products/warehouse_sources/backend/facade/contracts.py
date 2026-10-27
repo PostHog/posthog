@@ -47,6 +47,12 @@ class ConfigValueError(ValueError):
 
 
 @dataclass(frozen=True)
+class SyncedWarehouseTable:
+    table_id: UUID
+    name: str
+
+
+@dataclass(frozen=True)
 class RevenueViewSyncInput:
     team_id: int
     source_id: UUID
@@ -175,6 +181,12 @@ class DataWarehouseTable:
     external_data_source_id: UUID | None
     credential_id: UUID | None
     created_at: datetime
+
+
+@dataclass(frozen=True, kw_only=True)
+class ImportedSchemaSnapshot:
+    schema_id: UUID
+    queryable_folder: str | None
 
 
 @dataclass(frozen=True)

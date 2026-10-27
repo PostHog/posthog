@@ -394,6 +394,15 @@ const STORY_ISSUE: ErrorTrackingRelationalIssue = {
         },
     ],
 }
+
+type StoryQueryBody<Q> = { query?: Q & { source?: Q } }
+
+// The issue page wraps its exceptions list in an ErrorTrackingIssueEventsQuery, and that query
+// answers in the shape of its source EventsQuery, so the mocks answer for the source.
+function storyQuery<Q extends { kind?: string }>(body: StoryQueryBody<Q>): Q | undefined {
+    return body.query?.kind === NodeKind.ErrorTrackingIssueEventsQuery ? body.query.source : body.query
+}
+
 const STORY_SUMMARY_RESPONSE: ErrorTrackingQueryResponse = {
     ...errorTrackingQueryResponse,
     results: [
@@ -491,6 +500,10 @@ const meta: Meta = {
                 ],
                 '/api/environments/:team_id/error_tracking/issues/exists/': [200, { exists: true }],
                 '/api/environments/:team_id/error_tracking/issues/:id/': [200, STORY_ISSUE],
+                '/api/projects/:team_id/error_tracking/issues/:id/summary/': [
+                    200,
+                    { status: 'unavailable', summary: null },
+                ],
                 '/api/environments/:team_id/error_tracking/fingerprints': [
                     200,
                     {
@@ -513,32 +526,32 @@ const meta: Meta = {
             },
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as {
-                        query?: {
+                    const query = storyQuery(
+                        (await request.json()) as StoryQueryBody<{
                             kind?: string
                             issueId?: string
                             select?: string[]
                             where?: string[]
                             maxReleases?: number
                             query?: string
-                        }
-                    }
-                    if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
+                        }>
+                    )
+                    if (query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return [200, STORY_BREAKDOWNS_RESPONSE]
                     }
-                    if (body.query?.kind === NodeKind.EventsQuery) {
-                        if (body.query.where?.some((w: string) => w.includes('$exception_fingerprint'))) {
+                    if (query?.kind === NodeKind.EventsQuery) {
+                        if (query.where?.some((w: string) => w.includes('$exception_fingerprint'))) {
                             return [200, STORY_FINGERPRINT_EVENT_RESPONSE]
                         }
-                        return body.query.select?.includes('properties.$exception_list')
+                        return query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EVENTS_RESPONSE]
                     }
-                    if (body.query?.kind === NodeKind.ErrorTrackingReleasesQuery) {
-                        return [200, storyReleasesResponse(body.query.maxReleases ?? 5)]
+                    if (query?.kind === NodeKind.ErrorTrackingReleasesQuery) {
+                        return [200, storyReleasesResponse(query.maxReleases ?? 5)]
                     }
-                    if (body.query?.kind === NodeKind.HogQLQuery) {
-                        return body.query.query?.includes('$exception_fingerprint')
+                    if (query?.kind === NodeKind.HogQLQuery) {
+                        return query.query?.includes('$exception_fingerprint')
                             ? [200, STORY_FINGERPRINT_SAMPLES_RESPONSE]
                             : [200, { results: [] }]
                     }
@@ -1062,18 +1075,18 @@ export const GroupPageBreakdownLoading: Story = {
         mswDecorator({
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as { query?: { kind?: string; select?: string[] } }
-                    if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
+                    const query = storyQuery(
+                        (await request.json()) as StoryQueryBody<{ kind?: string; select?: string[] }>
+                    )
+                    if (query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return new Promise<never>(() => {})
                     }
-                    if (body.query?.kind === NodeKind.EventsQuery) {
-                        return body.query.select?.includes('properties.$exception_list')
+                    if (query?.kind === NodeKind.EventsQuery) {
+                        return query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EVENTS_RESPONSE]
                     }
-                    return body.query?.kind === NodeKind.HogQLQuery
-                        ? [200, { results: [] }]
-                        : [200, STORY_SUMMARY_RESPONSE]
+                    return query?.kind === NodeKind.HogQLQuery ? [200, { results: [] }] : [200, STORY_SUMMARY_RESPONSE]
                 },
             },
         }),
@@ -1099,26 +1112,25 @@ export const GroupPageBreakdownModalLoading: Story = {
         mswDecorator({
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as {
-                        query?: { kind?: string; select?: string[]; maxValuesPerProperty?: number }
-                    }
-                    if (
-                        body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery &&
-                        body.query.maxValuesPerProperty === 100
-                    ) {
+                    const query = storyQuery(
+                        (await request.json()) as StoryQueryBody<{
+                            kind?: string
+                            select?: string[]
+                            maxValuesPerProperty?: number
+                        }>
+                    )
+                    if (query?.kind === NodeKind.ErrorTrackingBreakdownsQuery && query.maxValuesPerProperty === 100) {
                         return new Promise<never>(() => {})
                     }
-                    if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
+                    if (query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return [200, STORY_BREAKDOWNS_RESPONSE]
                     }
-                    if (body.query?.kind === NodeKind.EventsQuery) {
-                        return body.query.select?.includes('properties.$exception_list')
+                    if (query?.kind === NodeKind.EventsQuery) {
+                        return query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EVENTS_RESPONSE]
                     }
-                    return body.query?.kind === NodeKind.HogQLQuery
-                        ? [200, { results: [] }]
-                        : [200, STORY_SUMMARY_RESPONSE]
+                    return query?.kind === NodeKind.HogQLQuery ? [200, { results: [] }] : [200, STORY_SUMMARY_RESPONSE]
                 },
             },
         }),
@@ -1135,18 +1147,18 @@ export const GroupPageEmptyWithFilter: Story = {
         mswDecorator({
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as { query?: { kind?: string; select?: string[] } }
-                    if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
+                    const query = storyQuery(
+                        (await request.json()) as StoryQueryBody<{ kind?: string; select?: string[] }>
+                    )
+                    if (query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return [200, STORY_BREAKDOWNS_RESPONSE]
                     }
-                    if (body.query?.kind === NodeKind.EventsQuery) {
-                        return body.query.select?.includes('properties.$exception_list')
+                    if (query?.kind === NodeKind.EventsQuery) {
+                        return query.select?.includes('properties.$exception_list')
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EMPTY_EVENTS_RESPONSE]
                     }
-                    return body.query?.kind === NodeKind.HogQLQuery
-                        ? [200, { results: [] }]
-                        : [200, STORY_SUMMARY_RESPONSE]
+                    return query?.kind === NodeKind.HogQLQuery ? [200, { results: [] }] : [200, STORY_SUMMARY_RESPONSE]
                 },
             },
         }),

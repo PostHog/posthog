@@ -9,6 +9,7 @@ import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
+import type { ExperimentWizardStepNavigation } from 'scenes/experiments/ExperimentWizard/experimentWizardLogic'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import type { InstallationErrorKind } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
@@ -1219,6 +1220,17 @@ export interface eventUsageLogicActions {
     reportExperimentWizardStarted: () => {
         value: true
     }
+    reportExperimentWizardStepViewed: (
+        step: string,
+        stepNumber: number,
+        previousStep: string | null,
+        navigation: ExperimentWizardStepNavigation
+    ) => {
+        navigation: ExperimentWizardStepNavigation
+        previousStep: string | null
+        step: string
+        stepNumber: number
+    }
     reportExperimentsListAiBadgeClicked: () => {
         value: true
     }
@@ -1806,6 +1818,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             breakdown,
             isPrimary,
         }),
+        reportExperimentWizardStepViewed: (
+            step: string,
+            stepNumber: number,
+            previousStep: string | null,
+            navigation: ExperimentWizardStepNavigation
+        ) => ({ step, stepNumber, previousStep, navigation }),
         reportExperimentMetricBreakdownRemoved: (
             experiment: Experiment,
             metricUuid: string,
@@ -2378,6 +2396,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 breakdown_type: breakdown.type,
                 breakdown_property: breakdown.property,
                 is_primary_metric: isPrimary,
+            })
+        },
+        reportExperimentWizardStepViewed: ({ step, stepNumber, previousStep, navigation }) => {
+            posthog.capture('experiment wizard step viewed', {
+                step,
+                step_number: stepNumber,
+                previous_step: previousStep,
+                navigation,
             })
         },
         reportExperimentMetricBreakdownRemoved: ({ experiment, metricUuid, breakdown, index, isPrimary }) => {

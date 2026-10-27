@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 70 enabled ops
+ * PostHog API - MCP 79 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -43,6 +43,111 @@ export const SignalsActivitySummaryVersionsRetrieveQueryParams = () => zod.objec
         .min(1)
         .optional()
         .describe('Return only this version, with its full profile. Returns 404 when the version does not exist.'),
+})
+
+/**
+ * Read-only anomaly rates of the saved trends insights that anomaly scoring checks.
+ * @summary Get the scored anomaly history of an insight
+ */
+export const SignalsAnomaliesInsightRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsAnomaliesInsightRetrieveQueryDateFromDefault = `-30d`
+
+export const signalsAnomaliesInsightRetrieveQueryIncludeBucketsDefault = true
+export const signalsAnomaliesInsightRetrieveQueryIncludeWarmupDefault = false
+
+export const SignalsAnomaliesInsightRetrieveQueryParams = () => zod.object({
+    date_from: zod
+        .string()
+        .min(1)
+        .default(signalsAnomaliesInsightRetrieveQueryDateFromDefault)
+        .describe('Earliest bucket start in the range. A relative date such as `-30d`, or an ISO 8601 date.'),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Latest bucket start in the range. A relative date or an ISO 8601 date. Defaults to now.'),
+    include_buckets: zod
+        .boolean()
+        .default(signalsAnomaliesInsightRetrieveQueryIncludeBucketsDefault)
+        .describe('Return the buckets of each series. Set false for the per-series summary only.'),
+    include_warmup: zod
+        .boolean()
+        .default(signalsAnomaliesInsightRetrieveQueryIncludeWarmupDefault)
+        .describe(
+            'Include warm-up buckets: scored rows with a null score and flag, written while the detector still lacks history. When false, a warm-up bucket shows as `scored: false`.'
+        ),
+    insight_id: zod.number().describe('The insight, by numeric id.'),
+    series_key: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Only this series, by the `series_key` of an anomaly search row.'),
+})
+
+/**
+ * Read-only anomaly rates of the saved trends insights that anomaly scoring checks.
+ * @summary Search anomalous insight series
+ */
+export const SignalsAnomaliesSearchRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsAnomaliesSearchRetrieveQueryDateFromDefault = `-7d`
+
+export const signalsAnomaliesSearchRetrieveQueryGroupByDefault = `series`
+export const signalsAnomaliesSearchRetrieveQueryLimitDefault = 25
+export const signalsAnomaliesSearchRetrieveQueryLimitMax = 100
+
+export const signalsAnomaliesSearchRetrieveQueryOnlyFlaggedDefault = true
+
+export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
+    dashboard_id: zod.number().optional().describe('Only the series of the insights on this dashboard, by numeric id.'),
+    date_from: zod
+        .string()
+        .min(1)
+        .default(signalsAnomaliesSearchRetrieveQueryDateFromDefault)
+        .describe('Earliest bucket start in the range. A relative date such as `-7d` or `-24h`, or an ISO 8601 date.'),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Latest bucket start in the range. A relative date or an ISO 8601 date. Defaults to now.'),
+    group_by: zod
+        .enum(['series', 'insight'])
+        .default(signalsAnomaliesSearchRetrieveQueryGroupByDefault)
+        .describe(
+            '`series` returns one row per series in `series`. `insight` returns one row per insight in `insights`.\n\n\* `series` - Series\n\* `insight` - Insight'
+        ),
+    insight_id: zod.number().optional().describe('Only the series of this insight, by numeric id.'),
+    interval: zod
+        .enum(['hour', 'day', 'week', 'month'])
+        .optional()
+        .describe(
+            'Only series with this interval.\n\n\* `hour` - Hour\n\* `day` - Day\n\* `week` - Week\n\* `month` - Month'
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(signalsAnomaliesSearchRetrieveQueryLimitMax)
+        .default(signalsAnomaliesSearchRetrieveQueryLimitDefault)
+        .describe('The most rows to return.'),
+    only_flagged: zod
+        .boolean()
+        .default(signalsAnomaliesSearchRetrieveQueryOnlyFlaggedDefault)
+        .describe(
+            'Only series, or insights, with at least one flagged bucket in the range. Set false to also list quiet ones.'
+        ),
 })
 
 /**
@@ -264,13 +369,25 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_\* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They need staff or the inbox model sort rollout: other users get a 400."
+            "Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_open, ranking_action, ranking_fix. Defaults to '-is_suggested_reviewer,status,-updated_at'. Each ranking_<outcome> field sorts by the served ranking model's probability for that public outcome, with unscored reports last in either direction. Read inbox-ranking-outcomes-list for what each outcome means. The ranking fields need staff or the inbox model sort rollout: other users get a 400."
         ),
     priority: zod
         .string()
         .optional()
         .describe(
             'Comma-separated list of priorities to include. Valid values: P0, P1, P2, P3, P4. Reports without a priority assignment are excluded when this filter is set.'
+        ),
+    ranking_min_lift: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.'
+        ),
+    ranking_min_probability: zod
+        .string()
+        .optional()
+        .describe(
+            'Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.'
         ),
     scope: zod
         .string()
@@ -293,7 +410,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fixed head of the served ranking model with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used."
+            "Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used."
         ),
     source_id: zod
         .string()
@@ -406,7 +523,7 @@ export const SignalsReportsActionsListParams = () => zod.object({
 })
 
 /**
- * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
+ * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. `ask` sends your own message with the framing of the inbox's Ask AI. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
  * @summary Start a report action as a background agent run
  */
 export const SignalsReportsActionsRunCreateParams = () => zod.object({
@@ -420,20 +537,29 @@ export const SignalsReportsActionsRunCreateParams = () => zod.object({
 
 export const signalsReportsActionsRunCreateBodySuggestedPromptIndexMin = 0
 
+export const signalsReportsActionsRunCreateBodyMessageMax = 2000
+
 export const SignalsReportsActionsRunCreateBody = () => zod.object({
     action: zod
-        .enum(['get_it_merged', 'make_it_green', 'suggested_prompt'])
+        .enum(['get_it_merged', 'make_it_green', 'suggested_prompt', 'ask'])
         .describe(
-            '\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `suggested_prompt` - Suggested prompt'
+            '\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `suggested_prompt` - Suggested prompt\n\* `ask` - Ask'
         )
         .describe(
-            'The action to run. Use a value from the actions list.\n\n\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `suggested_prompt` - Suggested prompt'
+            'The action to run. Use a value from the actions list, or `ask` to send your own `message`.\n\n\* `get_it_merged` - Get it merged\n\* `make_it_green` - Make it green\n\* `suggested_prompt` - Suggested prompt\n\* `ask` - Ask'
         ),
     suggested_prompt_index: zod
         .number()
         .min(signalsReportsActionsRunCreateBodySuggestedPromptIndexMin)
         .optional()
         .describe('Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.'),
+    message: zod
+        .string()
+        .max(signalsReportsActionsRunCreateBodyMessageMax)
+        .optional()
+        .describe(
+            "Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged` and `make_it_green`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`."
+        ),
 })
 
 /**
@@ -555,6 +681,132 @@ export const SignalsReportsMergeCreateBody = () => zod.object({
 })
 
 /**
+ * Apply a human reviewer edit, including on reports without a reviewer artefact.
+ * @summary Set a report's suggested reviewers
+ */
+export const SignalsReportsReviewersUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal report.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReportsReviewersUpdateBodyActionDefault = `replace`
+export const signalsReportsReviewersUpdateBodyContentItemGithubLoginMax = 200
+
+export const signalsReportsReviewersUpdateBodyContentItemGithubNameMax = 200
+
+export const signalsReportsReviewersUpdateBodyContentItemReasonMax = 500
+
+export const signalsReportsReviewersUpdateBodyContentMax = 10
+
+export const signalsReportsReviewersUpdateBodyTargetsItemGithubLoginMax = 200
+
+export const signalsReportsReviewersUpdateBodyTargetsItemGithubNameMax = 200
+
+export const signalsReportsReviewersUpdateBodyTargetsItemReasonMax = 500
+
+export const signalsReportsReviewersUpdateBodyTargetsMax = 10
+
+export const SignalsReportsReviewersUpdateBody = () => zod.object({
+    action: zod
+        .enum(['add', 'remove', 'replace', 'confirm'])
+        .describe('\* `add` - Add\n\* `remove` - Remove\n\* `replace` - Replace\n\* `confirm` - Confirm')
+        .default(signalsReportsReviewersUpdateBodyActionDefault)
+        .describe(
+            'Add or remove only the supplied people, replace the list, or explicitly confirm it.\n\n\* `add` - Add\n\* `remove` - Remove\n\* `replace` - Replace\n\* `confirm` - Confirm'
+        ),
+    expected_reviewers: zod
+        .object({
+            reviewers_id: zod
+                .string()
+                .nullable()
+                .describe('Current reviewer artefact ID, or null before the first list.'),
+            corrections_id: zod
+                .string()
+                .nullable()
+                .describe('Current corrections artefact ID, or null before corrections are stored.'),
+        })
+        .optional()
+        .describe('State from the last read. Required for replacement and confirmation when corrections are enabled.'),
+    content: zod
+        .array(
+            zod
+                .object({
+                    github_login: zod
+                        .string()
+                        .max(signalsReportsReviewersUpdateBodyContentItemGithubLoginMax)
+                        .optional()
+                        .describe(
+                            'GitHub login (case-insensitive). Stored lowercased. Required unless `user_uuid` is given.'
+                        ),
+                    user_uuid: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            "PostHog user UUID. Must be an org member on this team; a linked GitHub account is not required. Required unless `github_login` is given. If supplied together with `github_login`, the user's own identity wins."
+                        ),
+                    github_name: zod
+                        .string()
+                        .max(signalsReportsReviewersUpdateBodyContentItemGithubNameMax)
+                        .optional()
+                        .describe('Optional human-readable display name. Not backfilled from GitHub by the server.'),
+                    reason: zod
+                        .string()
+                        .max(signalsReportsReviewersUpdateBodyContentItemReasonMax)
+                        .nullish()
+                        .describe(
+                            'Optional short evidence for why this reviewer was chosen. Omitted entries keep the prior reason for reviewers already on the report.'
+                        ),
+                })
+                .describe(
+                    'Single entry in a PUT body for a `suggested_reviewers` artefact.\n\nEach entry must identify a reviewer by at least one of `github_login` or `user_uuid`. A\n`user_uuid` only has to name an org member on this team — a member with no linked GitHub\naccount is stored by uuid and routes like any other reviewer.'
+                )
+        )
+        .max(signalsReportsReviewersUpdateBodyContentMax)
+        .describe('People to add, remove, or keep in a replacement. Send an empty list for confirmation.'),
+    targets: zod
+        .array(
+            zod
+                .object({
+                    github_login: zod
+                        .string()
+                        .max(signalsReportsReviewersUpdateBodyTargetsItemGithubLoginMax)
+                        .optional()
+                        .describe(
+                            'GitHub login (case-insensitive). Stored lowercased. Required unless `user_uuid` is given.'
+                        ),
+                    user_uuid: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            "PostHog user UUID. Must be an org member on this team; a linked GitHub account is not required. Required unless `github_login` is given. If supplied together with `github_login`, the user's own identity wins."
+                        ),
+                    github_name: zod
+                        .string()
+                        .max(signalsReportsReviewersUpdateBodyTargetsItemGithubNameMax)
+                        .optional()
+                        .describe('Optional human-readable display name. Not backfilled from GitHub by the server.'),
+                    reason: zod
+                        .string()
+                        .max(signalsReportsReviewersUpdateBodyTargetsItemReasonMax)
+                        .nullish()
+                        .describe(
+                            'Optional short evidence for why this reviewer was chosen. Omitted entries keep the prior reason for reviewers already on the report.'
+                        ),
+                })
+                .describe(
+                    'Single entry in a PUT body for a `suggested_reviewers` artefact.\n\nEach entry must identify a reviewer by at least one of `github_login` or `user_uuid`. A\n`user_uuid` only has to name an org member on this team — a member with no linked GitHub\naccount is stored by uuid and routes like any other reviewer.'
+                )
+        )
+        .max(signalsReportsReviewersUpdateBodyTargetsMax)
+        .optional()
+        .describe('Explicit add or remove targets. When supplied, content is only a fallback for older servers.'),
+})
+
+/**
  * Take the calling user off this report's suggested reviewers, leaving the other reviewers as they are. The report itself is untouched: it stays open for whoever is left, and for the project. Succeeds whether or not the caller was on the list.
  * @summary Step off a report's suggested reviewers
  */
@@ -606,30 +858,34 @@ export const signalsReportsStateCreateBodySnoozeForMax = 100000
 
 export const SignalsReportsStateCreateBody = () => zod.object({
     state: zod
-        .enum(['suppressed', 'potential', 'resolved'])
-        .describe('\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved')
+        .enum(['suppressed', 'potential', 'resolved', 'monitoring'])
         .describe(
-            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze\/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.\n\n\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved"
+            '\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring'
+        )
+        .describe(
+            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze\/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.\n\n\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring"
         ),
     dismissal_reason: zod
         .enum([
             'already_fixed',
             'report_unclear',
             'analysis_wrong',
+            'wrong_assignee',
             'wrong_repo',
             'wontfix_intentional',
             'wontfix_irrelevant',
             'fixed_outside_posthog',
+            'verified_manually',
             'no_action_needed',
             'pr_merged',
             'other',
         ])
         .describe(
-            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
+            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_assignee` - Wrong assignee\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Not relevant to this project\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `verified_manually` - Verified manually\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
         )
         .optional()
         .describe(
-            "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_\*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
+            "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_\*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_assignee` - Wrong assignee\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Not relevant to this project\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `verified_manually` - Verified manually\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
         ),
     dismissal_note: zod
         .string()
@@ -702,7 +958,6 @@ export const SignalsReportArtefactsCreateHeader = () => zod.object({
         ),
 })
 
-export const signalsReportArtefactsCreateBodyReviewerOutcomeDefault = `selected`
 export const signalsReportArtefactsCreateBodyReviewerRetryReasonMax = 500
 
 export const SignalsReportArtefactsCreateBody = () => zod
@@ -727,9 +982,9 @@ export const SignalsReportArtefactsCreateBody = () => zod
             .describe(
                 '\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
             )
-            .default(signalsReportArtefactsCreateBodyReviewerOutcomeDefault)
+            .optional()
             .describe(
-                'A successful selection, a deliberate empty result, or an unavailable lookup.\n\n\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
+                'A successful selection, a deliberate empty result, or an unavailable lookup. Defaults to selected when omitted.\n\n\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
             ),
         reviewer_retry_reason: zod
             .string()
@@ -803,7 +1058,7 @@ export const SignalsReportArtefactsPartialUpdateBody = () => zod
     )
 
 /**
- * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pull_request`, `ranking_score`, `report_link`, `reviewer_corrections`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains). `task_run` artefacts are an append-only work log and cannot be deleted. Neither can the types this API cannot write, which the pipeline owns: `autostart_skip`, `check_cancelled`, `check_expired`, `check_observation`, `check_result`, `check_scheduled`, `code_review`, `impact_measurement_plan`, `implementation_decision`, `implementation_dispatch`, `implementation_handover`, `implementation_replacement`, `pr_owner_assignment`, `pull_request`, `ranking_score`, `report_link`, `reviewer_corrections`, `summary_change`, `task_run`, `title_change`, `video_segment`, `work_claim`, `work_release`.
  * @summary Delete an artefact
  */
 export const SignalsReportArtefactsDestroyParams = () => zod.object({
@@ -1041,30 +1296,34 @@ export const signalsReportsBulkStateCreateBodyIdsMax = 100
 
 export const SignalsReportsBulkStateCreateBody = () => zod.object({
     state: zod
-        .enum(['suppressed', 'potential', 'resolved'])
-        .describe('\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved')
+        .enum(['suppressed', 'potential', 'resolved', 'monitoring'])
         .describe(
-            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze\/reopen it for later review, or 'resolved' when the work this report asked for has been done. Resolving is allowed from ready, pending_input, or failed, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one.\n\n\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved"
+            '\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring'
+        )
+        .describe(
+            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze\/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.\n\n\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring"
         ),
     dismissal_reason: zod
         .enum([
             'already_fixed',
             'report_unclear',
             'analysis_wrong',
+            'wrong_assignee',
             'wrong_repo',
             'wontfix_intentional',
             'wontfix_irrelevant',
             'fixed_outside_posthog',
+            'verified_manually',
             'no_action_needed',
             'pr_merged',
             'other',
         ])
         .describe(
-            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
+            "\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_assignee` - Wrong assignee\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Not relevant to this project\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `verified_manually` - Verified manually\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
         )
         .optional()
         .describe(
-            "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_repo, wontfix_\*) go with state='suppressed' and absorb later signals silently. Use 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Won't fix - issue is real but insignificant\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
+            "Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_\*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.\n\n\* `already_fixed` - Already fixed\n\* `report_unclear` - Report is unclear to me\n\* `analysis_wrong` - Agent's analysis is wrong\n\* `wrong_assignee` - Wrong assignee\n\* `wrong_repo` - Agent picked the wrong repository\n\* `wontfix_intentional` - Won't fix - intentional behavior\n\* `wontfix_irrelevant` - Not relevant to this project\n\* `fixed_outside_posthog` - Fixed outside PostHog\n\* `verified_manually` - Verified manually\n\* `no_action_needed` - No action needed\n\* `pr_merged` - PR was merged\n\* `other` - Something else…"
         ),
     dismissal_note: zod
         .string()
@@ -1092,6 +1351,131 @@ export const SignalsReportsBulkStateCreateBody = () => zod.object({
         .max(signalsReportsBulkStateCreateBodyIdsMax)
         .describe(
             'Report ids to transition to `state` in one call (1–100). Duplicates are de-duplicated; each id is processed independently so one disallowed transition does not block the rest. `dismissal_reason`, `dismissal_note`, `corrected_repository` and `snooze_for` apply to every id.'
+        ),
+})
+
+/**
+ * What each public outcome of the served ranking model predicts, with its horizon, cohort, base rate and readability from the model that scored this project's reports. Users who cannot see the ranking model get status not_available and no outcomes.
+ * @summary List the ranking model's public outcomes
+ */
+export const SignalsReportsRankingOutcomesListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * List the standing instructions that keep you off automatic reviewer selection, active and revoked.
+ * @summary List your reviewer exclusions
+ */
+export const SignalsReviewerExclusionsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * @summary Stay off automatic reviewer selection in an area
+ */
+export const SignalsReviewerExclusionsCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReviewerExclusionsCreateBodyRepositoryMax = 200
+
+export const signalsReviewerExclusionsCreateBodyPathPrefixMax = 500
+
+export const signalsReviewerExclusionsCreateBodyInstructionMax = 2000
+
+export const SignalsReviewerExclusionsCreateBody = () => zod.object({
+    repository: zod
+        .string()
+        .max(signalsReviewerExclusionsCreateBodyRepositoryMax)
+        .optional()
+        .describe('Repository in `owner\/name` form. Leave empty to cover every repository.'),
+    path_prefix: zod
+        .string()
+        .max(signalsReviewerExclusionsCreateBodyPathPrefixMax)
+        .optional()
+        .describe('Path inside the repository, such as `src\/billing`. Needs a repository.'),
+    instruction: zod
+        .string()
+        .max(signalsReviewerExclusionsCreateBodyInstructionMax)
+        .describe('Why you stay off this area, for the people who read it later.'),
+    report_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional report to take you off first. The report removal and the instruction save are separate steps.'
+        ),
+})
+
+/**
+ * @summary Get one of your reviewer exclusions
+ */
+export const SignalsReviewerExclusionsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal reviewer exclusion.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * @summary Change one of your reviewer exclusions
+ */
+export const SignalsReviewerExclusionsPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal reviewer exclusion.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsReviewerExclusionsPartialUpdateBodyRepositoryMax = 200
+
+export const signalsReviewerExclusionsPartialUpdateBodyPathPrefixMax = 500
+
+export const signalsReviewerExclusionsPartialUpdateBodyInstructionMax = 2000
+
+export const SignalsReviewerExclusionsPartialUpdateBody = () => zod.object({
+    repository: zod
+        .string()
+        .max(signalsReviewerExclusionsPartialUpdateBodyRepositoryMax)
+        .optional()
+        .describe('Repository in `owner\/name` form. Leave empty to cover every repository.'),
+    path_prefix: zod
+        .string()
+        .max(signalsReviewerExclusionsPartialUpdateBodyPathPrefixMax)
+        .optional()
+        .describe('Path inside the repository, such as `src\/billing`. Needs a repository.'),
+    instruction: zod
+        .string()
+        .max(signalsReviewerExclusionsPartialUpdateBodyInstructionMax)
+        .optional()
+        .describe('New text for the instruction.'),
+})
+
+/**
+ * Make you eligible for automatic reviewer selection in this area again. Revoking does not add you to any report, and it does not change old reports.
+ * @summary Revoke one of your reviewer exclusions
+ */
+export const SignalsReviewerExclusionsRevokeCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this signal reviewer exclusion.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
 
@@ -2653,7 +3037,6 @@ export const SignalsScoutEditReportParams = () => zod.object({
     run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
 })
 
-export const signalsScoutEditReportBodyReviewerOutcomeDefault = `selected`
 export const signalsScoutEditReportBodyReviewerRetryReasonMax = 500
 
 export const signalsScoutEditReportBodyTitleMax = 300
@@ -2728,9 +3111,9 @@ export const SignalsScoutEditReportBody = () => zod
             .describe(
                 '\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
             )
-            .default(signalsScoutEditReportBodyReviewerOutcomeDefault)
+            .optional()
             .describe(
-                'A successful selection, a deliberate empty result, or an unavailable lookup.\n\n\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
+                'A successful selection, a deliberate empty result, or an unavailable lookup. Defaults to selected when omitted.\n\n\* `selected` - Selected\n\* `no_suitable_owner` - No suitable owner\n\* `lookup_failed` - Lookup failed'
             ),
         reviewer_retry_reason: zod
             .string()

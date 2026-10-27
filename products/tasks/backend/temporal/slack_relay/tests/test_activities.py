@@ -180,6 +180,31 @@ class TestRelaySlackMessage(TestCase):
 
         assert mock_post.call_args.args[0].turn_trace_id == trace_id
 
+    @parameterized.expand(
+        [
+            ("tip without reply buttons", False, True, True),
+            ("reply buttons without tip", True, False, False),
+        ]
+    )
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.offer_feature_tip")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.offer_reply_suggestions")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message", return_value=True)
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_feature_tip_follows_its_own_flag(
+        self, _name, offer_suggestions, offer_tip, tip_expected, _delete, _post, _suggestions, mock_tip
+    ):
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id=f"relay-tip-{offer_tip}",
+                text="Done.",
+                offer_reply_suggestions=offer_suggestions,
+                offer_feature_tip=offer_tip,
+            )
+        )
+
+        assert mock_tip.called is tip_expected
+
     _RICH_ANSWER = "## Heading\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n- [ ] todo"
 
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")

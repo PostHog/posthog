@@ -68,6 +68,8 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
     from products.slack_app.backend.analytics import capture_slack_event
     from products.slack_app.backend.api import SLACK_INTEGRATION_KIND, _channel_is_approved
     from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
+    from products.slack_app.backend.logic.feature_tips.features import SlackFeature
+    from products.slack_app.backend.logic.feature_tips.state import record_feature_used
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_user_for_workspace
     from products.slack_app.backend.services.slack_fork_context import PendingFork, store_pending_fork
@@ -255,6 +257,7 @@ def process_slack_app_fork_thread_payload(payload: dict[str, Any]) -> None:
 
     # Reported as its own event rather than folded into the mention funnel: a fork is a
     # different intent and would otherwise inflate mention counts.
+    record_feature_used(slack_team_id, slack_user_id, SlackFeature.FORK_THREAD)
     capture_slack_event(
         integration,
         "slack app fork created",
