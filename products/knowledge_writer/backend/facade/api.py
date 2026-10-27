@@ -3,7 +3,7 @@ import re
 from ..adapters import REGISTRY
 from ..logic import intake
 from ..settings import writer_settings
-from .contracts import DocsCommandRequest, IntakeOutcome, MergeCheckReport
+from .contracts import DocsCommandRequest, IntakeOutcome
 from .enums import DocsRequestSource
 
 COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
@@ -17,10 +17,6 @@ def writer_team_id() -> int | None:
 def request_docs_for_pull_request(command: DocsCommandRequest, *, team_id: int) -> IntakeOutcome:
     verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(command)
     return intake.submit(verdict, team_id=team_id)
-
-
-def submit_merge_report(report: MergeCheckReport, *, team_id: int) -> IntakeOutcome:
-    return intake.submit(REGISTRY[DocsRequestSource.REPO_MERGE].assess(report), team_id=team_id)
 
 
 def record_merge_push(commit_sha: str) -> None:

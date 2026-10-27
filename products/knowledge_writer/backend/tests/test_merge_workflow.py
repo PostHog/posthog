@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import patch
 
 COMMIT_SHA = "b" * 40
+START_MERGE_CHECK = "products.knowledge_writer.backend.temporal.client.start_merge_check"
 
 
 @pytest.fixture
@@ -21,37 +22,26 @@ def writer_env(team, user):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "report, expected_status_code, expected_body",
+    "commit_sha, expected_status_code",
     [
-        pytest.param(
-            {
-                "commit_sha": COMMIT_SHA,
-                "commit_url": f"https://github.com/PostHog/posthog/commit/{COMMIT_SHA}",
-                "title": "Refactor the query runner",
-                "needs_docs": False,
-                "reason": "no_mapped_section",
-            },
-            200,
-            {"status": "no_docs"},
-            id="verdict",
-        ),
-        pytest.param(
-            {"commit_sha": "not-a-sha", "commit_url": "x", "title": "x", "needs_docs": False, "reason": "x"},
-            400,
-            None,
-            id="invalid",
-        ),
+        pytest.param(COMMIT_SHA, 202, id="merge"),
+        pytest.param("not-a-sha", 400, id="invalid"),
     ],
 )
-def test_merge_verdicts_endpoint_records_a_verdict(
-    client, team, user, writer_env, report, expected_status_code, expected_body
+def test_merge_pushes_endpoint_starts_the_merge_check(
+    client, team, user, writer_env, commit_sha, expected_status_code
 ) -> None:
     client.force_login(user)
 
-    response = client.post(
-        f"/api/projects/{team.id}/knowledge_writer/merge_verdicts/", report, content_type="application/json"
-    )
+    with patch(START_MERGE_CHECK) as start_merge_check:
+        response = client.post(
+            f"/api/projects/{team.id}/knowledge_writer/merge_pushes/",
+            {"commit_sha": commit_sha},
+            content_type="application/json",
+        )
 
     assert response.status_code == expected_status_code
-    if expected_body is not None:
-        assert response.json() == expected_body
+    if expected_status_code != 202:
+        start_merge_check.assert_not_called()
+        return
+    start_merge_check.assert_called_once_with(COMMIT_SHA, team_id=team.id)
