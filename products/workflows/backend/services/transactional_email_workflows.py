@@ -21,6 +21,7 @@ from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 from products.workflows.backend.services.hog_flow_writes import create_workflow, update_workflow
 
 TRIGGER_ACTION_ID = "trigger_node"
+TRIGGER_TYPE = "api"
 # Engagement tracking and message assets key on this id, so it stays stable across versions.
 EMAIL_ACTION_ID = "transactional_email"
 EXIT_ACTION_ID = "exit_node"
@@ -38,7 +39,7 @@ def transactional_email_actions(content: TransactionalEmailContent, from_integra
             "name": "Trigger",
             "description": "",
             "type": "trigger",
-            "config": {"type": "api"},
+            "config": {"type": TRIGGER_TYPE},
         },
         {
             "id": EMAIL_ACTION_ID,
@@ -174,3 +175,9 @@ def update_transactional_email_workflow(
             validated_status=flow.status,
             keeps_live_sensitivity=False,
         )
+
+
+def transactional_email_workflow_ids() -> list[str]:
+    """Every transactional email workflow in every team, archived ones included, because the usage report
+    counts the emails they sent in the period."""
+    return [str(flow_id) for flow_id in HogFlow.objects.filter(trigger__type=TRIGGER_TYPE).values_list("id", flat=True)]

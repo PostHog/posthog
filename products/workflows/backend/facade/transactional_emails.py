@@ -9,6 +9,7 @@ from products.workflows.backend.facade.contracts import (
 from products.workflows.backend.services.transactional_email_workflows import (
     create_transactional_email_workflow,
     resolve_transactional_email_sender,
+    transactional_email_workflow_ids,
     update_transactional_email_workflow,
 )
 
@@ -19,5 +20,6 @@ __all__ = [
     "WorkflowNotFound",
     "create_transactional_email_workflow",
     "resolve_transactional_email_sender",
+    "transactional_email_workflow_ids",
     "update_transactional_email_workflow",
 ]

@@ -107,6 +107,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.workflows.backend.facade.testing import create_workflow_for_test
 
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.materialized_columns.columns import materialize
@@ -3551,12 +3552,21 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         )
 
         # Create workflow metrics for org 1 team 2
+        transactional_flow = create_workflow_for_test(team_id=self.org_1_team_2.id, trigger={"type": "api"})
+        create_app_metric2(
+            team_id=self.org_1_team_2.id,
+            app_source="hog_flow",
+            app_source_id=str(transactional_flow.id),
+            metric_name="billable_invocation",
+            metric_kind="email",
+            count=9,
+        )
         create_app_metric2(
             team_id=self.org_1_team_2.id,
             app_source="hog_flow",
             metric_name="billable_invocation",
             metric_kind="email",
-            count=15,
+            count=6,
         )
         create_app_metric2(
             team_id=self.org_1_team_2.id,
@@ -3593,18 +3603,21 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         # Push bills as a destination for now, so it counts toward workflow_billable_invocations
         # while still reporting separately under workflow_push_sent.
         assert org_1_report["workflow_emails_sent_in_period"] == 25  # 10 + 15
+        assert org_1_report["workflow_transactional_emails_sent_in_period"] == 9
         assert org_1_report["workflow_push_sent_in_period"] == 12  # 5 + 7
         assert org_1_report["workflow_sms_sent_in_period"] == 5  # 3 + 2
         assert org_1_report["workflow_billable_invocations_in_period"] == 32  # fetch 8 + 12, push 5 + 7
 
         # Test team 1 workflow metrics
         assert org_1_report["teams"]["3"]["workflow_emails_sent_in_period"] == 10
+        assert org_1_report["teams"]["3"]["workflow_transactional_emails_sent_in_period"] == 0
         assert org_1_report["teams"]["3"]["workflow_push_sent_in_period"] == 5
         assert org_1_report["teams"]["3"]["workflow_sms_sent_in_period"] == 3
         assert org_1_report["teams"]["3"]["workflow_billable_invocations_in_period"] == 13  # fetch 8, push 5
 
         # Test team 2 workflow metrics
         assert org_1_report["teams"]["4"]["workflow_emails_sent_in_period"] == 15
+        assert org_1_report["teams"]["4"]["workflow_transactional_emails_sent_in_period"] == 9
         assert org_1_report["teams"]["4"]["workflow_push_sent_in_period"] == 7
         assert org_1_report["teams"]["4"]["workflow_sms_sent_in_period"] == 2
         assert org_1_report["teams"]["4"]["workflow_billable_invocations_in_period"] == 19  # fetch 12, push 7
