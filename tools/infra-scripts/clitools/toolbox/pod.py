@@ -10,6 +10,10 @@ from datetime import datetime, timedelta
 
 from toolbox.kubernetes import kubectl_cmd
 
+# Labels a claim keeps. The WarpStream agents accept Kafka traffic only from pods with
+# posthog.com/warpstream-client, so a claimed pod without it cannot produce to Kafka.
+KEPT_LABELS = frozenset({"app.kubernetes.io/name", "posthog.com/warpstream-client"})
+
 
 class ClaimRaceError(Exception):
     """Raised when a claim attempt loses an optimistic-concurrency race.
@@ -159,7 +163,7 @@ def claim_pod(
     successful write; once the first mutation has won, no other writer can
     sneak in mid-claim.
 
-    Strips every label except app.kubernetes.io/name (which orphans the pod from
+    Strips every label except those in ``KEPT_LABELS`` (which orphans the pod from
     its ReplicaSet by removing pod-template-hash), annotates karpenter to skip
     disruption, then applies user_labels + a terminate-after timestamp.
     """
@@ -175,7 +179,7 @@ def claim_pod(
 
         current_labels = json.loads(result.stdout)
 
-        labels_to_remove = [name for name in current_labels.keys() if name != "app.kubernetes.io/name"]
+        labels_to_remove = [name for name in current_labels.keys() if name not in KEPT_LABELS]
         # Attach the optimistic-concurrency guard to whichever kubectl invocation is the first
         # actual write; once it succeeds, the resourceVersion advances and subsequent calls
         # don't need (and can't pass) the same value.
