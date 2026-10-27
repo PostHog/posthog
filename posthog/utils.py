@@ -843,10 +843,13 @@ def should_defer_app_context(request: HttpRequest, user: "User") -> bool:
 
 
 def feature_flag_bootstrap(user: "User", current_user: dict[str, Any]) -> Optional[dict[str, Any]]:
+    distinct_id = current_user.get("distinct_id")
+    if not distinct_id:
+        return None
     identity = _flag_identity(current_user, user.date_joined.isoformat())
     with tracer.start_as_current_span("template.feature_flag_bootstrap"):
         feature_flags = posthoganalytics.get_all_flags(
-            cast(str, current_user.get("distinct_id")),
+            distinct_id,
             only_evaluate_locally=True,
             person_properties=identity.person_properties,
             groups=identity.groups,
