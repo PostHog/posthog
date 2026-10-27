@@ -11,12 +11,15 @@ It is not published yet.
 `hog` has no `exp` namespace.
 The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tasks`, `schema`) are top-level commands in `hog`.
 
-| Command                   | Status                                                                                                          |
-| ------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `hog query run <query>`   | Runs a HogQL query. `-` reads the query from stdin.                                                             |
-| `hog query check <query>` | Checks a query without running it. Exits with code 1 when the query has errors.                                 |
-| `hog commands`            | Lists every command, its arguments, options and scopes.                                                         |
-| Everything else           | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments. |
+| Command                   | Status                                                                                                                  |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `hog auth login`          | Logs in through the browser and saves a personal API key. Agents finish with `hog auth login --wait`.                   |
+| `hog auth status`         | Shows whether hog is logged in, whose key it is, and where the key comes from. Exits with code 1 without a working key. |
+| `hog auth logout`         | Removes the stored key. The key stays valid in PostHog until you delete it there.                                       |
+| `hog query run <query>`   | Runs a HogQL query. `-` reads the query from stdin.                                                                     |
+| `hog query check <query>` | Checks a query without running it. Exits with code 1 when the query has errors.                                         |
+| `hog commands`            | Lists every command, its arguments, options and scopes.                                                                 |
+| Everything else           | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.         |
 
 ## Agents, people and pipes
 
@@ -38,9 +41,16 @@ Exit codes: 0 on success, 1 when a command fails, 2 for a usage error.
 
 1. `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID` in the environment, plus an optional `POSTHOG_CLI_HOST`
 2. The same variables in the file `--dotenv-file` names
-3. `~/.posthog/credentials.json`, which `posthog-cli login` writes (`POSTHOG_HOME` moves the folder)
+3. `~/.posthog/credentials.json`, which `hog auth login` and `posthog-cli login` write (`POSTHOG_HOME` moves the folder). `hog auth login` makes it readable only by you.
 
 `--host` overrides the host from any of these.
+
+### Logging in and out
+
+- At a terminal, `hog auth login` asks for your region, opens the browser, and waits for you to approve.
+- An agent or a script cannot answer prompts, so `hog auth login --region us` returns at once with a link and a code for a person to approve. `hog auth login --wait` then saves the key. Running `hog auth login` again before the code expires returns the same link.
+- In CI, skip login and set the environment variables above.
+- `hog auth status` checks the key against PostHog. `hog auth logout` warns when an environment variable still holds a key.
 
 ## Develop
 

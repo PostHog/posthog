@@ -3,7 +3,7 @@ import { VERSION } from '@/version'
 
 import type { Credentials } from './credentials'
 
-const USER_AGENT = `hog/${VERSION}`
+export const USER_AGENT = `hog/${VERSION}`
 
 type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 
@@ -26,9 +26,13 @@ export class PostHogApi {
         private readonly fetchFn: typeof fetch
     ) {}
 
-    // Paths are relative to the project, so `query` is /api/environments/<project id>/query.
-    private environmentUrl(path: string): URL {
-        return new URL(path, new URL(`api/environments/${this.credentials.projectId}/`, this.credentials.host))
+    // Paths are relative to the project, so `query` is /api/environments/<project id>/query. A path
+    // that starts with `/`, like `/api/users/@me/`, is relative to the host instead.
+    private url(path: string): URL {
+        const base = path.startsWith('/')
+            ? this.credentials.host
+            : new URL(`api/environments/${this.credentials.projectId}/`, this.credentials.host)
+        return new URL(path, base)
     }
 
     get<T>(path: string): Promise<T> {
@@ -50,7 +54,7 @@ export class PostHogApi {
     private async request<T>(method: Method, path: string, body?: unknown): Promise<T> {
         let response: Response
         try {
-            response = await this.fetchFn(this.environmentUrl(path), {
+            response = await this.fetchFn(this.url(path), {
                 method,
                 headers: {
                     Authorization: `Bearer ${this.credentials.apiKey}`,

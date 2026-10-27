@@ -52,6 +52,12 @@ describe('hog', () => {
         expect(result.error()).toMatchObject({ code })
     })
 
+    test('a command that moved into a group points to its full name', async () => {
+        const result = await runHog(['login'])
+        expect(result.exitCode).toBe(2)
+        expect(result.error().message).toContain('Did you mean `hog auth login`?')
+    })
+
     test('a person sees errors as text', async () => {
         const result = await runHog(['qury'], { stdoutIsTTY: true, env: { NO_COLOR: '1' } })
         expect(result.stderr).toBe(
@@ -65,12 +71,15 @@ describe('hog', () => {
         const manifest = result.json()
         expect(manifest).toMatchObject({ cli: 'hog', agent: 'claude-code' })
         expect(manifest.globalOptions).toContainEqual(expect.objectContaining({ flags: '-o, --output <format>' }))
-        expect(manifest.commands[0]).toMatchObject({
+        expect(manifest.commands.find((command: { name: string }) => command.name === 'query run')).toMatchObject({
             name: 'query run',
             arguments: [{ name: 'query', required: true, stdin: true }],
             scopes: ['query:read'],
         })
         expect(manifest.commands.map((command: { name: string }) => command.name)).toEqual([
+            'auth login',
+            'auth logout',
+            'auth status',
             'query run',
             'query check',
             'commands',
