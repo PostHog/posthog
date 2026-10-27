@@ -11,7 +11,9 @@ const EXTERNAL_ID_SHA256 = 'c775e7b757ede630cd0aa1113bd102661ab38829ca52a6422ab7
 const PHONE_SHA256 = EXTERNAL_ID_SHA256
 const FIRST_NAME_SHA256 = '9baf3a40312f39849f46dad1040f2f039f1cffa1238c41e9db675315cfad39b6'
 const LAST_NAME_SHA256 = '32e83e92d45d71f69dcf9d214688f0375542108631b45d344e5df2eb91c11566'
-const NO_WEAK_IDENTIFIERS = { phone: null, first_name: null, last_name: null }
+// OpenAI's sample hash for +1 (415) 555-2671 in its Conversions API docs
+const DOCS_PHONE_SHA256 = '758fbf68945f21c416814c539ab578876c8d98fb69e6da692def92cd52417fe0'
+const NO_PHONE_OR_NAME = { phone: null, first_name: null, last_name: null }
 
 const getBody = (response: { invocation: { queueParameters?: unknown } }): Record<string, any> =>
     parseJSON((response.invocation.queueParameters as { body: string }).body)
@@ -182,7 +184,7 @@ describe('openai template', () => {
             { pixelId: 'pixel-123', apiKey: 'api-key' },
             createAdDestinationPayload({
                 event: { properties: { $current_url: 'https://posthog.com/checkout' } },
-                person: { properties: { ...NO_WEAK_IDENTIFIERS, ...personProperties } },
+                person: { properties: { ...NO_PHONE_OR_NAME, ...personProperties } },
             })
         )
         expect(response.error).toBeUndefined()
@@ -199,7 +201,7 @@ describe('openai template', () => {
             { pixelId: 'pixel-123', apiKey: 'api-key' },
             createAdDestinationPayload({
                 event: { properties: { $current_url: 'https://posthog.com/checkout' } },
-                person: { properties: { ...NO_WEAK_IDENTIFIERS, oppref: null, email: null, external_id: externalId } },
+                person: { properties: { ...NO_PHONE_OR_NAME, oppref: null, email: null, external_id: externalId } },
             })
         )
         expect(response.error).toBeUndefined()
@@ -229,13 +231,8 @@ describe('openai template', () => {
         )
         expect(response.finished).toEqual(true)
     })
-    // The expected phone hash is the sample in OpenAI's Conversions API docs for +1 (415) 555-2671
     it.each([
-        [
-            'formatted phone',
-            { phone: '+1 (415) 555-2671' },
-            { phone_numbers_sha256: ['758fbf68945f21c416814c539ab578876c8d98fb69e6da692def92cd52417fe0'] },
-        ],
+        ['formatted phone', { phone: '+1 (415) 555-2671' }, { phone_numbers_sha256: [DOCS_PHONE_SHA256] }],
         [
             'phone with 00 prefix',
             { phone: '0044 20 7946 0000' },
@@ -245,7 +242,7 @@ describe('openai template', () => {
         [
             'pre-hashed phone',
             { phone: '758FBF68945F21C416814C539AB578876C8D98FB69E6DA692DEF92CD52417FE0' },
-            { phone_numbers_sha256: ['758fbf68945f21c416814c539ab578876c8d98fb69e6da692def92cd52417fe0'] },
+            { phone_numbers_sha256: [DOCS_PHONE_SHA256] },
         ],
         [
             'name with a space',
@@ -266,6 +263,24 @@ describe('openai template', () => {
             { last_names_sha256: ['d994e1d001886fe5b45b1267bd1fa2b752ac50742579bd3dad7b2a2aa0ed6866'] },
         ],
         ['name that is only punctuation', { first_name: '---' }, {}],
+        [
+            'name with a tab and a non-breaking space',
+            { first_name: 'Mary\tJane', last_name: 'O\u00a0Connor' },
+            {
+                first_names_sha256: ['f08f448a5e7a9dc3619bb7c129f6a7d5fc6af002cea17ad71dfdc1c68f4d4e0e'],
+                last_names_sha256: ['7a0fbfdf40cbeb97429bdb88f512cecd27f0d44b7e57986ab578423bb61936ac'],
+            },
+        ],
+        [
+            'hex-looking external ID',
+            { external_id: 'A'.repeat(64) },
+            { external_ids_sha256: ['d53eda7a637c99cc7fb566d96e9fa109bf15c478410a3f5eb4d4c4e26cd081f6'] },
+        ],
+        [
+            'city longer than 128 characters',
+            { $geoip_city_name: 'x'.repeat(129), $geoip_country_code: 'US' },
+            { countries: ['US'] },
+        ],
         [
             'location',
             {
@@ -288,7 +303,7 @@ describe('openai template', () => {
             createAdDestinationPayload({
                 event: { properties: { $current_url: 'https://posthog.com/checkout' } },
                 person: {
-                    properties: { ...NO_WEAK_IDENTIFIERS, email: null, external_id: null, ...personProperties },
+                    properties: { ...NO_PHONE_OR_NAME, email: null, external_id: null, ...personProperties },
                 },
             })
         )

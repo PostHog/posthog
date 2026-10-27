@@ -307,32 +307,43 @@ fn hashPhone(value) {
     return sha256Hex(phone)
 }
 
-// OpenAI removes whitespace and ASCII punctuation from names, and keeps accents and other non-ASCII characters
+// OpenAI removes whitespace (including tabs and non-breaking spaces) and ASCII punctuation from names, and keeps accents and other non-ASCII characters
 fn hashName(value) {
     let name := lower(trim(toString(value)))
-    for (let character in splitByString('', ' !"#$%&\\'()*+,-./:;<=>?@[\\\\]^_\`{|}~')) {
+    // Most names have no ASCII punctuation, and one match is cheaper than 33 replaceAll calls
+    if (not match(name, '[ \\t\u00a0!-/:-@[-\`{-~]')) {
+        return empty(name) ? null : sha256Hex(name)
+    }
+    for (let character in splitByString('', ' \\t\u00a0!"#$%&\\'()*+,-./:;<=>?@[\\\\]^_\`{|}~')) {
         name := replaceAll(name, character, '')
     }
     return empty(name) ? null : sha256Hex(name)
+}
+
+// Sets userData[key] to a one-item list with the hash, and returns false when nothing could be hashed
+fn setHashed(userData, key, value, hasher) {
+    if (empty(value)) {
+        return false
+    }
+    let hash := existingSha256(value) ?? hasher(value)
+    if (empty(hash)) {
+        return false
+    }
+    userData[key] := [hash]
+    return true
 }
 
 let userData := {}
 if (not empty(inputs.obref)) {
     userData.obref := inputs.obref
 }
-if (not empty(inputs.email)) {
-    userData.emails_sha256 := [existingSha256(inputs.email) ?? sha256Hex(lower(trim(toString(inputs.email))))]
-}
+setHashed(userData, 'emails_sha256', inputs.email, email -> sha256Hex(lower(trim(toString(email)))))
+// An external ID is always hashed, even when it looks like a hash, because a user ID can itself be a hex string
 if (not empty(inputs.externalId)) {
-    userData.external_ids_sha256 := [existingSha256(inputs.externalId) ?? sha256Hex(trim(toString(inputs.externalId)))]
+    userData.external_ids_sha256 := [sha256Hex(trim(toString(inputs.externalId)))]
 }
-if (not empty(inputs.phone)) {
-    let phoneHash := existingSha256(inputs.phone) ?? hashPhone(inputs.phone)
-    if (empty(phoneHash)) {
-        print('\`phone\` has no country code or is not a valid phone number. Sending the conversion without it.')
-    } else {
-        userData.phone_numbers_sha256 := [phoneHash]
-    }
+if (not empty(inputs.phone) and not setHashed(userData, 'phone_numbers_sha256', inputs.phone, hashPhone)) {
+    print('\`phone\` has no country code or is not a valid phone number. Sending the conversion without it.')
 }
 // OpenAI can only attribute a conversion that carries at least one strong identifier;
 // IP address, user agent, name and location alone are not enough
@@ -346,22 +357,13 @@ if (not empty(inputs.ipAddress)) {
 if (not empty(inputs.userAgent)) {
     userData.user_agent := inputs.userAgent
 }
-if (not empty(inputs.firstName)) {
-    let firstNameHash := existingSha256(inputs.firstName) ?? hashName(inputs.firstName)
-    if (not empty(firstNameHash)) {
-        userData.first_names_sha256 := [firstNameHash]
-    }
-}
-if (not empty(inputs.lastName)) {
-    let lastNameHash := existingSha256(inputs.lastName) ?? hashName(inputs.lastName)
-    if (not empty(lastNameHash)) {
-        userData.last_names_sha256 := [lastNameHash]
-    }
-}
-if (not empty(inputs.city)) {
+setHashed(userData, 'first_names_sha256', inputs.firstName, hashName)
+setHashed(userData, 'last_names_sha256', inputs.lastName, hashName)
+// OpenAI rejects the whole request when a city or region is longer than 128 characters
+if (not empty(inputs.city) and length(trim(toString(inputs.city))) <= 128) {
     userData.cities := [trim(toString(inputs.city))]
 }
-if (not empty(inputs.region)) {
+if (not empty(inputs.region) and length(trim(toString(inputs.region))) <= 128) {
     userData.regions := [trim(toString(inputs.region))]
 }
 if (not empty(inputs.postalCode)) {
