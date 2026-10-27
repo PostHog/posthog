@@ -1,4 +1,4 @@
-import { createHash, createHmac, timingSafeEqual } from 'crypto'
+import { createHmac, timingSafeEqual } from 'crypto'
 import { Counter } from 'prom-client'
 
 import { buildIntegerMatcher } from '~/common/config/matchers'
@@ -45,19 +45,14 @@ function parseKeys(commaSeparatedKeys: string): string[] {
         .filter((key) => key.length > 0)
 }
 
-function sha256Hex(payload: Buffer): string {
-    return createHash('sha256').update(payload).digest('hex')
-}
-
+// No payload hash, because capture-logs re-encodes the request and the producer never sees the Kafka bytes.
 // No expiry, because a batch that waits in Kafka through consumer lag or a DLQ replay must stay internal.
-function computeSignature(key: string, source: string, teamId: number, payloadSha256: string): string {
-    const mac = createHmac('sha256', key)
-        .update(`${SIGNATURE_VERSION}|${source}|${teamId}|${payloadSha256}`)
-        .digest('hex')
+function computeSignature(key: string, source: string, teamId: number): string {
+    const mac = createHmac('sha256', key).update(`${SIGNATURE_VERSION}|${source}|${teamId}`).digest('hex')
     return `${SIGNATURE_VERSION}.${source}.${mac}`
 }
 
-export function signInternalLogs(commaSeparatedKeys: string, source: string, teamId: number, payload: Buffer): string {
+export function signInternalLogs(commaSeparatedKeys: string, source: string, teamId: number): string {
     const [newestKey] = parseKeys(commaSeparatedKeys)
     if (!newestKey) {
         throw new Error('Cannot sign posthog-internal batch: no signing key configured')
@@ -65,7 +60,7 @@ export function signInternalLogs(commaSeparatedKeys: string, source: string, tea
     if (!SOURCE_PATTERN.test(source)) {
         throw new Error(`Cannot sign posthog-internal batch: invalid source ${JSON.stringify(source)}`)
     }
-    return computeSignature(newestKey, source, teamId, sha256Hex(payload))
+    return computeSignature(newestKey, source, teamId)
 }
 
 // Only a verified batch may set the `internal_source` column, so an incoming copy of the header is removed.
@@ -87,12 +82,12 @@ export class InternalLogsVerifier {
         this.isTeamAllowed = buildIntegerMatcher(enabledTeams, true)
     }
 
-    verify(signature: string | undefined, teamId: number, payload: Buffer | null): InternalLogs | undefined {
+    verify(signature: string | undefined, teamId: number): InternalLogs | undefined {
         if (signature === undefined) {
             return undefined
         }
         const source = signature.split('.')[1] ?? ''
-        const reason = this.rejectReason(signature, source, teamId, payload)
+        const reason = this.rejectReason(signature, source, teamId)
         // Own keys only, because a source like `constructor` resolves to an inherited policy with no `billed`.
         const policy = reason || !Object.hasOwn(this.policies, source) ? undefined : this.policies[source]
         if (!policy) {
@@ -103,26 +98,20 @@ export class InternalLogsVerifier {
         return { source, ...policy }
     }
 
-    private rejectReason(
-        signature: string,
-        source: string,
-        teamId: number,
-        payload: Buffer | null
-    ): RejectReason | null {
+    private rejectReason(signature: string, source: string, teamId: number): RejectReason | null {
         if (this.keys.length === 0) {
             return 'not_configured'
         }
         if (!this.isTeamAllowed(teamId)) {
             return 'team_not_allowed'
         }
-        if (payload === null || !SOURCE_PATTERN.test(source)) {
+        if (!SOURCE_PATTERN.test(source)) {
             return 'invalid_signature'
         }
         const received = Buffer.from(signature)
-        const payloadSha256 = sha256Hex(payload)
         // Every key is tried, so a rotation can add a key before producers switch to it.
         const matches = this.keys.some((key) => {
-            const expected = Buffer.from(computeSignature(key, source, teamId, payloadSha256))
+            const expected = Buffer.from(computeSignature(key, source, teamId))
             return expected.length === received.length && timingSafeEqual(expected, received)
         })
         return matches ? null : 'invalid_signature'

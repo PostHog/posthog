@@ -1093,7 +1093,7 @@ describe('LogsIngestionConsumer', () => {
                 record_count: '1',
             })
             const signature = signed
-                ? signInternalLogs(SIGNING_KEY, 'hog_flow', team.id, message.value!)
+                ? signInternalLogs(SIGNING_KEY, 'hog_flow', team.id)
                 : 'v1.hog_flow.not-a-signature'
             message.headers!.push({ [INTERNAL_LOGS_HEADER]: Buffer.from(signature) })
             const recordLogsReceivedSpy = jest.spyOn(otelMetrics, 'recordLogsReceived')
@@ -1146,7 +1146,7 @@ describe('LogsIngestionConsumer', () => {
                 }
             )
             message.headers!.push({
-                [INTERNAL_LOGS_HEADER]: Buffer.from(signInternalLogs(SIGNING_KEY, 'hog_flow', team.id, message.value!)),
+                [INTERNAL_LOGS_HEADER]: Buffer.from(signInternalLogs(SIGNING_KEY, 'hog_flow', team.id)),
             })
             const bytesCreditSpy = jest.spyOn(logsBillingBytesCreditedCounter, 'inc')
             const recordsCreditSpy = jest.spyOn(logsBillingRecordsCreditedCounter, 'inc')
@@ -1181,9 +1181,7 @@ describe('LogsIngestionConsumer', () => {
                 ...(backfill ? { backfill_days: '540' } : {}),
             })
             internal.headers!.push({
-                [INTERNAL_LOGS_HEADER]: Buffer.from(
-                    signInternalLogs(SIGNING_KEY, 'hog_flow', team.id, internal.value!)
-                ),
+                [INTERNAL_LOGS_HEADER]: Buffer.from(signInternalLogs(SIGNING_KEY, 'hog_flow', team.id)),
             })
             const originalQueueMessages = mockProducer.queueMessages
             const passthrough = originalQueueMessages.bind(mockProducer)
@@ -2531,7 +2529,7 @@ describe('LogsIngestionConsumer', () => {
                 token: team.api_token,
             })
             internal.headers!.push({
-                [INTERNAL_LOGS_HEADER]: Buffer.from(signInternalLogs(key, 'hog_flow', team.id, internal.value!)),
+                [INTERNAL_LOGS_HEADER]: Buffer.from(signInternalLogs(key, 'hog_flow', team.id)),
             })
 
             const originalQueueMessages = mockProducer.queueMessages
@@ -2691,7 +2689,7 @@ describe('LogsIngestionConsumer', () => {
             jest.mocked(hub.quotaLimiting.isTeamTokenQuotaLimited).mockResolvedValue(true)
             const message = await createKafkaMessage(createLogMessage(), { token: team.api_token })
             message.headers!.push({
-                [INTERNAL_LOGS_HEADER]: Buffer.from(signInternalLogs(key, 'hog_flow', team.id, message.value!)),
+                [INTERNAL_LOGS_HEADER]: Buffer.from(signInternalLogs(key, 'hog_flow', team.id)),
             })
 
             await waitForBackgroundTasks(consumer.processKafkaBatch([message]))
