@@ -1,17 +1,4 @@
-import {
-    Badge,
-    Button,
-    Item,
-    ItemActions,
-    ItemContent,
-    ItemDescription,
-    ItemTitle,
-    Switch,
-    Text,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from '@posthog/quill'
+import { LemonButton, LemonSwitch, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import type { ErrorTrackingBuiltInFilterApi } from '../../../generated/api.schemas'
 
@@ -43,45 +30,42 @@ export function BuiltInFilterRow({
     const evaluation = EVALUATION_LABELS[filter.evaluation]
 
     return (
-        <Item variant="outline" tone={filter.disabled_reason ? 'warning' : 'default'}>
-            <ItemContent>
-                <ItemTitle>
-                    {filter.name}
-                    <Tooltip>
-                        <TooltipTrigger render={<span className="inline-flex" />}>
-                            <Badge>{evaluation.label}</Badge>
-                        </TooltipTrigger>
-                        <TooltipContent>{evaluation.tooltip}</TooltipContent>
+        <div className="flex items-center gap-4 p-3">
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-semibold">{filter.name}</span>
+                    <Tooltip title={evaluation.tooltip}>
+                        <LemonTag size="small">{evaluation.label}</LemonTag>
                     </Tooltip>
-                </ItemTitle>
-                <ItemDescription>{filter.description}</ItemDescription>
+                </div>
+                <span className="text-secondary">{filter.description}</span>
                 {filter.disabled_reason ? (
-                    <Text size="xs" variant="destructive" className="m-0">
+                    <span className="text-danger text-xs">
                         <span>Ingestion turned this rule off after it failed on an event: </span>
                         <span translate="no">{filter.disabled_reason}</span>
-                    </Text>
+                    </span>
                 ) : null}
-            </ItemContent>
-            <ItemActions>
-                {filter.disabled_reason ? (
-                    <Button
-                        variant="outline"
-                        loading={saving}
-                        disabledReason={editDisabledReason}
-                        onClick={() => onSetEnabled(true)}
-                        data-attr="error-tracking-built-in-filter-retry"
-                    >
-                        Retry
-                    </Button>
-                ) : null}
-                <Switch
-                    checked={filter.enabled}
-                    onCheckedChange={(checked) => onSetEnabled(checked)}
-                    disabledReason={editDisabledReason ?? (saving ? 'Saving…' : undefined)}
-                    aria-label={filter.name}
-                    data-attr={`error-tracking-built-in-filter-${filter.key}`}
-                />
-            </ItemActions>
-        </Item>
+            </div>
+            {filter.disabled_reason ? (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    loading={saving}
+                    disabledReason={editDisabledReason}
+                    onClick={() => onSetEnabled(true)}
+                    data-attr="error-tracking-built-in-filter-retry"
+                >
+                    Retry
+                </LemonButton>
+            ) : null}
+            <LemonSwitch
+                checked={filter.enabled}
+                onChange={onSetEnabled}
+                loading={saving}
+                disabledReason={editDisabledReason}
+                aria-label={filter.name}
+                data-attr={`error-tracking-built-in-filter-${filter.key}`}
+            />
+        </div>
     )
 }
