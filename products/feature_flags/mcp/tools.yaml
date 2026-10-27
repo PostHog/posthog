@@ -165,7 +165,12 @@ tools:
 
 
             Sets `active` to false and changes nothing else. This tool never accepts or replaces the `filters` object,
-            so targeting, rollout percentages, variants and payloads cannot change. There is no request body.
+            so targeting, rollout percentages, variants and payloads cannot change.
+
+
+            Pass `version` from the flag you read. A flag whose `filters.version` is 2 requires it, so read the flag
+            first and send its current `version`; never guess it. With `version`, a change made after that read returns
+            409: read the flag again and decide against its current state.
 
 
             A disabled flag stops evaluating everywhere, so every caller falls back to its own default. Tell the user
@@ -218,8 +223,13 @@ tools:
 
 
             Sets `active` to true and changes nothing else. This tool never accepts or replaces the `filters` object, so
-            targeting, rollout percentages, variants and payloads cannot change. There is no request body. To change who
-            the flag is served to, use `update-feature-flag`.
+            targeting, rollout percentages, variants and payloads cannot change. To change who the flag is served to,
+            use `update-feature-flag`.
+
+
+            Pass `version` from the flag you read. A flag whose `filters.version` is 2 requires it, so read the flag
+            first and send its current `version`; never guess it. With `version`, a change made after that read returns
+            409: read the flag again and decide against its current state.
 
 
             Returns 400 when the flag is archived (call `feature-flag-unarchive` first), when a flag it depends on is
