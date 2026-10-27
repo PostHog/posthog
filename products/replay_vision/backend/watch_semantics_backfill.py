@@ -33,7 +33,9 @@ def backfill_team_semantics(team_id: int, since: datetime, *, dry_run: bool = Fa
     """Replay a team's ranked observations oldest first, as the consumer would have seen them, then name every
     active theme that reached its naming size."""
     has_similarities = Exists(
-        ReplayObservationAnchorSimilarity.objects.filter(observation_id=OuterRef("id"), anchor_version=ANCHOR_VERSION)
+        ReplayObservationAnchorSimilarity.objects.for_team(team_id).filter(
+            observation_id=OuterRef("id"), anchor_version=ANCHOR_VERSION
+        )
     )
     rows = (
         ReplayObservation.objects.filter(
@@ -58,7 +60,7 @@ def backfill_team_semantics(team_id: int, since: datetime, *, dry_run: bool = Fa
             chunk = scanner_rows[start : start + _VECTOR_CHUNK]
             vectors = _stored_vectors(team_id, scanner_id, [observation_id for observation_id, _ in chunk], since)
             readings = {observation_id: classify(vector, anchors) for observation_id, vector in vectors.items()}
-            async_to_sync(save_anchor_similarities)(
+            save_anchor_similarities(
                 team_id, {observation_id: reading.similarities for observation_id, reading in readings.items()}
             )
             for observation_id, created_at in chunk:

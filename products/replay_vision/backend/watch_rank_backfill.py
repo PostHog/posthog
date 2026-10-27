@@ -152,7 +152,7 @@ def backfill_team_watch_ranks(team_id: int, since: datetime, *, dry_run: bool = 
             written = _rank_scanner(list(batch), vectors, anchors)
             ranked += len(written)
             if not dry_run and written:
-                async_to_sync(save_anchor_similarities)(
+                save_anchor_similarities(
                     team_id, {observation_id: reading.similarities for observation_id, reading in written.items()}
                 )
                 # Only rows still without a current rank, locked until the write, so a rank the consumer writes meanwhile
