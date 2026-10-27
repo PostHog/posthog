@@ -4624,6 +4624,8 @@ class TestSerializeCohort(BaseTest):
         result = _serialize_cohort(cohort)
         assert result["filters"] is not None
         assert "properties" in result["filters"]
+        leaf = result["filters"]["properties"]["values"][0]["values"][0]
+        assert (leaf["key"], leaf["type"], leaf["operator"]) == ("email", "person", "is_set")
         assert result["condition_type"] == {
             "person_properties": True,
             "behavioral": False,

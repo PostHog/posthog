@@ -1246,17 +1246,6 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         request = self.context["request"]
         validated_data["created_by"] = request.user
 
-        # If filters is omitted but legacy groups is provided, synthesize filters so
-        # realtime support calculation and validation can process it.
-        if not validated_data.get("filters") and validated_data.get("groups"):
-            try:
-                dummy_cohort = Cohort(groups=validated_data["groups"])
-                prop_group = dummy_cohort.properties
-                if prop_group and prop_group.values:
-                    validated_data["filters"] = {"properties": prop_group.to_dict()}
-            except Exception:
-                pass
-
         has_filter_criteria = cohort_filters_have_values(validated_data.get("filters"))
         if not validated_data.get("is_static"):
             validated_data["is_calculating"] = True
@@ -1700,6 +1689,22 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # object-level guard covers the static-to-dynamic flip when it does not, re-checking the
         # instance's preserved behavioral filters against the feature-flag rule.
         attrs = super().validate(attrs)
+
+        cohort_will_be_static = self._cohort_will_be_static()
+        if not attrs.get("filters") and attrs.get("groups") and not cohort_will_be_static:
+            derived_filters = None
+            try:
+                team = self.context.get("get_team", lambda: None)() or _team_from_serializer_context(self.context)
+                dummy_cohort = Cohort(team=team, filters=None, groups=deepcopy(attrs["groups"]))
+                prop_group = dummy_cohort.properties
+                if prop_group and prop_group.values:
+                    derived_filters = {"properties": prop_group.to_dict()}
+            except Exception:
+                logger.warning("cohort_legacy_groups_conversion_failed", exc_info=True)
+
+            if derived_filters:
+                attrs["filters"] = derived_filters
+                self._validate_feature_flag_constraints(derived_filters, cohort_will_be_static=False)
 
         parsed_csv = self._parse_csv_upload(attrs)
         if parsed_csv is not None:

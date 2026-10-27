@@ -463,6 +463,13 @@ class Command(BaseCommand):
         cohort_dependencies: dict[int, set[int]] = {}
         unreadable_ids: set[int] = set()
         for cohort in all_cohorts:
+            if not cohort.filters and cohort.groups:
+                try:
+                    prop_group = cohort.properties
+                    if prop_group and prop_group.values:
+                        cohort.filters = {"properties": prop_group.to_dict()}
+                except Exception:
+                    logger.warning("cohort_legacy_groups_conversion_failed", cohort_id=cohort.id, exc_info=True)
             if not cohort.filters:
                 continue
             try:
@@ -493,6 +500,14 @@ class Command(BaseCommand):
         change and counts it.
         """
         filters = cohort.filters
+        if not filters and cohort.groups:
+            try:
+                prop_group = cohort.properties
+                if prop_group and prop_group.values:
+                    filters = {"properties": prop_group.to_dict()}
+            except Exception:
+                logger.warning("cohort_legacy_groups_conversion_failed", cohort_id=cohort.id, exc_info=True)
+
         # Nothing to recompute without filters.
         if not filters:
             return UNTOUCHED_COHORT

@@ -336,7 +336,7 @@ def _serialize_cohort(cohort: Cohort) -> dict[str, Any]:
                 if not condition_type:
                     condition_type = Cohort.compute_condition_type(filters)
         except Exception:
-            pass
+            logger.warning("cohort_legacy_groups_conversion_failed", cohort_id=cohort.id, exc_info=True)
 
     return {
         "id": cohort.id,

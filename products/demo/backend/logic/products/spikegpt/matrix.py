@@ -51,18 +51,6 @@ class SpikeGPTMatrix(Matrix):
                     ],
                 }
             },
-            groups=[
-                {
-                    "properties": [
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "is_set",
-                            "operator": "is_set",
-                        }
-                    ]
-                }
-            ],
         )
         # Create the standard internal/test users cohort (same as non-demo teams get)
         from products.cohorts.backend.models.cohort import get_or_create_internal_test_users_cohort

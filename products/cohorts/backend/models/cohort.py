@@ -358,18 +358,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         # or as a keyword. Intercept it so _maintain_filter_shape_hashes can extend the frozen set.
         update_fields = args[3] if len(args) > 3 else kwargs.get("update_fields")
 
-        # If legacy groups is provided but filters is missing, derive filters from groups
-        # so condition_type is computed and flags cache can serialize filters for the Rust flags service.
-        if not self.filters and self.groups:
-            try:
-                prop_group = self.properties
-                if prop_group and prop_group.values:
-                    self.filters = {"properties": prop_group.to_dict()}
-                    if update_fields is not None and "filters" not in update_fields:
-                        update_fields = [*update_fields, "filters"]
-            except Exception:
-                pass
-
         if update_fields is None or "filters" in update_fields:
             self.condition_type = Cohort.compute_condition_type(self.filters)
             if update_fields is not None and "condition_type" not in update_fields:

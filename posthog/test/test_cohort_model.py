@@ -993,26 +993,6 @@ class TestCohortConditionTypeDerivedOnSave(BaseTest):
         cohort = Cohort.objects.create(team=self.team, filters=_PERSON_FILTERS)
         self.assertEqual(cohort.condition_type, _condition_flags(person_properties=True))
 
-    def test_direct_orm_create_derives_filters_and_condition_type_from_groups(self):
-        cohort = Cohort.objects.create(
-            team=self.team,
-            groups=[
-                {
-                    "properties": [
-                        {
-                            "key": "email",
-                            "type": "person",
-                            "value": "is_set",
-                            "operator": "is_set",
-                        }
-                    ]
-                }
-            ],
-        )
-        self.assertIsNotNone(cohort.filters)
-        self.assertIn("properties", cohort.filters)
-        self.assertEqual(cohort.condition_type, _condition_flags(person_properties=True))
-
     # Static cohorts skip cohort_type/realtime computation, but condition_type
     # classifies filter shape independent of that, so it must still be set.
     def test_static_cohort_with_filters_derives_condition_type(self):
