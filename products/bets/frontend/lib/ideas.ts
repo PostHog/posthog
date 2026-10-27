@@ -11,6 +11,7 @@ const ASSESSMENT_BADGES: Record<string, IdeaBadge> = {
     supported: { label: 'Supported', variant: 'success' },
     not_supported: { label: 'Not supported', variant: 'default' },
     pending: { label: 'Checking', variant: 'info' },
+    no_verdict: { label: 'No verdict', variant: 'default' },
 }
 
 const EVIDENCE_ORDER: Partial<Record<EvidenceKindEnumApi, number>> = {
@@ -27,8 +28,12 @@ export const IDEA_ICON_COLOR = 'var(--color-product-early-access-features-light)
 
 const ASSESSMENT_MARKER = /^\s*(?:not supported|supported)\s*[.:]\s*/i
 
+export function ideaAssessment(item: BetsWorkApi): string {
+    return item.assessment === 'pending' && item.report_id ? 'no_verdict' : item.assessment
+}
+
 function ideaBadge(item: BetsWorkApi): IdeaBadge | null {
-    return ASSESSMENT_BADGES[item.assessment] ?? null
+    return ASSESSMENT_BADGES[ideaAssessment(item)] ?? null
 }
 
 export function ideaStatus(item: BetsWorkApi): string[] {

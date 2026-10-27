@@ -5,6 +5,7 @@ export interface InsightDisplay {
     prefix: string
 }
 
+const PERCENT_FORMATS = new Set(['percentage', 'percentage_scaled'])
 const UNCHARTED_DISPLAYS = new Set([
     'ActionsTable',
     'ActionsPie',
@@ -58,7 +59,7 @@ export function insightDisplay(insight: Pick<InsightApi, 'query'> | null): Insig
     const filter = record(source(insight?.query).trendsFilter)
     const postfix = typeof filter.aggregationAxisPostfix === 'string' ? filter.aggregationAxisPostfix.trim() : ''
     const prefix = typeof filter.aggregationAxisPrefix === 'string' ? filter.aggregationAxisPrefix.trim() : ''
-    return { unit: postfix || (filter.aggregationAxisFormat === 'percentage' ? '%' : ''), prefix }
+    return { unit: postfix || (PERCENT_FORMATS.has(String(filter.aggregationAxisFormat)) ? '%' : ''), prefix }
 }
 
 export function formatMeasure(value: number, measure: InsightDisplay | null): string {

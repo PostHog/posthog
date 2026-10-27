@@ -24,6 +24,7 @@ import {
     SHOWN_EVIDENCE,
     buildCost,
     hasMoreReport,
+    ideaAssessment,
     ideaEvidence,
     ideaReason,
     ideaReportRest,
@@ -38,6 +39,12 @@ const ASSESSMENT_MARKS: Record<string, BetWorkStatus['mark']> = {
     supported: 'verified',
     pending: 'spinner',
     not_supported: 'neutral',
+    no_verdict: 'neutral',
+}
+
+const ASSESSMENT_REASONS: Record<string, string> = {
+    pending: 'The Scout checks this idea against your data.',
+    no_verdict: 'The Scout did not say if your data supports this idea. Open the report to decide.',
 }
 
 export function BetIdeaRow({ item, bet }: { item: BetsWorkApi; bet: BetsDetailApi }): JSX.Element {
@@ -62,8 +69,8 @@ export function BetIdeaRow({ item, bet }: { item: BetsWorkApi; bet: BetsDetailAp
         showAllEvidence,
     } = useActions(betLogic({ id: bet.id }))
     const status = ideaStatus(item)
-    const reason =
-        ideaReason(item) || (item.assessment === 'pending' ? 'The Scout checks this idea against your data.' : '')
+    const assessment = ideaAssessment(item)
+    const reason = ideaReason(item) || ASSESSMENT_REASONS[assessment] || ''
     const evidence = ideaEvidence(item)
     const shownEvidence = allEvidenceShown.includes(item.id) ? evidence : evidence.slice(0, SHOWN_EVIDENCE)
     const hiddenEvidence = evidence.length - shownEvidence.length
@@ -94,8 +101,8 @@ export function BetIdeaRow({ item, bet }: { item: BetsWorkApi; bet: BetsDetailAp
             title={item.title}
             facts={status.filter(Boolean)}
             statusIcon={
-                ASSESSMENT_MARKS[item.assessment] ? (
-                    <BetWorkStatusIcon status={{ label: status[1], mark: ASSESSMENT_MARKS[item.assessment] }} />
+                ASSESSMENT_MARKS[assessment] ? (
+                    <BetWorkStatusIcon status={{ label: status[1], mark: ASSESSMENT_MARKS[assessment] }} />
                 ) : undefined
             }
             actions={bet.is_owner && !ideaInProgress ? buildButton : undefined}

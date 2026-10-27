@@ -17,6 +17,7 @@ from products.product_analytics.backend.facade.measurement import insight_delive
 from ..facade.contracts import Metric
 
 DELIVERY_CACHE_SECONDS = 300
+PERCENT_FORMATS = {"percentage", "percentage_scaled"}
 MISSING = object()
 
 if TYPE_CHECKING:
@@ -76,11 +77,12 @@ def metric(team: Team, user: User, short_id: str) -> Metric:
                 change=None,
                 message="Choose an insight with a single series for this goal.",
             )
-        points = next(iter(result.series.values()))
+        scale = 100 if result.value_format == "percentage_scaled" else 1
+        points = [(day, value * scale) for day, value in next(iter(result.series.values()))]
         values = [float(value) for _, value in points if math.isfinite(value)]
         dates = [day.isoformat() for day, value in points if math.isfinite(value)]
         name = result.name or "Goal"
-        unit = result.value_postfix or ""
+        unit = result.value_postfix or ("%" if result.value_format in PERCENT_FORMATS else "")
         if values and 0 in values and result.averaged_series:
             delivery = _delivery(team, user, short_id)
             first_observed_day = (
