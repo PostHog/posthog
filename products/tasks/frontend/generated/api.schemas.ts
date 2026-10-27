@@ -3825,97 +3825,6 @@ export interface ConnectionTokenResponseApi {
     token: string
 }
 
-/**
- * One peer agent run visible to the requesting run (agent peer messaging).
- */
-export interface TaskRunPeerApi {
-    /** The peer run's id — the address send_agent_message targets. */
-    run_id: string
-    /** Id of the peer run's parent task. */
-    task_id: string
-    /** Title of the peer run's parent task. */
-    task_title: string
-    /**
-     * Email of the user whose task the peer run belongs to.
-     * @nullable
-     */
-    created_by_email: string | null
-    /** Agent runtime of the peer run's task (e.g. 'pi'). */
-    runtime: string
-    /**
-     * Model the peer run was started with, when recorded.
-     * @nullable
-     */
-    model: string | null
-    /**
-     * Repository the peer run works on, or null for repo-less (channel-mode) runs.
-     * @nullable
-     */
-    repository: string | null
-    /**
-     * Current stage of the peer run (e.g. 'build').
-     * @nullable
-     */
-    stage: string | null
-    /** Run status: 'in_progress' or 'queued' (only these are listed). */
-    status: string
-    /** Whether the peer accepts messages right now. Only in-progress runs are sendable; a queued run is listed but its workflow may not exist yet. Never infer sendability from status labels. */
-    sendable: boolean
-    /**
-     * ISO-8601 timestamp of the peer run's last update.
-     * @nullable
-     */
-    updated_at: string | null
-}
-
-export interface TaskRunPeersResponseApi {
-    /** Active agent runs the requesting run may message, most recently updated first. */
-    peers: TaskRunPeerApi[]
-}
-
-export interface TaskRunPeerMessageRequestApi {
-    /**
-     * Plain-text message body (max 16000 chars). Delivered to the peer below a server-composed provenance envelope; send short summaries, never raw file dumps — use artifact_ids for files.
-     * @maxLength 16000
-     */
-    content: string
-    /**
-     * Manifest ids of artifacts on the SENDING run to share (max 10). Each is copied into the target run's own artifact storage; the receiver gets an immutable snapshot.
-     * @maxItems 10
-     * @items.maxLength 128
-     */
-    artifact_ids?: string[]
-}
-
-/**
- * * `accepted` - accepted
- * * `target_finished` - target_finished
- * * `rejected` - rejected
- */
-export type ResultEnumApi = (typeof ResultEnumApi)[keyof typeof ResultEnumApi]
-
-export const ResultEnumApi = {
-    Accepted: 'accepted',
-    TargetFinished: 'target_finished',
-    Rejected: 'rejected',
-} as const
-
-export interface TaskRunPeerMessageResponseApi {
-    /** Send outcome: 'accepted' (queued for delivery — not a delivery confirmation), 'target_finished' (the peer's workflow is gone), or 'rejected' (throttled or invalid).
-     *
-     * * `accepted` - accepted
-     * * `target_finished` - target_finished
-     * * `rejected` - rejected */
-    result: ResultEnumApi
-    /** Human-readable explanation of the result. */
-    detail: string
-    /**
-     * Id of the recorded peer message, when one was created for this send.
-     * @nullable
-     */
-    message_id?: string | null
-}
-
 export interface TaskRunRelayMessageRequestApi {
     /**
      * Joined message body. Used when text_parts is absent.
@@ -4446,6 +4355,12 @@ export interface TasksTaskDefaultsApi {
      * @nullable
      */
     auto_publish_cloud_runs: boolean | null
+    /**
+     * The cloud target new tasks start on, as `environment:<sandbox environment id>` or `image:<custom image id>`. Null means the default sandbox. Clients fall back to the default sandbox when the target no longer exists.
+     * @nullable
+     * @pattern ^(environment|image):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+     */
+    default_cloud_target: string | null
 }
 
 /**
@@ -4481,6 +4396,12 @@ export interface TasksTaskDefaultsUpdateApi {
     start_in_plan_mode?: boolean
     /** When true, a cloud run that changes code always opens a draft pull request. Null when you never set it. */
     auto_publish_cloud_runs?: boolean
+    /**
+     * The cloud target new tasks start on, as `environment:<sandbox environment id>` or `image:<custom image id>`. Null means the default sandbox. Clients fall back to the default sandbox when the target no longer exists.
+     * @nullable
+     * @pattern ^(environment|image):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
+     */
+    default_cloud_target?: string | null
 }
 
 /**
@@ -5273,7 +5194,71 @@ export type SandboxCustomImagesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Return 403 unless tasks from this origin product can run on custom images. Leave it out to only check that custom images are enabled.
+     *
+     * * `onboarding` - Onboarding
+     * * `account_audit` - Account audit
+     * * `error_tracking` - Error Tracking
+     * * `eval_clusters` - Eval Clusters
+     * * `user_created` - User Created
+     * * `slack` - Slack
+     * * `support_queue` - Support Queue
+     * * `session_summaries` - Session Summaries
+     * * `posthog_ai` - PostHog AI
+     * * `experiments` - Experiments
+     * * `signal_report` - Signal Report
+     * * `autoresearch` - Autoresearch
+     * * `signals_scout` - Signals Scout
+     * * `scout_suggestions` - Signals Scout Suggestions
+     * * `support_reply` - Support Reply
+     * * `hogdesk` - HogDesk
+     * * `review_hog` - ReviewHog
+     * * `image_builder` - Image Builder
+     * * `loop` - Loop
+     * * `mcp_analytics` - MCP Analytics
+     * * `signals_chat` - Signals Chat
+     * * `task_analysis` - Task Analysis
+     * * `workflow` - Workflow
+     * * `space_setup` - Space Setup
+     * * `business_knowledge` - Business Knowledge
+     * * `metrics_import` - Metrics Import
+     * @minLength 1
+     */
+    origin_product?: SandboxCustomImagesListOriginProduct
 }
+
+export type SandboxCustomImagesListOriginProduct =
+    (typeof SandboxCustomImagesListOriginProduct)[keyof typeof SandboxCustomImagesListOriginProduct]
+
+export const SandboxCustomImagesListOriginProduct = {
+    Onboarding: 'onboarding',
+    AccountAudit: 'account_audit',
+    ErrorTracking: 'error_tracking',
+    EvalClusters: 'eval_clusters',
+    UserCreated: 'user_created',
+    Slack: 'slack',
+    SupportQueue: 'support_queue',
+    SessionSummaries: 'session_summaries',
+    PosthogAi: 'posthog_ai',
+    Experiments: 'experiments',
+    SignalReport: 'signal_report',
+    Autoresearch: 'autoresearch',
+    SignalsScout: 'signals_scout',
+    ScoutSuggestions: 'scout_suggestions',
+    SupportReply: 'support_reply',
+    Hogdesk: 'hogdesk',
+    ReviewHog: 'review_hog',
+    ImageBuilder: 'image_builder',
+    Loop: 'loop',
+    McpAnalytics: 'mcp_analytics',
+    SignalsChat: 'signals_chat',
+    TaskAnalysis: 'task_analysis',
+    Workflow: 'workflow',
+    SpaceSetup: 'space_setup',
+    BusinessKnowledge: 'business_knowledge',
+    MetricsImport: 'metrics_import',
+} as const
 
 export type SandboxListParams = {
     /**

@@ -147,20 +147,6 @@ def get_team_kill_switch_level(team_id: int) -> KillSwitchLevel:
     return KillSwitchLevel.OFF
 
 
-def get_hedged_app_queries_enabled() -> bool:
-    return _get_hedged_app_queries_enabled(round(time.time() / 60))
-
-
-@lru_cache(maxsize=1)
-def _get_hedged_app_queries_enabled(_ttl: int) -> bool:
-    from posthog.models.instance_setting import get_instance_setting
-
-    try:
-        return get_instance_setting("CLICKHOUSE_HEDGED_APP_QUERIES")
-    except Exception:
-        return False
-
-
 @lru_cache(maxsize=1)
 def _get_kill_switch_level(_ttl: int) -> KillSwitchLevel:
     from posthog.models.instance_setting import get_instance_setting
@@ -469,7 +455,7 @@ def sync_execute(
             workload = Workload.OFFLINE if is_api_key_auth else Workload.ONLINE
         ch_user = ClickHouseUser.API if is_api_key_auth else ClickHouseUser.APP
 
-    if tags.workload == Workload.ENDPOINTS and workload not in (Workload.LOGS, Workload.NEW_EVENTS_CLUSTER):
+    if tags.workload == Workload.ENDPOINTS and workload != Workload.LOGS:
         workload = Workload.ENDPOINTS
 
     if workload == Workload.DEFAULT:
@@ -502,7 +488,8 @@ def sync_execute(
         elif tags.kind == "request" and "api/" in tags_id and "capture" not in tags_id:
             # process requests made to API from the PH app
             ch_user = ClickHouseUser.APP
-        elif tags.feature == Feature.CACHE_WARMUP:
+        # A ch_user tag wins, so warming work such as experiment recalculation can run as its own user.
+        elif tags.feature == Feature.CACHE_WARMUP and not tags.ch_user:
             ch_user = ClickHouseUser.CACHE_WARMUP
 
     # update tags if inside temporal (should not). Only meaningful inside a Temporal activity,
@@ -575,17 +562,6 @@ def sync_execute(
         **core_settings,
         "log_comment": query_log_tags.to_json(),
     }
-    if workload == Workload.OFFLINE or ch_user == ClickHouseUser.CACHE_WARMUP:
-        # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the
-        # online resource pool when the offline resource pool is under heavy load. this comes at the cost of higher and
-        # more variable latency and a higher likelihood of query failures - but offline workloads should be tolerant to
-        # these disruptions
-        settings["use_hedged_requests"] = "0"
-    elif workload == Workload.ONLINE and ch_user == ClickHouseUser.APP:
-        if kill_switch_level != KillSwitchLevel.OFF:
-            settings["use_hedged_requests"] = "0"
-        else:
-            settings["use_hedged_requests"] = "1" if get_hedged_app_queries_enabled() else "0"
     start_time = perf_counter()
     budgeted_query_info: Optional[Any] = None
 

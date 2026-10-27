@@ -4,6 +4,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_play_console.settings import (
     BREAKDOWN_TABLES,
+    RELEASE_FILTER_OPTIONS,
 )
 
 # Columns every vitals metric-set table carries: the app and window the row aggregates, plus the
@@ -134,6 +135,38 @@ _BASE_DESCRIPTIONS: CanonicalDescriptions = {
             "errorReportCount": "Number of error reports Play received on this day for the slice.",
         },
     },
+    "bitmap_memory_usage": {
+        "description": "Daily percentiles of the bitmap memory the app used on users' devices, sliced by app version.",
+        "docs_url": (
+            "https://developers.google.com/play/developer/reporting/reference/rest/v1beta1/vitals.bitmapmemoryusage"
+        ),
+        "columns": {
+            **_TIMELINE_COLUMNS,
+            "bitmapMemoryUsageP50": "50th percentile of bitmap memory usage.",
+            "bitmapMemoryUsageP75": "75th percentile of bitmap memory usage.",
+            "bitmapMemoryUsageP90": "90th percentile of bitmap memory usage.",
+            "bitmapMemoryUsageP95": "95th percentile of bitmap memory usage.",
+            "bitmapMemoryUsageP99": "99th percentile of bitmap memory usage.",
+        },
+    },
+    "anon_rss_and_swap_memory_usage": {
+        "description": (
+            "Daily percentiles of the anonymous resident and swapped memory the app used on users' devices, "
+            "sliced by app version."
+        ),
+        "docs_url": (
+            "https://developers.google.com/play/developer/reporting/reference/rest/v1beta1/"
+            "vitals.anonrssandswapmemoryusage"
+        ),
+        "columns": {
+            **_TIMELINE_COLUMNS,
+            "anonRssAndSwapMemoryUsageP50": "50th percentile of anonymous RSS and swap memory usage.",
+            "anonRssAndSwapMemoryUsageP75": "75th percentile of anonymous RSS and swap memory usage.",
+            "anonRssAndSwapMemoryUsageP90": "90th percentile of anonymous RSS and swap memory usage.",
+            "anonRssAndSwapMemoryUsageP95": "95th percentile of anonymous RSS and swap memory usage.",
+            "anonRssAndSwapMemoryUsageP99": "99th percentile of anonymous RSS and swap memory usage.",
+        },
+    },
     "apps": {
         "description": "Apps the connected service account is allowed to report on.",
         "docs_url": "https://developers.google.com/play/developer/reporting/reference/rest/v1beta1/apps/search",
@@ -198,6 +231,22 @@ _BASE_DESCRIPTIONS: CanonicalDescriptions = {
             "timelineSpec": "Aggregation period and time range the anomaly was detected over.",
             "dimensions": "Dimension values that identify the slice the anomaly was detected in.",
             "metric": "The anomalous metric, with its observed and expected values.",
+        },
+    },
+    RELEASE_FILTER_OPTIONS: {
+        "description": (
+            "Releases currently serving on each of the app's tracks, one row per version code they contain. "
+            "Join on app and versionCode to name the versions in the vitals tables."
+        ),
+        "docs_url": (
+            "https://developers.google.com/play/developer/reporting/reference/rest/v1beta1/apps/fetchReleaseFilterOptions"
+        ),
+        "columns": {
+            "app": "Package name of the app the release belongs to.",
+            "track": "Readable name of the track serving the release (e.g. Production).",
+            "trackType": "Type of the track.",
+            "release": "Readable name of the release.",
+            "versionCode": "Version code contained in the release.",
         },
     },
 }

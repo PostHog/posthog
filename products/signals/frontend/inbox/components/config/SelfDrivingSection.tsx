@@ -11,7 +11,6 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -784,8 +783,6 @@ function PullRequestGenerationRow(): JSX.Element {
  * applies to, and every row shares one shape (`AutonomySettingRow`).
  */
 export function SelfDrivingSection(): JSX.Element {
-    // The Settings tab wraps this in its own card; the legacy setup rail does not.
-    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const { teamConfig, teamConfigLoading } = useValues(signalTeamConfigLogic)
 
     if (teamConfigLoading && teamConfig === null) {
@@ -793,13 +790,7 @@ export function SelfDrivingSection(): JSX.Element {
     }
 
     return (
-        <div
-            className={
-                redesign
-                    ? 'flex flex-col divide-y divide-primary'
-                    : 'flex flex-col divide-y divide-primary rounded border border-primary bg-surface-primary px-3 py-3'
-            }
-        >
+        <div className="flex flex-col divide-y divide-primary">
             <AutonomySettingGroup title="Pull requests" description="Applies to everyone in this project.">
                 <PullRequestGenerationRow />
                 <BaseBranchesRow />

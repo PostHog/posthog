@@ -236,7 +236,6 @@ const newProjectSetup: WorkflowSetupStatusData = {
     ],
     ready_to_send_email: false,
     next_open_step: 'domain',
-    data_suggestions_available: true,
 }
 
 export const SetupStatusInProgress: Story = {

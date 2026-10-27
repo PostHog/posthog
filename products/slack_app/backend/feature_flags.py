@@ -47,9 +47,9 @@ logger = structlog.get_logger(__name__)
 
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
-SLACK_APP_PROJECT_PICKER_FLAG = "slack-app-project-picker"
-SLACK_APP_REPLY_SUGGESTIONS_FLAG = "slack-app-reply-suggestions"
+SLACK_APP_BYOS_FLAG = "slack-app-byos"
 SLACK_APP_UNPROMPTED_ANSWERS_FLAG = "slack-app-unprompted-answers"
+SLACK_APP_INTERVIEW_RECRUITMENT_FLAG = "slack-app-interview-recruitment"
 
 
 # Linking a Slack identity to a PostHog user resolves the Slack profile and its email.
@@ -128,22 +128,24 @@ def is_slack_app_agent_design_enabled(integration: Integration, distinct_id: str
     )
 
 
-def is_slack_app_project_picker_enabled(integration: Integration, distinct_id: str | None = None) -> bool:
-    """Gate for the in-thread project picker. With the gate closed, a mention that could go
-    to more than one project gets the text hint."""
+def is_slack_app_byos_enabled(integration: Integration, distinct_id: str | None, *, adapter: str = "codex") -> bool:
+    """Gate for Slack runs that bill to the user's own plan.
+
+    Depends on the tasks rollout flag for that plan, which is checked first. A Slack run
+    marked for a plan whose rollout is off fails when it starts, so Slack must never mark one.
+    ``distinct_id`` is the PostHog user whose plan the run would use.
+    """
+    from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — keeps tasks off this import path
+
+    if not tasks_facade.own_subscription_cloud_enabled(
+        adapter, distinct_id=distinct_id, organization_id=str(integration.team.organization_id)
+    ):
+        return False
     return _workspace_flag_enabled(
-        SLACK_APP_PROJECT_PICKER_FLAG,
+        SLACK_APP_BYOS_FLAG,
         integration,
-        failure_log_key="slack_app_project_picker_feature_flag_check_failed",
+        failure_log_key="slack_app_byos_feature_flag_check_failed",
         distinct_id=distinct_id,
-    )
-
-
-def is_slack_app_reply_suggestions_enabled(integration: Integration) -> bool:
-    return _workspace_flag_enabled(
-        SLACK_APP_REPLY_SUGGESTIONS_FLAG,
-        integration,
-        failure_log_key="slack_app_reply_suggestions_feature_flag_check_failed",
     )
 
 
@@ -157,6 +159,20 @@ def is_slack_app_unprompted_answers_enabled(integration: Integration) -> bool:
         SLACK_APP_UNPROMPTED_ANSWERS_FLAG,
         integration,
         failure_log_key="slack_app_unprompted_answers_feature_flag_check_failed",
+    )
+
+
+def is_slack_app_interview_recruitment_enabled(integration: Integration, distinct_id: str) -> bool:
+    """Gate for the interview invitations on the Home tab and after a frustration signal.
+
+    ``distinct_id`` is the reader's PostHog distinct id, or their Slack-derived id when no
+    PostHog user is linked. A rule on email or a cohort only matches a linked reader.
+    """
+    return _workspace_flag_enabled(
+        SLACK_APP_INTERVIEW_RECRUITMENT_FLAG,
+        integration,
+        failure_log_key="slack_app_interview_recruitment_feature_flag_check_failed",
+        distinct_id=distinct_id,
     )
 
 

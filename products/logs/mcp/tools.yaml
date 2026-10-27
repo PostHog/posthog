@@ -347,6 +347,7 @@ tools:
             Defaults to attribute_type "log" (log-level attributes). To get values for resource-level attributes (e.g.
             service.name, k8s.pod.name), you MUST explicitly pass attribute_type: "resource". Accepts optional
             serviceNames, dateRange, and filterGroup to narrow which logs are scanned.
+        hooks: logs/redactCredentialsHooks
         response:
             include:
                 - results
@@ -412,6 +413,7 @@ tools:
             idempotent: true
         title: Facet log counts
         description_file: ./prompts/logs-facet-values.md
+        hooks: logs/redactCredentialsHooks
         response:
             include:
                 - results
@@ -441,6 +443,7 @@ tools:
             idempotent: true
         title: Mine log patterns
         description_file: ./prompts/logs-patterns.md
+        hooks: logs/redactCredentialsHooks
         response:
             exclude:
                 - patterns.*.examples
@@ -459,6 +462,7 @@ tools:
             idempotent: true
         title: Diff log patterns between two windows
         description_file: ./prompts/logs-patterns-diff.md
+        hooks: logs/redactCredentialsHooks
         response:
             exclude:
                 - entries.*.pattern.pattern
@@ -508,6 +512,7 @@ tools:
         title: Query logs
         description_file: ./prompts/query-logs.md
         system_prompt_hint: Log filtering by severity/service/attribute
+        hooks: logs/redactCredentialsHooks
         reads_ingested_data: events
         response:
             include:

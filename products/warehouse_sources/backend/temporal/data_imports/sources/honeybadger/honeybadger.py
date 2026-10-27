@@ -7,9 +7,12 @@ from urllib.parse import urlencode, urljoin, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.honeybadger.settings import (
@@ -76,7 +79,7 @@ def _to_unix_timestamp(value: Any) -> int:
     return int(datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp())
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             HoneybadgerRetryableError,

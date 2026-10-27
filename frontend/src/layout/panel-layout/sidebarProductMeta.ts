@@ -31,7 +31,7 @@ const descriptions: Record<string, string> = {
     'LLM analytics':
         'Follow your AI application from prompts to responses. Inspect traces, latency, token usage, and cost to understand quality and performance.',
     Persons:
-        'Explore the people behind your events, including their properties and activity. Connect an individual experience with the patterns in your analytics.',
+        'Explore the people and groups behind your events, including their properties and activity. Connect an individual experience with the patterns in your analytics.',
     Cohorts:
         'Group people by what they do and who they are. Reuse those audiences in analysis, feature targeting, and experiments.',
     'SQL variables':
@@ -65,6 +65,7 @@ const descriptions: Record<string, string> = {
  * Every other sidebar product must have one — `sidebarProductMeta.test.ts` fails when a new product has neither.
  */
 export const SIDEBAR_PRODUCTS_WITHOUT_DOCS = new Set<string>([
+    'Application observability',
     'Apps',
     'Autoresearch',
     'Broadcasts',
@@ -75,6 +76,7 @@ export const SIDEBAR_PRODUCTS_WITHOUT_DOCS = new Set<string>([
     'Identity matching',
     'Product tours',
     'Pulse',
+    'Uptime monitoring',
     'Visual review',
 ])
 
@@ -149,6 +151,12 @@ const examples: Record<string, string> = {
     'Warehouse properties': 'Add account attributes from a warehouse table to your groups.',
 }
 
+// Pinned pages that have no scene config of their own to carry a docs link.
+const docsHrefs: Record<string, string> = {
+    Activity: 'https://posthog.com/docs/data/events',
+    Persons: 'https://posthog.com/docs/data/persons',
+}
+
 export interface SidebarProductMeta {
     example?: string
     description?: string
@@ -168,6 +176,6 @@ export function sidebarProductMeta(product: FileSystemImport): SidebarProductMet
             ? 'Explore the organizations, accounts, or other groups behind your events. Understand usage at the group level.'
             : (descriptions[product.path] ?? sceneConfig?.description),
         example: isGroup ? 'Compare activity across customer accounts.' : examples[product.path],
-        docsHref: sceneConfig?.docsHref,
+        docsHref: sceneConfig?.docsHref ?? docsHrefs[product.path],
     }
 }

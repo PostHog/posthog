@@ -70,6 +70,7 @@ from posthog.tasks.usage_report import (
     capture_report,
     get_all_event_metrics_in_period,
     get_instance_metadata,
+    get_self_driving_credits_used_in_period_for_orgs,
     get_teams_with_ai_credits_used_in_period,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_event_count_with_groups_in_period,
@@ -79,6 +80,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_query_metric,
     get_teams_with_sdk_logs_records_in_period,
     has_non_zero_usage,
+    iter_billable_teams,
     send_all_org_usage_reports,
 )
 from posthog.temporal.usage_report.queries import QUERY_INDEX
@@ -5085,6 +5087,24 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         self.assertEqual(result, [(team.id, 1500)])
 
+    def test_self_driving_credits_for_orgs_sum_each_orgs_teams(self) -> None:
+        org_a = Organization.objects.create(name="Org A")
+        org_b = Organization.objects.create(name="Org B")
+        team_a1 = Team.objects.create(organization=org_a)
+        team_a2 = Team.objects.create(organization=org_a)
+        team_b = Team.objects.create(organization=org_b)
+        period = get_previous_day(at=now() + relativedelta(days=1))
+        org_ids = [str(org_a.id), str(org_b.id)]
+
+        with patch(
+            "posthog.tasks.usage_report.get_signals_billing_credits_by_team",
+            return_value=[(team_a1.id, 1500), (team_a2.id, 1500), (team_b.id, 1500)],
+        ) as signals_credits:
+            totals = get_self_driving_credits_used_in_period_for_orgs(org_ids, period.start, period.end)
+
+        assert totals == {str(org_a.id): 3000, str(org_b.id): 1500}
+        assert signals_credits.call_args.kwargs["organization_ids"] == org_ids
+
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_ai_credits_counts_billable_generation_with_no_trace(self, mock_region: MagicMock) -> None:
         """A billable generation with no matching $ai_trace bills via the empty-trace fallback.
@@ -5743,8 +5763,16 @@ class TestSendUsageNoLicense(APIBaseTest):
 
 
 class TestBillableTeams(TestCase):
-    @parameterized.expand([(1, None), (2, None), (10, []), (2, [str(UUID(int=3))])])
-    def test_get_teams_for_usage_reports(self, batch_size: int, organization_ids: list[str] | None) -> None:
+    @parameterized.expand(
+        [
+            (batch_size, organization_ids, buffer_teams)
+            for batch_size, organization_ids in [(1, None), (2, None), (10, []), (2, [str(UUID(int=3))])]
+            for buffer_teams in (False, True)
+        ]
+    )
+    def test_get_teams_for_usage_reports(
+        self, batch_size: int, organization_ids: list[str] | None, buffer_teams: bool
+    ) -> None:
         org_last = Organization.objects.create(id=UUID(int=3), name="Last")
         org_first = Organization.objects.create(id=UUID(int=1), name="First")
         org_demo = Organization.objects.create(id=UUID(int=2), name="Demo only")
@@ -5762,7 +5790,16 @@ class TestBillableTeams(TestCase):
             patch("posthog.tasks.usage_report.BILLING_ORGANIZATION_BATCH_SIZE", batch_size),
             self.assertNumQueries(expected_queries),
         ):
-            teams = list(_get_teams_for_usage_reports(organization_ids=organization_ids))
+            teams = list(
+                iter_billable_teams(
+                    team_fields=("id", "name"),
+                    organization_fields=("id", "name", "created_at"),
+                    organization_ids=organization_ids,
+                    buffer_teams=True,
+                )
+                if buffer_teams
+                else _get_teams_for_usage_reports(organization_ids=organization_ids)
+            )
 
         expected_teams = [last_team] if organization_ids else [first_team, second_team, last_team]
         assert [team.id for team in teams] == [team.id for team in expected_teams]
@@ -5777,6 +5814,20 @@ class TestBillableTeams(TestCase):
 
         with self.assertNumQueries(1):
             assert teams[0].organization.for_internal_metrics is False
+
+    def test_buffered_teams_survive_closed_server_cursors(self) -> None:
+        org = Organization.objects.create()
+        first_team = Team.objects.create(organization=org)
+        second_team = Team.objects.create(organization=org)
+
+        with patch.dict(connection.settings_dict, DISABLE_SERVER_SIDE_CURSORS=False):
+            teams = iter_billable_teams(team_fields=("id",), organization_fields=("id",), buffer_teams=True)
+            first = next(teams)
+            with connection.cursor() as cursor:
+                cursor.execute("CLOSE ALL")
+            rest = list(teams)
+
+        assert [team.id for team in [first, *rest]] == [first_team.id, second_team.id]
 
     def test_team_moved_to_a_later_organization_during_the_scan_is_reported_once(self) -> None:
         org_first = Organization.objects.create(id=UUID(int=1), name="First")
@@ -7063,7 +7114,7 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         )
 
     def test_events_owned_by_other_products_excluded_from_billable_count(self) -> None:
-        """Test that Conversations widget and prompt management events are excluded from billable event counts."""
+        """Test that Conversations widget, prompt management and anomaly scoring events are excluded from billable event counts."""
         from posthog.tasks.usage_report import get_teams_with_billable_event_count_in_period
 
         billable_result_before = get_teams_with_billable_event_count_in_period(self.begin, self.end)
@@ -7078,6 +7129,8 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             "$conversations_widget_state_changed",
             "$conversations_back_to_tickets",
             "$llm_prompt_fetched",
+            "$anomaly_score",
+            "$anomaly_score_shadow",
         ):
             _create_event(
                 event=event_name,

@@ -23,6 +23,7 @@ import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
+import { MCP_INTENT_PROMPT_FLAG } from './intent-prompt'
 import { interviewRecruitmentProperties } from './interview-recruitment'
 import { buildMCPSessionAnalyticsProperties, getEffectiveMCPClientIdentity } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
@@ -77,6 +78,8 @@ function buildBaseProperties(
         // Which kind of caller minted this token — scout, research run, implementation run, or
         // ordinary user — so scratchpad and notes calls split by caller in one breakdown.
         $mcp_scope_preset: resolveScopePreset(state.apiKeyScopes),
+        // Server-derived from introspection, so a refused call can be traced to the run it came from.
+        ...(state.sandboxTaskId ? { sandbox_task_id: state.sandboxTaskId } : {}),
         ...(analyticsContext
             ? {
                   $mcp_organization_id: analyticsContext.organizationId,
@@ -170,7 +173,7 @@ export async function trackToolCall(
         return
     }
     try {
-        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
+        const analyticsContext = state.analyticsContext ?? (await state.reqCtx.safelyGetAnalyticsContext(state.context))
         const requestContext = state.requestContext
         const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
 
@@ -237,6 +240,7 @@ export async function trackToolCall(
                     state.noDataAction
                 ),
                 ...extraProperties,
+                [`$feature/${MCP_INTENT_PROMPT_FLAG}`]: state.toolFeatureFlags?.[MCP_INTENT_PROMPT_FLAG],
                 is_impersonated: state.isImpersonated === true,
                 suppress_analytics: state.suppressAnalytics === true,
             },

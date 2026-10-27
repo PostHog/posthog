@@ -277,7 +277,7 @@ class RemoteConfig(UUIDTModel):
         from posthog.plugins.site import get_decide_site_apps
 
         from products.error_tracking.backend.facade import build_error_tracking_config
-        from products.feature_flags.backend.models.feature_flag import FeatureFlag
+        from products.feature_flags.backend.facade.flags import has_active_flags
         from products.messaging.backend.facade.api import build_push_config
         from products.surveys.backend.api.survey import get_surveys_opt_in, get_surveys_response
         from products.web_analytics.backend.remote_config import build_heatmaps_config
@@ -291,7 +291,7 @@ class RemoteConfig(UUIDTModel):
         # NOTE: Let's try and keep this tidy! Follow the styling of the values already here...
         config = {
             "supportedCompression": ["gzip", "gzip-js"],
-            "hasFeatureFlags": FeatureFlag.objects.filter(team=team, active=True).exists(),
+            "hasFeatureFlags": has_active_flags(team),
             "captureDeadClicks": bool(team.capture_dead_clicks),
             "capturePerformance": (
                 {

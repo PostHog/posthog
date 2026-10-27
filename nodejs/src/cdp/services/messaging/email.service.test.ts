@@ -14,6 +14,7 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
+import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 
 import { Hub, Team } from '../../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
@@ -1000,7 +1001,7 @@ describe('EmailService', () => {
             // ph_id may be unsigned (base64url only) or signed (base64url + `.` + signature) depending on
             // ENCRYPTION_SALT_KEYS. Match the structure, not the exact value.
             expect(emails[0].html).toMatch(
-                /^<body>Hi! <a href="http:\/\/localhost:8010\/public\/m\/redirect\?ph_id=[A-Za-z0-9._-]+&target=https%3A%2F%2Fexample\.com">Click me<\/a><img src="http:\/\/localhost:8010\/public\/m\/pixel\?ph_id=[A-Za-z0-9._-]+" style="display: none;" \/><\/body>$/
+                /^<body>Hi! <a href="http:\/\/localhost:8010\/public\/m\/redirect\?ph_id=[A-Za-z0-9._-]+&ph_sig=[A-Za-z0-9_-]+&target=https%3A%2F%2Fexample\.com">Click me<\/a><img src="http:\/\/localhost:8010\/public\/m\/pixel\?ph_id=[A-Za-z0-9._-]+" style="display: none;" \/><\/body>$/
             )
         })
     })
@@ -1042,11 +1043,22 @@ describe('EmailService', () => {
             )
         })
 
-        it('should send an email if verified', async () => {
-            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+        it.each([
+            ['an ordinary template', {}, [{ Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) }]],
+            [
+                'a sensitive template',
+                { sensitive: true },
+                [
+                    { Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) },
+                    { Name: 'ph_sensitive', Value: 'true' },
+                ],
+            ],
+        ])('should send an email if verified, for %s', async (_name, extraMetadata, expectedTags) => {
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', ...extraMetadata }
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
+            expect(result.emailSendResult).toEqual({ status: 'accepted' })
             expect(sendEmailSpy).toHaveBeenCalledTimes(1)
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
             // The SES tag carries the short unsigned code (no dot); the signed code (with distinct_id)
@@ -1063,7 +1075,7 @@ describe('EmailService', () => {
                     },
                 },
                 Destination: { ToAddresses: ['"Test User" <test@example.com>'] },
-                EmailTags: [{ Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) }],
+                EmailTags: expectedTags,
                 FeedbackForwardingEmailAddress: 'test@posthog-test.com',
                 FromEmailAddress: '"Test User" <test@posthog-test.com>',
             })
@@ -1179,6 +1191,10 @@ describe('EmailService', () => {
 
                 expect(sendEmailSpy).not.toHaveBeenCalled()
                 expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_suspended'])
+                expect(result.emailSendResult).toEqual({
+                    status: 'skipped',
+                    reason: 'Skipping send: email sending is suspended for this project. Contact support to get sending re-enabled.',
+                })
                 expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
             })
 
@@ -1205,6 +1221,8 @@ describe('EmailService', () => {
 
                 expect(sendEmailSpy).not.toHaveBeenCalled()
                 expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_paused'])
+                expect(result.emailSendResult?.status).toBe('skipped')
+                expect(result.emailSendResult?.reason).toContain('Resume it from the workflow page')
                 expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
                 expect(result.logs.map((l) => l.message).join(' ')).toContain('Spam complaints reached 2%')
                 // Flags the skip so the flow-level billing gate charges nothing for a send that never sent.
@@ -1299,6 +1317,23 @@ describe('EmailService', () => {
                     expect(await configService.getEmailSendingSuspension(team.id)).toEqual('provider')
                 }, 3000)
             })
+
+            // The suspension check fails open. A load that throws would therefore let a suspended team send.
+            it.each(INVALID_TEAM_ID_KEYS)(
+                'keeps a suspended team blocked when invalid team id %p shares its config load',
+                async (key) => {
+                    await suspendTeam()
+                    const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
+
+                    const [suspension, invalidTeamConfig] = await Promise.all([
+                        configService.getEmailSendingSuspension(team.id),
+                        configService.get(key as unknown as number),
+                    ])
+
+                    expect(suspension).toEqual('staff')
+                    expect(invalidTeamConfig).toMatchObject({ email_sending_suspended: false })
+                }
+            )
 
             it('fails open when the suspension lookup errors', async () => {
                 // The config lookup rejecting must never block a legitimate send. Rejects once:
@@ -1777,30 +1812,39 @@ describe('EmailService', () => {
             sendEmailSpy.mockResolvedValue({})
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toMatchInlineSnapshot(`"Failed to send email via SES: No messageId returned from SES"`)
+            expect(result.emailSendResult).toEqual({ status: 'failed', reason: result.error })
         })
 
-        it('should capture a $workflows_email_sent PostHog event on success', async () => {
-            // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
-            jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockResolvedValue(
-                true
-            )
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
-            const result = await service.executeSendEmail(invocation)
-            expect(result.error).toBeUndefined()
-            expect(result.capturedPostHogEvents).toHaveLength(1)
-            expect(result.capturedPostHogEvents[0]).toMatchObject({
-                team_id: team.id,
-                distinct_id: 'distinct_id',
-                event: '$workflows_email_sent',
-                properties: {
-                    $workflow_id: invocation.functionId,
-                    $workflow_action_id: invocation.state.actionId,
-                    $email_to: 'test@example.com',
-                    $email_subject: 'Test Subject',
-                    $email_tracking_enabled: true,
-                },
-            })
-        })
+        it.each([
+            ['an ordinary template', {}, 'Test Subject'],
+            ['a sensitive template', { sensitive: true }, undefined],
+        ])(
+            'should capture a $workflows_email_sent PostHog event on success, for %s',
+            async (_name, extraMetadata, subject) => {
+                // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
+                jest.spyOn(
+                    (service as any).teamWorkflowsConfigService,
+                    'shouldCaptureEngagementEvents'
+                ).mockResolvedValue(true)
+                invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, ...extraMetadata }
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                expect(result.capturedPostHogEvents).toHaveLength(1)
+                expect(result.capturedPostHogEvents[0]).toMatchObject({
+                    team_id: team.id,
+                    distinct_id: 'distinct_id',
+                    event: '$workflows_email_sent',
+                    properties: {
+                        $workflow_id: invocation.functionId,
+                        $workflow_action_id: invocation.state.actionId,
+                        $email_to: 'test@example.com',
+                        $email_tracking_enabled: true,
+                    },
+                })
+                expect(result.capturedPostHogEvents[0].properties.$email_subject).toEqual(subject)
+            }
+        )
 
         it('does not capture a PostHog event when engagement capture is disabled for the team', async () => {
             // Default config has capture_workflows_engagement_events=false, so even on success no event is queued.

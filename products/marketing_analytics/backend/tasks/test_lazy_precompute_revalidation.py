@@ -1,9 +1,10 @@
 from posthog.test.base import BaseTest
 from unittest import mock
 
-from posthog.schema import DateRange, MarketingAnalyticsTableQuery
+from posthog.schema import DateRange, HogQLQueryModifiers, MarketingAnalyticsTableQuery
 
 from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset_query_tags
+from posthog.models.event.new_events_schema import use_new_events_schema
 
 from products.analytics_platform.backend.lazy_computation.stale_policy import is_background_warming_request
 from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import BACKGROUND_WARMING_TRIGGERS
@@ -36,6 +37,9 @@ class TestMarketingLazyPrecomputeRevalidation(BaseTest):
         # a warehouse-restricted user could then read.
         tags_at_build: dict[str, object] = {}
         runner = mock.MagicMock()
+        runner.modifiers = HogQLQueryModifiers(useNewEventsSchema=True)
+        build_schemas: list[bool] = []
+        runner.to_query.side_effect = lambda: build_schemas.append(use_new_events_schema(self.team.pk))
 
         def capture(**_kwargs):
             tags_at_build["refresher"] = is_background_warming_request(BACKGROUND_WARMING_TRIGGERS)
@@ -50,6 +54,7 @@ class TestMarketingLazyPrecomputeRevalidation(BaseTest):
         assert tags_at_build == {"refresher": True, "feature": Feature.PREAGGREGATION}
         runner.to_query.assert_called_once_with()
         runner.run.assert_not_called()
+        assert build_schemas == [True]
 
     @mock.patch(f"{_MODULE}.get_query_runner")
     def test_deleted_team_does_not_raise_into_the_worker(self, get_runner):

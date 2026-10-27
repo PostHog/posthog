@@ -397,7 +397,6 @@ export interface experimentLogicValues {
     statsMethod: ExperimentStatsMethod
     unfreezeExposureLoading: boolean
     unmodifiedExperiment: Experiment | null
-    usesNewQueryRunner: boolean
     variants: MultivariateFlagVariant[]
 }
 
@@ -993,8 +992,7 @@ export interface experimentLogicMeta {
             exposures: any,
             exposuresLoading: boolean
         ) => ExposureChecksState
-        usesNewQueryRunner: (experiment: Experiment) => boolean
-        hasMinimumExposureForResults: (exposures: any, usesNewQueryRunner: boolean) => boolean
+        hasMinimumExposureForResults: (exposures: any) => boolean
         exposureCriteria: (experiment: Experiment) => ExperimentExposureCriteria | undefined
         hasMetrics: (experiment: Experiment) => boolean
         browserNoMetricsWarning: (hasMetrics: boolean, isExperimentLaunched: boolean) => boolean
@@ -2140,25 +2138,42 @@ export const experimentLogic = kea<experimentLogicType>([
             })
             const combinedMetricsIds = [...existingMetricsIds, ...newMetricsIds]
 
+            let response: Experiment
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsPartialUpdate() from 'products/experiments/frontend/generated/api' instead.
-                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                    ...toConcurrencyPayload(values.unmodifiedExperiment),
-                    saved_metrics_ids: combinedMetricsIds,
-                    update_feature_flag_params: false,
-                })
+                response = await api.update(
+                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                    {
+                        ...toConcurrencyPayload(values.unmodifiedExperiment),
+                        saved_metrics_ids: combinedMetricsIds,
+                        update_feature_flag_params: false,
+                    }
+                )
             } catch (error: any) {
                 if (isExperimentConflictError(error)) {
                     lemonToast.error(
                         error.data?.detail ||
                             'This experiment was changed while you were editing it. Review the latest changes and try again.'
                     )
-                } else {
-                    throw error
+                    actions.loadExperiment({ triggeredBy: 'metric_config_change' })
+                    return
                 }
+                throw error
             }
 
-            actions.loadExperiment({ triggeredBy: 'metric_config_change' })
+            /** A reload would unmount the metrics view and drop the recalculation trigger, so apply the response. */
+            actions.setUnmodifiedExperiment(structuredClone(response))
+            actions.setExperiment(response)
+
+            const metricsLogic = experimentMetricsLogic({ experiment: values.experiment })
+            metricsLogic.actions.setPrimaryMetricsResults([])
+            metricsLogic.actions.setPrimaryMetricsResultsErrors([])
+            metricsLogic.actions.setSecondaryMetricsResults([])
+            metricsLogic.actions.setSecondaryMetricsResultsErrors([])
+
+            if (isLaunched(response)) {
+                actions.refreshExperimentResults(false, 'metric_config_change')
+            }
         },
         duplicateSharedMetricAsInlineMetric: ({ isSecondary, newUuid }) => {
             // Listeners run after reducers, so the copy is only there if the shared metric was actually found
@@ -2183,27 +2198,44 @@ export const experimentLogic = kea<experimentLogicType>([
                 (m) => !('isSharedMetric' in m && m.isSharedMetric && m.sharedMetricId === sharedMetricId)
             )
 
+            let response: Experiment
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. Use experimentsPartialUpdate() from 'products/experiments/frontend/generated/api' instead.
-                await api.update(`api/projects/${values.currentProjectId}/experiments/${values.experimentId}`, {
-                    ...toConcurrencyPayload(values.unmodifiedExperiment),
-                    saved_metrics_ids: sharedMetricsIds,
-                    metrics: cleanedMetrics,
-                    metrics_secondary: cleanedMetricsSecondary,
-                    update_feature_flag_params: false,
-                })
+                response = await api.update(
+                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
+                    {
+                        ...toConcurrencyPayload(values.unmodifiedExperiment),
+                        saved_metrics_ids: sharedMetricsIds,
+                        metrics: cleanedMetrics,
+                        metrics_secondary: cleanedMetricsSecondary,
+                        update_feature_flag_params: false,
+                    }
+                )
             } catch (error: any) {
                 if (isExperimentConflictError(error)) {
                     lemonToast.error(
                         error.data?.detail ||
                             'This experiment was changed while you were editing it. Review the latest changes and try again.'
                     )
-                } else {
-                    throw error
+                    actions.loadExperiment({ triggeredBy: 'metric_config_change' })
+                    return
                 }
+                throw error
             }
 
-            actions.loadExperiment({ triggeredBy: 'metric_config_change' })
+            /** A reload would unmount the metrics view and drop the recalculation trigger, so apply the response. */
+            actions.setUnmodifiedExperiment(structuredClone(response))
+            actions.setExperiment(response)
+
+            const metricsLogic = experimentMetricsLogic({ experiment: values.experiment })
+            metricsLogic.actions.setPrimaryMetricsResults([])
+            metricsLogic.actions.setPrimaryMetricsResultsErrors([])
+            metricsLogic.actions.setSecondaryMetricsResults([])
+            metricsLogic.actions.setSecondaryMetricsResultsErrors([])
+
+            if (isLaunched(response)) {
+                actions.refreshExperimentResults(false, 'metric_config_change')
+            }
         },
         createExperimentDashboard: async () => {
             actions.setIsCreatingExperimentDashboard(true)
@@ -2660,9 +2692,10 @@ export const experimentLogic = kea<experimentLogicType>([
             null as any,
             {
                 loadExposures: async (refresh: boolean = false) => {
-                    const { experiment, usesNewQueryRunner } = values
+                    const { experiment } = values
 
-                    if (!usesNewQueryRunner) {
+                    // The legacy page shows no exposures, but its variant exclusion toggle still dispatches this.
+                    if (isLegacyExperiment(experiment)) {
                         // A bare `return` would make kea error ("Reducer returned undefined")
                         return values.exposures
                     }
@@ -2876,34 +2909,9 @@ export const experimentLogic = kea<experimentLogicType>([
             (isExperimentLaunched: boolean, exposures: any, exposuresLoading: boolean): ExposureChecksState =>
                 exposureChecksState(isExperimentLaunched, exposures, exposuresLoading),
         ],
-        usesNewQueryRunner: [
-            (s) => [s.experiment],
-            (experiment: Experiment): boolean => {
-                const hasLegacyMetrics = isLegacyExperiment(experiment)
-
-                const allMetrics = [...experiment.metrics, ...experiment.metrics_secondary, ...experiment.saved_metrics]
-                const hasExperimentMetrics = allMetrics.some((query) => query.kind === NodeKind.ExperimentMetric)
-
-                if (hasExperimentMetrics) {
-                    return true
-                }
-
-                if (hasLegacyMetrics) {
-                    return false
-                }
-
-                // If the experiment has no experiment metrics, we use the new query runner
-                return true
-            },
-        ],
         hasMinimumExposureForResults: [
-            (s) => [s.exposures, s.usesNewQueryRunner],
-            (exposures: ExperimentExposureQueryResponse, usesNewQueryRunner: boolean): boolean => {
-                // Not relevant for old metrics
-                if (!usesNewQueryRunner) {
-                    return true
-                }
-
+            (s) => [s.exposures],
+            (exposures: ExperimentExposureQueryResponse): boolean => {
                 if (!exposures || !exposures.total_exposures) {
                     return false
                 }

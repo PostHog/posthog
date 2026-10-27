@@ -44,7 +44,6 @@ class TestRunCredentialRefreshLoop:
 
         execute_activity = AsyncMock(side_effect=blocked_activity)
         self._patch_workflow(monkeypatch, execute_activity)
-        monkeypatch.setattr(credential_refresh_module.workflow, "deprecate_patch", MagicMock())
         task = asyncio.create_task(run_credential_refresh_loop(MagicMock(), "sb-1"))
         await activity_started.wait()
         execute_activity.side_effect = None

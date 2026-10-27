@@ -46,7 +46,7 @@ export function buildHogboxPreviewSection({
         return {
             status: 'info',
             summary: 'torn down',
-            body: 'The preview for this PR was torn down (label removed or `no-preview` added). Re-add the `hogbox-preview` label to bring it back.',
+            body: 'The preview for this PR was torn down because the `hogbox-preview` label was removed. Add the label again to bring it back.',
         }
     }
 

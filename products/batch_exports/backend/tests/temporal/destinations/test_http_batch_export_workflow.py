@@ -22,7 +22,13 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import ClickHouseClient
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-from products.batch_exports.backend.service import BackfillDetails, BatchExportModel
+from products.batch_exports.backend.service import (
+    BackfillDetails,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportPersonsModel,
+    BatchExportSessionsModel,
+)
 from products.batch_exports.backend.temporal.batch_exports import (
     finish_batch_export_run,
     iter_records,
@@ -552,29 +558,24 @@ async def test_http_export_workflow(
     "batch_export_model",
     [
         None,
-        BatchExportModel(name="events", schema=None),
-        BatchExportModel(
-            name="events",
-            schema=None,
+        BatchExportEventsModel(),
+        BatchExportEventsModel(
             filters=[
                 {"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]},
                 {"key": "$os", "operator": "exact", "type": "event", "value": ["Mac OS X"]},
             ],
         ),
         # this filter should filter out all test events
-        BatchExportModel(
-            name="events",
-            schema=None,
+        BatchExportEventsModel(
             filters=[
                 {"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]},
                 {"key": "$os", "operator": "exact", "type": "event", "value": ["Linux"]},
             ],
         ),
         # None of the following are supported so we expect an error to be raised
-        BatchExportModel(name="persons", schema=None),
-        BatchExportModel(name="sessions", schema=None),
-        BatchExportModel(
-            name="events",
+        BatchExportPersonsModel(),
+        BatchExportSessionsModel(),
+        BatchExportEventsCustomModel(
             schema={
                 "fields": [
                     {"expression": "uuid", "alias": "uuid"},
@@ -645,7 +646,7 @@ async def test_http_export_workflow_with_model(
     if batch_export_model is not None:
         if batch_export_model.name != "events":
             expect_failure = True
-        if batch_export_model.schema is not None:
+        if isinstance(batch_export_model, BatchExportEventsCustomModel):
             expect_failure = True
 
     mock_server = MockServer()
@@ -692,7 +693,7 @@ async def test_http_export_workflow_with_model(
         assert len(runs) == 1
         run = runs[0]
         assert run.status == "FailedRetryable"
-        if batch_export_model is not None and batch_export_model.schema is not None:
+        if isinstance(batch_export_model, BatchExportEventsCustomModel):
             assert run.latest_error == "NotImplementedError: HTTP export does not support schemas"
         else:
             assert run.latest_error == "NotImplementedError: HTTP export only supports the events model"

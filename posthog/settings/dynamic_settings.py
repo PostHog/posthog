@@ -64,23 +64,13 @@ CONSTANCE_CONFIG = {
     ),
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA": (
         False,
-        "Whether HogQL queries read from the native-JSON events tables (events_json) instead of the legacy events table.",
+        "Every project reads the native JSON events table (events_json) instead of the legacy events table. The widest of the switches: a query's useNewEventsSchema modifier, a staff person's ph_new_events_schema cookie and CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS each switch less.",
         bool,
     ),
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS": (
         "",
-        "Comma-separated team IDs whose HogQL queries read from the native-JSON events tables even while the global setting is off.",
+        "Comma-separated project IDs that read the native JSON events table (events_json) in insights, SQL, cohorts and the background jobs that run per project. Changes reach workers within about a minute.",
         str,
-    ),
-    "CLICKHOUSE_NATIVE_EVENTS_HOST": (
-        get_from_env("CLICKHOUSE_NATIVE_EVENTS_HOST", ""),
-        "Hostname for explicit new events cluster queries, without a scheme, port or path. Empty disables the route. Changes reach workers within about a minute.",
-        str,
-    ),
-    "CLICKHOUSE_NATIVE_EVENTS_TEAMS": (
-        [],
-        "Project IDs eligible for explicit native events cluster query opt-ins. This does not change query defaults.",
-        list[int],
     ),
     "PERSON_ON_EVENTS_V2_ENABLED": (
         # Person-on-events v2 reads are the production default for every project created
@@ -338,11 +328,6 @@ CONSTANCE_CONFIG = {
         "Comma-separated team IDs always subject to the 'full' ClickHouse kill switch, even when the global kill switch is 'off'. Use this to restrict heavy or abusive teams without degrading the rest of the cluster.",
         list[int],
     ),
-    "CLICKHOUSE_HEDGED_APP_QUERIES": (
-        get_from_env("CLICKHOUSE_HEDGED_APP_QUERIES", False, type_cast=str_to_bool),
-        "Enable hedged requests for online APP queries to ClickHouse.",
-        bool,
-    ),
     "RATE_LIMITING_ALLOW_LIST_TEAMS": (
         get_from_env("RATE_LIMITING_ALLOW_LIST_TEAMS", ""),
         "Whether teams are on an allow list to bypass rate limiting. Comma separated list of team-ids",
@@ -462,8 +447,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "PERSON_ON_EVENTS_V2_ENABLED",
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA",
     "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS",
-    "CLICKHOUSE_NATIVE_EVENTS_HOST",
-    "CLICKHOUSE_NATIVE_EVENTS_TEAMS",
     "STRICT_CACHING_TEAMS",
     "GITHUB_APP_SLUG",
     "SLACK_APP_CLIENT_ID",
@@ -492,7 +475,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "CLICKHOUSE_KILL_SWITCH",
     "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS",
     "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS",
-    "CLICKHOUSE_HEDGED_APP_QUERIES",
     "REDIRECT_APP_TO_US",
     "WEB_ANALYTICS_WARMING_DAYS",
     "WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS",

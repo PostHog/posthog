@@ -8,6 +8,7 @@ from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 
 import posthoganalytics
+from posthoganalytics.types import FlagsAndPayloads
 from temporalio import activity
 
 from posthog.dataclasses import frozen
@@ -18,23 +19,21 @@ from posthog.temporal.common.utils import asyncify, close_db_connections
 from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
-    AGENT_PEER_MESSAGING_FEATURE_FLAG,
+    AGENT_SERVER_SHADOW_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
-    CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
-    CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
     CODEX_SUBSCRIPTION_EGRESS_DOMAINS,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     DEV_STACK_IMAGE_NAME,
     DEV_STACK_PREVIEW_FEATURE_FLAG,
     HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG,
     HOGLAND_SANDBOX_FEATURE_FLAG,
+    MODAL_VM_SANDBOX_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     PI_ACP_FEATURE_FLAG,
     PR_LOOP_ENABLED_STATE_KEY,
     RTK_DISABLED_FEATURE_FLAG,
     STORE_SKILLS_STATE_KEY,
     SUBSCRIPTION_PLAN_NAMES,
-    get_vm_sandbox_flag_payload,
     is_same_run_resume_state,
     vm_sandbox_allowed_origin_products,
     vm_sandbox_default_base_origin_products,
@@ -49,6 +48,7 @@ from products.tasks.backend.exceptions import (
     TaskRunNotReadyError,
 )
 from products.tasks.backend.facade.api import ensure_task_run_session
+from products.tasks.backend.feature_flags import own_subscription_cloud_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
 from products.tasks.backend.logic.services.agent_instructions import agent_instructions_state_update
 from products.tasks.backend.logic.services.agentsh import (
@@ -92,6 +92,7 @@ class GetTaskProcessingContextInput:
     resumed_sandbox_id: str | None = None
     resumed_sandbox_backend: str | None = None
     stream_generation: str | None = None
+    launches_agent: bool = False
 
 
 @dataclass(frozen=False)
@@ -149,6 +150,7 @@ class TaskProcessingContext:
     overlap_clone_boot_enabled: bool = False
     # Captured at workflow start so the warmup decision stays stable across retries.
     desktop_workspace_warm_enabled: bool = False
+    agent_shadow_enabled: bool = False
     agent_proxy_keep_stream_open: bool = True  # Temporal payload compatibility
     # Set only when the run resolved to the VM runtime — custom images layer on the VM base.
     custom_image_name: str | None = None
@@ -164,9 +166,6 @@ class TaskProcessingContext:
     # default is what pre-existing run histories decode, so replays schedule no new timer
     # (see .claude/rules/temporal-workflow-versioning.md, pattern 2).
     interactive_max_run_duration_seconds: int | None = None
-    # Whether agent peer messaging tools should surface in this run (flag + Pi runtime).
-    # Exposure only: the peers endpoints re-check authorization server-side on every call.
-    peer_messaging_enabled: bool = False
     pi_acp_conversation_enabled: bool = False
     # Which sandbox provider this run provisions on ("modal" or "hogland"). Captured at
     # workflow start and persisted into TaskRun.state at provision time, so activities
@@ -385,63 +384,65 @@ class TaskProcessingContext:
         }
 
 
-def _is_peer_messaging_enabled(
-    *,
-    distinct_id: str,
-    organization_id: str,
-    run_id: str,
-) -> bool:
-    """Whether the agent peer-messaging tools should surface in the sandbox.
+PR_LOOP_FEATURE_FLAG = "tasks-pr-loop"
 
-    Fail-closed exposure gate only — the peers list/message endpoints enforce the
-    flag and runtime again server-side, so a stale env var in a resumed sandbox
-    can never authorize anything."""
+RUN_FEATURE_FLAG_KEYS: list[str] = [
+    PR_LOOP_FEATURE_FLAG,
+    BENJAMIN_FEATURE_FLAG,
+    MODAL_VM_SANDBOX_FEATURE_FLAG,
+    OVERLAP_CLONE_BOOT_FEATURE_FLAG,
+    DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
+    AGENT_SERVER_SHADOW_FEATURE_FLAG,
+    RTK_DISABLED_FEATURE_FLAG,
+    HOGLAND_SANDBOX_FEATURE_FLAG,
+    HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG,
+    DEV_STACK_PREVIEW_FEATURE_FLAG,
+    PI_ACP_FEATURE_FLAG,
+]
+
+
+@StepTimer("flags")
+def _fetch_run_flags(*, distinct_id: str, organization_id: str, run_id: str) -> FlagsAndPayloads:
+    flags: dict[str, Any] = {}
+    payloads: dict[str, Any] = {}
     try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                AGENT_PEER_MESSAGING_FEATURE_FLAG,
-                distinct_id=distinct_id,
+        for only_evaluate_locally in (True, False):
+            missing_keys = [key for key in RUN_FEATURE_FLAG_KEYS if key not in flags]
+            if not missing_keys:
+                break
+            response = posthoganalytics.get_all_flags_and_payloads(
+                distinct_id,
                 groups={"organization": organization_id},
                 group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
+                only_evaluate_locally=only_evaluate_locally,
+                flag_keys_to_evaluate=missing_keys,
             )
-        )
+            flags.update(response.get("featureFlags") or {})
+            payloads.update(response.get("featureFlagPayloads") or {})
     except Exception as e:
-        log_with_activity_context("peer_messaging_flag_check_failed", run_id=run_id, error=str(e))
-        return False
-    if enabled:
-        log_with_activity_context("peer_messaging_flag_checked", run_id=run_id, peer_messaging_enabled=True)
-    return enabled
+        log_with_activity_context("run_flags_fetch_failed", run_id=run_id, error=str(e))
+    return {"featureFlags": flags, "featureFlagPayloads": payloads}
 
 
-def _is_pi_acp_enabled(
-    *,
-    distinct_id: str,
-    organization_id: str,
-    run_id: str,
-) -> bool:
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                PI_ACP_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        log_with_activity_context("pi_acp_flag_check_failed", run_id=run_id, error=str(e))
-        return False
+def _flag_enabled(flags: FlagsAndPayloads, key: str) -> bool:
+    return bool((flags.get("featureFlags") or {}).get(key))
 
 
-@StepTimer("flag_rtk")
+def _flag_payload(flags: FlagsAndPayloads, key: str) -> object:
+    return (flags.get("featureFlagPayloads") or {}).get(key)
+
+
+def _is_pi_acp_enabled(*, flags: FlagsAndPayloads) -> bool:
+    return _flag_enabled(flags, PI_ACP_FEATURE_FLAG)
+
+
+def _is_agent_shadow_enabled(*, flags: FlagsAndPayloads) -> bool:
+    return _flag_enabled(flags, AGENT_SERVER_SHADOW_FEATURE_FLAG)
+
+
 def _is_rtk_enabled(
     *,
-    distinct_id: str,
-    organization_id: str,
+    flags: FlagsAndPayloads,
     run_id: str,
     state: dict | None = None,
 ) -> bool:
@@ -450,20 +451,7 @@ def _is_rtk_enabled(
     otherwise the per-run state override (the user's toggle in PostHog Desktop settings)
     applies. Fails open (enabled, override honored) on flag-service errors so the
     default posture is preserved."""
-    try:
-        disabled = bool(
-            posthoganalytics.feature_enabled(
-                RTK_DISABLED_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        log_with_activity_context("rtk_disabled_flag_check_failed", run_id=run_id, error=str(e))
-        disabled = False
+    disabled = _flag_enabled(flags, RTK_DISABLED_FEATURE_FLAG)
 
     if disabled:
         log_with_activity_context("rtk_disabled_flag_checked", run_id=run_id, rtk_enabled=False)
@@ -478,19 +466,16 @@ def _is_rtk_enabled(
 
 @frozen
 class _SubscriptionAdapter:
-    flag: str
     runtime_name: str
     settings_name: str
 
 
 _SUBSCRIPTION_ADAPTERS: dict[str, _SubscriptionAdapter] = {
     "claude": _SubscriptionAdapter(
-        flag=CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
         runtime_name="Claude",
         settings_name="Claude subscription settings",
     ),
     "codex": _SubscriptionAdapter(
-        flag=CODEX_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG,
         runtime_name="Codex",
         settings_name="ChatGPT subscription settings",
     ),
@@ -519,22 +504,7 @@ def _ensure_subscription_allowed(
             cause=ValueError(f"Subscription requested for a non-{spec.runtime_name} runtime"),
             capture=False,
         )
-    try:
-        enabled = bool(
-            distinct_id
-            and posthoganalytics.feature_enabled(
-                spec.flag,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        log_with_activity_context(f"{adapter}_own_subscription_flag_check_failed", run_id=run_id, error=str(e))
-        enabled = False
-    if not enabled:
+    if not own_subscription_cloud_enabled(adapter, distinct_id=distinct_id, organization_id=organization_id):
         raise ProcessTaskFatalError(
             f"Using your {plan_name} for cloud tasks is unavailable. Try again later, "
             f'or open {spec.settings_name} and turn off "Cloud tasks" to use PostHog credits.',
@@ -563,11 +533,9 @@ def _ensure_codex_account_connected(owner_id: int | None, run_id: str) -> None:
         )
 
 
-@StepTimer("flag_benjamin")
 def _is_benjamin_enabled(
     *,
-    distinct_id: str,
-    organization_id: str,
+    flags: FlagsAndPayloads,
     run_id: str,
     origin_product: str | None = None,
     state: dict | None = None,
@@ -581,19 +549,7 @@ def _is_benjamin_enabled(
     if isinstance(state_override, bool):
         return state_override
 
-    try:
-        payload = posthoganalytics.get_feature_flag_payload(
-            BENJAMIN_FEATURE_FLAG,
-            distinct_id=distinct_id,
-            groups={"organization": organization_id},
-            group_properties={"organization": {"id": organization_id}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-        fraction = _benjamin_rollout_fraction(payload, origin_product)
-    except Exception as e:
-        log_with_activity_context("benjamin_flag_check_failed", run_id=run_id, error=str(e))
-        return False
+    fraction = _benjamin_rollout_fraction(_flag_payload(flags, BENJAMIN_FEATURE_FLAG), origin_product)
 
     if fraction <= 0:
         return False
@@ -670,11 +626,9 @@ def _require_template_compatible_with_custom_image(state: dict, custom_image_nam
     )
 
 
-@StepTimer("flag_sandbox_runtime")
 def _resolve_modal_vm_sandbox(
     *,
-    distinct_id: str,
-    organization_id: str,
+    flags: FlagsAndPayloads,
     run_id: str,
     origin_product: str | None,
     custom_image_available: bool = False,
@@ -709,11 +663,7 @@ def _resolve_modal_vm_sandbox(
     origin_rollout_percentages: dict[str, float] = {}
     default_custom_image: str | None = None
     if state_override is None:
-        try:
-            payload = get_vm_sandbox_flag_payload(distinct_id=distinct_id, organization_id=organization_id)
-        except Exception as e:
-            log_with_activity_context("modal_vm_sandbox_flag_check_failed", run_id=run_id, error=str(e))
-            return VmSandboxDecision(use_vm_sandbox=False)
+        payload = _flag_payload(flags, MODAL_VM_SANDBOX_FEATURE_FLAG)
         allowed_origins = vm_sandbox_allowed_origin_products(payload)
         default_base_origins = vm_sandbox_default_base_origin_products(payload)
         origin_rollout_percentages = vm_sandbox_origin_rollout_percentages(payload)
@@ -782,11 +732,9 @@ def _is_burstable_sandbox_resources_enabled(
     return True
 
 
-@StepTimer("flag_clone_overlap")
 def _is_overlap_clone_boot_enabled(
     *,
-    distinct_id: str,
-    organization_id: str,
+    flags: FlagsAndPayloads,
     run_id: str,
     state: dict | None = None,
 ) -> bool:
@@ -799,20 +747,7 @@ def _is_overlap_clone_boot_enabled(
         )
         return state_override
 
-    try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                OVERLAP_CLONE_BOOT_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        log_with_activity_context("overlap_clone_boot_flag_check_failed", run_id=run_id, error=str(e))
-        return False
+    enabled = _flag_enabled(flags, OVERLAP_CLONE_BOOT_FEATURE_FLAG)
 
     log_with_activity_context(
         "overlap_clone_boot_flag_checked",
@@ -822,27 +757,12 @@ def _is_overlap_clone_boot_enabled(
     return enabled
 
 
-@StepTimer("flag_desktop_workspace")
 def _is_desktop_workspace_warm_enabled(
     *,
-    distinct_id: str,
-    organization_id: str,
+    flags: FlagsAndPayloads,
     run_id: str,
 ) -> bool:
-    try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        log_with_activity_context("desktop_workspace_warm_flag_check_failed", run_id=run_id, error=str(e))
-        return False
+    enabled = _flag_enabled(flags, DESKTOP_WORKSPACE_WARM_FEATURE_FLAG)
 
     log_with_activity_context(
         "desktop_workspace_warm_flag_checked",
@@ -852,11 +772,9 @@ def _is_desktop_workspace_warm_enabled(
     return enabled
 
 
-@StepTimer("flag_dev_stack_preview")
 def _is_dev_stack_preview_enabled(
     *,
-    distinct_id: str,
-    organization_id: str,
+    flags: FlagsAndPayloads,
     run_id: str,
     origin_product: str | None,
     use_modal_vm_sandbox: bool,
@@ -871,20 +789,7 @@ def _is_dev_stack_preview_enabled(
     ):
         return False
 
-    try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                DEV_STACK_PREVIEW_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        log_with_activity_context("dev_stack_preview_flag_check_failed", run_id=run_id, error=str(e))
-        return False
+    enabled = _flag_enabled(flags, DEV_STACK_PREVIEW_FEATURE_FLAG)
 
     log_with_activity_context(
         "dev_stack_preview_flag_checked",
@@ -894,11 +799,9 @@ def _is_dev_stack_preview_enabled(
     return enabled
 
 
-@StepTimer("flag_sandbox_backend")
 def _resolve_sandbox_backend(
     *,
-    distinct_id: str,
-    organization_id: str,
+    flags: FlagsAndPayloads,
     run_id: str,
     state: dict | None,
     task_runtime: str,
@@ -950,20 +853,7 @@ def _resolve_sandbox_backend(
         log_with_activity_context("sandbox_backend_state_override", run_id=run_id, sandbox_backend="hogland")
         return "hogland"
 
-    try:
-        enabled = bool(
-            posthoganalytics.feature_enabled(
-                HOGLAND_SANDBOX_FEATURE_FLAG,
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as e:
-        log_with_activity_context("hogland_sandbox_flag_check_failed", run_id=run_id, error=str(e))
-        return "modal"
+    enabled = _flag_enabled(flags, HOGLAND_SANDBOX_FEATURE_FLAG)
 
     log_with_activity_context(
         "hogland_sandbox_flag_checked",
@@ -1010,7 +900,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         # be mid-cancel/delete. Retry rather than fail fatally so the transient window recovers.
         raise TaskRunNotReadyError(f"TaskRun {run_id} not found", {"run_id": run_id})
 
-    emit_agent_log(run_id, "debug", "Fetching task details")
+    log_with_activity_context("Fetching task details", run_id=run_id)
 
     task: Task = task_run.task
     if not task_run.matches_task_ownership(task):
@@ -1087,16 +977,13 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
                 allowed_domains = sandbox_environment.get_effective_domains()
 
             if allowed_domains is not None:
-                emit_agent_log(
-                    run_id,
-                    "debug",
+                log_with_activity_context(
                     f"Resolved sandbox environment '{sandbox_environment.name}' with agentsh allowlist: {format_allowed_domains_for_log(allowed_domains)}",
+                    run_id=run_id,
                 )
             else:
-                emit_agent_log(
-                    run_id,
-                    "debug",
-                    f"Resolved sandbox environment '{sandbox_environment.name}' with full network access",
+                log_with_activity_context(
+                    f"Resolved sandbox environment '{sandbox_environment.name}' with full network access", run_id=run_id
                 )
 
     # A per-run image (picked at task start) wins over the environment's image.
@@ -1135,18 +1022,11 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # opt in unconditionally — independent of the org-level `tasks-pr-loop` rollout
     # that gates other origins. This mirrors the babysitting the Slack coding bot
     # gets for its PRs.
-    with StepTimer("flag_pr_loop"):
-        pr_loop_enabled = (
-            task.origin_product == Task.OriginProduct.SIGNAL_REPORT
-            or posthoganalytics.feature_enabled(
-                "tasks-pr-loop",
-                distinct_id=distinct_id,
-                groups={"organization": organization_id},
-                group_properties={"organization": {"id": organization_id}},
-            )
-            or False
-        )  # Ensure we get a boolean value even if the flag is missing
-    emit_agent_log(run_id, "debug", f"pr_loop_enabled: {pr_loop_enabled} for this task run")
+    flags = _fetch_run_flags(distinct_id=distinct_id, organization_id=organization_id, run_id=run_id)
+    pr_loop_enabled = task.origin_product == Task.OriginProduct.SIGNAL_REPORT or _flag_enabled(
+        flags, PR_LOOP_FEATURE_FLAG
+    )
+    log_with_activity_context(f"pr_loop_enabled: {pr_loop_enabled} for this task run", run_id=run_id)
     state_updates: dict[str, Any] = {PR_LOOP_ENABLED_STATE_KEY: pr_loop_enabled}
     include_live_context = state.get("include_live_context") is not False
     # The sandbox agent renders these into its skill roots at session start. Resolved here so the
@@ -1200,10 +1080,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     sandbox_event_ingest_enabled = model_access.kind == "own-subscription" or _is_sandbox_event_ingest_enabled(
         run_id=run_id, state=state
     )
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"sandbox_event_ingest_enabled: {sandbox_event_ingest_enabled} for this task run",
+    log_with_activity_context(
+        f"sandbox_event_ingest_enabled: {sandbox_event_ingest_enabled} for this task run", run_id=run_id
     )
     agent_otel_telemetry_enabled = not trial_origin and (
         settings.DEBUG or state.get(AGENT_OTEL_TELEMETRY_STATE_KEY) is not False
@@ -1245,24 +1123,19 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
 
     _require_template_compatible_with_custom_image(state, environment_custom_image_name, run_id=run_id)
     vm_sandbox_decision = _resolve_modal_vm_sandbox(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
+        flags=flags,
         run_id=run_id,
         origin_product=task.origin_product,
         custom_image_available=environment_custom_image_name is not None,
         state=state,
     )
     use_modal_vm_sandbox = vm_sandbox_decision.use_vm_sandbox
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"use_modal_vm_sandbox: {use_modal_vm_sandbox} for this task run",
-    )
+    log_with_activity_context(f"use_modal_vm_sandbox: {use_modal_vm_sandbox} for this task run", run_id=run_id)
     custom_image_name: str | None = None
     if environment_custom_image_name:
         if use_modal_vm_sandbox:
             custom_image_name = environment_custom_image_name
-            emit_agent_log(run_id, "debug", f"Using custom base image: {custom_image_name}")
+            log_with_activity_context(f"Using custom base image: {custom_image_name}", run_id=run_id)
         else:
             emit_agent_log(
                 run_id,
@@ -1275,54 +1148,45 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         # the VM runtime — provisioning falls back to the plain VM base automatically if
         # this image is missing or unloadable.
         custom_image_name = vm_sandbox_decision.default_custom_image
-        emit_agent_log(run_id, "debug", f"Using the organization's default custom base image: {custom_image_name}")
+        log_with_activity_context(
+            f"Using the organization's default custom base image: {custom_image_name}", run_id=run_id
+        )
     burstable_sandbox_resources_enabled = _is_burstable_sandbox_resources_enabled(
         run_id=run_id,
         state=state,
     )
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"burstable_sandbox_resources_enabled: {burstable_sandbox_resources_enabled} for this task run",
+    log_with_activity_context(
+        f"burstable_sandbox_resources_enabled: {burstable_sandbox_resources_enabled} for this task run", run_id=run_id
     )
     overlap_clone_boot_enabled = _is_overlap_clone_boot_enabled(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
+        flags=flags,
         run_id=run_id,
         state=state,
     )
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"overlap_clone_boot_enabled: {overlap_clone_boot_enabled} for this task run",
+    log_with_activity_context(
+        f"overlap_clone_boot_enabled: {overlap_clone_boot_enabled} for this task run", run_id=run_id
     )
     desktop_workspace_warm_enabled = _is_desktop_workspace_warm_enabled(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
+        flags=flags,
         run_id=run_id,
     )
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"desktop_workspace_warm_enabled: {desktop_workspace_warm_enabled} for this task run",
+    log_with_activity_context(
+        f"desktop_workspace_warm_enabled: {desktop_workspace_warm_enabled} for this task run", run_id=run_id
     )
+    agent_shadow_enabled = input.launches_agent and _is_agent_shadow_enabled(flags=flags)
     rtk_enabled = _is_rtk_enabled(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
+        flags=flags,
         run_id=run_id,
         state=state,
     )
     benjamin_enabled = _is_benjamin_enabled(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
+        flags=flags,
         run_id=run_id,
         origin_product=task.origin_product,
         state=state,
     )
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"rtk_enabled: {rtk_enabled}, benjamin_enabled: {benjamin_enabled} for this task run",
+    log_with_activity_context(
+        f"rtk_enabled: {rtk_enabled}, benjamin_enabled: {benjamin_enabled} for this task run", run_id=run_id
     )
     # The same test that mints the token's interactive-run marker: user-started signals runs get
     # a finite wall-clock ceiling because their inference is unbilled and the generic interactive
@@ -1348,8 +1212,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         sandbox_backend_state = {**state, "sandbox_backend": resumed_backend}
 
     sandbox_backend = _resolve_sandbox_backend(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
+        flags=flags,
         run_id=run_id,
         state=sandbox_backend_state,
         task_runtime=task.runtime,
@@ -1369,48 +1232,26 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_modal_vm_sandbox = False
         use_modal_network_allowlist = False
         custom_image_name = None
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"sandbox_backend: {sandbox_backend} for this task run",
-    )
+    log_with_activity_context(f"sandbox_backend: {sandbox_backend} for this task run", run_id=run_id)
     # Pluggable-memory golden: only meaningful on hogland, and org-scoped like the
     # backend flag itself. Fails closed to the fixed-size golden on any error.
-    use_hogland_hotplug_golden = False
-    if sandbox_backend == "hogland":
-        try:
-            use_hogland_hotplug_golden = bool(
-                posthoganalytics.feature_enabled(
-                    HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG,
-                    distinct_id=distinct_id,
-                    groups={"organization": organization_id},
-                    group_properties={"organization": {"id": organization_id}},
-                    only_evaluate_locally=False,
-                    send_feature_flag_events=False,
-                )
-            )
-        except Exception as e:
-            log_with_activity_context("hogland_hotplug_golden_flag_check_failed", run_id=run_id, error=str(e))
-            use_hogland_hotplug_golden = False
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"use_hogland_hotplug_golden: {use_hogland_hotplug_golden} for this task run",
+    use_hogland_hotplug_golden = sandbox_backend == "hogland" and _flag_enabled(
+        flags, HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG
+    )
+    log_with_activity_context(
+        f"use_hogland_hotplug_golden: {use_hogland_hotplug_golden} for this task run", run_id=run_id
     )
 
     dev_stack_preview_enabled = _is_dev_stack_preview_enabled(
-        distinct_id=distinct_id,
-        organization_id=organization_id,
+        flags=flags,
         run_id=run_id,
         origin_product=task.origin_product,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         custom_image_name=custom_image_name,
         repository=run_repository,
     )
-    emit_agent_log(
-        run_id,
-        "debug",
-        f"dev_stack_preview_enabled: {dev_stack_preview_enabled} for this task run",
+    log_with_activity_context(
+        f"dev_stack_preview_enabled: {dev_stack_preview_enabled} for this task run", run_id=run_id
     )
     pr_authorship_mode = get_pr_authorship_mode(task, state)
     user_github_integration_id = None
@@ -1473,6 +1314,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_hogland_hotplug_golden=use_hogland_hotplug_golden,
         overlap_clone_boot_enabled=overlap_clone_boot_enabled,
         desktop_workspace_warm_enabled=desktop_workspace_warm_enabled,
+        agent_shadow_enabled=agent_shadow_enabled,
         custom_image_name=custom_image_name,
         rtk_enabled=rtk_enabled,
         benjamin_enabled=benjamin_enabled,
@@ -1483,18 +1325,5 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         interactive_max_run_duration_seconds=interactive_max_run_duration_seconds,
         sandbox_backend=sandbox_backend,
         dev_stack_preview_enabled=dev_stack_preview_enabled,
-        # v1 scopes peer messaging to Pi runs; the flag check is skipped elsewhere
-        # so ACP runs never even evaluate it.
-        peer_messaging_enabled=task.runtime == Task.Runtime.PI
-        and _is_peer_messaging_enabled(
-            distinct_id=distinct_id,
-            organization_id=organization_id,
-            run_id=run_id,
-        ),
-        pi_acp_conversation_enabled=task.runtime == Task.Runtime.PI
-        and _is_pi_acp_enabled(
-            distinct_id=distinct_id,
-            organization_id=organization_id,
-            run_id=run_id,
-        ),
+        pi_acp_conversation_enabled=task.runtime == Task.Runtime.PI and _is_pi_acp_enabled(flags=flags),
     )

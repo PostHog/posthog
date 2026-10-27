@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 import structlog
 from drf_spectacular.utils import extend_schema_field
@@ -15,7 +16,6 @@ from rest_framework import exceptions, serializers
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import (
     MODELS_NAMESPACE_QUERY_ERROR,
-    Database,
     is_reserved_models_name,
     models_namespace_chain,
 )
@@ -26,7 +26,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
@@ -66,6 +66,13 @@ GENERIC_LINEAGE_SYNC_ERROR = (
 def _lineage_sync_error_detail(error: Exception) -> str:
     # The marker is served verbatim by the node API, so only a message written for the user may reach it.
     return str(error) if isinstance(error, ExposedHogQLError) else GENERIC_LINEAGE_SYNC_ERROR
+
+
+def _capture_unless_user_error(error: Exception) -> None:
+    # Errors in the user's own SQL are not defects. Classify by error code, not by class, because
+    # some user-safe ClickHouse codes, for example UNKNOWN_IDENTIFIER, are not ExposedCHQueryError.
+    if classify_query_error(error) != QueryErrorCategory.USER_ERROR:
+        capture_exception(error)
 
 
 def _as_uuid(value: object) -> uuid.UUID | None:
@@ -127,6 +134,11 @@ def _authored_model_answering_to(
     if exclude is not None:
         candidates = candidates.exclude(pk=exclude.pk)
     return next((query for query in candidates if models_namespace_chain(query) == name.split(".")), None)
+
+
+INCREMENTAL_CONFIG_CHANGED_REFUSAL = (
+    "This view's incremental settings changed while you were editing it. Reload the view and try again."
+)
 
 
 class DataWarehouseSavedQuerySerializer(
@@ -365,7 +377,7 @@ class DataWarehouseSavedQuerySerializer(
 
                 view.external_tables = view.get_s3_tables(database=self.context["database"])
             except Exception as e:
-                capture_exception(e)
+                _capture_unless_user_error(e)
                 logger.exception("Failed to retrieve types for view %s", view.name)
                 raise _view_types_validation_error(e)
 
@@ -490,7 +502,7 @@ class DataWarehouseSavedQuerySerializer(
             except (RecursionError, ResolutionCycleError):
                 raise serializers.ValidationError("Model contains a cycle")
             except Exception as e:
-                capture_exception(e)
+                _capture_unless_user_error(e)
                 logger.exception("Failed to retrieve types for view %s", probe.name)
                 raise _view_types_validation_error(e)
 
@@ -515,8 +527,16 @@ class DataWarehouseSavedQuerySerializer(
                 if _as_uuid(edited_history_id) != locked_instance.query_revision:
                     raise serializers.ValidationError("The query was modified by someone else.")
 
+            if (
+                query_changed
+                and "incremental_config" not in validated_data
+                and locked_instance.incremental_config != instance.incremental_config
+            ):
+                raise serializers.ValidationError(INCREMENTAL_CONFIG_CHANGED_REFUSAL)
+
             if query_changed:
                 validated_data["query_revision"] = uuid.uuid4()
+                validated_data["query_updated_at"] = timezone.now()
 
             if frequency_changed:
                 # The node target is the only store of frequency intent. The interval column
@@ -525,6 +545,7 @@ class DataWarehouseSavedQuerySerializer(
                 validated_data["sync_frequency_interval"] = None
 
             view: DataWarehouseSavedQuery = super().update(locked_instance, validated_data)
+            name_changed = before_update.name != view.name
 
             if frequency_changed:
                 previous_target = modeling_api.declared_targets_by_saved_query(view.team_id, [view.pk]).get(
@@ -579,7 +600,7 @@ class DataWarehouseSavedQuerySerializer(
 
             # Best effort sync to the data modeling DAG representation. The savepoint keeps a
             # failed sync best effort without poisoning the update's own transaction.
-            if "query" in validated_data:
+            if "query" in validated_data or name_changed:
                 try:
                     with transaction.atomic():
                         modeling_api.sync_saved_query_to_dag(view)
@@ -674,16 +695,16 @@ class DataWarehouseSavedQuerySerializer(
         if not isinstance(sql, str):
             raise serializers.ValidationError({"incremental": "This view has no query to make incremental."})
 
-        from products.data_modeling.backend.facade.api import IncrementalConfig, check_incremental_eligibility
+        from products.data_modeling.backend.facade.api import (
+            IncrementalConfig,
+            check_incremental_eligibility,
+            definition_database,
+        )
 
         # The stored column types describe the stored query, so they say nothing about a query being
         # replaced. The runtime guard still catches a nullable key on the first incremental run.
         column_types = None if query_changed or self.instance is None else self.instance.columns
-        # The context only carries a database when the request touches the query or name; a
-        # config-only PATCH still has to check `SELECT *` against real columns, so build one then.
-        database = self.context.get("database") or Database.create_for(
-            team_id=self.context["team_id"], user=cast(User, self.context["request"].user)
-        )
+        database = definition_database(self.context["team_id"], user=cast(User, self.context["request"].user))
         result = check_incremental_eligibility(
             sql,
             IncrementalConfig(

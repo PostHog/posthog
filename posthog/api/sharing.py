@@ -30,7 +30,7 @@ from posthog.api.data_color_theme import DataColorTheme, PublicDataColorThemeSer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_dict
 from posthog.api.shared import TeamPublicSerializer
-from posthog.api.sharing_publish_gate import blocked_access_for_publisher
+from posthog.api.sharing_publish_gate import denied_resources_in_share
 from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
@@ -59,6 +59,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, get_persisted_feature_flags_for_app_context, render_template
 from posthog.views import preflight_check
 
+from products.access_control.backend.facade.api import team_has_public_sharing_access_rules
 from products.access_control.backend.facade.user_access_control import (
     AccessControlLevel,
     UserAccessControl,
@@ -349,6 +350,9 @@ class SharePasswordCreateSerializer(serializers.Serializer):
 class SharingConfigurationSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     settings = serializers.JSONField(required=False, allow_null=True)
     share_passwords = serializers.SerializerMethodField()
+    has_relevant_access_controls = serializers.SerializerMethodField(
+        help_text="Whether the project has configured access controls for shared content or its underlying data."
+    )
 
     class Meta:
         model = SharingConfiguration
@@ -360,8 +364,17 @@ class SharingConfigurationSerializer(UserAccessControlSerializerMixin, serialize
             "password_required",
             "share_passwords",
             "user_access_level",
+            "has_relevant_access_controls",
         ]
         read_only_fields = ["created_at", "access_token", "share_passwords", "user_access_level"]
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_has_relevant_access_controls(self, obj: SharingConfiguration) -> bool:
+        if not (obj.dashboard_id or obj.notebook_id or obj.insight_id):
+            return False
+        if not obj.team.organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+            return False
+        return team_has_public_sharing_access_rules(team_id=obj.team_id)
 
     def validate_settings(self, value: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
         if value is None:
@@ -546,11 +559,11 @@ class SharingConfigurationViewSet(
             # org admins have full access, so skip the gate for a faster enable
             and not self.user_access_control.is_organization_admin
         ):
-            blocked_names = blocked_access_for_publisher(cast(User, request.user), self.team, instance)
-            if blocked_names:
-                blocked = ", ".join(f"`{name}`" for name in blocked_names)
+            denied_resources = denied_resources_in_share(cast(User, request.user), self.team, instance)
+            if denied_resources:
+                denied_names = ", ".join(f"`{name}`" for name in denied_resources)
                 raise ValidationError(
-                    f"Can't enable sharing: you don't have access to {blocked}, "
+                    f"Can't enable sharing: you don't have access to {denied_names}, "
                     "which the shared queries use. Ask an admin for access, or remove those queries first."
                 )
 
