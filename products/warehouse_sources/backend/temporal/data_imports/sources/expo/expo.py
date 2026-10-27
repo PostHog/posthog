@@ -3,6 +3,7 @@ from collections.abc import Iterator
 from typing import Any, Optional
 
 import requests
+import structlog
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -14,7 +15,11 @@ EXPO_GRAPHQL_URL = "https://api.expo.dev/graphql"
 PAGE_SIZE = 100
 REQUEST_TIMEOUT_SECONDS = 60
 
-_VIEWER_QUERY = "query PostHogExpoViewer { viewer { id username } }"
+# `viewer` resolves only for user tokens, while `meActor` resolves for both users and robots.
+_ACTOR_QUERY = "query PostHogExpoActor { meActor { id } }"
+_REJECTED_TOKEN_HINT = "Create a new one at expo.dev under Access tokens."
+
+logger = structlog.get_logger(__name__)
 
 
 class ExpoAPIError(Exception):
@@ -52,19 +57,23 @@ def _run_query(session: requests.Session, query: str, variables: Optional[dict[s
 def validate_credentials(access_token: str, project_id: str) -> tuple[bool, Optional[str]]:
     session = _get_session(access_token)
     try:
-        data = _run_query(session, _VIEWER_QUERY)
-    except ExpoAPIError:
-        return False, "Expo rejected this access token. Create a new one at expo.dev under Access tokens."
+        data = _run_query(session, _ACTOR_QUERY)
+    except ExpoAPIError as error:
+        logger.warning("expo_source.validate_credentials_failed", cause="token_graphql_error", error=str(error))
+        return False, f"Expo rejected this access token ({error}). {_REJECTED_TOKEN_HINT}"
     except requests.HTTPError as error:
         status = error.response.status_code if error.response is not None else None
+        logger.warning("expo_source.validate_credentials_failed", cause="token_http_error", status_code=status)
         if status in (401, 403):
-            return False, "Expo rejected this access token. Create a new one at expo.dev under Access tokens."
+            return False, f"Expo rejected this access token (HTTP {status}). {_REJECTED_TOKEN_HINT}"
         return False, f"Expo returned an unexpected error ({status}) while checking this access token."
-    except Exception:
+    except Exception as error:
+        logger.warning("expo_source.validate_credentials_failed", cause="token_unreachable", error=type(error).__name__)
         return False, "Could not reach the Expo API. Check your connection and try again."
 
-    if not (data.get("viewer") or {}).get("id"):
-        return False, "Expo rejected this access token. Create a new one at expo.dev under Access tokens."
+    if not (data.get("meActor") or {}).get("id"):
+        logger.warning("expo_source.validate_credentials_failed", cause="token_no_actor")
+        return False, f"Expo did not return an account for this access token. {_REJECTED_TOKEN_HINT}"
 
     try:
         # A valid token still needs access to this specific project, so probe one row.
@@ -75,12 +84,16 @@ def validate_credentials(access_token: str, project_id: str) -> tuple[bool, Opti
         )
         if (project_data.get("app") or {}).get("byId") is None:
             raise ExpoAPIError("Expo project not found")
-    except (ExpoAPIError, requests.HTTPError):
+    except (ExpoAPIError, requests.HTTPError) as error:
+        logger.warning("expo_source.validate_credentials_failed", cause="project_inaccessible", error=str(error))
         return False, (
             "Expo could not read this project. Check the project ID, and that the token's account owns it. "
             "Run `eas project:info` to see the ID."
         )
-    except Exception:
+    except Exception as error:
+        logger.warning(
+            "expo_source.validate_credentials_failed", cause="project_unreachable", error=type(error).__name__
+        )
         return False, "Could not reach the Expo API. Check your connection and try again."
 
     return True, None
