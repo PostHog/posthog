@@ -30,11 +30,31 @@ ANOMALY_SCORING_FLAG_DISTINCT_ID = "signals_anomaly_scoring"
 
 
 @frozen
+class ReturnFilter:
+    """Clears the flag of a bucket that is back at the level before a recent flagged run. The score stays.
+
+    On smoothed differences, the fall at the end of a short spike is itself a large difference, so buckets
+    that are back at the baseline flag a few buckets after the spike.
+    """
+
+    # Buckets after the newest flag of a run in which a flagged bucket can be a return.
+    window: int
+    # Raw buckets before the run that set the level a bucket returns to.
+    baseline: int
+
+    @property
+    def flag_context(self) -> int:
+        """Scored buckets before a bucket whose flags the filter reads: the window, then the run before it."""
+        return 2 * self.window
+
+
+@frozen
 class IntervalScoring:
     """How one interval is scored. The detector is any registered detector config, so swapping it needs no code."""
 
     min_points: int
     detector: dict[str, Any]
+    return_filter: ReturnFilter | None = None
 
 
 @frozen
@@ -55,19 +75,31 @@ class ScoringLimits:
     max_backfill_buckets: int = 30
 
 
-def _zscore(window: int) -> dict[str, Any]:
+_SMOOTH_N = 3
+
+
+def _zscore(window: int) -> IntervalScoring:
     # diffs_n is set explicitly: when preprocessing is given without it, the detector scores raw values,
     # and on sparse series raw values score almost every non-zero bucket near 1.0.
-    return {"type": "zscore", "threshold": 0.95, "window": window, "preprocessing": {"diffs_n": 1, "smooth_n": 3}}
+    detector = {
+        "type": "zscore",
+        "threshold": 0.95,
+        "window": window,
+        "preprocessing": {"diffs_n": 1, "smooth_n": _SMOOTH_N},
+    }
+    # The fall of a spike stays in the smoothed difference for `smooth_n` buckets.
+    return IntervalScoring(
+        min_points=window, detector=detector, return_filter=ReturnFilter(window=_SMOOTH_N, baseline=7)
+    )
 
 
 DEFAULT_PROFILE = ScoringProfile(
-    name="default-v1",
+    name="default-v2",
     intervals={
-        IntervalType.HOUR: IntervalScoring(min_points=336, detector=_zscore(336)),
-        IntervalType.DAY: IntervalScoring(min_points=56, detector=_zscore(56)),
-        IntervalType.WEEK: IntervalScoring(min_points=52, detector=_zscore(52)),
-        IntervalType.MONTH: IntervalScoring(min_points=24, detector=_zscore(24)),
+        IntervalType.HOUR: _zscore(336),
+        IntervalType.DAY: _zscore(56),
+        IntervalType.WEEK: _zscore(52),
+        IntervalType.MONTH: _zscore(24),
     },
 )
 
