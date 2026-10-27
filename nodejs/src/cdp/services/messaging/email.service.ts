@@ -1,6 +1,7 @@
 import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { SendMailOptions } from 'nodemailer'
+import { encodeWord, isPlainText } from 'nodemailer/lib/mime-funcs'
 import { Counter, Histogram } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
@@ -380,18 +381,26 @@ export function extractEmailsFromAddressList(value: string | undefined): string[
 // RFC-822 `"Name" <email>` framing (whitespace, quotes, angle brackets, list separators).
 const FROM_OVERRIDE_EMAIL_REGEX = /^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$/
 
-// The display name is embedded as `"${name}" <email>`, so strip the characters that would
-// terminate the quoted phrase or start the address part, plus control characters.
-function sanitizeFromName(name: string): string {
-    return name.replace(/[\x00-\x1F\x7F"<>\\]/g, '').trim()
+// A display name can come from Liquid output, so it may hold line breaks. Dropping control
+// characters stops a templated name from injecting a header.
+function cleanDisplayName(name: string | undefined): string {
+    return (name ?? '').replace(/[\x00-\x1F\x7F]/g, '').trim()
 }
 
-// A display name can come from Liquid output, so it may hold quotes, backslashes or line breaks.
-// Escape it as an RFC 5322 quoted string and drop control characters, which also stops a templated
-// name from injecting a header.
+// SES passes the mailbox through to the header as given, and it requires a non-ASCII display name
+// as an RFC 2047 encoded word. An ASCII name becomes an RFC 5322 quoted string.
+function encodeDisplayName(name: string): string {
+    return isPlainText(name) ? `"${name.replace(/[\\"]/g, '\\$&')}"` : encodeWord(name, 'B', 52)
+}
+
 export function formatMailbox(name: string | undefined, email: string): string {
-    const cleaned = (name ?? '').replace(/[\x00-\x1F\x7F]/g, '').trim()
-    return cleaned ? `"${cleaned.replace(/[\\"]/g, '\\$&')}" <${email}>` : email
+    const displayName = cleanDisplayName(name)
+    return displayName ? `${encodeDisplayName(displayName)} <${email}>` : email
+}
+
+// Nodemailer encodes a structured address itself, and it would quote an encoded word as literal text.
+function toNodemailerAddress(name: string | undefined, email: string): { name: string; address: string } {
+    return { name: cleanDisplayName(name), address: email }
 }
 
 export function parseAddressList(value?: string): string[] | undefined {
@@ -1066,7 +1075,7 @@ export class EmailService {
 
         // Overrides arrive already rendered by the templating engine, so a template that
         // resolved to nothing means "no override" and the integration's stored sender applies.
-        const overrideName = from.name ? sanitizeFromName(from.name) : ''
+        const overrideName = cleanDisplayName(from.name)
 
         return {
             email: this.resolveFromEmailAddress(integration, from.email?.trim(), addLog),
@@ -1125,8 +1134,8 @@ export class EmailService {
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
         const mailOptions: SendMailOptions = {
-            from: formatMailbox(from.name, from.email),
-            to: formatMailbox(params.to.name, params.to.email),
+            from: toNodemailerAddress(from.name, from.email),
+            to: toNodemailerAddress(params.to.name, params.to.email),
             subject: sanitizeEmailSubject(params.subject),
             ...(params.text ? { text: params.text } : {}),
             headers: { [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value! },
