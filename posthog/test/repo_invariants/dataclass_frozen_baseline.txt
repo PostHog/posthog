@@ -821,8 +821,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/openweather/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/opinion_stage/opinion_stage.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/opinion_stage/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/opsgenie/opsgenie.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/opsgenie/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/opuswatch/opuswatch.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/orb/orb.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/orb/settings.py
@@ -1113,7 +1111,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/travis_ci/travis_ci.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/trello/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/trello/trello.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/tremendous/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/tremendous/tremendous.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/trigger_dev/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/trigger_dev/trigger_dev.py

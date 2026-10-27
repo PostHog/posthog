@@ -2,6 +2,8 @@ from typing import Any
 
 from django.utils import timezone
 
+import numpy as np
+
 from posthog.models import Team, User
 from posthog.models.utils import uuid7
 
@@ -15,6 +17,7 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.temporal.activities.create_observation import _build_scanner_snapshot
+from products.replay_vision.backend.watch_rank import ANCHORS, WatchCategory
 
 
 def snapshot_for(scanner: ReplayScanner) -> dict[str, Any]:
@@ -78,3 +81,15 @@ def create_experiment(
         start_date=timezone.now() if launched else None,
         exposure_criteria={},
     )
+
+
+def axis_anchors() -> dict[WatchCategory, np.ndarray]:
+    """Unit anchors in three dimensions: failure on x, struggle on y, revenue on -y, routine on z, one row per anchor
+    sentence so similarities come out keyed like real ones."""
+    axes = {
+        "failure": [1.0, 0.0, 0.0],
+        "struggle": [0.0, 1.0, 0.0],
+        "revenue": [0.0, -1.0, 0.0],
+        "routine": [0.0, 0.0, 1.0],
+    }
+    return {category: np.array([axes[category]] * len(ANCHORS[category])) for category in ANCHORS}
