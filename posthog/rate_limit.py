@@ -958,14 +958,18 @@ class QueryClickHouseSustainedThrottle(PersonalOrProjectSecretApiKeyRateThrottle
     pass
 
 
-class QueryProjectSecretApiKeyTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
-    scope = "query_psak_team_burst"
-    rate = APIQueriesBurstThrottle.rate
+class QueryProjectSecretApiKeyTeamThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    """One project-wide budget across all of a project's PSAKs, for a single window.
 
+    The rate is the one metering a single key on the branch serving the request, so the project cap
+    can never exceed one key's budget. Deriving it matters on the legacy HogQL branch, where a key
+    gets 120/hour rather than 240/minute, and when a team sets `api_query_rate_limit`.
+    """
 
-class QueryProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
-    scope = "query_psak_team_sustained"
-    rate = APIQueriesSustainedThrottle.rate
+    def __init__(self, window: str, rate: str) -> None:
+        self.scope = f"query_psak_team_{window}"
+        self.rate = rate
+        super().__init__()
 
 
 class AIObservabilityTextReprBurstThrottle(PersonalApiKeyRateThrottle):

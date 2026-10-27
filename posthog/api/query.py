@@ -74,6 +74,7 @@ from posthog.hogql_queries.query_failure_handling import captured_elsewhere
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
 from posthog.models.utils import uuid7
+from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.query_scan import slot as query_scan_slot
 from posthog.query_scan.flag import QueryScanMode, get_query_scan_flag
 from posthog.query_scan.serve import analysis_with_prompt
@@ -88,8 +89,7 @@ from posthog.rate_limit import (
     QueryClickHouseBurstThrottle,
     QueryClickHouseSustainedThrottle,
     QueryHogQLThrottle,
-    QueryProjectSecretApiKeyTeamBurstThrottle,
-    QueryProjectSecretApiKeyTeamSustainedThrottle,
+    QueryProjectSecretApiKeyTeamThrottle,
     QuerySustainedThrottle,
 )
 from posthog.schema_migrations.upgrade import upgrade
@@ -280,11 +280,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 ErrorTrackingFingerprintProjectionBurstRateThrottle(),
                 ErrorTrackingFingerprintProjectionSustainedRateThrottle(),
             ]
-        return [
-            *self._query_throttles(query),
-            QueryProjectSecretApiKeyTeamBurstThrottle(),
-            QueryProjectSecretApiKeyTeamSustainedThrottle(),
-        ]
+        return self._query_throttles(query)
 
     def _query_throttles(self, query) -> list:
         if (
@@ -292,10 +288,27 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             or (settings.API_QUERIES_ENABLED and self.check_team_api_queries_concurrency())
             or (settings.API_QUERIES_LEGACY_TEAM_LIST and self.team_id not in settings.API_QUERIES_LEGACY_TEAM_LIST)
         ):
-            return [QueryBurstThrottle(), QuerySustainedThrottle()]
+            return [
+                QueryBurstThrottle(),
+                QuerySustainedThrottle(),
+                *self._psak_project_throttles(APIQueriesBurstThrottle.rate, APIQueriesSustainedThrottle.rate),
+            ]
         if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
-            return [QueryHogQLThrottle()]
-        return [QueryClickHouseBurstThrottle(), QueryClickHouseSustainedThrottle()]
+            rate = self.team.api_query_rate_limit or QueryHogQLThrottle.rate
+            # This branch meters a key with one budget, not a burst/sustained pair.
+            return [QueryHogQLThrottle(), *self._psak_project_throttles(rate, rate)]
+        return [
+            QueryClickHouseBurstThrottle(),
+            QueryClickHouseSustainedThrottle(),
+            *self._psak_project_throttles(QueryClickHouseBurstThrottle.rate, QueryClickHouseSustainedThrottle.rate),
+        ]
+
+    def _psak_project_throttles(self, burst_rate: str, sustained_rate: str) -> list:
+        # No-ops for every caller that is not a project secret API key.
+        return [
+            QueryProjectSecretApiKeyTeamThrottle("burst", burst_rate),
+            QueryProjectSecretApiKeyTeamThrottle("sustained", sustained_rate),
+        ]
 
     def check_team_api_queries_concurrency(self):
         cache_key = f"team/{self.team_id}/feature/{AvailableFeature.API_QUERIES_CONCURRENCY}"
@@ -332,6 +345,18 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             query, client_query_id, execution_mode = _process_query_request(
                 data, self.team, data.client_query_id, request.user
             )
+
+            if is_authenticated_via_project_secret_api_key(request) and execution_mode not in (
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            ):
+                # A background calculation rebuilds a userless principal, so the key's scopes are
+                # gone by the time it runs, and `retrieve` is closed to a PSAK anyway.
+                raise ValidationError(
+                    "Project secret API keys run queries synchronously. Remove `refresh` or set it to "
+                    "`force_blocking`, then try again.",
+                    code="psak_async_unsupported",
+                )
 
             is_mcp_client = request.headers.get("x-posthog-client") == "mcp"
             if is_mcp_client:

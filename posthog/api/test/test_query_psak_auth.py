@@ -6,8 +6,7 @@ from django.core.cache import cache
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.schema import DateRange, EventsNode, TrendsQuery
-
+from posthog.api.query import required_scopes_for_query_payload
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import hash_key_value
 
@@ -27,6 +26,12 @@ def _make_psak(team, label="psak", scopes=_UNSET):
         scopes=["query:read"] if scopes is _UNSET else scopes,
     )
     return token, psak
+
+
+def test_product_query_kinds_require_a_scope_a_project_secret_key_cannot_hold():
+    # Scope composition, not a deny-list, is what keeps a service key out of the product query
+    # kinds: each one needs the product's own scope, and a PSAK may hold none of them.
+    assert required_scopes_for_query_payload({"kind": "MetricsQuery"}) == ["metrics:read"]
 
 
 def _auth_headers(token: str) -> dict:
@@ -57,21 +62,17 @@ class TestQueryViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
         # service key is a principal those paths have to carry without a user row.
         _create_event(team=self.team, event="signed up", distinct_id="person-1")
         flush_persons_and_events()
-        token, _ = _make_psak(self.team, label="trends-key")
-        trends_query = TrendsQuery(
-            series=[EventsNode(event="signed up")],
-            dateRange=DateRange(date_from="-7d"),
-        )
+        token, _ = _make_psak(self.team, label="events-key")
 
         response = self.client.post(
             self.query_url,
-            {"query": trends_query.model_dump()},
+            {"query": {"kind": "EventsQuery", "select": ["event"], "limit": 10}},
             content_type="application/json",
             **_auth_headers(token),
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        self.assertEqual(response.json()["results"][0]["count"], 1)
+        self.assertEqual([row[0] for row in response.json()["results"]], ["signed up"])
 
     @parameterized.expand(
         [
@@ -137,19 +138,19 @@ class TestQueryViewSetPSAKAuth(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
         self.assertIn("missing required scope 'query:read'", response.json().get("detail", ""))
 
-    def test_psak_cannot_run_a_product_query_kind_it_lacks_the_scope_for(self):
-        # Product kinds swap query:read for their own scope, so a query-only key must not reach them.
-        token, _ = _make_psak(self.team, label="metrics-key")
+    @parameterized.expand([("force_async", {"refresh": "force_async"}), ("legacy_async", {"async": True})])
+    def test_psak_requires_synchronous_queries(self, _name, extra_body):
+        token, _ = _make_psak(self.team, label=f"async-{_name}")
 
         response = self.client.post(
             self.query_url,
-            {"query": {"kind": "MetricsQuery", "dateRange": {"date_from": "-7d"}}},
+            {"query": SAMPLE_QUERY, **extra_body},
             content_type="application/json",
             **_auth_headers(token),
         )
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
-        self.assertIn("metrics:read", response.json().get("detail", ""))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertIn("run queries synchronously", response.json().get("detail", ""))
 
     def test_session_auth_still_works(self):
         self.client.force_login(self.user)
@@ -193,25 +194,25 @@ class TestQueryPSAKRateLimit(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(self._run(token).status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
-    def test_distinct_psak_keys_get_independent_buckets(self, *_args):
-        token_a, _a = _make_psak(self.team, label="key-a")
-        token_b, _b = _make_psak(self.team, label="key-b")
-
-        for _ in range(2):
-            self.assertEqual(self._run(token_a).status_code, status.HTTP_200_OK)
-        self.assertEqual(self._run(token_a).status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-        self.assertEqual(self._run(token_b).status_code, status.HTTP_200_OK)
-
-    @patch("posthog.rate_limit.QueryProjectSecretApiKeyTeamBurstThrottle.rate", new="3/minute")
-    @patch("posthog.rate_limit.QueryHogQLThrottle.rate", new="100/minute")
-    def test_distinct_psak_keys_share_the_project_bucket(self, *_args):
-        # Minting extra keys must not multiply a project's total query capacity.
+    def test_a_second_key_cannot_spend_more_of_the_project_budget(self, *_args):
+        # The project budget is one key's budget, so minting extra keys must not multiply it.
         token_a, _a = _make_psak(self.team, label="team-key-a")
         token_b, _b = _make_psak(self.team, label="team-key-b")
 
         self.assertEqual(self._run(token_a).status_code, status.HTTP_200_OK)
         self.assertEqual(self._run(token_a).status_code, status.HTTP_200_OK)
-        self.assertEqual(self._run(token_b).status_code, status.HTTP_200_OK)
+        self.assertEqual(self._run(token_b).status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
+    def test_project_budget_follows_the_teams_query_rate_limit(self, *_args):
+        # The project cap has to come from the same rate the branch meters one key with, including
+        # a team's own override, or the cap silently outruns what a key may spend.
+        self.team.api_query_rate_limit = "2/minute"
+        self.team.save(update_fields=["api_query_rate_limit"])
+        token_a, _a = _make_psak(self.team, label="override-key-a")
+        token_b, _b = _make_psak(self.team, label="override-key-b")
+
+        self.assertEqual(self._run(token_a).status_code, status.HTTP_200_OK)
+        self.assertEqual(self._run(token_a).status_code, status.HTTP_200_OK)
         self.assertEqual(self._run(token_b).status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
     def test_session_user_is_not_throttled(self, *_args):

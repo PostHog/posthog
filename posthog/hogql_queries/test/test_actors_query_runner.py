@@ -41,9 +41,11 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql.visitor import clear_locations
 
+from posthog.auth import ProjectSecretAPIKeyUser
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models.group.util import create_group
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.utils import UUIDT
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
@@ -899,6 +901,22 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.calculate()
 
         self.assertEqual(response.results[0][0], "Test User With Spaces")
+
+    def test_service_key_principal_can_order_by_created_at(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["service-person"])
+        flush_persons_and_events()
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="actors-key",
+            mask_value="phs_...acto",
+            secure_value="sha256$actors",
+            scopes=["query:read"],
+        )
+        query = ActorsQuery(select=["person_display_name -- Person ", "id", "created_at"])
+
+        response = ActorsQueryRunner(team=self.team, query=query, user=ProjectSecretAPIKeyUser(psak)).calculate()
+
+        self.assertEqual(len(response.results), 1)
 
     def test_direct_actors_query_uses_latest_person_data_after_property_deletion(self):
         """Test that direct ActorsQuery uses latest person data and doesn't show deleted properties."""
