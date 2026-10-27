@@ -7,8 +7,7 @@ description: >
   Maps each kind of change, such as pure logic, DRF serializer or viewset, migration, kea logic, React component,
   CSS, Django template, CI workflow, SQL or HogQL, or docs and skills, to the layer that is enough and the layer that is wasted.
   `hogli verify --changed` runs the cheap layers for the current diff and names the slower ones left to run yourself.
-  Trigger terms: verify, how do I test this, is this enough testing, start the stack, render it, run e2e,
-  run Storybook for a few stories, STORYBOOK_STORIES.
+  Trigger terms: verify, how do I test this, is this enough testing, start the stack, render it, run e2e.
 ---
 
 # Verifying changes
@@ -31,7 +30,7 @@ mypy is one of those advice-only checks. It runs repo-wide, so `hogli verify` pr
 Use `--plan` to see the classification without running anything.
 
 For layer 4, set `STORYBOOK_STORIES` to the directories or story files you need instead of editing the `stories` list in `main.ts`.
-[references/running-storybook.md](references/running-storybook.md) covers the variable, story URLs and screenshots.
+`/working-with-storybook` covers starting Storybook, opening a story by URL, screenshots, and writing the story itself.
 
 ## Decision table
 

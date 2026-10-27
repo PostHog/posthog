@@ -18,26 +18,23 @@ Uses `"@storybook/test-runner"` see: https://storybook.js.org/docs/writing-tests
 
 ## to run locally
 
-before you do this... 🤷
-
-in one terminal
+In one terminal, start Storybook. Set `STORYBOOK_STORIES` to index only some stories: directories or story files, comma-separated and relative to the repo root.
 
 ```bash
-hogli storybook
+STORYBOOK_STORIES=frontend/src/toolbar pnpm storybook
 ```
 
-To index only some stories, set `STORYBOOK_STORIES` to directories or story files, comma-separated and relative to the repo root:
+To run the snapshot runner, stop the dev server and serve a static build instead. The runner fails against `storybook dev`. `test-storybook` reads the same story list, so pass it the same `STORYBOOK_STORIES`:
 
 ```bash
-STORYBOOK_STORIES=frontend/src/toolbar hogli storybook
+pnpm exec playwright install chromium
+cd common/storybook
+STORYBOOK_STORIES=frontend/src/toolbar pnpm exec storybook build --test -o /tmp/storybook-static
+pnpm exec http-server /tmp/storybook-static --port 6006 --silent &
+STORYBOOK_STORIES=frontend/src/toolbar pnpm exec test-storybook --browsers chromium -u
 ```
 
-in another
-
-```bash
-pnpm exec playwright install
-hogli storybook:test
-```
+The `/working-with-storybook` agent skill covers story parameters, mocks, `testOptions` and visual review.
 
 ## Viewport width variants
 
