@@ -4260,8 +4260,8 @@ class ExperimentService:
             }
         ]
 
-        if exposure_entities and exposure_entities[0].id:
-            entity = exposure_entities[0]
+        entity = exposure_entities[0] if exposure_entities else None
+        if entity is not None and entity.id:
             if entity.type == "actions":
                 target_entity_type = "actions"
                 try:
@@ -4298,13 +4298,13 @@ class ExperimentService:
                                     {
                                         "type": "behavioral",
                                         "value": "performed_event",
-                                        "key": entity,
+                                        "key": target_entity,
                                         "negation": False,
                                         "event_type": target_entity_type,
                                         "event_filters": target_filters,
                                         "explicit_datetime": experiment.start_date.isoformat(),
                                     }
-                                    for entity in target_entities
+                                    for target_entity in target_entities
                                 ],
                             }
                         ],

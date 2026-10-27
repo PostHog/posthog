@@ -5350,22 +5350,44 @@ class TestExperimentService(APIBaseTest):
 
     @parameterized.expand(
         [
-            # (name, flag enabled for team, start_date offset from cutoff in days, expected events)
-            ("before_cutoff", True, -7, ["$feature_flag_called", "$experiment_exposure"]),
-            ("after_cutoff", True, 7, ["$experiment_exposure"]),
-            ("after_cutoff_flag_disabled", False, 7, ["$feature_flag_called", "$experiment_exposure"]),
+            # (name, flag enabled for team, start_date offset from cutoff in days, custom exposure event, expected events)
+            ("before_cutoff", True, -7, None, ["$feature_flag_called", "$experiment_exposure"]),
+            ("after_cutoff", True, 7, None, ["$experiment_exposure"]),
+            ("after_cutoff_flag_disabled", False, 7, None, ["$feature_flag_called", "$experiment_exposure"]),
+            (
+                "custom_flag_called_after_cutoff",
+                True,
+                7,
+                "$feature_flag_called",
+                ["$feature_flag_called", "$experiment_exposure"],
+            ),
         ]
     )
     def test_create_exposure_cohort_uses_resolved_exposure_event(
-        self, name: str, flag_enabled: bool, start_offset_days: int, expected_events: list[str]
+        self,
+        name: str,
+        flag_enabled: bool,
+        start_offset_days: int,
+        custom_exposure_event: str | None,
+        expected_events: list[str],
     ) -> None:
         flag_key = f"cohort-resolved-{name}"
+        flag_filter = {"key": "$feature_flag", "value": [flag_key], "operator": "exact", "type": "event"}
         self._create_flag(key=flag_key)
         service = self._service()
         experiment = service.create_experiment(
             name=f"Resolved {name}",
             feature_flag_key=flag_key,
             start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days),
+            parameters=(
+                {
+                    "custom_exposure_filter": {
+                        "events": [{"id": custom_exposure_event, "order": 0, "properties": [flag_filter]}]
+                    }
+                }
+                if custom_exposure_event
+                else None
+            ),
         )
 
         def fake_feature_enabled(key: str, *args: Any, **kwargs: Any) -> bool:
@@ -5379,9 +5401,7 @@ class TestExperimentService(APIBaseTest):
         assert [criterion["key"] for criterion in criteria] == expected_events
         for criterion in criteria:
             assert criterion["event_type"] == "events"
-            assert criterion["event_filters"] == [
-                {"key": "$feature_flag", "value": [flag_key], "operator": "exact", "type": "event"}
-            ]
+            assert criterion["event_filters"] == [flag_filter]
 
     def test_create_exposure_cohort_without_start_date_raises(self):
         self._create_flag(key="cohort-no-start")
