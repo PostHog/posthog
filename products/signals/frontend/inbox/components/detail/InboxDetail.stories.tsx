@@ -394,6 +394,7 @@ const exportsPlan: ReportPlanApi = {
             depends_on: [],
             implementation_pr_url: 'https://github.com/example/app/pull/41',
             implementation_pr_state: 'merged',
+            suppression_source: null,
         },
         {
             id: '019e64b8-0000-7000-8000-000000000212',
@@ -402,6 +403,7 @@ const exportsPlan: ReportPlanApi = {
             depends_on: ['019e64b8-0000-7000-8000-000000000211'],
             implementation_pr_url: 'https://github.com/example/app/pull/42',
             implementation_pr_state: 'open',
+            suppression_source: null,
         },
         {
             id: '019e64b8-0000-7000-8000-000000000213',
@@ -410,6 +412,7 @@ const exportsPlan: ReportPlanApi = {
             depends_on: ['019e64b8-0000-7000-8000-000000000212'],
             implementation_pr_url: null,
             implementation_pr_state: null,
+            suppression_source: null,
         },
     ],
 }

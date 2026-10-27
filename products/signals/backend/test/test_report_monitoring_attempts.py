@@ -155,10 +155,28 @@ class TestReportMonitoringAttempts(BaseTest):
             evidence_refs=("observation:example",),
         )
 
-    @parameterized.expand([("metric_threshold",), ("agent",)])
-    def test_final_result_is_durable_idempotent_and_does_not_complete_or_spend_runs(self, kind: str) -> None:
+    @parameterized.expand(
+        [
+            (kind, status, expired)
+            for kind in (SignalReportCheck.Kind.METRIC_THRESHOLD, SignalReportCheck.Kind.AGENT)
+            for status, expired in (
+                (SignalReportCheck.Status.PENDING, False),
+                (SignalReportCheck.Status.PENDING, True),
+                (SignalReportCheck.Status.ERRORED, False),
+                (SignalReportCheck.Status.ERRORED, True),
+                (SignalReportCheck.Status.EXPIRED, True),
+            )
+        ]
+    )
+    def test_final_result_is_durable_idempotent_and_does_not_complete_or_spend_runs(
+        self, kind: str, status: str, expired: bool
+    ) -> None:
         check = self._check(kind=kind)
         evaluation = self._evaluation(check)
+        check.status = status
+        if expired:
+            check.expires_at = self.now
+        check.save()
 
         result = save_monitoring_result(evaluation)
         assert save_monitoring_result(evaluation).id == result.id
@@ -181,7 +199,7 @@ class TestReportMonitoringAttempts(BaseTest):
         self.report.refresh_from_db()
         check.refresh_from_db()
         assert self.report.status == SignalReport.Status.MONITORING
-        assert check.status == SignalReportCheck.Status.PENDING
+        assert check.status == status
         assert check.runs_remaining == 1
         assert check.last_outcome is None
 
@@ -208,7 +226,7 @@ class TestReportMonitoringAttempts(BaseTest):
         assert save_monitoring_result(evaluation).id == result.id
         with self.assertRaises(MonitoringResultConflict):
             save_monitoring_result(replace(evaluation, explanation="A different evaluation"))
-        with self.assertRaises(InvalidMonitoringResult):
+        with self.assertRaises(MonitoringResultConflict if change == "expired" else InvalidMonitoringResult):
             save_monitoring_result(replace(evaluation, submission_id=uuid4()))
         assert SignalReportMonitoringResult.objects.for_team(self.team.id).count() == 1
 
@@ -251,8 +269,9 @@ class TestReportMonitoringAttempts(BaseTest):
             ("reopened",),
             ("new_attempt",),
             ("cancelled",),
-            ("expired",),
-            ("terminal",),
+            ("passed",),
+            ("failed",),
+            ("inconclusive",),
             ("definition",),
             ("snapshot",),
             ("nonmember",),
@@ -278,13 +297,9 @@ class TestReportMonitoringAttempts(BaseTest):
             self.report.save(update_fields=self.report.transition_to(target))
             if change == "new_attempt":
                 complete_implementation(team_id=self.team.id, report_id=self.report.id, monitoring_started_at=self.now)
-        elif change in {"cancelled", "expired", "terminal", "definition"}:
-            if change == "cancelled":
-                check.status = SignalReportCheck.Status.CANCELLED
-            elif change == "expired":
-                check.expires_at = self.now
-            elif change == "terminal":
-                check.status = SignalReportCheck.Status.ERRORED
+        elif change in {"cancelled", "passed", "failed", "inconclusive", "definition"}:
+            if change != "definition":
+                check.status = change
             else:
                 check.config = {"instructions": "A changed expectation"}
             check.save()
