@@ -5270,12 +5270,22 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         scanner = self._create_scanner(name="m")
         self._succeeded_observation(scanner, "s-0", 1, self._monitor_result("no"))
         self.client.get(self.feed_url)  # warm request-scoped caches
-        with CaptureQueriesContext(connection) as one:
+        # Both measured loads rank afresh, since a load in the same bucket would reuse the picks cached before it.
+        real_get = cache.get
+        uncached_picks = patch.object(
+            cache,
+            "get",
+            side_effect=lambda key, *args, **kwargs: (
+                None if key.startswith("replay_vision:watch_picks:") else real_get(key, *args, **kwargs)
+            ),
+        )
+        with uncached_picks, CaptureQueriesContext(connection) as one:
             self.assertEqual(self.client.get(self.feed_url).status_code, 200)
         for i in range(1, 6):
             other = self._create_scanner(name=f"m{i}")
             self._succeeded_observation(other, f"s-{i}", i, self._monitor_result("yes"))
-        with CaptureQueriesContext(connection) as six:
+        self.client.get(self.feed_url)
+        with uncached_picks, CaptureQueriesContext(connection) as six:
             self.assertEqual(self.client.get(self.feed_url).status_code, 200)
         self.assertEqual(len(one.captured_queries), len(six.captured_queries))
 
