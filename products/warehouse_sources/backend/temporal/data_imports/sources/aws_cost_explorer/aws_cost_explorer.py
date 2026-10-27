@@ -6,7 +6,6 @@ from collections.abc import Iterator
 from typing import Any, Optional
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from structlog.types import FilteringBoundLogger
@@ -23,6 +22,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_e
     CE_TARGET_PREFIX,
     DEFAULT_LOOKBACK_DAYS,
     CostExplorerEndpointConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     BoundedRetry,
@@ -310,9 +313,7 @@ def error_for_response(response: requests.Response) -> AwsCostExplorerError:
 
 
 def make_session(credentials: Credentials) -> requests.Session:
-    frozen_credentials = credentials.get_frozen_credentials()
-    redact = tuple(value for value in (frozen_credentials.secret_key, frozen_credentials.token) if value)
-    return make_tracked_session(retry=TRANSPORT_RETRY, redact_values=redact)
+    return make_tracked_session(retry=TRANSPORT_RETRY, redact_values=aws_redact_values(credentials))
 
 
 @retry(
@@ -338,8 +339,7 @@ def send_operation(
             "X-Amz-Target": f"{CE_TARGET_PREFIX}.{operation}",
         },
     )
-    # Role credentials refresh, so sign each request with one consistent snapshot of them.
-    SigV4Auth(credentials.get_frozen_credentials(), CE_SIGNING_NAME, CE_SIGNING_REGION).add_auth(aws_request)
+    sign_aws_request(aws_request, credentials, CE_SIGNING_NAME, CE_SIGNING_REGION)
 
     response = session.post(
         CE_ENDPOINT_URL,
@@ -372,8 +372,8 @@ VALIDATION_ERROR_MESSAGES: dict[str, str] = {
 TRANSIENT_VALIDATION_ERROR = "AWS Cost Explorer is busy or temporarily unavailable. Wait a moment and try again."
 
 GENERIC_VALIDATION_ERROR = (
-    "AWS didn't accept the Cost Explorer request. Check the access key is active and can read Cost Explorer, "
-    "then try again."
+    "AWS didn't accept the Cost Explorer request. Check that the access key or IAM role can read Cost "
+    "Explorer, then try again."
 )
 
 

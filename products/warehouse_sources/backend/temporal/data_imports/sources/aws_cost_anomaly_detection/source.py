@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_a
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
     AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
     AwsAuthError,
     aws_auth_field,
     resolve_aws_credentials,
@@ -55,6 +56,8 @@ class AwsCostAnomalyDetectionSource(
 
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     api_docs_url = "https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_Operations_AWS_Cost_Explorer_Service.html"
+
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
 
     @property
     def source_type(self) -> ExternalDataSourceType:

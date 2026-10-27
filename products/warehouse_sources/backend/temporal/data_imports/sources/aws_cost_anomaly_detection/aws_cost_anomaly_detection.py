@@ -6,7 +6,6 @@ from collections.abc import Iterator
 from typing import Any, Optional
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from structlog.types import FilteringBoundLogger
@@ -23,6 +22,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_a
     ONGOING_ANOMALY_LOOKBACK_DAYS,
     REQUEST_TIMEOUT_SECONDS,
     AnomalyDetectionEndpointConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
@@ -211,9 +214,7 @@ def error_for_response(response: requests.Response) -> AwsCostAnomalyDetectionEr
 
 
 def make_session(credentials: Credentials) -> requests.Session:
-    frozen_credentials = credentials.get_frozen_credentials()
-    redact = tuple(value for value in (frozen_credentials.secret_key, frozen_credentials.token) if value)
-    return make_tracked_session(retry=TRANSPORT_RETRY, redact_values=redact)
+    return make_tracked_session(retry=TRANSPORT_RETRY, redact_values=aws_redact_values(credentials))
 
 
 @retry(
@@ -239,8 +240,7 @@ def send_operation(
             "X-Amz-Target": f"{CE_TARGET_PREFIX}.{operation}",
         },
     )
-    # Role credentials refresh, so sign each request with one consistent snapshot of them.
-    SigV4Auth(credentials.get_frozen_credentials(), CE_SIGNING_NAME, CE_SIGNING_REGION).add_auth(aws_request)
+    sign_aws_request(aws_request, credentials, CE_SIGNING_NAME, CE_SIGNING_REGION)
 
     response = session.post(
         CE_ENDPOINT_URL,
@@ -374,7 +374,6 @@ def validate_credentials(
     credentials: Credentials,
     schema_name: Optional[str] = None,
 ) -> tuple[bool, Optional[str]]:
-
     session = make_session(credentials)
 
     if schema_name is not None and schema_name in AWS_COST_ANOMALY_DETECTION_ENDPOINTS:

@@ -12,7 +12,6 @@ from xml.etree.ElementTree import Element
 import requests
 import structlog
 import defusedxml.ElementTree as DET
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from structlog.types import FilteringBoundLogger
@@ -35,6 +34,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_budget
     STS_SIGNING_NAME,
     STS_SIGNING_REGION,
     AwsBudgetsEndpointConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     BoundedRetry,
@@ -275,9 +278,7 @@ def error_for_response(response: requests.Response) -> AwsBudgetsError:
 
 
 def make_session(credentials: Credentials) -> requests.Session:
-    frozen_credentials = credentials.get_frozen_credentials()
-    redact = tuple(value for value in (frozen_credentials.secret_key, frozen_credentials.token) if value)
-    return make_tracked_session(retry=TRANSPORT_RETRY, redact_values=redact)
+    return make_tracked_session(retry=TRANSPORT_RETRY, redact_values=aws_redact_values(credentials))
 
 
 @retry(
@@ -303,8 +304,7 @@ def send_operation(
             "X-Amz-Target": f"{BUDGETS_TARGET_PREFIX}.{operation}",
         },
     )
-    # Role credentials refresh, so sign each request with one consistent snapshot of them.
-    SigV4Auth(credentials.get_frozen_credentials(), BUDGETS_SIGNING_NAME, BUDGETS_SIGNING_REGION).add_auth(aws_request)
+    sign_aws_request(aws_request, credentials, BUDGETS_SIGNING_NAME, BUDGETS_SIGNING_REGION)
 
     response = session.post(
         BUDGETS_ENDPOINT_URL,
@@ -349,7 +349,7 @@ def fetch_account_id(session: requests.Session, credentials: Credentials) -> str
         data=body,
         headers={"Content-Type": "application/x-www-form-urlencoded; charset=utf-8"},
     )
-    SigV4Auth(credentials.get_frozen_credentials(), STS_SIGNING_NAME, STS_SIGNING_REGION).add_auth(aws_request)
+    sign_aws_request(aws_request, credentials, STS_SIGNING_NAME, STS_SIGNING_REGION)
 
     response = session.post(
         STS_ENDPOINT_URL,

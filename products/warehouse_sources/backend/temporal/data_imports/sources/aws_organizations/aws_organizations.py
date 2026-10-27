@@ -6,7 +6,6 @@ from collections.abc import Callable, Iterator
 from typing import Any, Optional
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from structlog.types import FilteringBoundLogger
@@ -29,6 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_organi
     SIGNING_REGION,
     TARGET_PREFIXES,
     AwsOrganizationsEndpointConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     make_tracked_session,
@@ -178,10 +181,9 @@ class AwsOrganizationsClient:
     def __init__(self, credentials: Credentials, api_version: Optional[str] = None) -> None:
         self.target_prefix = target_prefix(api_version)
         self._credentials = credentials
-        frozen_credentials = credentials.get_frozen_credentials()
         self._session = make_tracked_session(
             retry=TRANSPORT_RETRY,
-            redact_values=tuple(value for value in (frozen_credentials.secret_key, frozen_credentials.token) if value),
+            redact_values=aws_redact_values(credentials),
         )
 
     def _signed_headers(self, operation: str, body: bytes) -> dict[str, str]:
@@ -194,8 +196,7 @@ class AwsOrganizationsClient:
                 "X-Amz-Target": f"{self.target_prefix}.{operation}",
             },
         )
-        # Role credentials refresh, so sign each request with one consistent snapshot of them.
-        SigV4Auth(self._credentials.get_frozen_credentials(), SIGNING_NAME, SIGNING_REGION).add_auth(request)
+        sign_aws_request(request, self._credentials, SIGNING_NAME, SIGNING_REGION)
         return dict(request.headers)
 
     def send(self, operation: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -860,7 +861,7 @@ def validate_credentials(
         if error.code == "AWSOrganizationsNotInUseException":
             return (
                 False,
-                "This AWS account isn't a member of an organization. Connect a key from an account in an AWS organization.",
+                "This AWS account isn't a member of an organization. Connect credentials from an account in an AWS organization.",
             )
         return False, str(error)
     except Exception:

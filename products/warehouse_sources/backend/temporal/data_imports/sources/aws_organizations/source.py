@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_organi
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
     AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
     AwsAuthError,
     aws_auth_field,
     resolve_aws_credentials,
@@ -61,6 +62,8 @@ class AwsOrganizationsSource(ResumableSource[AwsOrganizationsSourceConfig, AwsOr
     default_version = ORGANIZATIONS_API_VERSION
     api_docs_url = "https://docs.aws.amazon.com/organizations/latest/APIReference/API_Operations.html"
 
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.AWSORGANIZATIONS
@@ -74,7 +77,7 @@ class AwsOrganizationsSource(ResumableSource[AwsOrganizationsSourceConfig, AwsOr
             "AWS Organizations request failed: InvalidSignatureException": "AWS rejected the request signature. If you are using temporary credentials, the session token has expired.",
             "AWS Organizations request failed: ExpiredTokenException": "The AWS session token has expired. Please reconnect with fresh credentials.",
             "AWS Organizations request failed: AccessDeniedException": f"These AWS credentials are missing AWS Organizations read permissions. Grant organizations:DescribeOrganization, organizations:ListAccounts, organizations:ListParents, organizations:ListRoots, organizations:ListOrganizationalUnitsForParent, organizations:ListPolicies, organizations:ListTargetsForPolicy, organizations:ListTagsForResource, organizations:ListDelegatedAdministrators and organizations:ListDelegatedServicesForAccount to the IAM user or role. {_MANAGEMENT_ACCOUNT_HINT}",
-            "AWS Organizations request failed: AWSOrganizationsNotInUseException": "This AWS account isn't a member of an organization. Connect a key from an account in an AWS organization.",
+            "AWS Organizations request failed: AWSOrganizationsNotInUseException": "This AWS account isn't a member of an organization. Connect credentials from an account in an AWS organization.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -158,7 +161,7 @@ class AwsOrganizationsSource(ResumableSource[AwsOrganizationsSourceConfig, AwsOr
 
 Create an IAM user or role with the `organizations:DescribeOrganization`, `organizations:ListAccounts`, `organizations:ListParents`, `organizations:ListRoots`, `organizations:ListOrganizationalUnitsForParent`, `organizations:ListPolicies`, `organizations:ListTargetsForPolicy`, `organizations:ListTagsForResource`, `organizations:ListDelegatedAdministrators` and `organizations:ListDelegatedServicesForAccount` permissions. Connect with the IAM role, or paste an access key ID and secret access key. Add a session token too if you are using temporary credentials.
 
-Use a key from the management account or from a member account that is a delegated administrator. Keys from other member accounts can only read the organization table.
+Connect the management account, or a member account that is a delegated administrator. Other member accounts can only read the organization table.
 
 AWS Organizations is a global service, so there is nothing to pick a region for. This source syncs the accounts, organizational units, and policies in the standard AWS partition.""",
             iconPath="/static/services/aws_organizations.png",

@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_budget
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
     AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
     AwsAuthError,
     aws_auth_field,
     resolve_aws_credentials,
@@ -55,6 +56,8 @@ class AwsBudgetsSource(ResumableSource[AwsBudgetsSourceConfig, AwsBudgetsResumeC
     # The Budgets API carries no version token in its requests: the endpoint has no version path
     # segment and the `X-Amz-Target` prefix is unversioned, so there is nothing to pin.
     api_docs_url = "https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_Operations_AWS_Budgets.html"
+
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
 
     @property
     def source_type(self) -> ExternalDataSourceType:

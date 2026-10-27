@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_a
     S3_NAMESPACE,
     S3_SIGNING_NAME,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import aws_redact_values
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import (
     iter_file_rows,
     normalize_column_name,
@@ -175,8 +176,7 @@ class S3Client:
         aws_region: str,
         bucket: str,
     ) -> None:
-        frozen_credentials = credentials.get_frozen_credentials()
-        redact = tuple(value for value in (frozen_credentials.secret_key, frozen_credentials.token) if value)
+        redact = aws_redact_values(credentials)
         self._session = make_tracked_session(redact_values=redact, allow_redirects=False)
         # Data files run to hundreds of megabytes, so they stay out of the sampled request capture.
         self._download_session = make_tracked_session(redact_values=redact, allow_redirects=False, capture=False)
@@ -198,7 +198,8 @@ class S3Client:
 
     def _signed_headers(self, url: str, extra_headers: Optional[dict[str, str]] = None) -> dict[str, str]:
         aws_request = AWSRequest(method="GET", url=url, headers=dict(extra_headers or {}))
-        # Role credentials refresh, so sign each request with one consistent snapshot of them.
+        # S3 needs its own signer, so this cannot use `sign_aws_request`. Role credentials refresh, so
+        # sign each request with one consistent snapshot of them.
         S3SigV4Auth(self._credentials.get_frozen_credentials(), S3_SIGNING_NAME, self._region).add_auth(aws_request)
         return dict(aws_request.headers.items())
 
@@ -636,7 +637,9 @@ NO_EXPORT_MESSAGE = (
     "AWS can take up to 24 hours to deliver the first export after you create it."
 )
 
-GENERIC_VALIDATION_ERROR = "AWS didn't accept the request. Check the access key can read the bucket, then try again."
+GENERIC_VALIDATION_ERROR = (
+    "AWS didn't accept the request. Check that the access key or IAM role can read the bucket, then try again."
+)
 
 
 def validate_credentials(
