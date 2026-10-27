@@ -5,7 +5,6 @@ from dataclasses import field, replace
 from datetime import UTC, datetime
 from typing import Any
 
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
@@ -21,6 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_step_f
     PAGE_SIZE,
     PROBE_PARENT_LIMIT,
     TARGET_PREFIXES,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
@@ -74,7 +77,6 @@ class AwsStepFunctionsClient:
         self.target_prefix = TARGET_PREFIXES[api_version]
         self._signing_region = config.region
         self._credentials = credentials
-        frozen_credentials = credentials.get_frozen_credentials()
         self.session = make_tracked_session(
             retry=BoundedRetry(
                 total=3,
@@ -83,7 +85,7 @@ class AwsStepFunctionsClient:
                 allowed_methods=frozenset(["POST"]),
                 raise_on_status=False,
             ),
-            redact_values=tuple(value for value in (frozen_credentials.secret_key, frozen_credentials.token) if value),
+            redact_values=aws_redact_values(credentials),
         )
 
     # AWS also reports throttling as HTTP 400, outside the transport's status retries.
@@ -101,8 +103,7 @@ class AwsStepFunctionsClient:
             data=body,
             headers={"Content-Type": CONTENT_TYPE, "X-Amz-Target": f"{self.target_prefix}.{operation}"},
         )
-        # Role credentials refresh, so sign each request with one consistent snapshot of them.
-        SigV4Auth(self._credentials.get_frozen_credentials(), "states", self._signing_region).add_auth(request)
+        sign_aws_request(request, self._credentials, "states", self._signing_region)
         response = self.session.post(
             self.url, data=body, headers=dict(request.headers), timeout=60, allow_redirects=False
         )

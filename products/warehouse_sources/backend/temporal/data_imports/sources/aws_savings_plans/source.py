@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_saving
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
     AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
     AwsAuthError,
     aws_auth_field,
     resolve_aws_credentials,
@@ -61,6 +62,8 @@ class AwsSavingsPlansSource(ResumableSource[AwsSavingsPlansSourceConfig, AwsSavi
     supported_versions = (SAVINGS_PLANS_API_VERSION,)
     default_version = SAVINGS_PLANS_API_VERSION
     api_docs_url = "https://docs.aws.amazon.com/savingsplans/latest/APIReference/Welcome.html"
+
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
 
     @property
     def source_type(self) -> ExternalDataSourceType:

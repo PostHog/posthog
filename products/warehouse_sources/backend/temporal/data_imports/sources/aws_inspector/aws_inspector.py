@@ -5,7 +5,6 @@ from collections.abc import Callable, Iterator
 from typing import Any
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 
@@ -19,6 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_inspec
     INCREMENTAL_FIELDS,
     INSPECTOR_API_VERSION,
     AwsInspectorEndpoint,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
@@ -101,14 +104,9 @@ class AwsInspectorClient:
         self._base_url = f"https://inspector2.{config.region}.{suffix}"
         self._signing_region = config.region
         self._credentials = credentials
-        frozen_credentials = credentials.get_frozen_credentials()
         self._session = make_tracked_session(
             retry=TRANSPORT_RETRY,
-            redact_values=tuple(
-                value
-                for value in (frozen_credentials.access_key, frozen_credentials.secret_key, frozen_credentials.token)
-                if value
-            ),
+            redact_values=aws_redact_values(credentials),
         )
 
     def close(self) -> None:
@@ -118,8 +116,7 @@ class AwsInspectorClient:
         body = json.dumps(payload).encode("utf-8")
         url = self._base_url + endpoint.path
         request = AWSRequest(method="POST", url=url, data=body, headers={"Content-Type": "application/json"})
-        # Role credentials refresh, so sign each request with one consistent snapshot of them.
-        SigV4Auth(self._credentials.get_frozen_credentials(), "inspector2", self._signing_region).add_auth(request)
+        sign_aws_request(request, self._credentials, "inspector2", self._signing_region)
         response = self._session.post(url, data=body, headers=dict(request.headers), timeout=60, allow_redirects=False)
         if response.status_code != 200:
             raise error_for_response(response)

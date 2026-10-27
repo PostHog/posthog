@@ -6,7 +6,6 @@ from typing import Any
 from urllib.parse import urlencode
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from botocore.serialize import create_serializer
@@ -22,6 +21,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_guardd
     MAX_RESULTS,
     USAGE_FEATURES,
     USAGE_STATISTIC_TYPES,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
@@ -104,14 +107,9 @@ class AwsGuarddutyClient:
         self._model = get_session().get_service_model("guardduty", api_version=api_version)
         self._serializer = create_serializer(self._model.metadata["protocol"])
         self._credentials = credentials
-        frozen_credentials = credentials.get_frozen_credentials()
         self._session = make_tracked_session(
             retry=TRANSPORT_RETRY,
-            redact_values=tuple(
-                value
-                for value in (frozen_credentials.access_key, frozen_credentials.secret_key, frozen_credentials.token)
-                if value
-            ),
+            redact_values=aws_redact_values(credentials),
         )
 
     def close(self) -> None:
@@ -131,8 +129,7 @@ class AwsGuarddutyClient:
         request = AWSRequest(
             method=serialized["method"], url=url, data=serialized["body"], headers=serialized["headers"]
         )
-        # Role credentials refresh, so sign each request with one consistent snapshot of them.
-        SigV4Auth(self._credentials.get_frozen_credentials(), "guardduty", self.region).add_auth(request)
+        sign_aws_request(request, self._credentials, "guardduty", self.region)
         response = self._session.request(
             serialized["method"],
             url,

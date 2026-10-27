@@ -7,7 +7,6 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 
@@ -20,6 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_iam_ac
     ERROR_MESSAGES,
     PAGE_SIZE,
     TIMESTAMP_COLUMNS,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
@@ -59,7 +62,6 @@ class AwsIamAccessAnalyzerClient:
         suffix = "amazonaws.com.cn" if self.region.startswith("cn-") else "amazonaws.com"
         self.url = f"https://access-analyzer.{self.region}.{suffix}"
         self._credentials = credentials
-        frozen_credentials = credentials.get_frozen_credentials()
         self.session = make_tracked_session(
             retry=BoundedRetry(
                 total=3,
@@ -68,11 +70,7 @@ class AwsIamAccessAnalyzerClient:
                 allowed_methods=frozenset({"GET", "POST"}),
                 raise_on_status=False,
             ),
-            redact_values=tuple(
-                value
-                for value in (frozen_credentials.access_key, frozen_credentials.secret_key, frozen_credentials.token)
-                if value
-            ),
+            redact_values=aws_redact_values(credentials),
         )
 
     def close(self) -> None:
@@ -110,8 +108,7 @@ class AwsIamAccessAnalyzerClient:
         else:
             body = json.dumps(payload).encode("utf-8")
         request = AWSRequest(method=definition.method, url=url, data=body, headers={"Content-Type": "application/json"})
-        # Role credentials refresh, so sign each request with one consistent snapshot of them.
-        SigV4Auth(self._credentials.get_frozen_credentials(), "access-analyzer", self.region).add_auth(request)
+        sign_aws_request(request, self._credentials, "access-analyzer", self.region)
         response = self.session.request(
             definition.method,
             url,

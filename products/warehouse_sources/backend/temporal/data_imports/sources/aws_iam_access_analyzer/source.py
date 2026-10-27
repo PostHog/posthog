@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_iam_ac
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
     AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
     AwsAuthError,
     aws_auth_field,
     resolve_aws_credentials,
@@ -61,6 +62,8 @@ class AwsIamAccessAnalyzerSource(ResumableSource[AwsIamAccessAnalyzerSourceConfi
     supported_versions = (API_VERSION,)
     default_version = API_VERSION
     api_docs_url = API_DOCS_URL
+
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
 
     @property
     def source_type(self) -> ExternalDataSourceType:

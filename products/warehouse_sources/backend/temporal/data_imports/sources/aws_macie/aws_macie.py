@@ -6,7 +6,6 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from botocore.loaders import Loader
@@ -21,6 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_macie.
     MACIE_API_VERSION,
     MACIE_ENDPOINTS,
     USAGE_TIME_RANGE,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
@@ -65,7 +68,6 @@ class AwsMacieClient:
         self._model = ServiceModel(Loader().load_service_model("macie2", "service-2", api_version=version))
         self._serializer = create_serializer(self._model.protocol)
         self._credentials = credentials
-        frozen_credentials = credentials.get_frozen_credentials()
         self._session = make_tracked_session(
             retry=BoundedRetry(
                 total=3,
@@ -74,11 +76,7 @@ class AwsMacieClient:
                 allowed_methods=frozenset({"GET", "POST"}),
                 raise_on_status=False,
             ),
-            redact_values=tuple(
-                value
-                for value in (frozen_credentials.access_key, frozen_credentials.secret_key, frozen_credentials.token)
-                if value
-            ),
+            redact_values=aws_redact_values(credentials),
         )
 
     def close(self) -> None:
@@ -92,8 +90,7 @@ class AwsMacieClient:
         request = AWSRequest(
             method=serialized["method"], url=url, data=serialized["body"], headers=serialized["headers"]
         )
-        # Role credentials refresh, so sign each request with one consistent snapshot of them.
-        SigV4Auth(self._credentials.get_frozen_credentials(), "macie2", self.region).add_auth(request)
+        sign_aws_request(request, self._credentials, "macie2", self.region)
         response = self._session.request(
             serialized["method"],
             url,

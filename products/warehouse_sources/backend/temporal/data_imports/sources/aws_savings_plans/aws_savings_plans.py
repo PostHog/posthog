@@ -7,7 +7,6 @@ from decimal import Decimal
 from typing import Any
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
@@ -25,6 +24,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_saving
     SAVINGS_PLANS_API_VERSION,
     SIGNING_REGION,
     SavingsPlansEndpoint,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
@@ -70,14 +73,9 @@ class AwsSavingsPlansClient:
         if api_version != SAVINGS_PLANS_API_VERSION:
             raise ValueError(f"Unsupported AWS Savings Plans API version: {api_version}")
         self.credentials = credentials
-        frozen_credentials = credentials.get_frozen_credentials()
         self.session = make_tracked_session(
             retry=TRANSPORT_RETRY,
-            redact_values=tuple(
-                value
-                for value in (frozen_credentials.access_key, frozen_credentials.secret_key, frozen_credentials.token)
-                if value
-            ),
+            redact_values=aws_redact_values(credentials),
         )
 
     @retry(
@@ -99,8 +97,7 @@ class AwsSavingsPlansClient:
             }
         body = json.dumps(payload).encode()
         request = AWSRequest(method="POST", url=url, data=body, headers=headers)
-        # Role credentials refresh, so sign each request with one consistent snapshot of them.
-        SigV4Auth(self.credentials.get_frozen_credentials(), endpoint.service, SIGNING_REGION).add_auth(request)
+        sign_aws_request(request, self.credentials, endpoint.service, SIGNING_REGION)
         response = self.session.post(url, data=body, headers=dict(request.headers), timeout=60)
         if response.status_code >= 400:
             try:

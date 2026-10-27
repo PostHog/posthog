@@ -6,7 +6,6 @@ from dataclasses import replace
 from typing import Any
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from botocore.session import Session
@@ -19,6 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_batch.
     BATCH_API_VERSION,
     NON_RETRYABLE_ERRORS,
     PAGE_SIZE,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
@@ -107,14 +110,9 @@ class AwsBatchClient:
         self.model = Session().get_service_model("batch", api_version=api_version)
         self.region = config.region
         self._credentials = credentials
-        frozen_credentials = credentials.get_frozen_credentials()
         self.session = make_tracked_session(
             retry=TRANSPORT_RETRY,
-            redact_values=tuple(
-                value
-                for value in (frozen_credentials.access_key, frozen_credentials.secret_key, frozen_credentials.token)
-                if value
-            ),
+            redact_values=aws_redact_values(credentials),
         )
 
     @retry(
@@ -127,8 +125,7 @@ class AwsBatchClient:
         url = self.url + self.model.operation_model(operation).http["requestUri"]
         body = json.dumps(payload).encode("utf-8")
         request = AWSRequest(method="POST", url=url, data=body, headers={"Content-Type": "application/json"})
-        # Role credentials refresh, so sign each request with one consistent snapshot of them.
-        SigV4Auth(self._credentials.get_frozen_credentials(), "batch", self.region).add_auth(request)
+        sign_aws_request(request, self._credentials, "batch", self.region)
         response = self.session.post(url, data=body, headers=dict(request.headers), timeout=60)
         if response.status_code >= 400:
             raise error_for_response(response)

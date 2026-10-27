@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_glue_d
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
     AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
     AwsAuthError,
     aws_auth_field,
     resolve_aws_credentials,
@@ -58,6 +59,8 @@ class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, A
     supported_versions = (GLUE_API_VERSION,)
     default_version = GLUE_API_VERSION
     api_docs_url = "https://docs.aws.amazon.com/glue/latest/webapi/API_Operations.html"
+
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
 
     @property
     def source_type(self) -> ExternalDataSourceType:

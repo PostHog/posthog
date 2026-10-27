@@ -368,7 +368,7 @@ def test_tracked_transport_redacts_secrets_and_disables_nested_retries(schema: s
     with scripted_network([ScriptedResponse(json={"WebACLs": []})]) as network:
         assert validate_credentials(config(), CREDENTIALS, schema) == (True, None)
     assert network.session_options[0]["retry"].total == 0
-    assert set(network.session_options[0]["redact_values"]) == {"example-secret", "example-token"}
+    assert set(network.session_options[0]["redact_values"]) == {"AKIAEXAMPLE", "example-secret", "example-token"}
     assert network.session_options[0]["capture"] is capture
 
 

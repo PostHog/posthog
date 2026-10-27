@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from botocore.serialize import create_serializer
@@ -25,6 +24,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_securi
     SUBSCRIPTION_MESSAGE,
     UNMODELED_OPERATION_PATHS,
     SecurityHubEndpoint,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import BoundedRetry
@@ -89,14 +92,9 @@ class AwsSecurityHubClient:
         self.serializer = create_serializer(self.model.metadata["protocol"])
         self._signing_region = config.region
         self._credentials = credentials
-        frozen_credentials = credentials.get_frozen_credentials()
         self.session = make_tracked_session(
             retry=TRANSPORT_RETRY,
-            redact_values=tuple(
-                value
-                for value in (frozen_credentials.access_key, frozen_credentials.secret_key, frozen_credentials.token)
-                if value
-            ),
+            redact_values=aws_redact_values(credentials),
         )
 
     def serialize(self, operation: str, payload: dict[str, Any]) -> dict[str, Any]:
@@ -117,8 +115,7 @@ class AwsSecurityHubClient:
             url += "?" + urlencode(serialized["query_string"], doseq=True)
         body = serialized["body"]
         request = AWSRequest(method=serialized["method"], url=url, data=body, headers=serialized["headers"])
-        # Role credentials refresh, so sign each request with one consistent snapshot of them.
-        SigV4Auth(self._credentials.get_frozen_credentials(), "securityhub", self._signing_region).add_auth(request)
+        sign_aws_request(request, self._credentials, "securityhub", self._signing_region)
         response = self.session.request(
             serialized["method"], url, data=body, headers=dict(request.headers), timeout=60, allow_redirects=False
         )

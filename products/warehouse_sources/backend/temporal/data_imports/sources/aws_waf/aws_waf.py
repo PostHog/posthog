@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import requests
-from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials
 from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
@@ -39,6 +38,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_waf.se
     WAFV2_SERVICE,
     WEB_ACL_RESOURCES,
     AwsService,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    aws_redact_values,
+    sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
@@ -138,12 +141,11 @@ class AwsWafClient:
         self.service = service
         self.url = f"https://{service.signing_name}.{self.region}.{suffix}/"
         self._credentials = credentials
-        frozen_credentials = credentials.get_frozen_credentials()
         # WAF can throttle with HTTP 400, so one retry layer handles both HTTP statuses and AWS error codes.
         self.session = make_tracked_session(
             retry=Retry(total=0),
             capture=capture,
-            redact_values=tuple(value for value in (frozen_credentials.secret_key, frozen_credentials.token) if value),
+            redact_values=aws_redact_values(credentials),
         )
 
     def close(self) -> None:
@@ -166,8 +168,7 @@ class AwsWafClient:
                 "X-Amz-Target": f"{self.service.target_prefix}.{operation}",
             },
         )
-        # Role credentials refresh, so sign each request with one consistent snapshot of them.
-        SigV4Auth(self._credentials.get_frozen_credentials(), self.service.signing_name, self.region).add_auth(request)
+        sign_aws_request(request, self._credentials, self.service.signing_name, self.region)
         response = self.session.post(
             self.url, data=body, headers=dict(request.headers), timeout=60, allow_redirects=False
         )
