@@ -20,6 +20,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.api.tagged_item import set_tags_on_object
+from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.llm.system_one import NoulAnswer, SystemOneResult
 from posthog.models import Organization, PersonalAPIKey, Team, User
@@ -31,6 +32,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value,
 from posthog.redis import get_client
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.experiments.backend.models.experiment import Experiment
 from products.replay_vision.backend.api.scanners import (
     WATCH_FEED_CANDIDATE_CAP,
@@ -4110,6 +4112,34 @@ class TestSearchSuggestionsAction(_VisionAPITestCase):
 
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json(), {"queries": expected})
+
+    @parameterized.expand(
+        [
+            (
+                "cross_scanner_drops_the_unreadable_scanner",
+                "",
+                200,
+                ["coupon rejected", "card declined", "address form loops"],
+            ),
+            ("unreadable_scanner_is_not_found", "signup", 404, None),
+        ]
+    )
+    def test_suggestions_never_name_a_scanner_the_viewer_cannot_read(
+        self, _name: str, scanner: str, status: int, expected: list[str] | None
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="replay_scanner", resource_id=str(self.signup.id), access_level="none"
+        )
+
+        resp = self.client.get(f"{self.url}?scanner_id={self.signup.id}" if scanner else self.url)
+
+        self.assertEqual(resp.status_code, status)
+        if expected is not None:
+            self.assertEqual(resp.json(), {"queries": expected})
 
     @parameterized.expand([("ai_processing_on", True), ("ai_processing_off", False)])
     @patch("products.replay_vision.backend.api.observations.warm_query_vectors")
