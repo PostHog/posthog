@@ -1024,11 +1024,36 @@ def _resolve_installation_repository_names(
     return sorted(resolved)
 
 
+def _scoped_token_cache_key(github_integration: GitHubIntegrationBase, names: Sequence[str]) -> str:
+    return f"task-sandbox-github-token:{github_integration.github_installation_id}:{','.join(names)}"
+
+
+def forget_cached_github_tokens(github_integration: GitHubIntegrationBase, repositories: Sequence[str]) -> None:
+    names = _installation_repository_names(github_integration, _private_repositories(repositories))
+    get_tasks_cache().delete(_scoped_token_cache_key(github_integration, names))
+
+
+def installation_confirms_repository_denied(github_integration: GitHubIntegrationBase, repository: str) -> bool:
+    try:
+        response = github_integration.api_request("GET", f"/repos/{repository}", endpoint="/repos/{owner}/{repo}")
+    except Exception:
+        logger.warning("Could not verify GitHub installation access to %s", repository, exc_info=True)
+        return False
+    return response.status_code in (403, 404)
+
+
+def resolve_installation_github_integration(github_integration_id: int) -> GitHubIntegration | None:
+    integration = Integration.objects.filter(id=github_integration_id, kind="github").first()
+    if integration is None:
+        return None
+    return GitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL)
+
+
 def _mint_repository_scoped_token(github_integration: GitHubIntegrationBase, repositories: Sequence[str]) -> str | None:
     names = _installation_repository_names(github_integration, repositories)
     if not names:
         return None
-    cache_key = f"task-sandbox-github-token:{github_integration.github_installation_id}:{','.join(names)}"
+    cache_key = _scoped_token_cache_key(github_integration, names)
     cache = get_tasks_cache()
     cached = cache.get(cache_key)
     if isinstance(cached, str):
