@@ -37,7 +37,11 @@ export function HogFlowEventEntriesFilters({
                             typeKey={entryTypeKey}
                             filters={entry.filters ?? {}}
                             setFilters={(filters) =>
-                                onChange(shownEntries.map((shown, i) => (i === index ? { ...shown, filters } : shown)))
+                                onChange(
+                                    shownEntries.map((shown, i) =>
+                                        i === index ? { ...shown, filters: { ...shown.filters, ...filters } } : shown
+                                    )
+                                )
                             }
                         />
                     </Fragment>

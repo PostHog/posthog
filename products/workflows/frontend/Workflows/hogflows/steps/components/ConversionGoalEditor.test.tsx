@@ -22,13 +22,11 @@ const downloadedFileEntry = {
             { id: 'downloaded_file', name: 'downloaded_file', type: 'events', order: 0 },
             { id: 'opened_invite', name: 'opened_invite', type: 'events', order: 1 },
         ],
+        properties: [{ key: 'plan', value: 'pro', operator: 'exact', type: 'person' }],
     },
 }
 const signedUpEntry = {
-    filters: {
-        events: [{ id: 'signed_up', name: 'signed_up', type: 'events', order: 0 }],
-        properties: [{ key: 'plan', value: 'pro', operator: 'exact', type: 'person' }],
-    },
+    filters: { events: [{ id: 'signed_up', name: 'signed_up', type: 'events', order: 0 }] },
 }
 
 describe('ConversionGoalEditor', () => {
@@ -55,7 +53,7 @@ describe('ConversionGoalEditor', () => {
         cleanup()
     })
 
-    it('shows every stored event entry and keeps the others when one is edited', async () => {
+    it('shows every stored event entry and keeps the rest of the goal when one entry is edited', async () => {
         const onChange = jest.fn()
         const conversion: ConversionGoalValue = { filters: [], events: [downloadedFileEntry, signedUpEntry] }
         render(
@@ -70,7 +68,12 @@ describe('ConversionGoalEditor', () => {
         expect(onChange).toHaveBeenLastCalledWith(
             expect.objectContaining({
                 events: [
-                    { filters: expect.objectContaining({ events: [downloadedFileEntry.filters.events[0]] }) },
+                    {
+                        filters: expect.objectContaining({
+                            events: [downloadedFileEntry.filters.events[0]],
+                            properties: downloadedFileEntry.filters.properties,
+                        }),
+                    },
                     signedUpEntry,
                 ],
             })
