@@ -24,7 +24,8 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.integrations import IntegrationNotFound
-from posthog.models import OrganizationMembership, Team
+from posthog.models import OrganizationMembership, Team, User
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.project import Project
@@ -3472,7 +3473,11 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_delete_external_data_source(self):
         source = self._create_external_data_source()
+        other_source = self._create_external_data_source()
         schema = self._create_external_data_schema(source.pk)
+        other_user = User.objects.create_user(email="other@example.com", first_name="Sam", password="test")
+        for user, ref in [(self.user, source.pk), (other_user, source.pk), (self.user, other_source.pk)]:
+            FileSystemShortcut.objects.create(team=self.team, user=user, path="Stripe", type="data_source", ref=ref)
 
         response = self.client.delete(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
 
@@ -3480,6 +3485,9 @@ class TestExternalDataSource(APIBaseTest):
 
         assert ExternalDataSource.objects.filter(pk=source.pk, deleted=True).exists()
         assert ExternalDataSchema.objects.filter(pk=schema.pk, deleted=True).exists()
+        assert list(
+            FileSystemShortcut.objects.filter(team=self.team, type="data_source").values_list("ref", flat=True)
+        ) == [str(other_source.pk)]
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.base.delete_discover_schemas_schedule"
