@@ -166,7 +166,6 @@ from products.dashboards.backend.models.dashboard import (
     DASHBOARD_GRID_SPACING_GAPS,
     DASHBOARD_TILE_GROUP_DISPLAY_MODES,
     Dashboard,
-    TileGroupDisplay,
 )
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, DashboardTileBadge, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
@@ -259,10 +258,6 @@ class _GroupDictField(serializers.DictField):
 def _effective_layout_compaction(customization: Any) -> str:
     layout_compaction = normalize_dashboard_customization(customization).get("layout_compaction")
     return layout_compaction if layout_compaction in DASHBOARD_GRID_COMPACTION_MODES else "vertical"
-
-
-def _effective_group_display(customization: Any) -> str:
-    return stored_customization(customization).get("group_display", TileGroupDisplay.SECTIONS)
 
 
 logger = structlog.get_logger(__name__)
@@ -2168,7 +2163,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
     def update(self, instance: Dashboard, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
         previous_layout_compaction = _effective_layout_compaction(instance.customization)
-        previous_group_display = _effective_group_display(instance.customization)
+        previous_group_display = instance.group_display
         self._check_delivered_dashboard_filters_access(
             cast(User, self.context["request"].user), instance, self.initial_data
         )
@@ -2246,6 +2241,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
         # so a later tile failing validation must roll that back too, or a retry with the
         # original text_id can no longer find the tile.
         tile_results: list[tuple[DashboardTile | None, bool]] = []
+        tracks_groups = any("group_key" in tile_data for tile_data in tiles)
+        group_keys_before = instance.tile_group_keys if tracks_groups else set()
         with transaction.atomic():
             tile_ids = [tile["id"] for tile in tiles if tile.get("id") is not None]
             list(
@@ -2271,6 +2268,21 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     widget_type=widget_type,
                     request=self.context["request"],
                     tile=tile,
+                )
+
+        if tracks_groups and "request" in self.context:
+            group_keys_after = instance.tile_group_keys
+            for _ in group_keys_after - group_keys_before:
+                report_user_action(
+                    user,
+                    "dashboard tile group created",
+                    {
+                        "dashboard_id": instance.id,
+                        "group_display": instance.group_display,
+                        "group_count": len(group_keys_after),
+                    },
+                    team=instance.team,
+                    request=self.context["request"],
                 )
 
         duplicate_tiles = initial_data.pop("duplicate_tiles", [])

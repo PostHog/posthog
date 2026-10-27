@@ -4,9 +4,9 @@ description: >
   Reviews PostHog's warehouse suggestions with a person and acts on them.
   Explains why a view should be materialized, unmaterialized, certified or deprecated using the numbers in the suggestion,
   changes a materialize suggestion's refresh mode, keys or interval when the person wants something else,
-  then accepts or dismisses it.
+  then accepts, dismisses or assigns it.
   Use when the user asks what PostHog suggests for their data warehouse, whether to materialize a view,
-  why a view should refresh incrementally or every few hours, or wants to accept, change or dismiss a warehouse suggestion.
+  why a view should refresh incrementally or every few hours, or wants to accept, change, dismiss or assign a warehouse suggestion.
 ---
 
 # Reviewing warehouse suggestions
@@ -73,3 +73,15 @@ The server checks every choice against the view's current query:
 
 Dismiss with `warehouse-suggestions-dismiss` and a reason (`not_useful`, `not_now` or `other`).
 `warehouse-suggestions-resume` brings a dismissed suggestion back.
+
+## 5. Hand it to someone else
+
+A suggestion's `assignee` is the person who should decide it.
+When a view's suggestion is first shown, PostHog assigns it to the person who created the view, if they can accept it.
+To see one person's suggestions, pass `assignee_id` to `warehouse-suggestions-list`.
+
+When the user is not the right person to decide, assign it with `warehouse-suggestions-assign`.
+The user needs edit access to the view or table, the same as for dismissing it (`can_act`).
+The assignee gets a notification.
+They need edit access to the view or table, and to the data catalog for certify and deprecate suggestions.
+A 400 means they do not have it. Tell the user and ask who else should get it.
