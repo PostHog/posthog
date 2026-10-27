@@ -106,20 +106,20 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
             if input.error_message:
                 task_run.error_message = input.error_message
             marker = TIMED_OUT_INACTIVITY_STATE_KEY if input.timed_out_inactivity else input.timeout_marker
-            if marker in _TERMINAL_STATE_MARKERS:
+            terminal_marker = marker if marker in _TERMINAL_STATE_MARKERS else None
+            failure_error_type = input.error_type if input.status == TaskRun.Status.FAILED else None
+            if terminal_marker or failure_error_type:
+
+                def _record_terminal_state(state: dict[str, Any]) -> None:
+                    if terminal_marker:
+                        state[terminal_marker] = True
+                    # Custom prompt sessions read the failure class from state when they see FAILED.
+                    # A cause the agent relay recorded earlier is more specific, so it wins.
+                    if failure_error_type:
+                        state.setdefault("failure_error_type", failure_error_type)
+
                 # Atomic merge so concurrent state writers aren't clobbered; reassigned so reads below see it.
-                task_run.state = TaskRun.update_state_atomic(task_run.id, updates={marker: True})
-            # Callers that poll the run (custom prompt sessions) read the failure class from state,
-            # so it lands in the same transaction as the FAILED status. An earlier, more specific
-            # cause recorded by the agent relay wins.
-            if (
-                input.status == TaskRun.Status.FAILED
-                and input.error_type
-                and not (task_run.state or {}).get("failure_error_type")
-            ):
-                task_run.state = TaskRun.update_state_atomic(
-                    task_run.id, updates={"failure_error_type": input.error_type}
-                )
+                task_run.state = TaskRun.mutate_state_atomic(task_run.id, _record_terminal_state)
             if not task_run.completed_at and (
                 input.status in [TaskRun.Status.COMPLETED, TaskRun.Status.FAILED]
                 or (input.status == TaskRun.Status.CANCELLED and task_run.environment == TaskRun.Environment.CLOUD)

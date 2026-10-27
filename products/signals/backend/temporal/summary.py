@@ -26,6 +26,7 @@ from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_SIGNALS_REPORT_COMPLETED
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.errors import find_temporal_timeout_error, resolve_exception_class
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
@@ -92,13 +93,11 @@ EMPTY_FETCH_RETRY_INTERVAL = timedelta(seconds=10)
 
 
 def _failure_error_type(error: BaseException) -> str:
-    """The class of the exception that failed the run, unwrapped from Temporal's activity wrapper."""
-    cause = error.cause if isinstance(error, temporalio.exceptions.ActivityError) and error.cause else error
-    if isinstance(cause, temporalio.exceptions.TimeoutError) and cause.type is not None:
-        return cause.type.name.lower()
-    if isinstance(cause, temporalio.exceptions.ApplicationError) and cause.type:
-        return cause.type
-    return type(cause).__name__
+    """The class of the exception that failed the run, unwrapped from Temporal's failure wrappers."""
+    timeout = find_temporal_timeout_error(error)
+    if timeout is not None and timeout.type is not None:
+        return timeout.type.name.lower()
+    return resolve_exception_class(error)
 
 
 def _capture_report_event(
