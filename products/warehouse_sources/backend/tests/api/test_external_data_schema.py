@@ -2673,7 +2673,7 @@ class TestExternalDataSchema(APIBaseTest):
                 "no_webhook_support_already_webhook",
                 "BalanceTransaction",
                 ExternalDataSchema.SyncType.WEBHOOK,
-                400,
+                200,
                 ExternalDataSchema.SyncType.WEBHOOK,
             ),
             (

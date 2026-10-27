@@ -1140,7 +1140,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 )
 
         # A webhook-mode table that no webhook event feeds never receives a row (e.g. Stripe
-        # BalanceTransaction), so no request may save webhook for such a table.
+        # BalanceTransaction), so a request must not move a table into that state.
         if self._webhook_support_check_applies() and not self._supports_webhooks_cached(instance):
             raise ValidationError(f"{instance.name} doesn't support webhook sync. Pick another sync method.")
 
@@ -1820,8 +1820,14 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         return self.__dict__["_webhook_only_result"]
 
     def _webhook_support_check_applies(self) -> bool:
+        # The frontend re-sends the current sync_type on every save. Checking only a change keeps an
+        # unrelated edit (e.g. pausing the table) working when the lookup fails on expired credentials.
         data = self.initial_data if isinstance(self.initial_data, dict) else {}
-        return data.get("sync_type") == ExternalDataSchema.SyncType.WEBHOOK
+        return (
+            data.get("sync_type") == ExternalDataSchema.SyncType.WEBHOOK
+            and self.instance is not None
+            and self.instance.sync_type != ExternalDataSchema.SyncType.WEBHOOK
+        )
 
     def _supports_webhooks_cached(self, schema: ExternalDataSchema) -> bool:
         if "_supports_webhooks_result" not in self.__dict__:
