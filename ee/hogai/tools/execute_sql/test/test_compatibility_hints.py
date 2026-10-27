@@ -120,8 +120,8 @@ class TestBuildCompatibilityHint:
             ),
             (
                 "illegal_parenthesized_argument_types",
-                "Code: 43. DB::Exception: Illegal types of arguments (Date, UInt16) of function greater. (ILLEGAL_TYPE_OF_ARGUMENT)",
-                "`greater` does not accept Date, UInt16",
+                "Code: 43. DB::Exception: Illegal types of arguments (`Date`, `UInt8`) of function `greater`: In scope SELECT greater(toDate('2025-01-01'), 1). (ILLEGAL_TYPE_OF_ARGUMENT)",
+                "`greater` does not accept `Date`, `UInt8`",
             ),
             (
                 "hogql_nested_aggregate",

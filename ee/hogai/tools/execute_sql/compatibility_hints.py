@@ -62,7 +62,7 @@ _ILLEGAL_ARGUMENT_TYPE_RES = (
         r"Illegal types? (.{1,120}?) of (?:(?:\w+ )?arguments?|argument #\d+(?: '[^']{0,60}')?) of function (\w+)"
     ),
     re.compile(r"Illegal types? (.{1,120}?) of arguments? for aggregate function (\w+)(?=[.,]|\s*\(|\s*$)"),
-    re.compile(r"Illegal types? of arguments? \((.{1,120}?)\) of function (\w+)"),
+    re.compile(r"Illegal types? of arguments? \((.{1,120}?)\) of function `?(\w+)"),
 )
 # A comparison or IN between a string property and a number fails before any function is named.
 _NO_COMMON_TYPE_RE = re.compile(r"There is no supertype for types (.{1,120}?) because")
