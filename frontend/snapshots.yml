@@ -7749,13 +7749,13 @@ snapshots:
     products-posthog-ai-composer-attachments--lemon--light:
         hash: v1.k794b7964.1d2adba5593828c8838d35e1811940a6f3529c91020c46e92978103688d0fd8c.cthngWtOTgI5mmT9F3hyxhicq7LkdNNJ8NQYL1HwxZQ
     products-posthog-ai-composer-attachments--quill--dark:
-        hash: v1.k794b7964.f7933833966e9921c9c0443a3494d150a88e515313c5e05986d229fffd831526.-DOjbZ2MXjRwpDvUymJ72Q6zNfklIlDHKgG1EmUn4zw
+        hash: v1.k794b7964.066f8291435305e74a9b28c07852f0d0f88bdb4ddac3a8bcca02ccdfe056e090.wJjlUhy64Jk-JhjAL1WqiwBvNjPnrjjX-fAuiZ2Pixk
     products-posthog-ai-composer-attachments--quill--light:
-        hash: v1.k794b7964.44f586d06c7fab59397fa885fb2d3eed4751cdfd727a31f0b3e636b4bb80221f.emqmU9Nq_K7EWd4f9S2IwaF7JagmIcspR-xRD4cfdh4
+        hash: v1.k794b7964.a0b566e40229416e21f90334d5e84cb49f433487312b6acf76b390ff919144aa.rvChrec8GLkcNpOn-zPI9_XfYcf_6QFD7WT5ElhhI5k
     products-posthog-ai-composer-attachments--quill-uploading--dark:
-        hash: v1.k794b7964.818e1c65e154df0fc7c9047a272673042652abcb6da582f71281384a98a7fef1.g5HFsUYyea4uhb34bF_eO7B2gkzmjVuGcfGQsavOJFs
+        hash: v1.k794b7964.f9fd46817bbabd22bfb097d65c5c5685d5d677b31e59cf6d3189857e271c9082.wG7Sw6cbRi_eGOt8Zw9Q3EqYUqTY4-TpG-sA3dF4vL4
     products-posthog-ai-composer-attachments--quill-uploading--light:
-        hash: v1.k794b7964.c9b5d1ebd11cf587e8b42ee26dd434ad0ae9f3aecf47f3ae19b818a63bcea434._8bZl3Y_TmEabVHLNmrma2UBMJStei3X602PUWAGOcQ
+        hash: v1.k794b7964.1cea91e91bd53659ab17967cbb1b9272e9539d2b6cdecd2b234be61bf57356a2.Twh1LvaOZBO4i0cQFi-389k2Lm1PLV2xC2smKs8kW2o
     products-posthog-ai-composer-attachments--uploading--dark:
         hash: v1.k794b7964.4e9db9440e89179e0e2beef09960ed4aebb6df45e21d260a2fb5e3e4d65f24a7.qk-lZAm4aDArd_6rfDDj9-gAShGOC6SwGbjLGqDgKxU
     products-posthog-ai-composer-attachments--uploading--light:
@@ -14453,9 +14453,9 @@ snapshots:
     scenes-app-posthog-ai-forms--thread-with-text-and-number-form--light:
         hash: v1.k794b7964.10721901188497f184bda24ccfd799dd03cbcccccb1fdabbd86d0fb293375b38.OPA1aN19eYGYgdieSvoRpgYStJ7fpWXezR_IxCi4QA4
     scenes-app-posthog-ai-quill-comparison--side-by-side--dark:
-        hash: v1.k794b7964.285adf0ae8b771153c6b737edb7b96ccfa022d029d6ee14fbfcce958f258a4a0.Ef69aUVCi8HIwRkcDv3AYumZ5zMiRVCLMYEqh_wXdqk
+        hash: v1.k794b7964.57b952a719ed739c7af6ca36ace26e4b478178fa439cd206b111b9382864b2ae.LPAgqTeySKR77G4_xZd5ATEXJq61uIQRLgq24eprubw
     scenes-app-posthog-ai-quill-comparison--side-by-side--light:
-        hash: v1.k794b7964.e737cb1b7f07e629b193eb2b6a14a6555e5f2821d5a21c123cc5574f7266afe6.waj5w9YazP7PM-zFZNUbjS-45fxXf_BnCN7yWBBULOs
+        hash: v1.k794b7964.83eb8c95a27b1ecf650839174f16029b867d64ed2400884f57c73516fceeeb95.gEDivGbOPazQNKHi3kot51UHkLPZJE3ztEODWLGx0-0
     scenes-app-posthog-ai-tools--changelog-only--dark:
         hash: v1.k794b7964.f17aec31dd25e93672f7d76b065a6b49052c643eb6da67458011462b883f1c9c.sYkAo1RWtXpQRQNxl5SzUkO4ELuuEshq9Kdbc0H1L0E
     scenes-app-posthog-ai-tools--changelog-only--light:
@@ -15661,9 +15661,9 @@ snapshots:
     scenes-app-tasks--new-task--light:
         hash: v1.k794b7964.4878ecb02a3e4f225f4808ad225eef07da1a6f37ea3f79524b561423e8313a8f.ec5sWkVIJKu1oD3fEBhHyEe6KQOw90giOIhcV9pXtoA
     scenes-app-tasks--new-task-quill--dark:
-        hash: v1.k794b7964.91de785f210693723fc4647cbfb9496243d4f263c996beeede0bd2af7462b3fa.XIo6AcsdaSZJg1jrJCgCny2RmRnZuNO_T_ti_SURmO4
+        hash: v1.k794b7964.ec654f3cce47f0d9ff3cd59e1630d703dbb5ee58547b790270b2614bb4c853bd.DmLwPPTobbFLGToaxCqLENCxWVrqiNeno7HtB1piuxE
     scenes-app-tasks--new-task-quill--light:
-        hash: v1.k794b7964.a611c1c4274d6e77267132be0e37b040f5b000384ee37c43e72a7bcffa0c13f8.JRxPDTOK1XNT2AfNBf5c69cMHqLwDQgfFI8hZlehs6I
+        hash: v1.k794b7964.df9e475408921a2de2747e3efdc481d6b4e94fe5b278ddd3faa2333cb7878b20.h2CAW83CPnPEd5zwlJUuouROFEPO-YSJgmVVMZVLKyk
     scenes-app-tasks--new-task-with-repository--dark:
         hash: v1.k794b7964.9485fdbc62bef9f6e1839ddf2414da2ca3754073164345299c5235f293b31c79.Kwi8dTvbYDJgJwc1hacDZjgXsQfmjx35956FidasXgU
     scenes-app-tasks--new-task-with-repository--light:
