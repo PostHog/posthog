@@ -77,24 +77,25 @@ export function ManagedSourcesTable(): JSX.Element {
                 columns={[
                     {
                         width: 0,
-                        key: 'starred',
+                        // The small star glyph opens the row, so the table's full first-cell margin reads as empty space.
+                        className: '!pl-2',
                         render: (_, source) => {
                             const starred = !!starredSourceShortcuts[source.id]
                             return (
-                                <LemonButton
-                                    size="small"
-                                    icon={starred ? <IconStarFilled /> : <IconStar />}
-                                    tooltip={starred ? 'Remove from starred' : 'Add to starred'}
-                                    onClick={() => toggleSourceStarred(source)}
-                                    disabledReason={shortcutDataLoading ? 'Updating starred items' : undefined}
-                                    data-attr="managed-sources-star"
-                                />
+                                <div className="flex items-center gap-2">
+                                    <LemonButton
+                                        size="xsmall"
+                                        noPadding
+                                        icon={starred ? <IconStarFilled /> : <IconStar />}
+                                        tooltip={starred ? 'Remove from starred' : 'Add to starred'}
+                                        onClick={() => toggleSourceStarred(source)}
+                                        disabledReason={shortcutDataLoading ? 'Updating starred items' : undefined}
+                                        data-attr="managed-sources-star"
+                                    />
+                                    <SourceIcon type={source.source_type} engine={source.engine} />
+                                </div>
                             )
                         },
-                    },
-                    {
-                        width: 0,
-                        render: (_, source) => <SourceIcon type={source.source_type} engine={source.engine} />,
                     },
                     {
                         title: 'Source',
