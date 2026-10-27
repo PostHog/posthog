@@ -2,7 +2,7 @@
 
 A plan is a report that other reports point at with a `part_of` link. Research writes these links
 when it splits work into stacked layers (`stack_plan.py`), and scouts can write them too. A link
-lives only on the step, so finding a plan's steps is an incoming-link scan.
+lives only on the step, so finding a plan's steps is an incoming-link read.
 """
 
 from posthog.dataclasses import frozen

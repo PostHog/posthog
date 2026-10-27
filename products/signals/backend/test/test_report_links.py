@@ -87,6 +87,17 @@ class TestReportLinkReaders(BaseTest):
         assert [edge.kind for edge in edges] == [ReportLinkKind.FOLLOW_UP_OF]
         assert good.id is not None
 
+    def test_an_edited_link_reads_from_the_report_it_now_names(self):
+        source, earlier_target, target = self._report("source"), self._report("earlier"), self._report("target")
+        link = self._link(source, earlier_target, ReportLinkKind.PART_OF)
+
+        link.update_content({"kind": "part_of", "report_id": str(target.id)})
+
+        assert incoming_links(team_id=self.team.id, report_id=earlier_target.id) == []
+        assert [edge.source_id for edge in incoming_links(team_id=self.team.id, report_id=target.id)] == [
+            str(source.id)
+        ]
+
     def test_a_reason_that_quotes_the_uuid_is_not_an_edge_to_it(self):
         source, target, bystander = self._report("source"), self._report("target"), self._report("bystander")
         self._link(source, bystander, ReportLinkKind.DEPENDS_ON, reason=f"not the same as {target.id}")
