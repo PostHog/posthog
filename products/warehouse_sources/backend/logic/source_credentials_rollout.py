@@ -13,6 +13,8 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 from uuid import UUID
 
+from django.db import transaction
+
 import structlog
 from prometheus_client import Counter
 
@@ -61,10 +63,10 @@ class _ExpiringFlags:
         if entry is not None and entry[0] > now:
             return entry[1]
         try:
-            enabled = is_team_flag_enabled(team_id, DUAL_WRITE_FLAG)
+            enabled = is_team_flag_enabled(team_id, DUAL_WRITE_FLAG, raise_on_error=True)
         except Exception:
-            # Not cached: a failure in one context (for example a query from an event loop thread) must
-            # not turn the flag off for the other callers of the process.
+            # Not cached: a failure in one context (for example a query from an event loop thread, or a
+            # flag service error) must not turn the flag off for the other callers of the process.
             return False
         with self._lock:
             if len(self._entries) >= _MAX_CACHE_ENTRIES:
@@ -131,6 +133,7 @@ def mirror_connection_fields(source: ExternalDataSource, inputs: Mapping[str, An
         logger.exception("warehouse_source_credentials.split_failed", **_log_context(source))
         return
     try:
+        # `update_or_create` runs in its own savepoint, so a failed copy leaves a caller's transaction usable.
         WarehouseSourceCredentialsStore.upsert(source, connection)
     except Exception:
         DUAL_WRITE_COUNTER.labels(outcome="upsert_error").inc()
@@ -145,7 +148,10 @@ def shadow_compare(source: ExternalDataSource, inputs: Mapping[str, Any]) -> Non
         if not _due_for_compare(source):
             return
         try:
-            stored: dict[str, Any] | CredentialsUnreadable | None = WarehouseSourceCredentialsStore.get(source)
+            # A savepoint: a failed query (for example a statement timeout) must not abort a transaction
+            # of the caller, such as a password rotation that loads the source inside `atomic`.
+            with transaction.atomic():
+                stored: dict[str, Any] | CredentialsUnreadable | None = WarehouseSourceCredentialsStore.get(source)
         except CredentialsUnreadableError:
             stored = CredentialsUnreadable()
         _count_compare(source, inputs, stored)
@@ -160,7 +166,8 @@ def shadow_compare_many(sources: Iterable[ExternalDataSource], loaded: Mapping[U
         due = [source for source in sources if source.id in loaded and _due_for_compare(source)]
         if not due:
             return
-        stored = WarehouseSourceCredentialsStore.get_many(due)
+        with transaction.atomic():  # A savepoint, as in `shadow_compare`.
+            stored = WarehouseSourceCredentialsStore.get_many(due)
     except Exception:
         for source in due:
             _count_compare_error(source)

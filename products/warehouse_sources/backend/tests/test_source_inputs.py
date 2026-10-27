@@ -216,6 +216,16 @@ class TestSourceInputsStoreCredentialsMirror(BaseTest):
         assert not self._rows().exists()
         assert SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))["password"] == "fake-rotated"
 
+    def test_a_flag_error_is_not_cached(self) -> None:
+        with self._flag(side_effect=RuntimeError("flags down")):
+            source = self._create()
+        assert not self._rows().exists()
+
+        with self._flag(return_value=True):
+            SourceInputsStore.save(source, STORED_POSTGRES_INPUTS)
+
+        assert self._rows().get().sensitive_config == {"fields": POSTGRES_CONNECTION_FIELDS}
+
     def test_create_and_save_mirror_only_the_connection_fields(self) -> None:
         with self._flag(return_value=True):
             source = self._create()

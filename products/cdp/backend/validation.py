@@ -94,9 +94,22 @@ def _validate_not_posthog_connection(integration_ids: list[int], context: dict) 
     get_team = context.get("get_team")
     if get_team is None or not integration_ids:
         return
-    if Integration.objects.filter(team_id=get_team().id, id__in=integration_ids, kind=POSTHOG_CONNECT_KIND).exists():
+    kinds = set(
+        Integration.objects.filter(
+            team_id=get_team().id,
+            id__in=integration_ids,
+            kind__in=[POSTHOG_CONNECT_KIND, Integration.IntegrationKind.WAREHOUSE_SOURCE],
+        ).values_list("kind", flat=True)
+    )
+    if POSTHOG_CONNECT_KIND in kinds:
         raise serializers.ValidationError(
             {"input": "A PostHog connection can't be used as a function input. Choose a different integration."}
+        )
+    # A warehouse source row holds the connection fields (passwords, keys) of a data warehouse source.
+    # It is managed by PostHog and never a function input.
+    if kinds:
+        raise serializers.ValidationError(
+            {"input": "This integration can't be used as a function input. Choose a different integration."}
         )
 
 

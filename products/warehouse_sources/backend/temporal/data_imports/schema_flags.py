@@ -44,15 +44,23 @@ def is_schema_flag_enabled(schema: ExternalDataSchema, flag: str) -> bool:
     )
 
 
-def is_team_flag_enabled(team_id: int, flag: str) -> bool:
+def is_team_flag_enabled(team_id: int, flag: str, *, raise_on_error: bool = False) -> bool:
     """Evaluate a rollout flag for a whole team, released by team, project or organization.
 
-    Never raises: an evaluation failure means the flag is off.
+    By default never raises: an evaluation failure means the flag is off. With ``raise_on_error``, a
+    failure is still captured but then re-raised, so a caller that caches the result can tell a failed
+    evaluation from a flag that is off.
     """
-    return _is_flag_enabled_for_team(team_id, flag, lambda: {"team_id": str(team_id)})
+    return _is_flag_enabled_for_team(team_id, flag, lambda: {"team_id": str(team_id)}, raise_on_error=raise_on_error)
 
 
-def _is_flag_enabled_for_team(team_id: int, flag: str, person_properties: Callable[[], dict[str, str]]) -> bool:
+def _is_flag_enabled_for_team(
+    team_id: int,
+    flag: str,
+    person_properties: Callable[[], dict[str, str]],
+    *,
+    raise_on_error: bool = False,
+) -> bool:
     from posthog.models import Team  # noqa: PLC0415 — keeps this module importable before app registry setup
 
     try:
@@ -65,6 +73,8 @@ def _is_flag_enabled_for_team(team_id: int, flag: str, person_properties: Callab
         # try/except, so this function's contract of "never raises, defaults to disabled" must hold on
         # its own.
         capture_exception(e)
+        if raise_on_error:
+            raise
         return False
     try:
         return bool(
@@ -83,4 +93,6 @@ def _is_flag_enabled_for_team(team_id: int, flag: str, person_properties: Callab
         )
     except Exception as e:
         capture_exception(e)
+        if raise_on_error:
+            raise
         return False

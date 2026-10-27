@@ -603,6 +603,8 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             ("multi_slack", "integration_multi", "slack"),
             ("single_posthog_connection", "integration", "posthog"),
             ("multi_posthog_connection", "integration_multi", "posthog"),
+            ("single_warehouse_source", "integration", "warehouse-source"),
+            ("multi_warehouse_source", "integration_multi", "warehouse-source"),
         ]
     )
     def test_integration_input_rejects_a_posthog_connection(self, _name, item_type, kind):
@@ -617,7 +619,8 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         else:
             with pytest.raises(ValidationError) as ctx:
                 validate_inputs(inputs_schema, inputs, context_extra=context_extra)
-            assert "PostHog connection" in str(ctx.value.detail)
+            expected = "PostHog connection" if kind == "posthog" else "can't be used as a function input"
+            assert expected in str(ctx.value.detail)
 
     def _create_email_integration(self, domain="posthog.com"):
         return Integration.objects.create(
