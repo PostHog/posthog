@@ -19,6 +19,7 @@ type ReadyValues = Pick<
     | 'canViewInThread'
     | 'thread'
     | 'timeline'
+    | 'gitBranch'
 >
 
 interface ReadyActions {
@@ -36,7 +37,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
     }
     return {
         header: values.header,
-        summary: values.summary,
+        summary: { ...values.summary, git: values.gitBranch },
         mode: values.mode,
         onModeChange: actions.setMode,
         tree: values.tree,
@@ -77,6 +78,7 @@ export function TraceScene(): JSX.Element {
         canViewInThread,
         thread,
         timeline,
+        gitBranch,
     } = useValues(logic)
     const actions = useActions(logic)
 
@@ -95,6 +97,7 @@ export function TraceScene(): JSX.Element {
                       canViewInThread,
                       thread,
                       timeline,
+                      gitBranch,
                   },
                   actions
               )

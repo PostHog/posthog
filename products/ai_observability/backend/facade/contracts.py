@@ -53,6 +53,11 @@ class TracePerson(Contract):
     label: str
 
 
+class TraceGit(Contract):
+    branch: str = Field(description="The git branch checked out when the trace ran.")
+    repo: str | None = Field(description="The repository as owner/name, or null when the branch's event has none.")
+
+
 class Trace(Contract):
     id: str
     name: str | None
@@ -68,6 +73,10 @@ class Trace(Contract):
     thread_node_ids: list[str]
     default_node_id: str
     node_ids_by_alias: dict[str, str]
+    git: TraceGit | None = Field(
+        description="The branch the trace's work ran on: the latest stamped branch other than main or master, else "
+        "the first stamp. Null when no event carries a branch."
+    )
 
 
 class TraceNodeIOKeys(Contract):

@@ -34,6 +34,8 @@ def make_row(**overrides: Any) -> TraceEventRow:
         "is_error": False,
         "error_is_truthy": False,
         "ingestion_source": None,
+        "git_branch": None,
+        "git_repo": None,
     }
     return TraceEventRow(**{**fields, **overrides})
 

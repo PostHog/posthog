@@ -121,6 +121,7 @@ export function makeTraceResource(overrides: Partial<TraceApi> = {}): TraceApi {
         threadNodeIds: ['gen-2'],
         defaultNodeId: 'trace-1',
         nodeIdsByAlias: {},
+        git: null,
         ...overrides,
     }
 }
