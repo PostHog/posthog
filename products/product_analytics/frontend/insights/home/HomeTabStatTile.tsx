@@ -3,7 +3,13 @@ import { useMemo } from 'react'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { AnalyticsMetricCard } from 'lib/components/AnalyticsMetricCard/AnalyticsMetricCard'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { CardMeta } from 'lib/components/Cards/CardMeta'
+import { CompactInfoPopover } from 'lib/components/Cards/InsightCard/CompactInfoPopover'
+import { InsightDetails } from 'lib/components/Cards/InsightCard/InsightDetails'
+import { InsightMetaContent } from 'lib/components/Cards/InsightCard/InsightMeta'
+import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { formatBucketLabel } from 'lib/utils/timeBuckets'
 import { sampleDataStateLogic } from 'scenes/insights/EmptyStates/sampleDataStateLogic'
@@ -16,9 +22,17 @@ import type { TrendsQueryResponse } from '~/queries/schema/schema-general'
 import type { TrendResult } from '~/types'
 
 import { homeTabDefaultLogic } from './homeTabDefaultLogic'
-import { getHomeTabStatValue, isHomeTabStatBucketInProgress, type HomeTabStatQuery } from './homeTabDefaultTiles'
+import {
+    getHomeTabExploreUrl,
+    getHomeTabStatInsightQuery,
+    getHomeTabStatValue,
+    isHomeTabStatBucketInProgress,
+    type HomeTabStatQuery,
+} from './homeTabDefaultTiles'
 import { homeTabDataCollectionId, homeTabStatKey, homeTabStatTrendKey } from './homeTabQueryKeys'
 import { getHomeTabSampleStatData } from './homeTabSampleData'
+
+const SESSION_DURATION_DESCRIPTION = 'Average duration of sessions with a page or screen view.'
 
 interface HomeTabStatTileProps {
     stat: HomeTabStatQuery
@@ -73,7 +87,7 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
         currentTeam?.timezone ?? 'UTC',
         currentTeam?.week_start_day
     )
-    const { response, responseError, responseLoading } = useValues(logic)
+    const { response, responseError, responseLoading, lastRefresh } = useValues(logic)
     const loading = responseLoading || (!response && !responseError)
 
     const results = (response as TrendsQueryResponse | undefined)?.results ?? (response as { result?: unknown })?.result
@@ -86,14 +100,51 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
             ? ((value - previousValue) / Math.abs(previousValue)) * 100
             : undefined
 
-    const label =
-        stat.description || stat.key === 'session_duration' ? (
-            <Tooltip title={stat.description ?? 'Average duration of sessions with a page or screen view.'}>
-                {stat.title}
-            </Tooltip>
-        ) : (
-            stat.title
-        )
+    const insightQuery = getHomeTabStatInsightQuery(stat)
+    const description = stat.description ?? (stat.key === 'session_duration' ? SESSION_DURATION_DESCRIPTION : null)
+    const header = (
+        <CardMeta
+            compact
+            showEditingControls
+            moreButtons={
+                <LemonButton
+                    to={getHomeTabExploreUrl(insightQuery)}
+                    fullWidth
+                    data-attr={`home-tab-stat-explore-${stat.key}`}
+                >
+                    Explore
+                </LemonButton>
+            }
+            content={
+                <InsightMetaContent
+                    title={stat.title}
+                    compact
+                    showDescription={false}
+                    infoPopover={
+                        <CompactInfoPopover
+                            popoverTopHeading={
+                                <TopHeading
+                                    query={insightQuery}
+                                    lastRefresh={shouldShowSampleData ? null : lastRefresh}
+                                    resolvedDateRange={(response as TrendsQueryResponse | null)?.resolved_date_range}
+                                />
+                            }
+                            metaTitle={stat.title}
+                            metaDescription={
+                                description ? (
+                                    <LemonMarkdown className="text-xs" lowKeyHeadings>
+                                        {description}
+                                    </LemonMarkdown>
+                                ) : null
+                            }
+                            metaDescriptionText={description ?? ''}
+                            metaDetails={<InsightDetails query={insightQuery} />}
+                        />
+                    }
+                />
+            }
+        />
+    )
 
     const subtitle = !compare
         ? 'For selected period'
@@ -104,6 +155,7 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
     return (
         <AnalyticsMetricCard
             className="h-full w-full"
+            header={header}
             adornment={
                 shouldShowSampleData ? (
                     <div className="flex justify-end px-3 pb-3">
@@ -111,7 +163,7 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
                     </div>
                 ) : undefined
             }
-            title={label}
+            title={null}
             ariaLabel={stat.title}
             onClick={onSelect}
             selected={selected}
@@ -121,6 +173,7 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
             value={value ?? undefined}
             showChange={compare}
             change={changeFromPreviousPct != null ? { value: changeFromPreviousPct } : null}
+            changeInline
             hoverChangeFromPreviousPoint
             data={trend?.data}
             labels={trend?.days}

@@ -6,12 +6,14 @@ publish = false
 
 [dependencies]
 etcd-client = "0.18"
+h2 = "0.4"
 metrics = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { version = "0.7", features = ["rt"] }
+tonic = { version = "0.14", default-features = false, features = ["transport"] }
 tracing = { workspace = true }
 
 [lints]
