@@ -1,4 +1,4 @@
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -13,6 +13,7 @@ import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import {
     FeatureFlagsFilters,
     FeatureFlagsTab,
+    featureFlagsListFilterParams,
     featureFlagsLogic,
     flagMatchesFilters,
     flagMatchesSearch,
@@ -349,6 +350,88 @@ describe('the feature flags logic', () => {
             expect(logic.values.filters.search).toBeUndefined()
             expect(logic.values.filters.order).toBe('-created_at')
             expect(logic.values.hasActiveFilters).toBe(false)
+        })
+    })
+
+    describe('carrying list filters through a flag detail page (featureFlagsListFilterParams)', () => {
+        it('returns no params while the filters are at their defaults', () => {
+            // Both default shapes: page 1 after mount, page undefined after a bare-URL visit
+            expect(featureFlagsListFilterParams(logic.values.filters)).toEqual({})
+            expect(featureFlagsListFilterParams({ page: undefined })).toEqual({})
+        })
+
+        it('keeps filter params, drops page 1, and ignores non-filter params', () => {
+            expect(
+                featureFlagsListFilterParams({
+                    search: 'checkout',
+                    created_by_id: '[42]',
+                    page: '1',
+                    tab: 'overview',
+                    edit: 'true',
+                })
+            ).toEqual({ search: 'checkout', created_by_id: '[42]' })
+            expect(featureFlagsListFilterParams({ page: 3 })).toEqual({ page: 3 })
+        })
+
+        it('restores search, creator, and sort filters when the crumb hands them back', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagsFilters({
+                    search: 'checkout',
+                    created_by_id: [42],
+                    order: '-created_at',
+                })
+            }).toFinishAllListeners()
+
+            // Opening a flag carries the filters on the detail URL
+            const detailUrl = combineUrl(urls.featureFlag(1), featureFlagsListFilterParams(logic.values.filters)).url
+            await expectLogic(logic, () => {
+                router.actions.push(detailUrl)
+            }).toFinishAllListeners()
+
+            // The scene swap remounts the list logic, so its in-memory filters reset
+            logic.unmount()
+            logic = featureFlagsLogic()
+            logic.mount()
+            expect(logic.values.filters.search).toBeUndefined()
+
+            // The detail scene's list crumb rebuilds the list URL from the carried params
+            const crumbUrl = combineUrl(
+                urls.featureFlags(),
+                featureFlagsListFilterParams(router.values.searchParams)
+            ).url
+            await expectLogic(logic, () => {
+                router.actions.push(crumbUrl)
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.search).toBe('checkout')
+            expect(logic.values.filters.created_by_id).toEqual([42])
+            expect(logic.values.filters.order).toBe('-created_at')
+        })
+
+        it('resets to defaults when the bare list URL is visited directly', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagsFilters({ search: 'checkout', created_by_id: [42] })
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.featureFlags())
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.search).toBeUndefined()
+            expect(logic.values.filters.created_by_id).toBeUndefined()
+            expect(logic.values.hasActiveFilters).toBe(false)
+        })
+
+        it('lets explicit URL params win over in-memory filters', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagsFilters({ search: 'checkout' })
+            }).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.featureFlags(), { search: 'onboarding' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.search).toBe('onboarding')
         })
     })
 

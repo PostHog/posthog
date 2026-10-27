@@ -19,7 +19,7 @@ import type { BreakPointFunction } from 'kea'
 import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import type { DeepPartial, FieldName } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { beforeUnload, router, urlToAction } from 'kea-router'
+import { beforeUnload, combineUrl, router, urlToAction } from 'kea-router'
 import { CombinedLocation } from 'kea-router/lib/utils'
 import posthog from 'posthog-js'
 import { toast } from 'react-toastify'
@@ -45,7 +45,12 @@ import { capitalizeFirstLetter, humanList, slugify } from 'lib/utils/strings'
 import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { FeatureFlagsTab, featureFlagsLogic, isFeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
+import {
+    FeatureFlagsTab,
+    featureFlagsListFilterParams,
+    featureFlagsLogic,
+    isFeatureFlagsTab,
+} from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
@@ -2511,7 +2516,7 @@ export interface featureFlagLogicMeta {
             featureFlag: FeatureFlagType,
             aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun // groupsModel
         ) => string
-        breadcrumbs: (featureFlag: FeatureFlagType) => Breadcrumb[]
+        breadcrumbs: (featureFlag: FeatureFlagType, searchParams: Record<string, any>) => Breadcrumb[]
         projectTreeRef: (arg: number | 'link' | 'new') => ProjectTreeRef
         sidePanelContext: (featureFlag: FeatureFlagType) => SidePanelSceneContext | null
         recordingFilterForFlag: (featureFlag: FeatureFlagType) => Partial<RecordingUniversalFilters>
@@ -5485,12 +5490,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.featureFlag],
-            (featureFlag: FeatureFlagType): Breadcrumb[] => [
+            (s) => [s.featureFlag, router.selectors.searchParams],
+            (featureFlag: FeatureFlagType, searchParams: Record<string, any>): Breadcrumb[] => [
                 {
                     key: Scene.FeatureFlags,
                     name: 'Feature Flags',
-                    path: urls.featureFlags(),
+                    // A saved flag's URL carries the list's filter params when opened from the list.
+                    // Hand them back, so this crumb (and the scene back arrow, which follows the same
+                    // path) returns to the view the user left. A new flag's URL params are creation
+                    // presets (`type`, `properties`), not list filters, so they stay out of the crumb.
+                    path: featureFlag.id
+                        ? combineUrl(urls.featureFlags(), featureFlagsListFilterParams(searchParams)).url
+                        : urls.featureFlags(),
                     iconType: 'feature_flag',
                 },
                 {

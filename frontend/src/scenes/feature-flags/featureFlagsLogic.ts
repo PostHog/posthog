@@ -8,7 +8,7 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { objectsEqual } from 'lib/utils/objects'
+import { objectClean, objectsEqual } from 'lib/utils/objects'
 import { parseNumericArrayFilter, parseTagsFilter, toParams } from 'lib/utils/url'
 import { handleFlagApprovalRequired } from 'scenes/feature-flags/updateFlagActiveInProject'
 import { projectLogic } from 'scenes/projectLogic'
@@ -181,6 +181,23 @@ const DEFAULT_FILTERS: FeatureFlagsFilters = {
     evaluation_runtime: undefined,
     tags: undefined,
     excluded_tags: undefined,
+}
+
+const FILTER_PARAM_KEYS = Object.keys(DEFAULT_FILTERS) as (keyof FeatureFlagsFilters)[]
+
+/**
+ * The list's filter params found in `filters` or in a page's search params. A flag opened from the
+ * list carries them in its own URL, and the detail scene's list breadcrumb hands them back, so
+ * returning that way restores the view the user left. They ride in the URL because the list logic
+ * unmounts on scene change (sceneLogic swaps scene logics old-first), which resets its filters.
+ */
+export function featureFlagsListFilterParams(searchParams: Record<string, any>): Record<string, any> {
+    const params = objectClean(Object.fromEntries(FILTER_PARAM_KEYS.map((key) => [key, searchParams[key]])))
+    // Page 1 is the default view, so leave the param out and keep default URLs bare
+    if (String(params.page) === '1') {
+        delete params.page
+    }
+    return params
 }
 
 export interface FlagLogicProps {

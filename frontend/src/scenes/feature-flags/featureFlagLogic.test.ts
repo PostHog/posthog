@@ -291,6 +291,28 @@ describe('featureFlagLogic', () => {
         jest.useRealTimers()
     })
 
+    describe('breadcrumbs', () => {
+        it('hands list filter params carried on the flag URL back to the list crumb', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push(urls.featureFlag(1), { search: 'checkout', created_by_id: '[42]', edit: 'true' })
+            }).toFinishAllListeners()
+
+            const listCrumb = logic.values.breadcrumbs[0]
+            expect(listCrumb.path).toContain(`${urls.featureFlags()}?`)
+            expect(listCrumb.path).toContain('search=checkout')
+            expect(listCrumb.path).toContain('created_by_id=%5B42%5D')
+            expect(listCrumb.path).not.toContain('edit=')
+        })
+
+        it('links the list crumb to the bare list URL when the flag URL carries no filters', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push(urls.featureFlag(1))
+            }).toFinishAllListeners()
+
+            expect(logic.values.breadcrumbs[0].path).toBe(urls.featureFlags())
+        })
+    })
+
     describe('stale list-cache reconciliation on mount', () => {
         it.each([
             {

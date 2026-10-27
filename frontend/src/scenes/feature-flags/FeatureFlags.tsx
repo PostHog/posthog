@@ -82,7 +82,13 @@ import { BulkDeleteResultsModal } from './BulkDeleteResultsModal'
 import { openBulkArchiveFlagsDialog, openFeatureFlagArchiveDialog } from './featureFlagArchiveDialog'
 import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
-import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic, flagMatchesType } from './featureFlagsLogic'
+import {
+    FLAGS_PER_PAGE,
+    FeatureFlagsTab,
+    featureFlagsListFilterParams,
+    featureFlagsLogic,
+    flagMatchesType,
+} from './featureFlagsLogic'
 import { BULK_ARCHIVE_MAX_FLAGS, flagSelectionLogic } from './flagSelectionLogic'
 import { OverlayForNewFeatureFlagMenu } from './NewFeatureFlagMenu'
 import ProjectsGrid from './projects-grid/ProjectsGrid'
@@ -192,7 +198,7 @@ function WarningStatusTag({ label, heading, detail }: { label: string; heading: 
 function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
     const { currentProjectId } = useValues(projectLogic)
     const flagLogic = featureFlagsLogic({})
-    const { featureFlagsUpdating } = useValues(flagLogic)
+    const { featureFlagsUpdating, filters } = useValues(flagLogic)
     const { toggleFeatureFlagActive, updateFeatureFlagArchived, loadFeatureFlags } = useActions(flagLogic)
 
     const isUpdating = featureFlag.id ? featureFlagsUpdating[featureFlag.id] : false
@@ -229,7 +235,14 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                 overlay={
                     <>
                         {featureFlag.id && (
-                            <LemonButton to={urls.featureFlag(featureFlag.id)} data-attr="feature-flag-view" fullWidth>
+                            <LemonButton
+                                to={
+                                    combineUrl(urls.featureFlag(featureFlag.id), featureFlagsListFilterParams(filters))
+                                        .url
+                                }
+                                data-attr="feature-flag-view"
+                                fullWidth
+                            >
                                 View
                             </LemonButton>
                         )}
@@ -256,7 +269,12 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                                             ? "You don't have permission to edit this feature flag."
                                             : null
                                     }
-                                    to={combineUrl(urls.featureFlag(featureFlag.id), { edit: true }).url}
+                                    to={
+                                        combineUrl(urls.featureFlag(featureFlag.id), {
+                                            ...featureFlagsListFilterParams(filters),
+                                            edit: true,
+                                        }).url
+                                    }
                                 >
                                     Edit
                                 </LemonButton>
@@ -463,7 +481,14 @@ export function OverviewTab({
             render: function Render(_, featureFlag: FeatureFlagType) {
                 return (
                     <LemonTableLink
-                        to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined}
+                        to={
+                            featureFlag.id
+                                ? // Carry the list's filters on the flag URL, so the detail page's
+                                  // breadcrumb and back arrow return to this view of the list
+                                  combineUrl(urls.featureFlag(featureFlag.id), featureFlagsListFilterParams(filters))
+                                      .url
+                                : undefined
+                        }
                         title={
                             <>
                                 <span>{stringWithWBR(featureFlag.key, 17)}</span>
