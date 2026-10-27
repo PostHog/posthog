@@ -347,21 +347,6 @@ describe('Hog Inputs', () => {
             ).rejects.toThrow("The integration for input 'slack' no longer exists.")
         })
 
-        it('should not load a warehouse source credentials row', async () => {
-            const rowId = team.id + 3
-            await insertIntegration(hub.postgres, team.id, {
-                id: rowId,
-                kind: 'warehouse-source',
-                sensitive_config: { fields: { password: hub.encryptedFields.encrypt('secret-password') } },
-            })
-            hogFunction.inputs = { connection: { value: rowId } }
-            hogFunction.inputs_schema = [{ key: 'connection', type: 'integration', required: true }]
-
-            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
-
-            expect(inputs.connection).toBeNull()
-        })
-
         it('should not load a posthog connection', async () => {
             const connectionId = team.id + 2
             await insertIntegration(hub.postgres, team.id, {
