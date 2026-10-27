@@ -84,7 +84,8 @@ class ExternalDataSourceConnectionMetadataSerializer(serializers.Serializer):
 
 
 class _DefaultSchemaField(serializers.CharField):
-    def to_representation(self, value: ExternalDataSource) -> str | None:
+    def to_representation(self, value: Any) -> Any:
+        # `source="*"` passes the whole ExternalDataSource, not a string.
         try:
             schema = SourceInputsStore.load_settings(value).get("schema")
         except UnreadableSourceInputsError:
