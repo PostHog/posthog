@@ -111,10 +111,14 @@ def assign_semantics(
 
 
 def merge_watch_rank(team_id: int, observation_id: str, keys: dict[str, Any]) -> None:
-    """Add keys to an observation's rank without rewriting what another writer put there."""
+    """Add keys to an observation's rank without rewriting what another writer put there, and drop the retired
+    duplicate link."""
+    without_duplicate = Func(
+        F("watch_rank"), Value("duplicate_of"), template="(%(expressions)s)", arg_joiner=" - ", output_field=JSONField()
+    )
     ReplayObservation.objects.filter(team_id=team_id, id=observation_id).update(
         watch_rank=Func(
-            F("watch_rank"),
+            without_duplicate,
             Value(keys, output_field=JSONField()),
             template="%(expressions)s",
             arg_joiner=" || ",

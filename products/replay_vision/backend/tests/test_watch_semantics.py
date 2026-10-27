@@ -29,7 +29,7 @@ _THEMES = "products.replay_vision.backend.watch_themes"
 
 
 def _rank(category: str = "failure") -> dict[str, Any]:
-    return {"category": category, "contrast": 0.2, "anchor_version": ANCHOR_VERSION}
+    return {"category": category, "contrast": 0.2, "anchor_version": ANCHOR_VERSION, "duplicate_of": "retired"}
 
 
 def _vector(*head: float) -> list[float]:
@@ -130,6 +130,7 @@ class TestAssignSemantics(BaseTest):
         assert first.watch_rank is not None
         assert first.watch_rank["group"] == str(joined[0].group_id)
         assert first.watch_rank["theme"] == str(joined[0].theme.theme_id)
+        assert "duplicate_of" not in first.watch_rank
 
     def test_a_monitor_answer_the_scanner_is_not_looking_for_gets_a_group_but_no_theme(self) -> None:
         monitor = self._scanner(ScannerType.MONITOR, PromptValence.BAD, name="checkout errors")
