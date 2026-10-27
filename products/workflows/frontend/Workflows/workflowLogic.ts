@@ -29,7 +29,11 @@ import { userLogic } from 'scenes/userLogic'
 import { AccessControlLevel, HogFunctionTemplateType, IntegrationType } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
-import { hogFlowsCreate, hogFlowsResumeEmailSending } from 'products/workflows/frontend/generated/api'
+import {
+    hogFlowsCreate,
+    hogFlowsResumeEmailSending,
+    hogFlowsSchedulesDestroy,
+} from 'products/workflows/frontend/generated/api'
 import type { EmailDraftRequestApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
@@ -369,6 +373,12 @@ export interface workflowLogicActions {
     }
     confirmResumeEmailSending: () => {
         value: true
+    }
+    deleteSchedule: (scheduleId: string) => {
+        scheduleId: string
+    }
+    deleteScheduleFailure: (scheduleId: string) => {
+        scheduleId: string
     }
     discardChanges: () => {
         value: true
@@ -3293,6 +3303,8 @@ export const workflowLogic = kea<workflowLogicType>([
             variables,
             filters,
         }),
+        deleteSchedule: (scheduleId: string) => ({ scheduleId }),
+        deleteScheduleFailure: (scheduleId: string) => ({ scheduleId }),
         discardChanges: true,
         duplicate: true,
         autoSaveWorkflow: true,
@@ -4611,6 +4623,21 @@ export const workflowLogic = kea<workflowLogicType>([
                 actions.autoSaveWorkflow()
             }
             actions.replayDeferredResourceEdited()
+        },
+        deleteSchedule: async ({ scheduleId }) => {
+            const workflowId = props.id
+            if (!workflowId || workflowId === 'new') {
+                return
+            }
+            try {
+                await hogFlowsSchedulesDestroy(String(values.currentProjectId), workflowId, scheduleId)
+                actions.setSchedules(values.schedules.filter((schedule) => schedule.id !== scheduleId))
+                lemonToast.success('Schedule removed')
+            } catch (e) {
+                console.error('Failed to remove schedule', e)
+                actions.deleteScheduleFailure(scheduleId)
+                lemonToast.error('Could not remove the schedule')
+            }
         },
         discardChanges: () => {
             if (!values.originalWorkflow) {

@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { DEFAULT_STATE, ONE_TIME_RRULE } from './hogflows/steps/components/rrule-helpers'
@@ -346,6 +347,54 @@ describe('workflowLogic schedule reducers', () => {
                 isScheduleRepeating: false,
                 pendingSchedule: false,
             })
+        })
+    })
+
+    describe('removing one of several schedules', () => {
+        const FLOW_ID = 'wf-schedule-list'
+        let deleted: string[]
+
+        beforeEach(() => {
+            deleted = []
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': { id: FLOW_ID, name: 'Listed', actions: [] },
+                    '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                },
+                delete: {
+                    '/api/projects/:project_id/hog_flows/:id/schedules/:schedule_id/': (req: any) => {
+                        deleted.push(req.params.schedule_id as string)
+                        return [204, {}]
+                    },
+                },
+            })
+            logic.unmount()
+            logic = workflowLogic({ id: FLOW_ID })
+            logic.mount()
+        })
+
+        it('drops only the schedule that was removed', async () => {
+            logic.actions.setSchedules([makeSchedule(), makeSchedule({ id: 'schedule-2', rrule: ONE_TIME_RRULE })])
+
+            await expectLogic(logic, () => {
+                logic.actions.deleteSchedule('schedule-2')
+            }).toFinishAllListeners()
+
+            expect(deleted).toEqual(['schedule-2'])
+            expect(logic.values.schedules.map((s) => s.id)).toEqual(['schedule-1'])
+        })
+
+        it('keeps the schedule listed when the delete fails', async () => {
+            useMocks({
+                delete: { '/api/projects/:project_id/hog_flows/:id/schedules/:schedule_id/': () => [500, {}] },
+            })
+            logic.actions.setSchedules([makeSchedule(), makeSchedule({ id: 'schedule-2' })])
+
+            await expectLogic(logic, () => {
+                logic.actions.deleteSchedule('schedule-2')
+            }).toFinishAllListeners()
+
+            expect(logic.values.schedules.map((s) => s.id)).toEqual(['schedule-1', 'schedule-2'])
         })
     })
 })
