@@ -1115,7 +1115,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/travis_ci/travis_ci.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/trello/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/trello/trello.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/tremendous/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/tremendous/tremendous.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/trigger_dev/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/trigger_dev/trigger_dev.py
