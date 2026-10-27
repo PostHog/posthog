@@ -6819,10 +6819,10 @@ Diffed against: <https://api.katanamrp.com/v1/openapi.json>
 - [x] `sales_order_fulfillments` — shipment/fulfillment records — the transition from order to delivered (high)
 - [x] `sales_return_rows` — line items behind sales_returns, needed to attribute returns to products (medium)
 - [x] `manufacturing_order_operation_rows` — per-operation timings and assigned operators, for throughput and labor cost (medium)
-- [ ] `price_list_rows` — priced items per price list; price_lists alone is only the header (medium)
-- [ ] `stocktake_rows` — counted vs expected quantity per stocktake line — the actual shrinkage numbers (medium)
-- [ ] `bin_locations and bin_inventory` — bin-level stock lookup and on-hand quantities below the location grain we already sync (medium)
-- [ ] `operators` — lookup table resolving operator IDs referenced by manufacturing order operations (medium)
+- [x] `price_list_rows` — priced items per price list; price_lists alone is only the header (medium)
+- [x] `stocktake_rows` — counted vs expected quantity per stocktake line — the actual shrinkage numbers (medium)
+- [x] `bin_locations and bin_inventory` — bin-level stock lookup and on-hand quantities below the location grain we already sync (medium)
+- [x] `operators` — lookup table resolving operator IDs referenced by manufacturing order operations (medium)
 
 Note: The docs site (developer.katanamrp.com) is a ReadMe app, but the live gateway serves a full OpenAPI 3.0 document at https://api.katanamrp.com/v1/openapi.json — 120 paths. PostHog's 18 tables cover almost every header-level object but essentially none of the row/line-item children, which is where most manufacturing analytics lives. Also unsynced but lower value: serial_numbers, batch_stocks, additional_costs, po_additional_cost_rows, demand_forecasts, negative_stock, custom_field_definitions, customer_addresses, supplier_addresses.
 

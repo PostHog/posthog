@@ -30,6 +30,8 @@ class KatanaEndpointConfig:
     # Stable creation-time column to partition on. Never updated_at — partitions must not move.
     partition_key: str | None = "created_at"
     default_incremental_field: str = "updated_at"
+    # JSON path to the row list. /operators returns a bare array instead of the {"data": [...]} envelope.
+    data_selector: str | None = "data"
 
 
 KATANA_ENDPOINTS: dict[str, KatanaEndpointConfig] = {
@@ -91,6 +93,9 @@ KATANA_ENDPOINTS: dict[str, KatanaEndpointConfig] = {
         name="stock_transfers", path="/stock_transfers", incremental_fields=_UPDATED_AND_CREATED
     ),
     "stocktakes": KatanaEndpointConfig(name="stocktakes", path="/stocktakes", incremental_fields=_UPDATED_AND_CREATED),
+    "stocktake_rows": KatanaEndpointConfig(
+        name="stocktake_rows", path="/stocktake_rows", incremental_fields=_UPDATED_AND_CREATED
+    ),
     "inventory_movements": KatanaEndpointConfig(
         name="inventory_movements",
         path="/inventory_movements",
@@ -111,7 +116,24 @@ KATANA_ENDPOINTS: dict[str, KatanaEndpointConfig] = {
     "price_lists": KatanaEndpointConfig(
         name="price_lists", path="/price_lists", incremental_fields=[], partition_key=None
     ),
+    # /price_list_rows has no timestamp filter either; it is one row per (price list, variant).
+    "price_list_rows": KatanaEndpointConfig(name="price_list_rows", path="/price_list_rows", incremental_fields=[]),
     "locations": KatanaEndpointConfig(name="locations", path="/locations", incremental_fields=[], partition_key=None),
+    "bin_locations": KatanaEndpointConfig(
+        name="bin_locations", path="/bin_locations", incremental_fields=[], partition_key=None
+    ),
+    # Live per-(location, variant, bin) balance at the default VARIANT granularity. bin_location_id is
+    # null for stock with no bin assigned, and Katana drops a row once all its quantities reach zero.
+    "bin_inventory": KatanaEndpointConfig(
+        name="bin_inventory",
+        path="/bin_inventory",
+        primary_keys=["location_id", "variant_id", "bin_location_id"],
+        incremental_fields=[],
+        partition_key=None,
+    ),
+    "operators": KatanaEndpointConfig(
+        name="operators", path="/operators", incremental_fields=[], partition_key=None, data_selector=None
+    ),
     "tax_rates": KatanaEndpointConfig(name="tax_rates", path="/tax_rates", incremental_fields=[], partition_key=None),
 }
 
