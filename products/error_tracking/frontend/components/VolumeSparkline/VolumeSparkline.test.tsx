@@ -229,7 +229,7 @@ describe('VolumeSparkline', () => {
 
     describe('spike tooltip', () => {
         it.each([
-            { index: 2, expected: 'Spike detected1 Jan 02:00 (UTC)10 occurrences4.5x the usual volume' },
+            { index: 2, expected: "Spike detected1 Jan 02:00 (UTC)10 occurrences4.5x this issue's baseline" },
             { index: 1, expected: null },
         ])('shows spike details only when hovering a spike bucket ($index)', async ({ index, expected }) => {
             const data = buildData({ 2: { isSpike: true, color: 'var(--brand-yellow)', spikeMultiplier: 4.5 } })

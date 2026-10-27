@@ -26,7 +26,7 @@ export function SpikeTooltip({ datum, clickable }: SpikeTooltipProps): JSX.Eleme
             <div className="tabular-nums">{formatCompactVolumeHoverOccurrences(datum)}</div>
             {datum.spikeMultiplier !== undefined && (
                 <div className="tabular-nums">
-                    <span>{datum.spikeMultiplier.toFixed(1)}x</span> the usual volume
+                    <span>{datum.spikeMultiplier.toFixed(1)}x</span> this issue's baseline
                 </div>
             )}
             {clickable && <TooltipFooter>Click to see spike details</TooltipFooter>}
