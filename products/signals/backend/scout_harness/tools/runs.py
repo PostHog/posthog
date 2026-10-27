@@ -242,9 +242,8 @@ def search_recent_runs(
     are capped at `MAX_RUN_SEARCH_LIMIT`.
     """
     clamped_limit = _clamp_limit(limit)
-    # Filter without the task run join, then hydrate only the matches by primary key. With a
-    # selective filter the joined form walked and joined the team's whole run history before it
-    # filled the limit.
+    # Filter without the task run join, then hydrate only the matches by primary key, so a
+    # selective filter cannot join the team's whole run history before it fills the limit.
     qs = SignalScoutRun.objects.filter(team_id=team_id).exclude(metadata__has_key="scout_trial").order_by("-created_at")
     if date_from is not None:
         qs = qs.filter(created_at__gte=date_from)
