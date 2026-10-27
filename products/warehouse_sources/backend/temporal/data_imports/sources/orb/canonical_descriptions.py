@@ -109,7 +109,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "Prices": {
-        "description": "Prices in your Orb catalog. Plans, subscriptions and invoice line items reference them by price ID. "
+        "description": "Prices created through Orb's price creation endpoint (e.g. add-on prices). "
+        "Prices defined inside a plan are not listed here; they are in the `prices` column of the plans table. "
         "Full refresh only, because the list endpoint exposes no server-side timestamp filter.",
         "docs_url": "https://docs.withorb.com/api-reference/price/list-prices",
         "columns": {
