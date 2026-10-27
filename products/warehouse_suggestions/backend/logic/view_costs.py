@@ -52,11 +52,14 @@ def unfinished_measurement(team_id: int, saved_query_id: UUID) -> UnfinishedMeas
 
 def measure_view_cost(team_id: int, saved_query_id: UUID, rules: MeasurementRules) -> MeasurementOutcome:
     definitions = saved_query_definitions(team_id, ids=[saved_query_id])
-    column_names = list(get_saved_query_columns(team_id, saved_query_id))
-    if not definitions or not column_names:
+    if not definitions:
         return MeasurementOutcome.GONE
     definition = definitions[0]
     fingerprint = effective_definition(team_id, definition).fingerprint
+    column_names = list(get_saved_query_columns(team_id, saved_query_id))
+    if not column_names:
+        _remember_unfinished(team_id, saved_query_id, rules, seconds=FAILED_MEASUREMENT, fingerprint=fingerprint)
+        return MeasurementOutcome.FAILED
     tag_queries(
         product=Product.DATA_MODELING, feature=MEASUREMENT_FEATURE, team_id=team_id, name=MEASUREMENT_QUERY_NAME
     )

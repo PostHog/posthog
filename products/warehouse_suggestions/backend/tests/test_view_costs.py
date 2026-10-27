@@ -43,13 +43,22 @@ class TestMeasureViewCost(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("timeout", ClickHouseQueryTimeOut(), MeasurementOutcome.CAPPED, RULES.measurement.max_seconds),
-            ("other_error", ValueError("broken view"), MeasurementOutcome.FAILED, FAILED_MEASUREMENT),
+            ("timeout", ClickHouseQueryTimeOut(), True, MeasurementOutcome.CAPPED, RULES.measurement.max_seconds),
+            ("other_error", ValueError("broken view"), True, MeasurementOutcome.FAILED, FAILED_MEASUREMENT),
+            ("no_stored_columns", None, False, MeasurementOutcome.FAILED, FAILED_MEASUREMENT),
         ]
     )
     def test_a_measurement_that_does_not_finish_is_remembered(
-        self, _name: str, error: Exception, expected_outcome: MeasurementOutcome, expected_cap: int
+        self,
+        _name: str,
+        error: Exception | None,
+        has_columns: bool,
+        expected_outcome: MeasurementOutcome,
+        expected_cap: int,
     ) -> None:
+        if not has_columns:
+            DataWarehouseSavedQuery.objects.filter(id=self.saved_query.id).update(columns={})
+
         with patch(f"{VIEW_COSTS_MODULE}.execute_hogql_query", side_effect=error):
             outcome = measure_view_cost(self.team.pk, self.saved_query.id, RULES.measurement)
 
