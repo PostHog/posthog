@@ -2309,6 +2309,21 @@ def update_task_run_state(
     return TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
 
 
+def activate_warm_task_run(run_id: str | UUID) -> None:
+    warm_runs = TaskRun.objects.filter(id=run_id, state__await_user_message=True)
+    task_id = warm_runs.values_list("task_id", flat=True).first()
+    if task_id is None:
+        return
+    with transaction.atomic():
+        task = Task.objects.select_for_update().get(id=task_id)
+        run = warm_runs.select_for_update(of=("self",)).select_related("task").first()
+        if run is None:
+            return
+        run.state.pop("await_user_message", None)
+        run.save(update_fields=["state", "updated_at"])
+        task.observe_run_started_beside_live_runs(run)
+
+
 def record_run_failure_cause(run_id: str | UUID, error_type: str) -> None:
     try:
         TaskRun.update_state_atomic(run_id, updates={"failure_error_type": error_type})
@@ -6782,6 +6797,7 @@ def resume_task_run_in_cloud(
         prior_queued_at = run.queued_at
         prior_state = dict(run.state or {})
         run.prepare_for_cloud_resume()
+        task.observe_run_started_beside_live_runs(run)
 
         if restart_dispatch_enabled:
             snapshot = RestartSnapshot(
@@ -8862,12 +8878,14 @@ def _deliver_warm_run_message(
             raise WarmRunActivationUnavailable("delivery_failed")
 
         with transaction.atomic():
+            task = Task.objects.select_for_update().get(id=run.task_id)
             activated_run = eligible_runs.select_for_update(of=("self",)).first()
             if activated_run is None or activated_run.workflow_id != workflow_id:
                 raise WarmRunActivationUnavailable("target_unavailable")
             activated_run.state.pop("await_user_message", None)
             activated_run.state["warm_activated"] = True
             activated_run.save(update_fields=["state", "updated_at"])
+            task.observe_run_started_beside_live_runs(activated_run)
     except WarmRunActivationUnavailable as error:
         log = logger.info if error.retry_token else logger.warning
         log(
