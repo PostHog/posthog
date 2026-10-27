@@ -51,6 +51,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import SourceRegistry, SourceSchema
 from products.warehouse_sources.backend.facade.types import (
     ExternalDataSourceAccessMethod,
@@ -163,7 +164,7 @@ def _set_dynamic_source_auth(source: ExternalDataSource, *, lifecycle_generation
     source.access_method = ExternalDataSourceAccessMethod.DIRECT
     source.direct_query_enabled = True
     source.connection_metadata = _dynamic_source_metadata(lifecycle_generation=lifecycle_generation)
-    source.job_inputs = {}
+    SourceInputsStore.assign(source, {})
     source.deleted = False
     source.deleted_at = None
     source.save(
@@ -265,14 +266,14 @@ def _ensure_managed_source_locked(
         if tombstoned_legacy is not None:
             return _set_dynamic_source_auth(tombstoned_legacy, lifecycle_generation=lifecycle_generation)
 
-    return ExternalDataSource.objects.create(
+    return SourceInputsStore.create(
         source_id=str(uuid4()),
         connection_id=str(uuid4()),
         destination_id=str(uuid4()),
         team_id=team_id,
         status=ExternalDataSourceStatus.RUNNING,
         source_type=ExternalDataSourceType.POSTGRES,
-        job_inputs={},
+        inputs={},
         prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
         description=MANAGED_WAREHOUSE_SOURCE_DESCRIPTION,
         access_method=ExternalDataSourceAccessMethod.DIRECT,
@@ -493,7 +494,7 @@ def _discover_postgres_schemas(
             "password": dynamic_connection.password,
         }
         if dynamic_connection is not None
-        else dict(source.job_inputs or {})
+        else SourceInputsStore.load(source)
     )
     config = source_impl.parse_config(source_config)
     return source_impl.get_schemas(
@@ -557,9 +558,8 @@ def update_managed_warehouse_root_password(*, organization_id: str | UUID, passw
                 MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND,
             }:
                 continue
-            if source.job_inputs != config:
-                source.job_inputs = config
-                source.save(update_fields=["job_inputs", "updated_at"])
+            if SourceInputsStore.load(source) != config:
+                SourceInputsStore.save(source, config)
 
 
 def soft_delete_managed_warehouse_sources(*, organization_id: str | UUID, expected_generation: int) -> None:

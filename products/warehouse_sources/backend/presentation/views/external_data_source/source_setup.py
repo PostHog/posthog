@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -47,6 +49,7 @@ from products.warehouse_sources.backend.facade.models import (
     get_or_create_warehouse_destination,
     sync_old_schemas_with_new_schemas,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.facade.source_management import (
     CDC_SEQ_COLUMN,
     PREVIEW_DEFAULT_ROWS,
@@ -104,7 +107,18 @@ def _payload_enabled_columns(schema: dict[str, Any]) -> list[str] | None:
     return [str(column) for column in payload_enabled_columns if isinstance(column, str)]
 
 
+class ExternalDataSourceListSerializer(serializers.ListSerializer):
+    def to_representation(
+        self, data: models.manager.BaseManager[ExternalDataSource] | Iterable[ExternalDataSource]
+    ) -> list[dict[str, Any]]:
+        sources = list(data.all() if isinstance(data, models.manager.BaseManager) else data)
+        self.child.preloaded_source_inputs = SourceInputsStore.load_many(sources)
+        return super().to_representation(sources)
+
+
 class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    preloaded_source_inputs: dict[UUID, dict[str, Any]] = {}
+
     account_id = serializers.CharField(write_only=True)
     client_secret = serializers.CharField(write_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
@@ -203,6 +217,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
     class Meta:
         model = ExternalDataSource
+        list_serializer_class = ExternalDataSourceListSerializer
         fields = [
             "id",
             "created_at",
@@ -251,11 +266,20 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "connection_warning",
         ]
 
+    def _source_inputs(self, instance: ExternalDataSource) -> dict[str, Any]:
+        if instance.id in self.preloaded_source_inputs:
+            return self.preloaded_source_inputs[instance.id]
+        return SourceInputsStore.load(instance)
+
     def to_representation(self, instance):
         representation = super().to_representation(instance)
 
-        job_inputs = representation.get("job_inputs", {})
-        if not isinstance(job_inputs, dict):
+        if "job_inputs" not in representation:
+            return representation
+        try:
+            job_inputs = self._source_inputs(instance)
+        except UnreadableSourceInputsError:
+            representation["job_inputs"] = {}
             return representation
 
         # Derive allowed keys dynamically from source config field definitions
@@ -398,7 +422,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         else:
             validated_data["prefix"] = instance.prefix
 
-        existing_job_inputs = instance.job_inputs or {}
+        existing_job_inputs = SourceInputsStore.load(instance)
         job_inputs_were_submitted = "job_inputs" in validated_data
         incoming_job_inputs = validated_data.get("job_inputs", {})
 
@@ -680,6 +704,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         if namespaced_adapter is not None and job_inputs_were_submitted:
             old_namespaced_resources = namespaced_adapter.resources_for_job_inputs(existing_job_inputs)
 
+        if "job_inputs" in validated_data:
+            SourceInputsStore.assign(instance, validated_data.pop("job_inputs"))
         updated_source: ExternalDataSource = super().update(instance, validated_data)
         cast(Any, updated_source)._connection_warning = connection_warning
 
@@ -1223,7 +1249,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 return error_response or Response(status=status.HTTP_400_BAD_REQUEST)
             source_config = validated_config
 
-        new_source_model = ExternalDataSource.objects.create(
+        new_source_model = SourceInputsStore.create(
             source_id=str(uuid.uuid4()),
             connection_id=str(uuid.uuid4()),
             destination_id=str(uuid.uuid4()),
@@ -1233,7 +1259,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             status="Running",
             source_type=source_type_model,
             api_version=source.default_version,
-            job_inputs=source.serialize_config(source_config),
+            inputs=source.serialize_config(source_config),
             prefix=prefix,
             description=description,
             access_method=access_method,
@@ -1954,16 +1980,18 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         # Best-effort webhook cleanup — soft-deletes are already committed
         source_type = ExternalDataSourceType(instance.source_type)
         source = base.SourceRegistry.get_source(source_type)
-        if isinstance(source, WebhookSource) and instance.job_inputs:
+        if isinstance(source, WebhookSource):
             try:
-                config = source.parse_config(instance.job_inputs)
-                delete_webhook_and_hog_function(
-                    team=self.team,
-                    source=source,
-                    config=config,
-                    source_id=str(instance.pk),
-                    api_version=source.resolve_api_version(instance.api_version),
-                )
+                source_inputs = SourceInputsStore.load(instance)
+                if source_inputs:
+                    config = source.parse_config(source_inputs)
+                    delete_webhook_and_hog_function(
+                        team=self.team,
+                        source=source,
+                        config=config,
+                        source_id=str(instance.pk),
+                        api_version=source.resolve_api_version(instance.api_version),
+                    )
             except Exception as e:
                 base.capture_exception(e)
 

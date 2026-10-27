@@ -34,6 +34,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT, ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     WORKER_RESTART_ERROR_MESSAGE,
@@ -805,8 +806,9 @@ async def _import_data_with_reporting(
                 source_cursor=source_cursor_manager,
             )
 
+            source_inputs = await SourceInputsStore.aload(model.pipeline)
             try:
-                config = new_source.parse_config(model.pipeline.job_inputs)
+                config = new_source.parse_config(source_inputs)
             except CredentialsServiceFailure as e:
                 # A source whose config carries a PostHog-owned credential resolves it here, so a
                 # failure at this point is ours and not a corrupt `job_inputs`. Route it through the
