@@ -1,7 +1,7 @@
 """Conversations settings update helpers."""
 
 import secrets
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from django.db import transaction
 
@@ -12,6 +12,9 @@ from rest_framework import serializers
 from posthog.api.utils import validate_authorized_url_wildcards
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -120,7 +123,7 @@ def conversations_settings_as_dict(value: object) -> dict[str, Any]:
 
 
 def report_conversations_settings_changes(
-    user: User, before_settings: dict | None, after_settings: dict | None, team: Team
+    request: "Request", before_settings: dict | None, after_settings: dict | None, team: Team
 ) -> None:
     """Fire one "support setting changed" event per changed conversations_settings key.
 
@@ -140,7 +143,7 @@ def report_conversations_settings_changes(
         # Only non-string values are safe to report — the dict holds free text and the widget token.
         if isinstance(new_value, (bool, int, float, type(None))):
             properties["value"] = new_value
-        report_user_action(user, "support setting changed", properties, team=team)
+        report_user_action(cast(User, request.user), "support setting changed", properties, team=team, request=request)
 
 
 def handle_conversations_token_on_update(
