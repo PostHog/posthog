@@ -37,6 +37,7 @@ const HIGHLIGHT_ICONS: Record<string, TodayRowIcon> = {
     rage: { color: 'var(--color-product-session-replay-light)', glyph: <IconRewindPlay /> },
     surveys: { color: 'var(--color-product-surveys-light)', glyph: <IconMessage /> },
     ticket_sla: { color: 'var(--color-product-support-light)', glyph: <IconSupport /> },
+    warehouse_model_suggestions: { color: 'var(--color-product-data-warehouse-light)', glyph: <IconDatabase /> },
     warehouse_syncs: { color: 'var(--color-product-data-warehouse-light)', glyph: <IconDatabase /> },
     workflow_ideas: WORKFLOWS,
     workflows: WORKFLOWS,
