@@ -79,9 +79,10 @@
     },
   },
   packageRules: [
-    // Matches the cooldowns in pnpm-workspace.yaml and pyproject.toml
+    // Matches the cooldowns in pnpm-workspace.yaml and pyproject.toml.
+    // Go modules and GitHub Actions have no package manager cooldown, so this is their only one
     {
-      matchDatasources: ['npm', 'pypi', 'crate'],
+      matchDatasources: ['npm', 'pypi', 'crate', 'go', 'github-tags'],
       matchUpdateTypes: ['major', 'minor', 'patch'],
       minimumReleaseAge: '7 days',
     },
@@ -173,6 +174,14 @@
       matchDepTypes: ['requires-python', 'packageManager'],
       groupName: null,
       automerge: false,
+    },
+    // x/vt pins a pseudo-version that tracks ultraviolet, which bubbletea also pulls in,
+    // so a bubbletea bump without an x/vt bump breaks the phrocs terminal emulator
+    {
+      matchDatasources: ['go'],
+      matchPackageNames: ['charm.land/**', 'github.com/charmbracelet/**'],
+      matchUpdateTypes: ['minor', 'patch', 'digest'],
+      groupName: 'charmbracelet in {{packageFileDir}}',
     },
     {
       matchDepNames: ['chrome-headless-shell'],
