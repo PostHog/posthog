@@ -575,10 +575,7 @@ def _select_alias_conflict(select: ast.SelectQuery, vars_in_context: list[Materi
 
 
 class _AliasConflictFinder(TraversingVisitor):
-    """Walk every SELECT with the same CTE context the transformer uses, so the pre-flight
-    covers each SELECT that gets variable columns: nested JOIN subqueries and UNION legs too."""
-
-    def __init__(self, contexts: dict[Optional[str], list[MaterializableVariable]]):
+    def __init__(self, contexts: dict[Optional[str], list[MaterializableVariable]]) -> None:
         super().__init__()
         self._contexts = contexts
         self._current_cte_name: Optional[str] = None
@@ -607,8 +604,7 @@ def _find_alias_conflict(
     ast_node: ast.SelectQuery | ast.SelectSetQuery, result_vars: list[MaterializableVariable]
 ) -> Optional[str]:
     """Pre-flight equivalent of the transformer's per-context alias-conflict check: group
-    variables by their context and run the shared conflict check on each SELECT the
-    transformer adds columns to.
+    variables by their context and run the shared conflict check on each.
 
     A variable whose code_name collides with a SELECT alias for a different expression
     can't be materialized (the table would need two columns of that name). This is the one

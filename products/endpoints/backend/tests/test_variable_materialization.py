@@ -1090,8 +1090,6 @@ class TestQueryTransformation(APIBaseTest):
         ]
     )
     def test_alias_collision_in_nested_select_rejected_preflight(self, _name, query_str):
-        # The transformer adds variable columns to every nested SELECT in the same context,
-        # so a nested alias for a different expression must fail pre-flight, not at transform.
         query = {
             "kind": "HogQLQuery",
             "query": query_str,
