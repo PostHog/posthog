@@ -10,15 +10,22 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { createAgentSessionMock } = vi.hoisted(() => ({
-  createAgentSessionMock: vi.fn(),
-}));
+const { createAgentSessionMock, createWebAccessExtensionMock } = vi.hoisted(
+  () => ({
+    createAgentSessionMock: vi.fn(),
+    createWebAccessExtensionMock: vi.fn(() => () => {}),
+  }),
+);
 
 vi.mock("@earendil-works/pi-coding-agent", async (importOriginal) => {
   const actual =
     await importOriginal<typeof import("@earendil-works/pi-coding-agent")>();
   return { ...actual, createAgentSession: createAgentSessionMock };
 });
+
+vi.mock("../web-access/extension", () => ({
+  createWebAccessExtension: createWebAccessExtensionMock,
+}));
 
 import type { AgentConfig } from "./agents";
 import type { RunStatus } from "./lifecycle";
@@ -67,12 +74,12 @@ function readTranscript(runId: string): string | undefined {
   }
 }
 
-function makeModel(): Model<Api> {
+function makeModel(provider = "anthropic"): Model<Api> {
   return {
     id: "sonnet",
     name: "Sonnet",
     api: "anthropic-messages",
-    provider: "anthropic",
+    provider,
     baseUrl: "https://api.anthropic.com",
     reasoning: false,
     input: ["text"],
@@ -82,8 +89,12 @@ function makeModel(): Model<Api> {
   } as Model<Api>;
 }
 
-function makeCtx(cwd: string, projectTrusted = false): ExtensionContext {
-  const model = makeModel();
+function makeCtx(
+  cwd: string,
+  projectTrusted = false,
+  provider?: string,
+): ExtensionContext {
+  const model = makeModel(provider);
   return {
     cwd,
     model,
@@ -92,7 +103,10 @@ function makeCtx(cwd: string, projectTrusted = false): ExtensionContext {
     modelRegistry: {
       find: () => model,
       getAll: () => [model],
-      getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "test-key" }),
+      getApiKeyAndHeaders: vi.fn(async () => ({
+        ok: true,
+        apiKey: "test-key",
+      })),
     },
   } as unknown as ExtensionContext;
 }
@@ -115,6 +129,7 @@ describe("runAgent lifecycle persistence", () => {
     );
     process.env.HOME = tmpHome;
     createAgentSessionMock.mockReset();
+    createWebAccessExtensionMock.mockClear();
     createAgentSessionMock.mockResolvedValue({
       session: createFakeSession(),
     });
@@ -200,6 +215,27 @@ describe("runAgent lifecycle persistence", () => {
     const sessionOptions = createAgentSessionMock.mock.calls[0][0];
     expect(sessionOptions.settingsManager.isProjectTrusted()).toBe(false);
   });
+
+  it.each([
+    ["posthog", { "X-PostHog-Task-Run-Id": "run-1" }],
+    ["anthropic", undefined],
+  ])(
+    "gives the child's web tools a %s model's headers only when it is a posthog model",
+    async (provider, expectedHeaders) => {
+      const ctx = makeCtx(tmpHome, false, provider);
+      vi.mocked(ctx.modelRegistry.getApiKeyAndHeaders).mockResolvedValue({
+        ok: true,
+        apiKey: "test-key",
+        headers: { "X-PostHog-Task-Run-Id": "run-1" },
+      });
+
+      await runAgent({ ctx, agent, task: "find it", includeWebAccess: true });
+
+      expect(createWebAccessExtensionMock).toHaveBeenLastCalledWith({
+        headers: expectedHeaders,
+      });
+    },
+  );
 
   it("loads shell and reliability settings for child sessions", async () => {
     fs.mkdirSync(getAgentDir(), { recursive: true });

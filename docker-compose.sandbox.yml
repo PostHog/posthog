@@ -220,7 +220,8 @@ services:
             POSTGRES_DB: posthog
             POSTGRES_PASSWORD: posthog
         healthcheck:
-            test: ['CMD-SHELL', 'pg_isready -U posthog']
+            # TCP, because the entrypoint runs init scripts on a socket-only temporary server.
+            test: ['CMD-SHELL', 'pg_isready -U posthog -h 127.0.0.1']
             interval: 5s
             timeout: 30s
             retries: 30

@@ -62,6 +62,25 @@ NUGET_ENDPOINTS: dict[str, NugetEndpointConfig] = {
             },
         ],
     ),
+    "package_dependencies": NugetEndpointConfig(
+        name="package_dependencies",
+        supports_incremental=False,
+        primary_keys=["package_id", "package_version", "target_framework", "dependency_id"],
+        description=(
+            "One row per dependency of each version of the tracked packages, per target framework, "
+            "flattened from the NuGet registration index"
+        ),
+    ),
+    "vulnerabilities": NugetEndpointConfig(
+        name="vulnerabilities",
+        supports_incremental=False,
+        # One advisory can list several disjoint version ranges for the same package.
+        primary_keys=["package_id", "advisory_url", "affected_versions"],
+        description=(
+            "Known security advisories for the tracked packages from the NuGet vulnerability feed, "
+            "with severity and the affected version range"
+        ),
+    ),
 }
 
 ENDPOINTS = tuple(NUGET_ENDPOINTS.keys())

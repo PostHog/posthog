@@ -566,10 +566,12 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
     @parameterized.expand(
         [
-            # (run told to link, thread has a run, author resolved)
-            ("linking_run", True, True, "U_ACTOR"),
-            ("run_not_told_to_link", False, True, "U00"),
-            ("no_run_in_thread", True, False, "U00"),
+            # (event author, run told to link, thread has a run, author resolved)
+            ("placeholder_linking_run", "U00", True, True, "U_ACTOR"),
+            ("placeholder_run_not_told_to_link", "U00", False, True, "U00"),
+            ("placeholder_no_run_in_thread", "U00", True, False, "U00"),
+            ("our_bot_linking_run", "U_OUR_BOT", True, True, "U_ACTOR"),
+            ("our_bot_no_run_in_thread", "U_OUR_BOT", True, False, "U_OUR_BOT"),
         ]
     )
     @patch("products.slack_app.backend.api.resolve_slack_user")
@@ -577,16 +579,18 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
     def test_bot_reply_link_unfurls_for_the_thread_actor(
         self,
         _name: str,
+        author: str,
         run_links: bool,
         has_run: bool,
         expected_resolved: str,
         mock_slack_integration_class: MagicMock,
         mock_resolve: MagicMock,
     ) -> None:
-        # Slack reports a bot-posted message under a placeholder author that resolves to no PostHog
-        # user, so without this path a chart link in the agent's answer never unfurls. The
-        # attribution stays narrow: a thread whose run was told to share links, and the actor is
-        # the one the run recorded rather than the mapping's stale column.
+        # Slack credits a bot-posted message to our bot user or to a placeholder author, and neither
+        # resolves to a PostHog user, so without this path a chart link in the agent's answer never
+        # unfurls. The attribution stays narrow: a thread whose run was told to share links, and the
+        # actor is the one the run recorded rather than the mapping's stale column.
+        write_auth_state_ok(self.integration.id, bot_user_id="U_OUR_BOT")
         mock_resolve.side_effect = lambda _slack, _integration, uid, *_a, **_k: (
             MagicMock(user=self.user) if uid == "U_ACTOR" else None
         )
@@ -623,7 +627,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 "channel": "C1",
                 "message_ts": "123.456",
                 "thread_ts": "100.000",
-                "user": "U00",
+                "user": author,
                 "links": [{"url": url}],
             },
             self.integration,

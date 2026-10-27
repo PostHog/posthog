@@ -37,7 +37,7 @@ pub(crate) trait Settlement: Send + Sync {
         topic_partition: &TopicPartition,
         generation: u64,
         charges: &[(Offset, Charge)],
-    ) -> Result<Option<Pause>, Rejection>;
+    ) -> Result<Charged, Rejection>;
 
     /// Accepted offsets from one poll's slice of a partition, charged under `generation`.
     fn settle_run(
@@ -45,7 +45,7 @@ pub(crate) trait Settlement: Send + Sync {
         topic_partition: &TopicPartition,
         generation: u64,
         offsets: &[Offset],
-    ) -> anyhow::Result<()>;
+    ) -> anyhow::Result<RunOutcome>;
 
     /// The oldest poll retired with every message accepted.
     fn settle_poll(&self, slices: &[ChargedSlice<'_>]) -> anyhow::Result<()>;
@@ -88,19 +88,42 @@ pub(crate) trait Admission: Send + Sync {
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]);
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RunOutcome {
+    Settled,
+    /// Charged under a generation that a rebalance has since replaced.
+    Stale,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Pause;
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct Charged {
+    pub(crate) uncommitted: Charge,
+    pub(crate) pause: Option<Pause>,
+}
+
 pub(crate) struct Commit {
     pub(crate) offsets: HashMap<TopicPartition, Offset>,
+    pub(crate) uncommitted: HashMap<TopicPartition, Charge>,
     pub(crate) resume: Vec<TopicPartition>,
 }
 
-fn offsets(handed_out: HashMap<TopicPartition, HandedOut>) -> HashMap<TopicPartition, Offset> {
-    handed_out
-        .into_iter()
-        .map(|(topic_partition, handed_out)| (topic_partition, handed_out.offset))
-        .collect()
+impl Commit {
+    fn new(handed_out: HashMap<TopicPartition, HandedOut>, resume: Vec<TopicPartition>) -> Self {
+        let mut offsets = HashMap::with_capacity(handed_out.len());
+        let mut uncommitted = HashMap::with_capacity(handed_out.len());
+        for (topic_partition, handed_out) in handed_out {
+            uncommitted.insert(topic_partition.clone(), handed_out.remaining.charge);
+            offsets.insert(topic_partition, handed_out.offset);
+        }
+        Self {
+            offsets,
+            uncommitted,
+            resume,
+        }
+    }
 }
 
 pub(crate) fn for_granularity(

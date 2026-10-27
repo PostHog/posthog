@@ -5185,7 +5185,16 @@
       INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
       INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_timestamp_min_minmax timestamp_min TYPE minmax GRANULARITY 1,
-      INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1
+      INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1,
+      PROJECTION service_freshness_by_hour
+      (
+          SELECT
+              team_id,
+              time_bucket,
+              service_name,
+              max(arrayMax(timestamp_arr))
+          GROUP BY team_id, time_bucket, service_name
+      )
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics4_samples', '{replica}-{shard}')
   PARTITION BY original_expiry_date
@@ -5193,7 +5202,8 @@
   TTL original_expiry_date
   SETTINGS
       index_granularity = 128,
-      ttl_only_drop_parts = 1
+      ttl_only_drop_parts = 1,
+      deduplicate_merge_projection_mode = 'rebuild'
   
   '''
 # ---
@@ -12887,7 +12897,16 @@
       INDEX idx_time_bucket_minmax time_bucket TYPE minmax GRANULARITY 1,
       INDEX idx_trace_id_bf trace_id_arr TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX idx_timestamp_min_minmax timestamp_min TYPE minmax GRANULARITY 1,
-      INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1
+      INDEX idx_timestamp_max_minmax timestamp_max TYPE minmax GRANULARITY 1,
+      PROJECTION service_freshness_by_hour
+      (
+          SELECT
+              team_id,
+              time_bucket,
+              service_name,
+              max(arrayMax(timestamp_arr))
+          GROUP BY team_id, time_bucket, service_name
+      )
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.metrics4_samples', '{replica}-{shard}')
   PARTITION BY original_expiry_date
@@ -12895,7 +12914,8 @@
   TTL original_expiry_date
   SETTINGS
       index_granularity = 128,
-      ttl_only_drop_parts = 1
+      ttl_only_drop_parts = 1,
+      deduplicate_merge_projection_mode = 'rebuild'
   
   '''
 # ---
