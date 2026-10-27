@@ -616,6 +616,11 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert any(note["step_id"] == "cio_7" and "content" in note["message"] for note in result["notes"])
         assert all(call.kwargs["headers"]["Authorization"] == "Bearer k" for call in mock_get.call_args_list)
 
+        HogFlow.objects.filter(pk=result["workflow_id"]).update(status="active")
+        mock_get.reset_mock()
+        assert self._post(body).json()["results"][0]["status"] == "skipped"
+        assert not mock_get.called
+
     @patch("products.workflows.backend.services.customerio_import.app_api.time.sleep")
     @patch("products.workflows.backend.services.customerio_import.app_api.requests.Session.get")
     def test_rejected_key_still_imports_and_says_why(self, mock_get: MagicMock, _sleep: MagicMock) -> None:
