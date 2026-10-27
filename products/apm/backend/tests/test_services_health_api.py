@@ -173,6 +173,13 @@ class TestServicesHealthAPI(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/apm/services/")
         self.assertEqual(response.status_code, 403)
 
+    def test_flag_is_evaluated_for_the_requesting_user(self) -> None:
+        with patch(FLAG_PATCH, return_value=False) as is_apm_enabled:
+            self.client.get(f"/api/projects/{self.team.id}/apm/services/")
+        is_apm_enabled.assert_called_once_with(
+            self.team.pk, distinct_id=str(self.user.distinct_id), email=self.user.email
+        )
+
     def test_unauthenticated_is_rejected(self) -> None:
         self.client.logout()
         response = self.client.get(f"/api/projects/{self.team.id}/apm/services/")

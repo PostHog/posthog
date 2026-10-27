@@ -7,6 +7,7 @@ return serialized responses. No business logic here.
 
 from dataclasses import asdict
 from datetime import timedelta
+from typing import cast
 
 from django.utils import timezone
 
@@ -20,6 +21,7 @@ from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.models.user import User
 
 from products.apm.backend.facade.api import is_apm_enabled, list_services_health
 from products.apm.backend.presentation.serializers import (
@@ -42,7 +44,8 @@ class ServicesHealthViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "tracing"
 
     def _check_flag(self) -> None:
-        if not is_apm_enabled(self.team.pk):
+        user = cast(User, self.request.user)
+        if not is_apm_enabled(self.team.pk, distinct_id=str(user.distinct_id), email=user.email):
             raise PermissionDenied("Application observability is not enabled for this project.")
 
     @extend_schema(parameters=[ServicesHealthRequestSerializer], responses={200: ServicesHealthResponseSerializer})
