@@ -727,7 +727,7 @@ class TestEmail(BaseTest):
         accepted = MagicMock(status_code=202, json=MagicMock(return_value={"message_id": "m1"}))
         mock_post.side_effect = [accepted, accepted]
         original_save = MessagingRecord.save
-        failed = []
+        failed: list[MessagingRecord] = []
 
         def lose_connection_on_first_sent_mark(record: MessagingRecord, *args: Any, **kwargs: Any) -> None:
             if record.sent_at and not failed:
