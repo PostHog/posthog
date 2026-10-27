@@ -97,7 +97,9 @@ class TestEventsReceived(BaseTest):
         )
         ExperimentToSavedMetric.objects.create(experiment=experiment, saved_metric=shared, metadata={"type": "primary"})
 
-        health = get_experiment_health(team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES)
+        health = get_experiment_health(
+            team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES, user=self.user
+        )
 
         findings = {finding.code: finding for finding in health.findings}
         metric = findings[Code.METRIC_EVENT_NOT_INGESTED]
@@ -140,7 +142,9 @@ class TestEventsReceived(BaseTest):
             },
         )
 
-        health = get_experiment_health(team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES)
+        health = get_experiment_health(
+            team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES, user=self.user
+        )
 
         self.assertNotIn(Code.EXPOSURE_CRITERIA_CANNOT_MATCH, {finding.code for finding in health.findings})
 
@@ -149,7 +153,7 @@ class TestEventsReceived(BaseTest):
         experiment = Experiment.objects.create(team=self.team, name="Checkout", feature_flag=flag)
 
         query_counts = []
-        for number in range(3):
+        for number in range(4):
             shared = ExperimentSavedMetric.objects.create(
                 team=self.team,
                 name=f"Shared {number}",
@@ -160,7 +164,11 @@ class TestEventsReceived(BaseTest):
                 experiment=experiment, saved_metric=shared, metadata={"type": "primary"}
             )
             with CaptureQueriesContext(connection) as queries:
-                get_experiment_health(team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES)
+                get_experiment_health(
+                    team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES, user=self.user
+                )
             query_counts.append(len(queries))
 
-        self.assertEqual(len(set(query_counts)), 1, query_counts)
+        # The first compile builds HogQL's database, which reads instance settings that the process caches and
+        # writes the team's revenue analytics settings row once.
+        self.assertEqual(len(set(query_counts[1:])), 1, query_counts)

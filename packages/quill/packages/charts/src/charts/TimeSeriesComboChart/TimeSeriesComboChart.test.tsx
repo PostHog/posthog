@@ -290,8 +290,6 @@ describe('TimeSeriesComboChart', () => {
             expect(tooltip.seriesData.map((s) => s.series.key).sort()).toEqual(['bar', 'line'])
         })
 
-        // `nativeTooltip` lets the chart render its own DefaultTooltip from config (the harness's
-        // default tooltip-prop interception would otherwise bypass the config formatters).
         it('formats the built-in tooltip rows with config.tooltip.valueFormatter', async () => {
             const { chart } = renderChart(
                 <TimeSeriesComboChart
@@ -299,8 +297,7 @@ describe('TimeSeriesComboChart', () => {
                     labels={LABELS}
                     theme={THEME}
                     config={{ tooltip: { valueFormatter: (v) => `$${v}` } }}
-                />,
-                { nativeTooltip: true }
+                />
             )
             chart.hoverAtIndex(1)
             const tooltip = await waitForChartTooltip()
@@ -314,8 +311,7 @@ describe('TimeSeriesComboChart', () => {
                     labels={LABELS}
                     theme={THEME}
                     config={{ tooltip: { showTotal: true, totalLabel: 'Sum' } }}
-                />,
-                { nativeTooltip: true }
+                />
             )
             chart.hoverAtIndex(1)
             const tooltip = await waitForChartTooltip()

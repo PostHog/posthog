@@ -50,7 +50,7 @@ from django.utils.http import content_disposition_header
 import posthoganalytics
 from rest_framework.exceptions import ValidationError
 
-from posthog.api.tagged_item import cleanup_orphan_tags, set_tags_on_object
+from posthog.api.tagged_item import replace_tags_on_object
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
@@ -3807,8 +3807,7 @@ def set_task_run_summary(
     with transaction.atomic():
         run.state = TaskRun.update_state_atomic(run.id, updates=updates)
         if tags is not None and not run.task.is_scout_experiment:
-            set_tags_on_object(tags, run.task)
-            cleanup_orphan_tags(run.team_id)
+            replace_tags_on_object(tags, run.task)
     run.refresh_from_db()
     run.publish_stream_state_event()
     return _task_run_detail_to_dto(

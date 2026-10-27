@@ -2580,7 +2580,6 @@ export const EmailDraftOriginEnumApi = {
 } as const
 
 /**
- * * `flag_off` - AI drafts are not enabled for this project
  * * `ai_not_approved` - The organization has not approved AI data processing
  * * `gateway_unconfigured` - The AI gateway is not configured
  * * `rate_limited` - The project used its hourly AI drafts
@@ -2592,7 +2591,6 @@ export type EmailDraftFallbackReasonEnumApi =
     (typeof EmailDraftFallbackReasonEnumApi)[keyof typeof EmailDraftFallbackReasonEnumApi]
 
 export const EmailDraftFallbackReasonEnumApi = {
-    FlagOff: 'flag_off',
     AiNotApproved: 'ai_not_approved',
     GatewayUnconfigured: 'gateway_unconfigured',
     RateLimited: 'rate_limited',
@@ -2617,7 +2615,6 @@ export interface EmailDraftApi {
     generated_by: EmailDraftOriginEnumApi
     /** Why the template was used instead of a model draft. Null for a model draft.
      *
-     * * `flag_off` - AI drafts are not enabled for this project
      * * `ai_not_approved` - The organization has not approved AI data processing
      * * `gateway_unconfigured` - The AI gateway is not configured
      * * `rate_limited` - The project used its hourly AI drafts
