@@ -221,6 +221,7 @@ rules:
                               |ExternalDataSchemaOOMEvent
                               |ExternalDataSource
                               |ExternalDataSourceDestination
+                              |ExternalDataSourceInputsBackup
                               |FeatureFlag
                               |FeatureRequest
                               |FeatureRequestAccountLink
@@ -707,6 +708,7 @@ rules:
                         |ExternalDataSchema
                         |ExternalDataSchemaOOMEvent
                         |ExternalDataSource
+                        |ExternalDataSourceInputsBackup
                         |FeatureFlag
                         |FeatureRequest
                         |FeatureRequestAccountLink

@@ -15,8 +15,17 @@ from prometheus_client import REGISTRY
 
 from posthog.models.integration import Integration
 
+from products.warehouse_sources.backend.facade.contracts import (
+    CONNECTION_FIELDS_STRIPPED_KEY,
+    SourceCredentialsMissingError,
+)
 from products.warehouse_sources.backend.logic.source_credentials import WarehouseSourceCredentialsStore
-from products.warehouse_sources.backend.logic.source_credentials_rollout import DUAL_WRITE_FLAG, READ_FLAG, reset_caches
+from products.warehouse_sources.backend.logic.source_credentials_rollout import (
+    DUAL_WRITE_FLAG,
+    READ_FLAG,
+    STRIP_FLAG,
+    reset_caches,
+)
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports import schema_flags
@@ -483,3 +492,147 @@ def _read_count(result: str) -> float:
         "posthog_warehouse_source_credentials_read_total",
         {"result": result, "source_type": ExternalDataSourceType.POSTGRES.value},
     )
+
+
+STORED_POSTGRES_SETTINGS_AND_RUNTIME: dict[str, str] = {
+    key: value for key, value in STORED_POSTGRES_INPUTS.items() if key not in POSTGRES_CONNECTION_FIELDS
+}
+STRIPPED_AT = "2026-01-01T00:00:00+00:00"
+
+
+class TestSourceInputsStoreStripped(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        reset_caches()
+        self.addCleanup(reset_caches)
+
+    def _flags(self, *enabled: str) -> Any:
+        return patch.object(
+            schema_flags.posthoganalytics, "feature_enabled", side_effect=lambda flag, *args, **kwargs: flag in enabled
+        )
+
+    def _create(self) -> ExternalDataSource:
+        return SourceInputsStore.create(
+            inputs=STORED_POSTGRES_INPUTS,
+            team_id=self.team.pk,
+            source_id="source",
+            connection_id="connection",
+            status="Running",
+            source_type=ExternalDataSourceType.POSTGRES,
+        )
+
+    def _stripped_source(self) -> ExternalDataSource:
+        with self._flags(DUAL_WRITE_FLAG):
+            source = self._create()
+        SourceInputsStore.write_stripped(source, stripped_at=STRIPPED_AT)
+        reset_caches()
+        return ExternalDataSource.objects.get(pk=source.pk)
+
+    def _stored(self, source: ExternalDataSource) -> dict[str, Any]:
+        return SourceInputsStore.load_stored(ExternalDataSource.objects.get(pk=source.pk))
+
+    def _loads(self, source: ExternalDataSource) -> list[Callable[[], dict[str, Any]]]:
+        return [
+            lambda: SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk)),
+            lambda: SourceInputsStore.load_many([ExternalDataSource.objects.get(pk=source.pk)])[source.id],
+        ]
+
+    @parameterized.expand(
+        [("no_flags", ()), ("dual_write_only", (DUAL_WRITE_FLAG,)), ("all_flags", (DUAL_WRITE_FLAG, READ_FLAG))]
+    )
+    def test_stripped_source_loads_connection_fields_from_the_integration_whatever_the_flags(
+        self, _name: str, flags: tuple[str, ...]
+    ) -> None:
+        source = self._stripped_source()
+        assert self._stored(source) == {
+            **STORED_POSTGRES_SETTINGS_AND_RUNTIME,
+            CONNECTION_FIELDS_STRIPPED_KEY: STRIPPED_AT,
+        }
+
+        with self._flags(*flags):
+            for load in self._loads(source):
+                assert load() == STORED_POSTGRES_INPUTS
+            assert SourceInputsStore.load_settings(ExternalDataSource.objects.get(pk=source.pk)) == (
+                STORED_POSTGRES_SETTINGS_AND_RUNTIME
+            )
+
+    @parameterized.expand(
+        [
+            ("missing_row", lambda rows: rows.delete(), "stripped_missing"),
+            ("unreadable_row", lambda rows: rows.update(sensitive_config={}), "stripped_unreadable"),
+        ]
+    )
+    def test_stripped_source_without_a_readable_row_raises_and_never_falls_back(
+        self, _name: str, change_rows: Callable[[Any], Any], expected_result: str
+    ) -> None:
+        source = self._stripped_source()
+        change_rows(Integration.objects.filter(team_id=self.team.pk, kind="warehouse-source"))
+        before = _read_count(expected_result)
+
+        with self._flags(DUAL_WRITE_FLAG, READ_FLAG):
+            with self.assertRaises(SourceCredentialsMissingError):
+                SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk))
+            assert SourceInputsStore.load_many([ExternalDataSource.objects.get(pk=source.pk)]) == {}
+
+        assert _read_count(expected_result) - before == 2
+
+    @parameterized.expand(
+        [
+            ("save", lambda source, inputs: SourceInputsStore.save(source, inputs)),
+            (
+                "assign_then_model_save",
+                lambda source, inputs: (SourceInputsStore.assign(source, inputs), source.save()),
+            ),
+        ]
+    )
+    def test_writes_to_a_stripped_source_put_connection_fields_only_in_the_integration(
+        self, _name: str, write: Callable[[ExternalDataSource, dict[str, Any]], Any]
+    ) -> None:
+        source = self._stripped_source()
+
+        with self._flags():
+            inputs = SourceInputsStore.load(source)
+            write(source, {**inputs, "password": "fake-rotated", "schema": "analytics"})
+            SourceInputsStore.update_runtime(source, {"cdc_slot_name": "fake-new-slot"})
+
+        assert self._stored(source) == {
+            **STORED_POSTGRES_SETTINGS_AND_RUNTIME,
+            "schema": "analytics",
+            "cdc_slot_name": "fake-new-slot",
+            CONNECTION_FIELDS_STRIPPED_KEY: STRIPPED_AT,
+        }
+        assert WarehouseSourceCredentialsStore.get(source) == {**POSTGRES_CONNECTION_FIELDS, "password": "fake-rotated"}
+
+    def test_a_failed_integration_write_fails_the_save_of_a_stripped_source(self) -> None:
+        source = self._stripped_source()
+
+        with (
+            self._flags(),
+            patch.object(WarehouseSourceCredentialsStore, "upsert", side_effect=RuntimeError("store down")),
+            self.assertRaises(RuntimeError),
+        ):
+            SourceInputsStore.save(source, {**STORED_POSTGRES_INPUTS, "schema": "analytics"})
+
+        assert self._stored(source) == {
+            **STORED_POSTGRES_SETTINGS_AND_RUNTIME,
+            CONNECTION_FIELDS_STRIPPED_KEY: STRIPPED_AT,
+        }
+
+    @parameterized.expand(
+        [
+            ("strip_flag_on", (DUAL_WRITE_FLAG, READ_FLAG, STRIP_FLAG), True),
+            ("strip_flag_without_read_flag", (DUAL_WRITE_FLAG, STRIP_FLAG), False),
+            ("read_flags_only", (DUAL_WRITE_FLAG, READ_FLAG), False),
+        ]
+    )
+    def test_create_strips_a_new_source_only_with_the_strip_and_read_flags(
+        self, _name: str, flags: tuple[str, ...], expect_stripped: bool
+    ) -> None:
+        with self._flags(*flags):
+            source = self._create()
+            assert SourceInputsStore.load(ExternalDataSource.objects.get(pk=source.pk)) == STORED_POSTGRES_INPUTS
+
+        stored = self._stored(source)
+        assert SourceInputsStore.is_stripped(ExternalDataSource.objects.get(pk=source.pk)) is expect_stripped
+        assert ("password" in stored) is not expect_stripped
+        assert WarehouseSourceCredentialsStore.get(source) == POSTGRES_CONNECTION_FIELDS

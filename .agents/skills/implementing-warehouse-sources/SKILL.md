@@ -430,6 +430,18 @@ PostHog stores the connection fields of one source in one `Integration` row of t
 - In async code, use `aload`. A call to `load` in an event loop thread cannot read the row and returns `job_inputs`.
 - A loop that calls `load` once per table of a source adds one row query per call. Call `SourceInputsStore.preload(sources)` first: it fetches the rows in one query, and later `load` calls on the same instances reuse them until a write through the store.
 
+#### Stripped sources
+
+An operator command strips each source after its row is verified. The command removes the connection fields from `job_inputs` and sets the store key `connection_fields_stripped_at`. When the team has the `warehouse-source-credentials-strip` flag and both earlier flags, a new source is stripped when it is created.
+
+- On a stripped source, `job_inputs` on the model holds only sync settings and runtime keys. The row is the only copy of the credentials. Never write a connection field to `job_inputs` yourself.
+- `load`, `aload` and `load_many` merge the row and `job_inputs` for a stripped source, whatever the flags are. The result never holds the marker key.
+- If the row is missing or cannot be read, `load` raises `SourceCredentialsMissingError`, a subclass of `UnreadableSourceInputsError`. It does not fall back to `job_inputs`. `load_many` leaves the source out of its result.
+- The sync maps this error to a non-retryable error that tells the user to enter the credentials again or reconnect the account. Do not catch it in source code, and do not retry it.
+- `save`, `asave`, `assign` and `create` write the connection fields of a stripped source only to the row. If that write fails, the call raises before `job_inputs` changes.
+- `update_runtime` keeps the marker. Write runtime keys only with `update_runtime`.
+- A stripped source in async code must use `aload`. A call to `load` in an event loop thread raises, because it cannot read the row and `job_inputs` has no copy.
+
 ## Implementing `source_for_pipeline`
 
 Return a `SourceResponse` directly. **Do not** use `dlt_source_to_source_response` for new sources — DLT is being removed.

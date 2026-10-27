@@ -8,6 +8,7 @@ from products.warehouse_sources.backend.logic.source_credentials_sync import (
     CREATED,
     SKIPPED_UNKNOWN_TYPE,
     SKIPPED_UNREADABLE,
+    STRIPPED_ROW_MISSING,
     UPDATED,
     backfill_source_credentials,
     reconcile_orphan_credentials,
@@ -64,7 +65,7 @@ class Command(BaseCommand):
         not_clean = sum(
             count
             for (_, outcome), count in counts.items()
-            if outcome in (CREATED, UPDATED, SKIPPED_UNREADABLE, SKIPPED_UNKNOWN_TYPE)
+            if outcome in (CREATED, UPDATED, SKIPPED_UNREADABLE, SKIPPED_UNKNOWN_TYPE, STRIPPED_ROW_MISSING)
         )
         if not_clean:
             raise CommandError(
