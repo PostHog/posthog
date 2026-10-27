@@ -267,11 +267,6 @@ export class HogInputsService {
             if (integration.kind === 'posthog') {
                 return null
             }
-            // A `warehouse-source` row holds the connection fields (passwords, keys) of a data warehouse
-            // source. PostHog manages it and no function may read it.
-            if (integration.kind === 'warehouse-source') {
-                return null
-            }
             return {
                 $integration_id: integration.id,
                 ...integration.config,
