@@ -78,6 +78,7 @@ Each sync polls every location once. To accumulate a history of point-in-time sn
                     ),
                     SourceFieldInputConfig(
                         name="locations",
+                        sync_setting=True,
                         label="Locations",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,
