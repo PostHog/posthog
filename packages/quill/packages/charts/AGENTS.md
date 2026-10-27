@@ -105,7 +105,7 @@ Charts fill their container and need a parent with real dimensions — a zero-he
 
 ## Testing
 
-Import helpers from `@posthog/quill-charts/testing` (jsdom only): `getChart` reads rendered overlays through stable `data-attr` hooks, `renderChart` adds tooltip-context capture for library tests, `hoverAtIndex` / `clickAtIndex` / `hoverUntilTooltip` / `dragSelection` drive gestures, and `createDefaultTooltipAccessor` reads the built-in tooltip. The `data-attr` selectors are a public contract. [docs/TESTING.md](./src/docs/TESTING.md)
+Import helpers from `@posthog/quill-charts/testing` (jsdom only): `setupChartTests()` sets up a test file, `findChart()` waits for the chart and returns an accessor over its stable `data-attr` hooks, and `chart.hoverTooltip(i)` reads the tooltip at a label. `renderChart` adds tooltip-context capture for library tests. The `data-attr` selectors are a public contract. [docs/TESTING.md](./src/docs/TESTING.md)
 
 ## Docs index
 

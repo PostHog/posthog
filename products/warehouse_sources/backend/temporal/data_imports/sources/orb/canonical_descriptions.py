@@ -108,4 +108,81 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "archived_at": "The time the coupon was archived, if it has been.",
         },
     },
+    "Prices": {
+        "description": "Prices created through Orb's price creation endpoint (e.g. add-on prices). "
+        "Prices defined inside a plan are not listed here; they are in the `prices` column of the plans table. "
+        "Full refresh only, because the list endpoint exposes no server-side timestamp filter.",
+        "docs_url": "https://docs.withorb.com/api-reference/price/list-prices",
+        "columns": {
+            "id": "The Orb-assigned unique identifier for the price.",
+            "external_price_id": "Your own alias for the price.",
+            "name": "The name of the price.",
+            "model_type": "The pricing model (e.g. unit, tiered, bulk, package, matrix).",
+            "price_type": "Whether the price is a usage price, a fixed price or a composite price.",
+            "cadence": "How often the price is billed (one_time, monthly, quarterly, semi_annual, annual or custom).",
+            "billing_mode": "Whether the price is billed in advance or in arrears.",
+            "currency": "The currency of the price.",
+            "billable_metric": "The billable metric that usage prices are computed from, if any.",
+            "item": "The item this price sells.",
+            "fixed_price_quantity": "The quantity of a fixed price that is billed.",
+            "plan_phase_order": "The order of the plan phase that the price belongs to, if any.",
+            "replaces_price_id": "The price that this price replaces in plan version migrations.",
+            "metadata": "User-defined key/value pairs attached to the price.",
+            "created_at": "The time at which the price was created.",
+        },
+    },
+    "BillableMetrics": {
+        "description": "Billable metrics: the usage queries that usage-based prices are computed from. "
+        "Full refresh only, because metric objects carry no timestamp to track.",
+        "docs_url": "https://docs.withorb.com/api-reference/metric/list-metrics",
+        "columns": {
+            "id": "The Orb-assigned unique identifier for the billable metric.",
+            "name": "The name of the billable metric.",
+            "description": "A description of the billable metric.",
+            "status": "The status of the metric: active, draft or archived.",
+            "sql": "The SQL definition of the metric.",
+            "item": "The item that the metric is associated with.",
+            "metadata": "User-defined key/value pairs attached to the metric.",
+        },
+    },
+    "CreditLedgerEntries": {
+        "description": "The prepaid credit ledger for each customer: every increment, decrement, expiry, void and "
+        "amendment that changed a credit balance. Synced per customer as a full refresh.",
+        "docs_url": "https://docs.withorb.com/api-reference/credit/fetch-customer-credits-ledger",
+        "columns": {
+            "id": "The Orb-assigned unique identifier for the ledger entry.",
+            "customer_id": "The Orb ID of the customer that owns the ledger entry.",
+            "customer": "The customer that owns the ledger entry.",
+            "entry_type": "The kind of change: increment, decrement, expiration_change, credit_block_expiry, "
+            "void, void_initiated or amendment.",
+            "entry_status": "Whether the entry is committed or pending.",
+            "amount": "The number of credits that the entry changes.",
+            "starting_balance": "The customer's credit balance before the entry.",
+            "ending_balance": "The customer's credit balance after the entry.",
+            "currency": "The currency or custom pricing unit of the ledger.",
+            "credit_block": "The credit block that the entry affects.",
+            "ledger_sequence_number": "The position of the entry in the customer's ledger.",
+            "description": "An optional description of the entry.",
+            "metadata": "User-defined key/value pairs attached to the entry.",
+            "created_at": "The time at which the entry was added to the ledger.",
+        },
+    },
+    "BalanceTransactions": {
+        "description": "Changes to each customer's account balance, such as balance applied to invoices, "
+        "credit notes and manual adjustments. Synced per customer as a full refresh.",
+        "docs_url": "https://docs.withorb.com/api-reference/customer/list-balance-transactions",
+        "columns": {
+            "id": "A unique ID for the transaction.",
+            "customer_id": "The Orb ID of the customer whose balance changed.",
+            "action": "The reason for the change (e.g. applied_to_invoice, manual_adjustment, credit_note_applied).",
+            "type": "Whether the transaction increments or decrements the balance.",
+            "amount": "The amount by which the balance changed.",
+            "starting_balance": "The customer's balance before the transaction, in the customer's currency.",
+            "ending_balance": "The customer's balance after the transaction, in the customer's currency.",
+            "invoice": "The invoice that the transaction relates to, if any.",
+            "credit_note": "The credit note that the transaction relates to, if any.",
+            "description": "An optional description for manual balance adjustments.",
+            "created_at": "The creation time of the transaction.",
+        },
+    },
 }

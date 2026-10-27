@@ -9,6 +9,7 @@ from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, 
 from posthog.temporal.health_checks.models import HealthCheckResult
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
@@ -81,8 +82,6 @@ class WebhookSubscriptionStaleCheck(HealthCheck):
         sources: dict[str, ExternalDataSource] = {}
         for schema in stale_schemas:
             source = schema.source
-            if source is None or not source.job_inputs:
-                continue
             schemas_by_source.setdefault(str(source.pk), []).append(schema)
             sources[str(source.pk)] = source
 
@@ -108,7 +107,10 @@ class WebhookSubscriptionStaleCheck(HealthCheck):
 
             webhook_url = get_webhook_url(hog_function.id)
             try:
-                config = source_impl.parse_config(source.job_inputs)
+                inputs = SourceInputsStore.load(source)
+                if not inputs:
+                    continue
+                config = source_impl.parse_config(inputs)
                 api_version = source_impl.resolve_api_version(source.api_version)
                 external = source_impl.get_external_webhook_info(
                     config, webhook_url, source.team_id, api_version=api_version

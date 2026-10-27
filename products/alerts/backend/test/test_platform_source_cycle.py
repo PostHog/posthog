@@ -20,7 +20,7 @@ from posthog.models.scoping import team_scope
 from posthog.redis import get_client
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.utils import AlertEvaluationResult, RenderedInsightChart, next_check_time
-from posthog.temporal.alerts.admission import inflight_alert_ids, release_evaluation_slot
+from posthog.temporal.alerts.admission import admit_evaluation_slots, inflight_alert_ids, release_evaluation_slot
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
@@ -33,15 +33,22 @@ from products.alerts.backend.judge.contract import (
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.platform_alert_wording import insight_alert_url
+from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
 from products.alerts.backend.platform_source_cycle import (
     CAPACITY_REJECTED,
+    CHART_RENDER_INFLIGHT_KEY,
     INFLIGHT_KEY,
     MAX_BREACH_CHARS,
     MAX_DETECTOR_POINTS,
     MAX_RATIONALE_CHARS,
+    QUERY_ID_PREFIX,
+    ChartRenderPoolFull,
     evaluate_insight_check,
+    fail_insight_check,
     plan_insight_batch,
     readmit_retried_check,
+    render_firing_chart,
+    stop_insight_queries,
 )
 from products.alerts.backend.temporal.platform_evaluate import (
     AdmittedInsightCheck,
@@ -71,8 +78,8 @@ CUTOFF = datetime(2026, 9, 16, 10, tzinfo=UTC)
 class TestPlatformInsightEvaluation(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        get_client().delete(INFLIGHT_KEY)
-        self.addCleanup(get_client().delete, INFLIGHT_KEY)
+        get_client().delete(INFLIGHT_KEY, CHART_RENDER_INFLIGHT_KEY)
+        self.addCleanup(get_client().delete, INFLIGHT_KEY, CHART_RENDER_INFLIGHT_KEY)
         self.organization.available_product_features = [
             {"key": AvailableFeature.HIGH_FREQUENCY_ALERTS, "name": "High-frequency alerts"},
             {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"},
@@ -196,13 +203,11 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("source_owned", "source", {}),
-            ("platform_owned", "platform", {"insight_chart_asset_id": 7, "insight_chart_render_user_id": 3}),
+            ("source_owned", "source", False),
+            ("platform_owned", "platform", True),
         ]
     )
-    def test_a_firing_records_what_production_sends_beside_it(
-        self, _name: str, owner: str, chart: dict[str, Any]
-    ) -> None:
+    def test_a_firing_records_what_production_sends_beside_it(self, _name: str, owner: str, wants_chart: bool) -> None:
         alert = self._alert()
         configuration = self._copy(alert, owner=owner)
         expected = {
@@ -210,21 +215,37 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "insight_name": alert.insight.name,
             "insight_short_id": alert.insight.short_id,
             "alert_id": str(alert.id),
-            **chart,
+            **({CHART_PENDING_KEY: str(alert.id)} if wants_chart else {}),
         }
 
-        with patch(
-            f"{_MODULE}.render_alert_insight_chart",
-            return_value=RenderedInsightChart(asset_id=7, render_user_id=3),
-        ) as render:
+        with patch(f"{_MODULE}.render_alert_insight_chart") as render:
             outcome, _ = self._evaluate(
                 configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"])
             )
 
         assert outcome is not None
         assert outcome.groups[0].source_detail == expected
-        # A render costs up to a minute and a half, so the parallel run must never pay for one.
-        assert render.called is (owner == "platform")
+        # A render takes up to a minute and a half, so it never runs while the check holds its pool slot.
+        render.assert_not_called()
+
+    @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS=1)
+    def test_a_chart_render_holds_a_render_slot_only_while_it_runs(self) -> None:
+        alert = self._alert()
+        held_until = time.time() + 60
+
+        with patch(
+            f"{_MODULE}.render_alert_insight_chart", return_value=RenderedInsightChart(asset_id=7, render_user_id=3)
+        ) as render:
+            # Back to back on a pool of one, so the second render needs the slot the first gave back.
+            for _ in range(2):
+                assert render_firing_chart(self.team.id, str(alert.id), held_until=held_until) == RenderedChart(
+                    asset_id=7, render_user_id=3
+                )
+            admit_evaluation_slots(["another-render"], limit=1, expires_at=held_until, key=CHART_RENDER_INFLIGHT_KEY)
+            with pytest.raises(ChartRenderPoolFull):
+                render_firing_chart(self.team.id, str(alert.id), held_until=held_until)
+
+        assert render.call_count == 2
 
     @parameterized.expand(
         [
@@ -347,6 +368,10 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             ("hourly_quiet_hours", AlertCalculationInterval.HOURLY, 60, None, ("16:00", "17:00"), None),
             ("daily_quiet_hours", AlertCalculationInterval.DAILY, 60 * 24, "day", ("00:30", "02:00"), None),
             ("hourly_start_time", AlertCalculationInterval.HOURLY, 60, None, None, "09:20"),
+            # Real time steps from the previous due time, seconds and all, rather than from a grid.
+            ("real_time", AlertCalculationInterval.REAL_TIME, 2, None, None, None, timedelta(seconds=90)),
+            ("real_time_quiet_hours", AlertCalculationInterval.REAL_TIME, 2, None, ("15:31", "16:30"), None),
+            ("real_time_start_time", AlertCalculationInterval.REAL_TIME, 2, None, None, "09:20", timedelta(seconds=90)),
         ]
     )
     def test_a_copy_is_next_due_when_the_production_alert_is(
@@ -357,13 +382,17 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         unit: str | None,
         quiet: tuple[str, str] | None,
         start_time: str | None,
+        overdue: timedelta = timedelta(minutes=1),
     ) -> None:
         # A half-hour timezone, where the local hour starts at :30 UTC.
         self.team.timezone = "Asia/Kolkata"
         self.team.save()
         restriction = {"blocked_windows": [{"start": quiet[0], "end": quiet[1]}]} if quiet else None
         alert = self._alert(
-            calculation_interval=interval, schedule_restriction=restriction, schedule_start_time=start_time
+            calculation_interval=interval,
+            schedule_restriction=restriction,
+            schedule_start_time=start_time,
+            next_check_at=CUTOFF - overdue,
         )
         configuration = self._copy(
             alert,
@@ -371,6 +400,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             recurrence_unit=unit,
             schedule_restriction=restriction,
             anchor_time=start_time,
+            next_check_at=CUTOFF - overdue,
         )
 
         with time_machine.travel(CUTOFF, tick=False):
@@ -566,6 +596,63 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         )
         # History shows this reason by its code, as it does for the alert's own checks.
         assert outcome.failure.source_detail["error_code"] == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE
+
+    @parameterized.expand(
+        [
+            ("enabled", True, None, (AlertEventKind.ERRORED, "errored", "activity timed out", False, 1)),
+            # The raw transport error is not the owner's configuration.
+            (
+                "judge_unreachable",
+                True,
+                "LLMDetectorUnavailableError",
+                (AlertEventKind.ERRORED, "errored", LLM_DETECTOR_UNAVAILABLE_MESSAGE, False, 1),
+            ),
+            # As production: switching an alert off mid-check is not a failure of the alert.
+            ("switched_off", False, None, None),
+        ]
+    )
+    def test_a_check_whose_every_attempt_failed_records_an_error(
+        self,
+        _name: str,
+        enabled: bool,
+        error_type: str | None,
+        expected: tuple[AlertEventKind, str, str, bool, int] | None,
+    ) -> None:
+        configuration = self._copy(self._alert(enabled=enabled), owner=PlatformAlertOwner.PLATFORM)
+
+        evaluation = fail_insight_check(
+            self.team.id,
+            slot_of(configuration.next_check_at, CUTOFF),
+            CUTOFF,
+            str(configuration.id),
+            error_message="activity timed out",
+            error_type=error_type,
+        )
+
+        actual = None
+        if evaluation is not None:
+            (outcome,) = evaluation.outcomes
+            assert outcome.failure is not None
+            actual = (
+                outcome.failure.kind,
+                outcome.failure.new_state,
+                outcome.error_message,
+                outcome.disable,
+                len(evaluation.deliveries),
+            )
+        assert actual == expected
+
+    def test_a_failed_checks_queries_are_stopped_even_when_one_stop_fails(self) -> None:
+        with patch(
+            "posthog.clickhouse.cancel.cancel_query_on_cluster", side_effect=[TimeoutError("socket timed out"), None]
+        ) as cancel:
+            stop_insight_queries(self.team.id, "configuration", ("run:1:1", "run:1:2"))
+
+        # A timed-out attempt's thread can still run its query, which nothing else stops.
+        assert [call.args for call in cancel.call_args_list] == [
+            (self.team.id, f"{QUERY_ID_PREFIX}run:1:1"),
+            (self.team.id, f"{QUERY_ID_PREFIX}run:1:2"),
+        ]
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)
     def test_a_retry_stops_the_timed_out_query_and_runs_only_inside_the_pool(self) -> None:

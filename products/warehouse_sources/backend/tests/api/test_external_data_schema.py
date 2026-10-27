@@ -2123,7 +2123,7 @@ class TestExternalDataSchema(APIBaseTest):
         )
         table = DataWarehouseTable.objects.create(team=self.team)
         schema = ExternalDataSchema.objects.create(
-            name="BalanceTransaction",
+            name="Charge",
             team=self.team,
             source=source,
             should_sync=True,
@@ -2630,7 +2630,7 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == 200
         mock_get_or_create.assert_not_called()
 
-    def test_update_schema_to_webhook_non_webhook_source_no_webhook_result(self):
+    def test_update_schema_to_webhook_non_webhook_source_rejected(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=ExternalDataSourceType.POSTGRES,
@@ -2667,15 +2667,86 @@ class TestExternalDataSchema(APIBaseTest):
                 data={"sync_type": "webhook", "incremental_field": "id", "incremental_field_type": "integer"},
             )
 
-        assert response.status_code == 200
+        assert response.status_code == 400
         mock_get_or_create.assert_not_called()
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
-    def test_update_schema_to_webhook_non_webhook_schema_no_webhook_result(self):
+    @parameterized.expand(
+        [
+            (
+                "no_webhook_support",
+                "BalanceTransaction",
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                400,
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+            ),
+            (
+                "no_webhook_support_already_webhook",
+                "BalanceTransaction",
+                ExternalDataSchema.SyncType.WEBHOOK,
+                200,
+                ExternalDataSchema.SyncType.WEBHOOK,
+            ),
+            (
+                "webhook_support",
+                "Charge",
+                ExternalDataSchema.SyncType.FULL_REFRESH,
+                200,
+                ExternalDataSchema.SyncType.WEBHOOK,
+            ),
+        ]
+    )
+    def test_update_schema_to_webhook_requires_webhook_support(
+        self, _name, schema_name, from_sync_type, expected_status, expected_sync_type
+    ):
         source = ExternalDataSource.objects.create(
-            team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "test_key"}
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
         )
         schema = ExternalDataSchema.objects.create(
-            name="CustomerBalanceTransaction",
+            name=schema_name,
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+            sync_type=from_sync_type,
+        )
+
+        mock_hog_fn_result = WebhookHogFunctionCreateResult(
+            hog_function_id=str(uuid.uuid4()),
+            webhook_url="https://test.com/webhook",
+            hog_function_created=False,
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
+                return_value=False,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function",
+                return_value=mock_hog_fn_result,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+                data={"sync_type": "webhook", "incremental_field": "created", "incremental_field_type": "integer"},
+            )
+
+        assert response.status_code == expected_status, response.json()
+        schema.refresh_from_db()
+        assert schema.sync_type == expected_sync_type
+
+    def test_update_schema_to_webhook_reports_failed_lookup(self):
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Charge",
             team=self.team,
             source=source,
             should_sync=True,
@@ -2683,32 +2754,16 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
         )
 
-        mock_non_webhook_schemas = [
-            SourceSchema(
-                name="CustomerBalanceTransaction",
-                supports_incremental=False,
-                supports_append=False,
-                supports_webhooks=False,
-            ),
-        ]
-
-        with (
-            mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.external_data_workflow_exists",
-                return_value=False,
-            ),
-            mock.patch.object(StripeSource, "get_schemas", return_value=mock_non_webhook_schemas),
-            mock.patch(
-                "products.warehouse_sources.backend.presentation.views.external_data_schema.get_or_create_webhook_hog_function"
-            ) as mock_get_or_create,
-        ):
+        with mock.patch.object(StripeSource, "get_schemas", side_effect=TimeoutError("Read timed out")):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
                 data={"sync_type": "webhook", "incremental_field": "created", "incremental_field_type": "integer"},
             )
 
-        assert response.status_code == 200
-        mock_get_or_create.assert_not_called()
+        assert response.status_code == 400
+        assert "Couldn't check whether Charge supports webhook sync" in str(response.json())
+        schema.refresh_from_db()
+        assert schema.sync_type == ExternalDataSchema.SyncType.FULL_REFRESH
 
 
 class TestUpdateExternalDataSchema:
