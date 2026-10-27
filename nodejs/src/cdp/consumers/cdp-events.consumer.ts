@@ -16,6 +16,7 @@ import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { parseBatch } from './message-parsing'
+import { counterParseError } from './metrics'
 import { PUSH_NOTIFICATION_OPENED_EVENT, buildPushOpenedMetric } from './push-open-tracking'
 
 export class CdpEventsConsumer<
@@ -187,6 +188,11 @@ export class CdpEventsConsumer<
             errorLog: 'Error parsing message',
             parse: (message) => {
                 const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+                // Without this, a message that is no event at all reads as an event with no team id
+                // and takes the skip below, which loses bytes a later schema could still read.
+                if (typeof clickHouseEvent !== 'object' || clickHouseEvent === null) {
+                    throw new Error('not_an_event')
+                }
                 return {
                     teamId: clickHouseEvent.team_id,
                     toGlobals: (team) => {
@@ -203,6 +209,9 @@ export class CdpEventsConsumer<
                 }
             },
             loadTeam: (teamId) => this.loadTeamWithHogFunctionsOrFlows(teamId, this.hogTypes),
+            // Skipped rather than parked. A replay rebuilds nothing from a team id that no team
+            // query accepts, so a record of this class sits in the queue until it expires.
+            onInvalidTeamId: () => counterParseError.labels({ error: 'invalid_team_id' }).inc(),
             // Parked rather than dropped: a schema we cannot read today is often one a later
             // version can.
             onError: park,
