@@ -26,7 +26,6 @@ import structlog
 
 from posthog.models.integration import Integration
 
-from products.slack_app.backend.feature_flags import is_slack_app_chart_links_enabled
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.logic.progress_phases import (
@@ -122,7 +121,7 @@ def slack_artifact_delivery_state_updates(integration: Integration) -> dict[str,
     return {
         "slack_artifact_delivery": mode,
         "slack_chart_delivery": True,
-        "slack_chart_links": is_slack_app_chart_links_enabled(integration),
+        "slack_chart_links": True,
     }
 
 
