@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.facade.models import (
     motherduck_column_to_dwh_column,
     motherduck_columns_to_dwh_columns,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     extract_available_column_names,
@@ -43,7 +44,7 @@ type MotherDuckSourceLocation = tuple[str | None, str, str]  # (database, schema
 
 
 def get_default_motherduck_catalog(source: ExternalDataSource) -> str | None:
-    database = (source.job_inputs or {}).get("database")
+    database = SourceInputsStore.load(source).get("database")
     return database if isinstance(database, str) and database.strip() else None
 
 
