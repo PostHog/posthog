@@ -1,4 +1,3 @@
-import logging
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Optional, cast
 
@@ -89,8 +88,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.x
     xmin_cursor_from_legacy,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField, IncrementalFieldType
-
-log = logging.getLogger(__name__)
 
 _HOST_IS_URL_ERROR = (
     "Enter just the hostname in the host field (for example, db.example.com), not a full URL or "
@@ -498,7 +495,6 @@ _SPURIOUS_CANCEL_EXHAUSTED_MESSAGE = (
 
 @SourceRegistry.register
 class PostgresSource(
-    # First, so its CDC hooks override the no-op defaults on the source base class.
     CDCSourceMixin[PostgresSourceConfig],
     SQLSource[PostgresSourceConfig],
     ResumableSource[PostgresSourceConfig, KeysetResumeState],

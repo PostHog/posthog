@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Generic, TypeVar
+from typing import TYPE_CHECKING
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import (
     get_cdc_adapter,
     source_type_supports_cdc,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ConfigType, _BaseSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 
 if TYPE_CHECKING:
@@ -18,21 +18,18 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# Contravariant because the config only ever appears as a parameter: a source narrows it to its
-# own generated config class, which a plain `Config` annotation would reject as unsubstitutable.
-_CDCSourceConfig = TypeVar("_CDCSourceConfig", bound=Config, contravariant=True)
 
-
-class CDCSourceMixin(Generic[_CDCSourceConfig]):
+class CDCSourceMixin(_BaseSource[ConfigType]):
     """Change data capture for a source whose engine has an adapter in `cdc/adapters.py`.
 
     The engine specifics stay behind the adapter, so a new engine implements only
-    `check_cdc_prerequisites` here.
+    `check_cdc_prerequisites` here. Subclassing `_BaseSource` puts these hooks ahead of its no-op
+    defaults in every source's method resolution order, whatever the order of the bases.
     """
 
     def check_cdc_prerequisites(
         self,
-        config: _CDCSourceConfig,
+        config: ConfigType,
         management_mode: str,
         tables: list[str],
         slot_name: str | None = None,
