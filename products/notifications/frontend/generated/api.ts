@@ -9,9 +9,17 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ArchiveAllResponseApi,
     BulkNotificationIdsRequestApi,
+    BulkUnarchiveRequestApi,
+    NotificationEventApi,
+    NotificationsArchiveAllCreateParams,
     NotificationsListParams,
+    NotificationsMarkAllReadCreateParams,
     PaginatedNotificationEventListApi,
+    UnarchiveRequestApi,
+    UnreadSummaryApi,
+    UpdatedCountApi,
 } from './api.schemas'
 
 export const getNotificationsListUrl = (projectId: string, params?: NotificationsListParams) => {
@@ -36,6 +44,21 @@ export const notificationsList = async (
     options?: RequestInit
 ): Promise<PaginatedNotificationEventListApi> => {
     return apiMutator<PaginatedNotificationEventListApi>(getNotificationsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getNotificationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/notifications/${id}/`
+}
+
+export const notificationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<NotificationEventApi> => {
+    return apiMutator<NotificationEventApi>(getNotificationsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -86,12 +109,49 @@ export const notificationsMarkUnreadCreate = async (
     })
 }
 
-export const getNotificationsArchiveAllCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/notifications/archive_all/`
+export const getNotificationsUnarchiveCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/notifications/${id}/unarchive/`
 }
 
-export const notificationsArchiveAllCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getNotificationsArchiveAllCreateUrl(projectId), {
+export const notificationsUnarchiveCreate = async (
+    projectId: string,
+    id: string,
+    unarchiveRequestApi?: UnarchiveRequestApi,
+    options?: RequestInit
+): Promise<UpdatedCountApi> => {
+    return apiMutator<UpdatedCountApi>(getNotificationsUnarchiveCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(unarchiveRequestApi),
+    })
+}
+
+export const getNotificationsArchiveAllCreateUrl = (
+    projectId: string,
+    params?: NotificationsArchiveAllCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/notifications/archive_all/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notifications/archive_all/`
+}
+
+export const notificationsArchiveAllCreate = async (
+    projectId: string,
+    params?: NotificationsArchiveAllCreateParams,
+    options?: RequestInit
+): Promise<ArchiveAllResponseApi> => {
+    return apiMutator<ArchiveAllResponseApi>(getNotificationsArchiveAllCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
     })
@@ -114,12 +174,31 @@ export const notificationsArchiveBulkCreate = async (
     })
 }
 
-export const getNotificationsMarkAllReadCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/notifications/mark_all_read/`
+export const getNotificationsMarkAllReadCreateUrl = (
+    projectId: string,
+    params?: NotificationsMarkAllReadCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/notifications/mark_all_read/?${stringifiedParams}`
+        : `/api/projects/${projectId}/notifications/mark_all_read/`
 }
 
-export const notificationsMarkAllReadCreate = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getNotificationsMarkAllReadCreateUrl(projectId), {
+export const notificationsMarkAllReadCreate = async (
+    projectId: string,
+    params?: NotificationsMarkAllReadCreateParams,
+    options?: RequestInit
+): Promise<UpdatedCountApi> => {
+    return apiMutator<UpdatedCountApi>(getNotificationsMarkAllReadCreateUrl(projectId, params), {
         ...options,
         method: 'POST',
     })
@@ -159,12 +238,32 @@ export const notificationsMarkUnreadBulkCreate = async (
     })
 }
 
+export const getNotificationsUnarchiveBulkCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/notifications/unarchive_bulk/`
+}
+
+export const notificationsUnarchiveBulkCreate = async (
+    projectId: string,
+    bulkUnarchiveRequestApi: BulkUnarchiveRequestApi,
+    options?: RequestInit
+): Promise<UpdatedCountApi> => {
+    return apiMutator<UpdatedCountApi>(getNotificationsUnarchiveBulkCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkUnarchiveRequestApi),
+    })
+}
+
 export const getNotificationsUnreadCountRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/notifications/unread_count/`
 }
 
-export const notificationsUnreadCountRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getNotificationsUnreadCountRetrieveUrl(projectId), {
+export const notificationsUnreadCountRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<UnreadSummaryApi> => {
+    return apiMutator<UnreadSummaryApi>(getNotificationsUnreadCountRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
