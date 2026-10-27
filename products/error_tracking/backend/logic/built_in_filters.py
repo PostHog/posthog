@@ -5,6 +5,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 
 import structlog
+from temporalio.exceptions import CancelledError
 
 from posthog.dataclasses import frozen
 
@@ -143,6 +144,9 @@ def refresh_stale_built_in_filter_rules(
             try:
                 _refresh_rule(rule, BUILT_IN_FILTERS_BY_KEY[str(rule.built_in_key)])
                 refreshed += 1
+            except CancelledError:
+                # Temporal raises this inside the activity thread to cancel it, so the sweep must stop here.
+                raise
             except Exception:
                 failed += 1
                 logger.exception(

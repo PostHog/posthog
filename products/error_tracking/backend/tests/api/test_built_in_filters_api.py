@@ -4,6 +4,7 @@ from unittest.mock import call, patch
 
 from parameterized import parameterized
 from rest_framework import status
+from temporalio.exceptions import CancelledError
 
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
@@ -187,3 +188,25 @@ class TestRefreshStaleBuiltInFilterRules(BaseTest):
             for rule in ErrorTrackingSuppressionRule.objects.filter(team=self.team).exclude(id=stale.id)
         } == untouched
         assert unknown.id in untouched
+
+    def test_refresh_stops_when_temporal_cancels_it(self) -> None:
+        for key in ("localhost", "legacy_browsers"):
+            ErrorTrackingSuppressionRule.objects.create(
+                team=self.team,
+                filters={"type": "OR", "values": []},
+                bytecode=[],
+                order_key=0,
+                built_in_key=key,
+                built_in_hash="stale",
+            )
+
+        with (
+            patch(
+                "products.error_tracking.backend.logic.built_in_filters.compile_filter_bytecode",
+                side_effect=CancelledError("cancelled"),
+            ) as compile_bytecode,
+            pytest.raises(CancelledError),
+        ):
+            refresh_stale_built_in_filter_rules(batch_size=1)
+
+        assert compile_bytecode.call_count == 1
