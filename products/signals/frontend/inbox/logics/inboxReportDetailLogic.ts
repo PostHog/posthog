@@ -40,6 +40,7 @@ import {
     signalsReportPrReviewCommentsCreate,
     signalsReportPrReviewCommentUpdate,
     signalsReportsClaim,
+    signalsReportsRetrieve,
     signalsReportsFeedbackCreate,
     signalsReportsFeedbackStateRetrieve,
     signalsReportsSignalsRetrieve,
@@ -111,17 +112,17 @@ function prChecksErrorFrom(error: unknown): PrChecksError {
     return { message: "Couldn't load the PR checks from GitHub.", remediationUrl: null }
 }
 
-type FreshClaimAttempt = { fresh: SignalReport | null; updated: SignalReportApi | null }
+type FreshClaimAttempt = { fresh: SignalReportApi | null; updated: SignalReportApi | null }
 
 /** Claims again from the server's current record. The page can still show the list's copy, whose claim may be out of date. */
 async function claimFromFreshReport(teamId: string, reportId: string): Promise<FreshClaimAttempt> {
-    let fresh: SignalReport
+    let fresh: SignalReportApi
     try {
-        fresh = await api.signalReports.get(reportId)
+        fresh = await signalsReportsRetrieve(teamId, reportId)
     } catch {
         return { fresh: null, updated: null }
     }
-    if (!isReportClaimable(fresh)) {
+    if (!isReportClaimable({ status: fresh.status as SignalReportStatus, assignee: fresh.assignee })) {
         return { fresh, updated: null }
     }
     try {
