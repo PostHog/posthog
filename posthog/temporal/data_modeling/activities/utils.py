@@ -107,6 +107,8 @@ EXTERNALLY_ABORTED_MARKERS = (
     # the trailing colon is load-bearing: it keeps a customer column of the same name out of the match
     "QueueEmpty: ",  # no root node to start from, so the graph was refused rather than the query
     "Preempted: ",
+    # A misaligned decimal buffer panics in our Delta write path, not in the customer's query.
+    "not aligned with the specified scalar type",
     ABANDONED_ERROR,
     # the query ran and produced rows; only the publish was refused
     QUALITY_BLOCKED_ERROR_PREFIX,
