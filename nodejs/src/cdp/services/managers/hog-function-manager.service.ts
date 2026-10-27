@@ -9,6 +9,12 @@ import { validTeamIds } from '~/common/utils/team-manager'
 import { Team } from '../../../types'
 import { HogFunctionType, HogFunctionTypeType } from '../../types'
 import { EncryptedFields } from '../../utils/encryption-utils'
+import {
+    FINGERPRINT_COLUMN,
+    FingerprintedLoader,
+    fingerprintSql,
+    splitFingerprint,
+} from '../../utils/fingerprinted-loader'
 
 const HOG_FUNCTION_FIELDS = [
     'id',
@@ -67,6 +73,7 @@ const sortHogFunctions = (functions: HogFunctionType[]): HogFunctionType[] => {
 export class HogFunctionManagerService {
     private lazyLoader: LazyLoader<HogFunctionType>
     private lazyLoaderByTeam: LazyLoader<HogFunctionTeamInfo[]>
+    private fingerprintedLoader: FingerprintedLoader<HogFunctionType>
 
     constructor(
         private postgres: PostgresRouter,
@@ -79,9 +86,16 @@ export class HogFunctionManagerService {
             loaderRetry: DEFAULT_LOADER_RETRY,
         })
 
+        this.fingerprintedLoader = new FingerprintedLoader({
+            name: 'hog_function_manager',
+            peek: (id) => this.lazyLoader.peek(id),
+            fetchFingerprints: async (ids) => await this.fetchHogFunctionFingerprints(ids),
+            fetchFull: async (ids) => await this.fetchHogFunctions(ids),
+        })
+
         this.lazyLoader = new LazyLoader({
             name: 'hog_function_manager',
-            loader: async (ids) => await this.fetchHogFunctions(ids),
+            loader: async (ids) => await this.fingerprintedLoader.load(ids),
             loaderRetry: DEFAULT_LOADER_RETRY,
         })
 
@@ -185,6 +199,7 @@ export class HogFunctionManagerService {
 
     private onHogFunctionsReloaded(teamId: Team['id'], hogFunctionIds: HogFunctionType['id'][]): void {
         this.lazyLoaderByTeam.markForRefresh(teamId.toString())
+        this.fingerprintedLoader.forceFullReload(hogFunctionIds)
         this.lazyLoader.markForRefresh(hogFunctionIds)
     }
 
@@ -210,24 +225,34 @@ export class HogFunctionManagerService {
         return hogFunctionsByTeam
     }
 
-    private async fetchHogFunctions(ids: string[]): Promise<Record<string, HogFunctionType | undefined>> {
+    private async fetchHogFunctionFingerprints(ids: string[]): Promise<Record<string, string>> {
+        const response = await this.postgres.query<{ id: string; fingerprint: string }>(
+            PostgresUse.COMMON_READ,
+            `SELECT id, ${fingerprintSql(HOG_FUNCTION_FIELDS)} AS fingerprint
+             FROM posthog_hogfunction WHERE id = ANY($1) AND deleted = FALSE`,
+            [ids],
+            'fetchHogFunctionFingerprints'
+        )
+        return Object.fromEntries(response.rows.map((row) => [row.id, row.fingerprint]))
+    }
+
+    private async fetchHogFunctions(
+        ids: string[]
+    ): Promise<Record<string, { value: HogFunctionType; fingerprint: string }>> {
         logger.debug('[HogFunctionManager]', 'Fetching hog functions', { ids })
 
-        const response = await this.postgres.query<HogFunctionType>(
+        const response = await this.postgres.query<HogFunctionType & { [FINGERPRINT_COLUMN]: string }>(
             PostgresUse.COMMON_READ,
-            `SELECT ${HOG_FUNCTION_FIELDS.join(', ')} FROM posthog_hogfunction WHERE id = ANY($1) AND deleted = FALSE`,
+            `SELECT ${HOG_FUNCTION_FIELDS.join(', ')}, ${fingerprintSql(HOG_FUNCTION_FIELDS)} AS ${FINGERPRINT_COLUMN}
+             FROM posthog_hogfunction WHERE id = ANY($1) AND deleted = FALSE`,
             [ids],
             'fetchHogFunctions'
         )
 
-        const hogFunctions = response.rows
+        const rows = response.rows.map((row) => splitFingerprint(row))
+        this.sanitize(rows.map((row) => row.value))
 
-        this.sanitize(hogFunctions)
-
-        return hogFunctions.reduce<Record<string, HogFunctionType | undefined>>((acc, hogFunction) => {
-            acc[hogFunction.id] = hogFunction
-            return acc
-        }, {})
+        return Object.fromEntries(rows.map((row) => [row.value.id, row]))
     }
 
     public sanitize(items: HogFunctionType[]): void {

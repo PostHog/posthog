@@ -148,6 +148,67 @@ describe('HogFlowManager', () => {
         }, 10000)
     })
 
+    describe('fingerprint check on refresh', () => {
+        const queryTags = (spy: jest.SpyInstance): string[] => spy.mock.calls.map((call) => call[3])
+
+        const backgroundRefresh = async (id: string, now: number): Promise<void> => {
+            jest.spyOn(Date, 'now').mockReturnValue(now)
+            await manager.getHogFlow(id)
+            await waitForExpect(() => {
+                expect(manager['lazyLoader']['pendingLoads'][id]).toBeUndefined()
+            }, 1500)
+        }
+
+        it('does not re-download an unchanged flow on a background refresh', async () => {
+            const baseNow = Date.now()
+            try {
+                const before = await manager.getHogFlow(hogFlows[0].id)
+                const querySpy = jest.spyOn(hub.postgres, 'query')
+
+                await backgroundRefresh(hogFlows[0].id, baseNow + 60_000)
+
+                expect(queryTags(querySpy)).toContain('fetchHogFlowFingerprints')
+                expect(queryTags(querySpy)).not.toContain('fetchHogFlows')
+                expect(await manager.getHogFlow(hogFlows[0].id)).toBe(before)
+            } finally {
+                jest.spyOn(Date, 'now').mockReturnValue(baseNow)
+            }
+        }, 10000)
+
+        it('re-downloads a flow changed without an updated_at bump', async () => {
+            const baseNow = Date.now()
+            try {
+                await manager.getHogFlow(hogFlows[0].id)
+                // Like the email-sending pause writer: a queryset update that leaves updated_at alone
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `UPDATE posthog_hogflow SET email_sending_paused_at = NOW() WHERE id = $1`,
+                    [hogFlows[0].id],
+                    'testKey'
+                )
+                const querySpy = jest.spyOn(hub.postgres, 'query')
+
+                await backgroundRefresh(hogFlows[0].id, baseNow + 60_000)
+
+                expect(querySpy.mock.calls.find((call) => call[3] === 'fetchHogFlows')?.[2]).toEqual([[hogFlows[0].id]])
+                expect((await manager.getHogFlow(hogFlows[0].id))?.email_sending_paused_at).toBeTruthy()
+            } finally {
+                jest.spyOn(Date, 'now').mockReturnValue(baseNow)
+            }
+        }, 10000)
+
+        it('re-downloads in full on a reload notification even when unchanged', async () => {
+            await manager.getHogFlow(hogFlows[0].id)
+            const querySpy = jest.spyOn(hub.postgres, 'query')
+
+            manager['onHogFlowsReloaded'](teamId1, [hogFlows[0].id])
+            await manager.getHogFlow(hogFlows[0].id)
+
+            expect(queryTags(querySpy)).toContain('fetchHogFlows')
+            expect(queryTags(querySpy)).not.toContain('fetchHogFlowFingerprints')
+        })
+    })
+
     describe('email sending pause', () => {
         // The pause only reaches the send choke point through the manager's column list, so a
         // column left out of HOG_FLOW_FIELDS silently lets a paused workflow keep sending.

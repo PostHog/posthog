@@ -294,6 +294,71 @@ describe('HogFunctionManager', () => {
 
         expect(await manager.getHogFunction(hogFunctions[0].id)).toEqual(null)
     })
+
+    describe('fingerprint check on refresh', () => {
+        const queryTags = (spy: jest.SpyInstance): string[] => spy.mock.calls.map((call) => call[3])
+        // Past the 5 minute default refresh age plus its jitter
+        const expired = () => Date.now() + 7 * 60 * 1000
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('does not re-download an unchanged function when its cache entry expires', async () => {
+            const before = await manager.getHogFunction(hogFunctions[0].id)
+            const querySpy = jest.spyOn(hub.postgres, 'query')
+
+            jest.spyOn(Date, 'now').mockReturnValue(expired())
+            const after = await manager.getHogFunction(hogFunctions[0].id)
+
+            expect(queryTags(querySpy)).toContain('fetchHogFunctionFingerprints')
+            expect(queryTags(querySpy)).not.toContain('fetchHogFunctions')
+            expect(after).toBe(before)
+        })
+
+        it('re-downloads a function changed without an updated_at bump', async () => {
+            await manager.getHogFunction(hogFunctions[0].id)
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogfunction SET name = 'Renamed' WHERE id = $1`,
+                [hogFunctions[0].id],
+                'testKey'
+            )
+            const querySpy = jest.spyOn(hub.postgres, 'query')
+
+            jest.spyOn(Date, 'now').mockReturnValue(expired())
+            const after = await manager.getHogFunction(hogFunctions[0].id)
+
+            expect(querySpy.mock.calls.find((call) => call[3] === 'fetchHogFunctions')?.[2]).toEqual([
+                [hogFunctions[0].id],
+            ])
+            expect(after?.name).toBe('Renamed')
+        })
+
+        it('drops a function deleted since it was cached', async () => {
+            await manager.getHogFunction(hogFunctions[0].id)
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogfunction SET deleted = TRUE WHERE id = $1`,
+                [hogFunctions[0].id],
+                'testKey'
+            )
+
+            jest.spyOn(Date, 'now').mockReturnValue(expired())
+            expect(await manager.getHogFunction(hogFunctions[0].id)).toBeNull()
+        })
+
+        it('re-downloads in full on a reload notification even when unchanged', async () => {
+            await manager.getHogFunction(hogFunctions[0].id)
+            const querySpy = jest.spyOn(hub.postgres, 'query')
+
+            manager['onHogFunctionsReloaded'](teamId1, [hogFunctions[0].id])
+            await manager.getHogFunction(hogFunctions[0].id)
+
+            expect(queryTags(querySpy)).toContain('fetchHogFunctions')
+            expect(queryTags(querySpy)).not.toContain('fetchHogFunctionFingerprints')
+        })
+    })
 })
 
 describe('Hogfunction Manager - Execution Order', () => {
