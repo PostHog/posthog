@@ -15137,16 +15137,24 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            (kind, state_generation)
+            (kind, state_generation, use_dedicated)
             for kind in ("heartbeat", "awaiting_input", "turn_failed")
             for state_generation in ("initial", "resumed")
+            for use_dedicated in (False, True)
         ]
     )
     @patch("products.tasks.backend.facade.agent_callback.get_task_run_stream_generation", return_value="resumed")
-    def test_agent_callback_rejects_previous_stream_generation(self, kind, state_generation, _get_generation):
+    def test_agent_callback_rejects_previous_stream_generation(
+        self, kind, state_generation, use_dedicated, get_generation
+    ):
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
-        run.state = {**run.state, "agent_sends_callbacks": True, "stream_generation": state_generation}
+        run.state = {
+            **run.state,
+            "agent_sends_callbacks": True,
+            "stream_generation": state_generation,
+            "use_dedicated_stream": use_dedicated,
+        }
         run.save(update_fields=["state"])
         client = self._sandbox_oauth_client(task.id)
 
@@ -15158,6 +15166,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        get_generation.assert_called_once_with(str(run.id), use_dedicated)
         dispatcher.assert_not_called()
 
     @patch("posthog.storage.object_storage.get_presigned_url")

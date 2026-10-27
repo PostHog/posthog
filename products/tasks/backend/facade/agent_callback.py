@@ -8,7 +8,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     get_task_run_stream_generation,
 )
 from products.tasks.backend.models import TaskRun
-from products.tasks.backend.redis import get_tasks_cache
+from products.tasks.backend.redis import get_tasks_cache, run_uses_dedicated_stream
 
 SEQUENCED_TURN_KINDS = frozenset({"awaiting_input", "turn_failed"})
 TURN_DEDUPE_TTL_SECONDS = 24 * 60 * 60
@@ -23,7 +23,7 @@ def dispatch_agent_callback(
     state = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).values_list("state", flat=True).first()
     if not run_agent_sends_callbacks(state):
         return CallbackOutcome(status=403, error="The agent-proxy sends the callbacks for this run")
-    generation = get_task_run_stream_generation(run_id)
+    generation = get_task_run_stream_generation(run_id, run_uses_dedicated_stream(state))
     if data.get("stream_generation", TASK_RUN_STREAM_INITIAL_GENERATION) != generation:
         return CallbackOutcome(status=409, error="Callback belongs to an earlier stream generation")
     dedupe_key = _turn_dedupe_key(run_id, generation, data)
