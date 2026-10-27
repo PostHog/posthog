@@ -686,7 +686,8 @@ class TestWarehouseAlerts(APIBaseTest):
             SourceKind.WAREHOUSE_SOURCE, {"group_by": "source", "email_project_members": True}, "source_id"
         )
         evaluation = self._evaluate(SourceKind.WAREHOUSE_SOURCE)
-        with team_scope(self.team.id):
+        # The history that delivery reads is written when the record commits.
+        with team_scope(self.team.id), self.captureOnCommitCallbacks(execute=True):
             record_outcomes(self.team.id, list(evaluation.outcomes), self.cutoff)
         (delivery,) = evaluation.deliveries
 
