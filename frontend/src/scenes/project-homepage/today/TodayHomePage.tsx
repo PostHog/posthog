@@ -47,10 +47,36 @@ function TodayMetaLine(): JSX.Element {
 }
 
 export function TodayHomePage(): JSX.Element {
-    const { greeting, isNewProject, recentObjects, returnFocusReportId } = useValues(todayLogic)
+    const { greeting, isNewProject, recentObjects, returnFocusReportId, useSampleData } = useValues(todayLogic)
     const { setReturnFocusReportId } = useActions(todayLogic)
-    const { highlights, highlightsPending, pulseTiles, pulsePinsLoaded } = useValues(todayHighlightsLogic)
+    const {
+        currentProjectId,
+        highlights,
+        highlightsLoading,
+        highlightsFailed,
+        highlightsPending,
+        pulseTiles,
+        pulsePinsLoaded,
+    } = useValues(todayHighlightsLogic)
+    const { pulseViewMounted, pulseViewUpdated, pulseViewUnmounted } = useActions(todayHighlightsLogic)
     const rootRef = useRef<HTMLDivElement>(null)
+
+    useLayoutEffect(() => {
+        pulseViewMounted(useSampleData)
+        return () => pulseViewUnmounted()
+    }, [currentProjectId, useSampleData, pulseViewMounted, pulseViewUnmounted])
+
+    useLayoutEffect(() => {
+        pulseViewUpdated()
+    }, [
+        highlights,
+        highlightsLoading,
+        highlightsFailed,
+        highlightsPending,
+        pulseTiles,
+        pulseViewUpdated,
+        currentProjectId,
+    ])
 
     useLayoutEffect(() => {
         const scroller = rootRef.current?.closest('main')
