@@ -24,7 +24,12 @@ import { pluralize } from 'lib/utils/strings'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { parseDashboardId } from 'scenes/dashboard/Dashboard'
 import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
-import { DashboardLoadAction, dashboardLogic, RefreshDashboardItemsAction } from 'scenes/dashboard/dashboardLogic'
+import {
+    DashboardLoadAction,
+    dashboardLogic,
+    RefreshDashboardItemsAction,
+    type TilePlacement,
+} from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
@@ -1648,66 +1653,28 @@ describe('dashboardLogic', () => {
             }
         })
 
-        it('previews layout compaction immediately and persists only the final choice', async () => {
+        it('ignores movement mode changes while a mode save is in flight', async () => {
             await expectLogic(logic).toFinishAllListeners()
-            ;(api.update as jest.Mock).mockClear()
-            jest.useFakeTimers()
+            let resolveSave: (dashboard: DashboardType) => void = () => {}
+            ;(api.update as jest.Mock)
+                .mockClear()
+                .mockImplementationOnce(() => new Promise((resolve) => (resolveSave = resolve)))
 
-            try {
-                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Vertical)
-                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Vertical)
-                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Horizontal)
-                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+            logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+            logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Stable)
 
-                expect(logic.values.dashboard?.customization?.layout_compaction).toBe(
-                    DashboardGridCompaction.Horizontal
-                )
-                expect(api.update).not.toHaveBeenCalled()
+            expect(logic.values.dashboard?.customization?.layout_compaction).toBe(DashboardGridCompaction.Horizontal)
+            expect(api.update).toHaveBeenCalledTimes(1)
 
-                await jest.advanceTimersByTimeAsync(750)
-                await expectLogic(logic).toFinishAllListeners()
-
-                expect(api.update).toHaveBeenCalledTimes(1)
-                expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
-                    layout_compaction: DashboardGridCompaction.Horizontal,
-                    grid_spacing: 'standard',
-                })
-            } finally {
-                jest.useRealTimers()
-            }
-        })
-
-        it('persists the latest movement mode after a save is already in flight', async () => {
+            resolveSave(logic.values.dashboard!)
             await expectLogic(logic).toFinishAllListeners()
-            let resolveFirstSave: (dashboard: DashboardType) => void = () => {
-                throw new Error('First save resolver is unavailable')
-            }
-            const firstSave = new Promise<DashboardType>((resolve) => {
-                resolveFirstSave = resolve
+            logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Stable)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenLastCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
+                layout_compaction: DashboardGridCompaction.Stable,
+                grid_spacing: 'standard',
             })
-            ;(api.update as jest.Mock).mockImplementationOnce(() => firstSave)
-            jest.useFakeTimers()
-
-            try {
-                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Horizontal)
-                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Horizontal)
-                await jest.advanceTimersByTimeAsync(750)
-
-                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Stable)
-                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Stable)
-                await jest.advanceTimersByTimeAsync(750)
-
-                resolveFirstSave(logic.values.dashboard!)
-                await jest.advanceTimersByTimeAsync(750)
-                await expectLogic(logic).toFinishAllListeners()
-
-                expect(api.update).toHaveBeenLastCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
-                    layout_compaction: DashboardGridCompaction.Stable,
-                    grid_spacing: 'standard',
-                })
-            } finally {
-                jest.useRealTimers()
-            }
         })
 
         it('saving without changes does not call api', async () => {
@@ -3413,6 +3380,31 @@ describe('dashboardLogic', () => {
                 ])
 
                 expect(dialogOpenSpy).not.toHaveBeenCalled()
+            })
+
+            it('does not count grid-added fields on the same tile cells as unsaved layout changes', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                const currentLayouts = logic.values.layouts
+                logic.actions.tilePlacementsSaved(
+                    Object.fromEntries(
+                        (currentLayouts.sm ?? []).map(({ i, x, y, w, h }): [number, TilePlacement] => [
+                            Number(i),
+                            { layouts: { sm: { x, y, w, h } } as TilePlacement['layouts'], group_key: null },
+                        ])
+                    )
+                )
+                logic.actions.stageLayouts({
+                    ...currentLayouts,
+                    sm: currentLayouts.sm?.map((layout) => ({
+                        ...layout,
+                        minW: 2,
+                        minH: 2,
+                        moved: false,
+                        static: false,
+                    })),
+                })
+
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
             })
 
             it('prompts before changing the movement mode when the layout is unsaved', async () => {

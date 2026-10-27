@@ -52,8 +52,14 @@ const GRID_COMPACTION_OPTIONS: {
 ]
 
 export function DashboardCustomizeMenu(): JSX.Element | null {
-    const { dashboard, canEditDashboard, currentLayoutSize, tileGroupSections, tileGroupDisplay } =
-        useValues(dashboardLogic)
+    const {
+        dashboard,
+        canEditDashboard,
+        currentLayoutSize,
+        tileGroupSections,
+        tileGroupDisplay,
+        dashboardGridCompactionSaving,
+    } = useValues(dashboardLogic)
     const layoutAvailable = currentLayoutSize !== 'xs'
     const { changeDashboardGridCompaction, changeDashboardTileSpacing, changeTileGroupDisplay } =
         useActions(dashboardLogic)
@@ -85,7 +91,10 @@ export function DashboardCustomizeMenu(): JSX.Element | null {
                     <LemonRadio<DashboardGridCompactionType>
                         value={layoutCompaction}
                         onChange={changeDashboardGridCompaction}
-                        options={GRID_COMPACTION_OPTIONS}
+                        options={GRID_COMPACTION_OPTIONS.map((option) => ({
+                            ...option,
+                            disabledReason: dashboardGridCompactionSaving ? 'Saving your last change' : undefined,
+                        }))}
                         radioPosition="top"
                         className="flex-1"
                         aria-label="How moving a tile rearranges other tiles"
