@@ -469,8 +469,8 @@ describe('insightsTableDataLogic', () => {
                 'load',
                 200,
                 [
-                    [1, 1],
-                    [1, 0.5],
+                    [null, 1],
+                    [null, 0.5],
                     [null, null],
                 ],
             ],
@@ -491,7 +491,18 @@ describe('insightsTableDataLogic', () => {
                     post: {
                         '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
                             sentQueries.push(((await request.json()) as { query: TrendsQuery }).query)
-                            return [totalsStatus, { results: [makeCompareResult({ order: 0, data: [1, 2] })] }]
+                            return [
+                                totalsStatus,
+                                {
+                                    results: [
+                                        makeCompareResult({
+                                            order: 0,
+                                            days: ['2023-01-02', '2023-01-03'],
+                                            data: [2, 9],
+                                        }),
+                                    ],
+                                },
+                            ]
                         },
                     },
                 })
@@ -524,6 +535,12 @@ describe('insightsTableDataLogic', () => {
                         logic.values.getPercentOfDayTotal(r, 0),
                         logic.values.getPercentOfDayTotal(r, 1),
                     ])
+                expect(shares()).toEqual([[0.5, 1], [0.5, 0], ...expectedUniqueShares])
+
+                insightVizDataLogic
+                    .findMounted(props)
+                    ?.actions.updateQuerySource({ trendsFilter: { display: ChartDisplayType.ActionsBar } })
+                await expectLogic(logic).toFinishAllListeners()
                 expect(shares()).toEqual([[0.5, 1], [0.5, 0], ...expectedUniqueShares])
 
                 insightVizDataLogic.findMounted(props)?.actions.updateQuerySource({ dateRange: { date_from: '-30d' } })
