@@ -27,6 +27,7 @@ import {
     ExperimentMetric,
     ExperimentMetricSource,
     ExperimentMetricType,
+    ExperimentRetentionStart,
     NodeKind,
     isExperimentExposureNode,
     isExperimentFunnelMetric,
@@ -128,6 +129,13 @@ const dataWarehousePopoverFields: DataWarehousePopoverField[] = [
     },
 ]
 
+/** The sources every metric type accepts: those the series picker can produce. */
+const isPickerSource = (source: ExperimentMetricSource | undefined): source is ExperimentFunnelMetricStep =>
+    !!source &&
+    (source.kind === NodeKind.EventsNode ||
+        source.kind === NodeKind.ActionsNode ||
+        source.kind === NodeKind.ExperimentDataWarehouseNode)
+
 export function ExperimentMetricForm({
     metric,
     isSharedMetric = false,
@@ -155,7 +163,7 @@ export function ExperimentMetricForm({
     const [isLoading, setIsLoading] = useState(false)
     // holds the custom start configuration while the exposure sentinel is selected, so switching back restores it
     const previousRetentionStart = useRef<{
-        start_event: ExperimentMetricSource
+        start_event: ExperimentRetentionStart
         start_handling: 'first_seen' | 'last_seen'
         conversion_window?: number
         conversion_window_unit?: FunnelConversionWindowTimeUnit
@@ -219,18 +227,14 @@ export function ExperimentMetricForm({
             if (newMetricType === ExperimentMetricType.MEAN && isExperimentMeanMetric(newMetric)) {
                 newMetric.source = sources[0]
             } else if (newMetricType === ExperimentMetricType.FUNNEL && isExperimentFunnelMetric(newMetric)) {
-                newMetric.series = sources.filter(
-                    (s): s is ExperimentFunnelMetricStep =>
-                        s &&
-                        (s.kind === NodeKind.EventsNode ||
-                            s.kind === NodeKind.ActionsNode ||
-                            s.kind === NodeKind.ExperimentDataWarehouseNode)
-                )
+                newMetric.series = sources.filter(isPickerSource)
             } else if (newMetricType === ExperimentMetricType.RATIO && isExperimentRatioMetric(newMetric)) {
                 newMetric.numerator = sources[0]
             } else if (newMetricType === ExperimentMetricType.RETENTION && isExperimentRetentionMetric(newMetric)) {
-                newMetric.start_event = sources[0]
-                if (sources[1]) {
+                if (isPickerSource(sources[0])) {
+                    newMetric.start_event = sources[0]
+                }
+                if (isPickerSource(sources[1])) {
                     newMetric.completion_event = sources[1]
                 }
             }

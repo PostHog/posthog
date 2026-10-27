@@ -21,6 +21,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
@@ -90,11 +91,8 @@ def get_exposure_config_params_for_builder(
     exposure_config: ExperimentEventExposureConfig | ActionsNode
     activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
     stored_exposure = criteria.exposure_config if criteria else None
-    stored_activation = criteria.activation_config if criteria else None
-    if isinstance(stored_exposure, ExperimentWarehouseNativeExposureConfig) or isinstance(
-        stored_activation, ExperimentWarehouseNativeExposureConfig
-    ):
-        raise NotImplementedError("Warehouse-native sources cannot be calculated yet.")
+    if isinstance(stored_exposure, ExperimentWarehouseNativeExposureConfig):
+        raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
     if criteria is None:
         exposure_config = ExperimentEventExposureConfig(
             event=resolve_default_exposure_event(team, start_date), properties=[]
@@ -119,7 +117,7 @@ def get_exposure_config_params_for_builder(
         # disables it (validation rejects the combination, but stored data predating it
         # must not silently change semantics).
         if is_default_exposure_config(stored_exposure):
-            activation_config = stored_activation
+            activation_config = criteria.activation_config
         multiple_variant_handling = criteria.multiple_variant_handling or MultipleVariantHandling.EXCLUDE
 
     return ExposureQueryParams(

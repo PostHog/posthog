@@ -16,6 +16,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.models.team.team import Team
@@ -175,6 +176,8 @@ def normalize_to_exposure_criteria(
             if config and isinstance(config, dict):
                 if _is_actions_node_dict(config):
                     criteria_copy[config_key] = ActionsNode.model_validate(config)
+                elif config.get("kind") == "ExperimentWarehouseNativeExposureConfig":
+                    criteria_copy[config_key] = ExperimentWarehouseNativeExposureConfig.model_validate(config)
                 else:
                     criteria_copy[config_key] = ExperimentEventExposureConfig.model_validate(config)
 
@@ -261,7 +264,7 @@ def get_exposure_event_and_property(
     exposure_config = criteria.exposure_config if criteria else None
 
     if isinstance(exposure_config, ExperimentWarehouseNativeExposureConfig):
-        raise NotImplementedError("Warehouse-native sources cannot be calculated yet.")
+        raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
     if isinstance(exposure_config, ActionsNode):
         # build_exposure_event_conditions applies the action filter.
         feature_flag_variant_property = f"$feature/{feature_flag_key}"
@@ -326,7 +329,7 @@ def _build_event_filters(
     if isinstance(exposure_config, ActionsNode):
         return [_build_action_filter(int(exposure_config.id), team)]
     if isinstance(exposure_config, ExperimentWarehouseNativeExposureConfig):
-        raise NotImplementedError("Warehouse-native sources cannot be calculated yet.")
+        raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
 
     event = _get_event_name_from_config(exposure_config, default_exposure_event)
     filters: list[ast.Expr] = [exposure_event_name_filter(event)]

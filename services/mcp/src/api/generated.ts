@@ -7428,27 +7428,26 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ExperimentWarehouseNativeMathType = typeof ExperimentWarehouseNativeMathType[keyof typeof ExperimentWarehouseNativeMathType];
+
+
+    export const ExperimentWarehouseNativeMathType = {
+      Total: 'total',
+      Sum: 'sum',
+    } as const;
+
     export type ExperimentWarehouseNativeNodeResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentWarehouseNativeNode {
       /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
       connection_id: string;
       custom_name?: string | null;
-      /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
-      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
       kind?: 'ExperimentWarehouseNativeNode';
-      math?: BaseMathType | FunnelMathType | PropertyMathType | CountPerActorMathType | GroupMathType | ExperimentMetricMathType | CalendarHeatmapMathType | 'hogql' | null;
-      math_group_type_index?: MathGroupTypeIndex | null;
-      math_hogql?: string | null;
-      math_multiplier?: number | null;
+      /** How to aggregate the rows per entity. Defaults to `total` (row count). */
+      math?: ExperimentWarehouseNativeMathType | null;
+      /** The numeric column `math` reads. Required when `math` is `sum`. One SQL relation can serve several metrics, each reading a different column. */
       math_property?: string | null;
-      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
-      math_property_type?: string | null;
-      name?: string | null;
-      optionalInFunnel?: boolean | null;
-      /** Properties configurable in the interface */
-      properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
-      /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id`, `timestamp` and `value` columns. `value` may be omitted when `math` is `total`. */
+      /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure. */
       query: string;
       response?: ExperimentWarehouseNativeNodeResponse;
       /** version of the node, used for schema migrations */
@@ -7507,7 +7506,7 @@ export namespace Schemas {
       metric_type: ExperimentFunnelMetricMetricType;
       name?: string | null;
       response?: ExperimentFunnelMetricResponse;
-      series: (EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode)[];
+      series: (EventsNode | ActionsNode | ExperimentDataWarehouseNode)[];
       sharedMetricId?: number | null;
       uuid?: string | null;
       /** version of the node, used for schema migrations */
@@ -7580,7 +7579,7 @@ export namespace Schemas {
 
     export interface ExperimentRetentionMetric {
       breakdownFilter?: BreakdownFilter | null;
-      completion_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode;
+      completion_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
       conversion_window?: number | null;
       conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
       fingerprint?: string | null;
@@ -7594,7 +7593,7 @@ export namespace Schemas {
       retention_window_start: number;
       retention_window_unit: FunnelConversionWindowTimeUnit;
       sharedMetricId?: number | null;
-      start_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode | ExperimentExposureNode;
+      start_event: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentExposureNode;
       start_handling: StartHandling;
       uuid?: string | null;
       /** version of the node, used for schema migrations */
@@ -47540,8 +47539,8 @@ export namespace Schemas {
     }
 
     export interface ExperimentExposureCriteria {
-      /** Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. */
-      activation_config?: ExperimentEventExposureConfig | ActionsNode | ExperimentWarehouseNativeExposureConfig | null;
+      /** Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. Warehouse-native activation has no defined semantics yet, so only events and actions apply here. */
+      activation_config?: ExperimentEventExposureConfig | ActionsNode | null;
       exposure_config?: ExperimentEventExposureConfig | ActionsNode | ExperimentWarehouseNativeExposureConfig | null;
       filterTestAccounts?: boolean | null;
       multiple_variant_handling?: MultipleVariantHandling | null;

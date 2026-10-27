@@ -5894,8 +5894,9 @@ export interface ExperimentExposureCriteria {
     exposure_config?: ExperimentExposureConfig
     /** Additional event (or action) an entity must emit at/after their first default exposure
      *  event before they count as exposed; exposure time becomes this event's timestamp.
-     *  Only valid with the default exposure event, not a custom `exposure_config`. */
-    activation_config?: ExperimentExposureConfig
+     *  Only valid with the default exposure event, not a custom `exposure_config`. Warehouse-native
+     *  activation has no defined semantics yet, so only events and actions apply here. */
+    activation_config?: ExperimentEventExposureConfig | ActionsNode
     multiple_variant_handling?: 'exclude' | 'first_seen'
 }
 
@@ -6172,19 +6173,31 @@ export interface ExperimentDataWarehouseNode extends EntityNode {
     data_warehouse_join_key: string
 }
 
+/** The subset of `ExperimentMetricMathType` a warehouse-native source supports, with the same values. */
+export enum ExperimentWarehouseNativeMathType {
+    TotalCount = 'total',
+    Sum = 'sum',
+}
+
 /** Outcome rows that live in the customer's warehouse, read through a direct connection. PostHog joins
  *  them to the experiment's exposures and aggregates them inside the warehouse, so the SQL never
  *  mentions variants or exposures and only per-variant aggregates leave the warehouse. Distinct from
- *  `ExperimentDataWarehouseNode`, which reads tables synced into PostHog. Of the inherited fields only
- *  `math` (`total`, `sum`, `min`, `max`) and `custom_name` apply; property filters cannot apply to SQL
- *  PostHog does not parse. */
-export interface ExperimentWarehouseNativeNode extends EntityNode {
+ *  `ExperimentDataWarehouseNode`, which reads tables synced into PostHog. It does not extend
+ *  `EntityNode`: property filters and the other event settings cannot apply to SQL PostHog does not
+ *  parse, so the shape lists every supported field. Only mean and ratio metrics accept it. */
+export interface ExperimentWarehouseNativeNode extends Node {
     kind: NodeKind.ExperimentWarehouseNativeNode
     /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
     connection_id: string
-    /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id`,
-     *  `timestamp` and `value` columns. `value` may be omitted when `math` is `total`. */
+    /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and
+     *  `timestamp` columns plus any numeric columns a metric can measure. */
     query: string
+    /** How to aggregate the rows per entity. Defaults to `total` (row count). */
+    math?: ExperimentWarehouseNativeMathType
+    /** The numeric column `math` reads. Required when `math` is `sum`. One SQL relation can serve
+     *  several metrics, each reading a different column. */
+    math_property?: string
+    custom_name?: string
 }
 
 // Named separately from `ExperimentMetricSource` so the JSDoc `@discriminator` tag
@@ -6205,11 +6218,7 @@ export type ExperimentMetricSource = ExperimentMetricSourceUnion
 /**
  * @discriminator kind
  */
-export type ExperimentFunnelMetricStepUnion =
-    | EventsNode
-    | ActionsNode
-    | ExperimentDataWarehouseNode
-    | ExperimentWarehouseNativeNode
+export type ExperimentFunnelMetricStepUnion = EventsNode | ActionsNode | ExperimentDataWarehouseNode
 
 export type ExperimentFunnelMetricStep = ExperimentFunnelMetricStepUnion
 
@@ -6230,10 +6239,16 @@ export type ExperimentRetentionStartUnion =
     | EventsNode
     | ActionsNode
     | ExperimentDataWarehouseNode
-    | ExperimentWarehouseNativeNode
     | ExperimentExposureNode
 
 export type ExperimentRetentionStart = ExperimentRetentionStartUnion
+
+/**
+ * @discriminator kind
+ */
+export type ExperimentRetentionCompletionUnion = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+
+export type ExperimentRetentionCompletion = ExperimentRetentionCompletionUnion
 
 export type ExperimentMeanMetric = ExperimentMetricBaseProperties &
     ExperimentMetricOutlierHandling & {
@@ -6280,7 +6295,7 @@ export type ExperimentRetentionMetric = ExperimentMetricBaseProperties & {
     // start resolves to the experiment's own exposure event at query time.
     start_event: ExperimentRetentionStart
     // Event that defines the completion of the retention window
-    completion_event: ExperimentMetricSource
+    completion_event: ExperimentRetentionCompletion
 
     // Start of the retention window
     retention_window_start: integer

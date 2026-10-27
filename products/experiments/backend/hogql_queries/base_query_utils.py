@@ -1,4 +1,3 @@
-from collections.abc import Sequence
 from datetime import datetime
 from typing import Literal, Optional, Union
 from zoneinfo import ZoneInfo
@@ -24,6 +23,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
@@ -117,7 +117,7 @@ def get_source_value_expr(
     Return the per-row value that the metric aggregates.
     """
     if isinstance(source, ExperimentWarehouseNativeNode):
-        raise NotImplementedError("Warehouse-native sources cannot be calculated yet.")
+        raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
 
     if isinstance(source, EventsNode) or isinstance(source, ActionsNode):
         if hasattr(source, "math") and is_continuous(source.math):
@@ -295,8 +295,7 @@ def experiment_window(experiment: Experiment, team: Team, as_of: datetime) -> Da
 
 
 def funnel_steps_to_filter(
-    team: Team,
-    funnel_steps: Sequence[EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode],
+    team: Team, funnel_steps: list[EventsNode | ActionsNode | ExperimentDataWarehouseNode]
 ) -> ast.Expr:
     """
     Match a row if it matches any funnel step.
@@ -304,9 +303,7 @@ def funnel_steps_to_filter(
     Data warehouse steps are skipped because they are not event filters. The funnel query
     reads them through a separate UNION ALL.
     """
-    if any(isinstance(step, ExperimentWarehouseNativeNode) for step in funnel_steps):
-        raise NotImplementedError("Warehouse-native sources cannot be calculated yet.")
-    event_and_action_steps = [step for step in funnel_steps if isinstance(step, EventsNode | ActionsNode)]
+    event_and_action_steps = [step for step in funnel_steps if not isinstance(step, ExperimentDataWarehouseNode)]
 
     if not event_and_action_steps:
         # Validation should reject a funnel with only data warehouse steps. Return False

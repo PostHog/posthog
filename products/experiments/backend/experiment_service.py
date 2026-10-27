@@ -775,7 +775,7 @@ class ExperimentService:
         # nullable), so only validate shape when a value is present.
         if exposure_criteria.get("exposure_config") is not None:
             cls._validate_exposure_config_shape(
-                exposure_criteria["exposure_config"], "exposure_criteria.exposure_config"
+                exposure_criteria["exposure_config"], "exposure_criteria.exposure_config", warehouse_native_allowed=True
             )
 
         if exposure_criteria.get("activation_config") is not None:
@@ -800,7 +800,9 @@ class ExperimentService:
         )
 
     @classmethod
-    def _validate_exposure_config_shape(cls, exposure_config: object, field_path: str) -> None:
+    def _validate_exposure_config_shape(
+        cls, exposure_config: object, field_path: str, *, warehouse_native_allowed: bool = False
+    ) -> None:
         if not isinstance(exposure_config, dict):
             raise ValidationError(
                 f"{field_path} must be an object, got {type(exposure_config).__name__}. {cls.EXPOSURE_CONFIG_HINT}"
@@ -809,7 +811,7 @@ class ExperimentService:
         # `kind` is optional; missing kind defaults to ExperimentEventExposureConfig
         # to mirror the pydantic Literal default on that model.
         kind = exposure_config.get("kind", "ExperimentEventExposureConfig")
-        if kind == "ExperimentWarehouseNativeExposureConfig":
+        if kind == "ExperimentWarehouseNativeExposureConfig" and warehouse_native_allowed:
             # The kind exists so the rest of the product can be built against it; nothing can run it yet.
             cls._validate_exposure_config_model(
                 ExperimentWarehouseNativeExposureConfig, exposure_config, field_path, kind

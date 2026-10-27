@@ -515,9 +515,7 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
             for prop in properties
             if isinstance(prop, EventPropertyFilter) and prop.key == "$feature_flag"
         ),
-        activation=_activation_name(activation)
-        if isinstance(activation, ExperimentEventExposureConfig | ActionsNode)
-        else None,
+        activation=_activation_name(activation) if activation else None,
     )
 
 

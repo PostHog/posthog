@@ -1528,6 +1528,11 @@ class ExperimentStatsValidationFailure(StrEnum):
     NOT_ENOUGH_METRIC_DATA = "not-enough-metric-data"
 
 
+class ExperimentWarehouseNativeMathType(StrEnum):
+    TOTAL = "total"
+    SUM = "sum"
+
+
 class ExternalQueryErrorCode(StrEnum):
     PLATFORM_ACCESS_REQUIRED = "platform_access_required"
     QUERY_EXECUTION_FAILED = "query_execution_failed"

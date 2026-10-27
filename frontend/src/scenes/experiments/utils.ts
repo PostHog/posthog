@@ -7,6 +7,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { SeriesNode, isActionsSeriesNode, isEventsSeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 
 import {
+    ActionsNode,
     AnyEntityNode,
     Breakdown,
     CachedNewExperimentQueryResponse,
@@ -552,7 +553,7 @@ export function exposureConfigToSeries(exposureConfig: ExperimentExposureConfig)
 /**
  * Only an event or an action can mark exposure, so any other series gives no config.
  */
-export function seriesToExposureConfig(series: SeriesNode[]): ExperimentExposureConfig | undefined {
+export function seriesToExposureConfig(series: SeriesNode[]): ExperimentEventExposureConfig | ActionsNode | undefined {
     const [node] = series
     if (isEventsSeriesNode(node)) {
         return {

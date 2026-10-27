@@ -15,6 +15,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import Product, tag_queries
 
@@ -73,7 +74,7 @@ def build_experiment_actors_query(runner: "ExperimentQueryRunner") -> ast.Select
     if runner.actors_query.exposureConfig is not None:
         override = runner.actors_query.exposureConfig
         if isinstance(override, ExperimentWarehouseNativeExposureConfig):
-            raise NotImplementedError("Warehouse-native sources cannot be calculated yet.")
+            raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
         # An explicit override replaces the whole exposure definition, including any
         # stored activation event.
         exposure_config = resolve_exposure_config_for_builder(override, runner.team, runner.experiment.start_date)
