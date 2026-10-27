@@ -1,0 +1,25 @@
+name: Knowledge writer merge doorbell
+
+on:
+    push:
+        branches:
+            - master
+
+permissions: {}
+
+jobs:
+    ring:
+        name: Tell PostHog about the merge
+        runs-on: ubuntu-24.04
+        timeout-minutes: 2
+        if: github.repository == 'PostHog/posthog' && vars.KNOWLEDGE_WRITER_MERGE_PUSHES_URL != ''
+        steps:
+            - name: Post the merge sha
+              env:
+                  KNOWLEDGE_WRITER_API_TOKEN: ${{ secrets.KNOWLEDGE_WRITER_API_TOKEN }}
+                  KNOWLEDGE_WRITER_MERGE_PUSHES_URL: ${{ vars.KNOWLEDGE_WRITER_MERGE_PUSHES_URL }}
+                  COMMIT_SHA: ${{ github.sha }}
+              run: >-
+                  curl --fail-with-body --silent --show-error --retry 3 --retry-all-errors --max-time 10
+                  -H "Authorization: Bearer $KNOWLEDGE_WRITER_API_TOKEN" -H "Content-Type: application/json"
+                  --data "{\"commit_sha\": \"$COMMIT_SHA\"}" "$KNOWLEDGE_WRITER_MERGE_PUSHES_URL"

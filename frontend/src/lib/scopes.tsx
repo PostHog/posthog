@@ -227,6 +227,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'integration', objectName: 'Integration', objectPlural: 'integrations', disabledActions: ['write'] },
     { key: 'legal_document', objectName: 'Legal document', objectPlural: 'legal documents' },
     { key: 'link', objectName: 'Link', objectPlural: 'links' },
+    { key: 'knowledge_writer', objectName: 'Knowledge writer', objectPlural: 'knowledge writer verdicts' },
     { key: 'live_debugger', objectName: 'Live debugger', objectPlural: 'live debugger' },
     { key: 'llm_analytics', objectName: 'AI observability', objectPlural: 'AI observability' },
     { key: 'ai_observability_clusters', objectName: 'Cluster', objectPlural: 'clusters' },
@@ -564,7 +565,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
     },
     {
         label: 'Developer experience',
-        objects: ['engineering_analytics', 'stamphog', 'visual_review'],
+        objects: ['engineering_analytics', 'knowledge_writer', 'stamphog', 'visual_review'],
     },
     {
         label: 'LLM & MCP analytics',
