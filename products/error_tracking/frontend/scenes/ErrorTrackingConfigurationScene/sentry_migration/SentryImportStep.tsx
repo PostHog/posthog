@@ -106,8 +106,7 @@ export function SentryImportStep(): JSX.Element {
                             <EmptyHeader>
                                 <EmptyTitle>Nothing to import</EmptyTitle>
                                 <EmptyDescription>
-                                    This Sentry project has its default inbound filters off, and no custom error message
-                                    or release filters.
+                                    This Sentry project has no filters or rate limits that PostHog can import.
                                 </EmptyDescription>
                             </EmptyHeader>
                         </Empty>
@@ -135,13 +134,11 @@ export function SentryImportStep(): JSX.Element {
                                                     item={item}
                                                     selected={selectedItemIds.includes(item.id)}
                                                     disabledReason={
-                                                        item.fit === 'unsupported'
-                                                            ? "PostHog can't import this setting"
-                                                            : item.already_in_posthog
-                                                              ? item.built_in_filter
-                                                                  ? 'This automatic suppression rule is already on'
-                                                                  : 'This project already has this setting'
-                                                              : null
+                                                        item.already_in_posthog
+                                                            ? item.built_in_filter
+                                                                ? 'This automatic suppression rule is already on'
+                                                                : 'This project already has this setting'
+                                                            : null
                                                     }
                                                     onToggle={() => toggleItem(item.id)}
                                                 />
