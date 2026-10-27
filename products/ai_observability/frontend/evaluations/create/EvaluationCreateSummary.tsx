@@ -6,7 +6,6 @@ import { LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 
 import { PROVIDER_SETTINGS_URL } from '../../ModelPicker'
-import { VOLUME_LOOKBACK_DAYS } from '../evaluationVolume'
 import { evaluationVolumeLogic } from '../evaluationVolumeLogic'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import type { ChecklistItem } from './creationChecklist'
@@ -23,7 +22,8 @@ export function EvaluationCreateSummary({
     onCreate: () => void
     onCancel: () => void
 }): JSX.Element | null {
-    const { evaluation, canEnable, usesDecisionModel, selectedModel, selectedModelName } = useValues(llmEvaluationLogic)
+    const { evaluation, canEnable, canEnableReason, usesDecisionModel, selectedModel, selectedModelName } =
+        useValues(llmEvaluationLogic)
     const { setEvaluationEnabled } = useActions(llmEvaluationLogic)
     const { volume } = useValues(evaluationVolumeLogic)
 
@@ -36,7 +36,7 @@ export function EvaluationCreateSummary({
         evaluation,
         usesDecisionModel,
         modelName: selectedModelName ?? (selectedModel || undefined),
-        runsPerDay: volume ? Math.round(volume.runs / VOLUME_LOOKBACK_DAYS) : null,
+        runs: volume?.runs ?? null,
     })
 
     return (
@@ -76,9 +76,7 @@ export function EvaluationCreateSummary({
                 <LemonSwitch
                     checked={evaluation.enabled}
                     onChange={setEvaluationEnabled}
-                    disabledReason={
-                        !canEnable && !evaluation.enabled ? 'Add a provider key to start running a judge' : undefined
-                    }
+                    disabledReason={!canEnable && !evaluation.enabled ? (canEnableReason ?? undefined) : undefined}
                     label="Start running when created"
                     bordered
                     fullWidth

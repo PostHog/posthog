@@ -22,8 +22,10 @@ export function EvaluationCategoryEditor({
     const options = config.options ?? []
     const passing = config.passing_rule && 'categories' in config.passing_rule ? config.passing_rule.categories : []
     const named = options.filter((option) => option.key)
+    // With several categories an empty rule means "passes when none is found", so an existing rule stays when emptied.
+    const keepsEmptyRule = config.selection_mode === 'multiple' && !!config.passing_rule
     const withPassing = (keys: string[]): EvaluationOutputConfig['passing_rule'] =>
-        keys.length > 0 ? { categories: keys } : null
+        keys.length > 0 || keepsEmptyRule ? { categories: keys } : null
 
     return (
         <div className="flex flex-col gap-2">
@@ -87,11 +89,12 @@ export function EvaluationCategoryEditor({
                 <div className="flex flex-col gap-1 pt-2">
                     <span className="text-sm font-semibold">Which ones count as a pass?</span>
                     <div className="flex flex-wrap gap-1">
-                        {named.map((option) => {
+                        {named.map((option, index) => {
                             const passes = passing.includes(option.key)
                             return (
                                 <LemonButton
-                                    key={option.key}
+                                    // Index too, because two categories can share a key until the duplicate is fixed.
+                                    key={`${index}-${option.key}`}
                                     type="secondary"
                                     size="small"
                                     active={passes}
@@ -115,7 +118,9 @@ export function EvaluationCategoryEditor({
                     <span className="text-xs text-secondary">
                         {passing.length > 0
                             ? 'Runs with any other category fail. Pass rates and reports use this.'
-                            : 'With none picked, runs only get a category, with no pass rate or reports.'}
+                            : keepsEmptyRule
+                              ? 'With none picked, only runs with no category pass. Pass rates and reports use this.'
+                              : 'With none picked, runs only get a category, with no pass rate or reports.'}
                     </span>
                 </div>
             )}

@@ -3,10 +3,34 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, HogQLMathType } from '~/types'
 
-import type { EvaluationConditionSet, EvaluationTarget } from './types'
+import type { EvaluationConditionSet, EvaluationConfig, EvaluationTarget } from './types'
 
 /** How far back the estimate looks. A week covers weekday and weekend traffic. */
 export const VOLUME_LOOKBACK_DAYS = 7
+
+/** What one run evaluates. Sentiment always reads single generations, whatever target the row stores. */
+export function evaluationTarget(evaluation: EvaluationConfig): EvaluationTarget {
+    return evaluation.evaluation_type === 'sentiment' ? 'generation' : evaluation.target
+}
+
+// Ingestion keeps these only on AI events storage, so a filter on them matches nothing in the events the estimate counts.
+const CONTENT_PROPERTIES = new Set([
+    '$ai_input',
+    '$ai_output',
+    '$ai_output_choices',
+    '$ai_input_state',
+    '$ai_output_state',
+    '$ai_tools',
+])
+
+/** Whether a trigger filters on a property the estimate cannot see, so it would wrongly count no matches. */
+export function filtersOnContent(conditions: EvaluationConditionSet[]): boolean {
+    return conditions.some((condition) =>
+        (condition.properties ?? []).some(
+            (property) => 'key' in property && CONTENT_PROPERTIES.has(String(property.key))
+        )
+    )
+}
 
 const HAS_TRACE_ID = "notEmpty(coalesce(properties.$ai_trace_id, ''))"
 

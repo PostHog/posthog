@@ -8,7 +8,14 @@ import { teamLogic } from 'scenes/teamLogic'
 import { cancelQueryOnServer } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { performQuery } from '~/queries/query'
 
-import { type ConditionCounts, type VolumeEstimate, conditionVolumeQuery, summarizeVolume } from './evaluationVolume'
+import {
+    type ConditionCounts,
+    type VolumeEstimate,
+    conditionVolumeQuery,
+    evaluationTarget,
+    filtersOnContent,
+    summarizeVolume,
+} from './evaluationVolume'
 import { type LLMEvaluationLogicProps, llmEvaluationLogic, llmEvaluationLogicKey } from './llmEvaluationLogic'
 import type { EvaluationConditionSet, EvaluationConfig, EvaluationTarget } from './types'
 
@@ -130,12 +137,8 @@ export const evaluationVolumeLogic = kea<evaluationVolumeLogicType>([
         volumeInput: [
             (s) => [s.evaluation],
             (evaluation: EvaluationConfig | null): VolumeInput | null =>
-                evaluation
-                    ? {
-                          conditions: evaluation.conditions,
-                          // Sentiment always reads single generations.
-                          target: evaluation.evaluation_type === 'sentiment' ? 'generation' : evaluation.target,
-                      }
+                evaluation && !filtersOnContent(evaluation.conditions)
+                    ? { conditions: evaluation.conditions, target: evaluationTarget(evaluation) }
                     : null,
         ],
         // Sampling changes only scale the counts, so the key leaves it out and moving the slider queries nothing.

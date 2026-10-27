@@ -4,7 +4,7 @@ import { LemonBanner, Spinner } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { VOLUME_LOOKBACK_DAYS } from '../evaluationVolume'
+import { VOLUME_LOOKBACK_DAYS, filtersOnContent, runRate } from '../evaluationVolume'
 import { evaluationVolumeLogic } from '../evaluationVolumeLogic'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 
@@ -18,6 +18,13 @@ export function EvaluationVolumeEstimate(): JSX.Element | null {
 
     if (countsError) {
         return <p className="mb-0 text-sm text-secondary">Couldn't estimate how often it would run.</p>
+    }
+    if (evaluation && filtersOnContent(evaluation.conditions)) {
+        return (
+            <p className="mb-0 text-sm text-secondary">
+                Couldn't estimate how often it would run, because a filter checks the input or output.
+            </p>
+        )
     }
     if (!volume) {
         return countsLoading ? (
@@ -59,12 +66,11 @@ export function EvaluationVolumeEstimate(): JSX.Element | null {
         volume.target === 'generation'
             ? `${humanFriendlyNumber(volume.matchingGenerations)} generations matched`
             : `${humanFriendlyNumber(volume.matchingGenerations)} generations in ${humanFriendlyNumber(volume.matchingUnits)} ${UNIT_NOUNS[volume.target]} matched`
-    const perDay = Math.round(volume.runs / VOLUME_LOOKBACK_DAYS)
     return (
         <div className="flex items-start gap-2 text-sm text-secondary" data-attr="llma-evaluation-create-volume">
             {countsLoading && <Spinner className="mt-0.5" />}
             <p className="mb-0">
-                {`In the last ${VOLUME_LOOKBACK_DAYS} days, ${matched}. With this sampling it would have run about ${humanFriendlyNumber(volume.runs)} times, about ${humanFriendlyNumber(perDay)} a day.`}
+                {`In the last ${VOLUME_LOOKBACK_DAYS} days, ${matched}. With this sampling it would have run about ${humanFriendlyNumber(volume.runs)} times, ${runRate(volume.runs)}.`}
                 {evaluation?.evaluation_type === 'llm_judge' && ' Each run is one call to your judge model.'}
             </p>
         </div>

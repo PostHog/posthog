@@ -289,7 +289,9 @@ describe('llmEvaluationLogic', () => {
             await expectLogic(keysLogic).toFinishAllListeners()
             logic.actions.setEvaluationType('hog')
             logic.actions.setEvaluationEnabled(false)
-            logic.actions.setEvaluationType('sentiment')
+            // Through a judge and back, so canEnable changes and the default would turn it on again.
+            logic.actions.setEvaluationType('llm_judge')
+            logic.actions.setEvaluationType('hog')
             expect(logic.values.evaluation?.enabled).toBe(false)
         })
 

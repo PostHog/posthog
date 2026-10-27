@@ -23,15 +23,15 @@ describe('summarySentence', () => {
     test.each([
         {
             name: 'judge with its model and daily volume',
-            input: { evaluation: evaluation({}), usesDecisionModel: false, modelName: 'gpt-4o-mini', runsPerDay: 14 },
-            expected: 'Helpfulness runs an LLM judge (gpt-4o-mini) on 100% of all traces, about 14 a day.',
+            input: { evaluation: evaluation({}), usesDecisionModel: false, modelName: 'gpt-4o-mini', runs: 98 },
+            expected: 'Helpfulness runs an LLM judge (gpt-4o-mini) on 100% of all traces, about 14 times a day.',
         },
         {
             name: 'decision model on sampled, filtered traffic',
             input: {
                 evaluation: evaluation({ conditions: [filtered(10, 2)] }),
                 usesDecisionModel: true,
-                runsPerDay: null,
+                runs: null,
             },
             expected: 'Helpfulness runs a decision model on 10% of matching traces (2 filters).',
         },
@@ -40,16 +40,16 @@ describe('summarySentence', () => {
             input: {
                 evaluation: evaluation({ name: '', evaluation_type: 'sentiment' } as Partial<EvaluationConfig>),
                 usesDecisionModel: false,
-                runsPerDay: 3,
+                runs: 2,
             },
-            expected: 'This evaluation runs a sentiment classifier on 100% of all generations, about 3 a day.',
+            expected: 'This evaluation runs a sentiment classifier on 100% of all generations, about 2 times a week.',
         },
         {
             name: 'several condition sets',
             input: {
                 evaluation: evaluation({ evaluation_type: 'hog', conditions: [filtered(5, 1), filtered(50, 0)] }),
                 usesDecisionModel: false,
-                runsPerDay: null,
+                runs: null,
             },
             expected: 'Helpfulness runs your code on 2 condition sets.',
         },

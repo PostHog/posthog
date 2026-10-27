@@ -1,6 +1,6 @@
-import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
+import { evaluationTarget, runRate } from '../evaluationVolume'
 import type { EvaluationConfig, EvaluationTarget } from '../types'
 
 const UNIT_NOUNS: Record<EvaluationTarget, string> = {
@@ -22,7 +22,7 @@ export function scopeText(evaluation: EvaluationConfig): string {
     if (evaluation.conditions.length > 1) {
         return `${evaluation.conditions.length} condition sets`
     }
-    const target = evaluation.evaluation_type === 'sentiment' ? 'generation' : evaluation.target
+    const target = evaluationTarget(evaluation)
     const [condition] = evaluation.conditions
     const filterCount = (condition?.properties ?? []).length
     return `${condition?.rollout_percentage ?? 0}% of ${filterCount ? 'matching' : 'all'} ${UNIT_NOUNS[target]}${
@@ -56,14 +56,15 @@ export function summarySentence({
     evaluation,
     usesDecisionModel,
     modelName,
-    runsPerDay,
+    runs,
 }: {
     evaluation: EvaluationConfig
     usesDecisionModel: boolean
     modelName?: string
-    runsPerDay: number | null
+    /** Runs over the lookback week, or null before the estimate loads. */
+    runs: number | null
 }): string {
     const name = evaluation.name.trim() || 'This evaluation'
-    const rate = runsPerDay !== null ? `, about ${humanFriendlyNumber(runsPerDay)} a day` : ''
+    const rate = runs !== null ? `, ${runRate(runs)}` : ''
     return `${name} runs ${methodText(evaluation, usesDecisionModel, modelName)} on ${scopeText(evaluation)}${rate}.`
 }

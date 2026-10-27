@@ -14,7 +14,8 @@ export function EvaluationScoreOutput({
 }): JSX.Element {
     const rule = config.passing_rule && 'threshold' in config.passing_rule ? config.passing_rule : null
     // The direction is kept here until a passing score exists, because a rule needs both.
-    const [operator, setOperator] = useState<'gte' | 'lte'>(rule?.operator ?? 'gte')
+    const [pendingOperator, setPendingOperator] = useState<'gte' | 'lte'>('gte')
+    const operator = rule?.operator ?? pendingOperator
     return (
         <div className="flex flex-col gap-1">
             <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -27,7 +28,7 @@ export function EvaluationScoreOutput({
                         { value: 'lte', label: 'at most' },
                     ]}
                     onChange={(next) => {
-                        setOperator(next)
+                        setPendingOperator(next)
                         if (rule) {
                             onChange({ passing_rule: { ...rule, operator: next } })
                         }

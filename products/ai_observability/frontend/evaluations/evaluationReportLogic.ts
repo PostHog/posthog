@@ -531,7 +531,19 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
         configDraft: [
             DEFAULT_CONFIG_DRAFT as ReportConfigDraft,
             {
-                setDraftEnabled: (state, { enabled }) => ({ ...state, enabled }),
+                setDraftEnabled: (state, { enabled }) => {
+                    if (enabled) {
+                        return { ...state, enabled }
+                    }
+                    // Turning reports off hides these fields, so a bad value in them must not block saving.
+                    const errors = getReportConfigErrors(state)
+                    return {
+                        ...state,
+                        enabled,
+                        triggerThreshold: errors.triggerThreshold ? TRIGGER_THRESHOLD_DEFAULT : state.triggerThreshold,
+                        cooldownHours: errors.cooldownHours ? COOLDOWN_HOURS_DEFAULT : state.cooldownHours,
+                    }
+                },
                 setDraftFrequency: (state, { frequency }) => {
                     return { ...state, frequency }
                 },

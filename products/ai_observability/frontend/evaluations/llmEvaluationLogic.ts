@@ -1143,6 +1143,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             false,
             {
                 setEvaluationEnabled: () => true,
+                loadEvaluationSuccess: () => false,
+                resetEvaluation: () => false,
             },
         ],
         hasUnsavedChanges: [
@@ -1228,7 +1230,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 )
             }
         },
-        loadEvaluationSuccess: () => {
+        loadEvaluationSuccess: ({ evaluation }) => {
+            // A draft can open already able to run, so the canEnable subscription never sees a change to apply.
+            if (props.evaluationId === 'new' && evaluation && evaluation.enabled !== values.canEnable) {
+                actions.setDefaultEnabled(values.canEnable)
+            }
             actions.loadRunsStats()
             // The filter query reads the evaluation's pass rules, and a sentiment evaluation opens on a non-'all' filter.
             if (values.evaluationRunsFilter !== 'all') {
@@ -1243,7 +1249,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 values.evaluation?.enabled &&
                 !evaluationCanResolveModel(values.evaluation, values.activeProviderKey)
             ) {
-                actions.setEvaluationEnabled(false)
+                actions.setDefaultEnabled(false)
             }
         },
 
@@ -1574,6 +1580,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setEvaluationType: () => {
             if (!values.isReportableEvaluation && values.activeTab === 'reports') {
                 actions.setActiveTab('configuration')
+            }
+            // Code and sentiment drop the model, so the picker must not keep showing it for a later switch back.
+            if (!values.evaluation?.model_configuration && values.selectedModel) {
+                actions.setModelConfiguration(null)
             }
         },
     })),

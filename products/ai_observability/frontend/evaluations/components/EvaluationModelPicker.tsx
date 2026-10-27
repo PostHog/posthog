@@ -33,8 +33,8 @@ export function EvaluationModelPicker(): JSX.Element {
                             : 'Select a model from your configured AI providers.'}
                     </p>
                 </div>
-                {/* Without decision models there is no choice to make, so the method stays out of the way. */}
-                {decisionModelsEnabled && (
+                {/* Without decision models there is no choice, unless a stored evaluation still uses one and needs a way back. */}
+                {(decisionModelsEnabled || judgeMethod === 'decision') && (
                     <LemonField.Pure label="Judge method">
                         <LemonSegmentedButton<JudgeMethod>
                             value={judgeMethod}

@@ -1,6 +1,20 @@
 import { escapeHogQLString } from '~/queries/utils'
 
-import type { EvaluationConfig, EvaluationOutputConfig, EvaluationOutputType, EvaluationRunsFilter } from './types'
+import type {
+    EvaluationConfig,
+    EvaluationOutputConfig,
+    EvaluationOutputType,
+    EvaluationRunsFilter,
+    EvaluationSettleStrategy,
+} from './types'
+
+/** The strategy a trace or session evaluation settles with. Rows without one use the backend's default for their target. */
+export function settleStrategy(
+    strategy: EvaluationSettleStrategy | undefined,
+    target: 'trace' | 'session'
+): EvaluationSettleStrategy {
+    return strategy ?? (target === 'session' ? 'inactivity' : 'fixed_window')
+}
 
 // Most-recent runs fetched for an evaluation's runs table and its result badges
 export const EVALUATION_RUNS_QUERY_LIMIT = 250

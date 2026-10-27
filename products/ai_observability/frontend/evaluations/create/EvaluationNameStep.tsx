@@ -66,7 +66,11 @@ export function EvaluationNameStep(progress: StepProgress): JSX.Element | null {
                             <LemonInput
                                 id="llma-evaluation-create-description"
                                 value={evaluation.description || ''}
-                                onChange={setEvaluationDescription}
+                                onChange={(description) => {
+                                    // Keeps the field open when someone clears a description a template filled in.
+                                    setDescriptionOpen(true)
+                                    setEvaluationDescription(description)
+                                }}
                                 placeholder="What it checks and when to use it, for your teammates"
                                 maxLength={500}
                                 autoFocus={descriptionOpen && !evaluation.description}

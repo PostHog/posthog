@@ -61,7 +61,10 @@ export function EvaluationCreatePage({ templateKey }: { templateKey?: string }):
             modelSelectionRequired,
             hasSelectedModel: !!selectedModel,
             hasAvailableModels: judgeModelGroups.some((group) => group.models.length > 0),
-            hasUnsetSampling: hasUnsetConditionRollout(evaluation.conditions),
+            hasUnsetSampling:
+                evaluation.conditions.length === 0 ||
+                hasUnsetConditionRollout(evaluation.conditions) ||
+                evaluation.conditions.some((condition) => (condition.rollout_percentage ?? 0) > 100),
         })
     }, [evaluation, numericBoundsRequired, modelSelectionRequired, selectedModel, judgeModelGroups])
 

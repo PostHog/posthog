@@ -48,7 +48,14 @@ export function CreateStep({
     return (
         <section
             className="group/step flex gap-3 @min-[40rem]/evaluation:gap-4 min-w-0"
-            onFocusCapture={() => onActivate?.(number)}
+            // A mouse activates the step on click, not on focus: focus comes on mousedown, and folding the steps
+            // above then would move the target away before mouseup, so the click would never land.
+            onFocusCapture={(event) => {
+                if (event.target.matches(':focus-visible')) {
+                    onActivate?.(number)
+                }
+            }}
+            onClickCapture={() => onActivate?.(number)}
         >
             <div className="flex flex-col items-center shrink-0">
                 <span

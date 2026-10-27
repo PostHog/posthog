@@ -7,6 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { settleStrategy } from '../constants'
 import {
     DEFAULT_SESSION_MAX_AGE_SECONDS,
     DEFAULT_SESSION_QUIET_PERIOD_SECONDS,
@@ -30,8 +31,7 @@ export function EvaluationSettleConfig(): JSX.Element | null {
     }
     const isSessionTarget = evaluation.target === 'session'
     // Read the stored strategy whether or not the flag is on. The flag gates the picker, not what the row contains.
-    const effectiveStrategy: EvaluationSettleStrategy =
-        evaluation.target_config.strategy ?? (isSessionTarget ? 'inactivity' : 'fixed_window')
+    const effectiveStrategy = settleStrategy(evaluation.target_config.strategy, evaluation.target)
 
     return (
         <>

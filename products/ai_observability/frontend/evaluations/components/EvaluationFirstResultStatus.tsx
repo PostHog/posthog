@@ -5,7 +5,8 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
-import { VOLUME_LOOKBACK_DAYS, runRate } from '../evaluationVolume'
+import { settleStrategy } from '../constants'
+import { VOLUME_LOOKBACK_DAYS, evaluationTarget, runRate } from '../evaluationVolume'
 import { evaluationVolumeLogic } from '../evaluationVolumeLogic'
 import { DEFAULT_SESSION_WINDOW_SECONDS, DEFAULT_TRACE_WINDOW_SECONDS, llmEvaluationLogic } from '../llmEvaluationLogic'
 import type { EvaluationConfig } from '../types'
@@ -33,6 +34,9 @@ export function EvaluationFirstResultStatus(): JSX.Element | null {
     if (!neverRan || !originalEvaluation) {
         return null
     }
+    if (!originalEvaluation.enabled) {
+        return <PausedBanner evaluation={originalEvaluation} />
+    }
     return (
         <BindLogic logic={evaluationVolumeLogic} props={props}>
             <div>
@@ -42,35 +46,49 @@ export function EvaluationFirstResultStatus(): JSX.Element | null {
     )
 }
 
+function PausedBanner({ evaluation }: { evaluation: EvaluationConfig }): JSX.Element {
+    const { setActiveTab } = useActions(llmEvaluationLogic)
+    return (
+        <LemonBanner
+            type="info"
+            className="mb-4"
+            action={{
+                children: 'Open configuration',
+                onClick: () => setActiveTab('configuration'),
+                'data-attr': 'llma-evaluation-first-result-triggers',
+            }}
+        >
+            <span className="font-semibold">No results yet, because this evaluation is paused.</span> Turn it on in its
+            configuration to start checking new {UNIT_NOUNS[evaluationTarget(evaluation)]}.
+        </LemonBanner>
+    )
+}
+
 function FirstResultBanner({ evaluation }: { evaluation: EvaluationConfig }): JSX.Element {
     const { volume } = useValues(evaluationVolumeLogic)
     const { setActiveTab } = useActions(llmEvaluationLogic)
-    const target = evaluation.evaluation_type === 'sentiment' ? 'generation' : evaluation.target
+    const target = evaluationTarget(evaluation)
     const units = UNIT_NOUNS[target]
-    const toTriggers = {
-        children: 'Check the triggers',
-        onClick: () => setActiveTab('configuration'),
-        'data-attr': 'llma-evaluation-first-result-triggers',
-    }
 
-    if (!evaluation.enabled) {
+    // Matches, not runs: low sampling rounds a week of runs down to zero while traffic still matches.
+    if (volume && volume.matchingUnits === 0) {
         return (
-            <LemonBanner type="info" className="mb-4" action={{ ...toTriggers, children: 'Open configuration' }}>
-                <span className="font-semibold">No results yet, because this evaluation is paused.</span> Turn it on in
-                its configuration to start checking new {units}.
-            </LemonBanner>
-        )
-    }
-    if (volume && volume.runs === 0) {
-        return (
-            <LemonBanner type="warning" className="mb-4" action={toTriggers}>
+            <LemonBanner
+                type="warning"
+                className="mb-4"
+                action={{
+                    children: 'Check the triggers',
+                    onClick: () => setActiveTab('configuration'),
+                    'data-attr': 'llma-evaluation-first-result-triggers',
+                }}
+            >
                 <span className="font-semibold">No results yet.</span> Nothing matched its triggers in the last{' '}
                 {VOLUME_LOOKBACK_DAYS} days, so it runs only once matching {units} arrive.
             </LemonBanner>
         )
     }
     const waitSeconds =
-        target !== 'generation' && (evaluation.target_config.strategy ?? 'fixed_window') === 'fixed_window'
+        target !== 'generation' && settleStrategy(evaluation.target_config.strategy, target) === 'fixed_window'
             ? (evaluation.target_config.window_seconds ??
               (target === 'session' ? DEFAULT_SESSION_WINDOW_SECONDS : DEFAULT_TRACE_WINDOW_SECONDS))
             : null
