@@ -74,7 +74,7 @@ def backfill_team_semantics(team_id: int, since: datetime, *, dry_run: bool = Fa
     now = timezone.now()
     due = (
         ReplayScannerSearchTheme.objects.for_team(team_id)
-        .filter(member_count__gte=F("name_at"), last_member_at__gte=now - THEME_ACTIVE_WINDOW)
+        .filter(member_count__gte=F("rename_at_member_count"), last_member_at__gte=now - THEME_ACTIVE_WINDOW)
         .order_by("-member_count")
         .values_list("id", flat=True)
     )

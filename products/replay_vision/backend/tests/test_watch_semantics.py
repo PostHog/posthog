@@ -216,4 +216,4 @@ class TestAssignSemantics(BaseTest):
         assert (first, again) == ("valid card rejected at checkout", None)
         assert client.models.generate_content.await_count == 1
         theme = ReplayScannerSearchTheme.objects.for_team(self.team.id).get(id=theme_id)
-        assert (theme.label, theme.name_at) == ("valid card rejected at checkout", 10)
+        assert (theme.name, theme.rename_at_member_count) == ("valid card rejected at checkout", 10)

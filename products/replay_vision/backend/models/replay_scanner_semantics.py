@@ -4,7 +4,7 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
 # A theme waits for this many members before its first name, so a one-off session never costs a model call.
-THEME_FIRST_NAME_AT = 5
+THEME_FIRST_RENAME_AT = 5
 
 
 class ReplayScannerSemanticCenter(TeamScopedRootMixin, models.Model):
@@ -32,10 +32,9 @@ class ReplayScannerSearchTheme(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     vector_sum = models.BinaryField()
     member_count = models.PositiveIntegerField(default=0)
-    label = models.CharField(max_length=128, blank=True, default="")
+    name = models.CharField(max_length=128, blank=True, default="")
     # The member count that triggers the next naming, so a theme is renamed as it grows rather than on every member.
-    name_at = models.PositiveIntegerField(default=THEME_FIRST_NAME_AT)
-    named_at = models.DateTimeField(null=True, blank=True)
+    rename_at_member_count = models.PositiveIntegerField(default=THEME_FIRST_RENAME_AT)
     last_member_at = models.DateTimeField()
     created_at = models.DateTimeField(auto_now_add=True)
 

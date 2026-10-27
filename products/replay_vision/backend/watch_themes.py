@@ -99,7 +99,7 @@ def assign_theme(*, team_id: int, scanner_id: str, space: SemanticSpace, now: da
     themes = list(
         ReplayScannerSearchTheme.objects.for_team(team_id)
         .filter(scanner_id=scanner_id, last_member_at__gte=now - THEME_ACTIVE_WINDOW)
-        .only("id", "vector_sum", "member_count", "name_at", "last_member_at")
+        .only("id", "vector_sum", "member_count", "rename_at_member_count", "last_member_at")
     )
     best = nearest_cluster(
         np.array([unpack(theme.vector_sum) for theme in themes], dtype=np.float32).reshape(-1, SEMANTIC_DIMENSIONS),
@@ -119,15 +119,15 @@ def assign_theme(*, team_id: int, scanner_id: str, space: SemanticSpace, now: da
         # The backfill replays old rows while the consumer adds new ones, so the latest member time never moves back.
         theme.last_member_at = max(theme.last_member_at, now)
         theme.save(update_fields=["vector_sum", "member_count", "last_member_at"])
-    return ThemeAssignment(theme_id=theme.id, name_due=theme.member_count >= theme.name_at)
+    return ThemeAssignment(theme_id=theme.id, name_due=theme.member_count >= theme.rename_at_member_count)
 
 
 def _claim_naming(team_id: int, theme_id: uuid.UUID) -> bool:
     """Move the theme's next naming to double its size, and say whether this caller won the right to name it now."""
     return bool(
         ReplayScannerSearchTheme.objects.for_team(team_id)
-        .filter(id=theme_id, member_count__gte=F("name_at"))
-        .update(name_at=F("member_count") * 2)
+        .filter(id=theme_id, member_count__gte=F("rename_at_member_count"))
+        .update(rename_at_member_count=F("member_count") * 2)
     )
 
 
@@ -152,8 +152,8 @@ def _naming_context(team_id: int, theme_id: uuid.UUID) -> tuple[ReplayScanner, l
     return theme.scanner, samples
 
 
-def _save_label(team_id: int, theme_id: uuid.UUID, label: str, now: datetime) -> None:
-    ReplayScannerSearchTheme.objects.for_team(team_id).filter(id=theme_id).update(label=label, named_at=now)
+def _save_name(team_id: int, theme_id: uuid.UUID, name: str) -> None:
+    ReplayScannerSearchTheme.objects.for_team(team_id).filter(id=theme_id).update(name=name)
 
 
 def finalize_label(raw: str) -> str:
@@ -203,5 +203,5 @@ async def name_theme(team_id: int, theme_id: uuid.UUID, now: datetime) -> str | 
     label = finalize_label(_ThemeName.model_validate_json(response.text or "{}").query)
     if not label:
         return None
-    await sync_to_async(_save_label)(team_id, theme_id, label, now)
+    await sync_to_async(_save_name)(team_id, theme_id, label)
     return label
