@@ -305,7 +305,8 @@
                             "replyTo": "",
                             "subject": "New support ticket #{{ event.properties.ticket_number }}",
                             "preheader": ""
-                        }
+                        },
+                        "templating": "liquid"
                     }
                 },
                 "message_category_type": "transactional"

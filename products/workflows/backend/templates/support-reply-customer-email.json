@@ -1,7 +1,7 @@
 {
     "id": "a638999a-bf53-4fde-af36-c85ad9827076",
-    "name": "Email customers when your team replies",
-    "description": "Email the customer when a teammate replies to their ticket, so they see the answer even after they leave your site.",
+    "name": "Support reply notification",
+    "description": "Email the customer when your support team replies to their ticket, so they never miss an answer.",
     "version": 1,
     "created_at": "2026-10-27T00:00:00Z",
     "created_by": null,
@@ -15,20 +15,6 @@
                     "id": "$conversation_message_sent",
                     "name": "Ticket message sent",
                     "type": "events"
-                }
-            ],
-            "properties": [
-                {
-                    "key": "channel_source",
-                    "value": ["widget"],
-                    "operator": "exact",
-                    "type": "event"
-                },
-                {
-                    "key": "customer_email",
-                    "value": "is_set",
-                    "operator": "is_set",
-                    "type": "event"
                 }
             ]
         }
@@ -55,8 +41,8 @@
     "actions": [
         {
             "id": "trigger_node",
-            "name": "Teammate replies on a ticket",
-            "description": "Runs for widget tickets that have a customer email. Email tickets already get replies by email.",
+            "name": "Support team replies on a ticket",
+            "description": "A teammate has replied to a customer on a support ticket.",
             "on_error": null,
             "created_at": 0,
             "updated_at": 0,
@@ -72,20 +58,6 @@
                             "name": "Ticket message sent",
                             "type": "events"
                         }
-                    ],
-                    "properties": [
-                        {
-                            "key": "channel_source",
-                            "value": ["widget"],
-                            "operator": "exact",
-                            "type": "event"
-                        },
-                        {
-                            "key": "customer_email",
-                            "value": "is_set",
-                            "operator": "is_set",
-                            "type": "event"
-                        }
                     ]
                 }
             },
@@ -94,7 +66,7 @@
         {
             "id": "action_function_email_6254cf7c-c5de-42ba-b54e-3782bd102208",
             "name": "Email the customer",
-            "description": "Let the customer know your team replied, with a copy of the reply.",
+            "description": "Let the customer know your support team replied, with a copy of the reply.",
             "on_error": null,
             "created_at": 1793059200000,
             "updated_at": 1793059200000,
@@ -114,8 +86,8 @@
                                 "name": "",
                                 "email": ""
                             },
-                            "html": "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional //EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\n<head>\n  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title></title>\n  <style type=\"text/css\">body{margin:0;padding:0}table,td,tr{border-collapse:collapse;vertical-align:top}p{margin:0}</style>\n</head>\n<body class=\"clean-body u_body\" style=\"margin: 0;padding: 0;-webkit-text-size-adjust: 100%;background-color: #F7F8F9;color: #000000\">\n  <table role=\"presentation\" style=\"border-collapse: collapse;table-layout: fixed;border-spacing: 0;vertical-align: top;min-width: 320px;Margin: 0 auto;background-color: #F7F8F9;width:100%\" cellpadding=\"0\" cellspacing=\"0\">\n  <tbody>\n  <tr style=\"vertical-align: top\">\n    <td style=\"word-break: break-word;border-collapse: collapse !important;vertical-align: top\">\n      <div style=\"margin: 0 auto;min-width: 320px;max-width: 500px;\">\n        <table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n          <tbody>\n            <tr>\n              <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n                <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n                  <p style=\"line-height: 140%;\">Hi {{ event.properties.customer_name | default: 'there' }},<br><br>Our team replied to your support request:<br><br>{{ event.properties.message_content }}<br><br>To continue the conversation, open the support chat on our site.</p>\n                </div>\n              </td>\n            </tr>\n          </tbody>\n        </table>\n      </div>\n    </td>\n  </tr>\n  </tbody>\n  </table>\n</body>\n</html>\n",
-                            "text": "Hi {{ event.properties.customer_name | default: 'there' }},\n\nOur team replied to your support request:\n\n{{ event.properties.message_content }}\n\nTo continue the conversation, open the support chat on our site.",
+                            "html": "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional //EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\n<head>\n  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title></title>\n  <style type=\"text/css\">body{margin:0;padding:0}table,td,tr{border-collapse:collapse;vertical-align:top}p{margin:0}</style>\n</head>\n<body class=\"clean-body u_body\" style=\"margin: 0;padding: 0;-webkit-text-size-adjust: 100%;background-color: #F7F8F9;color: #000000\">\n  <table role=\"presentation\" style=\"border-collapse: collapse;table-layout: fixed;border-spacing: 0;vertical-align: top;min-width: 320px;Margin: 0 auto;background-color: #F7F8F9;width:100%\" cellpadding=\"0\" cellspacing=\"0\">\n  <tbody>\n  <tr style=\"vertical-align: top\">\n    <td style=\"word-break: break-word;border-collapse: collapse !important;vertical-align: top\">\n      <div style=\"margin: 0 auto;min-width: 320px;max-width: 500px;\">\n        <table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n          <tbody>\n            <tr>\n              <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n                <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n                  <p style=\"line-height: 140%;\">Hi {{ event.properties.customer_name | default: 'there' }},<br><br>Our support team replied to your ticket #{{ event.properties.ticket_number }}:<br><br>{{ event.properties.message_content }}</p>\n                </div>\n              </td>\n            </tr>\n          </tbody>\n        </table>\n      </div>\n    </td>\n  </tr>\n  </tbody>\n  </table>\n</body>\n</html>\n",
+                            "text": "Hi {{ event.properties.customer_name | default: 'there' }},\n\nOur support team replied to your ticket #{{ event.properties.ticket_number }}:\n\n{{ event.properties.message_content }}",
                             "design": {
                                 "body": {
                                     "id": "URm0NvJQHB",
@@ -171,7 +143,7 @@
                                                             "id": "-KDAT9u9Y5",
                                                             "type": "text",
                                                             "values": {
-                                                                "text": "<p style=\"line-height: 140%;\">Hi {{ event.properties.customer_name | default: 'there' }},<br><br>Our team replied to your support request:<br><br>{{ event.properties.message_content }}<br><br>To continue the conversation, open the support chat on our site.</p>",
+                                                                "text": "<p style=\"line-height: 140%;\">Hi {{ event.properties.customer_name | default: 'there' }},<br><br>Our support team replied to your ticket #{{ event.properties.ticket_number }}:<br><br>{{ event.properties.message_content }}</p>",
                                                                 "_meta": {
                                                                     "htmlID": "u_content_text_1",
                                                                     "htmlClassNames": "u_content_text"
@@ -249,7 +221,8 @@
                             "replyTo": "",
                             "subject": "New reply on your support ticket #{{ event.properties.ticket_number }}",
                             "preheader": ""
-                        }
+                        },
+                        "templating": "liquid"
                     }
                 },
                 "message_category_type": "transactional"
