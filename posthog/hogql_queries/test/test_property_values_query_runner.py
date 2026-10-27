@@ -188,6 +188,24 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         assert [r.name for r in results] == expected_names
 
+    def test_feature_flag_property_values_keep_variants_removed_from_the_flag(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team, key="beta", created_by=self.user, filters=MULTIVARIATE_FILTERS
+        )
+        flag.filters = {
+            "groups": [{"rollout_percentage": 100}],
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "rollout_percentage": 50},
+                    {"key": "redesign", "rollout_percentage": 50},
+                ]
+            },
+        }
+        flag.save()
+
+        results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="$feature/beta"))
+        assert [r.name for r in results] == ["control", "redesign", "test", "false"]
+
     def test_feature_flag_property_without_a_flag_in_the_project_uses_events_scan(self):
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other"))
         FeatureFlag.objects.create(team=other_team, key="beta", filters=MULTIVARIATE_FILTERS)
