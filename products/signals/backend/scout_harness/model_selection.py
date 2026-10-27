@@ -78,10 +78,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 
 from products.signals.backend.agent_runtime import KNOWN_SERVICE_TIERS, STEP_SCOUT, resolve_agent_runtime
-from products.tasks.backend.facade.run_config import (
-    get_default_model_for_runtime_adapter,
-    get_models_for_runtime_adapter,
-)
+from products.tasks.backend.facade.run_config import get_models_for_runtime_adapter
 
 SCOUTS_MODEL_FLAG = "scouts-model-selection"
 
@@ -136,6 +133,14 @@ RUNTIME_ADAPTER_CODEX = "codex"
 # and blow up downstream when cast to the `RuntimeAdapter` enum — failing the run the gate must never
 # be able to break.
 _KNOWN_RUNTIME_ADAPTERS = frozenset({RUNTIME_ADAPTER_CLAUDE, RUNTIME_ADAPTER_CODEX})
+
+# The model the agent server runs when a scout run names no model. The Tasks backend passes an unset
+# scout model straight through, so the Tasks catalog defaults do not apply. Keep in step with
+# `DEFAULT_GATEWAY_MODEL` and `DEFAULT_CODEX_MODEL` in packages/agent/packages/agent-contracts/src/cloud-task-models.ts.
+AGENT_SERVER_DEFAULT_MODELS: dict[str, str] = {
+    RUNTIME_ADAPTER_CLAUDE: "claude-opus-5-5",
+    RUNTIME_ADAPTER_CODEX: "gpt-6-sol",
+}
 
 # The reasoning efforts a payload may pin, mirroring the tasks `ReasoningEffort` enum. Same
 # defensive posture as `_KNOWN_RUNTIME_ADAPTERS`: an unknown value is dropped (effort unset,
@@ -452,13 +457,14 @@ def resolve_scout_default_models(team: Team, skill_names: Iterable[str]) -> dict
 
     Follows the runner's chain for an unpinned run that no trial slice picks: this scout's `default`
     remainder in the `scouts-model-selection` payload, then the `signals-pipeline-models` scout pin,
-    then the default model of the runtime. A scout with trial slices sends a share of its runs to
-    other models, and this names only the remainder. Each flag payload is read once for all scouts.
+    then the agent server's default model for the runtime. A scout with trial slices sends a share of
+    its runs to other models, and this names only the remainder. Each flag payload is read once for
+    all scouts.
     """
     scouts = _team_scouts(_read_payload(), team.id, team.parent_team_id or team.id)
     pipeline = resolve_agent_runtime(team.id, STEP_SCOUT)
     # The runner ignores a pipeline pin without a runtime, and the agent server then runs Claude.
     adapter = pipeline.runtime_adapter or RUNTIME_ADAPTER_CLAUDE
     pipeline_model = pipeline.model if pipeline.runtime_adapter else None
-    fallback = pipeline_model or get_default_model_for_runtime_adapter(adapter)
+    fallback = pipeline_model or AGENT_SERVER_DEFAULT_MODELS.get(adapter)
     return {name: _scout_config(scouts, name)[1] or fallback for name in skill_names}

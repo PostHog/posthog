@@ -11,12 +11,12 @@ from posthog.models.team.team import Team
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.scout_harness.model_selection import (
+    AGENT_SERVER_DEFAULT_MODELS,
     GLM_MODEL,
     ScoutModel,
     resolve_scout_default_models,
     resolve_scout_model,
 )
-from products.tasks.backend.facade.run_config import get_default_model_for_runtime_adapter
 
 _PAYLOAD_PATH = "products.signals.backend.scout_harness.model_selection.posthoganalytics.get_feature_flag_payload"
 
@@ -25,8 +25,8 @@ _SKILL = "signals-scout-team-self-driving"
 _OTHER_SKILL = "signals-scout-errors"
 _GPT = "gpt-5.5"
 _RUN_ID = "0190a000-0000-7000-8000-000000000001"
-_CLAUDE_DEFAULT = get_default_model_for_runtime_adapter("claude")
-_CODEX_DEFAULT = get_default_model_for_runtime_adapter("codex")
+_CLAUDE_DEFAULT = AGENT_SERVER_DEFAULT_MODELS["claude"]
+_CODEX_DEFAULT = AGENT_SERVER_DEFAULT_MODELS["codex"]
 
 
 def _fake_team(team_id: int = _TEAM_ID, parent_team_id: int | None = None) -> Team:
