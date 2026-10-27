@@ -41,6 +41,7 @@ export interface StackedBarListProps<Meta = unknown> {
     onPointClick?: (data: PointClickData<Meta>) => void
     dataAttr?: string
     onError?: (error: Error, info: React.ErrorInfo) => void
+    children?: React.ReactNode
 }
 
 const DEFAULT_ROW_HEIGHT = { start: 28, top: 40 }
@@ -71,6 +72,7 @@ function StackedBarListInner<Meta = unknown>({
     onPointClick,
     dataAttr,
     onError,
+    children,
 }: StackedBarListProps<Meta>): React.ReactElement {
     const labelPosition = config?.labelPosition ?? 'start'
     const {
@@ -135,7 +137,9 @@ function StackedBarListInner<Meta = unknown>({
                 onPointClick={onPointClick}
                 dataAttr={dataAttr}
                 onError={onError}
-            />
+            >
+                {children}
+            </BarChart>
         ) : null
 
     if (labelPosition === 'top') {
