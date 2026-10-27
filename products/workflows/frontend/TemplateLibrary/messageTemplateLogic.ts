@@ -76,6 +76,8 @@ export interface messageTemplateLogicValues {
     isSyncingExternalEdit: boolean
     isTemplateSubmitting: boolean
     isTemplateValid: boolean
+    isTransactional: boolean
+    listUrl: string
     logicProps: MessageTemplateLogicProps
     message: any
     messageLoading: boolean
@@ -445,6 +447,8 @@ export interface messageTemplateLogicMeta {
         logicProps: (arg: MessageTemplateLogicProps) => MessageTemplateLogicProps
         createAsTransactional: (searchParams: Record<string, any>, arg: MessageTemplateLogicProps) => boolean
         transactionalHogFlowId: (originalTemplate: MessageTemplate) => string | null
+        isTransactional: (transactionalHogFlowId: string | null, createAsTransactional: boolean) => boolean
+        listUrl: (isTransactional: boolean) => string
         draftsEnabled: (transactionalHogFlowId: string | null) => boolean
         hasDraft: (
             savedDraft: {
@@ -650,7 +654,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         ],
     }),
     selectors({
-        // A new template started from the Transactional tab. Its first save also makes it transactional.
+        // A new template started from the Transactional section. Its first save also makes it transactional.
         createAsTransactional: [
             () => [router.selectors.searchParams, (_, props: MessageTemplateLogicProps) => props],
             (searchParams: Record<string, any>, props: MessageTemplateLogicProps): boolean =>
@@ -660,6 +664,16 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         transactionalHogFlowId: [
             (s) => [s.originalTemplate],
             (originalTemplate: MessageTemplate): string | null => originalTemplate.transactional_hog_flow_id ?? null,
+        ],
+        isTransactional: [
+            (s) => [s.transactionalHogFlowId, s.createAsTransactional],
+            (transactionalHogFlowId: string | null, createAsTransactional: boolean): boolean =>
+                !!transactionalHogFlowId || createAsTransactional,
+        ],
+        // The list a person returns to: transactional emails live in their own section.
+        listUrl: [
+            (s) => [s.isTransactional],
+            (isTransactional: boolean): string => (isTransactional ? urls.transactional() : urls.workflows('library')),
         ],
         // Sends use a transactional template's content, so its edits save as a draft until they are published.
         draftsEnabled: [
@@ -1066,7 +1080,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 },
                 callback: (undo) => {
                     if (!undo) {
-                        router.actions.push(urls.workflows('library'))
+                        router.actions.push(values.listUrl)
                     }
                 },
             })

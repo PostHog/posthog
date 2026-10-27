@@ -13,9 +13,9 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { messageTemplatesLogic } from './messageTemplatesLogic'
-import { newTemplateAgentLogic } from './newTemplateAgentLogic'
-import { MessageTemplate } from './types'
+import { messageTemplatesLogic } from '../TemplateLibrary/messageTemplatesLogic'
+import { newTemplateAgentLogic } from '../TemplateLibrary/newTemplateAgentLogic'
+import { MessageTemplate } from '../TemplateLibrary/types'
 
 export function TransactionalEmailsTable(): JSX.Element {
     useMountedLogic(messageTemplatesLogic)

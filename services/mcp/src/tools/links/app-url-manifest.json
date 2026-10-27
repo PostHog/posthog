@@ -1839,6 +1839,11 @@
         "params": [],
         "scope": "project"
     },
+    "transactional": {
+        "template": "/transactional",
+        "params": [],
+        "scope": "project"
+    },
     "transformations": {
         "template": "/data-management/transformations",
         "params": [],

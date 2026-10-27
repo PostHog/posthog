@@ -30,8 +30,6 @@ import { SendCalendar } from './SendCalendar/SendCalendar'
 import { SendCalendarTabLabel } from './SendCalendar/SendCalendarTabLabel'
 import { MessagingSetupTabLabel } from './setupGuide/MessagingSetupTabLabel'
 import { WorkflowsOnboardingWizard } from './setupGuide/wizard/WorkflowsOnboardingWizard'
-import { newTemplateAgentLogic } from './TemplateLibrary/newTemplateAgentLogic'
-import { TransactionalEmailsTable } from './TemplateLibrary/TransactionalEmailsTable'
 import { newWorkflowLogic } from './Workflows/newWorkflowLogic'
 import { NewWorkflowModal } from './Workflows/NewWorkflowModal'
 import { workflowTemplatesLogic } from './Workflows/templates/workflowTemplatesLogic'
@@ -46,7 +44,6 @@ const WORKFLOW_SCENE_TABS = [
     'calendar',
     'templates',
     'library',
-    'transactional',
     'channels',
     'opt-outs',
     'suppression',
@@ -80,7 +77,6 @@ export interface workflowsSceneLogicActions {
             | 'settings'
             | 'suppression'
             | 'templates'
-            | 'transactional'
             | 'workflows'
     }
 }
@@ -100,7 +96,6 @@ export interface workflowsSceneLogicMeta {
                 | 'settings'
                 | 'suppression'
                 | 'templates'
-                | 'transactional'
                 | 'workflows'
         ) => Breadcrumb[]
     }
@@ -183,11 +178,11 @@ export const scene: SceneExport<WorkflowsSceneProps> = {
     emptyState: workflowsEmptyState,
 }
 
-type WorkflowsTopTab = 'workflows' | 'calendar' | 'templates' | 'transactional' | 'messaging-setup'
+type WorkflowsTopTab = 'workflows' | 'calendar' | 'templates' | 'messaging-setup'
 
 function topTabFor(tab: WorkflowsSceneTab): WorkflowsTopTab {
-    if (tab === 'calendar' || tab === 'transactional') {
-        return tab
+    if (tab === 'calendar') {
+        return 'calendar'
     }
     if (tab === 'templates' || tab === 'library') {
         return 'templates'
@@ -198,11 +193,9 @@ function topTabFor(tab: WorkflowsSceneTab): WorkflowsTopTab {
 export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const { currentTab } = useValues(workflowsSceneLogic(props))
     const { startNewWorkflow } = useActions(newWorkflowLogic)
-    const { startNewTransactionalEmail } = useActions(newTemplateAgentLogic)
     const { setTypeFilter } = useActions(workflowTemplatesLogic)
     const { filters } = useValues(workflowsLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-    const showTransactional = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
 
     const workflowsTab = {
         label: 'Workflows',
@@ -261,43 +254,15 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                 )}
                             </AccessControlAction>
                         )}
-                        {currentTab === 'transactional' && (
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Workflow}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                {todayRailNav ? (
-                                    <Button
-                                        data-attr="new-transactional-email"
-                                        onClick={startNewTransactionalEmail}
-                                        variant="primary"
-                                    >
-                                        New transactional email
-                                    </Button>
-                                ) : (
-                                    <LemonButton
-                                        data-attr="new-transactional-email"
-                                        onClick={startNewTransactionalEmail}
-                                        type="primary"
-                                        size="small"
-                                    >
-                                        New transactional email
-                                    </LemonButton>
-                                )}
-                            </AccessControlAction>
+                        {currentTab !== 'workflows' && currentTab !== 'templates' && currentTab !== 'calendar' && (
+                            <MessagingTabActions tab={currentTab} channelsUrl={urls.workflows('channels')} />
                         )}
-                        {currentTab !== 'workflows' &&
-                            currentTab !== 'templates' &&
-                            currentTab !== 'calendar' &&
-                            currentTab !== 'transactional' && (
-                                <MessagingTabActions tab={currentTab} channelsUrl={urls.workflows('channels')} />
-                            )}
                     </>
                 }
             />
             <EmailSuspensionBanner />
             <LemonTabs<WorkflowsTopTab>
-                activeKey={currentTab === 'transactional' && !showTransactional ? 'workflows' : topTabFor(currentTab)}
+                activeKey={topTabFor(currentTab)}
                 tabs={[
                     workflowsTab,
                     {
@@ -312,14 +277,6 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                         link: urls.workflows('library'),
                         content: <WorkflowsTemplates tab={currentTab === 'templates' ? 'templates' : 'library'} />,
                     },
-                    showTransactional
-                        ? {
-                              label: 'Transactional',
-                              key: 'transactional',
-                              link: urls.workflows('transactional'),
-                              content: <TransactionalEmailsTable />,
-                          }
-                        : null,
                     {
                         label: <MessagingSetupTabLabel />,
                         key: 'messaging-setup',

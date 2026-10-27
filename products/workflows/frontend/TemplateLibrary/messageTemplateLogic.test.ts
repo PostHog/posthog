@@ -467,7 +467,7 @@ describe('messageTemplateLogic', () => {
         })
 
         test.each([
-            ['from the Transactional tab converts it and opens it', { transactional: 'true' }, 1, '/created-id'],
+            ['from the Transactional section converts it and opens it', { transactional: 'true' }, 1, '/created-id'],
             ['as a plain template leaves it alone', {}, 0, '/workflows/library'],
         ])('first save of a new template started %s', async (_name, search, expectedConversions, expectedPath) => {
             const makeTransactional = jest.fn(() => [200, { id: 'created-id', transactional_hog_flow_id: 'flow-id' }])

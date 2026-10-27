@@ -386,6 +386,13 @@ export const productRoutes: Record<string, [string, string]> = {
     '/broadcasts/reputation': ['Broadcasts', 'broadcasts'],
     '/broadcasts/settings': ['Broadcasts', 'broadcasts'],
     '/broadcasts/calendar': ['Broadcasts', 'broadcasts'],
+    '/transactional': ['Transactional', 'transactional'],
+    '/transactional/library': ['Transactional', 'transactional'],
+    '/transactional/channels': ['Transactional', 'transactional'],
+    '/transactional/opt-outs': ['Transactional', 'transactional'],
+    '/transactional/suppression': ['Transactional', 'transactional'],
+    '/transactional/reputation': ['Transactional', 'transactional'],
+    '/transactional/settings': ['Transactional', 'transactional'],
     '/broadcasts/new': ['Broadcast', 'broadcast'],
     '/broadcasts/:id': ['Broadcast', 'broadcast'],
 }
@@ -1331,6 +1338,12 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         description: 'Send a one-time or scheduled email to a group of people',
     },
+    Transactional: {
+        name: 'Transactional',
+        iconType: 'transactional',
+        projectBased: true,
+        description: 'Send emails from your code with one API call',
+    },
     WorkflowsEmailDomain: { name: 'Workflows', iconType: 'workflows', projectBased: true },
 }
 
@@ -2015,6 +2028,7 @@ export const productUrls = {
     broadcasts: (tab?: MessagingNavTabKey | 'calendar'): string => `/broadcasts${tab ? `/${tab}` : ''}`,
     broadcast: (id: string): string => `/broadcasts/${id}`,
     broadcastNew: (): string => '/broadcasts/new',
+    transactional: (tab?: MessagingNavTabKey): string => `/transactional${tab ? `/${tab}` : ''}`,
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -2392,6 +2406,7 @@ export type ProductTreePath =
     | 'Tasks'
     | 'Toolbar'
     | 'Tracing'
+    | 'Transactional'
     | 'Uptime monitoring'
     | 'Visual review'
     | 'Web analytics'
@@ -2452,6 +2467,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'WorkflowsLibraryTemplate',
             'Broadcasts',
             'Broadcast',
+            'Transactional',
             'WorkflowsEmailDomain',
         ],
     },
@@ -3299,6 +3315,26 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Tracing', 'TracingOperation', 'TracingRetentionNew', 'TracingRetentionDetail'],
     },
     {
+        path: 'Transactional',
+        intents: [ProductKey.WORKFLOWS],
+        href: urls.transactional(),
+        type: 'transactional',
+        category: ProductItemCategory.MESSAGING,
+        iconType: 'transactional',
+        iconColor: ['var(--color-product-workflows-light)', 'var(--color-product-workflows-dark)'],
+        sceneKey: 'Transactional',
+        flag: FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API,
+        sceneKeys: [
+            'Workflows',
+            'Workflow',
+            'WorkflowsLibraryTemplate',
+            'Broadcasts',
+            'Broadcast',
+            'Transactional',
+            'WorkflowsEmailDomain',
+        ],
+    },
+    {
         path: 'Uptime monitoring',
         intents: [ProductKey.UPTIME_MONITORING],
         category: ProductItemCategory.UNRELEASED,
@@ -3393,6 +3429,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'WorkflowsLibraryTemplate',
             'Broadcasts',
             'Broadcast',
+            'Transactional',
             'WorkflowsEmailDomain',
         ],
     },
