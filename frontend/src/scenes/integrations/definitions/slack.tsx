@@ -43,7 +43,7 @@ function useSlackSetupUrl(integrations: IntegrationType[]): string | null {
     if (!enabled || !integrations.some((integration) => integration.id === newIntegrationId)) {
         return null
     }
-    return urls.slackAppWorkspaceSetup(newIntegrationId)
+    return `${urls.slackAppWorkspaceSetup(newIntegrationId)}?entry=slack_page`
 }
 
 export const Slack = defineIntegration(

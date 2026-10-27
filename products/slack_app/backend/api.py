@@ -3604,6 +3604,15 @@ def _release_channel_onboarding_claim(slack_team_id: str, channel_id: str) -> No
     cache.delete(_channel_onboarding_cache_key(slack_team_id, channel_id))
 
 
+def skip_channel_welcome(slack_team_id: str, channel_id: str) -> None:
+    """Hold the welcome slot before the bot joins a channel, so it joins without a welcome message."""
+    _claim_channel_onboarding(slack_team_id, channel_id)
+
+
+def release_channel_welcome_skip(slack_team_id: str, channel_id: str) -> None:
+    _release_channel_onboarding_claim(slack_team_id, channel_id)
+
+
 def _post_channel_onboarding_message(
     slack: SlackIntegration,
     integration: Integration,

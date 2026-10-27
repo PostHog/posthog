@@ -110397,9 +110397,49 @@ export namespace Schemas {
       readonly previous_secret_valid_until: string | null;
     }
 
+    export interface SlackAppChannelJoinResult {
+      /** Slack channel ID. */
+      channel_id: string;
+      /**
+         * Slack's error code when PostHog could not join, or null when it joined.
+         * @nullable
+         */
+      error: string | null;
+    }
+
+    export interface SlackAppChannelOption {
+      /** Slack channel ID. */
+      id: string;
+      /** Channel name, without the leading #. */
+      name: string;
+      /** Whether PostHog is already in the channel. */
+      is_member: boolean;
+    }
+
+    export interface SlackAppChannelOptions {
+      /** Public channels that PostHog can join. Shared channels are left out. */
+      channels: SlackAppChannelOption[];
+    }
+
     export interface SlackAppDefaultProject {
       /** ID of the Slack integration of the project that becomes the workspace default. */
       integration_id: number;
+    }
+
+    export interface SlackAppJoinChannels {
+      /**
+         * IDs of the public channels that PostHog joins.
+         * @minItems 1
+         * @maxItems 20
+         */
+      channel_ids: string[];
+      /** Whether PostHog posts its welcome message in each channel it joins. When false, it joins quietly. */
+      post_welcome?: boolean;
+    }
+
+    export interface SlackAppJoinChannelsResult {
+      /** The result for each channel, in request order. */
+      results: SlackAppChannelJoinResult[];
     }
 
     export interface SlackAppProjectOption {
@@ -110414,6 +110454,7 @@ export namespace Schemas {
     /**
      * * `ai_consent` - AI data processing
      * * `default_project` - Default project
+     * * `channels` - Channels
      */
     export type SlackSetupStepKeyEnum = typeof SlackSetupStepKeyEnum[keyof typeof SlackSetupStepKeyEnum];
 
@@ -110421,6 +110462,7 @@ export namespace Schemas {
     export const SlackSetupStepKeyEnum = {
       AiConsent: 'ai_consent',
       DefaultProject: 'default_project',
+      Channels: 'channels',
     } as const;
 
     export interface SlackAppWorkspaceSetup {
@@ -110436,7 +110478,7 @@ export namespace Schemas {
          * @nullable
          */
       open_slack_url: string | null;
-      /** Setup steps that apply to this install and are not done yet, in display order. ai_consent: the organization must allow AI data processing. default_project: the Slack workspace connects to 2 or more projects and has no default. */
+      /** Setup steps that apply to this install and are not done yet, in display order. ai_consent: the organization must allow AI data processing. default_project: the Slack workspace connects to 2 or more projects and has no default. channels: the install can join channels, and the setup started on the Slack page. */
       steps: SlackSetupStepKeyEnum[];
       /** Projects connected to this Slack workspace that the person can open. Empty unless default_project is a step. */
       project_options: SlackAppProjectOption[];
@@ -139316,6 +139358,25 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type SlackAppWorkspaceSetupRetrieveParams = {
+    /**
+     * Where the Slack install started. slack_page adds the steps for a person who sets up Slack on purpose.
+     *
+     * * `slack_page` - The Slack page in PostHog
+     * * `other` - Another place, such as a channel picker
+     * @minLength 1
+     */
+    entry?: SlackAppWorkspaceSetupRetrieveEntry;
+    };
+
+    export type SlackAppWorkspaceSetupRetrieveEntry = typeof SlackAppWorkspaceSetupRetrieveEntry[keyof typeof SlackAppWorkspaceSetupRetrieveEntry];
+
+
+    export const SlackAppWorkspaceSetupRetrieveEntry = {
+      SlackPage: 'slack_page',
+      Other: 'other',
+    } as const;
 
     export type StamphogDigestRunsListParams = {
     /**

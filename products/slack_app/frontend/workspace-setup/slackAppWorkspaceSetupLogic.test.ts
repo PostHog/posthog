@@ -1,17 +1,28 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { initKeaTests } from '~/test/init'
 
-import { slackAppWorkspaceSetupDefaultProjectCreate, slackAppWorkspaceSetupRetrieve } from '../generated/api'
+import {
+    slackAppWorkspaceSetupChannelsRetrieve,
+    slackAppWorkspaceSetupDefaultProjectCreate,
+    slackAppWorkspaceSetupJoinChannelsCreate,
+    slackAppWorkspaceSetupRetrieve,
+} from '../generated/api'
 import { slackAppWorkspaceSetupLogic } from './slackAppWorkspaceSetupLogic'
 
 jest.mock('../generated/api', () => ({
     slackAppWorkspaceSetupRetrieve: jest.fn(),
     slackAppWorkspaceSetupDefaultProjectCreate: jest.fn(),
+    slackAppWorkspaceSetupChannelsRetrieve: jest.fn(),
+    slackAppWorkspaceSetupJoinChannelsCreate: jest.fn(),
 }))
 
 const mockRetrieve = slackAppWorkspaceSetupRetrieve as jest.Mock
 const mockSaveDefaultProject = slackAppWorkspaceSetupDefaultProjectCreate as jest.Mock
+const mockChannels = slackAppWorkspaceSetupChannelsRetrieve as jest.Mock
+const mockJoinChannels = slackAppWorkspaceSetupJoinChannelsCreate as jest.Mock
 
 const BASE = {
     integration_id: 7,
@@ -57,5 +68,43 @@ describe('slackAppWorkspaceSetupLogic', () => {
             steps: ['ai_consent', 'default_project'],
             skippedSteps: ['ai_consent'],
         })
+    })
+
+    it('asks for the channels step on the Slack page, and reports the channels it could not join', async () => {
+        mockRetrieve.mockResolvedValue({ ...BASE, project_options: [], steps: ['channels'] })
+        mockChannels.mockResolvedValue({
+            channels: [
+                { id: 'C1', name: 'product', is_member: false },
+                { id: 'C2', name: 'growth', is_member: false },
+                { id: 'C3', name: 'general', is_member: true },
+            ],
+        })
+        mockJoinChannels.mockResolvedValue({
+            results: [
+                { channel_id: 'C1', error: null },
+                { channel_id: 'C2', error: 'is_archived' },
+            ],
+        })
+        const warning = jest.spyOn(lemonToast, 'warning')
+
+        const logic = slackAppWorkspaceSetupLogic({ integrationId: 7, entry: 'slack_page' })
+        logic.mount()
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                currentStep: 'channels',
+                joinedChannelNames: ['general'],
+            })
+        expect(mockRetrieve).toHaveBeenCalledWith(expect.any(String), '7', { entry: 'slack_page' })
+
+        logic.actions.setSelectedChannelIds(['C1', 'C2'])
+        await expectLogic(logic, () => logic.actions.joinChannels()).toFinishAllListeners()
+
+        expect(mockJoinChannels).toHaveBeenCalledWith(expect.any(String), '7', {
+            channel_ids: ['C1', 'C2'],
+            post_welcome: false,
+        })
+        expect(warning).toHaveBeenCalledWith(expect.stringContaining('#growth'))
+        await expectLogic(logic).toMatchValues({ currentStep: null })
     })
 })
