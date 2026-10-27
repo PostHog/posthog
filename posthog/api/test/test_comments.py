@@ -24,6 +24,7 @@ from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     POSTHOG_AI_APP_CLIENT_ID_DEV,
     SIGNALS_APP_CLIENT_ID_DEV,
+    create_oauth_access_token_for_user,
     resolve_scopes,
 )
 
@@ -32,7 +33,6 @@ from products.canvas.backend.facade import testing as canvas_testing
 from products.conversations.backend.models import EmailOutboxMessage, Ticket
 from products.conversations.backend.models.constants import Channel, Status
 from products.conversations.backend.reply_dedupe import REPLY_IN_PROGRESS_ERROR_TYPE, ReplyFingerprint, reserve
-from products.tasks.backend.temporal.oauth import create_oauth_access_token
 
 
 class TestComments(APIBaseTest, QueryMatchingTest):
@@ -299,8 +299,12 @@ class TestComments(APIBaseTest, QueryMatchingTest):
             task.origin_product = "signal_report"
             task.save(update_fields=["origin_product"])
             with mock.patch("posthog.temporal.oauth.get_instance_region", return_value=None):
-                token = create_oauth_access_token(
-                    task, scopes=["task:read", "comment:read"], run_state={"billing_product": "posthog_ai"}
+                token = create_oauth_access_token_for_user(
+                    task.created_by,
+                    task.team_id,
+                    scopes=["task:read", "comment:read"],
+                    application="posthog_ai",
+                    sandbox_task_id=task.id,
                 )
             client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 

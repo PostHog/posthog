@@ -30,7 +30,7 @@ from products.signals.backend.temporal.summary import (
     publish_report_spend_activity,
 )
 from products.signals.backend.temporal.types import SignalReportSummaryWorkflowInputs
-from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
+from products.tasks.backend.facade.agents import MultiTurnSession
 from products.tasks.backend.models import Task
 
 
