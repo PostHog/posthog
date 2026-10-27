@@ -3,6 +3,8 @@ import clsx from 'clsx'
 import type { DashboardWidgetPlacementDestination } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenu'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
+import type { TileGroupDisplay } from '~/types'
+
 import type { DashboardSection } from '../dashboardTileSections'
 import { DashboardTileGroup } from './DashboardTileGroup/DashboardTileGroup'
 
@@ -15,6 +17,7 @@ interface DashboardTileSectionBandProps {
     copyToDestinations?: DashboardWidgetPlacementDestination[]
     onCopyGroupToDashboard?: (groupKey: string, dashboardId: number, dashboardName: string) => void
     copyLoading?: boolean
+    onChangeGroupDisplay?: (groupDisplay: TileGroupDisplay) => void
     children: React.ReactNode
 }
 
@@ -27,6 +30,7 @@ export function DashboardTileSectionBand({
     copyToDestinations,
     onCopyGroupToDashboard,
     copyLoading,
+    onChangeGroupDisplay,
     children,
 }: DashboardTileSectionBandProps): JSX.Element {
     return (
@@ -51,6 +55,7 @@ export function DashboardTileSectionBand({
                             : undefined
                     }
                     copyLoading={copyLoading}
+                    onChangeGroupDisplay={onChangeGroupDisplay}
                 >
                     {children}
                 </DashboardTileGroup>

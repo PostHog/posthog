@@ -143,6 +143,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         moveToDashboard,
         copyToDashboard,
         copyGroupToDashboard,
+        changeTileGroupDisplay,
         setDashboardEditing,
         toggleTileGroup,
         selectTileGroupTab,
@@ -266,6 +267,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         !!dashboard && canEditDashboard && !layoutEditMode && !isMobileView && isEditablePlacement
 
     const onCopyGroupToDashboard = canEditDashboard && isEditablePlacement ? copyGroupToDashboard : undefined
+    const onChangeGroupDisplay = canEditDashboard && isEditablePlacement ? changeTileGroupDisplay : undefined
 
     const isLayoutZoomToggled = layoutEditMode && layoutZoom !== 1
 
@@ -841,6 +843,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             copyToDestinations={copyToDestinations}
             onCopyGroupToDashboard={onCopyGroupToDashboard}
             copyLoading={copyGroupToDashboardLoading}
+            onChangeGroupDisplay={onChangeGroupDisplay}
         >
             {renderSectionGrid(section, index)}
         </DashboardTileSectionBand>
@@ -863,6 +866,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         copyToDestinations={copyToDestinations}
                         onCopyGroupToDashboard={onCopyGroupToDashboard}
                         copyLoading={copyGroupToDashboardLoading}
+                        onChangeGroupDisplay={onChangeGroupDisplay}
                     >
                         {renderSectionGrid(tileGroupSections[activeTabIndex], activeTabIndex)}
                     </DashboardTileGroupTabs>
