@@ -1,8 +1,13 @@
-import type { TraceEvaluationResultOutcomeEnumApi, TraceNodeApi, TraceNodeDetailApi } from '../../generated/api.schemas'
+import type {
+    TraceEvaluationResultOutcomeEnumApi,
+    TraceNodeApi,
+    TraceNodeDetailApi,
+    TraceSummaryContentApi,
+} from '../../generated/api.schemas'
 
 export type TraceNodeKind = TraceNodeApi['kind']
 
-export type TraceMode = 'spans' | 'thread' | 'timeline'
+export type TraceMode = 'spans' | 'thread' | 'timeline' | 'summary'
 
 export type TraceViewChoice = 'new' | 'legacy'
 
@@ -107,3 +112,17 @@ export interface LabeledLink {
     label: string
     href: string
 }
+
+export type SummaryItemKind = 'bullet' | 'note'
+
+/** Why a summary request failed. `throttled` means the user reached their summary limit. */
+export type SummaryRequestError = 'throttled' | 'failed'
+
+/** `none` means no summary this user may see exists yet, and `error` that reading it failed. */
+export type SummaryModeState =
+    | { status: 'loading' }
+    | { status: 'none' }
+    | { status: 'pending' }
+    | { status: 'ready'; summary: TraceSummaryContentApi }
+    | { status: 'failed'; message: string }
+    | { status: 'error' }

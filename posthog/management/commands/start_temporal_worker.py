@@ -160,6 +160,10 @@ from products.aeo.backend.facade.temporal import (
     ACTIVITIES as AEO_BRAND_SENTIMENT_ACTIVITIES,
     WORKFLOWS as AEO_BRAND_SENTIMENT_WORKFLOWS,
 )
+from products.ai_observability.backend.facade.temporal import (
+    ACTIVITIES as AI_OBSERVABILITY_PRODUCT_ACTIVITIES,
+    WORKFLOWS as AI_OBSERVABILITY_PRODUCT_WORKFLOWS,
+)
 from products.alerts.backend.facade.temporal import (
     PLATFORM_AI_QUEUE_ACTIVITIES as INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES,
     PLATFORM_EVALUATION_ACTIVITIES as INSIGHT_PLATFORM_EVALUATION_ACTIVITIES,
@@ -591,8 +595,8 @@ _task_queue_specs = [
     ),
     (
         settings.LLMA_TASK_QUEUE,
-        LLM_ANALYTICS_WORKFLOWS,
-        LLM_ANALYTICS_ACTIVITIES,
+        LLM_ANALYTICS_WORKFLOWS + AI_OBSERVABILITY_PRODUCT_WORKFLOWS,
+        LLM_ANALYTICS_ACTIVITIES + AI_OBSERVABILITY_PRODUCT_ACTIVITIES,
     ),
     (
         # MCP analytics clustering. MCPA_TASK_QUEUE defaults to the

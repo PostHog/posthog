@@ -4,7 +4,7 @@ import { aiObservabilityTraceLogic } from '../../aiObservabilityTraceLogic'
 import { SaveToDatasetButton } from '../../datasets/SaveToDatasetButton'
 import { traceViewAdapterLogic, traceViewAdapterLogicValues } from './adapter/traceViewAdapterLogic'
 import { TraceView, TraceViewProps, TraceViewReadyProps } from './components/TraceView'
-import { NodeDetailTab, TraceMode } from './types'
+import { NodeDetailTab, SummaryItemKind, TraceMode } from './types'
 
 type ReadyValues = Pick<
     traceViewAdapterLogicValues,
@@ -19,6 +19,10 @@ type ReadyValues = Pick<
     | 'canViewInThread'
     | 'thread'
     | 'timeline'
+    | 'summaryState'
+    | 'summaryRequesting'
+    | 'summaryRequestError'
+    | 'summaryConsentGiven'
 >
 
 interface ReadyActions {
@@ -28,6 +32,10 @@ interface ReadyActions {
     setDetailTab: (tab: NodeDetailTab) => void
     viewInThread: () => void
     prefetchNode: (id: string) => void
+    summarize: () => void
+    regenerateSummary: () => void
+    loadSummary: () => void
+    summaryStepClicked: (nodeId: string, kind: SummaryItemKind) => void
 }
 
 function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewReadyProps | null {
@@ -55,6 +63,16 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
             : null,
         thread: values.thread,
         timeline: values.timeline,
+        summaryMode: {
+            state: values.summaryState,
+            requesting: values.summaryRequesting,
+            requestError: values.summaryRequestError,
+            consentGiven: values.summaryConsentGiven,
+            onRequest: actions.summarize,
+            onRegenerate: actions.regenerateSummary,
+            onReload: actions.loadSummary,
+            onSelectStep: actions.summaryStepClicked,
+        },
     }
 }
 
@@ -77,6 +95,10 @@ export function TraceScene(): JSX.Element {
         canViewInThread,
         thread,
         timeline,
+        summaryState,
+        summaryRequesting,
+        summaryRequestError,
+        summaryConsentGiven,
     } = useValues(logic)
     const actions = useActions(logic)
 
@@ -95,6 +117,10 @@ export function TraceScene(): JSX.Element {
                       canViewInThread,
                       thread,
                       timeline,
+                      summaryState,
+                      summaryRequesting,
+                      summaryRequestError,
+                      summaryConsentGiven,
                   },
                   actions
               )

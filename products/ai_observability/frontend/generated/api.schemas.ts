@@ -1487,6 +1487,65 @@ export interface TraceNodeDetailApi {
     event: TraceNodeEventApi | null
 }
 
+export type TraceSummaryStatusEnumApi = (typeof TraceSummaryStatusEnumApi)[keyof typeof TraceSummaryStatusEnumApi]
+
+export const TraceSummaryStatusEnumApi = {
+    Pending: 'pending',
+    Ready: 'ready',
+    Failed: 'failed',
+} as const
+
+export interface TraceSummaryItemApi {
+    text: string
+    /** The step the item refers to, or null when it names none. */
+    nodeId: string | null
+}
+
+export interface TraceSummaryContentApi {
+    title: string
+    bullets: TraceSummaryItemApi[]
+    /** Details worth a second look, or empty. */
+    notes: TraceSummaryItemApi[]
+    /** The main steps of the trace as a small text diagram. */
+    flow: string
+    /** The model that wrote the summary. */
+    model: string
+    generatedAt: string
+}
+
+export type TraceSummaryFailureReasonEnumApi =
+    (typeof TraceSummaryFailureReasonEnumApi)[keyof typeof TraceSummaryFailureReasonEnumApi]
+
+export const TraceSummaryFailureReasonEnumApi = {
+    TraceNotFound: 'trace_not_found',
+    TooLarge: 'too_large',
+    Timeout: 'timeout',
+    ProviderError: 'provider_error',
+    NotApproved: 'not_approved',
+    AccessChanged: 'access_changed',
+    Error: 'error',
+} as const
+
+export interface TraceSummaryFailureApi {
+    reason: TraceSummaryFailureReasonEnumApi
+    /** Why the summary failed, ready to show to the user. */
+    message: string
+}
+
+export interface TraceSummaryApi {
+    /** `pending` while the summary is written, then `ready` or `failed`. */
+    status: TraceSummaryStatusEnumApi
+    /** The summary when `status` is `ready`, else null. */
+    content: TraceSummaryContentApi | null
+    /** Why it failed when `status` is `failed`, else null. */
+    failure: TraceSummaryFailureApi | null
+}
+
+export interface TraceSummaryRequestApi {
+    /** Replace a ready summary with a new one. A pending summary is never replaced. */
+    regenerate?: boolean
+}
+
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
 
 /**
@@ -5473,6 +5532,13 @@ export type AiObservabilityTracesRetrieveParams = {
 }
 
 export type AiObservabilityTracesNodesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
+export type AiObservabilityTracesSummaryCreateParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */

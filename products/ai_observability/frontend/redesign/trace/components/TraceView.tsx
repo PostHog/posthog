@@ -1,6 +1,7 @@
 import type { TraceNodeApi, TraceTimelineRowApi } from '../../../generated/api.schemas'
 import { ConversationState, LabeledLink, TraceMode } from '../types'
 import { NodeDetailProps } from './NodeDetail'
+import { SummaryModeView, SummaryModeViewProps } from './SummaryModeView'
 import { Thread } from './Thread'
 import { TraceHeader, TraceHeaderProps } from './TraceHeader'
 import { TraceModeTabs } from './TraceModeTabs'
@@ -23,6 +24,7 @@ export interface TraceViewReadyProps {
     detail: Omit<NodeDetailProps, 'onSelectNode'> | null
     thread: ConversationState
     timeline: { rows: TraceTimelineRowApi[]; totalMs: number }
+    summaryMode: SummaryModeViewProps
 }
 
 export type TraceViewProps =
@@ -52,6 +54,8 @@ export function TraceView(props: TraceViewProps): JSX.Element {
                 />
             ) : props.mode === 'thread' ? (
                 <Thread conversation={props.thread} onSelectMessage={props.onSelectFromView} />
+            ) : props.mode === 'summary' ? (
+                <SummaryModeView {...props.summaryMode} />
             ) : (
                 <TraceTimeline
                     rows={props.timeline.rows}

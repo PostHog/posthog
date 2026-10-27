@@ -26,6 +26,7 @@ const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
 const DATASETS_URL = '/api/projects/:team_id/datasets/'
+const SUMMARY_URL = '/api/projects/:team_id/ai_observability/traces/:id/summary/'
 const answeredGeneration = makeNodeDetail({
     id: 'gen-2',
     properties: {
@@ -105,6 +106,39 @@ describe('TraceScene', () => {
             fireEvent.mouseEnter(row)
 
             await waitFor(() => expect(nodeRequests).toContain('span-1'))
+        })
+
+        it('the Summary tab shows a stored summary whose step link opens that step in spans', async () => {
+            useMocks({
+                get: {
+                    [SUMMARY_URL]: () => [
+                        200,
+                        {
+                            status: 'ready',
+                            content: {
+                                title: 'Invoice question answered',
+                                bullets: [{ text: 'Context is retrieved first.', nodeId: 'span-1' }],
+                                notes: [],
+                                flow: 'retrieve → answer',
+                                model: 'gpt-4.1-mini',
+                                generatedAt: '2026-09-01T10:20:00Z',
+                            },
+                            failure: null,
+                        },
+                    ],
+                },
+            })
+            const { container, findByText } = renderNewView()
+
+            fireEvent.click(await findByText('Summary'))
+            expect(await findByText('Context is retrieved first.')).toBeTruthy()
+            fireEvent.click(await findByText('View step'))
+
+            await waitFor(() =>
+                expect(
+                    container.querySelector('[data-attr="trace-view-tree-node"][aria-current="true"]')?.textContent
+                ).toContain('span-1')
+            )
         })
 
         it.each([true, false])('offers add to dataset on the step only when datasets are on (%s)', async (enabled) => {
