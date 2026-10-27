@@ -1499,6 +1499,110 @@ async fn test_fetch_and_filter_preserves_evaluation_metadata() {
     assert!(ctx.transitive_deps.contains_key(&2));
 }
 
+/// Historical test evaluation ships a reconstructed soft-deleted flag as an
+/// override. The team's cached flag list excludes deleted flags, so the
+/// override's key is absent from it: `fetch_and_filter` must add the override
+/// to the list, leave it un-filtered, and stage it in the evaluation metadata
+/// (a flag absent from `dependency_stages` is never evaluated and would be
+/// miscounted as a cycle participant).
+#[tokio::test]
+async fn test_fetch_and_filter_override_adds_flag_missing_from_team_list() {
+    let redis_client = setup_redis_client(None).await;
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
+    let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+    let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+    let flag_service = FlagService::new(
+        redis_client.clone(),
+        reader.clone(),
+        team_hypercache_reader,
+        hypercache_reader,
+        Arc::new(FlagDefinitionsCache::disabled()),
+        NegativeCache::new(100, 300),
+        false,
+    );
+    let context = TestContext::new(None).await;
+    let team = context.insert_new_team(None).await.unwrap();
+
+    // The team's list carries only the live flag; the soft-deleted flag (id 2)
+    // is excluded at cache-write time, exactly like production.
+    let flags = vec![mock!(FeatureFlag,
+        name: "Live flag".mock_into(),
+        id: 1,
+        key: "live-flag".mock_into(),
+        team_id: team.id,
+        filters: FlagFilters::default()
+    )];
+    let eval_metadata = EvaluationMetadata {
+        dependency_stages: vec![vec![1]],
+        flags_with_missing_deps: vec![],
+        transitive_deps: HashMap::from([(1, std::collections::HashSet::new())]),
+        ..Default::default()
+    };
+    let wrapper = HypercacheFlagsWrapper {
+        flags: flags.clone(),
+        evaluation_metadata: eval_metadata,
+        cohorts: None,
+    };
+    let json_string = serde_json::to_string(&wrapper).unwrap();
+    let pickled_bytes = serde_pickle::to_vec(&json_string, Default::default()).unwrap();
+    let cache_key = format!("posthog:1:cache/teams/{}/feature_flags/flags.json", team.id);
+    redis_client
+        .set_bytes(cache_key, pickled_bytes, None)
+        .await
+        .unwrap();
+
+    let override_def = json!({
+        "id": 2,
+        "team_id": team.id,
+        "name": "Reconstructed deleted flag",
+        "key": "deleted-flag",
+        "filters": { "groups": [{"properties": [], "rollout_percentage": 100}] },
+        "deleted": false,
+        "active": true,
+    });
+    let overrides: HashMap<String, Value> =
+        HashMap::from([("deleted-flag".to_string(), override_def)]);
+
+    let query_params = FlagsQueryParams::default();
+    let result = fetch_and_filter(
+        &flag_service,
+        team.id,
+        &query_params,
+        &HeaderMap::new(),
+        None,
+        None,
+        Some(&overrides),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        result.flags.len(),
+        2,
+        "override for a key absent from the team's list must be added, not dropped"
+    );
+    let added = result
+        .flags
+        .iter()
+        .find(|f| f.key == "deleted-flag")
+        .expect("added flag must be in the list");
+    assert!(
+        !result.filtered_out_flag_ids.contains(&added.id),
+        "added flag must not be filtered out"
+    );
+    let staged: Vec<i32> = result
+        .evaluation_metadata
+        .dependency_stages
+        .iter()
+        .flatten()
+        .copied()
+        .collect();
+    assert!(
+        staged.contains(&added.id),
+        "added flag must appear in a dependency stage or it is never evaluated (stages: {staged:?})"
+    );
+}
+
 /// Two `fetch_and_filter` calls against a primed `FlagDefinitionsCache` must
 /// share the same `Arc<[FeatureFlag]>` and `Arc<EvaluationMetadata>` — i.e.
 /// `fetch_and_filter` must not deep-clone either field.

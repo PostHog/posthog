@@ -14835,6 +14835,117 @@ class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
         # by the (reconstructed) flag's conditions.
         self.assertEqual(response.json()["person_properties"], {"email": "historical@example.com"})
 
+    @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time", return_value={})
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_test_evaluation_before_single_soft_delete_sends_undeleted_override(
+        self, mock_get_flags, _mock_build_props
+    ):
+        """A timestamp before a single soft delete must ship the reconstructed
+        definition with deleted=False in the override payload. The flags service
+        excludes deleted flags from the team's flag list, so this payload is the
+        only vehicle for the historical definition — a deleted=True (or dropped)
+        override surfaces as result=False, reason=flag_not_found in the UI
+        Testing tab and the MCP tool."""
+        filters = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="historical-deleted-flag",
+            filters=filters,
+            created_by=self.user,
+            version=1,
+        )
+        create_person(team=self.team, distinct_ids=["test-user"])
+
+        # Soft delete through the API so the real activity-logging path runs.
+        delete_response = self.client.patch(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/",
+            {"deleted": True},
+            format="json",
+        )
+        self.assertEqual(delete_response.status_code, status.HTTP_200_OK, delete_response.json())
+        flag.refresh_from_db()
+        self.assertTrue(flag.deleted)
+
+        mock_get_flags.return_value = {
+            "flags": {
+                "historical-deleted-flag": {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                    "metadata": {},
+                    "conditions": [],
+                }
+            }
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user", "timestamp": flag.created_at.isoformat()},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        sent = mock_get_flags.call_args.kwargs["override_flags_definitions"]["historical-deleted-flag"]
+        self.assertIs(sent["deleted"], False, f"override payload must undelete the flag, got {sent!r}")
+        self.assertEqual(sent["filters"], filters)
+        self.assertEqual(sent["team_id"], self.team.pk)
+        self.assertEqual(response.json()["result"], True)
+
+    @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time", return_value={})
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_test_evaluation_before_bulk_delete_sends_undeleted_override(self, mock_get_flags, _mock_build_props):
+        """Bulk delete of a non-v2 flag writes deleted=True via .update() without a
+        version bump and logs activity="deleted" with empty changes. Reconstruction
+        starts from the current (deleted) row and the walk-back never undoes the
+        deletion, so without a correction the override payload ships deleted=True
+        and the flags service skips the flag. The endpoint must force
+        deleted=False: a successful reconstruction already proves the flag existed
+        and was not deleted at the timestamp."""
+        filters = {"groups": [{"properties": [], "rollout_percentage": 100}]}
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="bulk-deleted-flag",
+            filters=filters,
+            created_by=self.user,
+            version=1,
+        )
+        create_person(team=self.team, distinct_ids=["test-user"])
+
+        delete_response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/bulk_delete/",
+            {"ids": [flag.id]},
+            format="json",
+        )
+        self.assertEqual(delete_response.status_code, status.HTTP_200_OK, delete_response.json())
+        flag.refresh_from_db()
+        self.assertTrue(flag.deleted)
+
+        mock_get_flags.return_value = {
+            "flags": {
+                "bulk-deleted-flag": {
+                    "enabled": True,
+                    "variant": None,
+                    "reason": {"code": "condition_match", "condition_index": 0},
+                    "metadata": {},
+                    "conditions": [],
+                }
+            }
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+            {"distinct_id": "test-user", "timestamp": flag.created_at.isoformat()},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        sent = mock_get_flags.call_args.kwargs["override_flags_definitions"]["bulk-deleted-flag"]
+        self.assertIs(sent["deleted"], False, f"override payload must undelete the flag, got {sent!r}")
+        self.assertEqual(sent["filters"], filters)
+        self.assertEqual(response.json()["result"], True)
+
     def test_test_evaluation_distinct_id_person_id_conflict(self):
         """Test validation error when both distinct_id and person_id are provided."""
         flag = FeatureFlag.objects.create(team=self.team, key="test-flag")

@@ -1028,16 +1028,40 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_flag_overrides_skips_unknown_keys() {
-        let mut flags = vec![flag_with_team(1, 100, "my-flag")];
+    fn test_apply_flag_overrides_adds_flag_missing_from_team_list() {
+        // Historical test evaluation reconstructs a soft-deleted flag and ships it
+        // as an override. Every source of the team's flag list (cache and PG) excludes
+        // deleted flags, so the key is absent from `flags` — the override must be
+        // ADDED, not dropped, or /test_evaluation reports flag_not_found for
+        // timestamps at which the flag existed.
+        let mut flags = vec![flag_with_team(1, 100, "live-flag")];
         let mut overrides = HashMap::new();
         overrides.insert(
-            "not-in-list".to_string(),
-            override_payload(1, 100, "not-in-list"),
+            "deleted-flag".to_string(),
+            override_payload(2, 100, "deleted-flag"),
         );
 
         let applied = apply_flag_overrides(&mut flags, &overrides);
 
-        assert!(applied.is_empty());
+        assert_eq!(
+            applied,
+            vec!["deleted-flag".to_string()],
+            "override for a key absent from the team's flag list must be applied"
+        );
+        assert_eq!(
+            flags.len(),
+            2,
+            "the override definition must be added to the flag list"
+        );
+        let added = flags
+            .iter()
+            .find(|f| f.key == "deleted-flag")
+            .expect("added flag must be present");
+        assert_eq!(added.id, 2);
+        assert_eq!(
+            added.team_id, 100,
+            "an added override must belong to the same team as the request"
+        );
+        assert_eq!(added.filters.groups[0].rollout_percentage, Some(50.0));
     }
 }
