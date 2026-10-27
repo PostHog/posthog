@@ -170,6 +170,11 @@ describe('microsoft template', () => {
         ],
         ['email without an @', { email: 'not-an-email' }, {}],
         [
+            'hex-looking external ID',
+            { external_id: 'A'.repeat(64) },
+            { externalId: 'd53eda7a637c99cc7fb566d96e9fa109bf15c478410a3f5eb4d4c4e26cd081f6' },
+        ],
+        [
             'formatted phone',
             { phone: '+1 (425) 555-1234' },
             { ph: 'c59475d96e9f01d7d18d06cfad84dd02333207f02c0c2c5663ef2782cda0390e' },

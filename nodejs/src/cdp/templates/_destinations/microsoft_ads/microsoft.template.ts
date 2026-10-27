@@ -192,8 +192,9 @@ if (not empty(inputs.phone)) {
         userData.ph := ph
     }
 }
+// An external ID is always hashed, even when it looks like a hash, because a user ID can itself be a hex string
 if (not empty(inputs.externalId)) {
-    userData.externalId := existingSha256(inputs.externalId) ?? sha256Hex(trim(toString(inputs.externalId)))
+    userData.externalId := sha256Hex(trim(toString(inputs.externalId)))
 }
 // Microsoft can only attribute a conversion that carries at least one identifier;
 // IP address and user agent alone are not enough
