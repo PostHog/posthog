@@ -8,10 +8,13 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 # release-quality metrics teams care about are the daily ones).
 AGGREGATION_PERIOD = "DAILY"
 
-# Days of history requested on a first sync. The Reporting API keeps roughly a year of daily
-# vitals; error reports are retained for a much shorter window, so they start closer to today.
-METRIC_SET_HISTORY_DAYS = 180
+# Days of history requested on a first sync. Error reports are retained for a much shorter
+# window than vitals, so they start closer to today.
+METRIC_SET_HISTORY_DAYS = 730
 ERROR_HISTORY_DAYS = 30
+# Depth that first syncs have always read without a rejection. Play does not say how far back
+# vitals go, so a rejected window that starts before this depth is skipped, not fatal.
+METRIC_SET_PROVEN_HISTORY_DAYS = 180
 
 # Play keeps revising the most recent days of vitals (and the 7d/28d rolling metrics move with
 # them), so an incremental run re-reads a trailing week and merges the corrected rows.
