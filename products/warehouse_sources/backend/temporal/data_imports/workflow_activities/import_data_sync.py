@@ -34,7 +34,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT, ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
-from products.warehouse_sources.backend.facade.contracts import SourceCredentialsMissingError
+from products.warehouse_sources.backend.facade.contracts import UnreadableSourceInputsError
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -809,13 +809,15 @@ async def _import_data_with_reporting(
 
             try:
                 pipeline_job_inputs = await SourceInputsStore.aload(model.pipeline)
-                config = new_source.parse_config(pipeline_job_inputs)
-            except SourceCredentialsMissingError as e:
-                # The credentials row of a stripped source is lost. Only the user can fix it, by entering the
-                # credentials again, so a retry cannot help.
+            except UnreadableSourceInputsError as e:
+                # `job_inputs` that do not decode, or a stripped source whose credentials row is lost
+                # (`SourceCredentialsMissingError`), fail the same way on every attempt. Any other error, such as
+                # a database timeout while reading the credentials row, propagates so the activity retries.
                 await handle_non_retryable_error(
                     job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, str(e), logger, e
                 )
+            try:
+                config = new_source.parse_config(pipeline_job_inputs)
             except CredentialsServiceFailure as e:
                 # A source whose config carries a PostHog-owned credential resolves it here, so a
                 # failure at this point is ours and not a corrupt `job_inputs`. Route it through the
