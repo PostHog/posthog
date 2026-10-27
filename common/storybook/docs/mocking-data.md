@@ -87,13 +87,29 @@ Read `handlers.ts` before you mock a path. A default may already return what you
 - `persisted_feature_flags` holds the story's `featureFlags`.
 - `resource_access_control` gives `manager` access to everything except the activity log and the toolbar, which are `viewer`.
 
-To change the user, the organization, the team or the preflight, mock its endpoint with a copy of the default:
+To change the user, the organization or the preflight, mock its endpoint with a copy of the default:
 
 ```ts
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 mswDecorator({ get: { '/api/users/@me/': { ...MOCK_DEFAULT_USER, is_staff: true } } })
 ```
+
+The team and the project work differently.
+`teamLogic` and `projectLogic` take them from the app context when they mount and never request them, so a mock of their endpoint changes nothing.
+Set them after mount instead, with `teamLogic.actions.loadCurrentTeamSuccess` or `projectLogic.actions.loadCurrentProjectSuccess`:
+
+```tsx
+render: () => {
+    const { loadCurrentTeamSuccess } = useActions(teamLogic)
+    useDelayedOnMountEffect(() => {
+        loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, created_at: '2023-05-23T00:00:00Z' })
+    })
+    return <App />
+},
+```
+
+`OnboardingWelcome.stories.tsx` uses this pattern. `withKea` remounts the logics for the next story, so nothing carries over.
 
 `lib/api.mock.ts` holds `MOCK_DEFAULT_USER`, `MOCK_DEFAULT_TEAM`, `MOCK_DEFAULT_ORGANIZATION`, `MOCK_TEAM_ID` and the other defaults. `frontend/src/mocks/fixtures/` holds larger JSON fixtures.
 
