@@ -267,6 +267,10 @@ export class HogInputsService {
             if (integration.kind === 'posthog') {
                 return null
             }
+            // The access keys of an AWS connection are read only by the request signer, which keeps them out of Hog.
+            if (integration.kind === 'aws-kinesis') {
+                return { $integration_id: integration.id, ...integration.config }
+            }
             return {
                 $integration_id: integration.id,
                 ...integration.config,

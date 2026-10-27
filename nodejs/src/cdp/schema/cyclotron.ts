@@ -118,6 +118,9 @@ export const CyclotronInvocationQueueParametersFetchAwsSigV4Schema = z.object({
     access_key_id_input: z.string(),
     secret_access_key_input: z.string(),
     session_token_input: z.string().optional(),
+    // References an AWS connection input. When that input has a value, the connection supplies the
+    // credentials (its access keys, or temporary credentials for its IAM role) and the key inputs are ignored.
+    integration_input: z.string().optional(),
 })
 
 // When `standard_webhooks` is present on a fetch queue payload, the cyclotron

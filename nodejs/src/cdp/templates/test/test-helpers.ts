@@ -249,6 +249,7 @@ export class TemplateTester {
                 emailService,
                 recipientTokensService,
                 pushNotificationService: undefined as any,
+                awsSigV4Credentials: undefined as any,
             }
         )
     }
