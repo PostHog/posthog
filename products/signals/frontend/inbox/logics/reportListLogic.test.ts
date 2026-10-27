@@ -315,6 +315,74 @@ describe('reportListLogic', () => {
         )
     })
 
+    // A scope change while a request for the old query is in flight. The old response lands last,
+    // and the list must still show only the new query's rows.
+    describe('query change while a request is in flight', () => {
+        const ALL = Array.from({ length: 10 }, (_, i) => makeReport(`all-${i}`))
+        const MINE = [makeReport('mine-0')]
+        let heldOffset: string
+        let releaseOldQuery: () => void
+        let logic: ReturnType<typeof reportListLogic.build>
+
+        beforeEach(() => {
+            const oldQueryHeld = new Promise<void>((resolve) => {
+                releaseOldQuery = resolve
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                    [REPORTS_URL]: async ({ request }) => {
+                        const params = new URL(request.url).searchParams
+                        if (params.get('assignee') === 'me') {
+                            return [200, { count: MINE.length, next: null, previous: null, results: MINE }]
+                        }
+                        if (params.get('offset') === heldOffset) {
+                            await oldQueryHeld
+                        }
+                        const firstPage = params.get('offset') === '0'
+                        return [
+                            200,
+                            {
+                                count: ALL.length + 1,
+                                next: firstPage ? 'http://localhost/api/projects/997/signals/reports/?offset=50' : null,
+                                previous: null,
+                                results: firstPage ? ALL : [makeReport('all-page-2')],
+                            },
+                        ]
+                    },
+                },
+            })
+            initKeaTests()
+            logic = reportListLogic({
+                sectionKey: 'needs-decision',
+                listParams: INBOX_REPORT_SECTION_LIST_PARAMS['needs-decision'],
+            })
+            logic.mount()
+        })
+
+        afterEach(() => logic.unmount())
+
+        it.each([
+            { request: 'first page', offset: '0' },
+            { request: 'next page', offset: String(ALL.length) },
+        ])('drops the late $request of the old query', async ({ offset }) => {
+            heldOffset = offset
+            logic.actions.ensureLoaded()
+            if (offset !== '0') {
+                await expectLogic(logic).toDispatchActions(['loadReportsSuccess'])
+                logic.actions.loadMore()
+            }
+
+            logic.actions.setScope(INBOX_SCOPE_CLAIMED_BY_YOU)
+            await expectLogic(logic).toDispatchActions(['loadReportsSuccess'])
+            releaseOldQuery()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.reports.map((r) => r.id)).toEqual(['mine-0'])
+            expect(logic.values.totalCount).toBe(MINE.length)
+        })
+    })
+
     // The list skips the ClickHouse source lookup so it renders from Postgres alone. The source line
     // must then fill in from one follow-up request, and a refresh must ask again so new sources show.
     describe('lazy source line', () => {

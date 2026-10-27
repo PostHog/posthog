@@ -3,7 +3,7 @@ import { MOCK_USER_UUID } from 'lib/api.mock'
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { useMountedLogic } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
@@ -73,14 +73,14 @@ function reportsListDecorator(reports: SignalReport[]): Decorator {
 // these stories are for.
 function ReportsTabStory({ searchParams }: { searchParams?: Record<string, string> }): JSX.Element {
     useMountedLogic(inboxSceneLogic)
-    // Mount the list only after the URL holds the filters. A filter change that lands while the
-    // first page is in flight does not reload the rows.
-    const [urlReady, setUrlReady] = useState(false)
     useEffect(() => {
         router.actions.push(urls.inbox('reports'), searchParams ?? {})
-        setUrlReady(true)
     }, [searchParams])
-    return <div className="bg-primary min-h-screen">{urlReady && <ReportsTab />}</div>
+    return (
+        <div className="bg-primary min-h-screen">
+            <ReportsTab />
+        </div>
+    )
 }
 
 const meta: Meta = {

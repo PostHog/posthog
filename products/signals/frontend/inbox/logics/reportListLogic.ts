@@ -484,13 +484,15 @@ export const reportListLogic = kea<reportListLogicType>([
         count: [
             null as number | null,
             {
-                loadCount: async () => {
+                loadCount: async (_, breakpoint) => {
                     // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
                     const response = await api.signalReports.list({
                         ...listRequestParams(values.listApiParams),
                         limit: 1,
                         count_only: 'true',
                     })
+                    // A newer count request for a changed query supersedes this one.
+                    breakpoint()
                     return response.count
                 },
             },
@@ -501,20 +503,24 @@ export const reportListLogic = kea<reportListLogicType>([
                 // `requestParams` records the query that produced the response, so consumers
                 // (impression telemetry) can key off what was actually fetched rather than the
                 // live `listApiParams`, which changes before the refetch lands.
-                loadReports: async (): Promise<ReportListResponse> => {
+                loadReports: async (_, breakpoint): Promise<ReportListResponse> => {
                     const params = values.listApiParams
                     const requestContext = requestContextFromValues(values)
+                    cache.firstPageRequestId = (cache.firstPageRequestId ?? 0) + 1
                     // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
                     const response = await api.signalReports.list({
                         ...listRequestParams(params),
                         offset: 0,
                         limit: PAGE_SIZE,
                     })
+                    // A newer first-page request for a changed query supersedes this one.
+                    breakpoint()
                     return { ...response, requestParams: params, requestContext }
                 },
                 loadMoreReports: async (): Promise<ReportListResponse> => {
                     const params = values.listApiParams
                     const requestContext = requestContextFromValues(values)
+                    const firstPageRequestId = cache.firstPageRequestId
                     const current = values.reportsResponse?.results ?? []
                     // `removeReport` records ids here while the request is in flight. `current` predates
                     // those removals, so filter them out or a removed report comes back when the page lands.
@@ -526,6 +532,11 @@ export const reportListLogic = kea<reportListLogicType>([
                         offset: current.length,
                         limit: PAGE_SIZE,
                     })
+                    // A first-page load for a changed query started meanwhile. Its rows win, so this
+                    // page of the old query must not land on top of them.
+                    if (cache.firstPageRequestId !== firstPageRequestId && values.reportsResponse) {
+                        return values.reportsResponse
+                    }
                     return {
                         ...response,
                         results: [...current.filter((r) => !removedWhilePending.has(r.id)), ...response.results],
@@ -834,13 +845,20 @@ export const reportListLogic = kea<reportListLogicType>([
             }
         },
         loadMore: () => {
-            if (values.hasMore && !values.reportsResponseLoading) {
+            // Page only from rows of the current query. Rows from before a filter change get
+            // replaced, so a next page appended to them would mix two queries.
+            if (
+                values.hasMore &&
+                !values.reportsResponseLoading &&
+                values.loadedQueryKey === JSON.stringify(values.listApiParams)
+            ) {
                 actions.loadMoreReports()
             }
         },
         refresh: () => {
             actions.loadCount()
-            if (values.isLoaded) {
+            // An in-flight first page was requested with the old filters, so it reloads too.
+            if (values.isLoaded || values.reportsResponseLoading) {
                 actions.loadReports()
             }
         },
