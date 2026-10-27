@@ -38,7 +38,7 @@ class MailchimpEventsConfig:
     """The event fields that identify one event. A fixed list keeps `event_id` stable when Mailchimp adds a field."""
 
 
-@dataclass
+@dataclass(frozen=False)
 class MailchimpEndpointConfig:
     name: str
     path: str

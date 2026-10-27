@@ -70,7 +70,7 @@ def _get_with_retry(
     return response
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class MailchimpResumeConfig:
     """Resume state for Mailchimp endpoints.
 
