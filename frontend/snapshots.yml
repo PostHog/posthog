@@ -14773,9 +14773,9 @@ snapshots:
     scenes-app-replay-vision--observation-detail-classifier--light:
         hash: v1.k794b7964.812c52630f07aad627bbef36145b4499599d5df16411d81dfe884abac4e5b48c.YNeITkL81fdUmXdlHQSOaVOxIi1otp_nLJPYEjWSWkc
     scenes-app-replay-vision--observation-detail-failed--dark:
-        hash: v1.k794b7964.07b7872338385fd4798f0d5ba9bc83103e7eded996ad25bacbfac44e78141850.ELDT3n6Usls8RGZ-22vo6KPDOrh05j5HP6-RnDy4wHI
+        hash: v1.k794b7964.178910865db4028b36eac2c728a188654bd41ec72ce8e3f1f7c9fd7f04546b88.x5-JMI3AJDOufpCjRtOOcqWRrQmcWDUFqpx2YE2VC-0
     scenes-app-replay-vision--observation-detail-failed--light:
-        hash: v1.k794b7964.865a18ec9e2c1d9616742ac66c69072d90ded6efb4bc8e973d43a7e9cdc205ee.8UP6XrRPnVlsT97P9jstn4CnaeBZZJD9oMPPfx4DwcQ
+        hash: v1.k794b7964.d785723c2d89ed620d75d0ef2055f898a01b7325101229d4e54cf37e2dc17af7.fv0LS2k7i2Mak73ZKguMZkf_kkciOPKble3HlvFiBPQ
     scenes-app-replay-vision--observation-detail-inline-scan--dark:
         hash: v1.k794b7964.ae52ae6b7550bd29bb072461a76f6adb7225017bef54712ae0983da16d73d38c.TMsKlJUqYj_m_dfJE700BerOPX_sIpZYfuZHqrEhGIE
     scenes-app-replay-vision--observation-detail-inline-scan--light:
@@ -14789,21 +14789,21 @@ snapshots:
     scenes-app-replay-vision--observation-detail-monitor-inconclusive--light:
         hash: v1.k794b7964.51caae084374f8732810fc955d637cc0cba2049e991f6e8265cd01fc5ed53487.rT7EJy5Z5T4fOiZeaJTpzZkQQA29DIaN-hcZ2GtegCs
     scenes-app-replay-vision--observation-detail-not-scanned--dark:
-        hash: v1.k794b7964.5aaf0fce8c31111ab54cc6b9f977c306d10a7490720f1f519b8071658531dc6f.anx8zQcKtVWrkZII_qKhA5Za18rbKNC6ZJ7UNu0lYHc
+        hash: v1.k794b7964.d92f751579ed56cd5e6dec23891b430b3a43d82065e160e62396fcca3fa973db.kGlivzbryjSCgzG6mAtZ3lI9fyGBLPrCUj65uibKE2k
     scenes-app-replay-vision--observation-detail-not-scanned--light:
-        hash: v1.k794b7964.6ee2b084470e459f2fd89d32589b547dab570db7f939a20d7a19def3094ec69b.qyNB5ElOhbpF099xZGOqXkf2ZZvAHzmHEsJ1rw468Gs
+        hash: v1.k794b7964.8293b9fb2a7338d4f83eff3d0d5f557de7641017aec799f733efacd45bc7baee.gxeOxuDbSSIpryNYiDFrdUwVEUQ3gpuNjb3c5J_sdFE
     scenes-app-replay-vision--observation-detail-recording-expired--dark:
-        hash: v1.k794b7964.7c51a1c2d8e2e76dac0d6ee37ca3e3765755cc2ec7eafe33fcbab9818c3205b2.qFfCtRUTcXPgLJ1GMkNYRMr7HXjtS2mREQYEs1n0dZk
+        hash: v1.k794b7964.fcbe89006a1bb557b6bc43713c4701692f2732250b5e7c6a414cfce39b5a718b.b-xw0njT9ETXR7a-1_gXHSmjIVdw8JUH2pSlRKGJCYY
     scenes-app-replay-vision--observation-detail-recording-expired--light:
-        hash: v1.k794b7964.7d41766ac840c8497df9533ceb88f0086afdef57975b1f951c69183f8d060140.LFlTkcd2zNKfvqkEVgBcZBWPyVDizpCV1JoCmj8JdsE
+        hash: v1.k794b7964.8cff206a81bfe127a9f25dd0cdb7105d79251147aefeb7b5f8acf802d2c7c832.BpijYHiG7JszmH6HCyTLl0HIrdk5HQLZvZ_4HzfHud4
     scenes-app-replay-vision--observation-detail-scorer--dark:
         hash: v1.k794b7964.35969efd42660b47ef1ebb786fc9472428cd09dcb09c415f72674dd029c0c1f8.V0_UrhVG3UA6I3S9buZ63q0J2_NbT9k1gnOg3GiwnEU
     scenes-app-replay-vision--observation-detail-scorer--light:
         hash: v1.k794b7964.22324e39500a751d81afa2f8182d9c5bfa3210cab96e87275823a68bd742675a.UgutZacJ0sLcHH7UdObmCzZPgJhEVpkio7zxH_r90b4
     scenes-app-replay-vision--observation-detail-summarize-button--dark:
-        hash: v1.k794b7964.b6352f9e6927ea338746776eef45109f3b7a13879aae0ad7fe5171fca1939d65.pSQTGMRBL8PO4VxW_Y3J3ZZREZDuconTOwUJnXnUyn4
+        hash: v1.k794b7964.e50ba21fe7a4a5d690ab033b46af9e0a38ccb003e3fdf84e5e2fd1c23d071f7e.DPWsjNBZn4T8iV76Lsg6X4txN827VTHFpCsB_qgslBQ
     scenes-app-replay-vision--observation-detail-summarize-button--light:
-        hash: v1.k794b7964.6b8d659d537b98e11ff5a73e1d80f801d50980450845a7ab8bc574e1bb999d89.eASeUu7GVtBYfK9fq4HRPArLXsJJ_tYVZ1lItGfqbl8
+        hash: v1.k794b7964.491a0e0883bcbf0cc6206b910db87e1aa01c8cc9adbd51a7f11a6cd5662010a8.jBI2OFokY37mhDn-XB3OIj7htiD2eLmUjzSHlaeulsk
     scenes-app-replay-vision--observation-detail-summary-with-timeline--dark:
         hash: v1.k794b7964.5f217eb61e6b3a843dc8fb6d9b255f55aff8f95e29581c4ee303db78fc4eb2ad.u9RtPaF134pNlgU-fbrbUnPrw3hkRV0lvxlBXeALgUc
     scenes-app-replay-vision--observation-detail-summary-with-timeline--light:
