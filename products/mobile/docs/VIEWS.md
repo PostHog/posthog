@@ -91,14 +91,15 @@ Loading, the pin list error and the sign-in state are separate screens. The pin 
 
 A pin shows in one of three modes, chosen on this phone:
 
-| Mode   | Shows                                                                                                     | Height                                | Reads data |
-| ------ | --------------------------------------------------------------------------------------------------------- | ------------------------------------- | ---------- |
-| Row    | Icon, name, the view type ("Dashboard", "Built-in view" for web analytics, "Notebook · Opens on the web") | 64 pt                                 | No         |
-| Number | The value, a neutral change pill, the tile name, a 14-bucket sparkline, saved range and freshness         | At least 156 pt, sized to its content | Yes        |
-| Chart  | The value, the change pill, a compact `MetricChart`, saved range and freshness                            | 249 pt                                | Yes        |
+| Mode   | Shows                                                                                                     | Height               | Reads data |
+| ------ | --------------------------------------------------------------------------------------------------------- | -------------------- | ---------- |
+| Row    | Icon, name, the view type ("Dashboard", "Built-in view" for web analytics, "Notebook · Opens on the web") | 64 pt                | No         |
+| Number | The value, a neutral change pill, the tile name, a 14-bucket sparkline, saved range and freshness         | Fits visible content | Yes        |
+| Chart  | The value, the change pill, a compact `MetricChart`, saved range and freshness                            | Fits visible content | Yes        |
 
-Row and Chart modes have fixed heights, so a chart's canvas can replace its sparkline placeholder without moving the list.
+Row mode has a fixed height. Number and Chart pins size to their visible content, and Chart pins keep a fixed plot height while the canvas replaces its sparkline placeholder.
 Number cards fit their content and only include the comparison and date row when either is present.
+Both modes omit empty footer lines and the footer itself when neither the saved range nor freshness is available.
 Chart pins pass `canvasSlot` and sit inside `ChartCanvasBudget`, so at most six Skia canvases are mounted; the list feeds both the budget and the refresh rules from one `onViewableItemsChanged`. The list and each dashboard pass `active={useIsFocused()}`, so a screen under a pushed view or behind another tab gives its canvases back, and a stack holds only the focused screen's canvases.
 A tap on a Chart pin's plot pins a tooltip, and a tap on its name or value opens the view.
 A tap on the pinned tooltip opens the Point sheet. `ViewsScreen` wraps the list in `ChartSheetsProvider`, and the sheet follows the pin's own cache entry, which reads the saved range.

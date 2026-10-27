@@ -33,7 +33,6 @@ import { dataUntil, pinChartSeries } from './pinChart'
 import { useMenuTrigger } from './useMenuTrigger'
 import { ViewIcon, viewTypeLabel } from './viewMeta'
 
-// Fixed row and chart heights keep the list still when a chart's canvas replaces its sparkline placeholder.
 const HEAD_HEIGHT = 62
 const NUMBER_BODY_HEIGHT = 50
 const VALUE_ROW_HEIGHT = 33
@@ -272,7 +271,7 @@ function ChartPin({ pin, index, data, onOpen, onMenu, onUnpin, onPressTooltip }:
     const canChart = snapshot ? snapshot.capabilities.chart && series.length > 0 : true
     const slotKey = `pin:${pin.shortcutId}`
     return (
-        <View ref={menu.ref} style={[styles.card, { height: PIN_CHART_HEIGHT }]} testID={pinTestId(pin)}>
+        <View ref={menu.ref} style={styles.card} testID={pinTestId(pin)}>
             <Pressable44
                 onPress={() => onOpen(pin)}
                 onLongPress={menu.onLongPress}
@@ -335,10 +334,13 @@ function ChartPin({ pin, index, data, onOpen, onMenu, onUnpin, onPressTooltip }:
     )
 }
 
-function PinDataFooter({ data }: { data: PinData }): ReactElement {
+function PinDataFooter({ data }: { data: PinData }): ReactElement | null {
     const styles = useStyles()
     useNow()
     const freshness = statusLine([data.snapshot], data.updating).text
+    if (!data.rangeLabel && !freshness) {
+        return null
+    }
     return (
         <View style={styles.footer}>
             {data.rangeLabel ? (
@@ -532,10 +534,8 @@ const useStyles = createStyles(({ colors }) => ({
         paddingBottom: CHART_BOTTOM,
     },
     footer: {
-        height: FOOTER_HEIGHT,
         paddingHorizontal: 14,
         paddingBottom: 8,
-        justifyContent: 'flex-end',
     },
     stale: {
         opacity: 0.45,
