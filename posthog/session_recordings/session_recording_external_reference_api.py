@@ -14,6 +14,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
 from posthog.models.integration import (
+    PUBLIC_INTEGRATION_KIND_CHOICES,
     GitHubIntegration,
     GitLabIntegration,
     Integration,
@@ -28,6 +29,8 @@ logger = structlog.get_logger(__name__)
 
 class SessionRecordingExternalReferenceIntegrationSerializer(serializers.ModelSerializer):
     """Read-only serializer for Integration info embedded in external references"""
+
+    kind = serializers.ChoiceField(choices=PUBLIC_INTEGRATION_KIND_CHOICES, read_only=True)
 
     class Meta:
         model = Integration
