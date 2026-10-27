@@ -6,6 +6,7 @@ import builtins
 from functools import cached_property
 from typing import Any, Optional, cast
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from django.apps import apps
 from django.db import connection, transaction
@@ -143,6 +144,12 @@ class FileSystemDeleteQuerySerializer(serializers.Serializer):
             "Delete folder contents too (default: true). Set false to delete only empty folders. "
             "Nonempty folders return HTTP 409 with code directory_not_empty."
         ),
+    )
+
+
+class FileSystemFrequentQuerySerializer(serializers.Serializer):
+    limit = serializers.IntegerField(
+        default=8, min_value=1, max_value=20, help_text="Maximum number of frequently viewed items to return."
     )
 
 
@@ -367,6 +374,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "list",
         "retrieve",
         "search",
+        "frequent",
         "unfiled",
         "count",
         "count_by_path",
@@ -882,6 +890,26 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             include_tags=query_serializer.validated_data["include_tags"],
         )
         return response
+
+    @validated_request(
+        query_serializer=FileSystemFrequentQuerySerializer,
+        responses={200: FileSystemSerializer(many=True)},
+        summary="List frequently viewed files",
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def frequent(self, request: Request, **kwargs: object) -> Response:
+        queryset = FileSystem.objects.filter(surface_q(self.file_system_surface), team_id=self.team.id)
+        queryset = self._filter_by_access_control(queryset)
+        items = get_recent_file_system_items(
+            team_id=self.team.id,
+            user_id=cast(User, request.user).id,
+            surface=self.file_system_surface,
+            limit=request.validated_query_data["limit"],
+            exclude_types=[*RETIRED_FILE_SYSTEM_TYPES, "folder", "task"],
+            file_system_queryset=queryset,
+            frequent_on=timezone.now().astimezone(ZoneInfo(self.team.timezone or "UTC")).date(),
+        )
+        return Response(self.get_serializer(items, many=True).data)
 
     def _created_by_users(self, results: builtins.list[dict[str, Any]]) -> builtins.list[dict[str, Any]]:
         # Collect user IDs from the "created_by" meta field so the client can render avatars

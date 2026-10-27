@@ -51,12 +51,12 @@ from products.ml_inference.backend.facade.contracts import (
     NoulAnswer,
 )
 from products.ml_inference.backend.facade.enums import DecisionQuestionType
-from products.replay_vision.backend.watch_feed import NOTABLE_MIN_SCORE, WatchFeedEntry, _trim_filler
+from products.replay_vision.backend.watch_feed import NOTABLE_MIN_SCORE, WatchFeedEntry, finish_feed
 
 logger = structlog.get_logger(__name__)
 
 WATCH_FEED_RANKER_FLAG = "vision-watch-feed-ranker"
-RankerMode = Literal["weighted-score", "jev-shadow", "jev"]
+RankerMode = Literal["weighted-score", "jev-shadow", "jev", "embedding"]
 # The JevK5 build PostHog hosts on the AI gateway, which is the only backend the ml_inference
 # facade reaches. The vendor (typesafe.ai) is not approved for customer data, and observation prose
 # is customer data, so never point this at a vendor model id.
@@ -88,12 +88,6 @@ JEV_SEEN_PENALTY = 0.3
 # bar empties the tier. Recalibrate from the judged event's watchability quantiles and top_scored
 # sample, and bump the cache version below with any change here.
 JEV_WATCHABLE_MIN = 0.3
-# One incident can put many near-identical watchable sessions on one scanner, and a pure probability
-# sort would fill the top of the feed with them. Hold each scanner to this share of the evidence
-# tier as it is placed (same intent as WATCH_FEED_MAX_SIGNAL_SHARE in the weighted ranker), with a
-# floor so a short feed is not over-constrained; the overflow trails the tier instead of leaving it.
-JEV_MAX_SCANNER_SHARE = 0.4
-_SCANNER_SPREAD_FLOOR = 3
 # Observations per Jev request: the request carries the chunk as shared state and one question per
 # observation, so a judgment is relative to its chunk, not to the whole window at once. Half the
 # facade's per-request question cap: a request's prompt grows with its state, and a full 32-entry
@@ -268,9 +262,8 @@ def watch_feed_ranker_variant(team_id: int, team_uuid: UUID | str) -> str | None
 
     Keyed on the project's uuid: both regions evaluate this one flag, and team ids repeat between
     them. A region without the decision service has no sweep to fill the cache, so its teams take
-    no part rather than land on an empty `jev` feed. Any flag failure also reads as None."""
-    if not decision_api.decisions_available_here():
-        return None
+    no part in the Jev arms rather than land on an empty `jev` feed. The embedding arm needs no
+    decision service. Any flag failure also reads as None."""
     value = get_feature_flag_or_none(
         WATCH_FEED_RANKER_FLAG,
         # Only a person-property condition reads the distinct id; a project-aggregated flag buckets
@@ -280,11 +273,17 @@ def watch_feed_ranker_variant(team_id: int, team_uuid: UUID | str) -> str | None
         group_properties={"project": {"id": team_id, "uuid": str(team_uuid)}},
         send_feature_flag_events=False,
     )
-    return value if isinstance(value, str) else None
+    if not isinstance(value, str):
+        return None
+    if value in ("jev", "jev-shadow") and not decision_api.decisions_available_here():
+        return None
+    return value
 
 
 def ranker_mode(variant: str | None) -> RankerMode:
-    """The ranker a flag variant selects. Any variant but the two Jev arms is the default arm."""
+    """The ranker a flag variant selects. Any variant but the Jev and embedding arms is the default arm."""
+    if variant == "embedding":
+        return "embedding"
     if variant == "jev-shadow":
         return "jev-shadow"
     if variant == "jev":
@@ -818,26 +817,6 @@ def _scan_notability_reason(row: dict[str, Any]) -> str | None:
     return reason if isinstance(reason, str) and reason.strip() else None
 
 
-def _spread_scanners(ordered: list[tuple[Any, WatchFeedEntry]]) -> list[WatchFeedEntry]:
-    """Hold each scanner to JEV_MAX_SCANNER_SHARE of the evidence tier as it is placed.
-
-    Checked per place rather than over the whole list because the view slices the head: a feed of 5
-    obeys the same share as a feed of 50. Overflow trails the tier in probability order — reordering
-    for breadth is the job here, shortening the feed is not.
-    """
-    placed: list[WatchFeedEntry] = []
-    deferred: list[WatchFeedEntry] = []
-    counts: dict[Any, int] = {}
-    for scanner_id, entry in ordered:
-        allowed = max(_SCANNER_SPREAD_FLOOR, math.ceil(JEV_MAX_SCANNER_SHARE * (len(placed) + 1)))
-        if counts.get(scanner_id, 0) >= allowed:
-            deferred.append(entry)
-        else:
-            counts[scanner_id] = counts.get(scanner_id, 0) + 1
-            placed.append(entry)
-    return placed + deferred
-
-
 def rank_watch_feed_by_jev(
     rows: list[dict[str, Any]], probabilities: dict[str, float], reasons: dict[str, str] | None = None
 ) -> list[WatchFeedEntry]:
@@ -854,7 +833,7 @@ def rank_watch_feed_by_jev(
     of them.
     """
     watchable: list[tuple[float, Any, Any, WatchFeedEntry]] = []
-    filler: list[tuple[bool, Any, WatchFeedEntry]] = []
+    filler_rows: list[dict[str, Any]] = []
     for row in rows:
         probability = probabilities.get(str(row["id"]))
         viewed = bool(row.get("feed_viewed"))
@@ -871,11 +850,5 @@ def rank_watch_feed_by_jev(
                 (probability - (JEV_SEEN_PENALTY if viewed else 0.0), row["created_at"], row.get("scanner_id"), entry)
             )
         else:
-            entry = WatchFeedEntry(observation_id=row["id"], reason={"kind": "recent" if viewed else "unviewed_recent"})
-            filler.append((not viewed, row["created_at"], entry))
-    watchable.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    filler.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    return _trim_filler(
-        _spread_scanners([(scanner_id, entry) for _, _, scanner_id, entry in watchable])
-        + [entry for *_, entry in filler]
-    )
+            filler_rows.append(row)
+    return finish_feed(watchable, filler_rows)

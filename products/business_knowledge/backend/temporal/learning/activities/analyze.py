@@ -111,6 +111,11 @@ class LearningAnalysisError(RuntimeError):
         self.code = code
 
 
+class LearningOutputTruncated(LearningAnalysisError):
+    def __init__(self, stage: str) -> None:
+        super().__init__(f"{stage}_output_truncated")
+
+
 class _SupersessionUnavailable(Exception):
     """The conflicting source is not one this job may replace, so the candidate must not be published."""
 
@@ -248,7 +253,29 @@ def _invoke_structured_model(
                 tool_choice={"type": "tool", "name": tool_name},
                 extra_headers={"X-PostHog-Privacy-Mode": "true"},
             )
-        return _parse_tool_result(response.content, output_model, stage)
+        try:
+            return _parse_tool_result(response.content, output_model, stage)
+        except (LearningAnalysisError, ValidationError) as error:
+            if response.stop_reason == "max_tokens":
+                logger.warning(
+                    "business_knowledge.learning.output_truncated",
+                    stage=stage,
+                    team_id=team.id,
+                    trace_id=trace_id,
+                    max_tokens=max_tokens,
+                )
+                raise LearningOutputTruncated(stage) from None
+            if isinstance(error, LearningAnalysisError):
+                content = response.content if isinstance(response.content, list) else []
+                logger.error(  # noqa: TRY400 — the error is re-raised, so Temporal records its traceback
+                    "business_knowledge.learning.invalid_output",
+                    stage=stage,
+                    team_id=team.id,
+                    trace_id=trace_id,
+                    stop_reason=response.stop_reason,
+                    block_types=[getattr(block, "type", type(block).__name__) for block in content],
+                )
+            raise
     except LearningAnalysisError:
         raise
     except Exception as error:
@@ -545,6 +572,7 @@ def _finish_without_knowledge(
         "low_confidence": "rejected_not_useful",
         "learned_cap_reached": "rejected_learned_cap",
         "stale_candidate": "rejected_stale_candidate",
+        "output_truncated": "rejected_output_truncated",
     }.get(rejection_code, "rejected_not_useful")
     _increment_counter(metric_outcome)
     logger.info(
@@ -698,7 +726,11 @@ def _analyze(run: KnowledgeLearningRun, input: AnalyzeLearningEvidenceInput) -> 
 
     _resolve_learning_user(run.team)
     trace_id = str(run.id)
-    extracted = _extract_candidate(run.team, bundle, trace_id)
+    try:
+        extracted = _extract_candidate(run.team, bundle, trace_id)
+    except LearningOutputTruncated:
+        # Sampling runs at temperature 0, so a retry truncates again. A reply this long is not concise knowledge.
+        return _finish_without_knowledge(run, rejection_code="output_truncated")
     rejection_code = _extraction_rejection(extracted)
     if rejection_code != "none":
         return _finish_without_knowledge(run, rejection_code=rejection_code)

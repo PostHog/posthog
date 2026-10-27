@@ -352,6 +352,7 @@ export class PushNotificationService {
         let otherErrorCount = 0
         const errors: PushSendError[] = []
         let firstError: string | undefined
+        const skipMessages: string[] = []
         // Which providers took delivery. Only its emptiness is read, to decide whether there is a
         // delivered notification worth capturing.
         const deliveredPlatforms = new Set<string>()
@@ -400,9 +401,17 @@ export class PushNotificationService {
 
                 let sent: boolean
                 if (integration.kind === 'firebase') {
-                    sent = await this.executeFcm(result, params, integration, invocation, recipient)
+                    sent = await this.executeFcm(result, params, integration, invocation, recipient, skipMessages)
                 } else if (integration.kind === 'apns') {
-                    sent = await this.executeApns(result, params, integration, invocation, recipient, apnsAcceptedKeys)
+                    sent = await this.executeApns(
+                        result,
+                        params,
+                        integration,
+                        invocation,
+                        recipient,
+                        apnsAcceptedKeys,
+                        skipMessages
+                    )
                 } else {
                     throw new Error(`Unsupported push integration kind: ${integration.kind}`)
                 }
@@ -426,6 +435,12 @@ export class PushNotificationService {
                     addLog('error', error.message)
                 }
             }
+        }
+
+        // Most recipients have a device on one platform only, so a skip next to a delivery is expected.
+        const skipLogLevel = successCount > 0 ? 'info' : 'warn'
+        for (const message of skipMessages) {
+            addLog(skipLogLevel, message)
         }
 
         const errorCount = errors.length + otherErrorCount
@@ -520,6 +535,9 @@ export class PushNotificationService {
         }
         // Surface the error to the hog template too, otherwise its failure message renders blank.
         result.invocation.state.vmState!.stack.push({ success, error: success ? null : (firstError ?? null) })
+        // The template does not resume after this send, so the step's output is set here. It lets a workflow
+        // store the channel counts in an output variable and branch on them.
+        result.execResult = { delivered: successCount, skipped: skippedCount, failed: errorCount }
 
         return result
     }
@@ -567,7 +585,8 @@ export class PushNotificationService {
         params: CyclotronInvocationQueueParametersSendPushNotificationType,
         integration: IntegrationType,
         invocation: CyclotronJobInvocationHogFunction,
-        recipient: PushRecipient
+        recipient: PushRecipient,
+        skipMessages: string[]
     ): Promise<boolean> {
         const addLog = createAddLogFunction(result.logs)
 
@@ -580,7 +599,7 @@ export class PushNotificationService {
         const subscriptions = getDevicePushSubscriptions(recipient.properties, projectId, this.encryptedFields)
 
         if (subscriptions.length === 0) {
-            addLog('warn', `No active FCM device token found for distinct_id: ${recipient.distinctId}`)
+            skipMessages.push(`No active FCM device token found for distinct_id: ${recipient.distinctId}`)
             pushNotificationSkippedCounter.labels({ platform: 'fcm', reason: 'no_token' }).inc()
             return false
         }
@@ -699,7 +718,8 @@ export class PushNotificationService {
         integration: IntegrationType,
         invocation: CyclotronJobInvocationHogFunction,
         recipient: PushRecipient,
-        apnsAcceptedKeys: Set<string>
+        apnsAcceptedKeys: Set<string>,
+        skipMessages: string[]
     ): Promise<boolean> {
         const addLog = createAddLogFunction(result.logs)
 
@@ -714,7 +734,7 @@ export class PushNotificationService {
         const subscriptions = getDevicePushSubscriptions(recipient.properties, bundleId, this.encryptedFields)
 
         if (subscriptions.length === 0) {
-            addLog('warn', `No active APNS device token found for distinct_id: ${recipient.distinctId}`)
+            skipMessages.push(`No active APNS device token found for distinct_id: ${recipient.distinctId}`)
             pushNotificationSkippedCounter.labels({ platform: 'apns', reason: 'no_token' }).inc()
             return false
         }
@@ -738,7 +758,7 @@ export class PushNotificationService {
                 result,
                 params,
                 subscription,
-                { apnsHost, bundleId, jwt, templateId },
+                { apnsHost, bundleId, jwt, templateId, appleTeamId },
                 addLog
             )
             // Apple rejects a small share of requests with a token it accepts on the next one. Retry each device
@@ -759,7 +779,7 @@ export class PushNotificationService {
                     result,
                     params,
                     subscription,
-                    { apnsHost, bundleId, jwt, templateId },
+                    { apnsHost, bundleId, jwt, templateId, appleTeamId },
                     addLog
                 )
             }
@@ -806,7 +826,7 @@ export class PushNotificationService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersSendPushNotificationType,
         subscription: DeviceSubscription,
-        apns: { apnsHost: string; bundleId: string; jwt: string; templateId: string },
+        apns: { apnsHost: string; bundleId: string; jwt: string; templateId: string; appleTeamId: string },
         addLog: ReturnType<typeof createAddLogFunction>
     ): Promise<{ sent: boolean; unregistered?: boolean; message?: string; error?: PushSendError }> {
         const payload = params.payload
@@ -832,6 +852,7 @@ export class PushNotificationService {
             // APNs requires HTTP/2
             allowH2: true,
             http2IdleTimeoutMs: APNS_IDLE_TIMEOUT_MS,
+            http2ConnectionGroup: `apns:${apns.appleTeamId}`,
         }
 
         if (params.timeoutMs !== undefined) {

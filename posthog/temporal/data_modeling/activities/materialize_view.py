@@ -12,6 +12,7 @@ import pyarrow as pa
 import deltalake
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
+from pyarrow.lib import concat_batches
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
@@ -288,8 +289,9 @@ class _CDPRowSink:
             if self.enabled:
                 await self._producer.clear()
         except Exception as e:
-            capture_exception(e)
             await self._logger.awarning(f"Could not prepare CDP row staging; skipping it for this run: {e}")
+            if not is_transient_db_error(e):
+                capture_exception(e)
             self.enabled = False
 
     async def stage(self, batch: pa.RecordBatch) -> None:
@@ -392,15 +394,6 @@ def get_aws_storage_options() -> dict[str, str]:
         **delta_proxy_storage_options(),
         "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
     }
-
-
-def _combine_batches(batches: list[pa.RecordBatch]) -> pa.RecordBatch:
-    if len(batches) == 1:
-        return batches[0]
-
-    table = pa.Table.from_batches(batches)
-    table = table.combine_chunks()
-    return table.to_batches(max_chunksize=table.num_rows)[0]
 
 
 def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, str]]) -> pa.RecordBatch:
@@ -805,14 +798,14 @@ async def hogql_table(
                     await logger.adebug(
                         f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB"
                     )
-                    yield (_combine_batches(batches), ch_typings_pairs)
+                    yield (concat_batches(batches), ch_typings_pairs)
                     yielded_results = True
                     batches_size = 0
                     batches = []
 
         if len(batches) > 0:
             await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
-            yield (_combine_batches(batches), ch_typings_pairs)
+            yield (concat_batches(batches), ch_typings_pairs)
             yielded_results = True
 
         if not yielded_results:

@@ -20,7 +20,7 @@ export function SuppressionRules(): JSX.Element {
             renderCardHeaderExtra={(rule: ErrorTrackingSuppressionRule) => (
                 <>
                     <span className="text-muted">·</span>
-                    <EvaluationIndicator mode={getEvalMode(rule.filters)} />
+                    <EvaluationIndicator mode={getEvalMode(rule.filters)} samplingRate={rule.sampling_rate} />
                     {rule.sampling_rate < 1.0 && (
                         <>
                             <span className="text-muted">·</span>

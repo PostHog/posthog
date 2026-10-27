@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.set
     REFDOMAIN_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.source import AhrefsSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
@@ -298,18 +299,18 @@ def test_page_sample_cap(count: int) -> None:
 
 
 @pytest.mark.parametrize(
-    ("status", "body", "message"),
+    ("status", "body"),
     [
-        (400, {"error": "API units limit exceeded"}, "API units are exhausted"),
-        (402, {"error": "Payment required"}, "API units are exhausted"),
+        (400, {"error": "API units limit exceeded"}),
+        (402, {"error": "Payment required"}),
     ],
 )
-def test_credential_and_sync_error_mapping(status: int, body: object, message: str) -> None:
+def test_exhausted_units_keep_the_schema_enabled(status: int, body: object) -> None:
     answer = ScriptedResponse(status=status, json=body)
     with scripted_network([answer]) as network:
         valid, error = validate_credentials("test-key")
     assert valid is False
-    assert error is not None and message in error
+    assert error is not None and "API units are exhausted" in error
     assert len(network.requests_log) == 1
 
     source = AhrefsSource()
@@ -317,8 +318,11 @@ def test_credential_and_sync_error_mapping(status: int, body: object, message: s
         "site_audit_issues", [answer]
     )
     assert isinstance(result.raised, ValueError)
-    mapped = source.get_non_retryable_errors()[str(result.raised)]
-    assert mapped is not None and message in mapped
+    raised = str(result.raised)
+    assert error_message_matches(raised, source.get_retryable_errors())
+    assert not error_message_matches(raised, source.get_non_retryable_errors())
+    exhausted = [m for key, m in source.get_retry_exhausted_errors().items() if error_message_matches(raised, [key])]
+    assert exhausted and "tries again on its own" in exhausted[0]
     assert len(result.requests) == 1
 
 

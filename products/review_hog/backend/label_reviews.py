@@ -1,5 +1,5 @@
-"""The label trigger: the `posthog-review` label (or the legacy `reviewhog` label) on a pull request starts a
-Standard review, or a Deep one once the pull request has a published Deep review.
+"""The label trigger: the `posthog-review` label on a pull request starts a Standard review, or a Deep one
+once the pull request has a published Deep review.
 
 The PostHog GitHub App's own `labeled` delivery starts it, so the trigger works in every repository the
 app is installed on and a project owns (`ownership.py`). One label add is one review: pushes do not
@@ -27,7 +27,7 @@ from posthog.permissions import posthog_feature_flag_enabled
 from products.review_hog.backend.automatic_reviews import connector_user_id
 from products.review_hog.backend.ownership import RepositoryOwnership, RepositoryRef
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
-from products.review_hog.backend.pull_request_events import REVIEW_LABEL, REVIEW_LABELS
+from products.review_hog.backend.pull_request_events import REVIEW_LABEL
 from products.review_hog.backend.review_request_rules import trigger_review_mode
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FLASH, REVIEW_MODE_FULL
 from products.review_hog.backend.reviewer.persistence import lift_review_tier_for_joined_trigger
@@ -157,19 +157,17 @@ class LabelReview:
     def _refuse_bot_label(self, integration: Integration) -> None:
         # The label goes first: a failed call retries the task, and the comment must post only once.
         token = self._github(integration).get_access_token()
-        # The task does not carry the label name, so a queued task works on old and new workers alike.
-        for label in sorted(REVIEW_LABELS):
-            try:
-                github_api_request(
-                    "DELETE",
-                    f"/repos/{self.repository}/issues/{self.pr_number}/labels/{label}",
-                    token=token,
-                    installation_id=self.installation_id,
-                    endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
-                )
-            except GitHubAPIError as error:
-                if error.status != 404:
-                    raise
+        try:
+            github_api_request(
+                "DELETE",
+                f"/repos/{self.repository}/issues/{self.pr_number}/labels/{REVIEW_LABEL}",
+                token=token,
+                installation_id=self.installation_id,
+                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels/{name}",
+            )
+        except GitHubAPIError as error:
+            if error.status != 404:
+                raise
         # A POST can succeed on GitHub and still fail here, so a retry checks for the earlier comment.
         if self._bot_label_comment_posted(token):
             return

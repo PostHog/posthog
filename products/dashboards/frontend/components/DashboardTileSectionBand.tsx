@@ -1,6 +1,9 @@
 import clsx from 'clsx'
 
+import type { DashboardWidgetPlacementDestination } from 'lib/components/Cards/InsightCard/DashboardWidgetPlacementMenu'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+
+import type { TileGroupDisplay } from '~/types'
 
 import type { DashboardSection } from '../dashboardTileSections'
 import { DashboardTileGroup } from './DashboardTileGroup/DashboardTileGroup'
@@ -11,6 +14,10 @@ interface DashboardTileSectionBandProps {
     isDropTarget: boolean
     collapsedTileGroupKeys: string[]
     onToggleTileGroup: (groupKey: string) => void
+    copyToDestinations?: DashboardWidgetPlacementDestination[]
+    onCopyGroupToDashboard?: (groupKey: string, dashboardId: number, dashboardName: string) => void
+    copyLoading?: boolean
+    onChangeGroupDisplay?: (groupDisplay: TileGroupDisplay) => void
     children: React.ReactNode
 }
 
@@ -20,6 +27,10 @@ export function DashboardTileSectionBand({
     isDropTarget,
     collapsedTileGroupKeys,
     onToggleTileGroup,
+    copyToDestinations,
+    onCopyGroupToDashboard,
+    copyLoading,
+    onChangeGroupDisplay,
     children,
 }: DashboardTileSectionBandProps): JSX.Element {
     return (
@@ -36,6 +47,15 @@ export function DashboardTileSectionBand({
                     tileCount={section.tiles.length}
                     collapsed={collapsedTileGroupKeys.includes(section.groupKey)}
                     onToggle={() => onToggleTileGroup(section.groupKey)}
+                    copyToDestinations={copyToDestinations}
+                    onCopyToDashboard={
+                        onCopyGroupToDashboard
+                            ? (dashboardId, dashboardName) =>
+                                  onCopyGroupToDashboard(section.groupKey, dashboardId, dashboardName)
+                            : undefined
+                    }
+                    copyLoading={copyLoading}
+                    onChangeGroupDisplay={onChangeGroupDisplay}
                 >
                     {children}
                 </DashboardTileGroup>

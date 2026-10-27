@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
+from django.db.models import Case, IntegerField, Q, QuerySet, Subquery, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 from django.http.response import HttpResponseBase
@@ -44,6 +44,7 @@ from posthog.renderers import ServerSentEventRenderer
 from posthog.session_recordings.models.session_recording import SessionRecording
 
 from products.exports.backend.facade.api import get_export_asset_content_response
+from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum, split_csv
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
@@ -59,6 +60,7 @@ from products.replay_vision.backend.models.replay_observation import (
     annotate_output_number,
     hydrate_for_serialization,
     jsonb_typeof,
+    watch_group_root,
 )
 from products.replay_vision.backend.models.replay_observation_feed_dismissal import (
     FeedDismissalReason,
@@ -104,6 +106,7 @@ from products.replay_vision.backend.search_suggestions import (
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
+from products.replay_vision.backend.watch_rank import ANCHOR_VERSION, ISSUE_CATEGORIES
 from products.signals.backend.facade.api import get_reports_for_signal_source_slice
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -238,6 +241,19 @@ class ReplayObservationMediaSerializer(serializers.Serializer):
     )
 
 
+_THUMBNAIL_REDIRECT_MAX_AGE_S = 600
+
+
+def _is_servable(asset: ExportedAsset | None) -> bool:
+    # The prefetch joins the asset row directly, so the manager's TTL filter does not apply
+    # and an expired frame would serve until the sweep deletes it.
+    return (
+        asset is not None
+        and bool(asset.content_location)
+        and not (asset.expires_after is not None and asset.expires_after <= now())
+    )
+
+
 class ObservationThumbnailQuerySerializer(serializers.Serializer):
     chapter = serializers.IntegerField(
         required=False,
@@ -245,6 +261,15 @@ class ObservationThumbnailQuerySerializer(serializers.Serializer):
         help_text=(
             "Index into the summary's `model_output.chapters`. Serves that chapter's frame instead of the "
             "observation's thumbnail."
+        ),
+    )
+    size = serializers.ChoiceField(
+        choices=ReplayObservationMedia.Size.choices,
+        required=False,
+        default=ReplayObservationMedia.Size.LARGE,
+        help_text=(
+            "`large` is up to 1280px wide, for detail views. `small` is up to 480px wide, for lists and grids. "
+            "A frame rendered before small copies existed serves the large image for both."
         ),
     )
 
@@ -754,6 +779,13 @@ class ReplayObservationFilter(django_filters.FilterSet):
         lookup_expr="icontains",
         help_text="Filter to observations whose person email contains this value (case-insensitive).",
     )
+    watch_group = django_filters.UUIDFilter(
+        method="_filter_watch_group",
+        help_text=(
+            "Only observations the watch feed groups with this observation as near duplicates, including itself. "
+            "Pair it with the feed's `date_from` to list the sessions a feed card counts."
+        ),
+    )
     date_from = django_filters.CharFilter(
         method="_filter_date_from",
         help_text=(
@@ -868,6 +900,28 @@ class ReplayObservationFilter(django_filters.FilterSet):
             q |= Q(scanner_result__model_output__tags__contains=[tag])
             q |= Q(scanner_result__model_output__tags_freeform__contains=[tag])
         return queryset.filter(q)
+
+    def _filter_watch_group(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: uuid.UUID
+    ) -> QuerySet[ReplayObservation]:
+        if self._team is None:
+            return queryset.none()
+        root = watch_group_root()
+        current = Q(
+            status=ObservationStatus.SUCCEEDED, watch_rank__isnull=False, watch_rank__anchor_version=ANCHOR_VERSION
+        )
+        # The asked row's root comes from a subquery, so the filter adds no statement of its own.
+        asked_root = Subquery(
+            ReplayObservation.objects.filter(current, id=value, team_id=self._team.id)
+            .annotate(_root=root)
+            .values("_root")[:1]
+        )
+        # Matches the rows the feed counts for a card, which leaves out routine rows.
+        return (
+            queryset.alias(_watch_group_root=root, _watch_category=KeyTextTransform("category", "watch_rank"))
+            .filter(current, _watch_category__in=ISSUE_CATEGORIES)
+            .filter(_watch_group_root=asked_root)
+        )
 
     def _filter_variant(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: str
@@ -1289,12 +1343,7 @@ class ReplayObservationViewSet(
             (
                 entry
                 for entry in observation.media.all()
-                if entry.kind == kind
-                and entry.position == position
-                and entry.asset.content_location
-                # The prefetch joins the asset row directly, so the manager's TTL filter does not apply
-                # and an expired frame would serve until the sweep deletes it.
-                and not (entry.asset.expires_after is not None and entry.asset.expires_after <= now())
+                if entry.kind == kind and entry.position == position and _is_servable(entry.asset)
             ),
             None,
         )
@@ -1312,9 +1361,13 @@ class ReplayObservationViewSet(
             raise NotFound()
         # Served from here, not through the export content endpoint: that one authorizes a recording
         # export by the recording alone, which would let a reader denied this scanner fetch its frames.
-        response = get_export_asset_content_response(asset=media.asset, download=False)
-        # The response redirects to a signed, expiring URL, so a cached redirect outlives its target.
-        response["Cache-Control"] = "no-store"
+        asset = media.asset
+        if query.validated_data["size"] == ReplayObservationMedia.Size.SMALL and _is_servable(media.small_asset):
+            asset = media.small_asset
+        response = get_export_asset_content_response(asset=asset, download=False)
+        # The redirect target is signed for an hour, so a browser keeps the redirect well inside that and a page
+        # of posters does not come back through here on every visit.
+        response["Cache-Control"] = f"private, max-age={_THUMBNAIL_REDIRECT_MAX_AGE_S}"
         return response
 
     @extend_schema(

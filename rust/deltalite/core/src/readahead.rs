@@ -10,7 +10,8 @@
 //! the one it decodes and the one being read. The caller reserves that pair from the
 //! fetch budget (see [`max_row_group_pair_fetch_bytes`]). The background read is aborted
 //! when the store is dropped, which happens with the reader, before the reader returns
-//! its fetch permit.
+//! its fetch permit. The wait for the background read has the deadline of
+//! [`crate::deadline`], because the reader holds its fetch permit while it waits.
 
 use std::ops::Range;
 use std::sync::{Arc, Mutex};
@@ -26,6 +27,8 @@ use object_store::{
 };
 use parquet::file::metadata::ParquetMetaData;
 use tokio::task::JoinHandle;
+
+use crate::deadline::{io_deadline, with_deadline};
 
 /// Byte span of each row group: from the first byte of its first column chunk to the
 /// last byte of its last one.
@@ -182,13 +185,21 @@ impl ObjectStore for ReadAheadStore {
         let data = match self.take_pending() {
             Some(mut pending) if pending.group == group => {
                 counter!("deltalite_row_group_read_ahead_total", "outcome" => "hit").increment(1);
-                let span =
+                let read = async {
                     (&mut pending.read.0)
                         .await
                         .map_err(|e| object_store::Error::Generic {
                             store: "deltalite",
                             source: Box::new(e),
-                        })??;
+                        })?
+                };
+                // After a timeout, `pending` drops at the end of this arm and aborts the read.
+                let span = with_deadline(
+                    io_deadline(),
+                    || format!("read ahead of row group {group} of {}", self.path),
+                    read,
+                )
+                .await?;
                 let Range { start: base, end } = self.groups[group].clone();
                 if span.len() as u64 != end - base {
                     return Err(object_store::Error::Generic {

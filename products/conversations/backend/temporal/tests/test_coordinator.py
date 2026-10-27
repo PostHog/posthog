@@ -406,7 +406,7 @@ class TestCollectEligibleAwaitingClarification:
         ticket.refresh_from_db()
         return team, ticket
 
-    def _comment(self, team, ticket, *, author_type: str, minutes_ago: int):
+    def _comment(self, team, ticket, *, author_type: str, minutes_ago: int, automated_update_key: str | None = None):
         from posthog.models.comment import Comment
 
         created = timezone.now() - timedelta(minutes=minutes_ago)
@@ -415,7 +415,12 @@ class TestCollectEligibleAwaitingClarification:
             scope="conversations_ticket",
             item_id=str(ticket.id),
             content=author_type,
-            item_context={"author_type": author_type, "is_private": False, "persist_as": "clarification"},
+            item_context={
+                "author_type": author_type,
+                "is_private": False,
+                "persist_as": "clarification",
+                **({"automated_update_key": automated_update_key} if automated_update_key else {}),
+            },
         )
         Comment.objects.filter(id=comment.id).update(created_at=created)
         from products.conversations.backend.models.ticket import Ticket as TicketModel
@@ -423,6 +428,23 @@ class TestCollectEligibleAwaitingClarification:
         TicketModel.objects.filter(id=ticket.id).update(last_message_at=max(ticket.last_message_at or created, created))
         ticket.refresh_from_db()
         return comment
+
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_automated_pr_update_does_not_answer_a_customer_followup(self, mock_master_flag):
+        team, ticket = self._team_and_ticket()
+        self._comment(team, ticket, author_type="customer", minutes_ago=10)
+        self._comment(team, ticket, author_type="AI", minutes_ago=5)
+        self._comment(team, ticket, author_type="customer", minutes_ago=3)
+        self._comment(
+            team,
+            ticket,
+            author_type="AI",
+            minutes_ago=1,
+            automated_update_key="signals_pr:report:pr",
+        )
+
+        assert [item.ticket_id for item in _collect_eligible()] == [str(ticket.id)]
 
     @parameterized.expand(
         [
@@ -489,6 +511,49 @@ class TestCollectEligibleAwaitingClarification:
 
         result = _collect_eligible()
         assert result == []
+
+    @parameterized.expand(
+        [
+            ("team_started_ticket", {}, True, None, "human", "skipped_team_replied"),
+            ("ai_note_only", {}, True, None, "AI", None),
+            (
+                "channel_excluded",
+                {"ai_resolution_channels": ["email"]},
+                True,
+                None,
+                "human",
+                "skipped_channel_excluded",
+            ),
+            ("ai_data_processing_not_approved", {}, False, None, "human", None),
+            ("already_triaged", {}, True, {"status": "done", "result": "suggested"}, "human", "suggested"),
+        ]
+    )
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_skipped_ticket_records_reason_on_ai_triage(
+        self,
+        _name,
+        extra_settings,
+        ai_data_processing_approved,
+        existing_triage,
+        comment_author_type,
+        expected_result,
+        mock_master_flag,
+    ):
+        team, ticket = self._team_and_ticket(status="open", awaiting=False)
+        team.conversations_settings = {**team.conversations_settings, **extra_settings}
+        team.save()
+        team.organization.is_ai_data_processing_approved = ai_data_processing_approved
+        team.organization.save()
+        from products.conversations.backend.models.ticket import Ticket as TicketModel
+
+        if existing_triage is not None:
+            TicketModel.objects.filter(id=ticket.id).update(ai_triage=existing_triage)
+        self._comment(team, ticket, author_type=comment_author_type, minutes_ago=3)
+
+        assert _collect_eligible() == []
+        ticket.refresh_from_db()
+        assert ticket.ai_triage.get("result") == expected_result
 
 
 class TestCoordinatorWorkflow:

@@ -12,3 +12,5 @@ class MoEngageSourceConfig(config.Config):
     api_key: str
     data_center: Literal["01", "02", "03", "04", "05", "06", "101"] = config.value(default="01")
     start_date: str | None = None
+    project_code: str | None = None
+    flow_teams: str | None = None
