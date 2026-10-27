@@ -2870,7 +2870,10 @@ When set, the specified dashboard's filters and date range override will be appl
                 Insight.objects_including_soft_deleted.filter(
                     id__in=insight_ids, team__project_id=self.team.project_id
                 ).update(deleted=False, last_modified_at=now(), last_modified_by=current_user)
-                for insight in Insight.objects.filter(id__in=insight_ids).select_related("team"):
+                restored_insights = Insight.objects.filter(
+                    id__in=insight_ids, team__project_id=self.team.project_id
+                ).select_related("team")
+                for insight in restored_insights:
                     insight.sync_file_system()
                 restore_tiles_for_insights(insight_ids, user_access_control=self.user_access_control)
 
