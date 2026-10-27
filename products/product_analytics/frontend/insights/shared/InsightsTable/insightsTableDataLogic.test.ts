@@ -463,6 +463,51 @@ describe('insightsTableDataLogic', () => {
             expect(logic.values.getPercentOfDayTotal(logic.values.indexedResults[0], 0)).toBeNull()
         })
 
+        it('unique users divide by the daily totals of the same series without the breakdown', async () => {
+            const sentQueries: TrendsQuery[] = []
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
+                        sentQueries.push(((await request.json()) as { query: TrendsQuery }).query)
+                        return [200, { results: [makeCompareResult({ order: 0, data: [1, 2] })] }]
+                    },
+                },
+            })
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    { kind: NodeKind.EventsNode, event: '$pageview' },
+                    { kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.UniqueUsers },
+                ],
+                breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+            }
+            const insight: Partial<InsightModel> = {
+                result: [
+                    makeCompareResult({ order: 0, breakdown_value: 'Chrome', data: [4, 4] }),
+                    makeCompareResult({ order: 0, breakdown_value: 'Firefox', data: [4, 0] }),
+                    makeCompareResult({ order: 1, breakdown_value: 'Chrome', data: [1, 2] }),
+                    makeCompareResult({ order: 1, breakdown_value: 'Firefox', data: [1, 1] }),
+                ],
+            }
+
+            await expectLogic(logic, () => {
+                insightVizDataLogic.findMounted(props)?.actions.updateQuerySource(query)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toFinishAllListeners()
+
+            expect(sentQueries.map((q) => [q.series, q.breakdownFilter])).toEqual([[[query.series[1]], undefined]])
+            const { indexedResults, getPercentOfDayTotal } = logic.values
+            expect(indexedResults.map((r) => [getPercentOfDayTotal(r, 0), getPercentOfDayTotal(r, 1)])).toEqual([
+                [0.5, 1],
+                [0.5, 0],
+                [1, 1],
+                [1, 0.5],
+            ])
+
+            insightVizDataLogic.findMounted(props)?.actions.updateQuerySource({ dateRange: { date_from: '-30d' } })
+            await expectLogic(logic).toMatchValues({ showPercentOfDayTotal: false })
+        })
+
         it('percent of total divides by the total of the same series and period', async () => {
             const row = (
                 order: number,
