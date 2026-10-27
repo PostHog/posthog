@@ -1295,7 +1295,7 @@ export class CdpApi {
         if (hogFlow.email_sending_paused_at) {
             return { outcome: 'sending_paused', status: 422 }
         }
-        if (await this.emailSuppressionService.isSuppressed(teamId, to)) {
+        if (await this.emailSuppressionService.isSuppressed(teamId, to, { transactional: true })) {
             return { outcome: 'recipient_suppressed', status: 422 }
         }
         const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
@@ -1879,6 +1879,8 @@ export class CdpApi {
                     valid: result.valid,
                     team_id: result.team_id,
                     identifier: result.identifier,
+                    app_source_id: result.app_source_id,
+                    instance_id: result.instance_id,
                 })
             } catch (error) {
                 logger.error('[CdpApi] Error validating preferences token', error)

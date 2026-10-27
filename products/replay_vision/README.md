@@ -71,7 +71,7 @@ The `experiment` scanner type is the way agents (Max, MCP, the `scanning-experim
 - `backend/search.py` + `backend/search_rerank.py` — observation search: embedding rank, access-scoped hydration, and the decision-model rerank of the head.
 - `backend/impact.py` — affected sessions and users per scanner, exportable as a static cohort.
 - `backend/search_suggestions.py` — example searches for the Search tab's empty state, per scanner and per team. A scheduled workflow generates them for every active scanner and team before anyone opens the tab, from an outcome-labeled sample of new observations and each scanner's instructions.
-- `backend/tags.py` + `backend/tag_suggestions.py` — tag slug normalization and data-grounded vocabulary suggestions for classifiers.
+- `backend/tags.py` — tag slug normalization for classifiers.
 - `backend/max_tools.py` — Max AI tools (draft a scanner prompt, digest summaries, semantic search over observations).
 - `backend/scanner_access.py` — scanner-level RBAC shared by the API and the alert engine.
 - `backend/facade/` — the cross-product entry point (session observations, formatted for Max reports).

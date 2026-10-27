@@ -33,6 +33,9 @@ from posthog.hogql import ast
 from posthog import redis
 from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset_query_tags, tags_context
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
+from posthog.models import Team
+from posthog.models.event.new_events_schema import events_route_scope, new_events_schema_for_request
+from posthog.redis import TEST_clear_clients
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
@@ -62,6 +65,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     check_common_eligibility,
     compute_filters_eligibility_hash,
     compute_shape_cap_key,
+    enqueue_stale_revalidation,
     get_sticky_warm_shapes,
     handle_stale_served,
     host_filter_expr,
@@ -1132,6 +1136,34 @@ class TestVolumeFloor(BaseTest):
             return_value=True,
         ):
             assert can_use_lazy_precompute(runner, log_prefix="web_overview") is False
+
+
+class TestRevalidationEventsTable(SimpleTestCase):
+    def setUp(self) -> None:
+        TEST_clear_clients()
+        self.addCleanup(TEST_clear_clients)
+
+    def test_rebuilds_keep_the_events_table_and_debounce_each_table_separately(self) -> None:
+        team = Team(id=44, timezone="UTC")
+        query = WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[])
+        with (
+            mock.patch(
+                "products.web_analytics.backend.tasks.lazy_precompute_revalidation"
+                ".revalidate_web_analytics_precompute.apply_async"
+            ) as enqueue,
+            new_events_schema_for_request(),
+        ):
+            for native in (False, True, False, True):
+                with events_route_scope(HogQLQueryModifiers(useNewEventsSchema=native)):
+                    enqueue_stale_revalidation(team=team, query=query, family="web_overview")
+
+        assert [
+            call.kwargs["kwargs"]["query"]["modifiers"]["useNewEventsSchema"] for call in enqueue.call_args_list
+        ] == [
+            False,
+            True,
+        ]
+        assert query.modifiers is None
 
 
 class TestStaleRevalidationEnqueue(BaseTest):

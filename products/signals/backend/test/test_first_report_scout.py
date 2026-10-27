@@ -228,10 +228,17 @@ class TestFirstReportScout(BaseTest):
             ("report_created", "ready", "report_created"),
             ("report_created", "pending_input", "report_created"),
             ("report_created", "ready", "report_created", True),
+            ("report_created", "resolved", "report_created", False, True),
+            ("report_created", "suppressed", "report_created", False, True),
         ]
     )
     def test_onboarding_success_requires_a_visible_persisted_report(
-        self, outcome: str, report_status: str | None, expected: str, child_environment: bool = False
+        self,
+        outcome: str,
+        report_status: str | None,
+        expected: str,
+        child_environment: bool = False,
+        previously_visible: bool = False,
     ) -> None:
         activator = User.objects.create_and_join(self.organization, "activator@example.com", None)
         activation_team = (
@@ -245,7 +252,15 @@ class TestFirstReportScout(BaseTest):
         set_first_report_state(self.team.id, "running")
         task = Task.objects.create(team=self.team, title="First investigation", created_by=self.user)
         task_run = TaskRun.objects.create(team=self.team, task=task, status="completed")
-        report = SignalReport.objects.create(team=self.team, status=report_status) if report_status else None
+        report = (
+            SignalReport.objects.create(
+                team=self.team,
+                status=report_status,
+                first_visible_at=timezone.now() if previously_visible else None,
+            )
+            if report_status
+            else None
+        )
         run = SignalScoutRun.objects.create(
             team=self.team,
             task_run=task_run,

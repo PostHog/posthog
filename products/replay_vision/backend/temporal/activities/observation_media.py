@@ -287,8 +287,7 @@ def _link_media(team_id: int, observation_id: UUID, links: list[_MediaLink]) -> 
                     "asset_id": link.asset_id,
                     "video_start_ms": link.video_start_ms,
                     "rec_start_ms": link.rec_start_ms,
-                    # Left alone without a copy, so a render from before small copies keeps one the backfill linked.
-                    **({"small_asset_id": link.small_asset_id} if link.small_asset_id is not None else {}),
+                    "small_asset_id": link.small_asset_id,
                 },
             )
             for asset_id, location in link.asset_locations():

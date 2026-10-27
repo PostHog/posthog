@@ -246,8 +246,29 @@ export function pickDisplayedQuery(
 export const resultsSettled = (query: SectionsQuery, remote: RemoteSlots): boolean =>
     isSettled(remote.results, query.remoteQueries.results)
 
-const filterLocal = (source: LocalSource, items: SearchItem[], query: string): SearchItem[] =>
-    source === 'create' ? filterNewItems(items, query) : filterSearchItems(items, query)
+const LOCAL_MATCH_CACHE_SIZE = 50
+const localMatchCache = new WeakMap<SearchItem[], Map<string, SearchItem[]>>()
+
+function matchLocal(source: LocalSource, items: SearchItem[], query: string, ranked: boolean): SearchItem[] {
+    const strict = ranked && source !== 'create'
+    const key = `${strict ? 'strict' : 'fuzzy'}:${query}`
+    let byQuery = localMatchCache.get(items)
+    if (!byQuery) {
+        byQuery = new Map()
+        localMatchCache.set(items, byQuery)
+    }
+    const cached = byQuery.get(key)
+    if (cached) {
+        return cached
+    }
+    const fuzzy = source === 'create' ? filterNewItems(items, query) : filterSearchItems(items, query)
+    const matches = strict ? strictLocalMatches(fuzzy, query) : fuzzy
+    if (byQuery.size >= LOCAL_MATCH_CACHE_SIZE) {
+        byQuery.delete(byQuery.keys().next().value!)
+    }
+    byQuery.set(key, matches)
+    return matches
+}
 
 function withViewAll(results: CommandKSection | null, viewAll: ViewAll | null): CommandKSection | null {
     if (!viewAll) {
@@ -317,10 +338,7 @@ function lowerSections(
             if (ranked && source === 'products') {
                 continue
             }
-            const filtered =
-                ranked && source !== 'create'
-                    ? strictLocalMatches(filterLocal(source, local[source], localQuery), localQuery)
-                    : filterLocal(source, local[source], localQuery)
+            const filtered = matchLocal(source, local[source], localQuery, ranked)
             const themeItem = source === 'settings' ? input.themeItem : null
             const rows = themeItem
                 ? itemRows(source, [themeItem, ...filtered], SECONDARY_LIMIT + 1)

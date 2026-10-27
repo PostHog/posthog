@@ -208,9 +208,10 @@ def first_report_state(team_id: int) -> dict[str, object]:
         "started_at": run.task_run.created_at.isoformat(),
     }
     reports = SignalReport.objects.filter(
+        Q(first_visible_at__isnull=False)
+        | Q(status__in=[SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT]),
         team_id=team_id,
         id__in=run.emitted_report_ids or [],
-        status__in=[SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT],
     )
     report = reports.order_by("first_visible_at").first()
     if report is not None:
