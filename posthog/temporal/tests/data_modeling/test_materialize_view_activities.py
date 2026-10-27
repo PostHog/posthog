@@ -163,12 +163,13 @@ class TestMaterializeViewManagedWarehouseActivity:
             is_ready.assert_not_called()
 
     @pytest.mark.parametrize(
-        "compile_error,error_tracked,alias_dispatch_fails,failed_status",
+        "compile_error,error_tracked,alias_dispatch_fails,upstream_unbuilt,failed_status",
         [
-            (None, False, False, None),
-            (ValueError("Trino compilation failed"), True, False, DataModelingJobStatus.FAILED),
+            (None, False, False, False, None),
+            (ValueError("Trino compilation failed"), True, False, False, DataModelingJobStatus.FAILED),
             (
                 TrinoLoweringError("TRINO_TABLE_LOCATOR_MISSING", "table"),
+                False,
                 False,
                 False,
                 DataModelingJobStatus.FAILED,
@@ -177,21 +178,31 @@ class TestMaterializeViewManagedWarehouseActivity:
                 TrinoUserError({"errorName": "COLUMN_NOT_FOUND", "errorType": "USER_ERROR"}),
                 False,
                 False,
+                False,
                 DataModelingJobStatus.FAILED,
             ),
             (
                 TrinoUserError({"errorName": "TABLE_NOT_FOUND", "errorType": "USER_ERROR"}),
                 False,
                 False,
+                True,
                 DataModelingJobStatus.SKIPPED,
+            ),
+            (
+                TrinoUserError({"errorName": "TABLE_NOT_FOUND", "errorType": "USER_ERROR"}),
+                False,
+                False,
+                False,
+                DataModelingJobStatus.FAILED,
             ),
             (
                 TrinoUserError({"errorName": "SYNTAX_ERROR", "errorType": "USER_ERROR"}),
                 True,
                 False,
+                False,
                 DataModelingJobStatus.FAILED,
             ),
-            (None, True, True, None),
+            (None, True, True, False, None),
         ],
     )
     async def test_trino_shadow_records_execution_or_compilation_result(
@@ -205,6 +216,7 @@ class TestMaterializeViewManagedWarehouseActivity:
         compile_error: Exception | None,
         error_tracked: bool,
         alias_dispatch_fails: bool,
+        upstream_unbuilt: bool,
         failed_status: DataModelingJobStatus | None,
     ) -> None:
         inputs = ManagedWarehouseShadowInputs(
@@ -243,6 +255,10 @@ class TestMaterializeViewManagedWarehouseActivity:
             unittest.mock.patch(
                 "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse.prepare_executable_query",
                 side_effect=lambda saved_query: setattr(saved_query, "query", executable_query),
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse.unbuilt_upstream_saved_query_ids",
+                return_value=frozenset({uuid4()}) if upstream_unbuilt else frozenset(),
             ),
             unittest.mock.patch(
                 "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse.capture_exception"
