@@ -463,6 +463,14 @@ async def refresh_knowledge_source_activity(inputs: RefreshSourceInputs) -> dict
             )
         except logic.SourceBusyError:
             return {"status": "skipped", "reason": "busy"}
+        except logic.IngestionLimitedError as exc:
+            # The claim refused the refresh before touching the row, so record it here, or the source stays
+            # due and every coordinator tick tries it again.
+            await database_sync_to_async(logic.record_refresh_blocked_by_quota, thread_sensitive=False)(
+                source_id=UUID(inputs.source_id), team_id=inputs.team_id
+            )
+            log.info("business_knowledge.refresh.blocked_by_quota")
+            return {"status": "error", "reason": type(exc).__name__}
         except (
             logic.InvalidUrlError,
             logic.UrlFetchFailedError,
@@ -491,6 +499,13 @@ async def claim_refresh_source_activity(inputs: RefreshSourceInputs) -> dict[str
         return {"status": "skipped", "reason": "busy"}
     except KnowledgeSource.DoesNotExist:
         return {"status": "skipped", "reason": "missing"}
+    except logic.IngestionLimitedError as exc:
+        # Without this the source stays due and every coordinator tick would try it again.
+        await database_sync_to_async(logic.record_refresh_blocked_by_quota, thread_sensitive=False)(
+            source_id=UUID(inputs.source_id), team_id=inputs.team_id
+        )
+        log.info("business_knowledge.refresh.blocked_by_quota")
+        return {"status": "error", "reason": type(exc).__name__}
     except (logic.InvalidUrlError, logic.QuotaExceededError) as exc:
         log.info("business_knowledge.refresh.recorded_failure", error_type=type(exc).__name__)
         return {"status": "error", "reason": type(exc).__name__}

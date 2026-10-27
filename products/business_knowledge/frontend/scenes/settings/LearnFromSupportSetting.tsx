@@ -36,6 +36,9 @@ export function LearnFromSupportSetting(): JSX.Element {
                 // data-attr is a frozen autocapture / Playwright key. Do not rename.
                 data-attr="business-knowledge-learn-from-support"
             />
+            <p className="m-0 text-xs text-secondary">
+                Each search learning runs counts as a query, and each answer it saves counts as chunks ingested.
+            </p>
             {supportOff ? (
                 <Link to={urls.settings('environment-conversations')}>
                     Turn on Support to learn from resolved tickets

@@ -44,6 +44,7 @@ export function KnowledgeSourceForm({
                     name="refresh_interval"
                     label="Auto-refresh"
                     info="How often PostHog re-fetches this source in the background. Changing it alone does not trigger an immediate re-crawl."
+                    help="Each refresh bills the chunks it re-indexes. Pages that haven’t changed since the last refresh aren’t re-indexed or billed."
                 >
                     <LemonSelect options={refreshIntervalOptions} />
                 </LemonField>

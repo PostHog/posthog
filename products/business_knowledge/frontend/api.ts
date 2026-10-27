@@ -130,6 +130,28 @@ export async function createUrlSource(payload: CreateUrlSourcePayload): Promise<
     )
 }
 
+// TODO: replace with the generated `businessKnowledgeSourcesUsageRetrieve` and its types after `hogli build:openapi`.
+export interface KnowledgeUsageMeter {
+    used: number
+    organization_used: number | null
+    free_allowance: number
+    billing_limit: number | null
+    limited: boolean
+}
+
+export interface KnowledgeUsage {
+    period_start: string
+    period_end: string
+    chunks: KnowledgeUsageMeter
+    queries: KnowledgeUsageMeter
+}
+
+export async function getUsage(): Promise<KnowledgeUsage> {
+    return await apiMutator<KnowledgeUsage>(`/api/projects/${getCurrentTeamId()}/business_knowledge/sources/usage/`, {
+        method: 'GET',
+    })
+}
+
 export async function createFileSource(formData: FormData): Promise<KnowledgeSourceApi> {
     return await apiMutator<KnowledgeSourceApi>(`/api/projects/${getCurrentTeamId()}/business_knowledge/sources/`, {
         method: 'POST',

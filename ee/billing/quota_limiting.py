@@ -92,6 +92,8 @@ class QuotaResource(Enum):
     # Covers logs and traces together: they are one product with one free tier and one price.
     LOGS_MB_INGESTED = "logs_mb_ingested"
     REPLAY_VISION_CREDITS = "replay_vision_credits"
+    BUSINESS_KNOWLEDGE_CHUNKS = "business_knowledge_chunks"
+    BUSINESS_KNOWLEDGE_QUERIES = "business_knowledge_queries"
 
 
 class QuotaLimitingCaches(Enum):
@@ -118,6 +120,8 @@ OVERAGE_BUFFER = {
     QuotaResource.WORKFLOW_DESTINATIONS: 0,
     QuotaResource.LOGS_MB_INGESTED: 0,
     QuotaResource.REPLAY_VISION_CREDITS: 0,
+    QuotaResource.BUSINESS_KNOWLEDGE_CHUNKS: 0,
+    QuotaResource.BUSINESS_KNOWLEDGE_QUERIES: 0,
 }
 
 # These resources are exempt from any grace periods, whether trust-based or never_drop_data
@@ -126,6 +130,10 @@ GRACE_PERIOD_EXEMPT_RESOURCES: set[QuotaResource] = {
     QuotaResource.SIGNALS_CREDITS,
     QuotaResource.REPLAY_VISION_CREDITS,
     QuotaResource.POSTHOG_CODE_CREDITS,
+    # Every business knowledge chunk and query costs PostHog inference, and limiting them drops no
+    # customer data (existing knowledge stays searchable), so they stop at the limit like AI credits.
+    QuotaResource.BUSINESS_KNOWLEDGE_CHUNKS,
+    QuotaResource.BUSINESS_KNOWLEDGE_QUERIES,
 }
 
 
@@ -153,6 +161,8 @@ class UsageCounters(TypedDict):
     workflow_destinations_dispatched: int
     logs_mb_ingested: int
     replay_vision_credits: int
+    business_knowledge_chunks: int
+    business_knowledge_queries: int
 
 
 INFORMATIONAL_USAGE_RESOURCES = (
@@ -1283,6 +1293,8 @@ def _aggregate_quota_usage(teams: Sequence[Team], all_data: dict[str, dict[int, 
             workflow_destinations_dispatched=all_data["teams_with_workflow_destinations_in_period"].get(team.id, 0),
             logs_mb_ingested=all_data["teams_with_logs_mb_in_period"].get(team.id, 0),
             replay_vision_credits=all_data["teams_with_replay_vision_credits_used_in_period"].get(team.id, 0),
+            business_knowledge_chunks=all_data["teams_with_business_knowledge_chunks_in_period"].get(team.id, 0),
+            business_knowledge_queries=all_data["teams_with_business_knowledge_queries_in_period"].get(team.id, 0),
         )
 
         org_id = str(team.organization.id)
@@ -1339,6 +1351,8 @@ def update_all_orgs_billing_quotas(
             UsageCounter.POSTHOG_CODE_CREDITS,
             UsageCounter.SANDBOX_COMPUTE_CREDITS,
             UsageCounter.REPLAY_VISION_CREDITS,
+            UsageCounter.BUSINESS_KNOWLEDGE_CHUNKS,
+            UsageCounter.BUSINESS_KNOWLEDGE_QUERIES,
         ),
     )
 
@@ -1392,6 +1406,12 @@ def update_all_orgs_billing_quotas(
         "teams_with_workflow_destinations_in_period": dict(counter_report.counts[UsageCounter.WORKFLOW_INVOCATIONS]),
         "teams_with_replay_vision_credits_used_in_period": dict(
             counter_report.counts[UsageCounter.REPLAY_VISION_CREDITS]
+        ),
+        "teams_with_business_knowledge_chunks_in_period": dict(
+            counter_report.counts[UsageCounter.BUSINESS_KNOWLEDGE_CHUNKS]
+        ),
+        "teams_with_business_knowledge_queries_in_period": dict(
+            counter_report.counts[UsageCounter.BUSINESS_KNOWLEDGE_QUERIES]
         ),
         # Logs and traces share one bucket, so a team that stays under the limit on each signal alone
         # but exceeds it combined has to be limited on both.

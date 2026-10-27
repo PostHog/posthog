@@ -19,7 +19,9 @@ RejectionCode = Literal[
     "already_known",
     "low_confidence",
     "already_completed",
+    # No longer produced. Kept so results recorded by workers before the billing rollout still deserialize.
     "learned_cap_reached",
+    "usage_limit_reached",
     "stale_candidate",
 ]
 LearningResult = Literal["knowledge_created", "no_knowledge", "ineligible", "superseded"]

@@ -46,12 +46,14 @@ from posthog.temporal.usage_report.types import (
 )
 from posthog.temporal.usage_report.workflow import (
     AGGREGATION_QUEUE_PATCH_ID,
+    BUSINESS_KNOWLEDGE_QUERY_NAMES,
     LOGS_DISTINCT_PATTERNS_QUERY_NAME,
     PARALLEL_COUNTER_QUERIES_PATCH_ID,
     QUERY_CONCURRENCY,
     SANDBOX_COMPUTE_QUERY_NAME,
     USAGE_COUNTER_SERVICE_PATCH_ID,
     RunUsageReportsWorkflow,
+    _queries_for_business_knowledge_patch,
     _queries_for_logs_distinct_patterns_patch,
     _queries_for_sandbox_compute_patch,
     build_context,
@@ -77,6 +79,14 @@ def test_logs_distinct_patterns_query_is_versioned_for_existing_histories() -> N
     assert LOGS_DISTINCT_PATTERNS_QUERY_NAME in [
         spec.name for spec in _queries_for_logs_distinct_patterns_patch(QUERIES, True)
     ]
+
+
+def test_business_knowledge_queries_are_versioned_for_existing_histories() -> None:
+    unpatched = {spec.name for spec in _queries_for_business_knowledge_patch(QUERIES, False)}
+    patched = {spec.name for spec in _queries_for_business_knowledge_patch(QUERIES, True)}
+
+    assert not BUSINESS_KNOWLEDGE_QUERY_NAMES & unpatched
+    assert BUSINESS_KNOWLEDGE_QUERY_NAMES <= patched
 
 
 @parameterized.expand(

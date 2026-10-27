@@ -132,12 +132,12 @@ class TestCreateTextSource(BaseTest):
         with self.assertRaises(TextTooLargeError):
             create_text_source(team_id=self.team.id, created_by_id=self.user.id, name="Huge", text=huge)
 
-    def test_quota_on_source_count(self) -> None:
-        # Patch the cap so the test finishes in one source instead of 500.
-        with patch("products.business_knowledge.backend.logic.MAX_SOURCES_PER_TEAM", 1):
-            create_text_source(team_id=self.team.id, created_by_id=self.user.id, name="First", text="hello")
+    def test_ingestion_limit_blocks_new_sources(self) -> None:
+        create_text_source(team_id=self.team.id, created_by_id=self.user.id, name="First", text="hello")
+        with patch("products.business_knowledge.backend.quota.is_ingestion_limited", return_value=True):
             with self.assertRaises(QuotaExceededError):
                 create_text_source(team_id=self.team.id, created_by_id=self.user.id, name="Second", text="hello")
+        assert KnowledgeSource.objects.unscoped().filter(team_id=self.team.id).count() == 1
 
     def test_cross_team_isolation(self) -> None:
         # Another team in the same org should not be able to read or list

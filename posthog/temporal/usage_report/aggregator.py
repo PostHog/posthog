@@ -56,6 +56,10 @@ _SANDBOX_COMPUTE_DESTINATION_KEYS = (
     "teams_with_sandbox_compute_memory_mib_seconds_in_period",
 )
 _LOGS_DISTINCT_PATTERNS_QUERY_NAME = "teams_with_logs_distinct_patterns_in_period"
+_BUSINESS_KNOWLEDGE_QUERY_NAMES = (
+    "teams_with_business_knowledge_chunks_in_period",
+    "teams_with_business_knowledge_queries_in_period",
+)
 
 
 def load_usage_counter_report(inputs: AggregateInputs) -> UsageCounterReport:
@@ -100,6 +104,15 @@ def add_pre_logs_distinct_patterns_patch_defaults(
 ) -> None:
     if not any(result.query_name == _LOGS_DISTINCT_PATTERNS_QUERY_NAME for result in query_results):
         all_data[_LOGS_DISTINCT_PATTERNS_QUERY_NAME] = {}
+
+
+def add_pre_business_knowledge_patch_defaults(
+    all_data: dict[str, dict[int, int]], query_results: list[RunQueryToS3Result]
+) -> None:
+    ran = {result.query_name for result in query_results}
+    for name in _BUSINESS_KNOWLEDGE_QUERY_NAMES:
+        if name not in ran:
+            all_data[name] = {}
 
 
 def iter_chunk_lines(

@@ -28,6 +28,7 @@ import type {
     KnowledgeLibraryCreateApi,
     KnowledgeSearchResultApi,
     KnowledgeSourceApi,
+    KnowledgeUsageApi,
     PaginatedKnowledgeGapSuggestionListApi,
     PaginatedKnowledgeSourceDocumentListApi,
     PaginatedKnowledgeSourceListApi,
@@ -844,4 +845,22 @@ export const businessKnowledgeSourcesTextRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getBusinessKnowledgeSourcesUsageRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/sources/usage/`
+}
+
+/**
+ * Chunks ingested and knowledge searches for this project in the current billing period, with the organization's free allowance, billing limit, and whether the billing quota is blocking new work.
+ * @summary Get business knowledge usage
+ */
+export const businessKnowledgeSourcesUsageRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<KnowledgeUsageApi> => {
+    return apiMutator<KnowledgeUsageApi>(getBusinessKnowledgeSourcesUsageRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }

@@ -53,6 +53,8 @@ export const SPEND_TYPES = [
     { label: 'Self-driving inbox credits', value: 'signals_credits_used_in_period' },
     { label: 'PostHog Desktop credits', value: 'posthog_code_credits_used_in_period' },
     { label: 'Replay vision credits', value: 'replay_vision_credits_used_in_period' },
+    { label: 'Business knowledge chunks', value: 'business_knowledge_chunks_in_period' },
+    { label: 'Business knowledge queries', value: 'business_knowledge_queries_in_period' },
     { label: 'Workflow emails', value: 'workflow_emails_sent_in_period' },
     { label: 'Workflow destinations', value: 'workflow_billable_invocations_in_period' },
     { label: 'Logs and traces ingested (MB)', value: 'logs_and_traces_mb_in_period' },

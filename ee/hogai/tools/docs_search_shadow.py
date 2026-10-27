@@ -24,6 +24,7 @@ from posthog.models.team.team import Team
 
 from products.business_knowledge.backend.logic import (
     KnowledgeSearchResult,
+    RetrievalLimitedError,
     RetrievalTrace,
     has_docs_shadow_feature_flag,
     search_knowledge_for_team,
@@ -46,7 +47,7 @@ DocsShadowSurface = Literal["mcp", "posthog_ai"]
 @frozen
 class _ShadowSearch:
     urls: list[str]
-    error: Literal["timeout", "exception"] | None
+    error: Literal["timeout", "exception", "quota_limited"] | None
     latency_ms: float
 
 
@@ -157,6 +158,9 @@ def _elapsed_ms(started: float) -> float:
 def _run_search(team: Team, query: str, started: float) -> _ShadowSearch:
     try:
         results = search_knowledge_for_team(team, query, trace=RetrievalTrace(surface="docs_shadow"))
+    except RetrievalLimitedError:
+        # Expected once the team is over its query quota, not a failure worth a stack trace.
+        return _ShadowSearch(urls=[], error="quota_limited", latency_ms=_elapsed_ms(started))
     except Exception:
         logger.warning("bk_docs_shadow_search_failed", team_id=team.id, exc_info=True)
         return _ShadowSearch(urls=[], error="exception", latency_ms=_elapsed_ms(started))

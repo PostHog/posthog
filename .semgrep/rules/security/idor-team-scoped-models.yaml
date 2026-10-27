@@ -269,6 +269,7 @@ rules:
                               |KnowledgeLibraryRepository
                               |KnowledgeLibrarySource
                               |KnowledgeSource
+                              |KnowledgeUsageRecord
                               |PlaygroundChat
                               |PlaygroundTurn
                               |Link
@@ -755,6 +756,7 @@ rules:
                         |KnowledgeLibraryRepository
                         |KnowledgeLibrarySource
                         |KnowledgeSource
+                        |KnowledgeUsageRecord
                         |PlaygroundChat
                         |PlaygroundTurn
                         |Link
@@ -1145,6 +1147,7 @@ rules:
                         |KnowledgeChunk
                         |KnowledgeDocument
                         |KnowledgeSource
+                        |KnowledgeUsageRecord
                         |Link
                         |LiveDebuggerBreakpoint
                         |LLMModelConfiguration

@@ -26,6 +26,7 @@ from posthog.tasks.usage_report import (
 )
 from posthog.temporal.tests.usage_report.test_aggregate_activity import _instance_metadata
 from posthog.temporal.usage_report.aggregator import (
+    add_pre_business_knowledge_patch_defaults,
     add_pre_logs_distinct_patterns_patch_defaults,
     add_pre_sandbox_compute_patch_defaults,
     build_manifest,
@@ -172,6 +173,29 @@ def test_load_all_data_defaults_logs_distinct_patterns_for_pre_patch_workflow_hi
     add_pre_logs_distinct_patterns_patch_defaults(all_data, [])
 
     assert all_data == {"teams_with_logs_distinct_patterns_in_period": {}}
+
+
+def test_load_all_data_defaults_business_knowledge_for_pre_patch_workflow_history() -> None:
+    all_data: dict[str, dict[int, int]] = {}
+    add_pre_business_knowledge_patch_defaults(all_data, [])
+
+    assert all_data == {
+        "teams_with_business_knowledge_chunks_in_period": {},
+        "teams_with_business_knowledge_queries_in_period": {},
+    }
+
+
+def test_load_all_data_keeps_business_knowledge_for_patched_workflow_history() -> None:
+    all_data: dict[str, dict[int, int]] = {"teams_with_business_knowledge_queries_in_period": {1: 3}}
+    results = [
+        RunQueryToS3Result(query_name="teams_with_business_knowledge_queries_in_period", s3_key="unused", duration_ms=1)
+    ]
+    add_pre_business_knowledge_patch_defaults(all_data, results)
+
+    assert all_data == {
+        "teams_with_business_knowledge_chunks_in_period": {},
+        "teams_with_business_knowledge_queries_in_period": {1: 3},
+    }
 
 
 def test_load_all_data_does_not_default_compute_for_patched_workflow_history() -> None:

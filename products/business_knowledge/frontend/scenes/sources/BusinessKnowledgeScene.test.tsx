@@ -41,6 +41,14 @@ jest.mock('../../components/CreateKnowledgeSourceModal/CreateKnowledgeSourceModa
     CreateKnowledgeSourceModal: (): null => null,
 }))
 
+jest.mock('../../components/UsageMeter/BusinessKnowledgeUsageMeter', () => ({
+    BusinessKnowledgeUsageMeter: (): null => null,
+}))
+
+jest.mock('../../components/UsageMeter/businessKnowledgeUsageLogic', () => ({
+    businessKnowledgeUsageLogic: {},
+}))
+
 jest.mock('./businessKnowledgeLogic', () => ({
     businessKnowledgeLogic: {},
     REFRESH_INTERVAL_OPTIONS: [],

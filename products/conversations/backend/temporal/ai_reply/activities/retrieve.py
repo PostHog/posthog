@@ -13,10 +13,12 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
 from products.business_knowledge.backend.logic import (
+    RetrievalLimitedError,
     RetrievalTrace,
     get_document_window,
     rerank_chunks,
     search_knowledge_for_team,
+    stable_trace_id,
 )
 from products.business_knowledge.backend.models import KnowledgeChunk
 from products.conversations.backend.temporal.ai_reply.constants import (
@@ -34,18 +36,28 @@ logger = structlog.get_logger(__name__)
 @close_db_connections
 async def support_retrieve_activity(input: RetrieveInput) -> RetrieveOutput:
     """Search BK + rerank. On widen attempts, also fetch document windows around prior citations."""
+    info = activity.info()
+    # Each search bills one query, keyed on its trace id. Deriving the id from the activity means a
+    # retried attempt reuses it and bills once, while a new workflow run is new work and bills again.
+    trace_seed = f"{info.workflow_id}:{info.workflow_run_id}:{info.activity_id}"
     async with Heartbeater():
-        return await database_sync_to_async(_retrieve_sync, thread_sensitive=False)(input)
+        return await database_sync_to_async(_retrieve_sync, thread_sensitive=False)(input, trace_seed)
 
 
-def _retrieve_sync(input: RetrieveInput) -> RetrieveOutput:
+def _retrieve_sync(input: RetrieveInput, trace_seed: str) -> RetrieveOutput:
     team = Team.objects.select_related("organization").get(id=input.team_id)
     all_results = []
     seen_chunk_ids: set[str] = set()
 
-    for query in input.queries:
-        trace = RetrievalTrace(surface="support")
-        results = search_knowledge_for_team(team, query, limit=RETRIEVE_LIMIT, trace=trace)
+    for index, query in enumerate(input.queries):
+        trace = RetrievalTrace(surface="support", trace_id=stable_trace_id(trace_seed, index, query))
+        try:
+            results = search_knowledge_for_team(team, query, limit=RETRIEVE_LIMIT, trace=trace)
+        except RetrievalLimitedError:
+            # The reply still goes out, without business knowledge context, so a billing limit never
+            # breaks a customer's support inbox.
+            logger.info("support_retrieve_skipped_quota_limited", team_id=input.team_id)
+            break
         reranked = rerank_chunks(team, query, results, top_k=RERANK_TOP_K, trace=trace)
         for r in reranked:
             cid = str(r.chunk_id)
