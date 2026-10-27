@@ -138,6 +138,7 @@ class TestFanout:
         assert result.params("offset") == ["0", None, "e1"]
         assert result.params("limit") == [str(PAGE_SIZE), "20", "20"]
         assert [(row["incident_id"], row["id"]) for row in result.rows] == [("inc-1", "e1"), ("inc-1", "e2")]
+        assert result.saved_states == []
 
     @pytest.mark.parametrize(
         "endpoint,parent_path,child_body,expected",

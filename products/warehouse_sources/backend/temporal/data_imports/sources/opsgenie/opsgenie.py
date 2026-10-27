@@ -45,7 +45,7 @@ MAX_SEARCH_RESULTS = 20_000
 REQUEST_TIMEOUT_SECONDS = 60
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class OpsgenieResumeConfig:
     offset: int = 0
     window_start_ms: Optional[int] = None
@@ -346,7 +346,11 @@ def _fanout_source(
         else SinglePagePaginator()
     )
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    # The shared fan-out checkpoint lists every finished parent, so its size grows with each parent.
+    # Only the small, unpaginated parents (schedules, teams) are resumable; the incident timeline
+    # starts again from the first incident after an interruption.
+    resumable = not parent_config.paginated
+    resume = resumable_source_manager.load_state() if resumable and resumable_source_manager.can_resume() else None
 
     def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state:
@@ -367,7 +371,7 @@ def _fanout_source(
             page_size_param="limit" if parent_config.paginated else None,
             parent_endpoint_extra={"paginator": parent_paginator, "data_selector": parent_config.data_selector},
             child_endpoint_extra={"paginator": child_paginator, "data_selector": config.data_selector},
-            resume_hook=save_fanout_checkpoint,
+            resume_hook=save_fanout_checkpoint if resumable else None,
             initial_paginator_state=resume.fanout_state if resume else None,
         ),
     )

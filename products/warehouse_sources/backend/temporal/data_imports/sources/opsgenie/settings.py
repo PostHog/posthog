@@ -10,7 +10,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 DEFAULT_PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass(frozen=True)
 class OpsgenieEndpointConfig:
     name: str
     path: str  # Path under the API base URL, including the API version, e.g. "/v2/alerts"
