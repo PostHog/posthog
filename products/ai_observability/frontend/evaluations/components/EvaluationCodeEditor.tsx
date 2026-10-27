@@ -21,7 +21,7 @@ import {
 } from '../constants'
 import { HOG_EVAL_EXAMPLES } from '../hogEvalExamples'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
-import type { EvaluationTarget } from '../types'
+import type { EvaluationTarget, HogEvaluation } from '../types'
 
 const GLOBAL_NAME_CODE_CLASS = 'font-medium text-sm text-primary bg-fill-highlight-100 px-1.5 py-0.5 rounded'
 const PROPERTY_NAME_CODE_CLASS = 'font-medium text-xs text-primary bg-fill-highlight-100 px-1 py-0.5 rounded'
@@ -194,6 +194,46 @@ const HOG_EVAL_GLOBALS_BY_TARGET = {
     // `evaluation_events` landed, and no session-target source predates them. This mirrors
     // build_session_hog_globals, which builds the shared globals and nothing else.
     session: HOG_EVAL_COMMON_GLOBALS_BY_TARGET.session,
+}
+
+// The new PostHog AI agent drops page context from this deep link, so everything it needs travels in the question.
+const MAX_SOURCE_IN_QUESTION = 3000
+
+/** The question "Generate with AI" asks: what the evaluation checks, what it must return, and the globals it gets. */
+function hogGenerationQuestion(evaluation: HogEvaluation): string {
+    const config = evaluation.output_config
+    const keys = (config.options ?? []).map((option) => `'${option.key}' (${option.label})`).join(', ')
+    const returns =
+        evaluation.output_type === 'numeric'
+            ? `a number${config.min != null && config.max != null ? ` from ${config.min} to ${config.max}` : ''}`
+            : evaluation.output_type === 'categorical'
+              ? config.selection_mode === 'multiple'
+                  ? `a list of category keys, from: ${keys}`
+                  : `one category key, from: ${keys}`
+              : config.true_is_failure
+                ? 'true when it finds a problem, false when it does not'
+                : 'true for a pass, false for a fail'
+    const globals = HOG_EVAL_COMMON_GLOBAL_DEFINITIONS.map(
+        (definition) =>
+            `${definition.name} (${definition.collection === 'array' ? 'a list of ' : ''}{ ${definition.fields
+                .map((field) => field.name)
+                .join(', ')} })`
+    ).join(', ')
+    const source = evaluation.evaluation_config.source?.trim() ?? ''
+    return [
+        `Help me write Hog code for my PostHog LLM evaluation "${evaluation.name.trim() || 'Untitled'}".`,
+        `What it checks: ${evaluation.description?.trim() || 'not described yet, so ask me'}.`,
+        `It runs once per ${evaluation.target}, and must return ${returns}${
+            config.allows_na ? ', or null when the check does not apply' : ''
+        }.`,
+        `Globals: ${globals}. Anything passed to print() shows as the result's reasoning.`,
+        'Hog uses single-quoted strings, := for assignment, and 1-indexed arrays. Comment the code, because I may be new to Hog.',
+        source
+            ? `Current code:\n${source.slice(0, MAX_SOURCE_IN_QUESTION)}${source.length > MAX_SOURCE_IN_QUESTION ? '\n(cut short)' : ''}`
+            : '',
+    ]
+        .filter(Boolean)
+        .join('\n')
 }
 
 /** One line of a sample's text, with the full text on hover. */
@@ -462,7 +502,7 @@ export function EvaluationCodeEditor(): JSX.Element {
                                 size="xsmall"
                                 icon={<IconSparkles />}
                                 onClick={() =>
-                                    openAi('Help me write Hog evaluation code for this evaluation', {
+                                    openAi(hogGenerationQuestion(evaluation), {
                                         evaluation: {
                                             id: evaluation.id,
                                             name: evaluation.name,
