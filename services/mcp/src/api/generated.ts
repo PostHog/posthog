@@ -123402,7 +123402,7 @@ export namespace Schemas {
        * * `failed` - Failed */
       status: WorkflowImportStatusEnum;
       /**
-         * The draft workflow's id, when one was saved.
+         * The draft workflow's id, when one was saved. In a preview, the draft an import would replace.
          * @nullable
          */
       workflow_id: string | null;

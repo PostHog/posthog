@@ -27,8 +27,9 @@ class CustomerioApiError(Exception):
 
 
 class CustomerioAppApi:
-    def __init__(self, api_key: str) -> None:
+    def __init__(self, api_key: str, deadline: float) -> None:
         self._api_key = api_key
+        self._deadline = deadline
         self._base_url: str | None = None
         self._last_request_at = 0.0
         self._session = requests.Session()
@@ -76,13 +77,16 @@ class CustomerioAppApi:
             wait = self._last_request_at + _MIN_INTERVAL_SECONDS - time.monotonic()
             if wait > 0:
                 time.sleep(wait)
+            remaining = self._deadline - time.monotonic()
+            if remaining <= 1:
+                raise CustomerioApiError("Reading from Customer.io took too long.")
             self._last_request_at = time.monotonic()
             try:
                 response = self._session.get(
                     f"{base_url}{path}",
                     params=params,
                     headers={"Authorization": f"Bearer {self._api_key}", "Accept": "application/json"},
-                    timeout=_TIMEOUT_SECONDS,
+                    timeout=min(_TIMEOUT_SECONDS, remaining),
                 )
             except requests.RequestException as error:
                 raise CustomerioApiError(f"Customer.io could not be reached: {type(error).__name__}") from error

@@ -149,7 +149,7 @@ def property_filters(leaf: dict[str, Any], property_type: str, *, negate: bool =
     if operator == "bw" and value is not None and value2 is not None:
         return [build("gte", value), build("lte", value2)]
     if operator in ("timestamp_gt", "timestamp_lt"):
-        relative = _relative_days(value)
+        relative = _relative_duration(value)
         if relative is None:
             return None
         return [build("is_date_after" if operator == "timestamp_gt" else "is_date_before", relative)]
@@ -203,19 +203,23 @@ def _cohort_filters(condition: dict[str, Any], segment_cohorts: dict[str, int]) 
     return [{"key": "id", "type": "cohort", "operator": operator, "value": segment_cohorts[segments[0]]}]
 
 
-def _relative_days(value: Any) -> str | None:
+def _relative_duration(value: Any) -> str | None:
     try:
         seconds = int(str(value))
     except ValueError:
         return None
     if seconds >= 0:
         return None
-    days = max(1, round(-seconds / _SECONDS_PER_DAY))
-    return f"-{days}d"
+    if seconds % _SECONDS_PER_DAY == 0:
+        return f"-{-seconds // _SECONDS_PER_DAY}d"
+    return f"-{max(1, round(-seconds / 3600))}h"
 
 
 def _absolute_date(value: Any) -> str | None:
     try:
-        return datetime.fromtimestamp(int(str(value)), tz=UTC).strftime("%Y-%m-%d")
+        moment = datetime.fromtimestamp(int(str(value)), tz=UTC)
     except (ValueError, OverflowError, OSError):
         return None
+    if moment.hour == moment.minute == moment.second == 0:
+        return moment.strftime("%Y-%m-%d")
+    return moment.isoformat()

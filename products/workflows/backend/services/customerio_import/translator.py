@@ -118,13 +118,10 @@ class _Builder:
             "actions": posthog_actions,
             "edges": edges,
             "exit_condition": self._exit_condition(),
+            # Sent even when empty, so a re-import clears a goal or a re-entry limit the automation dropped.
+            "conversion": self._conversion(),
+            "trigger_masking": self._trigger_masking(),
         }
-        conversion = self._conversion()
-        if conversion is not None:
-            workflow["conversion"] = conversion
-        masking = self._trigger_masking()
-        if masking is not None:
-            workflow["trigger_masking"] = masking
         self._campaign_notes()
         self._static_segment_notes()
         # A step that no path reaches, like a language variant behind its default, is not in the draft.

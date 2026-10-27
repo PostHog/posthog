@@ -5,6 +5,7 @@ The caller can pass all of it. When it leaves out message content and the team s
 """
 
 import json
+import time
 from typing import Any
 
 import structlog
@@ -26,6 +27,8 @@ from products.workflows.backend.services.customerio_import.app_api import Custom
 
 logger = structlog.get_logger(__name__)
 
+# The import runs inside the request, so all reads from Customer.io share one time limit.
+_FETCH_SECONDS = 60
 _MESSAGE_ACTION_TYPES = {"email_action", "webhook_action", "attribute_update_action"}
 
 
@@ -44,7 +47,7 @@ def import_content(
     missing = {id(source) for source in sources if _misses_templates(source)}
     api_key = _stored_app_api_key(team_id) if missing else None
     if api_key:
-        api = CustomerioAppApi(api_key)
+        api = CustomerioAppApi(api_key, deadline=time.monotonic() + _FETCH_SECONDS)
         try:
             if not sender_addresses:
                 sender_addresses = _identity_addresses(api.sender_identities())
@@ -89,7 +92,8 @@ def import_content(
 
 def _misses_templates(source: CampaignSource) -> bool:
     return any(
-        action.get("type") in _MESSAGE_ACTION_TYPES
+        isinstance(action.get("type"), str)
+        and action["type"] in _MESSAGE_ACTION_TYPES
         and action.get("template_id") is not None
         and str(action["template_id"]) not in source.templates
         for action in source.actions

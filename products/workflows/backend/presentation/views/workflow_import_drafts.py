@@ -8,6 +8,7 @@ from django.db import IntegrityError, transaction
 
 import structlog
 from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
@@ -31,7 +32,7 @@ from products.workflows.backend.facade.workflow_imports import (
     record_import,
     translate_campaign,
 )
-from products.workflows.backend.facade.writes import create_workflow, update_workflow
+from products.workflows.backend.facade.writes import create_workflow, defer_hog_flow_reloads, update_workflow
 from products.workflows.backend.presentation.views.data_suggestion_drafts import checked_draft
 
 logger = structlog.get_logger(__name__)
@@ -52,16 +53,24 @@ def import_campaigns(
     dry_run: bool,
     sender_identities: list[dict[str, Any]],
     segments: list[dict[str, Any]],
+    request: Request,
 ) -> ImportRun:
     content = import_content(
         team.id, [_campaign_source(payload) for payload in payloads], options, sender_identities, segments
     )
-    results = [
-        import_campaign(
-            team, user, source, content.options, dry_run, content.fetch_notes.get(str(source.campaign.get("id")), ())
-        )
-        for source in content.sources
-    ]
+    with defer_hog_flow_reloads():
+        results = [
+            import_campaign(
+                team,
+                user,
+                source,
+                content.options,
+                dry_run,
+                content.fetch_notes.get(str(source.campaign.get("id")), ()),
+                request,
+            )
+            for source in content.sources
+        ]
     return ImportRun(results=results, content_fetched=content.fetched)
 
 
@@ -83,11 +92,12 @@ def import_campaign(
     options: ImportOptions,
     dry_run: bool,
     extra_notes: tuple[ImportNote, ...],
+    request: Request,
 ) -> dict[str, Any]:
     """Imports one Customer.io automation, or previews it, and returns its result in the response shape."""
     try:
         translated = translate_campaign(source, options)
-    except (ValueError, TypeError) as error:
+    except (ValueError, TypeError, RecursionError) as error:
         logger.info("workflows.import.unreadable_campaign", team_id=team.id, error=type(error).__name__)
         return {
             "source_id": str(source.campaign.get("id")),
@@ -108,12 +118,6 @@ def import_campaign(
         "notes": [asdict(note) for note in notes],
         "validation_errors": [],
     }
-    validated, errors = _validated_draft(team, translated.workflow)
-    if validated is None:
-        return {**result, "status": "failed", "validation_errors": errors}
-    if dry_run:
-        return {**result, "status": "preview"}
-
     previous = previous_import(team, translated.source_id)
     if previous.hog_flow_id is not None and not _can_edit(team, user, previous):
         return _skipped(
@@ -123,6 +127,12 @@ def import_campaign(
         )
     if previous.hog_flow_id is not None and not previous.hog_flow_is_draft:
         return _skipped(result, previous.hog_flow_id, _NO_LONGER_DRAFT)
+    validated, errors = _validated_draft(team, translated.workflow, request)
+    if validated is None:
+        return {**result, "status": "failed", "validation_errors": errors}
+    if dry_run:
+        replaces = str(previous.hog_flow_id) if previous.hog_flow_id is not None else None
+        return {**result, "status": "preview", "workflow_id": replaces}
     created_name: str | None = None
     try:
         with transaction.atomic():
@@ -195,9 +205,9 @@ def _can_edit(team: Team, user: User, previous: PreviousImport) -> bool:
     return UserAccessControl(user=user, team=team).check_access_level_for_ref(ref, "editor")
 
 
-def _validated_draft(team: Team, workflow: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:
+def _validated_draft(team: Team, workflow: dict[str, Any], request: Request) -> tuple[dict[str, Any] | None, list[str]]:
     try:
-        return checked_draft(team, workflow, EventSource.API), []
+        return checked_draft(team, workflow, EventSource.API, request), []
     except ValidationError as error:
         logger.info("workflows.import.invalid_workflow", team_id=team.id, errors=str(error.detail)[:500])
         return None, _flatten_errors(error.detail)

@@ -1,5 +1,6 @@
 import json
 import base64
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
 
@@ -15,6 +16,7 @@ from posthog.models.integration import Integration
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.messaging.backend.facade.categories import create_category
 from products.workflows.backend.facade.contracts import (
     CampaignSource,
@@ -342,6 +344,23 @@ class TestCustomerioConditions(SimpleTestCase):
                 {"type": "attribute", "field": "created_at", "operator": "timestamp_gt", "value": "-2592000"},
                 [{"key": "created_at", "operator": "is_date_after", "type": "person", "value": "-30d"}],
             ),
+            (
+                "relative hours",
+                {"type": "attribute", "field": "created_at", "operator": "timestamp_gt", "value": "-7200"},
+                [{"key": "created_at", "operator": "is_date_after", "type": "person", "value": "-2h"}],
+            ),
+            (
+                "absolute time of day",
+                {"type": "attribute", "field": "created_at", "operator": "timestamp_lta", "value": "1700050000"},
+                [
+                    {
+                        "key": "created_at",
+                        "operator": "is_date_before",
+                        "type": "person",
+                        "value": "2023-11-15T12:06:40+00:00",
+                    }
+                ],
+            ),
         ]
     )
     def test_translates_leaf_operators(
@@ -444,16 +463,42 @@ class TestWorkflowImportAPI(APIBaseTest):
 
     def test_reimport_updates_the_draft_until_it_is_enabled(self) -> None:
         first = self._import()
+        preview = self._import(dry_run=True)
         second = self._import()
 
-        assert (first["status"], second["status"]) == ("created", "updated")
-        assert first["workflow_id"] == second["workflow_id"]
+        assert (first["status"], preview["status"], second["status"]) == ("created", "preview", "updated")
+        assert first["workflow_id"] == preview["workflow_id"] == second["workflow_id"]
         assert HogFlow.objects.filter(team=self.team).count() == 1
 
         HogFlow.objects.filter(pk=first["workflow_id"]).update(status="active")
         third = self._import()
         assert third["status"] == "skipped"
         assert HogFlow.objects.get(pk=first["workflow_id"]).status == "active"
+
+    def test_segment_trigger_uses_the_mapped_realtime_cohort(self) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Beta list",
+            cohort_type=CohortType.REALTIME,
+            last_backfill_person_properties_at=datetime(2026, 1, 1, tzinfo=UTC),
+            last_backfill_events_at=datetime(2026, 1, 1, tzinfo=UTC),
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"key": "plan", "value": "pro", "type": "person", "operator": "exact"}],
+                }
+            },
+        )
+        source = _onboarding_campaign()
+        campaign = {**source.campaign, "type": "seg_attr", "trigger": {"and": [{"segment": {"id": 7}}]}}
+        result = self._import(
+            campaigns=[{"campaign": campaign, "actions": source.actions, "templates": list(source.templates.values())}],
+            segment_cohorts={"7": cohort.id},
+        )
+
+        assert result["status"] == "created", result["validation_errors"]
+        trigger = HogFlow.objects.get(pk=result["workflow_id"]).trigger
+        assert trigger["cohort_id"] == cohort.id
 
     def test_reimport_leaves_a_workflow_the_user_cannot_edit(self) -> None:
         first = self._import()
