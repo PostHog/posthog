@@ -23,7 +23,8 @@ import type { WizardConnectionStatus } from '../../../../../../products/wizard/f
 import { activeCloudRunLogic } from './activeCloudRunLogic'
 import type { CloudRunHandle } from './activeCloudRunLogic'
 import { finishedLocalRunLogic } from './finishedLocalRunLogic'
-import { cloudProgress, isSessionFresh, localProgress } from './installationProgress'
+import { sessionErrorMessage } from './helpers'
+import { cloudProgress, errorKindFromMessage, isSessionFresh, localProgress } from './installationProgress'
 import { taskRunStreamLogic, TaskRunProgressStep, TaskRunStreamState } from './taskRunStreamLogic'
 import type { TaskRunConnectionStatus } from './taskRunStreamLogic'
 import {
@@ -119,10 +120,19 @@ export interface WizardPendingInput {
     prompts: string[]
 }
 
+/** Set when the AI gateway stopped the run, so the UI offers the user's own agent in place of a retry. */
+export type InstallationErrorKind = 'usage_limit'
+
+export interface InstallationError {
+    title: string
+    detail: string | null
+    kind?: InstallationErrorKind
+}
+
 export interface InstallationProgress {
     phase: InstallationPhase
     steps: InstallationStep[]
-    error: { title: string; detail: string | null } | null
+    error: InstallationError | null
     prUrl: string | null
     /** The bound PR was merged (webhook-recorded on the run's output). */
     prMerged: boolean
@@ -176,6 +186,7 @@ export interface installationProgressLogicActions {
     reportWizardSyncSessionFinished: (props: {
         completedTaskCount: number
         elapsedSeconds: number
+        errorKind: InstallationErrorKind | null
         outcome: string
         skillId: string
         taskCount: number
@@ -183,6 +194,7 @@ export interface installationProgressLogicActions {
     }) => {
         completedTaskCount: number
         elapsedSeconds: number
+        errorKind: 'usage_limit' | null
         outcome: string
         skillId: string
         taskCount: number
@@ -438,6 +450,7 @@ export function runLocalSessionBookkeeping(
             workflowId: string
             skillId: string
             outcome: string
+            errorKind: InstallationErrorKind | null
             taskCount: number
             completedTaskCount: number
             elapsedSeconds: number
@@ -513,6 +526,7 @@ export function runLocalSessionBookkeeping(
                 workflowId,
                 skillId: session.skill_id,
                 outcome: session.run_phase,
+                errorKind: errorKindFromMessage(sessionErrorMessage(session)),
                 taskCount: tasks.length,
                 completedTaskCount: tasks.filter((t) => t.status === 'completed').length,
                 elapsedSeconds: elapsedSecondsFrom(session.started_at, now),

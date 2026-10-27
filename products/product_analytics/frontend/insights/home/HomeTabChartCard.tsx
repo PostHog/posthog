@@ -23,9 +23,10 @@ interface HomeTabChartCardProps {
     size: 'primary' | 'supporting' | 'ranking'
     control?: ReactNode
     source?: string
+    loadPriority: number
 }
 
-export function HomeTabChartCard({ option, size, control, source }: HomeTabChartCardProps): JSX.Element {
+export function HomeTabChartCard({ option, size, control, source, loadPriority }: HomeTabChartCardProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { shouldShowSampleData } = useValues(sampleDataStateLogic)
     const sampleData = useMemo(
@@ -43,7 +44,7 @@ export function HomeTabChartCard({ option, size, control, source }: HomeTabChart
             uniqueKey={`HomeTab.${currentTeamId}.${chartKey}`}
             context={{
                 insightProps: {
-                    loadPriority: 0,
+                    loadPriority,
                     dashboardItemId: homeTabChartInsightId(currentTeamId, chartKey),
                     dataNodeCollectionId: homeTabDataCollectionId(currentTeamId),
                     query: option.query,

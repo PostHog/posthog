@@ -29,7 +29,7 @@ export function clientForIndex(index: number, totalLabels: number): { clientX: n
     }
 }
 
-/** Mock ResizeObserver and getBoundingClientRect so hog-charts components
+/** Mock ResizeObserver and getBoundingClientRect so quill-charts components
  *  render with real dimensions in jsdom. Call in beforeEach, and call the
  *  returned cleanup function in afterEach. */
 export function setupJsdom(): () => void {
@@ -50,8 +50,22 @@ export function setupJsdom(): () => void {
  *  returned cleanup function in afterEach. */
 export function setupSyncRaf(): () => void {
     const original = global.requestAnimationFrame
+    // A callback that requests its next frame (the hover fade) is queued and run after it returns.
+    // A direct call would add one stack level per frame and overflow before the fade ends.
+    let queue: FrameRequestCallback[] | null = null
     global.requestAnimationFrame = ((cb: FrameRequestCallback) => {
-        cb(0)
+        if (queue) {
+            queue.push(cb)
+            return 0
+        }
+        queue = [cb]
+        try {
+            for (let next = queue.shift(); next; next = queue.shift()) {
+                next(0)
+            }
+        } finally {
+            queue = null
+        }
         return 0
     }) as typeof global.requestAnimationFrame
 
@@ -69,7 +83,7 @@ export function setupSyncRaf(): () => void {
 let jsdomReady = false
 
 /** Idempotent sibling of {@link setupJsdom} + {@link setupSyncRaf}. Called automatically by
- *  `renderHogChart` so simple tests don't need a beforeEach for the mocks; they're installed
+ *  `renderChart` so simple tests don't need a beforeEach for the mocks; they're installed
  *  once for the test run and never torn down (cheap, and `getBoundingClientRect` stubbing is
  *  harmless to leave on for non-chart code in the same file). Tests that want fine-grained
  *  teardown can use the explicit `setupJsdom()` / `setupSyncRaf()` pair instead. */

@@ -8,10 +8,18 @@ import { organizationLogic } from 'scenes/organizationLogic'
 
 import type { OrganizationType } from '~/types'
 
+import {
+    billingAlertsCheckNowCreate,
+    billingAlertsDestroy,
+    billingAlertsList,
+} from 'products/billing/frontend/generated/api'
+import type {
+    BillingAlertConfigurationApi,
+    PaginatedBillingAlertConfigurationListApi,
+} from 'products/billing/frontend/generated/api.schemas'
+
 import { formatBillingValue, metricLabel } from './billingAlertDisplay'
 import { billingAlertRequestError, offsetFromPageLink } from './billingAlertUtils'
-import { billingAlertsCheckNowCreate, billingAlertsDestroy, billingAlertsList } from './generated/api'
-import type { BillingAlertConfigurationApi, PaginatedBillingAlertConfigurationListApi } from './generated/api.schemas'
 
 const EMPTY_ALERTS_PAGE: PaginatedBillingAlertConfigurationListApi = {
     count: 0,

@@ -101,16 +101,17 @@ class SessionReplayAgentToolkit(AgentToolkit):
         # Lazy import keeps the product dependency off this module's import path (see test_toolkit_imports).
         from products.replay_vision.backend.max_tools import (
             AnalyzeReplayVisionImpactTool,
+            CompareReplayVisionVariantsTool,
             CreateReplayVisionScannerTool,
             DeleteReplayVisionScannerTool,
             EstimateReplayVisionScannerTool,
             GetReplayVisionQuotaTool,
+            GetReplayVisionScanResultsTool,
             LabelReplayVisionObservationTool,
             ListReplayVisionScannersTool,
             RetryReplayVisionObservationTool,
             ScanReplayVisionSessionsTool,
             SearchReplayVisionObservationsTool,
-            SuggestReplayVisionTagsTool,
             UpdateReplayVisionScannerTool,
         )
 
@@ -118,16 +119,17 @@ class SessionReplayAgentToolkit(AgentToolkit):
             FilterSessionRecordingsTool,
             SearchReplayVisionObservationsTool,
             ScanReplayVisionSessionsTool,
+            GetReplayVisionScanResultsTool,
             RetryReplayVisionObservationTool,
             GetReplayVisionQuotaTool,
             CreateReplayVisionScannerTool,
             UpdateReplayVisionScannerTool,
             AnalyzeReplayVisionImpactTool,
+            CompareReplayVisionVariantsTool,
             DeleteReplayVisionScannerTool,
             EstimateReplayVisionScannerTool,
             LabelReplayVisionObservationTool,
             ListReplayVisionScannersTool,
-            SuggestReplayVisionTagsTool,
         ]
         return tools
 

@@ -205,6 +205,7 @@ export type ExecCommandErrorReason =
     | 'deprecated_tool'
     | 'gated_tool'
     | 'missing_scope'
+    | 'tool_not_granted'
     | 'invalid_json'
     | 'usage'
     | 'invalid_regex'

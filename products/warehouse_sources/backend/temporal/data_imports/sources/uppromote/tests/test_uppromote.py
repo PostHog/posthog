@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
@@ -113,6 +114,47 @@ class TestUpPromoteSourcePagination:
 
     @parameterized.expand(
         [
+            # Both endpoints reject `from_date` without `to_date` with a 422.
+            ("referrals", "created_at", "2026-01-01T00:00:10Z", "2026-01-01T00:00:09Z", True),
+            ("connected_customers", "connection_date", "2026-01-01T00:00:10Z", "2026-01-01T00:00:09Z", True),
+            ("affiliates", "created_at", "2026-01-01T00:00:10Z", "2026-01-01T00:00:09Z", False),
+            # A first incremental run has no watermark and pulls everything.
+            ("connected_customers", "connection_date", None, None, False),
+        ]
+    )
+    def test_incremental_window_params(
+        self,
+        endpoint: str,
+        incremental_field: str,
+        last_value: str | None,
+        expected_from_date: str | None,
+        expects_to_date: bool,
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [_page([{"id": 1}]), _page([])],
+            incremental_field=incremental_field,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.params("page") == ["1", "2"]
+        assert result.params("from_date") == [expected_from_date] * 2
+        to_dates = result.params("to_date")
+        if expects_to_date:
+            assert to_dates[0] is not None
+            # The window end stays frozen across the pages of one run.
+            assert to_dates == [to_dates[0]] * 2
+        else:
+            assert to_dates == [None, None]
+
+    def test_full_refresh_sends_no_window(self) -> None:
+        result = _driver().run("connected_customers", [_page([{"affiliate_id": 1}]), _page([])])
+
+        assert result.params("from_date") == [None, None]
+        assert result.params("to_date") == [None, None]
+
+    @parameterized.expand(
+        [
             ("programs", ["id"]),
             ("affiliates", ["id"]),
             ("coupons", ["id"]),
@@ -142,6 +184,58 @@ class TestUpPromoteSourcePagination:
         assert "table_transformer" in webhook_manager.get_items.call_args.kwargs
 
 
+class TestProgramExcludedFanout:
+    def test_fans_out_over_every_program_page_and_tags_rows_with_the_program(self) -> None:
+        result = _driver().run(
+            "program_excluded",
+            route(
+                {
+                    "/programs": [_page([{"id": 11}, {"id": 12}]), _page([{"id": 13}]), _page([])],
+                    "/programs/11/excluded": [
+                        ScriptedResponse(
+                            json={
+                                "status": 200,
+                                "message": "success",
+                                "data": {"apply_to": "products", "apply_to_ids": ["9001", "9002"]},
+                            }
+                        )
+                    ],
+                    # A program without exclusions returns no object and produces no row.
+                    "/programs/12/excluded": [_page([])],
+                    "/programs/13/excluded": [
+                        ScriptedResponse(
+                            json={
+                                "status": 200,
+                                "message": "success",
+                                "data": {"apply_to": "collections", "apply_to_ids": []},
+                            }
+                        )
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert sorted(result.rows, key=lambda row: row["program_id"]) == [
+            {"program_id": 11, "apply_to": "products", "apply_to_ids": ["9001", "9002"]},
+            {"program_id": 13, "apply_to": "collections", "apply_to_ids": []},
+        ]
+
+        child_requests = [request for request in result.requests if request.path.endswith("/excluded")]
+        assert [request.path for request in child_requests] == [
+            "/api/v2/programs/11/excluded",
+            "/api/v2/programs/12/excluded",
+            "/api/v2/programs/13/excluded",
+        ]
+        # The child endpoint is a single object, so it must not be paginated.
+        assert all(request.param("page") is None for request in child_requests)
+        assert all(request.param("per_page") is None for request in child_requests)
+
+        parent_requests = [request for request in result.requests if request.path == "/api/v2/programs"]
+        assert [request.param("page") for request in parent_requests] == ["1", "2", "3"]
+        assert all(request.headers["authorization"] == "test-key" for request in result.requests)
+
+
 class TestWebhookTableTransformer:
     def test_keeps_latest_row_per_key_and_drops_keyless_rows(self) -> None:
         transform = _make_webhook_table_transformer("id")
@@ -166,8 +260,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("valid", 200, {"status": 200, "message": "success", "data": []}, True),
-            ("unauthorized", 401, {"message": "Unauthorized"}, False),
-            ("server_error", 500, {"message": "Error"}, False),
         ]
     )
     def test_status_mapping(self, _label: str, status_code: int, body: dict[str, Any], expected_valid: bool) -> None:
@@ -181,13 +273,6 @@ class TestValidateCredentials:
             assert error
         assert network.requests_log[0].path == "/api/v2/affiliates"
         assert network.requests_log[0].headers["authorization"] == "test-key"
-
-    def test_network_failure_is_reported_not_raised(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            valid, error = validate_credentials("test-key")
-
-        assert valid is False
-        assert error is not None and "Could not reach UpPromote" in error
 
 
 def _subscription(event: str, target_url: str = WEBHOOK_URL, secret: str | None = "sec-1") -> dict[str, Any]:

@@ -44,6 +44,9 @@ A render prop that is not a list of series rows composes the exported pieces so 
 - `TooltipSwatch` is the series-color dot.
 - `TooltipFooter` is the divider plus muted row, the same slot `DefaultTooltip.footer` renders into.
 
+These pieces also render outside a chart, so a custom d3 or SVG chart can show the same tooltip.
+Outside a chart, `TooltipSurface` takes its colors from the `--card` and `--foreground` tokens, the same ones `useChartTheme()` reads.
+
 ## Reading `TooltipContext`
 
 - `seriesData` holds one entry per visible series at `dataIndex`, in declaration order. Series with `visibility.tooltip: false` are absent. Look rows up by `entry.series.key`, not by position.
@@ -63,8 +66,8 @@ Mouse hover and click behavior is unchanged; the split lives in `useChartInterac
 
 ## Testing
 
-For a chart mounted through `renderHogChart`, `chart.waitForTooltip()` returns a structured `TooltipSnapshot`.
-For a chart rendered anywhere else (a product scene), read the tooltip from the DOM: `getHogChartTooltip()` and `waitForHogChartTooltip()` return the portal element, and `createHogChartTooltip(el)` wraps it as `{ element, isPinned }`.
+For a chart mounted through `renderChart`, `chart.waitForTooltip()` returns a structured `TooltipSnapshot`.
+For a chart rendered anywhere else (a product scene), read the tooltip from the DOM: `getChartTooltip()` and `waitForChartTooltip()` return the portal element, and `createChartTooltipAccessor(el)` wraps it as `{ element, isPinned }`.
 `createDefaultTooltipAccessor(el)` reads a rendered `DefaultTooltip` through its `data-attr="hog-chart-tooltip-*"` hooks: `label()`, `rows()`, `value(seriesLabel)`, `swatchColors()`, `total()`.
 Those attributes are a testing contract; keep the accessor and the component in sync.
 All helpers come from `@posthog/quill-charts/testing`.

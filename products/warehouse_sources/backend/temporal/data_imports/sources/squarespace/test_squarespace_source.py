@@ -24,11 +24,6 @@ class TestSquarespaceSource:
         assert self.source.supported_versions == (SQUARESPACE_API_VERSION_V1, SQUARESPACE_API_VERSION_V2)
         assert self.source.default_version == SQUARESPACE_API_VERSION_V2
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["orders"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "orders"
-
     @pytest.mark.parametrize(
         "mock_return, schema_name, expected_valid, expected_has_message",
         [

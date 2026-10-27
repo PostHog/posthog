@@ -5,9 +5,9 @@ import {
     clickAtIndex,
     createDefaultTooltipAccessor,
     type DefaultTooltipAccessor,
-    getHogChartTooltip,
+    getChartTooltip,
     hoverUntilTooltip,
-    waitForHogChartTooltip,
+    waitForChartTooltip,
 } from '@posthog/quill-charts/testing'
 
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -126,12 +126,10 @@ export const legend = {
     async toggle(label: string): Promise<void> {
         const props: InsightLogicProps = { dashboardItemId: INSIGHT_TEST_ID }
         const logic = trendsDataLogic(props)
-        const dataset = (logic.values.indexedResults as IndexedTrendResult[]).find(
-            (d) => (d.label ?? d.action?.name) === label
-        )
+        const dataset = (logic.values.indexedResults as IndexedTrendResult[]).find((d) => d.label === label)
         if (!dataset) {
             const available = (logic.values.indexedResults as IndexedTrendResult[])
-                .map((d) => `"${d.label ?? d.action?.name}"`)
+                .map((d) => `"${d.label}"`)
                 .join(', ')
             throw new Error(`No series labeled "${label}". Available: ${available}`)
         }
@@ -162,7 +160,7 @@ export function getQuerySource(): TrendsQuery {
 
 export const chart = {
     /** Current chart tooltip element, or null if none is rendered. */
-    getTooltip: getHogChartTooltip,
+    getTooltip: getChartTooltip,
     async hoverTooltip(
         index: number,
         totalLabels = trendsSeries.pageviews.labels.length
@@ -180,7 +178,7 @@ export const chart = {
     /** Click a row inside the pinned tooltip by matching its label text. Use
      *  after `clickAtIndex` has pinned a multi-series tooltip. */
     async clickTooltipRow(label: string | RegExp): Promise<void> {
-        const tooltip = await waitForHogChartTooltip()
+        const tooltip = await waitForChartTooltip()
         // Each quill tooltip row renders its label twice — a visible copy plus an aria-hidden
         // measurement copy used for truncation layout — so match only the visible one.
         const matches = within(tooltip).getAllByText(label)

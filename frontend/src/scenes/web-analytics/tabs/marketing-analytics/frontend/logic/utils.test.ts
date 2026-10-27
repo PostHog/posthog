@@ -577,8 +577,30 @@ describe('marketing analytics utils', () => {
                 const result = createMarketingTile(source, 'cost_per_reported_conversion', 'EUR')
                 expect(result?.math_hogql).toBe(
                     hasPurchases
-                        ? "SUM(toFloat(convertCurrency(coalesce(campaign_budget_currency_code, 'EUR'), 'EUR', toFloat(cost), coalesce(toDate(date), today())))) / nullIf(SUM(ifNull(toFloat(purchases14d), 0)), 0)"
+                        ? "SUM(toFloat(convertCurrency(coalesce(campaign_budget_currency_code, 'EUR'), 'EUR', ifNull(toFloat(cost), 0), coalesce(toDate(date), today())))) / nullIf(SUM(ifNull(toFloat(purchases14d), 0)), 0)"
                         : '0'
+                )
+            }
+        )
+
+        it.each([
+            ['TwitterAds', 'billed_charge_local_micro'],
+            ['GoogleAds', 'metrics_cost_micros'],
+            ['RedditAds', 'spend'],
+            ['SnapchatAds', 'spend'],
+        ] as const)('casts the %s cost column to a number before it divides by a million', (sourceType, costColumn) => {
+            const source = makeMockSource(sourceType, sourceFields[sourceType])
+            const mathHogql = createMarketingTile(source, MarketingAnalyticsColumnsSchemaNames.Cost, 'USD')?.math_hogql
+            expect(mathHogql).toContain(`ifNull(toFloat(${costColumn}), 0) / 1000000`)
+            expect(mathHogql).not.toContain(`${costColumn} / 1000000`)
+        })
+
+        it.each(['cpc', 'cost_per_reported_conversion', 'roas'] as const)(
+            'converts Google Ads %s to the project currency',
+            (metric) => {
+                const source = makeMockSource('GoogleAds', sourceFields.GoogleAds)
+                expect(createMarketingTile(source, metric, 'EUR')?.math_hogql).toContain(
+                    "convertCurrency(coalesce(customer_currency_code, 'EUR'), 'EUR'"
                 )
             }
         )

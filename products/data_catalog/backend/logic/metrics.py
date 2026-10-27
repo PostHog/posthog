@@ -1,14 +1,15 @@
 """Metric write path and approval lifecycle.
 
-Names are unique among a team's live metrics: creating with a live existing name refines that metric,
-while creating with a deleted metric's name starts a fresh one (delete and rename free the name for
-reuse). A metric can be created from an insight
+Names are unique among a team's live metrics: creating with a live existing name refines that metric
+(the API requires an explicit overwrite for this), while creating with a deleted metric's name starts a
+fresh one (delete and rename free the name for reuse). A metric can be created from an insight
 (its query is snapshotted server-side and drift is flagged for re-review). Promotion to ``approved``
 is blocked while a metric is drifted. All transitions emit capture events for success-criteria
 measurement.
 """
 
 import re
+from datetime import datetime
 from functools import partial
 from typing import TYPE_CHECKING, Optional
 from uuid import UUID
@@ -23,12 +24,14 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.information_schema import references_denied_table
 
 from posthog.dataclasses import frozen
+from posthog.event_usage import AnalyticsProps
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend.facade.models import Insight
 
+from ..facade.contracts import MetricBulkOwnerChange
 from ..facade.enums import CreatedSource, MetricStatus
 from ..models import METRIC_NAME_REGEX, Metric
 from ..tasks.tasks import sync_metric_lineage_task
@@ -37,11 +40,12 @@ from .analytics import (
     METRIC_APPROVED_EVENT,
     METRIC_CREATED_EVENT,
     METRIC_DELETED_EVENT,
+    METRIC_NAME_CONFLICT_EVENT,
     METRIC_UPDATED_EVENT,
     capture_metric_event,
 )
 from .drift import canonical_query_hash, compute_drift, fetch_insight
-from .exceptions import MetricDrifted, SourceInsightUnavailable
+from .exceptions import MetricChanged, MetricDrifted, MetricNameTaken, SourceInsightUnavailable
 from .lineage import remove_metric_lineage
 from .validation import validate_description, validate_metric_definition
 
@@ -198,9 +202,46 @@ def _refine(metric: Metric, fields: dict) -> None:
         # computes or how it reads; its review no longer holds, so drop back to proposed (matching
         # update_metric's PATCH behavior).
         _reset_to_proposed(metric)
+    if fields.get("created_source") == CreatedSource.USER and metric.created_source != CreatedSource.USER:
+        # A person's overwrite replaces an agent's proposal, so the agent's model, confidence, and
+        # reasoning no longer describe the metric unless the request supplies new values.
+        fields = {"ai_model": "", "confidence": None, "reasoning": "", **fields}
     for key, value in fields.items():
         setattr(metric, key, value)
     metric.save()
+
+
+def _denied_tables(team: Team, user: User, user_access_control: UserAccessControl) -> set[str]:
+    return Database.create_for(team=team, user=user, user_access_control=user_access_control)._denied_tables
+
+
+def _live_metric_reads_tables(team: Team, name: str) -> bool:
+    """True when a live metric holds ``name`` and its definition reads tables. Reads without a lock."""
+    referenced = (
+        Metric.objects.for_team(team.id)
+        .filter(name=name, deleted=False)
+        .values_list("referenced_table_names", flat=True)
+        .first()
+    )
+    return bool(referenced)
+
+
+def _name_conflict(
+    existing: Metric, *, visible: bool, team: Team, user: Optional[User], request: "Request | None"
+) -> MetricNameTaken:
+    """Count the conflict and build its 409.
+
+    A hidden metric's 409 carries no metric data, so it confirms only that the name is taken.
+    """
+    capture_metric_event(
+        METRIC_NAME_CONFLICT_EVENT, existing, team=team, user=user, request=request, extra={"existing_visible": visible}
+    )
+    if not visible:
+        return MetricNameTaken(detail="A metric with this name already exists. Use a different name.")
+    return MetricNameTaken(
+        detail=f"A metric named '{existing.name}' already exists. Use a different name, or overwrite the existing metric.",
+        extra={"existing_metric": {"name": existing.name, "status": existing.status}},
+    )
 
 
 def _schedule_lineage_sync(metric: Metric) -> None:
@@ -231,9 +272,17 @@ def upsert_metric(
     ai_model: str | _Unset = _UNSET,
     confidence: float | None | _Unset = _UNSET,
     reasoning: str | _Unset = _UNSET,
+    overwrite: bool = False,
+    user_access_control: UserAccessControl | None = None,
     request: "Request | None" = None,
 ) -> Metric:
-    """Create a metric, or refine the live one already holding ``name`` for this team.
+    """Create a metric, or with ``overwrite`` refine the live one already holding ``name`` for this team.
+
+    Without ``overwrite``, a live metric holding ``name`` raises ``MetricNameTaken`` and stays
+    unchanged, so the caller can ask a person before replacing it. With a ``user_access_control``,
+    a name held by a metric hidden from ``user`` (see ``metrics_visible_to_user``) raises the same
+    error for every value of ``overwrite`` and discloses nothing about that metric. Both checks run
+    on the locked row, so a concurrent write cannot slip a hidden metric past them.
 
     Refine is a partial merge: only the fields the caller supplies are written, so a refine that
     omits a field leaves that field (a stored ``definition``, provenance, ...) untouched rather than
@@ -264,6 +313,23 @@ def upsert_metric(
     fields.update(_resolve_definition_fields(definition, source_insight_short_id, team, user))
     written_fields = set(fields)
 
+    # The denied-table set needs the HogQL database, which is slow to build, so build it before the
+    # row lock, and only when the name is held by a metric that reads tables.
+    denied_tables: set[str] | None = None
+    if user is not None and user_access_control is not None and _live_metric_reads_tables(team, name):
+        denied_tables = _denied_tables(team, user, user_access_control)
+
+    def refuse_taken_name(existing: Metric) -> None:
+        nonlocal denied_tables
+        if user is not None and user_access_control is not None and existing.referenced_table_names:
+            if denied_tables is None:
+                # A concurrent write gave the row its table references after the read above.
+                denied_tables = _denied_tables(team, user, user_access_control)
+            if references_denied_table(existing.referenced_table_names, denied_tables):
+                raise _name_conflict(existing, visible=False, team=team, user=user, request=request)
+        if not overwrite:
+            raise _name_conflict(existing, visible=True, team=team, user=user, request=request)
+
     # team_scope so the ModelActivityMixin's before-update lookup (via the fail-closed manager)
     # works regardless of caller context (viewset, Celery, MCP, tests).
     with team_scope(team.id):
@@ -272,6 +338,7 @@ def upsert_metric(
                 existing = Metric.objects.for_team(team.id).filter(name=name, deleted=False).select_for_update().first()
                 created = existing is None
                 if existing is not None:
+                    refuse_taken_name(existing)
                     _refine(existing, fields)
                     metric = existing
                 else:
@@ -288,13 +355,19 @@ def upsert_metric(
                 existing = Metric.objects.for_team(team.id).filter(name=name, deleted=False).select_for_update().first()
                 if existing is None:
                     raise
+                refuse_taken_name(existing)
                 _refine(existing, fields)
                 metric, created = existing, False
 
     if created or written_fields & _LINEAGE_FIELDS:
         _schedule_lineage_sync(metric)
     capture_metric_event(
-        METRIC_CREATED_EVENT if created else METRIC_UPDATED_EVENT, metric, team=team, user=user, request=request
+        METRIC_CREATED_EVENT if created else METRIC_UPDATED_EVENT,
+        metric,
+        team=team,
+        user=user,
+        request=request,
+        extra=None if created else {"overwritten_by_create": True},
     )
     return metric
 
@@ -351,7 +424,10 @@ def update_metric(
         team=team,
         user=user,
         request=request,
-        extra={"renamed_from": renamed_from} if renamed_from else None,
+        extra={
+            "updated_fields": sorted(fields),
+            **({"renamed_from": renamed_from} if renamed_from else {}),
+        },
     )
     return metric
 
@@ -363,10 +439,17 @@ def _apply_approval(metric: Metric, user: Optional[User]) -> None:
     metric.save(update_fields=[*_APPROVAL_FIELDS, "updated_at"])
 
 
-def approve_metric(metric: Metric, user: Optional[User], request: "Request | None" = None) -> Metric:
+def approve_metric(
+    metric: Metric,
+    user: Optional[User],
+    request: "Request | None" = None,
+    expected_updated_at: datetime | None = None,
+) -> Metric:
     """Bless a metric as canonical. Blocked (409) while drifted. Idempotent on an already-approved metric."""
     with team_scope(metric.team_id), transaction.atomic():
         metric = Metric.objects.for_team(metric.team_id).select_for_update().get(pk=metric.pk)
+        if expected_updated_at is not None and metric.updated_at != expected_updated_at:
+            raise MetricChanged()
         if compute_drift([metric])[metric.id]:
             capture_metric_event(
                 METRIC_APPROVAL_BLOCKED_EVENT,
@@ -438,7 +521,7 @@ def _batch_team(metrics: list[Metric]) -> Team:
     return Team.objects.get(pk=team_ids.pop())
 
 
-def _lock_batch(team_id: int, metrics: list[Metric]) -> dict[UUID, Metric]:
+def _lock_batch(team_id: int, metric_ids: list[UUID]) -> dict[UUID, Metric]:
     """Re-read and row-lock the batch, keyed by id.
 
     Locks in ``pk`` order so two concurrent bulk operations over overlapping rows queue behind each
@@ -447,7 +530,7 @@ def _lock_batch(team_id: int, metrics: list[Metric]) -> dict[UUID, Metric]:
     """
     locked = (
         Metric.objects.for_team(team_id)
-        .filter(pk__in=[metric.pk for metric in metrics], deleted=False)
+        .filter(pk__in=metric_ids, deleted=False)
         # Cache owner and created_by so serializing the approve response reads them off the row
         # instead of one posthog_user lookup per metric. Both FKs are nullable, so select_related
         # is a LEFT OUTER JOIN; Postgres rejects FOR UPDATE on the nullable side of an outer join,
@@ -474,10 +557,28 @@ def _locked_match(locked: dict[UUID, Metric], requested: Metric) -> Optional[Met
 
 
 def _capture_after_commit(
-    event: str, metrics: list[Metric], *, team: Team, user: Optional[User], request: "Request | None"
+    event: str,
+    metrics: list[Metric],
+    *,
+    team: Team,
+    user: Optional[User],
+    request: "Request | None",
+    extra: Optional[dict[str, object]] = None,
+    analytics_props: Optional[AnalyticsProps] = None,
 ) -> None:
     for metric in metrics:
-        transaction.on_commit(partial(capture_metric_event, event, metric, team=team, user=user, request=request))
+        transaction.on_commit(
+            partial(
+                capture_metric_event,
+                event,
+                metric,
+                team=team,
+                user=user,
+                request=request,
+                extra=extra,
+                analytics_props=analytics_props,
+            )
+        )
 
 
 def bulk_approve_metrics(
@@ -496,7 +597,7 @@ def bulk_approve_metrics(
     skipped: list[MetricBulkSkip] = []
 
     with team_scope(team.id), transaction.atomic():
-        locked = _lock_batch(team.id, metrics)
+        locked = _lock_batch(team.id, [metric.pk for metric in metrics])
         drifted = compute_drift(locked.values())
         for requested in metrics:
             metric = _locked_match(locked, requested)
@@ -527,7 +628,7 @@ def bulk_soft_delete_metrics(
 
     with team_scope(team.id), transaction.atomic():
         # Same pk lock order as bulk_approve_metrics, so a mixed approve/delete pair can't deadlock.
-        locked = _lock_batch(team.id, metrics)
+        locked = _lock_batch(team.id, [metric.pk for metric in metrics])
         for requested in metrics:
             metric = _locked_match(locked, requested)
             if metric is None:
@@ -541,6 +642,47 @@ def bulk_soft_delete_metrics(
         remove_metric_lineage(metric)
 
     return deleted, skipped
+
+
+def bulk_change_metric_owner(
+    *,
+    team_id: int,
+    names_by_id: dict[UUID, str],
+    owner_id: Optional[int],
+    user_id: int,
+    analytics_props: Optional[AnalyticsProps] = None,
+) -> MetricBulkOwnerChange:
+    """Set one owner on a batch of metrics in one transaction."""
+    if not names_by_id:
+        return MetricBulkOwnerChange(updated_ids=[], skipped_ids=[])
+    team = Team.objects.get(id=team_id)
+    user = User.objects.get(id=user_id)
+    owner = User.objects.get(id=owner_id) if owner_id is not None else None
+    updated: list[Metric] = []
+
+    with team_scope(team_id), transaction.atomic():
+        locked = _lock_batch(team_id, list(names_by_id))
+        for metric_id, name in names_by_id.items():
+            metric = locked.get(metric_id)
+            if metric is None or metric.name != name:
+                continue
+            metric.owner = owner
+            metric.save(update_fields=["owner", "updated_at"])
+            updated.append(metric)
+        _capture_after_commit(
+            METRIC_UPDATED_EVENT,
+            updated,
+            team=team,
+            user=user,
+            request=None,
+            extra={"updated_fields": ["owner"]},
+            analytics_props=analytics_props,
+        )
+
+    updated_ids = [metric.id for metric in updated]
+    return MetricBulkOwnerChange(
+        updated_ids=updated_ids, skipped_ids=[metric_id for metric_id in names_by_id if metric_id not in updated_ids]
+    )
 
 
 def _reset_to_proposed(metric: Metric) -> None:
@@ -557,11 +699,7 @@ def metrics_for_team(team: Team) -> QuerySet[Metric]:
 def metrics_visible_to_user(team: Team, user: User, user_access_control: UserAccessControl) -> QuerySet[Metric]:
     """Live metrics whose definitions do not disclose a warehouse table the caller cannot read."""
     metrics = metrics_for_team(team)
-    denied_tables = Database.create_for(
-        team=team,
-        user=user,
-        user_access_control=user_access_control,
-    )._denied_tables
+    denied_tables = _denied_tables(team, user, user_access_control)
     if not denied_tables:
         return metrics
     visible_metric_ids = [

@@ -32,9 +32,22 @@ import { RecipientTokensService } from '../../messaging/recipient-tokens.service
 import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { findActionByType } from '../hogflow-utils'
-import { HogFunctionHandler } from './hog_function'
+import { HogFunctionHandler, messageOptOutsAfterStep } from './hog_function'
 
 describe('HogFunctionHandler', () => {
+    describe('messageOptOutsAfterStep', () => {
+        const optOut = { identifier: 'sam@example.com', categoryId: '$all' }
+
+        it.each([
+            ['records an opt-out step', 'template-posthog-opt-out-of-messages', [optOut]],
+            ['ignores any other step', 'template-webhook', undefined],
+        ])('%s', (_name, templateId, expected) => {
+            expect(
+                messageOptOutsAfterStep(undefined, templateId, { identifier: ' sam@example.com ', category_id: '$all' })
+            ).toEqual(expected)
+        })
+    })
+
     let hub: Hub
     let team: Team
     let hogFunctionHandler: HogFunctionHandler
@@ -526,6 +539,10 @@ describe('HogFunctionHandler', () => {
             expect(handlerResult.nextAction?.id).toBe('exit')
             expect(mockFetch).not.toHaveBeenCalled()
             expect(invocationResult.logs[0].message).toContain('no reachable mail servers')
+            expect(invocationResult.emailSendResult).toEqual({
+                status: 'skipped',
+                reason: 'Skipping send: the domain "dead.invalid" has no reachable mail servers, so this message would hard bounce.',
+            })
             expect(invocationResult.metrics).toEqual([
                 {
                     team_id: team.id,
@@ -949,6 +966,42 @@ describe('HogFunctionHandler', () => {
                 expect(handlerResult.result).toEqual({ id: 'x1' })
             }
             expect(invocationResult.logs.map((l) => l.message)).toContainEqual(expect.stringContaining(expectedLog))
+        })
+
+        it('sizes an answer the template already has to the variables the run holds, without parking', async () => {
+            action.output_variable = { key: 'answer' }
+            invocation.state.variables = { ticket_body: 'y'.repeat(4700 - '{"ticket_body":""}'.length) }
+            jest.spyOn(mockHogFlowFunctionsService, 'executeWithAsyncFunctions').mockResolvedValueOnce({
+                finished: true,
+                execResult: {
+                    request_id: 'r1',
+                    await: {
+                        max_wait: '8h',
+                        label: 'scan',
+                        result: { state: 'succeeded', output: 'x'.repeat(3000), warnings: ['The answer was cut.'] },
+                    },
+                },
+                invocation: invocation as any,
+                logs: [],
+                metrics: [],
+                capturedPostHogEvents: [],
+                warehouseWebhookPayloads: [],
+                messageAssets: [],
+                conversionWatchers: [],
+            })
+
+            const { handlerResult, invocationResult } = await execute()
+
+            const stored = handlerResult.result as Record<string, unknown>
+            expect(handlerResult.nextAction?.id).toBe('exit')
+            expect(invocationResult.invocation.state.currentAction?.awaitingResume).toBeUndefined()
+            expect(stored).toMatchObject({ request_id: 'r1', status: 'completed', state: 'succeeded' })
+            expect(invocationResult.logs.map((l) => l.message)).toContainEqual(
+                expect.stringContaining('The answer was cut.')
+            )
+            expect(
+                Buffer.byteLength(JSON.stringify({ ...invocation.state.variables, answer: stored }))
+            ).toBeLessThanOrEqual(5120)
         })
 
         describe('on resume', () => {

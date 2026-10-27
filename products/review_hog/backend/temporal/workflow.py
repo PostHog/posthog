@@ -41,6 +41,7 @@ from products.review_hog.backend.reviewer.constants import (
 )
 from products.review_hog.backend.reviewer.fingerprint import ReviewHogMarker
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
+from products.review_hog.backend.reviewer.push_gate import PushGateDecision
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE, REVIEW_DESIGN_SINGLE_AGENT
 from products.review_hog.backend.reviewer.status_comment import FinalizeStatusCommentInput
 from products.review_hog.backend.reviewer.tools.select_perspectives import PerspectiveSelectionDTO, apply_selection
@@ -591,6 +592,7 @@ class ReviewPRWorkflow:
 
         # Only an automatic follow-up is gated. The first automatic review of a PR and every human
         # trigger always run. The gate fails open: an activity failure reviews the push.
+        gate: PushGateDecision | None = None
         if (
             workflow.patched("reviewhog-push-gate-2026-10")
             and inputs.trigger_source == TRIGGER_AUTOMATIC
@@ -607,6 +609,9 @@ class ReviewPRWorkflow:
                         head_sha=head_sha,
                         run_index=meta.run_index,
                         review_mode=inputs.review_mode,
+                        zero_change_skip=meta.zero_change_skip,
+                        delta_band=meta.delta_band,
+                        coordinator=meta.coordinator,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,
@@ -616,6 +621,12 @@ class ReviewPRWorkflow:
                     return report_id
             except ActivityError:
                 workflow.logger.warning("The push gate failed; reviewing the push")
+        # A gate that failed or never ran leaves the whole PR to review. The patch keeps older histories on full turns.
+        delta_since_head_sha = (
+            meta.automatic_reviewed_head_sha
+            if gate is not None and gate.delta_review and workflow.patched("reviewhog-p1-lite-delta-2026-10")
+            else None
+        )
 
         # The design comes off the recorded fetch result. The patch keeps a history that reached this
         # point before the single-agent design existed on the pipeline when it replays.
@@ -731,6 +742,7 @@ class ReviewPRWorkflow:
                 flash_reasoning_effort=acting.flash_reasoning_effort,
                 review_design=review_design,
                 trigger_source=inputs.trigger_source,
+                delta_since_head_sha=delta_since_head_sha,
             )
 
             # The patch keeps a history from before the coordinator existed on separate sessions when it replays.
@@ -741,7 +753,8 @@ class ReviewPRWorkflow:
             ):
                 flash_sessions = await self._review_with_coordinator(stage, meta.lens_chunk_count)
             elif review_design == REVIEW_DESIGN_SINGLE_AGENT:
-                flash_sessions = await self._review_with_single_agent(stage, meta.lens_chunk_count)
+                lens_parts = 1 if delta_since_head_sha is not None else meta.lens_chunk_count
+                flash_sessions = await self._review_with_single_agent(stage, lens_parts)
             else:
                 await self._review_with_pipeline(stage, acting_user_id)
 
@@ -868,6 +881,7 @@ class ReviewPRWorkflow:
                             review_mode=inputs.review_mode,
                             flash_reasoning_effort=acting.flash_reasoning_effort,
                             review_design=review_design,
+                            last_attempt=_non_retryable_cause(e) is not None or _out_of_attempts(),
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
@@ -903,6 +917,9 @@ class ReviewPRWorkflow:
                     review_design=review_design,
                     flash_turn=dedup.flash_stats if dedup is not None else None,
                     flash_sessions=flash_sessions,
+                    zero_change_skip_arm=meta.zero_change_skip,
+                    delta_band_arm=meta.delta_band,
+                    delta_review=delta_since_head_sha is not None,
                 ),
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,
@@ -1057,6 +1074,7 @@ class ReviewPRWorkflow:
                             review_mode=stage.review_mode,
                             flash_reasoning_effort=stage.flash_reasoning_effort,
                             review_design=stage.review_design,
+                            delta_since_head_sha=stage.delta_since_head_sha,
                             lens=lens,
                             chunk_id=chunk_id,
                         ),

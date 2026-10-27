@@ -79,4 +79,33 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "disableAlerting": "Whether alerting is disabled for this website.",
         },
     },
+    "device_datasources": {
+        "description": "DataSources applied to each monitored device, with their monitoring and alert status.",
+        "docs_url": API_DOCS_URL,
+        "columns": {
+            "id": "Identifier of the device DataSource, the hdsId used in instance and data requests.",
+            "deviceId": "Identifier of the device.",
+            "dataSourceId": "Identifier of the DataSource definition. Alerts reference it as resourceTemplateId.",
+            "dataSourceName": "Name of the DataSource.",
+            "instanceNumber": "Number of instances discovered for the DataSource on this device.",
+            "monitoringInstanceNumber": "Number of instances that are monitored.",
+            "stopMonitoring": "Whether monitoring is stopped for this DataSource on the device.",
+            "createdOn": "Time when the DataSource was applied to the device, in Unix seconds.",
+        },
+    },
+    "device_datasource_instances": {
+        "description": "Instances discovered for each device DataSource, such as disks, interfaces, or processes.",
+        "docs_url": API_DOCS_URL,
+        "columns": {
+            "id": "Unique instance identifier. Alerts reference it as instanceId.",
+            "name": "Instance name, in the format DataSourceName-instanceAlias.",
+            "displayName": "Instance alias shown in LogicMonitor.",
+            "deviceId": "Identifier of the device.",
+            "deviceDataSourceId": "Identifier of the device DataSource that owns the instance.",
+            "dataSourceId": "Identifier of the DataSource definition.",
+            "wildValue": "Value that identifies the instance when the collector queries the device.",
+            "stopMonitoring": "Whether monitoring is disabled for the instance.",
+            "disableAlerting": "Whether alerting is disabled for the instance.",
+        },
+    },
 }

@@ -82,7 +82,7 @@ class ConfigCatSource(SimpleSource[ConfigCatSourceConfig]):
         pub=("configcat_client", "configcat_preferences_cache"),
         rubygems=("configcat", "configcat-openfeature-provider"),
         swiftpm=("github.com/configcat/swift-sdk", "github.com/configcat/openfeature-swift"),
-        competes_with=(ProductKey.FEATURE_FLAGS,),
+        alternative_to=(ProductKey.FEATURE_FLAGS,),
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -101,7 +101,7 @@ class ConfigCatSource(SimpleSource[ConfigCatSourceConfig]):
             name=ExternalDataSourceType.CONFIGCAT,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="ConfigCat",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your ConfigCat Public API credentials to pull your feature-flag account structure into the PostHog Data warehouse.
 
 Create a Public API credential (a username and password pair) under **Public Management API credentials** in your [ConfigCat dashboard](https://app.configcat.com/my-account/public-api-credentials). These are separate from your SDK keys and grant read access to your organizations and products.

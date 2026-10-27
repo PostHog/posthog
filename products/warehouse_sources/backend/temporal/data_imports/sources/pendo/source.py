@@ -64,7 +64,7 @@ class PendoSource(ResumableSource[PendoSourceConfig, PendoResumeConfig]):
         maven=("sdk.pendo.io:pendoIO", "com.pendo:pendo-cmp"),
         pub=("pendo_sdk",),
         swiftpm=("github.com/pendo-io/pendo-mobile-sdk",),
-        competes_with=(ProductKey.PRODUCT_ANALYTICS, ProductKey.PRODUCT_TOURS, ProductKey.SURVEYS),
+        alternative_to=(ProductKey.PRODUCT_ANALYTICS, ProductKey.PRODUCT_TOURS, ProductKey.SURVEYS),
     )
 
     supported_versions = ("v1",)
@@ -89,7 +89,7 @@ Create an integration key in Pendo under **Settings > Integrations > Integration
 """,
             iconPath="/static/services/pendo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/pendo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

@@ -55,7 +55,7 @@ class SvixSource(ResumableSource[SvixSourceConfig, SvixResumeConfig]):
             name=ExternalDataSourceType.SVIX,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Svix",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Svix API key to pull your webhook platform data into the PostHog Data warehouse.
 
 You can create an API key under **Settings → API Access** in the [Svix dashboard](https://dashboard.svix.com/). The region is encoded in the key (the `sk_` prefix), so use the key for the environment you want to sync. The key grants read access to your applications and event types.

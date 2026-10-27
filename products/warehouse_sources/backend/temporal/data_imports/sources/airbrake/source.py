@@ -56,7 +56,7 @@ class AirbrakeSource(ResumableSource[AirbrakeSourceConfig, AirbrakeResumeConfig]
             name=ExternalDataSourceType.AIRBRAKE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Airbrake",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Airbrake user API key to pull your Airbrake error monitoring data into the PostHog Data warehouse.
 
 You can find your user key in your Airbrake profile settings under **User settings**. All projects the key can access are synced.

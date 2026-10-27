@@ -10,8 +10,7 @@ class FlagEvaluationsMode(LabeledIntEnum):
     allowlist includes.
     """
 
-    # Every reader of $feature_flag_called reads the events table. The flag_evaluations HogQL table stays
-    # hidden unless the flag-evaluations-hogql-table flag is on for the organization.
+    # Every reader of $feature_flag_called reads the events table. The flag_evaluations HogQL table stays hidden.
     EVENTS = 0, "Events"
     # The Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only
     # $feature_flag_called read flag_evaluations. Other readers, such as experiment exposures, still read events.
@@ -23,3 +22,7 @@ class FlagEvaluationsMode(LabeledIntEnum):
     # the ingestion allowlist still writes to events. INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED makes
     # ingestion treat this mode as READ_FLAG_EVALUATIONS for every organization.
     FLAG_EVALUATIONS_ONLY = 2, "Flag evaluations only"
+
+
+# The activity log trigger `job_type` of a flag save that a scheduled change applies.
+SCHEDULED_CHANGE_JOB_TYPE = "scheduled_change"

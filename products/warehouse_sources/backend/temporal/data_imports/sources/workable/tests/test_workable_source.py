@@ -7,6 +7,8 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
+    always,
+    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workable import (
     WorkableSourceConfig,
@@ -44,6 +46,21 @@ class TestValidateCredentials:
         with mock.patch.object(source_module, "validate_workable_credentials", lambda *_a, **_k: (status, ok)):
             valid, _msg = WorkableSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
         assert valid is expected_valid
+
+    @parameterized.expand(
+        [
+            ("default", None, "/spi/v3/jobs"),
+            ("top_level_endpoint", "departments", "/spi/v3/departments"),
+            # A fan-out endpoint has no bare list path; probing its literal template would 404.
+            ("fanout_probes_parent", "candidate_activities", "/spi/v3/candidates"),
+        ]
+    )
+    def test_probe_path(self, _name: str, schema_name: str | None, expected_path: str) -> None:
+        with scripted_network(always(ScriptedResponse(json={}))) as network:
+            valid, _msg = WorkableSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
+
+        assert valid is True
+        assert [r.path for r in network.requests_log] == [expected_path]
 
     def test_invalid_subdomain_is_a_failure(self) -> None:
         def _raise(*_a: Any, **_k: Any) -> Any:

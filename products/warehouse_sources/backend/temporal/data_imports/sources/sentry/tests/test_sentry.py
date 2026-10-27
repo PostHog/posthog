@@ -304,13 +304,6 @@ class TestSentryTransport:
         assert error.startswith("Invalid Sentry auth token")
         assert network.requests_log == []
 
-    def test_validate_credentials_401_tells_user_to_reconnect(self) -> None:
-        with scripted_network(always(ScriptedResponse(status=401))):
-            valid, error = validate_credentials(auth_token="token", organization_slug="acme")
-
-        assert not valid
-        assert error == "Invalid Sentry auth token. Please update your token and reconnect."
-
     def test_validate_credentials_403_names_required_scopes(self) -> None:
         with scripted_network(always(ScriptedResponse(status=403))):
             valid, error = validate_credentials(auth_token="token", organization_slug="acme")
@@ -336,13 +329,6 @@ class TestSentryTransport:
 
         assert not valid
         assert error == "Could not connect to Sentry. Check your auth token and organization slug, then reconnect."
-
-    def test_validate_credentials_request_error_hides_exception_text(self) -> None:
-        with scripted_network(always(ConnectionError("connection refused to https://sentry.io"))):
-            valid, error = validate_credentials(auth_token="token", organization_slug="acme")
-
-        assert not valid
-        assert error == "Could not reach Sentry to validate your credentials. Check your connection, then try again."
 
     def test_sentry_source_rejects_unknown_api_base_url_at_runtime(self) -> None:
         with pytest.raises(

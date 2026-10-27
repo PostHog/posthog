@@ -438,7 +438,7 @@ export class PiSessionController {
       return;
     }
     const taskRunId = this.taskRunIds.get(taskId);
-    if (!taskRunId) {
+    if (!taskRunId || !(await this.isCloudRun(taskId, taskRunId))) {
       await this.retry(taskId);
       return;
     }
@@ -1836,6 +1836,24 @@ export class PiSessionController {
   private disposeConversationSubscription(taskId: string): void {
     this.subscriptions.get(taskId)?.();
     this.subscriptions.delete(taskId);
+  }
+
+  /** Local Pi tasks also carry a run id, so a bound id alone does not mean a cloud run. */
+  private async isCloudRun(
+    taskId: string,
+    taskRunId: string,
+  ): Promise<boolean> {
+    const task = await this.taskService
+      .getTask(taskId, taskRunId)
+      .catch((error: unknown) => {
+        this.log.warn("Pi restart could not load the run; retrying locally", {
+          taskId,
+          taskRunId,
+          error,
+        });
+        return undefined;
+      });
+    return task?.latest_run?.environment === "cloud";
   }
 
   private getPiSession(taskId: string): Promise<PiSession> {

@@ -45,13 +45,13 @@ SOURCE_BINDINGS: dict[SourceKind, SourceBinding] = {
     SourceKind.LOGS: SourceBinding(
         workflow="logs-alert-evaluate",
         task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
-        evaluation_timeout=dt.timedelta(seconds=75),
+        evaluation_timeout=dt.timedelta(seconds=120),
         discovery_limit=DISCOVERY_LIMIT_PER_SOURCE,
     ),
     SourceKind.INSIGHT: SourceBinding(
         workflow="insight-alert-platform-evaluate",
         task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
-        evaluation_timeout=dt.timedelta(minutes=15),
+        evaluation_timeout=dt.timedelta(minutes=20),
         # A key holds at least one check and the pool admits this many, so more keys than this
         # only start workflows that find the pool full.
         discovery_limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,

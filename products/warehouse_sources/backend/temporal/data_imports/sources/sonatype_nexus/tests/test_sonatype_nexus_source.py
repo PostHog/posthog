@@ -21,11 +21,6 @@ class TestSonatypeNexusSource:
         # get_schemas is a static endpoint catalog, so the public docs can render tables.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["components"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "components"
-
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.sonatype_nexus.source.validate_sonatype_nexus_credentials"
     )

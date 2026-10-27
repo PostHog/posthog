@@ -50,6 +50,7 @@ Even 1Password's own docs don't recommend a "task runner integration" — they j
 - `config.env.files: [...]` — list of dotenv files, loaded in order, first wins, shell env always wins.
 - `config.env.secrets.{file, marker, wrap}` — optional generic wrapper hook. Re-execs the invocation under `wrap` when (1) the invoked subcommand opts in via `needs_secrets: true`, (2) the file contains `marker`, and (3) `wrap[0]` is on PATH. Otherwise loads the file directly with marker-matching lines skipped, so literals don't leak as garbage strings.
 - `HOGLI_SECRETS_WRAPPED=1` sentinel — set before the wrap re-exec, inherited by subprocesses so composite/steps chains don't re-prompt for auth on every step.
+- `HOGLI_STDOUT_TTY=1|0` — set next to the sentinel. It records whether hogli's stdout was a terminal, because a wrap tool can pipe the child's stdout (for example to mask secrets).
 - Per-command `needs_secrets: true` — opt-in gate for the wrap. Without it the wrap never fires; the built-in `hogli run` is the one framework command that always opts in.
 
 **Not in core:**
@@ -90,7 +91,7 @@ If you're about to add code to `tools/hogli/` and you're not sure whether it's g
 
 Core and consumers share the `HOGLI_` env prefix; check both lists before minting a new name.
 
-Core-reserved (defined in `tools/hogli/src/hogli/`): `HOGLI_DEBUG`, `HOGLI_MANIFEST`, `HOGLI_SECRETS_WRAPPED`, `HOGLI_NESTED_INVOCATION`.
+Core-reserved (defined in `tools/hogli/src/hogli/`): `HOGLI_DEBUG`, `HOGLI_MANIFEST`, `HOGLI_SECRETS_WRAPPED`, `HOGLI_STDOUT_TTY`, `HOGLI_NESTED_INVOCATION`.
 
 Consumer-owned (defined in `tools/hogli-commands/`): `HOGLI_ENVIRONMENT`, `HOGLI_AGENT`, `HOGLI_ACTOR`, `HOGLI_GIT_HOOK`, `HOGLI_PROCESS_MANAGER` (telemetry self-declaration), `HOGLI_NO_HINTS`, `HOGLI_MPROCS_PATH`, `HOGLI_DEVBOX_CODER_URL`, `HOGLI_DEVBOX_CODER_VERSION`.
 

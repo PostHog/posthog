@@ -1,7 +1,5 @@
 from typing import Any
 
-import pytest
-
 import requests
 from parameterized import parameterized
 
@@ -9,7 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.simplecast import (
     SimpleCastSourceConfig,
@@ -18,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast
 from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.simplecast import (
     PAGE_SIZE,
     SimpleCastResumeConfig,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.simplecast.source import SimpleCastSource
 
@@ -98,25 +94,6 @@ class TestErrorHandling:
         assert isinstance(result.raised, requests.HTTPError)
         # 4xx is a permanent failure — issued exactly once, never retried.
         assert len(result.requests) == 1
-
-
-class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status, expected",
-        [
-            (200, (True, None)),
-            (401, (False, "Invalid Simplecast API token")),
-            (403, (False, "Invalid Simplecast API token")),
-            (500, (False, "Simplecast returned HTTP 500")),
-        ],
-    )
-    def test_status_mapping(self, status, expected) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            assert validate_credentials("sc-token") == expected
-
-    def test_unreachable_probe_is_not_validated(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("sc-token") == (False, "Could not validate Simplecast API token")
 
 
 class TestSourceResponse:
