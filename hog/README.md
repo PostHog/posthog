@@ -47,7 +47,7 @@ Exit codes: 0 on success, 1 when a command fails, 2 for a usage error.
 
 ### Logging in and out
 
-- At a terminal, `hog auth login` asks for your region, opens the browser, and waits for you to approve.
+- At a terminal, `hog auth login` asks where your PostHog account is hosted, opens the browser, and waits for you to approve. The address PostHog opens at, us.posthog.com or eu.posthog.com, tells you which to pick.
 - An agent or a script cannot answer prompts, so `hog auth login --region us` returns at once with a link and a code for a person to approve. `hog auth login --wait` then saves the key. Running `hog auth login` again before the code expires returns the same link.
 - In CI, skip login and set the environment variables above.
 - `hog auth status` checks the key against PostHog. `hog auth logout` warns when an environment variable still holds a key.

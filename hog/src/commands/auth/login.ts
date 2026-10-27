@@ -94,7 +94,8 @@ export default defineCommand({
             type: 'string',
             choices: ['us', 'eu'],
             placeholder: 'region',
-            description: 'The PostHog Cloud region to log in to. Use --host for self-hosted PostHog',
+            description:
+                'Where your PostHog account is hosted, as in the us.posthog.com or eu.posthog.com address. Use --host for self-hosted PostHog',
         },
         wait: {
             type: 'boolean',
@@ -102,7 +103,7 @@ export default defineCommand({
         },
     },
     notes: [
-        'At a terminal, hog asks for your region and opens the browser to approve the login.',
+        'At a terminal, hog asks where your PostHog account is hosted and opens the browser to approve the login.',
         'Agents and scripts get a link and a code to hand to a person, then finish with `hog auth login --wait`.',
         'In CI, skip login and set POSTHOG_CLI_API_KEY, POSTHOG_CLI_PROJECT_ID and POSTHOG_CLI_HOST.',
     ].join('\n'),
@@ -137,20 +138,26 @@ export default defineCommand({
             if (!prompts) {
                 throw new HogError(
                     'region_required',
-                    'hog auth login needs to know which PostHog to log in to.',
-                    'Ask the user whether their PostHog is in the US or EU cloud, then run `hog auth login --region us` or `hog auth login --region eu`. For self-hosted PostHog, pass --host.',
+                    'hog auth login needs to know where your PostHog account is hosted.',
+                    'Ask the user where their PostHog account is hosted. When they open PostHog in a browser, the address starts with us.posthog.com or eu.posthog.com. Then run `hog auth login --region us` or `hog auth login --region eu`. For self-hosted PostHog, pass --host.',
                     EXIT_USAGE
                 )
             }
-            const choice = await prompts.select('Where is your PostHog?', [
-                { value: 'us', label: 'US Cloud', hint: 'us.posthog.com' },
-                { value: 'eu', label: 'EU Cloud', hint: 'eu.posthog.com' },
+            const choice = await prompts.select(
+                'Where is your PostHog account hosted?',
+                [
+                    { value: 'us', label: 'US Cloud', hint: 'us.posthog.com' },
+                    { value: 'eu', label: 'EU Cloud', hint: 'eu.posthog.com' },
+                    {
+                        value: 'key',
+                        label: 'Paste a personal API key',
+                        hint: 'for self-hosted PostHog, or without a browser',
+                    },
+                ],
                 {
-                    value: 'key',
-                    label: 'Paste a personal API key',
-                    hint: 'for self-hosted PostHog, or without a browser',
-                },
-            ])
+                    help: 'Open PostHog in your browser and check the address: it starts with us.posthog.com or eu.posthog.com.',
+                }
+            )
             if (choice === 'key') {
                 return keyLogin(ctx, prompts)
             }

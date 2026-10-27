@@ -1,4 +1,5 @@
 import * as clack from '@clack/prompts'
+import { styleText } from 'node:util'
 
 import { HogError } from './errors'
 
@@ -16,7 +17,12 @@ export interface Spinner {
 }
 
 export interface Prompts {
-    select<Value extends string>(message: string, choices: readonly Choice<Value>[]): Promise<Value>
+    // `help` is a dimmed line under the question that tells the person how to find the answer.
+    select<Value extends string>(
+        message: string,
+        choices: readonly Choice<Value>[],
+        options?: { help?: string }
+    ): Promise<Value>
     text(message: string, options?: { initialValue?: string; validate?: Validate }): Promise<string>
     password(message: string, options?: { validate?: Validate }): Promise<string>
     note(message: string, title: string): void
@@ -35,11 +41,16 @@ function answer<Value>(value: Value): Exclude<Value, symbol> {
 
 export function clackPrompts(): Prompts {
     return {
-        async select<Value extends string>(message: string, choices: readonly Choice<Value>[]): Promise<Value> {
+        async select<Value extends string>(
+            message: string,
+            choices: readonly Choice<Value>[],
+            { help }: { help?: string } = {}
+        ): Promise<Value> {
             const options = choices.map((choice) => ({ ...choice })) as Parameters<
                 typeof clack.select<Value>
             >[0]['options']
-            return answer(await clack.select<Value>({ message, options }))
+            const question = help ? `${message}\n${styleText('dim', help)}` : message
+            return answer(await clack.select<Value>({ message: question, options }))
         },
         async text(message, options = {}) {
             const validate = options.validate
