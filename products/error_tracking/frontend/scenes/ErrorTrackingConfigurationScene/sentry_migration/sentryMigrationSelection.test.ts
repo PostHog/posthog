@@ -11,6 +11,7 @@ function item(id: string, overrides: Partial<SentryMigrationItemApi> = {}): Sent
         note: null,
         suppression_rule_filters: null,
         rate_limit: null,
+        built_in_filter: null,
         already_in_posthog: false,
         ...overrides,
     }

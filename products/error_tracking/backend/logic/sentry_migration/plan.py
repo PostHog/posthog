@@ -2,14 +2,14 @@ import re
 import hashlib
 from collections.abc import Iterable
 
-from posthog.dataclasses import frozen
-
 from products.error_tracking.backend.facade.contracts import (
+    SentryMigrationBuiltInFilter,
     SentryMigrationCategory,
     SentryMigrationFit,
     SentryMigrationItem,
     SentryMigrationRateLimit,
 )
+from products.error_tracking.backend.logic.built_in_filter_definitions import BUILT_IN_FILTERS_BY_KEY
 from products.error_tracking.backend.logic.sentry_migration.client import SentryProjectConfig, SentryRateLimit
 
 # Keep in sync with BUCKET_OPTIONS in frontend/scenes/ErrorTrackingConfigurationScene/rate_limit/rateLimitConfigLogic.ts.
@@ -27,141 +27,26 @@ _CLASS_METACHARACTERS = frozenset("\\[]^-&~")
 _TYPE_PREFIX = re.compile(r"^([A-Za-z_$][\w$.]*): (.+)$", re.DOTALL)
 _CONTAINS_GLOB = re.compile(r"^\*([^*?{}\[\]\\]+)\*$")
 
-# Error values Sentry attributes to browser extensions (relay-filter/src/browser_extensions.rs).
-_EXTENSION_ERROR_VALUES = (
-    r"top\.GLOBALS",
-    r"originalCreateNotification",
-    r"canvas\.contentDocument",
-    r"MyApp_RemoveAllHighlights",
-    r"http://tt\.epicplay\.com",
-    r"Can't\sfind\svariable:\sZiteReader",
-    r"jigsaw\sis\snot\sdefined",
-    r"ComboSearch\sis\snot\sdefined",
-    r"http://loading\.retry\.widdit\.com/",
-    r"atomicFindClose",
-    r"fb_xd_fragment",
-    r"bmi_SafeAddOnload",
-    r"EBCallBackMessageReceived",
-    r"_gCrWeb",
-    r"conduitPage",
-    r"null\sis\snot\san\sobject\s\(evaluating\s'elt\.parentNode'\)",
-    r"plugin\.setSuspendState\sis\snot\sa\sfunction",
-    r"Extension\scontext\sinvalidated",
-    r"webkit-masked-url:",
-    r"can't\saccess\sdead\sobject",
-    r"Cannot\sredefine\sproperty:\s(?:solana|ethereum|googletag)",
-    r"undefined\sis\snot\san\sobject\s\(evaluating\s'a\..'\)",
-    r"Permission\sdenied\sto\saccess\sproperty\s",
-    r"Can't\sfind\svariable:\sgmo",
-)
-
-# User agents Sentry treats as crawlers, and the ones it lets through (relay-filter/src/web_crawlers.rs).
-_WEB_CRAWLER_USER_AGENTS = (
-    r"Mediapartners-Google",
-    r"AdsBot-Google",
-    r"Googlebot",
-    r"FeedFetcher-Google",
-    r"Storebot-Google",
-    r"BingBot",
-    r"BingPreview",
-    r"Baiduspider",
-    r"Slurp",
-    r"Sogou",
-    r"facebook",
-    r"meta-",
-    r"ia_archiver",
-    r"bots?(?:[/\s\);]|$)",
-    r"spider(?:[/\s\);]|$)",
-    r"Slack",
-    r"Calypso\sAppCrawler",
-    r"pingdom",
-    r"lyticsbot",
-    r"AWS\sSecurity\sScanner",
-    r"HubSpot\sCrawler",
-    r"Bytespider",
-    r"Better\sUptime",
-    r"Cloudflare-Healthchecks",
-    r"GTmetrix",
-    r"BrightEdgeOnCrawl",
-    r"ELB-HealthChecker",
-    r"naver\.me/spd",
-    r"ClaudeBot",
-    r"CCBot",
-    r"OAI-SearchBot",
-    r"GPTBot",
-    r"PerplexityBot",
-    r"Applebot",
-    r"DuckDuckBot",
-    r"Lightpanda",
-)
-_ALLOWED_WEB_CRAWLER_USER_AGENTS = (r"Slackbot\s1\.\d+", r"SentryUptimeBot", r"ChatGPT-User")
-
-_LOCALHOST_URL = (
-    r"(?i)^(?:file:|[a-z][a-z0-9+.-]*://(?:localhost|127\.0\.0\.1|\[::1\]|[^/?#:]+\.localhost)(?::\d+)?(?:[/?#]|$))"
-)
-_REACT_HYDRATION_ERROR = (
-    r"(?i)(?:reactjs\.org/docs/error-decoder\.html\?invariant=|react\.dev/errors/)(?:418|419|421|422|423|425)(?:\D|$)"
-)
-
-
-@frozen
-class _BrowserFamily:
-    label: str
-    # The $browser values posthog-js reports for this family.
-    browsers: tuple[str, ...]
-
-
-_BROWSER_FAMILIES: dict[str, _BrowserFamily] = {
-    "ie": _BrowserFamily(label="Internet Explorer", browsers=("Internet Explorer",)),
-    "edge": _BrowserFamily(label="Edge", browsers=("Microsoft Edge",)),
-    "safari": _BrowserFamily(label="Safari", browsers=("Safari", "Mobile Safari")),
-    "firefox": _BrowserFamily(label="Firefox", browsers=("Firefox", "Firefox iOS")),
-    "chrome": _BrowserFamily(label="Chrome", browsers=("Chrome", "Chrome iOS")),
-    "opera": _BrowserFamily(label="Opera", browsers=("Opera",)),
-    "opera_mini": _BrowserFamily(label="Opera Mini", browsers=("Opera Mini",)),
-    "android": _BrowserFamily(label="Android browser", browsers=("Android Mobile",)),
-}
-
-# Families with no versions left to release. A range that reaches the last version covers the whole
-# family, so the rule needs no version condition.
-_FINAL_VERSION_BOUNDS = {"ie": 12}
-
-
-@frozen
-class _VersionRange:
-    family: str
-    # Inclusive lower bound. None means every version below `below`.
-    at_least: int | None
-    below: int
-
-
-# Sentry's legacy browser subfilters (relay-filter/src/legacy_browsers.rs). "default" uses a
-# separate minimum version table, which these ranges reproduce.
-_LEGACY_BROWSER_RANGES: dict[str, tuple[_VersionRange, ...]] = {
-    "default": (
-        _VersionRange(family="ie", at_least=None, below=10),
-        _VersionRange(family="safari", at_least=None, below=6),
-        _VersionRange(family="opera", at_least=None, below=15),
-        _VersionRange(family="android", at_least=None, below=4),
-        _VersionRange(family="opera_mini", at_least=None, below=8),
-    ),
-    "ie": (_VersionRange(family="ie", at_least=None, below=12),),
-    "edge": (_VersionRange(family="edge", at_least=None, below=111),),
-    "safari": (_VersionRange(family="safari", at_least=None, below=16),),
-    "firefox": (_VersionRange(family="firefox", at_least=None, below=111),),
-    "chrome": (_VersionRange(family="chrome", at_least=None, below=111),),
-    "opera": (_VersionRange(family="opera", at_least=None, below=100),),
-    "android": (_VersionRange(family="android", at_least=None, below=4),),
-    "opera_mini": (_VersionRange(family="opera_mini", at_least=None, below=35),),
-    "ie_pre_9": (_VersionRange(family="ie", at_least=None, below=9),),
-    "ie9": (_VersionRange(family="ie", at_least=9, below=10),),
-    "ie10": (_VersionRange(family="ie", at_least=10, below=11),),
-    "ie11": (_VersionRange(family="ie", at_least=11, below=12),),
-    "safari_pre_6": (_VersionRange(family="safari", at_least=None, below=6),),
-    "opera_pre_15": (_VersionRange(family="opera", at_least=None, below=15),),
-    "opera_mini_pre_8": (_VersionRange(family="opera_mini", at_least=None, below=8),),
-    "android_pre_4": (_VersionRange(family="android", at_least=None, below=4),),
-    "edge_pre_79": (_VersionRange(family="edge", at_least=None, below=79),),
+# Readable names for the legacy browser options in Sentry's API. The key names give the versions.
+_LEGACY_BROWSER_LABELS = {
+    "default": "Sentry's default list",
+    "ie": "Internet Explorer",
+    "edge": "Older versions of Edge",
+    "safari": "Older versions of Safari",
+    "firefox": "Older versions of Firefox",
+    "chrome": "Older versions of Chrome",
+    "opera": "Older versions of Opera",
+    "opera_mini": "Older versions of Opera Mini",
+    "android": "Older versions of the Android browser",
+    "ie_pre_9": "Internet Explorer 8 and older",
+    "ie9": "Internet Explorer 9",
+    "ie10": "Internet Explorer 10",
+    "ie11": "Internet Explorer 11",
+    "safari_pre_6": "Safari 5 and older",
+    "opera_pre_15": "Opera 14 and older",
+    "opera_mini_pre_8": "Opera Mini 7 and older",
+    "android_pre_4": "Android browser 3 and older",
+    "edge_pre_79": "Edge 78 and older",
 }
 
 
@@ -261,9 +146,11 @@ class SentryMigrationPlanner:
         self,
         *,
         existing_suppression_filters: Iterable[dict],
+        enabled_built_in_filters: Iterable[str],
         project_rate_limit: SentryMigrationRateLimit | None,
     ) -> None:
         self._existing_filters = list(existing_suppression_filters)
+        self._enabled_built_in_filters = frozenset(enabled_built_in_filters)
         self._project_rate_limit = project_rate_limit
 
     def build(self, config: SentryProjectConfig) -> list[SentryMigrationItem]:
@@ -277,7 +164,8 @@ class SentryMigrationPlanner:
             items.append(self._localhost_item())
         if config.web_crawlers:
             items.append(self._web_crawlers_item())
-        items.extend(self._legacy_browser_items(config.legacy_browsers))
+        if config.legacy_browsers:
+            items.append(self._legacy_browsers_item(config.legacy_browsers))
         if config.react_hydration_errors:
             items.append(self._react_hydration_item())
         if config.chunk_load_errors:
@@ -306,6 +194,7 @@ class SentryMigrationPlanner:
             note=note,
             suppression_rule_filters=filters,
             rate_limit=None,
+            built_in_filter=None,
             already_in_posthog=filters in self._existing_filters,
         )
 
@@ -328,6 +217,7 @@ class SentryMigrationPlanner:
                 ),
                 suppression_rule_filters=None,
                 rate_limit=None,
+                built_in_filter=None,
                 already_in_posthog=False,
             )
         converted = SentryMigrationRateLimit(value=value, bucket_size_minutes=bucket_minutes)
@@ -357,6 +247,7 @@ class SentryMigrationPlanner:
             note=" ".join(notes) or None,
             suppression_rule_filters=None,
             rate_limit=converted,
+            built_in_filter=None,
             already_in_posthog=converted == self._project_rate_limit,
         )
 
@@ -412,132 +303,106 @@ class SentryMigrationPlanner:
             filters=_group("AND", [_glob_leaf("$app_version", version_glob if separator else glob)]),
         )
 
+    def _built_in_filter_item(
+        self,
+        *,
+        item_id: str,
+        sentry_setting: str,
+        sentry_value: str,
+        built_in_key: str,
+        fit: SentryMigrationFit,
+        note: str | None,
+    ) -> SentryMigrationItem:
+        definition = BUILT_IN_FILTERS_BY_KEY[built_in_key]
+        return SentryMigrationItem(
+            id=item_id,
+            category=SentryMigrationCategory.INBOUND_FILTER,
+            sentry_setting=sentry_setting,
+            sentry_value=sentry_value,
+            fit=fit,
+            note=note,
+            suppression_rule_filters=None,
+            rate_limit=None,
+            built_in_filter=SentryMigrationBuiltInFilter(
+                key=definition.key, name=definition.name, description=definition.description
+            ),
+            already_in_posthog=built_in_key in self._enabled_built_in_filters,
+        )
+
     def _browser_extensions_item(self) -> SentryMigrationItem:
-        return self._suppression_item(
-            item_id="inbound_filter:browser-extensions",
+        return SentryMigrationItem(
+            id="inbound_filter:browser-extensions",
             category=SentryMigrationCategory.INBOUND_FILTER,
             sentry_setting="Errors caused by browser extensions",
             sentry_value="On",
-            fit=SentryMigrationFit.PARTIAL,
+            fit=SentryMigrationFit.UNSUPPORTED,
             note=(
-                "Sentry also checked which script threw the error. PostHog doesn't keep the extension URL of a "
-                "stack frame, so this rule only matches the error messages Sentry links to extensions."
+                "PostHog has no automatic rule for browser extension errors yet. "
+                "Add a manual suppression rule for the extension errors you see."
             ),
-            filters=_group(
-                "AND", [_leaf("$exception_values", "regex", f"(?i)(?:{'|'.join(_EXTENSION_ERROR_VALUES)})")]
-            ),
+            suppression_rule_filters=None,
+            rate_limit=None,
+            built_in_filter=None,
+            already_in_posthog=False,
         )
 
     def _localhost_item(self) -> SentryMigrationItem:
-        return self._suppression_item(
+        return self._built_in_filter_item(
             item_id="inbound_filter:localhost",
-            category=SentryMigrationCategory.INBOUND_FILTER,
             sentry_setting="Errors from localhost",
             sentry_value="On",
+            built_in_key="localhost",
             fit=SentryMigrationFit.PARTIAL,
             note=(
-                "Sentry also checked the user's IP address. PostHog checks the page URL ($current_url), "
-                "which only browser SDKs send."
+                "Sentry also checked the user's IP address. PostHog checks the page URL, which only browser SDKs send."
             ),
-            filters=_group("AND", [_leaf("$current_url", "regex", _LOCALHOST_URL)]),
         )
 
     def _web_crawlers_item(self) -> SentryMigrationItem:
-        return self._suppression_item(
+        return self._built_in_filter_item(
             item_id="inbound_filter:web-crawlers",
-            category=SentryMigrationCategory.INBOUND_FILTER,
             sentry_setting="Errors from web crawlers",
             sentry_value="On",
+            built_in_key="web_crawlers",
             fit=SentryMigrationFit.PARTIAL,
-            note=(
-                "The PostHog web SDK already drops events from most crawlers. This rule also checks the user "
-                "agent ($raw_user_agent) against Sentry's crawler list, for SDKs that send it."
-            ),
-            filters=_group(
-                "AND",
-                [
-                    _leaf("$raw_user_agent", "regex", f"(?i)(?:{'|'.join(_WEB_CRAWLER_USER_AGENTS)})"),
-                    _leaf("$raw_user_agent", "not_regex", f"(?i)(?:{'|'.join(_ALLOWED_WEB_CRAWLER_USER_AGENTS)})"),
-                ],
-            ),
+            note="PostHog uses its own list of crawlers and bots, which differs from Sentry's list.",
         )
 
-    def _legacy_browser_items(self, subfilters: tuple[str, ...]) -> list[SentryMigrationItem]:
-        ranges_by_family: dict[str, list[_VersionRange]] = {}
-        for subfilter in subfilters:
-            for version_range in _LEGACY_BROWSER_RANGES.get(subfilter, ()):
-                ranges_by_family.setdefault(version_range.family, []).append(version_range)
-
-        items: list[SentryMigrationItem] = []
-        for family_key, family in _BROWSER_FAMILIES.items():
-            ranges = ranges_by_family.get(family_key)
-            if not ranges:
-                continue
-            for version_range in _merge_ranges(ranges):
-                items.append(self._legacy_browser_item(family_key, family, version_range))
-        return items
-
-    def _legacy_browser_item(
-        self, family_key: str, family: _BrowserFamily, version_range: _VersionRange
-    ) -> SentryMigrationItem:
-        values = [_leaf("$browser", "exact", list(family.browsers))]
-        final_bound = _FINAL_VERSION_BOUNDS.get(family_key)
-        covers_all_versions = (
-            version_range.at_least is None and final_bound is not None and version_range.below >= final_bound
-        )
-        if not covers_all_versions:
-            if version_range.at_least is not None:
-                values.append(_leaf("$browser_version", "gte", version_range.at_least))
-            values.append(_leaf("$browser_version", "lt", version_range.below))
-
-        if covers_all_versions:
-            sentry_value = f"{family.label}, all versions"
-        elif version_range.at_least is not None and version_range.at_least == version_range.below - 1:
-            sentry_value = f"{family.label} {version_range.at_least}"
-        elif version_range.at_least is not None:
-            sentry_value = f"{family.label} {version_range.at_least} to {version_range.below - 1}"
-        else:
-            sentry_value = f"{family.label} {version_range.below - 1} and older"
-
-        range_suffix = f"{version_range.at_least}-{version_range.below}"
-        return self._suppression_item(
-            item_id=f"inbound_filter:legacy-browsers:{family_key}:{range_suffix}",
-            category=SentryMigrationCategory.INBOUND_FILTER,
+    def _legacy_browsers_item(self, subfilters: tuple[str, ...]) -> SentryMigrationItem:
+        known = [label for key, label in _LEGACY_BROWSER_LABELS.items() if key in subfilters]
+        unknown = sorted(key for key in subfilters if key not in _LEGACY_BROWSER_LABELS)
+        return self._built_in_filter_item(
+            item_id="inbound_filter:legacy-browsers",
             sentry_setting="Errors from legacy browsers",
-            sentry_value=sentry_value,
+            sentry_value=", ".join(known + unknown),
+            built_in_key="legacy_browsers",
             fit=SentryMigrationFit.PARTIAL,
             note=(
-                "Sentry parsed the user agent itself. PostHog uses the browser and version the web SDK "
-                "reports ($browser and $browser_version)."
+                "PostHog has one legacy browser rule with fixed versions, so it can drop more or fewer browsers "
+                "than your Sentry selection."
             ),
-            filters=_group("AND", values),
         )
 
     def _react_hydration_item(self) -> SentryMigrationItem:
-        return self._suppression_item(
+        return self._built_in_filter_item(
             item_id="inbound_filter:react-hydration-errors",
-            category=SentryMigrationCategory.INBOUND_FILTER,
             sentry_setting="React hydration errors",
             sentry_value="On",
+            built_in_key="react_hydration_errors",
             fit=SentryMigrationFit.GOOD,
             note=None,
-            filters=_group("AND", [_leaf("$exception_values", "regex", _REACT_HYDRATION_ERROR)]),
         )
 
     def _chunk_load_item(self) -> SentryMigrationItem:
-        return self._suppression_item(
+        return self._built_in_filter_item(
             item_id="inbound_filter:chunk-load-error",
-            category=SentryMigrationCategory.INBOUND_FILTER,
             sentry_setting="ChunkLoadError errors",
             sentry_value="On",
-            fit=SentryMigrationFit.GOOD,
-            note=None,
-            filters=_group(
-                "OR",
-                [
-                    _leaf("$exception_types", "exact", ["ChunkLoadError"]),
-                    _leaf("$exception_values", "icontains", "ChunkLoadError:"),
-                ],
+            built_in_key="chunk_load_errors",
+            fit=SentryMigrationFit.PARTIAL,
+            note=(
+                "PostHog's rule also drops failed dynamic imports, which bundlers such as Vite report instead of "
+                "ChunkLoadError."
             ),
         )
 
@@ -551,22 +416,6 @@ class SentryMigrationPlanner:
             note="PostHog suppression rules can't filter by IP address range, so you need to set this up another way.",
             suppression_rule_filters=None,
             rate_limit=None,
+            built_in_filter=None,
             already_in_posthog=False,
         )
-
-
-def _merge_ranges(ranges: list[_VersionRange]) -> list[_VersionRange]:
-    """Merge overlapping or touching version ranges of one browser family, lowest first."""
-    ordered = sorted(ranges, key=lambda version_range: (version_range.at_least or 0, version_range.below))
-    merged: list[_VersionRange] = []
-    for version_range in ordered:
-        if merged and (version_range.at_least or 0) <= merged[-1].below:
-            previous = merged[-1]
-            merged[-1] = _VersionRange(
-                family=previous.family,
-                at_least=previous.at_least,
-                below=max(previous.below, version_range.below),
-            )
-        else:
-            merged.append(version_range)
-    return merged

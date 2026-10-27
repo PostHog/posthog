@@ -32,24 +32,25 @@ const ERROR_MESSAGE: SentryMigrationItemApi = {
         ],
     } as SentryMigrationItemApi['suppression_rule_filters'],
     rate_limit: null,
+    built_in_filter: null,
     already_in_posthog: false,
 }
 
 const LEGACY_BROWSER: SentryMigrationItemApi = {
-    id: 'inbound_filter:legacy-browsers:safari:None-16',
+    id: 'inbound_filter:legacy-browsers',
     category: 'inbound_filter',
     sentry_setting: 'Errors from legacy browsers',
-    sentry_value: 'Safari 15 and older',
+    sentry_value: 'Internet Explorer 11, Safari 5 and older',
     fit: 'partial',
-    note: 'Sentry parsed the user agent itself. PostHog uses the browser and version the web SDK reports ($browser and $browser_version).',
-    suppression_rule_filters: {
-        type: 'AND',
-        values: [
-            { key: '$browser', type: 'event', operator: 'exact', value: ['Safari', 'Mobile Safari'] },
-            { key: '$browser_version', type: 'event', operator: 'lt', value: 16 },
-        ],
-    } as SentryMigrationItemApi['suppression_rule_filters'],
+    note: 'PostHog has one legacy browser rule with fixed versions, so it can drop more or fewer browsers than your Sentry selection.',
+    suppression_rule_filters: null,
     rate_limit: null,
+    built_in_filter: {
+        key: 'legacy_browsers',
+        name: 'Legacy browsers',
+        description:
+            'Drop exceptions from Internet Explorer, Chrome before 87, Edge before 88, Firefox before 78, Safari before 14 and Opera before 73.',
+    },
     already_in_posthog: true,
 }
 
@@ -62,6 +63,7 @@ const RATE_LIMIT: SentryMigrationItemApi = {
     note: 'PostHog rate limits use 15, 30 or 60 minute windows, so this becomes 1,500 exceptions per 15 minutes.',
     suppression_rule_filters: null,
     rate_limit: { value: 1500, bucket_size_minutes: 15 },
+    built_in_filter: null,
     already_in_posthog: false,
 }
 
@@ -74,10 +76,11 @@ const IP_FILTER: SentryMigrationItemApi = {
     note: "PostHog suppression rules can't filter by IP address range, so you need to set this up another way.",
     suppression_rule_filters: null,
     rate_limit: null,
+    built_in_filter: null,
     already_in_posthog: false,
 }
 
-/** A selected rule, a rule already in PostHog, a rate limit, and a setting PostHog can't import. */
+/** A manual rule, an automatic rule that is already on, a rate limit, and a setting PostHog can't import. */
 export const Variants: Story = {
     render: () => (
         <TooltipProvider>
@@ -86,7 +89,7 @@ export const Variants: Story = {
                 <SentryMigrationItemCard
                     item={LEGACY_BROWSER}
                     selected={false}
-                    disabledReason="This project already has this setting"
+                    disabledReason="This automatic suppression rule is already on"
                     onToggle={() => {}}
                 />
                 <SentryMigrationItemCard item={RATE_LIMIT} selected={false} disabledReason={null} onToggle={() => {}} />

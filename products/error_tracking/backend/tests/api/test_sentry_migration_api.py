@@ -4,6 +4,7 @@ from contextlib import nullcontext
 from typing import Any
 from urllib.parse import urlparse
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -11,6 +12,11 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
+
+from products.access_control.backend.facade.testing import create_access_control
 from products.error_tracking.backend.logic.sentry_migration import client as sentry_client
 from products.error_tracking.backend.models import ErrorTrackingSettings, ErrorTrackingSuppressionRule
 
@@ -177,8 +183,7 @@ class TestSentryMigrationAPI(APIBaseTest):
             "100 events per 1 minute",
             "*ResizeObserver loop*",
             "TypeError: Failed to fetch*",
-            "Internet Explorer, all versions",
-            "Safari 15 and older",
+            "Internet Explorer, Older versions of Safari",
             "On",
         }
         assert not any(item["already_in_posthog"] for item in items.values())
@@ -191,15 +196,16 @@ class TestSentryMigrationAPI(APIBaseTest):
         applied = self._post("apply", PROJECT_RESPONSES, self._project_body(item_ids=selected))
 
         assert applied.status_code == status.HTTP_200_OK, applied.json()
-        assert applied.json() == {"suppression_rules_created": 2, "rate_limit_updated": True}
-        rule_filters = sorted(
-            json.dumps(filters, sort_keys=True)
-            for filters in ErrorTrackingSuppressionRule.objects.filter(team=self.team).values_list("filters", flat=True)
-        )
-        assert rule_filters == sorted(
-            json.dumps(items[value]["suppression_rule_filters"], sort_keys=True)
-            for value in ("*ResizeObserver loop*", "On")
-        )
+        assert applied.json() == {
+            "suppression_rules_created": 1,
+            "built_in_filters_enabled": 1,
+            "rate_limit_updated": True,
+        }
+        rules = ErrorTrackingSuppressionRule.objects.filter(team=self.team)
+        assert [rule.filters for rule in rules.filter(built_in_key__isnull=True)] == [
+            items["*ResizeObserver loop*"]["suppression_rule_filters"]
+        ]
+        assert list(rules.filter(built_in_key__isnull=False).values_list("built_in_key", flat=True)) == ["localhost"]
         settings = ErrorTrackingSettings.objects.get(team=self.team)
         assert (settings.project_rate_limit_value, settings.project_rate_limit_bucket_size_minutes) == (5000, 60)
 
@@ -214,20 +220,31 @@ class TestSentryMigrationAPI(APIBaseTest):
 
         repeated = self._post("apply", PROJECT_RESPONSES, self._project_body(item_ids=selected))
 
-        assert repeated.json() == {"suppression_rules_created": 0, "rate_limit_updated": False}
+        assert repeated.json() == {
+            "suppression_rules_created": 0,
+            "built_in_filters_enabled": 0,
+            "rate_limit_updated": False,
+        }
         assert ErrorTrackingSuppressionRule.objects.filter(team=self.team).count() == 2
 
     @parameterized.expand(
         [
-            ("sampled_rule", {"sampling_rate": 0.5}),
-            ("disabled_rule", {"disabled_data": {"message": "Rule failed to run"}}),
+            ("sampled_rule", "*ResizeObserver loop*", {"sampling_rate": 0.5}),
+            ("disabled_rule", "*ResizeObserver loop*", {"disabled_data": {"message": "Rule failed to run"}}),
+            (
+                "disabled_automatic_rule",
+                "On",
+                {"built_in_key": "localhost", "disabled_data": {"message": "Rule failed to run"}},
+            ),
         ]
     )
-    def test_preview_only_counts_rules_that_drop_every_match(self, _name: str, rule_fields: dict) -> None:
+    def test_preview_only_counts_rules_that_drop_every_match(
+        self, _name: str, sentry_value: str, rule_fields: dict
+    ) -> None:
         preview = self._post("preview", PROJECT_RESPONSES, self._project_body())
-        item = next(i for i in preview.json()["items"] if i["sentry_value"] == "*ResizeObserver loop*")
+        item = next(i for i in preview.json()["items"] if i["sentry_value"] == sentry_value)
         ErrorTrackingSuppressionRule.objects.create(
-            team=self.team, filters=item["suppression_rule_filters"], bytecode=[], order_key=0, **rule_fields
+            team=self.team, filters=item["suppression_rule_filters"] or {}, bytecode=[], order_key=0, **rule_fields
         )
 
         second_preview = self._post("preview", PROJECT_RESPONSES, self._project_body())
@@ -249,3 +266,26 @@ class TestSentryMigrationAPI(APIBaseTest):
         assert message in response.json()["detail"]
         assert not ErrorTrackingSuppressionRule.objects.filter(team=self.team).exists()
         assert not ErrorTrackingSettings.objects.filter(team=self.team, project_rate_limit_value__isnull=False).exists()
+
+    @pytest.mark.ee
+    def test_import_requires_resource_level_access(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        restricted_user = User.objects.create_and_join(self.organization, "restricted@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=restricted_user, organization=self.organization)
+        create_access_control(team_id=self.team.id, resource="error_tracking", access_level="none")
+        create_access_control(
+            team_id=self.team.id,
+            resource="error_tracking",
+            resource_id="00000000-0000-0000-0000-000000000001",
+            access_level="editor",
+            organization_member_id=membership.id,
+        )
+        self.client.force_login(restricted_user)
+
+        response = self._post("apply", PROJECT_RESPONSES, self._project_body(item_ids=["inbound_filter:localhost"]))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not ErrorTrackingSuppressionRule.objects.filter(team=self.team).exists()
