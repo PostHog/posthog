@@ -9,12 +9,12 @@ import { eventsRetentionSettingsLogic } from './eventsRetentionSettingsLogic'
 import { EventsRetentionWindowForm } from './EventsRetentionWindowForm'
 
 export function OrganizationEventsRetentionSetting(): JSX.Element | null {
-    const { retentionEnforced, projectRetention, organizationRetention, organizationRetentionLoading } =
+    const { projectRetention, organizationRetention, organizationRetentionLoading } =
         useValues(eventsRetentionSettingsLogic)
     const { updateOrganizationRetention } = useActions(eventsRetentionSettingsLogic)
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
 
-    if (!retentionEnforced || !projectRetention || !organizationRetention) {
+    if (!projectRetention || !organizationRetention?.organization_retention_available) {
         return null
     }
 

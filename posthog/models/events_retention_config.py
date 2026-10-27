@@ -82,7 +82,7 @@ class OrganizationEventsRetentionConfig(models.Model):
         ]
 
     def clean(self) -> None:
-        _lock_organization_retention(self.organization_id)
+        lock_organization_retention(self.organization_id)
         low, default, high = (
             self.min_events_retention_months,
             self.default_events_retention_months,
@@ -130,7 +130,7 @@ class TeamEventsRetentionConfig(models.Model):
     def clean(self) -> None:
         if self.events_retention_months is None:
             return
-        _lock_organization_retention(self.team.organization_id)
+        lock_organization_retention(self.team.organization_id)
         org_config = OrganizationEventsRetentionConfig.objects.filter(organization_id=self.team.organization_id).first()
         if org_config is None:
             return
@@ -141,7 +141,7 @@ class TeamEventsRetentionConfig(models.Model):
             )
 
 
-def _lock_organization_retention(organization_id: object) -> None:
+def lock_organization_retention(organization_id: object) -> None:
     # Django admin validates and saves a change form in one transaction, so this lock holds until the
     # save commits. A team value check and its organization's range check then cannot both read
     # stale values and pass. The lock key is the organization, not its hot posthog_organization row.

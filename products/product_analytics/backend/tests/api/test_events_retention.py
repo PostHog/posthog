@@ -74,6 +74,7 @@ class TestEventsRetentionAPI(APIBaseTest):
             "plan_retention_months": 12,
             "min_retention_months": 1,
             "max_retention_months": 12,
+            "organization_retention_available": True,
         }
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
@@ -83,6 +84,7 @@ class TestEventsRetentionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["retention_months"] is None
         assert response.json()["retained_from"] is None
+        assert response.json()["organization_retention_available"] is False
 
     def test_project_admin_sets_and_clears_the_project_window(self) -> None:
         self._set_membership("project_admin")
@@ -131,6 +133,7 @@ class TestEventsRetentionAPI(APIBaseTest):
             "plan_retention_months": 24,
             "min_retention_months": 1,
             "max_retention_months": 24,
+            "organization_retention_available": True,
         }
         assert self.client.get(self.url()).json()["retention_months"] == 12
         assert ActivityLog.objects.filter(

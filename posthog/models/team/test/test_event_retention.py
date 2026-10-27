@@ -101,3 +101,5 @@ class TestEventsRetentionMonthsForTeam(BaseTest):
             TeamEventsRetentionConfig.objects.create(team=self.team, events_retention_months=set_months)
 
         assert events_retention_months_for_team(self.team, self.team.id) == expected
+        with self.assertNumQueries(0):
+            assert events_retention_months_for_team(self.team, self.team.id) == expected

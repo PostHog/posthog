@@ -7,10 +7,11 @@ from posthog.models.events_retention_config import (
     OrganizationEventsRetentionConfig,
     TeamEventsRetentionConfig,
     describe_months_range,
+    lock_organization_retention,
 )
 from posthog.models.organization import Organization
 from posthog.models.team import Team
-from posthog.models.team.event_retention import organization_events_retention_months
+from posthog.models.team.event_retention import organization_events_retention_months, should_enforce_events_retention
 from posthog.models.user import User
 
 
@@ -22,6 +23,9 @@ class OrganizationEventsRetention:
     plan_months: int
     min_months: int
     max_months: int
+    # The monthly cleanup deletes by the organization's window whatever the rollout flag says, so the
+    # window can be set only once retention applies to one of the organization's projects.
+    available: bool
 
     def check_allowed(self, months: int | None) -> None:
         if months is not None and not self.min_months <= months <= self.max_months:
@@ -39,6 +43,9 @@ def organization_events_retention(organization: Organization) -> OrganizationEve
         plan_months=plan_months,
         min_months=(config.min_events_retention_months if config else None) or 1,
         max_months=min(plan_months, staff_max) if staff_max else plan_months,
+        available=any(
+            should_enforce_events_retention(team_id) for team_id in organization.teams.values_list("id", flat=True)
+        ),
     )
 
 
@@ -54,6 +61,8 @@ def set_organization_events_retention(
     organization: Organization, months: int | None, *, user: User, was_impersonated: bool
 ) -> None:
     with transaction.atomic():
+        # Lock before reading, because save() writes the staff range too and must not write back a stale one.
+        lock_organization_retention(organization.id)
         config = OrganizationEventsRetentionConfig.objects.filter(organization_id=organization.id).first()
         before = config.default_events_retention_months if config else None
         if months == before:

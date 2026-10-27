@@ -48,6 +48,10 @@ class OrganizationEventsRetentionSerializer(serializers.Serializer):
         read_only=True,
         help_text="The longest window an admin can set, in months. Never longer than the plan's window.",
     )
+    organization_retention_available = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the organization's window can be set yet. False until events retention applies to one of the organization's projects.",
+    )
 
 
 @extend_schema_serializer(many=False)
@@ -104,6 +108,7 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "plan_retention_months": organization.plan_months,
                     "min_retention_months": organization.min_months,
                     "max_retention_months": organization.max_months,
+                    "organization_retention_available": organization.available,
                 }
             ).data
         )
@@ -168,6 +173,7 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
                     "plan_retention_months": organization.plan_months,
                     "min_retention_months": organization.min_months,
                     "max_retention_months": organization.max_months,
+                    "organization_retention_available": organization.available,
                 }
             ).data
         )
@@ -203,8 +209,7 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
         },
     )
     def create(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
-        team_ids = self.organization.teams.values_list("id", flat=True)
-        if not any(should_enforce_events_retention(team_id) for team_id in team_ids):
+        if not organization_events_retention(self.organization).available:
             raise exceptions.PermissionDenied(RETENTION_NOT_AVAILABLE)
         try:
             set_organization_events_retention(

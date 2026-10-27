@@ -70,8 +70,22 @@ def events_retention_months_for_team(team: Optional[Team], team_id: Optional[int
             return None
 
     plan_months = team.event_retention_months or DEFAULT_EVENT_RETENTION_MONTHS
-    configured_months = [item.months for item in effective_events_retention(team_ids=[team_id])]
-    return min([plan_months, *configured_months])
+    configured_months = _configured_events_retention_months(team)
+    return min(plan_months, configured_months) if configured_months is not None else plan_months
+
+
+_REQUEST_CACHED_CONFIGURED_RETENTION_ATTR = "_request_cached_configured_events_retention_months"
+
+
+def _configured_events_retention_months(team: Team) -> int | None:
+    """Memoise the window set in settings on the team instance, which is request-scoped in practice.
+
+    Every insight on a dashboard and every query it prints asks again, and each ask is a Postgres query.
+    """
+    if not hasattr(team, _REQUEST_CACHED_CONFIGURED_RETENTION_ATTR):
+        configured = effective_events_retention(team_ids=[team.id])
+        setattr(team, _REQUEST_CACHED_CONFIGURED_RETENTION_ATTR, configured[0].months if configured else None)
+    return getattr(team, _REQUEST_CACHED_CONFIGURED_RETENTION_ATTR)
 
 
 def events_retention_floor_date(team: Team, retention_months: int) -> date:
