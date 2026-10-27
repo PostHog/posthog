@@ -203,7 +203,6 @@ class TestSearchRecentRuns(BaseTest):
         assert len(hits) == MAX_RUN_SEARCH_LIMIT
 
     def test_summary_surfaces_run_metadata(self) -> None:
-        # Legacy NULL rows must still project as {}.
         routed = _create_run(self.team, metadata={"model": "@cf/zai-org/glm-5.2", "runtime_adapter": "claude"})
         legacy = _create_run(self.team, metadata=None)
         SignalScoutRun.objects.for_team(self.team.id).filter(pk=legacy.pk).update(metadata=None)

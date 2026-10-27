@@ -1476,7 +1476,6 @@ async def test_signal_crossing_next_bucket_owns_next_research_pass(ateam, source
         total_weight=2,
         triggering_signal_id=original_driver,
     )
-    # Claim before fetching: an arrival during the fetch must retain an open spend owner.
     await mark_report_in_progress_activity(
         MarkReportInProgressInput(team_id=ateam.id, report_id=str(report.id), signal_id=str(original_driver))
     )
@@ -1496,7 +1495,6 @@ async def test_signal_crossing_next_bucket_owns_next_research_pass(ateam, source
         else:
             assert str(report.pending_triggering_signal_id) == next_driver
 
-    # Summary completion wins the race against the batch's final grouping activity.
     await database_sync_to_async(finish_report_spend)(
         team_id=ateam.id, report_id=str(report.id), signal_id=str(original_driver)
     )

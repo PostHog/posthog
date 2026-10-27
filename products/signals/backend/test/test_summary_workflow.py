@@ -490,7 +490,6 @@ async def test_persistently_empty_fetch_leaves_report_for_repromotion_when_signa
     await _run_summary_workflow(recorder)
     assert recorder.fetches == 1 + EMPTY_FETCH_RETRY_ATTEMPTS
     assert recorder.assigned_signal_checks == 1
-    # Release the claim so grouping can re-promote it once ClickHouse catches up.
     assert recorder.marks_in_progress == 1
     assert recorder.reverts == 1
     assert recorder.researches == 0

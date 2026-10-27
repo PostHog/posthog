@@ -226,7 +226,7 @@ async def check_report_task_settlement_activity(input: SignalReportSummaryWorkfl
             raise ApplicationError("Spend task run no longer exists", non_retryable=True)
         execution = await client.get_workflow_handle(run.workflow_id).describe(rpc_timeout=timedelta(seconds=5))
         if execution.status == WorkflowExecutionStatus.RUNNING:
-            # Retry backoff releases the slot needed by metadata publication on this same queue.
+            # Retry backoff frees the shared activity slot while the task settles.
             raise ApplicationError("Task spend is still settling", type="TaskSpendPending")
         if execution.status != WorkflowExecutionStatus.COMPLETED:
             raise ApplicationError("Task workflow did not complete settlement", non_retryable=True)
@@ -234,19 +234,6 @@ async def check_report_task_settlement_activity(input: SignalReportSummaryWorkfl
 
 @temporalio.workflow.defn(name="signal-report-summary")
 class SignalReportSummaryWorkflow:
-    """
-    Workflow that runs when a signal report is promoted to candidate status.
-
-    Flow:
-    1. Fetch all signals for the report from ClickHouse
-    2. Mark report as in_progress
-    3. Run safety judge to filter unsafe reports
-    4. Select a repository for the agentic research
-    5. Run the agentic report research flow
-    6. Apply the resulting actionability decision to transition the report
-    7. If new signals arrived during the run, loop back to step 1
-    """
-
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SignalReportSummaryWorkflowInputs:
         loaded = json.loads(inputs[0])
@@ -440,7 +427,6 @@ class SignalReportSummaryWorkflow:
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
-            # 1. Fetch signals for the report
             fetch_result = await self._fetch_signals(inputs, log)
             if not fetch_result.signals:
                 # patched(): same marker as the retry loop, so pre-patch histories replay straight to failure.
@@ -450,9 +436,7 @@ class SignalReportSummaryWorkflow:
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 ):
-                    # Signals are assigned in Postgres but not yet readable in ClickHouse. Failing here
-                    # would be terminal, so leave the report as it is: grouping re-promotes a candidate
-                    # on the next matching signal, and that run sees the rows.
+                    # Allow grouping to retry when assigned signals reach ClickHouse.
                     log.warning("Report has assigned signals that are not yet visible in ClickHouse, deferring run")
                     metrics.increment_report_run_deferred("signals_not_visible")
                     if claim_before_fetch:
@@ -470,12 +454,10 @@ class SignalReportSummaryWorkflow:
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
-                # No loop, as no signals to process
                 return False
             signal_count = len(fetch_result.signals)
             source_products = sorted({s.source_product for s in fetch_result.signals})
             if not claim_before_fetch:
-                # 2. Mark report as in_progress to prevent duplicate runs while this workflow is active
                 await workflow.execute_activity(
                     mark_report_in_progress_activity,
                     MarkReportInProgressInput(

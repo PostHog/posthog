@@ -170,7 +170,6 @@ class TestSignalsBilling(BaseTest):
             run.save(update_fields=["state"])
         self.assertEqual(self._credits(), {self.team.id: credits} if credits else {})
         self.assertEqual(first_billable_pr_run(report.id, team_id=report.team_id) is not None, bool(credits))
-        # A manual successor must not erase an earlier report charge on the same Task.
         _task_run_model().objects.create(
             team=self.team,
             task=run.task,

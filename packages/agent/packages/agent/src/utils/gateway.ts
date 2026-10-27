@@ -27,9 +27,7 @@ export function resolveGatewayProduct({
   ) {
     return "posthog_ai";
   }
-  // Automated signals origins mint their tokens under the Signals OAuth
-  // application, and no other product authorizes it — an unmapped origin falls through to
-  // posthog_code and the gateway rejects the token.
+  // Signals OAuth tokens are rejected by the posthog_code default.
   const originProductToGatewayProductMap: Record<string, GatewayProduct> = {
     loop: "posthog_code",
     metrics_import: "posthog_ai",

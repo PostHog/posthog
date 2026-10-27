@@ -3449,15 +3449,9 @@ def _refresh_self_driving_quota_for_pr(run: TaskRun, old_pr_url: str | None) -> 
 def enforce_self_driving_free_trial(
     team: Team, *, report_id: str | None = None, stage: str = "manual_create", enabled: bool | None = None
 ) -> None:
-    """Refuse automatic implementation while the team's org is on a Self-driving free trial.
-    User-started report work uses PostHog AI credits instead. Emits
-    `signal_report_free_trial_paused` at ``stage``. Raises
-    ``FreeTrialPullRequestRefused`` (402, code ``self_driving_free_trial``) so clients can show
-    the trial message.
+    """Gate automatic implementation; manual runs use PostHog AI credits.
 
-    ``enabled`` takes a verdict the caller already resolved, and then the gate reads no flag of
-    its own. A caller that holds a database lock resolves the flag before it takes the lock,
-    because the read does network I/O.
+    Resolve enabled before taking database locks, since flag evaluation can use the network.
     """
     from products.signals.backend.free_trial import (  # noqa: PLC0415 — cross-product read kept off the api import path
         FreeTrialPullRequestRefused,
@@ -3472,11 +3466,6 @@ def enforce_self_driving_free_trial(
 
 
 def enforce_self_driving_pr_quota(team: Team, *, report_id: str | None = None, stage: str = "manual_create") -> None:
-    """Refuse automatic implementation while the team's org is over its self-driving
-    credits quota with enforcement on. Emits `signal_report_quota_paused`
-    at ``stage`` whenever the org is limited, so each caller's gate stays measurable during the
-    dark launch like every other gate. Raises ``QuotaLimitExceeded`` (402).
-    """
     from posthog.exceptions import QuotaLimitExceeded  # noqa: PLC0415 — keep billing deps off the api import path
 
     from products.signals.backend.quota import (  # noqa: PLC0415 — cross-product read kept off the api import path
@@ -9348,14 +9337,9 @@ def run_task(
     pipeline_rerun: bool = False,
     free_trial_enabled: bool | None = None,
 ) -> contracts.TaskRunResult | None:
-    """Create a run for a task and kick off its workflow, mirroring ``TaskViewSet.run``.
+    """Return None for an inaccessible task, otherwise return its refreshed detail or a structured error.
 
-    Returns ``None`` if the task isn't found/visible (the view raises 404). Otherwise a
-    ``TaskRunResult`` carrying the refreshed task detail DTO or a structured error. The usage
-    gate (429) is applied by the view before calling this. An automatic implementation rerun raises
-    ``FreeTrialPullRequestRefused`` (402) while the team's org is on a self-driving free trial.
-    ``pipeline_rerun`` is reserved for a server-requested Signals research rerun. It creates a
-    fresh run and stamps the protected implementation stage from the verified report-task link.
+    The caller applies the usage gate. Only server-requested Signals research may set pipeline_rerun.
     """
     from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product read kept off the api import path
         enforce_report_implementation_rerun_cap,

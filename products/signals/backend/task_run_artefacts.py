@@ -416,19 +416,10 @@ def record_report_task(
 
 
 def release_quota_cancelled_implementation(*, team_id: int, task_id: str) -> list[str]:
-    """Remove a quota-cancelled implementation's auto-start records so its report can be
-    implemented again by a later cycle.
+    """Remove implementation gates so a quota-cancelled report can run again.
 
-    A run the quota gate cancels mid-flight never shipped its PR, but its `SignalReportTask` gate
-    row and implementation `task_run` artefact would keep `associated_task_runs` reporting a
-    started implementation and permanently block re-implementation. Deleting both restores the
-    report to "never implemented"; a system `note` artefact records for the report timeline why
-    the run stopped. Locks each report row (the same lock auto-start creation takes) so the
-    removal serializes with a concurrent auto-start evaluation. Returns the affected report ids
-    (empty when the task has no implementation link).
-
-    Reports that already shipped a PR are skipped: a sibling run may have completed the
-    implementation. Preserve that evidence regardless of which billing product charged it.
+    Preserve shipped PRs, including those from sibling runs. Lock reports to serialize
+    cleanup with auto-start, and return the affected report IDs.
     """
     report_ids = list(
         SignalReportTask.objects.filter(

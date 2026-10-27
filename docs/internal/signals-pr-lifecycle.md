@@ -184,12 +184,6 @@ For information from a private repository or another explicitly private source, 
 Each candidate carries a private, public, or unknown label from the cached GitHub repository list, so the agent does not query GitHub for visibility.
 This is prompt guidance, not an enforced access control, and it does not validate repositories selected outside the agent.
 
-## Research spend ownership
-
-Each report-generation pass carries its triggering signal ID through safety evaluation, repository selection and research. The workflow marks the report `IN_PROGRESS` before fetching signals, so grouping reserves arrivals during that fetch for the next pass. Task runs bind to that owner when they are created; retries of the same run preserve it even if the report later gets another trigger. Implementation spend belongs to the report, with a separate row for each TaskRun.
-
-A report can remain `CANDIDATE` after a pass exits at a quota gate or defers because assigned signals are not yet readable. Completion releases that pass's trigger in the same transaction as its accounting update, including when accounting failed and the spend cannot finalize. The next signal can then reserve a new pass. Signals arriving while a pass is still waiting to start keep its existing trigger; they do not take ownership of its work.
-
 ## Reviewer notifications
 
 With `signals-research-reviewer-selection` enabled, the research agent chooses report recipients in relevance order.
@@ -545,25 +539,3 @@ The web report's Runs section lists linked tasks newest first, regardless of the
 
 When a report has a linked task run, the View task button opens it in the PostHog AI sidebar.
 The button fits its label, including when it appears below the Solution section.
-
-## Spend completion
-
-`SignalSpend` records six kinds of spend. Signal-owned `research` and `repo_selection` rows each bind one exact `TaskRun`; a signal's `ad-hoc` row accumulates its one-shot LLM calls. A `scout_run` row belongs to a scout run. `reviewer_triggered_implementation` and `scout_triggered_implementation` rows belong directly to a report, one per implementation TaskRun. Only implementation spend has `report_id`. Each row has one nullable `task_run_id`, with a unique constraint preventing a run from being charged twice; only `ad-hoc` has no task run. Owner IDs are not unique across kinds or task runs. There is one ad-hoc aggregate per signal.
-
-The single `spend` amount is customer spend in USD cents, stored as a decimal with four fractional places (one microdollar). Task spend includes token costs and a 4¢ fee per run. Gateway cost writes add token-cost deltas in the same PostgreSQL transaction as request deduplication. Final settlement writes the exact run's total and finalization timestamp together under the run and spend locks. One-shot LLM calls add their cost to the ad-hoc aggregate; a retried generation is another paid call.
-
-Workflows explicitly finalize their own spend. Task teardown waits for gateway accounting through a retrying activity before returning, and the summary workflow waits for that completion after releasing the research activity slot. Short settlement checks release the activity slot between attempts so task teardown can use the same worker pool. Research, repository selection, scout execution and implementation settle independently. The summary pass finalizes its triggering signal's ad-hoc row after its one-shot calls; it does not wait for implementation. A dropped signal closes at the drop. Failed and cancelled tasks also settle their costs. New automated cloud runs start with zero token usage, so failures before agent launch can settle immediately; they still incur the per-run fee. Persistent missing usage leaves that row unfinalized with an accounting failure and exhausts the completion activity's retry budget without retrying the expensive work. Finalized spend is immutable. A replacement implementation creates a fresh report-owned row for its new TaskRun, including on an old report. Manual UI implementations and manually started successors of scout tasks use ordinary PHAI billing. They leave the automated predecessor’s settled spend unchanged.
-
-Signal spend summaries sum the signal-owned kinds without locking or writing rows. Implementation costs are report-owned and do not change the triggering signal’s metadata. Explicit accounting writes own finalization. Task accounting finishes after the PostgreSQL write and Temporal accepts the metadata refresh request. The per-signal metadata workflow retries publication independently and finishes spend-only refreshes once Kafka acknowledges them. Report moves, deletion and content erasure wait for ClickHouse visibility before the next write, so a later spend refresh cannot undo them. A permanent publication failure can leave the advisory signal total stale until another refresh; billing reads finalized PostgreSQL spend independently.
-
-Direct-source steering drops close their spend without entering the batch pipeline. A summary that stops at a quota gate closes its completed pass even when the report remains a candidate, while each task finalizes its own spend independently of report status. Summary accounting retries transient failures, and reaped scout runs enqueue retrying accounting after their terminal status commits.
-
-Grouping finalizes a batch only after it completes successfully; drop telemetry never changes accounting state. Failed preparation or visibility checks leave spend open for the batch retry. Emission and safety retries skip signals whose ad-hoc spend is already finalized, avoiding repeated paid filters on completed signals. Scout creation and spend registration share a transaction, and the scout's trial/skill exemption is fixed using the skill version it ran.
-
-Private scout trial writes lock the task run before the scout row, matching cost accounting so concurrent memory/report writes and spend updates can both commit. The task run stays locked through the private write to prevent edits racing task completion.
-
-The owner stores no request inventory or pending-work list. The in-place migration resets the existing `signals_signalspend` table and discards all receipt history before changing its columns and constraints. It creates no parallel spend table and performs no backfill. Retired receipt columns remain nullable in PostgreSQL but are absent from the model and all accounting code. The data reset is irreversible. Stop old accounting workers before applying the migration, then start the new workers; the old accounting schema cannot run alongside the new one. Report-based billing remains in use; switching the usage meter is a separate change. Task completion without a registered spend row does not reconstruct historical spend.
-
-User-started report tasks use PostHog AI billing and its credit limit. Continuing automated work requires a new run: cloud resume rejects reopening the original automated report or scout run. The Task keeps its report link; each new manual TaskRun records `state.billing_product = "posthog_ai"`, which selects the matching gateway product and OAuth application. These runs do not join a SignalSpend owner or trigger the flat report charge. Automated research, repository selection and implementation keep Signals accounting. Unmarked historical runs keep their existing billing treatment, and prewarmed runs created with the old credentials are not reused for new manual work.
-
-The task-bound PostHog AI token can read that task's artifacts and comments, using the same sandbox application allowlist as other task agents. The task binding, project scope and endpoint scopes still apply.

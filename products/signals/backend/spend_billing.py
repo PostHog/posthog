@@ -1,5 +1,3 @@
-"""Exemptions recorded when self-driving spend is created."""
-
 import posthoganalytics
 
 from posthog.models import Team

@@ -80,8 +80,6 @@ The agent uses this context to assess regression, a new part of the same issue, 
 
 In production, the `update` path is triggered automatically when a `ready` report is re-promoted after accumulating enough new signals. The caller activity (`temporal/agentic/report.py`) reconstructs the previous `ReportResearchOutput` from stored artefacts and the report's title/summary fields, then passes it to `run_multi_turn_research()`.
 
-Production callers pass `spend_signal_id` through repository selection and research into task creation. It identifies the owning pass, independently of the report's later trigger; see [research spend ownership](../../../../docs/internal/signals-pr-lifecycle.md#research-spend-ownership) when changing these handoffs.
-
 This module is intentionally prompt-orchestration only.
 Production persistence is handled outside `run_multi_turn_research()`, in the caller activity, so this module stays isolated from report DB writes.
 Monitoring metric definitions are offered only with `signals-report-monitoring` enabled. The shared writer validates the reference period, scaling policy, and baseline period. Disabled research contexts omit stored Monitoring definitions. When metrics are enabled, the research, presentation, and verification prompts prefer supported metric checks and evidence-backed shorter windows. Read [Monitoring metric definitions](../../../../docs/internal/signals-pr-lifecycle.md#monitoring-metric-definitions) when changing this contract; execution and final outcomes ship separately.
