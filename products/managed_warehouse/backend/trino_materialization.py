@@ -209,7 +209,7 @@ def _fetch(
     statement: str,
     parameters: list[object] | None = None,
 ) -> list[Any]:
-    """Run one statement, read all of its rows, and report the bytes it processed to ``control``."""
+    """Run one statement, read all of its rows, and report its final usage to ``control``."""
     if control:
         control.checkpoint()
     stats_before = cursor.stats
@@ -228,3 +228,4 @@ def _fetch(
         stats = cursor.stats
         if control is not None and stats is not None and stats is not stats_before:
             control.record_processed_bytes(stats.get("processedBytes"))
+            control.record_cpu_milliseconds(stats.get("cpuTimeMillis"))

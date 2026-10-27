@@ -2206,6 +2206,8 @@ export interface ErrorTrackingSettingsApi {
      * @nullable
      */
     per_issue_rate_limit_bucket_size_minutes?: number | null
+    /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
+    ingestion_enabled?: boolean
 }
 
 export interface PatchedErrorTrackingSettingsApi {
@@ -2233,6 +2235,8 @@ export interface PatchedErrorTrackingSettingsApi {
      * @nullable
      */
     per_issue_rate_limit_bucket_size_minutes?: number | null
+    /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
+    ingestion_enabled?: boolean
 }
 
 /**

@@ -32,6 +32,7 @@ import {
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 import { MessageAssetsService } from './message-assets.service'
+import { RecipientTokensService } from './recipient-tokens.service'
 
 class ThrottlingException extends Error {
     constructor(message: string) {
@@ -1058,6 +1059,7 @@ describe('EmailService', () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
+            expect(result.emailSendResult).toEqual({ status: 'accepted' })
             expect(sendEmailSpy).toHaveBeenCalledTimes(1)
             const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
             // The SES tag carries the short unsigned code (no dot); the signed code (with distinct_id)
@@ -1190,6 +1192,10 @@ describe('EmailService', () => {
 
                 expect(sendEmailSpy).not.toHaveBeenCalled()
                 expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_suspended'])
+                expect(result.emailSendResult).toEqual({
+                    status: 'skipped',
+                    reason: 'Skipping send: email sending is suspended for this project. Contact support to get sending re-enabled.',
+                })
                 expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
             })
 
@@ -1216,6 +1222,8 @@ describe('EmailService', () => {
 
                 expect(sendEmailSpy).not.toHaveBeenCalled()
                 expect(result.metrics.map((m) => m.metric_name)).toEqual(['email_paused'])
+                expect(result.emailSendResult?.status).toBe('skipped')
+                expect(result.emailSendResult?.reason).toContain('Resume it from the workflow page')
                 expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
                 expect(result.logs.map((l) => l.message).join(' ')).toContain('Spam complaints reached 2%')
                 // Flags the skip so the flow-level billing gate charges nothing for a send that never sent.
@@ -1507,20 +1515,53 @@ describe('EmailService', () => {
             expect(sentCommand.input.Content.Simple.Body.Html.Data).toMatch(expected)
         })
 
-        it('should include unsubscribe headers for non-transactional emails', async () => {
-            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
-            invocation.hogFunction.metadata = { message_category_type: 'marketing' }
-            const result = await service.executeSendEmail(invocation)
-            expect(result.error).toBeUndefined()
-            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
-            const headers = sentCommand.input.Content.Simple.Headers
-            expect(headers).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({ Name: 'List-Unsubscribe' }),
-                    expect.objectContaining({ Name: 'List-Unsubscribe-Post' }),
-                ])
-            )
-        })
+        it.each([
+            { name: 'a hog function send', fromHogFlow: false, parentRunId: null, expectedSource: {} },
+            {
+                name: 'a workflow send',
+                fromHogFlow: true,
+                parentRunId: null,
+                expectedSource: { app_source_id: 'function-1', instance_id: 'action-email' },
+            },
+            {
+                name: 'a broadcast send',
+                fromHogFlow: true,
+                parentRunId: 'batch-run-1',
+                expectedSource: { app_source_id: 'batch-run-1', instance_id: 'action-email' },
+            },
+        ])(
+            'includes unsubscribe headers for $name, attributed to the email it came from',
+            async ({ fromHogFlow, parentRunId, expectedSource }) => {
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                invocation.hogFunction.metadata = { message_category_type: 'marketing' }
+                if (fromHogFlow) {
+                    Object.assign(invocation, { hogFlow: { id: 'function-1', version: 1 }, parentRunId })
+                    invocation.state.actionId = 'action-email'
+                }
+                const result = await service.executeSendEmail(invocation)
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                const headers = sentCommand.input.Content.Simple.Headers
+                expect(headers).toEqual(
+                    expect.arrayContaining([
+                        expect.objectContaining({ Name: 'List-Unsubscribe' }),
+                        expect.objectContaining({ Name: 'List-Unsubscribe-Post' }),
+                    ])
+                )
+                const unsubscribeUrl = headers.find((h: { Name: string }) => h.Name === 'List-Unsubscribe').Value
+                const token = unsubscribeUrl.match(/messaging-preferences\/([^/]+)\//)[1]
+                const validated = new RecipientTokensService(
+                    hub.ENCRYPTION_SALT_KEYS,
+                    hub.SITE_URL
+                ).validatePreferencesToken(token)
+                expect(validated).toEqual({
+                    valid: true,
+                    team_id: team.id,
+                    identifier: 'test@example.com',
+                    ...expectedSource,
+                })
+            }
+        )
 
         it('should not include unsubscribe headers for transactional emails (but tracking-code header is still set)', async () => {
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
@@ -1805,6 +1846,7 @@ describe('EmailService', () => {
             sendEmailSpy.mockResolvedValue({})
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toMatchInlineSnapshot(`"Failed to send email via SES: No messageId returned from SES"`)
+            expect(result.emailSendResult).toEqual({ status: 'failed', reason: result.error })
         })
 
         it.each([

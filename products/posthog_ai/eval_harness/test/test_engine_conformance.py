@@ -69,8 +69,6 @@ def _spec(
         task=task,
         scorers=scorers if scorers is not None else [_MaybeNoneScorer()],
         trial_count=trial_count,
-        is_public=False,
-        no_send_logs=True,
         metadata={},
         record_scorer_results=record_scorer_results,
     )
@@ -219,6 +217,8 @@ def test_scorer_details_and_errors_stay_with_concurrent_trials(engine: Braintrus
 def test_judge_failure_preserves_zero_aggregate_and_error_upload(
     engine: BraintrustEngine, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-only-key")
+
     class _Judge(JudgedScorer):
         def _prepare(self, output: Any, expected: Any) -> dict[str, Any]:
             return {"output": output}

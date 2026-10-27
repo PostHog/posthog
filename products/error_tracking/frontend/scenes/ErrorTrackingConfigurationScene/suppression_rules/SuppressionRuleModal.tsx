@@ -34,7 +34,12 @@ export function SuppressionRuleModal(): JSX.Element {
                 </>
             )}
             filtersOptional
-            filterLabels={<EvaluationIndicator mode={evalMode} />}
+            filterLabels={
+                <EvaluationIndicator
+                    mode={evalMode}
+                    samplingRate={(rule as ErrorTrackingSuppressionRule).sampling_rate}
+                />
+            }
             samplingRate={(rule as ErrorTrackingSuppressionRule).sampling_rate}
             extraFields={
                 <div>

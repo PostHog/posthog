@@ -1279,35 +1279,28 @@ class TestHandleAppHomeOpened:
         assert mock_capture.call_args.args[1] == "slack app home opened"
         assert mock_capture.call_args.kwargs["posthog_user"] == opener
 
-    @pytest.mark.parametrize("flag_on_for_viewer", [True, False])
-    def test_multiplayer_section_follows_its_flag(
-        self, slack_integration, mock_slack_client, flag_on, admin_user, flag_on_for_viewer
+    @pytest.mark.parametrize("viewer_linked", [True, False])
+    def test_multiplayer_section_shows_only_to_a_linked_viewer(
+        self, slack_integration, mock_slack_client, flag_on, admin_user, viewer_linked
     ):
-        opener = User.objects.create_and_join(slack_integration.team.organization, "opener@posthog.com", None)
-        SlackUserProfileCache.objects.create(integration=slack_integration, slack_user_id="U001", email=opener.email)
+        if viewer_linked:
+            opener = User.objects.create_and_join(slack_integration.team.organization, "opener@posthog.com", None)
+            SlackUserProfileCache.objects.create(
+                integration=slack_integration, slack_user_id="U001", email=opener.email
+            )
 
-        with patch(
-            "products.slack_app.backend.services.slack_app_home.is_slack_app_multiplayer_approvals_enabled",
-            return_value=flag_on_for_viewer,
-        ):
-            handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
+        handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
 
         view = mock_slack_client.views_publish.call_args.kwargs["view"]
-        assert (ACTION_SET_THREAD_JOIN_MODE in _action_ids(view)) is flag_on_for_viewer
-        assert ("Multiplayer" in _all_text(view)) is flag_on_for_viewer
+        assert (ACTION_SET_THREAD_JOIN_MODE in _action_ids(view)) is viewer_linked
+        assert ("Multiplayer" in _all_text(view)) is viewer_linked
 
     def test_join_picker_shows_without_the_plan_card(self, slack_integration, mock_slack_client, flag_on, admin_user):
         # Who may join a thread is not a plan feature, so closing the BYOS gate must not hide it.
         opener = User.objects.create_and_join(slack_integration.team.organization, "opener@posthog.com", None)
         SlackUserProfileCache.objects.create(integration=slack_integration, slack_user_id="U001", email=opener.email)
 
-        with (
-            patch("products.slack_app.backend.services.slack_app_home.is_slack_app_byos_enabled", return_value=False),
-            patch(
-                "products.slack_app.backend.services.slack_app_home.is_slack_app_multiplayer_approvals_enabled",
-                return_value=True,
-            ),
-        ):
+        with patch("products.slack_app.backend.services.slack_app_home.is_slack_app_byos_enabled", return_value=False):
             handle_app_home_opened({"user": "U001"}, SLACK_WORKSPACE_ID, integration=slack_integration)
 
         view = mock_slack_client.views_publish.call_args.kwargs["view"]

@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR,
     HostNotAllowedError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import CERTIFICATE_ERRORS
 
 # Server requires (or rejects) an encrypted connection. Kept specific so a transient
 # "SSL connection has been closed unexpectedly" stays a retryable connection failure.
@@ -127,6 +128,11 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
             return CDCErrorCategory.SLOT_MISSING
         if "publication" in message:
             return CDCErrorCategory.PUBLICATION_MISSING
+
+    # Before the authentication checks: Postgres reports a rejected client certificate as
+    # "certificate authentication failed", which the auth markers would otherwise claim.
+    if any(marker in message for marker in CERTIFICATE_ERRORS):
+        return CDCErrorCategory.CERTIFICATE_REJECTED
 
     # Authentication (SQLSTATE class 28) surfaces either as a mapped subclass (server-side)
     # or a bare OperationalError with a libpq message (connection-time). Check before the

@@ -2078,6 +2078,7 @@ const llmaOfflineScorerHistory = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/ai_observability/offline_scorers/${encodeURIComponent(String(params.id))}/history/`,
             query: {
                 application_version: params.application_version,
+                breakdown: params.breakdown,
                 created_by: params.created_by,
                 created_by_is_null: params.created_by_is_null,
                 cursor: params.cursor,

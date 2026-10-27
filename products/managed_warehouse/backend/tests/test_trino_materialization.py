@@ -391,6 +391,7 @@ class _ScriptedCursor:
         duplicate: bool = False,
         max_key: Any = None,
         processed_bytes: int = 0,
+        cpu_milliseconds: int = 0,
         unreachable_from: str | None = None,
     ) -> None:
         self.table_exists = table_exists
@@ -401,6 +402,7 @@ class _ScriptedCursor:
         self.rowcount = -1
         self.description: list[tuple[str]] | None = None
         self.processed_bytes = processed_bytes
+        self.cpu_milliseconds = cpu_milliseconds
         self.unreachable_from = unreachable_from
         self.stats: dict[str, Any] | None = None
         self._rows: list[tuple[Any, ...]] = []
@@ -410,7 +412,7 @@ class _ScriptedCursor:
             raise ConnectionError("coordinator unreachable")
         self.statements.append((statement, parameters))
         self.rowcount, self._rows = -1, []
-        self.stats = {"processedBytes": self.processed_bytes}
+        self.stats = {"processedBytes": self.processed_bytes, "cpuTimeMillis": self.cpu_milliseconds}
         if "information_schema.tables" in statement:
             self._rows = [(1,)] if self.table_exists else []
         elif statement.startswith("CREATE OR REPLACE TABLE"):
@@ -528,13 +530,21 @@ class TestTrinoIncrementalMaterialization(BaseTest):
             ("duplicate_keys_fail_the_merge", True, 4),
         ]
     )
-    def test_reports_bytes_processed_by_every_statement(self, _name: str, duplicate: bool, statements: int) -> None:
+    def test_reports_usage_by_every_statement(self, _name: str, duplicate: bool, statements: int) -> None:
         processed: list[int] = []
-        cursor = _ScriptedCursor(table_exists=True, staged=3, duplicate=duplicate, processed_bytes=100)
+        cpu: list[int] = []
+        cursor = _ScriptedCursor(
+            table_exists=True, staged=3, duplicate=duplicate, processed_bytes=100, cpu_milliseconds=25
+        )
 
-        self.run_build(cursor, self.since, TrinoQueryControl(on_processed_bytes=processed.append))
+        self.run_build(
+            cursor,
+            self.since,
+            TrinoQueryControl(on_processed_bytes=processed.append, on_cpu_milliseconds=cpu.append),
+        )
 
         assert processed == [100] * statements
+        assert cpu == [25] * statements
 
     def test_a_statement_that_never_starts_does_not_recount_the_previous_one(self) -> None:
         processed: list[int] = []

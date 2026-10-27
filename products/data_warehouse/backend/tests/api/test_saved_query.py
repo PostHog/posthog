@@ -13,11 +13,15 @@ from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
+from posthog.hogql.errors import ExposedHogQLError
+
+from posthog.errors import CHQueryErrorS3Error, wrap_clickhouse_query_error
 from posthog.models import ActivityLog
 from posthog.models.scoping import team_scope
 
@@ -38,6 +42,7 @@ from products.data_tools.backend.models.datawarehouse_saved_query_folder import 
 from products.data_warehouse.backend.presentation.views.saved_query.editing import (
     INCREMENTAL_CONFIG_CHANGED_REFUSAL,
     DataWarehouseSavedQuerySerializer,
+    _capture_unless_user_error,
 )
 from products.data_warehouse.backend.presentation.views.saved_query.viewset import (
     SavedQueryMaterializeSerializer,
@@ -2733,6 +2738,24 @@ class TestSavedQueryNameValidation(SimpleTestCase):
         assert error.exception.messages == [
             "The system namespace is reserved for built-in tables. Choose a different view name."
         ]
+
+
+class TestCaptureUnlessUserError(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("unknown_identifier", wrap_clickhouse_query_error(ServerException("Unknown identifier", code=47)), False),
+            ("exposed_ch_error", wrap_clickhouse_query_error(ServerException("Bad argument", code=43)), False),
+            ("exposed_hogql_error", ExposedHogQLError("Unknown table"), False),
+            ("internal_ch_error", CHQueryErrorS3Error("S3 failed", code=499), True),
+            ("unexpected_error", ValueError("boom"), True),
+        ]
+    )
+    def test_captures_only_errors_the_user_did_not_cause(self, _name: str, error: Exception, captured: bool) -> None:
+        with patch(
+            "products.data_warehouse.backend.presentation.views.saved_query.editing.capture_exception"
+        ) as mock_capture:
+            _capture_unless_user_error(error)
+        assert mock_capture.called is captured
 
 
 class TestSavedQueryModelsNamespaceGuard(BaseTest):
