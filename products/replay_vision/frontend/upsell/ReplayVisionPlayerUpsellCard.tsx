@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
@@ -7,17 +6,14 @@ import { PostHogCaptureOnViewed } from '@posthog/react'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
-import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 
-import { replayVisionUpsellLogic, upsellTargetForFilters } from './replayVisionUpsellLogic'
+import { replayVisionUpsellLogic } from './replayVisionUpsellLogic'
 
-/** The player-card variant of the Replay vision experiment. Render it inside a bound recordings playlist. */
+/** The player-card variant of the Replay vision experiment. */
 export function ReplayVisionPlayerUpsellCard(): JSX.Element | null {
     const { playerCard, scannerStats, freeCreditsAllowance } = useValues(replayVisionUpsellLogic)
     const { dismiss, reportClicked } = useActions(replayVisionUpsellLogic)
-    const { filters } = useValues(sessionRecordingsPlaylistLogic)
-    const target = useMemo(() => upsellTargetForFilters(filters), [filters])
 
     if (!playerCard) {
         return null
@@ -76,11 +72,11 @@ export function ReplayVisionPlayerUpsellCard(): JSX.Element | null {
                         ) : (
                             <LemonButton
                                 type="primary"
-                                to={target.url}
-                                onClick={() => reportClicked('player', target.cta)}
-                                data-attr={`replay-vision-upsell-player-card-${target.cta}`}
+                                to={urls.replayVisionNewScanner()}
+                                onClick={() => reportClicked('player', 'set_up_scanner')}
+                                data-attr="replay-vision-upsell-player-card-set-up-scanner"
                             >
-                                {target.cta === 'scan_filters' ? 'Scan recordings like these' : 'Set up a scanner'}
+                                Set up a scanner
                             </LemonButton>
                         )}
                         <span className="text-xs text-muted">

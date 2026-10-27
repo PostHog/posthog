@@ -1,20 +1,17 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { IconSparkles, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
-import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
+import { urls } from 'scenes/urls'
 
-import { replayVisionUpsellLogic, upsellTargetForFilters } from './replayVisionUpsellLogic'
+import { replayVisionUpsellLogic } from './replayVisionUpsellLogic'
 
-/** The list-card variant of the Replay vision experiment. Render it inside a bound recordings playlist. */
+/** The list-card variant of the Replay vision experiment. */
 export function ReplayVisionListUpsellCard(): JSX.Element | null {
     const { showListCard } = useValues(replayVisionUpsellLogic)
     const { dismiss, reportClicked } = useActions(replayVisionUpsellLogic)
-    const { filters } = useValues(sessionRecordingsPlaylistLogic)
-    const target = useMemo(() => upsellTargetForFilters(filters), [filters])
 
     if (!showListCard) {
         return null
@@ -40,17 +37,17 @@ export function ReplayVisionListUpsellCard(): JSX.Element | null {
                     <span>Save time: Replay vision can watch these for you</span>
                 </span>
                 <span className="text-secondary">
-                    A scanner can watch every recording with these filters and answer whatever question you give it.
+                    A scanner can watch every recording and answer whatever question you give it.
                 </span>
                 <div className="flex pt-1">
                     <LemonButton
                         type="primary"
                         size="xsmall"
-                        to={target.url}
-                        onClick={() => reportClicked('list', target.cta)}
-                        data-attr={`replay-vision-upsell-list-card-${target.cta}`}
+                        to={urls.replayVisionNewScanner()}
+                        onClick={() => reportClicked('list', 'set_up_scanner')}
+                        data-attr="replay-vision-upsell-list-card-set-up-scanner"
                     >
-                        {target.cta === 'scan_filters' ? 'Scan this filter' : 'Set up a scanner'}
+                        Set up a scanner
                     </LemonButton>
                 </div>
             </div>
