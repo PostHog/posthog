@@ -286,6 +286,17 @@ function withViewAll(results: CommandKSection | null, viewAll: ViewAll | null): 
     }
 }
 
+const plainName = (item: SearchItem): string =>
+    String(item.displayName || item.name)
+        .toLowerCase()
+        .replace(/\s*\([^)]*\)\s*$/, '')
+        .trim()
+
+function rankableSettings(local: LocalLists, localQuery: string): SearchItem[] {
+    const productNames = new Set(local.products.map(plainName))
+    return exactSettingsMatches(local.settings, localQuery).filter((item) => !productNames.has(plainName(item)))
+}
+
 function rankedResultsSections(
     results: SearchItem[],
     query: string,
@@ -298,7 +309,7 @@ function rankedResultsSections(
     const words = freeWords(query)
     return buildRankedResults({
         persons,
-        settings: settingsInResults ? exactSettingsMatches(local.settings, localQuery) : [],
+        settings: settingsInResults ? rankableSettings(local, localQuery) : [],
         query: words.join(' '),
         highlightWords: words,
         results,

@@ -263,40 +263,38 @@ describe('buildSections', () => {
     })
 
     test.each([
-        [false, ['best-matches', 'settings'], 'Ada board'],
-        [true, ['best-matches'], 'Personal API keys'],
-    ])(
-        'ranks an exact-match setting with the results when settingsInResults is %s',
-        (settingsInResults, keys, first) => {
-            const setting: SearchItem = {
-                id: 'settings-personal-api-keys',
-                name: 'User: Personal API keys (api keys)',
-                displayName: 'Personal API keys',
-                category: 'settings',
-            }
-            const remote = emptyRemoteSlots()
-            remote.results = {
-                cache: {
-                    'api keys': [{ ...dashboard('a', '1'), name: 'Ada board', rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0] }],
-                },
-            }
-            const sections = buildSections(
-                input('search', {
-                    local: { ...emptyLocal(), settings: [setting] },
-                    remote,
-                    remoteQueries: { results: 'api keys' },
-                    localQuery: 'api keys',
-                    settingsInResults,
-                })
-            )
-
-            expect(sections.map((section) => section.key)).toEqual(keys)
-            const firstItem = sections[0].rows[0]
-            expect(firstItem.kind === 'item' ? String(firstItem.item.displayName || firstItem.item.name) : null).toBe(
-                first
-            )
+        ['off', false, 'Personal API keys', ['best-matches', 'settings'], 'Ada board'],
+        ['on', true, 'Personal API keys', ['best-matches'], 'Personal API keys'],
+        ['on, but a product has its name', true, 'API keys', ['best-matches', 'settings'], 'API keys'],
+    ])('ranks an exact-match setting with the results: flag %s', (_, settingsInResults, settingName, keys, first) => {
+        const setting: SearchItem = {
+            id: 'settings-api-keys',
+            name: `User: ${settingName} (api keys)`,
+            displayName: settingName,
+            category: 'settings',
         }
-    )
+        const products: SearchItem[] =
+            settingName === 'API keys' ? [{ id: 'product-api-keys', name: 'API keys', category: 'products' }] : []
+        const remote = emptyRemoteSlots()
+        remote.results = {
+            cache: {
+                'api keys': [{ ...dashboard('a', '1'), name: 'Ada board', rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0] }],
+            },
+        }
+        const sections = buildSections(
+            input('search', {
+                local: { ...emptyLocal(), settings: [setting], products },
+                remote,
+                remoteQueries: { results: 'api keys' },
+                localQuery: 'api keys',
+                settingsInResults,
+            })
+        )
+
+        expect(sections.map((section) => section.key)).toEqual(keys)
+        const firstItem = sections[0].rows[0]
+        expect(firstItem.kind === 'item' ? String(firstItem.item.displayName || firstItem.item.name) : null).toBe(first)
+    })
 
     it('says which words were dropped when a filter is active', () => {
         const remote = emptyRemoteSlots()
