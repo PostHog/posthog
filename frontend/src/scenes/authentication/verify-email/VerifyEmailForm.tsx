@@ -11,7 +11,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
-import { pendingOAuthConnectionLogic, reviewAccessCopy } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
+import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { getPendingVerificationEmail, isValidVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 import { urls } from 'scenes/urls'
@@ -209,7 +209,9 @@ function CheckYourInbox(): JSX.Element {
             </p>
             {pendingConnection && (
                 <p className="AuthScene__sub -mt-2 mb-4 text-sm text-secondary text-center text-pretty">
-                    {reviewAccessCopy(pendingConnection, 'After you verify')}
+                    {`After you verify, you'll review what ${pendingConnection.clientName} can access${
+                        pendingConnection.redirectHost ? `, then go back to ${pendingConnection.redirectHost}` : ''
+                    }.`}
                 </p>
             )}
             <VerificationCodeEntry />

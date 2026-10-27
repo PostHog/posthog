@@ -1,4 +1,4 @@
-import '../scenes/authentication/login/Login.scss'
+import './ExporterLogin.scss'
 
 import clsx from 'clsx'
 import { MakeLogicType, actions, kea, path, reducers, useValues } from 'kea'
