@@ -434,36 +434,44 @@ def _json_subcolumn_access(
     return value
 
 
+def _declared_json_path_type(
+    field_type: ast.FieldType, keys: Sequence[str | int], source: MaterializedPropertySource
+) -> str:
+    """The type the native table declares for the path, or '' for a Dynamic path.
+
+    A declared column cannot hold NULL, so a missing key sits there as the type's default ('' or []) and the read has
+    to map that default back to NULL. A Dynamic path is NULL when the key is missing, so an empty value there is a
+    value the customer sent and reads as legacy reads it.
+    """
+    if source.json_column is not None:
+        return ""
+    is_person = False
+    table_type: ast.Type | None = field_type.table_type
+    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
+        is_person = is_person or isinstance(table_type, ast.VirtualTableType)
+        table_type = table_type.table_type
+    if not isinstance(table_type, ast.TableType):
+        return ""
+    declared_types = PERSON_PROPERTIES_JSON_SUBCOLUMNS if is_person else EVENTS_PROPERTIES_JSON_SUBCOLUMNS
+    return declared_types.get(".".join(str(key) for key in keys), "")
+
+
 def _is_declared_array_path(
     field_type: ast.FieldType, keys: Sequence[str | int], source: MaterializedPropertySource
 ) -> bool:
     """Whether the native events table declares an array type for the path, so that every row holds an array there."""
-    if source.json_column is not None or field_type.name != "properties":
-        return False
-    table_type: ast.Type | None = field_type.table_type
-    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
-        table_type = table_type.table_type
-    if not isinstance(table_type, ast.TableType):
-        return False
-    declared_type = EVENTS_PROPERTIES_JSON_SUBCOLUMNS.get(".".join(str(key) for key in keys), "")
-    return declared_type.startswith("Array(")
+    return _declared_json_path_type(field_type, keys, source).startswith("Array(")
 
 
-def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool) -> ast.Expr:
-    json_value = ast.Call(
-        name="nullIf",
-        args=[
-            ast.Call(
-                name="nullIf",
-                args=[
-                    ast.Call(name="toJSONString", args=[clone_expr(value)], type=ast.StringType(nullable=False)),
-                    _sentinel("[]"),
-                ],
-            ),
-            _sentinel("{}"),
-        ],
-        type=ast.StringType(nullable=True),
-    )
+def _dynamic_json_scalar_string_expr(value: ast.Expr, *, as_json: bool, declared: bool) -> ast.Expr:
+    json_value: ast.Expr = ast.Call(name="toJSONString", args=[clone_expr(value)], type=ast.StringType(nullable=False))
+    if declared:
+        # A declared array column holds [] for a missing key, so an empty container reads as NULL there.
+        json_value = ast.Call(
+            name="nullIf",
+            args=[ast.Call(name="nullIf", args=[json_value, _sentinel("[]")]), _sentinel("{}")],
+            type=ast.StringType(nullable=True),
+        )
     if as_json:
         return json_value
 
@@ -532,19 +540,18 @@ def _json_subcolumn_value_expr(
         return ast.PropertyAccess(expr=document, keys=list(keys[index_position:]), type=ast.StringType(nullable=True))
 
     value = _json_subcolumn_access(field_type, keys, source=source, is_nullable=True)
-    scalar_value = _dynamic_json_scalar_string_expr(value, as_json=as_json)
+    declared = bool(_declared_json_path_type(field_type, keys, source))
+    scalar_value = _dynamic_json_scalar_string_expr(value, as_json=as_json, declared=declared)
+    # Only a declared column stores a missing key as ''; a Dynamic path is NULL for a missing key.
+    missing: ast.Expr = ast.Call(name="isNull", args=[clone_expr(value)])
+    if declared:
+        missing = ast.Call(
+            name="isNull",
+            args=[ast.Call(name="nullIf", args=[ast.Call(name="toString", args=[clone_expr(value)]), _sentinel("")])],
+        )
     scalar_or_null = ast.Call(
         name="if",
-        args=[
-            ast.Call(
-                name="isNull",
-                args=[
-                    ast.Call(name="nullIf", args=[ast.Call(name="toString", args=[clone_expr(value)]), _sentinel("")])
-                ],
-            ),
-            ast.Constant(value=None, type=ast.StringType(nullable=True)),
-            scalar_value,
-        ],
+        args=[missing, ast.Constant(value=None, type=ast.StringType(nullable=True)), scalar_value],
         type=ast.StringType(nullable=True),
     )
     if index_position is not None:
