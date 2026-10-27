@@ -267,6 +267,79 @@ describe('inboxReportDetailLogic', () => {
         })
     })
 
+    describe('claiming a report opened from an out-of-date list row', () => {
+        const claimBy = (
+            kind: 'task' | 'user',
+            claimId: string,
+            userUuid?: string
+        ): NonNullable<SignalReport['assignee']> =>
+            ({
+                claim_id: claimId,
+                kind,
+                user: userUuid ? { id: 1, uuid: userUuid, first_name: 'Ada', email: 'ada@example.com' } : null,
+                task_id: kind === 'task' ? 'task-1' : null,
+                agent: null,
+                claimed_at: '2026-01-01T00:00:00Z',
+                responsible_user: null,
+            }) as unknown as NonNullable<SignalReport['assignee']>
+
+        it.each([
+            {
+                name: 'takes over the task claim the list row did not show',
+                serverAssignee: claimBy('task', 'claim-task'),
+                expectedBodies: [{ takeover: false }, { takeover: true, takeover_claim_id: 'claim-task' }],
+                expectedToast: null,
+            },
+            {
+                name: 'reports a person who claimed the report meanwhile',
+                serverAssignee: claimBy('user', 'claim-person', 'other-user'),
+                expectedBodies: [{ takeover: false }],
+                expectedToast: 'Someone else is already working on this report.',
+            },
+        ])('$name', async ({ serverAssignee, expectedBodies, expectedToast }) => {
+            const myClaim = claimBy('user', 'claim-mine', 'me')
+            const bodies: unknown[] = []
+            const claim = jest.fn(async ({ request }: MockResolverInfo): Promise<[number, unknown]> => {
+                const body = (await request.json()) as { takeover?: boolean }
+                bodies.push(body)
+                return body.takeover
+                    ? [200, { ...REPORT, assignee: myClaim, updated_at: '2026-01-02T00:00:00Z' }]
+                    : [409, { detail: 'This report already has an active claim.' }]
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
+                    '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
+                    '/api/projects/:team_id/signals/reports/:id/checks/': { results: [] },
+                    '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                    '/api/projects/:team_id/signals/reports/:id/': { ...REPORT, assignee: serverAssignee },
+                },
+                post: { '/api/projects/:team_id/signals/reports/:id/claim/': claim },
+            })
+            initKeaTests()
+            const errorToast = jest.spyOn(lemonToast, 'error')
+            const logic = inboxReportDetailLogic({ reportId: REPORT.id, report: { ...REPORT, assignee: null } })
+            logic.mount()
+            try {
+                await expectLogic(logic).toFinishAllListeners()
+                logic.actions.setReportClaimed(true)
+                await waitFor(() => expect(logic.values.claimSaving).toBe(false))
+
+                expect(bodies).toEqual(expectedBodies)
+                if (expectedToast) {
+                    expect(errorToast).toHaveBeenCalledWith(expectedToast)
+                } else {
+                    expect(errorToast).not.toHaveBeenCalled()
+                    expect(logic.values.report?.assignee).toEqual(myClaim)
+                }
+            } finally {
+                errorToast.mockRestore()
+                logic.unmount()
+            }
+        })
+    })
+
     describe('reviewer updates', () => {
         const reviewer: EnrichedReviewer = {
             github_login: 'example-reviewer',
