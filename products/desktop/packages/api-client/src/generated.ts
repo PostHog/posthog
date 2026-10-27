@@ -9855,6 +9855,7 @@ export namespace Schemas {
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
@@ -9876,6 +9877,7 @@ export namespace Schemas {
         | "no_metric"
         | "metric_event_not_ingested"
         | "metric_cannot_compile"
+        | "metric_calculation_failed"
         | "exposure_criteria_cannot_match"
         | "srm"
         | "zero_exposures"
@@ -9927,6 +9929,7 @@ export namespace Schemas {
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
          * * `metric_cannot_compile` - Metric Cannot Compile
+         * * `metric_calculation_failed` - Metric Calculation Failed
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
@@ -9984,6 +9987,7 @@ export namespace Schemas {
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
@@ -10003,6 +10007,7 @@ export namespace Schemas {
         | "no_metric"
         | "metric_event_not_ingested"
         | "metric_cannot_compile"
+        | "metric_calculation_failed"
         | "exposure_criteria_cannot_match"
         | "early_significance"
         | "zero_exposures"
@@ -10035,6 +10040,7 @@ export namespace Schemas {
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
          * * `metric_cannot_compile` - Metric Cannot Compile
+         * * `metric_calculation_failed` - Metric Calculation Failed
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
          * * `early_significance` - Early Significance
          * * `zero_exposures` - Zero Exposures
