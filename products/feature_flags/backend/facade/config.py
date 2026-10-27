@@ -30,6 +30,7 @@ from typing import Any, Literal, get_args
 from posthog.dataclasses import frozen
 
 from products.feature_flags.backend.types import PropertyFilterType
+from products.feature_flags.backend.variant_rollout import variant_rollout_sum_is_100
 
 ConfigFormatKind = Literal["v1", "v2", "unsupported"]
 FlagReturnType = Literal["boolean", "string", "number", "object"]
@@ -177,13 +178,9 @@ def _rule_v2(rule: Mapping[str, Any]) -> RuleV2:
 
 
 def served_string_values(filters: object) -> list[str]:
-    """The strings a flag serves as its value: a v1 flag's variant keys, or a v2 string flag's rule values in rule
-    order and then its default. A flag that serves only true or false, or an undecodable document, lists none."""
     config = decode_config(filters)
     if isinstance(config, ConfigV1):
-        multivariate = config.filters.get("multivariate")
-        variants = multivariate.get("variants") if isinstance(multivariate, Mapping) else None
-        return [variant["key"] for variant in variants or [] if variant.get("key")]
+        return [variant["key"] for variant in _v1_variants(config.filters) if variant.get("key")]
     if isinstance(config, ConfigV2) and config.return_type == "string":
         candidates = [
             *(value for rule in config.rules for value in (rule.value, *rule.variant_values)),
@@ -191,3 +188,18 @@ def served_string_values(filters: object) -> list[str]:
         ]
         return list(dict.fromkeys(value for value in candidates if isinstance(value, str)))
     return []
+
+
+def variant_rollout_leaves_a_gap(filters: object) -> bool:
+    config = decode_config(filters)
+    if not isinstance(config, ConfigV1):
+        return False
+    variants = _v1_variants(config.filters)
+    rollout_sum = sum(variant.get("rollout_percentage") or 0 for variant in variants)
+    return bool(variants) and rollout_sum < 100 and not variant_rollout_sum_is_100(rollout_sum)
+
+
+def _v1_variants(filters: Mapping[str, Any]) -> list[Any]:
+    multivariate = filters.get("multivariate")
+    variants = multivariate.get("variants") if isinstance(multivariate, Mapping) else None
+    return variants if isinstance(variants, list) else []

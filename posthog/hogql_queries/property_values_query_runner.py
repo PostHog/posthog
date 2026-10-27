@@ -32,7 +32,7 @@ from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.utils import convert_property_value, flatten, get_instance_region, relative_date_parse
 
 from products.access_control.backend.property_access_control import get_restricted_property_names
-from products.feature_flags.backend.facade.flags import get_flag_property_values
+from products.feature_flags.backend.facade.property_values import get_flag_property_values
 
 PROPERTY_VALUES_TABLE_FLAG = "property-values-table"
 

@@ -17,6 +17,7 @@ from parameterized import parameterized
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.constants import AvailableFeature
 from posthog.hogql_queries.property_values_query_runner import (
     PROPERTY_VALUES_TABLE_FLAG,
     CachedPropertyValuesQueryResponse,
@@ -28,6 +29,7 @@ from posthog.hogql_queries.property_values_query_runner import (
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Organization, Team
 
+from products.access_control.backend.facade.testing import create_access_control
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 MULTIVARIATE_FILTERS = {
@@ -158,6 +160,20 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ("boolean_flag", {"groups": [{"rollout_percentage": 100}]}, None, ["true", "false"]),
             ("multivariate_flag", MULTIVARIATE_FILTERS, None, ["control", "test", "false"]),
             ("search_is_case_insensitive", MULTIVARIATE_FILTERS, "TES", ["test"]),
+            (
+                "variant_weights_leave_a_gap",
+                {
+                    "groups": [{"rollout_percentage": 100}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "test", "rollout_percentage": 30},
+                        ]
+                    },
+                },
+                None,
+                ["control", "test", "true", "false"],
+            ),
         ]
     )
     def test_feature_flag_property_values_come_from_the_flag(self, _name, filters, search_value, expected_names):
@@ -175,6 +191,26 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_feature_flag_property_without_a_flag_in_the_project_uses_events_scan(self):
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other"))
         FeatureFlag.objects.create(team=other_team, key="beta", filters=MULTIVARIATE_FILTERS)
+        _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"$feature/beta": "retired"})
+
+        results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="$feature/beta"))
+        assert [r.name for r in results] == ["retired"]
+
+    @parameterized.expand([("rule_on_the_flag", True), ("rule_on_every_flag", False)])
+    def test_feature_flag_hidden_from_any_member_uses_events_scan(self, _name, rule_on_the_flag):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        flag = FeatureFlag.objects.create(
+            team=self.team, key="beta", created_by=self.user, filters=MULTIVARIATE_FILTERS
+        )
+        create_access_control(
+            team_id=self.team.id,
+            resource="feature_flag",
+            access_level="none",
+            resource_id=str(flag.id) if rule_on_the_flag else None,
+        )
         _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"$feature/beta": "retired"})
 
         results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="$feature/beta"))
