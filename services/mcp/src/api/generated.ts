@@ -108760,7 +108760,7 @@ export namespace Schemas {
     /**
      * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
      */
-    export type SendTransactionalEmailMessageData = {[key: string]: unknown};
+    export type SendEmailMessageData = {[key: string]: unknown};
 
     export interface TransactionalEmailIdentifiers {
       /**
@@ -108770,6 +108770,27 @@ export namespace Schemas {
          */
       distinct_id?: string | null;
     }
+
+    export interface SendEmailTemplate {
+      /** ID of the email template to send. The template must be made transactional first. */
+      id: string;
+    }
+
+    export interface SendEmail {
+      /** Email address of the recipient. */
+      to: string;
+      /** Who the email is for, used to attribute engagement events. */
+      identifiers?: TransactionalEmailIdentifiers;
+      /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
+      message_data?: SendEmailMessageData;
+      /** The transactional email template to send. */
+      template: SendEmailTemplate;
+    }
+
+    /**
+     * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
+     */
+    export type SendTransactionalEmailMessageData = {[key: string]: unknown};
 
     export interface SendTransactionalEmail {
       /** Email address of the recipient. */
