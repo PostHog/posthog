@@ -48,8 +48,8 @@ from django.utils import timezone as django_timezone
 from django.utils.http import content_disposition_header
 
 import posthoganalytics
-from rest_framework.exceptions import ValidationError
 from jwt import InvalidTokenError
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.tagged_item import replace_tags_on_object
 from posthog.clickhouse.query_tagging import tag_queries
@@ -59,7 +59,12 @@ from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import Team, User
 from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
 from posthog.models.integration import Integration
-from posthog.models.integration.claude import ClaudeReauthRequired, ClaudeTokenRejected, ClaudeUserIntegration
+from posthog.models.integration.claude import (
+    ClaudeAccessDenied,
+    ClaudeReauthRequired,
+    ClaudeTokenRejected,
+    ClaudeUserIntegration,
+)
 from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
 from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE
@@ -4258,6 +4263,8 @@ def issue_claude_subscription_token(
         return None
     try:
         token = ClaudeUserIntegration.issue_token(owner_id, rejected_token_sha256=rejected_token_sha256)
+    except ClaudeAccessDenied:
+        return None
     except ClaudeTokenRejected as error:
         increment_credential_refresh("claude", "orphaned")
         owner = User.objects.filter(id=owner_id).first()
@@ -4277,7 +4284,20 @@ def issue_claude_subscription_token(
 
 def claude_relay_params(owner_id: int | None, params: dict[str, Any] | None) -> tuple[dict[str, Any] | None, bool]:
     token = params.get("token") if isinstance(params, dict) else None
-    if owner_id is None or params is None or not isinstance(token, str) or not token:
+    if (
+        params is None
+        or params.get("credential") != "claude_subscription_token"
+        or not isinstance(token, str)
+        or not token
+    ):
+        return params, False
+    if not ClaudeUserIntegration.cloud_access_allowed(owner_id):
+        return {
+            **{key: value for key, value in params.items() if key != "token"},
+            "error": "no_token",
+            "reason": "unavailable",
+        }, True
+    if owner_id is None:
         return params, False
     integration = ClaudeUserIntegration.for_user(owner_id)
     if integration is None or not integration.rejects(token):

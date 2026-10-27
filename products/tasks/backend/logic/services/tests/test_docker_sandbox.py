@@ -200,7 +200,9 @@ def test_start_agent_server_stages_the_subscription_run_token_again_for_the_bran
             repository=None, task_id="t1", run_id="r1", branch="feature", subscription_run_token="run-token"
         )
 
-    token_writes = [call for call in write_file.call_args_list if call.args[0] == "/run/posthog/agent-subscription-run-token"]
+    token_writes = [
+        call for call in write_file.call_args_list if call.args[0] == "/run/posthog/agent-subscription-run-token"
+    ]
     assert len(token_writes) == 2
 
 

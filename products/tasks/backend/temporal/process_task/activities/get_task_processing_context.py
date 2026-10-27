@@ -536,7 +536,14 @@ def _ensure_codex_account_connected(owner_id: int | None, run_id: str) -> None:
         )
 
 
-def _claude_server_token_status(owner_id: int | None) -> str | None:
+def _claude_server_token_status(owner_id: int | None, run_id: str) -> str | None:
+    if not ClaudeUserIntegration.cloud_access_allowed(owner_id):
+        raise ProcessTaskFatalError(
+            "Claude cloud subscriptions require a verified PostHog employee account. Select PostHog in the Billing menu.",
+            {"run_id": run_id},
+            cause=ValueError("Claude cloud subscription access denied"),
+            capture=False,
+        )
     integration = ClaudeUserIntegration.for_user(owner_id) if owner_id is not None else None
     return integration.status if integration is not None else None
 
@@ -1097,6 +1104,11 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         _ensure_codex_account_connected(model_access.owner_id, run_id)
     claude_model_access = model_access.access_for("claude")
     codex_model_access = model_access.access_for("codex")
+    claude_token_status = (
+        _claude_server_token_status(model_access.owner_id, run_id) if model_access.adapter == "claude" else None
+    )
+    _ensure_claude_token_not_rejected(claude_token_status, run_id)
+    claude_subscription_server = claude_token_status == STATUS_CONNECTED
     sandbox_event_ingest_enabled = model_access.kind == "own-subscription" or _is_sandbox_event_ingest_enabled(
         run_id=run_id, state=state
     )

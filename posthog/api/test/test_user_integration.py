@@ -1978,6 +1978,10 @@ class TestUserIntegrationClaudeEndpoints(APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
+        self.user.email = "claude-employee@posthog.com"
+        self.user.is_staff = True
+        self.user.is_email_verified = True
+        self.user.save(update_fields=["email", "is_staff", "is_email_verified"])
         flag = patch("posthog.api.user_integration_claude.posthoganalytics.feature_enabled", return_value=True)
         self.flag_enabled = flag.start()
         self.addCleanup(flag.stop)
@@ -2030,3 +2034,29 @@ class TestUserIntegrationClaudeEndpoints(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert UserIntegration.objects.get(user=self.user, kind="claude").sensitive_config == {"token": self.token}
+
+    @parameterized.expand(
+        [
+            ("customer", "customer@example.com", False, True),
+            ("staff_external_email", "staff@example.com", True, True),
+            ("unverified", "employee@posthog.com", True, False),
+            ("unverified_null", "employee@posthog.com", True, None),
+            ("non_staff", "employee@posthog.com", False, True),
+            ("subdomain", "employee@team.posthog.com", True, True),
+        ]
+    )
+    def test_employee_access_is_required_even_when_the_flag_is_enabled(
+        self, _name: str, email: str, is_staff: bool, verified: bool | None
+    ) -> None:
+        self.user.email = email
+        self.user.is_staff = is_staff
+        self.user.is_email_verified = verified
+        self.user.save(update_fields=["email", "is_staff", "is_email_verified"])
+
+        for method in ("get", "post", "delete"):
+            response = getattr(self.client, method)(
+                "/api/users/@me/integrations/claude/", {"token": self.token}, format="json"
+            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN, (method, response.json())
+        assert not UserIntegration.objects.filter(user=self.user, kind="claude").exists()
+        self.flag_enabled.assert_not_called()

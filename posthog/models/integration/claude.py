@@ -7,6 +7,7 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
 logger = structlog.get_logger(__name__)
@@ -29,6 +30,10 @@ STATUS_NOT_CONNECTED = ClaudeIntegrationStatus.NOT_CONNECTED.value
 
 
 class ClaudeAuthError(Exception):
+    pass
+
+
+class ClaudeAccessDenied(ClaudeAuthError):
     pass
 
 
@@ -60,6 +65,19 @@ class ClaudeUserIntegration:
         self.integration = integration
 
     @classmethod
+    def cloud_access_allowed(cls, user_id: int | None) -> bool:
+        return (
+            user_id is not None
+            and User.objects.filter(
+                id=user_id,
+                is_active=True,
+                is_staff=True,
+                is_email_verified=True,
+                email__iendswith="@posthog.com",
+            ).exists()
+        )
+
+    @classmethod
     def for_user(cls, user_id: int) -> "ClaudeUserIntegration | None":
         row = UserIntegration.objects.filter(user_id=user_id, kind=cls.KIND).first()
         return cls(row) if row is not None else None
@@ -71,6 +89,8 @@ class ClaudeUserIntegration:
 
     @classmethod
     def connect(cls, user_id: int, token: str) -> "ClaudeUserIntegration":
+        if not cls.cloud_access_allowed(user_id):
+            raise ClaudeAccessDenied("Claude cloud subscriptions require a verified PostHog employee account.")
         with transaction.atomic():
             cls._lock_user(user_id)
             row, _ = UserIntegration.objects.update_or_create(
@@ -86,6 +106,8 @@ class ClaudeUserIntegration:
 
     @classmethod
     def issue_token(cls, user_id: int, *, rejected_token_sha256: str | None) -> str:
+        if not cls.cloud_access_allowed(user_id):
+            raise ClaudeAccessDenied("Claude cloud subscriptions require a verified PostHog employee account.")
         reauth_error: ClaudeTokenRejected | None = None
         token: str | None = None
         with transaction.atomic():

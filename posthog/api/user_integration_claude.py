@@ -63,7 +63,13 @@ def ensure_not_sandbox_claude_request(request: Request) -> None:
         raise exceptions.PermissionDenied("Cloud tasks cannot change the connected Claude token.")
 
 
+def ensure_claude_employee_access(user: User) -> None:
+    if not ClaudeUserIntegration.cloud_access_allowed(user.id):
+        raise exceptions.PermissionDenied("Claude cloud subscriptions require a verified PostHog employee account.")
+
+
 def ensure_claude_connect_enabled(user: User) -> None:
+    ensure_claude_employee_access(user)
     organization_id = str(user.current_organization_id)
     try:
         enabled = posthoganalytics.feature_enabled(
@@ -82,6 +88,7 @@ def ensure_claude_connect_enabled(user: User) -> None:
 
 
 def get_claude_integration(user: User) -> dict[str, str | None]:
+    ensure_claude_employee_access(user)
     return serialize_claude_integration(ClaudeUserIntegration.for_user(user.id))
 
 
@@ -97,6 +104,7 @@ def connect_claude_integration(user: User, data: dict[str, str]) -> Response:
 
 
 def disconnect_claude_integration(user: User) -> Response:
+    ensure_claude_employee_access(user)
     integration = ClaudeUserIntegration.for_user(user.id)
     if integration is not None:
         integration.disconnect()

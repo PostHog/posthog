@@ -3742,7 +3742,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         params = request.validated_data.get("params")
         if method == "credential_response":
             params, relay_blocked = tasks_facade.claude_relay_params(self._user_id(), params)
-            if relay_blocked:
+            if relay_blocked and params is not None and params.get("reason") == "reauth_required":
                 report_user_action(request.user, "claude subscription reauth required", {"source": "relay_guard"})
 
         if method in _HUMAN_STEERING_COMMAND_METHODS and tasks_facade.task_run_awaits_report_activation(

@@ -18,6 +18,7 @@ import {
   IDLE_RESUME_STOP_REASON,
 } from "@posthog/agent-contracts";
 import { SIMPLIFIED_TECHNICAL_ENGLISH_INSTRUCTION as STE100_INSTRUCTION } from "@posthog/harness/extensions/benjamin";
+import * as localTools from "@posthog/harness/extensions/local-tools";
 import { zipSync } from "fflate";
 import jwt from "jsonwebtoken";
 import { HttpResponse, http } from "msw";
@@ -61,8 +62,8 @@ import {
   SSE_KEEPALIVE_INTERVAL_MS,
   UPSTREAM_PROVIDER_FAILURE_MESSAGE,
 } from "./agent-server";
-import { ContextSelection, type HumanMessage } from "./context-selection";
 import { CLAUDE_SUBSCRIPTION_TOKEN_FAILED_MESSAGES } from "./claude-subscription-token";
+import { ContextSelection, type HumanMessage } from "./context-selection";
 import { type JwtPayload, SANDBOX_CONNECTION_AUDIENCE } from "./jwt";
 import type { ExistingPrCheckoutResult } from "./pr-checkout";
 
@@ -7610,7 +7611,12 @@ describe("AgentServer HTTP Mode", () => {
   });
 
   describe("buildCloudSystemPrompt", () => {
+    beforeEach(() => {
+      vi.spyOn(localTools, "resolveGithubToken").mockReturnValue(undefined);
+    });
+
     afterEach(() => {
+      vi.mocked(localTools.resolveGithubToken).mockRestore();
       vi.unstubAllEnvs();
     });
 
@@ -7830,7 +7836,7 @@ describe("AgentServer HTTP Mode", () => {
     it("tells the agent to self-assign through gh rather than match a name", () => {
       // `gh` already knows who the run acts as, so the agent must read it rather than
       // ask the user for a handle it is forbidden from guessing.
-      vi.stubEnv("GITHUB_TOKEN", "ghu_actor");
+      vi.mocked(localTools.resolveGithubToken).mockReturnValue("ghu_actor");
       const s = createServer();
       const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt();
       expect(prompt).toContain("You have GitHub access in this session.");
@@ -7850,7 +7856,7 @@ describe("AgentServer HTTP Mode", () => {
       async (origin) => {
         // Non-Slack runs open issues under a person's credentials too, so this must not
         // sit behind `isSlack`.
-        vi.stubEnv("GITHUB_TOKEN", "ghu_actor");
+        vi.mocked(localTools.resolveGithubToken).mockReturnValue("ghu_actor");
         const s = createServer();
         await openProduct(s, origin);
         expect(

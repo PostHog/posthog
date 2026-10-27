@@ -272,9 +272,6 @@ export function useTaskCreation({
   const { data: tasks } = useTasks();
 
   const currentProjectId = useAuthStateValue((state) => state.currentProjectId);
-  const claudeTokenStore = useServiceOptional<ClaudeSubscriptionTokenSettings>(
-    CLAUDE_SUBSCRIPTION_TOKEN_SETTINGS,
-  );
   const { personalChannel } = useTaskChannels();
 
   const hasRequiredPath = allowNoRepo

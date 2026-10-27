@@ -600,10 +600,17 @@ class AgentServerLaunchMixin(SandboxBase):
             ),
             timeout_seconds=AGENT_SERVER_PREFLIGHT_TIMEOUT_SECONDS,
         )
-        return self._read_agent_server_preflight(result, executable_paths, allowed_domains)
+        return self._read_agent_server_preflight(
+            result, executable_paths, allowed_domains, has_replacement_credential=has_replacement_credential
+        )
 
     def _read_agent_server_preflight(
-        self, result: ExecutionResult, executable_paths: tuple[str, ...], allowed_domains: list[str] | None
+        self,
+        result: ExecutionResult,
+        executable_paths: tuple[str, ...],
+        allowed_domains: list[str] | None,
+        *,
+        has_replacement_credential: bool = False,
     ) -> AgentServerPreflight:
         if result.exit_code == AGENT_SERVER_PREFLIGHT_CHMOD_EXIT_CODE:
             raise SandboxExecutionError(

@@ -262,21 +262,36 @@ class TestGetTaskProcessingContextActivity:
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "subscription,is_trial,resume,launches_agent,claude_token_on_server",
+        "subscription,is_trial,resume,launches_agent,claude_token_on_server,is_employee",
         [
-            (False, False, False, True, False),
-            (True, False, False, True, False),
-            (True, False, False, True, True),
-            (False, True, False, True, False),
-            (False, False, True, True, False),
-            (False, False, False, False, False),
+            (False, False, False, True, False, True),
+            (True, False, False, True, False, True),
+            (True, False, False, True, False, False),
+            (True, False, False, True, True, True),
+            (True, False, False, True, True, False),
+            (False, True, False, True, False, True),
+            (False, False, True, True, False, True),
+            (False, False, False, False, False, True),
         ],
     )
     def test_get_task_processing_context_success(
-        self, activity_environment, test_task, subscription, is_trial, resume, launches_agent, claude_token_on_server
+        self,
+        activity_environment,
+        test_task,
+        subscription,
+        is_trial,
+        resume,
+        launches_agent,
+        claude_token_on_server,
+        is_employee,
     ):
         owner = User.objects.create_user(
-            email="subscription-owner@example.com", password=None, first_name="Owner", distinct_id="subscription-owner"
+            email="subscription-owner@posthog.com",
+            password=None,
+            first_name="Owner",
+            distinct_id="subscription-owner",
+            is_staff=is_employee,
+            is_email_verified=True,
         )
         OrganizationMembership.objects.create(organization=test_task.team.organization, user=owner)
         if claude_token_on_server:
@@ -311,6 +326,10 @@ class TestGetTaskProcessingContextActivity:
             flag.side_effect = lambda key, distinct_id=None, **kwargs: (
                 key == CLAUDE_OWN_SUBSCRIPTION_CLOUD_FEATURE_FLAG and distinct_id == owner.distinct_id
             )
+            if not is_employee:
+                with pytest.raises(ProcessTaskFatalError, match="verified PostHog employee"):
+                    async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
+                return
             result = async_to_sync(activity_environment.run)(get_task_processing_context, input_data)
 
         assert result.agent_shadow_enabled is launches_agent
@@ -377,7 +396,12 @@ class TestGetTaskProcessingContextActivity:
     @pytest.mark.django_db(transaction=True)
     def test_claude_subscription_run_stops_when_claude_rejected_the_token(self, activity_environment, test_task):
         owner = User.objects.create_user(
-            email="claude-owner@example.com", password=None, first_name="Owner", distinct_id="claude-owner"
+            email="claude-owner@posthog.com",
+            password=None,
+            first_name="Owner",
+            distinct_id="claude-owner",
+            is_staff=True,
+            is_email_verified=True,
         )
         OrganizationMembership.objects.create(organization=test_task.team.organization, user=owner)
         UserIntegration.objects.create(

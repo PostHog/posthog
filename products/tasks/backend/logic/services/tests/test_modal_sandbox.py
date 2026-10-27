@@ -1012,10 +1012,8 @@ class TestModalSandboxAgentServer:
     def test_start_agent_server_replaces_a_server_that_failed_on_its_credential(
         self, mock_sandbox: Any, preflight_exit_code, run_token
     ):
-        from products.tasks.backend.exceptions import ProcessTaskFatalError
-
         def execute(command: str, timeout_seconds: int | None = None) -> ExecutionResult:
-            if ENV_DISABLE_BUNDLED_SKILLS in command:
+            if _is_preflight_command(command):
                 return ExecutionResult(stdout=_preflight_stdout(), stderr="", exit_code=preflight_exit_code, error=None)
             return ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None)
 

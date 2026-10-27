@@ -15076,6 +15076,10 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
     @parameterized.expand(
         [
             ("issued", "claude", None, status.HTTP_200_OK, "connected"),
+            ("non_employee", "claude", None, status.HTTP_403_FORBIDDEN, "connected"),
+            ("inactive_employee", "claude", None, status.HTTP_403_FORBIDDEN, "connected"),
+            ("unverified_employee", "claude", None, status.HTTP_403_FORBIDDEN, "connected"),
+            ("external_staff", "claude", None, status.HTTP_403_FORBIDDEN, "connected"),
             ("older_token_rejected", "claude", "0" * 64, status.HTTP_200_OK, "connected"),
             (
                 "stored_token_rejected",
@@ -15088,11 +15092,24 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
             ("ended_sandbox_session", "claude", None, status.HTTP_403_FORBIDDEN, "connected"),
         ]
     )
+    @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
     def test_claude_subscription_token_goes_only_to_the_runs_sandbox(
         self, _name, run_token_kind, rejected, expected_status, expected_account_status
     ):
         owner = self.create_organization_user("claude-owner")
+        owner.email = "claude-owner@posthog.com"
+        owner.is_staff = True
+        owner.is_email_verified = True
+        owner.save(update_fields=["email", "is_staff", "is_email_verified"])
         task, run = self._create_claude_subscription_run(owner)
+        access_changes = {
+            "non_employee": {"is_staff": False},
+            "inactive_employee": {"is_active": False},
+            "unverified_employee": {"is_email_verified": False},
+            "external_staff": {"email": "former-employee@example.com"},
+        }
+        if _name in access_changes:
+            User.objects.filter(id=owner.id).update(**access_changes[_name])
         if _name == "ended_sandbox_session":
             SandboxSession.objects.unscoped().filter(task_run=run).update(ended_at=django_timezone.now())
         create_run_token = (
@@ -15439,10 +15456,14 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(call_kwargs["json"]["method"], "mcp_response")
         self.assertEqual(call_kwargs["json"]["params"]["error"], {"code": -32001, "message": "server process exited"})
 
-    @parameterized.expand([("owner",), ("other_user",), ("rejected_token",)])
+    @parameterized.expand([("owner",), ("other_user",), ("rejected_token",), ("non_employee",)])
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
     def test_command_proxies_credential_response_and_never_persists_the_token(self, caller, mock_post):
+        self.user.email = "relay-employee@posthog.com"
+        self.user.is_staff = caller != "non_employee"
+        self.user.is_email_verified = True
+        self.user.save(update_fields=["email", "is_staff", "is_email_verified"])
         owner_matches = caller != "other_user"
         reset_sandbox_jwt_key_cache()
         token = "sk-ant-oat01-fake-test-token-0000000000000000"
@@ -15490,14 +15511,14 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         assert call_kwargs["allow_redirects"] is False
         assert call_kwargs["timeout"] == 5
         self.assertEqual(call_kwargs["json"]["method"], "credential_response")
-        if caller == "rejected_token":
+        if caller in {"rejected_token", "non_employee"}:
             self.assertEqual(
                 call_kwargs["json"]["params"],
                 {
                     "requestId": "cred-1",
                     "credential": "claude_subscription_token",
                     "error": "no_token",
-                    "reason": "reauth_required",
+                    "reason": "reauth_required" if caller == "rejected_token" else "unavailable",
                 },
             )
         else:
