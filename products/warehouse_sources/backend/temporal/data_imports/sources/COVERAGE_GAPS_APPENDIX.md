@@ -9024,10 +9024,10 @@ Today (9): `Bookings`, `Deposits`, `Fees`, `Guests`, `Payments`, `Properties`, `
 
 Diffed against: <https://api.ownerreservations.com/openapi/v2.json>
 
-- [ ] `Owners (GET /v2/owners)` — resolve owner_id values on properties and bookings for revenue analysis by owner (high)
-- [ ] `Listing Sites (GET /v2/listingsites)` — resolve listing_site_id values on bookings and quotes for acquisition channel analysis (high)
-- [ ] `Calendar (GET /v2/calendar)` — measure available nights, blocked nights, occupancy, and nightly rates by property (high)
-- [ ] `Inquiries (GET /v2/inquiries)` — measure inquiry conversion into quotes and bookings (medium)
+- [x] `Owners (GET /v2/owners)` — resolve owner_id values on properties and bookings for revenue analysis by owner (high)
+- [x] `Listing Sites (GET /v2/listingsites)` — resolve listing_site_id values on bookings and quotes for acquisition channel analysis (high)
+- [x] `Calendar (GET /v2/calendar)` — measure available nights, blocked nights, occupancy, and nightly rates by property (high)
+- [x] `Inquiries (GET /v2/inquiries)` — measure inquiry conversion into quotes and bookings (medium)
 - [ ] `Listings (GET /v2/listings)` — compare property amenities and room details with booking demand and revenue (medium)
 - [ ] `Messages (GET /v2/messages)` — analyze guest communication volume and response times by booking thread (medium)
 - [ ] `Fields (GET /v2/fields)` — add custom entity attributes to booking, guest, and property analysis (medium)
