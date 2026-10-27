@@ -10,6 +10,9 @@ pub enum Error {
 
     #[error("handoff failed for partition {partition}: {reason}")]
     HandoffFailed { partition: u32, reason: String },
+
+    #[error("lease renewal margin exhausted: no confirmed renewal in {0:?}")]
+    LeaseMarginExhausted(std::time::Duration),
 }
 
 impl From<serde_json::Error> for Error {
@@ -51,6 +54,12 @@ impl Error {
             self,
             Self::Store(assignment_coordination::error::Error::LeadershipLost)
         )
+    }
+
+    /// Whether a lease ended the session, by expiring in etcd or by its
+    /// renewal margin running out. A new session is the remedy.
+    pub fn is_lease_lost(&self) -> bool {
+        self.is_leadership_lost() || matches!(self, Self::LeaseMarginExhausted(_))
     }
 }
 

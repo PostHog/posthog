@@ -33,6 +33,12 @@ pub fn is_member_level(err: &etcd_client::Error) -> bool {
     }
 }
 
+/// The Unavailable error etcd answers a require-leader request with when the
+/// member has no leader, for the same condition reported another way.
+pub fn no_leader_error(message: impl Into<String>) -> etcd_client::Error {
+    etcd_client::Error::GRpcStatus(tonic::Status::unavailable(message))
+}
+
 /// Whether the client raised this status for a failed connection or HTTP/2
 /// stream, whatever its code, rather than etcd sending it.
 fn raised_by_connection(status: &tonic::Status) -> bool {
