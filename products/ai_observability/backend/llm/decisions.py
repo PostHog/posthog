@@ -65,7 +65,7 @@ def decision_evaluations_enabled(team_id: int, *, base_url: str) -> bool:
         host = (urlsplit(base_url).hostname or "").encode("idna").decode("ascii").lower().rstrip(".")
     except (ValueError, UnicodeError):
         return False
-    if not host or host == "typesafe.ai" or host.endswith(".typesafe.ai"):
+    if not host:
         return False
     team = Team.objects.only("uuid", "organization_id").get(id=team_id)
     return (
@@ -109,11 +109,9 @@ class DecisionClient:
         ):
             raise ValueError("Use an HTTPS base URL without credentials, a query, or a fragment.")
         try:
-            host = parsed.hostname.encode("idna").decode("ascii").lower().rstrip(".")
+            parsed.hostname.encode("idna")
         except UnicodeError as error:
             raise ValueError("Use a valid HTTPS hostname.") from error
-        if host == "typesafe.ai" or host.endswith(".typesafe.ai"):
-            raise ValueError("This hosted endpoint is not available for evaluations.")
         return base_url.rstrip("/")
 
     @staticmethod
