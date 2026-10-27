@@ -9,10 +9,10 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.feature_flags.backend import today_highlights
+from products.feature_flags.backend.facade.today_highlights import HIGHLIGHT_SOURCES
 from products.feature_flags.backend.facade.usage import CreatedFlag, FlagCalls, FlagCallSummary
-from products.today.backend.logic.highlight_registry import load_sources
-from products.today.backend.logic.highlight_sources import flags
-from products.today.backend.logic.highlight_types import Context
+from products.today.backend.facade.contracts import HighlightContext
 
 MONDAY = date(2026, 10, 12)
 TUESDAY = date(2026, 10, 13)
@@ -55,7 +55,7 @@ class TestFlags(SimpleTestCase):
         covers_all_environments: bool = True,
     ) -> list[tuple[str, str, str | None]]:
         context = cast(
-            Context,
+            HighlightContext,
             SimpleNamespace(
                 team=SimpleNamespace(id=1, timezone_info=ZoneInfo("UTC")),
                 user=SimpleNamespace(id=2),
@@ -63,11 +63,11 @@ class TestFlags(SimpleTestCase):
                 daily=lambda _name, compute: compute(),
             ),
         )
-        registered = next(s for s in load_sources() if s.name == "flags")
+        registered = next(s for s in HIGHLIGHT_SOURCES if s.name == "flags")
         summary = FlagCallSummary(by_key=by_key, complete=complete, covers_all_environments=covers_all_environments)
         with (
-            patch.object(flags, "list_flags_created_by", return_value=created_flags),
-            patch.object(flags, "summarize_flag_calls", return_value=summary),
+            patch.object(today_highlights, "list_flags_created_by", return_value=created_flags),
+            patch.object(today_highlights, "summarize_flag_calls", return_value=summary),
         ):
             return [(c.title, c.detail, c.url) for c in registered.find(context).items]
 

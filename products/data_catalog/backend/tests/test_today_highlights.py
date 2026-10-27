@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from types import SimpleNamespace
 from typing import cast
 
@@ -7,11 +8,11 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.data_catalog.backend import today_highlights
 from products.data_catalog.backend.facade.api import PendingGroup, PendingKind, TeamPendingReview
+from products.data_catalog.backend.facade.today_highlights import HIGHLIGHT_SOURCES
+from products.today.backend.facade.contracts import HighlightContext, HighlightFindings
 from products.today.backend.facade.enums import HighlightLabel
-from products.today.backend.logic.highlight_registry import load_sources
-from products.today.backend.logic.highlight_sources import data_catalog_approvals
-from products.today.backend.logic.highlight_types import Context
 
 METRICS = PendingGroup(kind=PendingKind.METRICS, noun="metric", count=3, sample_names=[])
 RELATIONSHIPS = PendingGroup(kind=PendingKind.RELATIONSHIPS, noun="relationship", count=2, sample_names=[])
@@ -43,10 +44,10 @@ class TestDataCatalogApprovalsHighlight(SimpleTestCase):
         review = TeamPendingReview(
             team_id=1, team_name="Team", groups=groups, total=sum(group.count for group in groups)
         )
-        registered = next(source for source in load_sources() if source.name == "data_catalog_approvals")
+        registered = next(source for source in HIGHLIGHT_SOURCES if source.name == "data_catalog_approvals")
 
-        with patch.object(data_catalog_approvals, "build_team_pending_review", return_value=review):
-            found = registered.find(self._context(can_approve=True))
+        with patch.object(today_highlights, "build_team_pending_review", return_value=review):
+            found = self._find(registered.find, can_approve=True)
 
         assert len(found.items) == 1
         item = found.items[0]
@@ -58,14 +59,16 @@ class TestDataCatalogApprovalsHighlight(SimpleTestCase):
     def test_a_user_who_cannot_approve_gets_no_item(self) -> None:
         review = TeamPendingReview(team_id=1, team_name="Team", groups=[METRICS], total=3)
 
-        with patch.object(data_catalog_approvals, "build_team_pending_review", return_value=review):
-            found = data_catalog_approvals.find(self._context(can_approve=False))
+        with patch.object(today_highlights, "build_team_pending_review", return_value=review):
+            found = self._find(today_highlights.find_pending_approvals, can_approve=False)
 
         assert found.items == ()
 
-    def _context(self, *, can_approve: bool) -> Context:
+    def _find(self, find: Callable[[HighlightContext], HighlightFindings], *, can_approve: bool) -> HighlightFindings:
         access = MagicMock()
         access.check_access_level_for_resource.side_effect = lambda resource, level: (
             can_approve and (resource, level) == ("data_catalog", "editor")
         )
-        return cast(Context, SimpleNamespace(team=SimpleNamespace(id=1), access=access))
+        context = cast(HighlightContext, SimpleNamespace(team=SimpleNamespace(id=1), user=SimpleNamespace(id=2)))
+        with patch.object(today_highlights, "UserAccessControl", return_value=access):
+            return find(context)

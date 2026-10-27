@@ -58362,6 +58362,11 @@ export namespace Schemas {
       score: number;
       /** Name of the highlight source that found the item, for example alerts. */
       source: string;
+      /**
+         * Product that declares the source, for example feature_flags. Null for items stored before this field existed and for sources that no product declares any more.
+         * @nullable
+         */
+      product?: string | null;
     }
 
     /**
