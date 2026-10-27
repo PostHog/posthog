@@ -96,7 +96,7 @@ struct FenceHarness {
 }
 
 async fn start_fence_harness(mut seed: CachedPerson, fallback: Option<PgFallback>) -> FenceHarness {
-    let (mock_cluster, kafka_producer) = create_test_kafka().await;
+    let mock_cluster = create_test_kafka().await;
     let bootstrap = mock_cluster.bootstrap_servers();
 
     // Every harness gets its own team, so concurrent tests — and leftover
@@ -125,7 +125,7 @@ async fn start_fence_harness(mut seed: CachedPerson, fallback: Option<PgFallback
         Arc::clone(&dirty_index),
         test_recovery(&bootstrap),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::clone(&fences),
         common::fenced_producers_acquired(&mock_cluster.topic, NUM_PARTITIONS as i32).await,
         common::live_authority(),
@@ -1446,7 +1446,7 @@ async fn at_capacity_new_fences_shed_but_reseals_succeed() {
 
     let team_id = unique_team_id();
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (_mock_cluster, kafka_producer) = create_test_kafka().await;
+    let _mock_cluster = create_test_kafka().await;
     let service = PersonHogLeaderService::new(
         Arc::clone(&cache),
         None,
@@ -1456,7 +1456,7 @@ async fn at_capacity_new_fences_shed_but_reseals_succeed() {
         Arc::new(DirtyIndex::new(1_000_000)),
         test_recovery(&_mock_cluster.bootstrap_servers()),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(DashMap::new()),
         common::fenced_producers_acquired(&_mock_cluster.topic, NUM_PARTITIONS as i32).await,
         common::live_authority(),
