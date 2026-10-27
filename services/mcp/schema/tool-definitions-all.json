@@ -6354,6 +6354,22 @@
         },
         "feature_flag": "experiment-behavior-comparison"
     },
+    "explain-chart": {
+        "description": "Show the person a walkthrough of a trends chart: the chart with each moment that stands out highlighted, and a panel that steps through them one chapter at a time, with what happened, the likely cause and the evidence.\n\nCall it at the end of an investigation, after you have looked into the chart yourself (the investigate-metric skill describes how). Pass the saved insight's `insightId`, or the TrendsQuery you ran as `query`, plus a one-sentence `headline` and the chapters in reading order.\n\nThe app works out each chapter's numbers from the chart itself (the value, and how it compares with a typical point), so leave the chart's numbers out of your text. Numbers from your own follow-up queries belong in `evidence`, with the `query` that found them so the person can open it. Say how sure you are with `confidence`, and word a cause you could not confirm as a guess. Wrap each name that explains a moment (a referrer, a page, a country, a release) in **double asterisks** to highlight it, in the headline as well as in the chapters.\n\nTrends only, one series at a time. A chart that shows a total, such as a number, pie, table or map, is drawn as the line behind it. A box plot, 2D heatmap or scatter plot is refused. The response says which chapters' dates matched no point on the chart.\n\nA direct call checks the chapters against the chart and returns a short summary, and may show the person nothing. Show the walkthrough with `render-ui` where that tool is available.",
+        "category": "Insights & analytics",
+        "feature": "insights",
+        "summary": "Walk the person through a trends chart, one highlighted moment at a time.",
+        "title": "Show chart walkthrough",
+        "required_scopes": ["insight:read", "query:read"],
+        "api_operations": ["GET /api/projects/{project_id}/insights/{id}/", "POST /api/projects/{project_id}/query/"],
+        "feature_flag": "investigate-insight",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "external-data-destinations-list": {
         "description": "List the places this project's warehouse sources can write synced rows to. The PostHog warehouse is one of them, and it is where a source writes when nothing else is configured.",
         "category": "Warehouse sources",
@@ -16992,6 +17008,22 @@
         },
         "feature_flag": "warehouse-suggestions"
     },
+    "warehouse-suggestions-assign": {
+        "description": "Assign a proposed warehouse suggestion to the person who should accept or dismiss it, or pass assignee_id=null to remove the assignee. The caller needs edit access to the view or table, the same as for dismiss. The assignee must be able to accept it: edit access to the view or table, and to the data catalog for certify and deprecate suggestions. A 400 means they cannot. They get a notification unless they assign themselves or already are the assignee. Nothing changes on the view or table. Find user ids with the organization member tools.",
+        "category": "Warehouse suggestions",
+        "feature": "warehouse_suggestions",
+        "summary": "Assign a warehouse suggestion",
+        "title": "Assign a warehouse suggestion",
+        "required_scopes": ["warehouse_view:write"],
+        "api_operations": ["POST /api/projects/{project_id}/warehouse_suggestions/{id}/assign/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "warehouse-suggestions"
+    },
     "warehouse-suggestions-dismiss": {
         "description": "Dismiss a proposed warehouse suggestion with a reason: not_useful, not_now or other, plus an optional note. Nothing changes on the view or table. warehouse-suggestions-resume brings it back.",
         "category": "Warehouse suggestions",
@@ -17025,7 +17057,7 @@
         "feature_flag": "warehouse-suggestions"
     },
     "warehouse-suggestions-list": {
-        "description": "Recommendations to certify, deprecate, materialize or unmaterialize data warehouse views and tables, computed daily from how often the project reads them. Pass status=proposed for the suggestions still waiting for a decision. `payload` says what accepting would create or change. `can_act` says whether the caller can edit the view or table, which accept, dismiss and resume require. Accepting a certify or deprecate suggestion also requires edit access to the data catalog. Use warehouse-suggestions-get for the usage evidence behind one suggestion. If the list is empty, call warehouse-suggestions-status to learn why. Results come in priority order, the one most worth acting on first. Explain a suggestion to the user with the numbers in `payload`, the time and bytes saved or spent per month. For an unmaterialize suggestion, compare refresh_seconds_per_month with live_seconds_per_month and say how long one read would take (`read_seconds`). For a certify suggestion, use the read counts in `evidence` from warehouse-suggestions-get.",
+        "description": "Recommendations to certify, deprecate, materialize or unmaterialize data warehouse views and tables, computed daily from how often the project reads them. Pass status=proposed for the suggestions still waiting for a decision. `payload` says what accepting would create or change. `can_act` says whether the caller can edit the view or table, which accept, dismiss and resume require. Accepting a certify or deprecate suggestion also requires edit access to the data catalog. Use warehouse-suggestions-get for the usage evidence behind one suggestion. If the list is empty, call warehouse-suggestions-status to learn why. Results come in priority order, the one most worth acting on first. Explain a suggestion to the user with the numbers in `payload`, the time and bytes saved or spent per month. For an unmaterialize suggestion, compare refresh_seconds_per_month with live_seconds_per_month and say how long one read would take (`read_seconds`). For a certify suggestion, use the read counts in `evidence` from warehouse-suggestions-get. `assignee` is the person who should decide it; pass assignee_id to list only one person's suggestions.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "List warehouse suggestions",
