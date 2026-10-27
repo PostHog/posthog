@@ -53,6 +53,12 @@ from posthog.api.integration_email_status_serializers import (
     EmailDomainStatusSerializer,
     EmailDomainVerificationSerializer,
 )
+from posthog.api.integration_push_tokens import (
+    PushTokenImportRequestSerializer,
+    PushTokenImportResponseSerializer,
+    import_push_tokens,
+    push_channel_app_id,
+)
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -131,7 +137,7 @@ from posthog.permissions import (
     TimeSensitiveActionPermission,
 )
 from posthog.ph_client import feature_enabled_or_false
-from posthog.rate_limit import GitHubRepositoryRefreshThrottle
+from posthog.rate_limit import GitHubRepositoryRefreshThrottle, PushTokenImportThrottle
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import absolute_uri, is_relative_url
 
@@ -1529,6 +1535,7 @@ class IntegrationViewSet(
         "email_verify",
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
+        "push_tokens",
     ]
     permission_classes = [IntegrationManagementPermission, PersonalConnectionRecentAuthPermission]
     # LimitOffsetPagination needs a total order, or Postgres can return a row on neither side of a
@@ -1574,6 +1581,8 @@ class IntegrationViewSet(
     def get_throttles(self):
         if self.action == "refresh_github_repos":
             return [GitHubRepositoryRefreshThrottle(), *super().get_throttles()]
+        if self.action == "push_tokens":
+            return [PushTokenImportThrottle(), *super().get_throttles()]
         return super().get_throttles()
 
     def perform_destroy(self, instance: Integration) -> None:
@@ -2677,6 +2686,29 @@ class IntegrationViewSet(
             raise ValidationError("gitlab_members endpoint is only supported for GitLab integrations")
         search = query_serializer.validated_data["search"]
         return assignees_response(lambda: GitLabIntegration(instance).list_assignees(search))
+
+    @validated_request(
+        PushTokenImportRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=PushTokenImportResponseSerializer, description="Import outcome."),
+            400: OpenApiResponse(description="The rows are invalid, or the integration is not a push channel."),
+            429: OpenApiResponse(description="Too many imports for this project. Retry after a minute."),
+        },
+        summary="Import push device tokens",
+        description="Register existing device tokens, for example exported from another provider, on this push "
+        "channel. Each token is stored encrypted on its person, as the mobile SDK stores it.",
+    )
+    @action(methods=["POST"], detail=True, url_path="push_tokens")
+    def push_tokens(self, request: ValidatedRequest, **kwargs) -> Response:
+        integration = self.get_object()
+        if not push_channel_app_id(integration):
+            raise ValidationError("Device tokens can only be imported into an APNs or Firebase push channel.")
+        result = import_push_tokens(integration, request.validated_data["subscriptions"])
+        return Response(
+            PushTokenImportResponseSerializer(
+                {"imported": result.imported, "failed_distinct_ids": result.failed_distinct_ids}
+            ).data
+        )
 
     @extend_schema(
         request=None,
