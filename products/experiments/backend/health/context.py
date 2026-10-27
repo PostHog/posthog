@@ -24,6 +24,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFlagChangeKind,
     ExperimentHealthMetricCompileErrorKind,
 )
+from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD, LAST_CALLED_AT_LAG_DURATION
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
@@ -177,6 +178,8 @@ class ConditionSetTraffic:
 
     # The latest of launch, the flag's last save and the start of the window.
     since: datetime
+    # The end of the window, which is the time of the scan.
+    until: datetime
     team_timezone: str
     # People by the condition set that served their latest call of the flag's current version.
     people_by_set: Mapping[int, int]
@@ -304,8 +307,11 @@ class HealthContext:
     is_launched: bool
     is_running: bool
     has_ended: bool
+    # None while the experiment has not ended.
+    ended_at: datetime | None
     is_paused: bool
     archived: bool
+    team_timezone: str
     flag: FlagState | None
     # Whether PostHog has recorded a call of the flag. None when the experiment has no flag, or when PostHog can't
     # record the calls of this organization's flags.
@@ -315,6 +321,11 @@ class HealthContext:
     # answer this. None before launch, when the experiment has no flag, when the flag's latest call came after the
     # end, or when PostHog can't record the calls of this organization's flags.
     flag_called_during_run: bool | None
+    # Whether the flag's latest recorded call came after the end. False only when no call is recorded in the
+    # ENDED_FLAG_QUIET_PERIOD after the end, also for a flag without a recorded call. None before the end, when the
+    # experiment has no flag, before that period is over, or when PostHog can't record the calls of this
+    # organization's flags.
+    flag_called_after_end: bool | None
     # Whether the team has an active flag, which posthog-js needs to request flags on page load. None when not read:
     # it is read only for a draft whose flag has no recorded call.
     team_has_active_flag: bool | None
@@ -463,6 +474,20 @@ def _flag_called_during_run(experiment: Experiment, flag_called: bool | None) ->
     return None if _flag_calls_unrecorded(experiment) else False
 
 
+def _flag_called_after_end(experiment: Experiment) -> bool | None:
+    end_date = experiment.end_date
+    # django-stubs types the id as int, but an unsaved instance can carry None.
+    feature_flag_id: int | None = experiment.feature_flag_id
+    if not experiment.is_stopped or end_date is None or feature_flag_id is None:
+        return None
+    last_called_at = experiment.feature_flag.last_called_at
+    if last_called_at is not None and last_called_at > end_date:
+        return True
+    if timezone.now() - end_date < ENDED_FLAG_QUIET_PERIOD + LAST_CALLED_AT_LAG_DURATION:
+        return None
+    return None if _flag_calls_unrecorded(experiment) else False
+
+
 def _flag_calls_unrecorded(experiment: Experiment) -> bool:
     # The task that sets `last_called_at` reads `$feature_flag_called` from the events table, unless it is set to
     # read flag_evaluations. On FLAG_EVALUATIONS_ONLY, ingestion writes no `$feature_flag_called` to the events table
@@ -607,11 +632,14 @@ def load_health_context(
         is_launched=experiment.is_launched,
         is_running=experiment.is_running,
         has_ended=experiment.is_stopped,
+        ended_at=experiment.end_date if experiment.is_stopped else None,
         is_paused=experiment.is_paused,
         archived=experiment.archived,
+        team_timezone=experiment.team.timezone,
         flag=_load_flag_state(experiment),
         flag_called=flag_called,
         flag_called_during_run=_flag_called_during_run(experiment, flag_called),
+        flag_called_after_end=_flag_called_after_end(experiment),
         team_has_active_flag=(
             has_active_flags(experiment.team) if flag_called is False and not experiment.is_launched else None
         ),
