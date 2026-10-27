@@ -1,5 +1,5 @@
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -8,8 +8,8 @@ import type { EvaluationOutputConfig } from '../types'
 import { categoryKey } from './categoryKey'
 
 /**
- * The categories of an evaluation. A new category's key follows its label, and marking a category as a pass is the
- * passing rule: with none picked, runs get no pass or fail.
+ * The categories of an evaluation. A new category's key follows its label. With grading on, the categories marked as a
+ * pass are the passing rule; with it off, runs get a category and no pass or fail.
  */
 export function EvaluationCategoryEditor({
     config,
@@ -27,10 +27,9 @@ export function EvaluationCategoryEditor({
     const options = config.options ?? []
     const passing = config.passing_rule && 'categories' in config.passing_rule ? config.passing_rule.categories : []
     const named = options.filter((option) => option.key)
-    // With several categories an empty rule means "passes when none is found", so an existing rule stays when emptied.
-    const keepsEmptyRule = config.selection_mode === 'multiple' && !!config.passing_rule
+    const grades = !!config.passing_rule
     const withPassing = (keys: string[]): EvaluationOutputConfig['passing_rule'] =>
-        keys.length > 0 || keepsEmptyRule ? { categories: keys } : null
+        grades ? { categories: keys } : null
 
     return (
         <div className="flex flex-col gap-2">
@@ -91,45 +90,59 @@ export function EvaluationCategoryEditor({
                 </LemonButton>
             </div>
             {named.length > 0 && (
-                <div className="flex flex-col gap-1 pt-2">
-                    <span className="text-sm font-semibold">Which ones count as a pass?</span>
-                    <div className="flex flex-wrap gap-1">
-                        {named.map((option, index) => {
-                            const passes = passing.includes(option.key)
-                            return (
-                                <button
-                                    key={`${index}-${option.key}`}
-                                    type="button"
-                                    aria-pressed={passes}
-                                    className={cn(
-                                        'rounded border px-2 py-1 text-sm cursor-pointer transition-colors',
-                                        passes
-                                            ? 'bg-success-highlight border-success text-success font-semibold'
-                                            : 'bg-surface-primary hover:bg-fill-highlight-100'
-                                    )}
-                                    onClick={() =>
-                                        onChange({
-                                            passing_rule: withPassing(
+                <div className="flex flex-col gap-2 pt-2">
+                    <LemonSwitch
+                        label="Grade runs as pass or fail"
+                        checked={grades}
+                        onChange={(on) => onChange({ passing_rule: on ? { categories: passing } : null })}
+                        data-attr="llma-evaluation-create-category-grading"
+                    />
+                    {grades ? (
+                        <div className="flex flex-col gap-1">
+                            <span className="text-sm font-semibold">Which ones count as a pass?</span>
+                            <div className="flex flex-wrap gap-1">
+                                {named.map((option, index) => {
+                                    const passes = passing.includes(option.key)
+                                    return (
+                                        <button
+                                            key={`${index}-${option.key}`}
+                                            type="button"
+                                            aria-pressed={passes}
+                                            className={cn(
+                                                'rounded border px-2 py-1 text-sm cursor-pointer transition-colors',
                                                 passes
-                                                    ? passing.filter((value) => value !== option.key)
-                                                    : [...passing, option.key]
-                                            ),
-                                        })
-                                    }
-                                    data-attr="llma-evaluation-create-category-pass"
-                                >
-                                    {option.label}
-                                </button>
-                            )
-                        })}
-                    </div>
-                    <span className="text-xs text-secondary">
-                        {passing.length > 0
-                            ? 'Runs with any other category fail. Pass rates and reports use this.'
-                            : keepsEmptyRule
-                              ? 'With none picked, only runs with no category pass. Pass rates and reports use this.'
-                              : 'With none picked, runs only get a category, with no pass rate or reports.'}
-                    </span>
+                                                    ? 'bg-success-highlight border-success text-success font-semibold'
+                                                    : 'bg-surface-primary hover:bg-fill-highlight-100'
+                                            )}
+                                            onClick={() =>
+                                                onChange({
+                                                    passing_rule: withPassing(
+                                                        passes
+                                                            ? passing.filter((value) => value !== option.key)
+                                                            : [...passing, option.key]
+                                                    ),
+                                                })
+                                            }
+                                            data-attr="llma-evaluation-create-category-pass"
+                                        >
+                                            {option.label}
+                                        </button>
+                                    )
+                                })}
+                            </div>
+                            <span className="text-xs text-secondary">
+                                {passing.length > 0
+                                    ? 'Runs with any other category fail. Pass rates and reports use this.'
+                                    : config.selection_mode === 'multiple'
+                                      ? 'With none picked, only runs with no category pass.'
+                                      : 'Pick at least one category that counts as a pass.'}
+                            </span>
+                        </div>
+                    ) : (
+                        <span className="text-xs text-secondary">
+                            Runs only get a category, with no pass rate or reports.
+                        </span>
+                    )}
                 </div>
             )}
         </div>
