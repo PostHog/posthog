@@ -587,9 +587,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         final_result.extend(formula_results)
         else:
             for series_results in returned_results:
-                for item in series_results:
-                    item["order"] = item.get("action", {}).get("order", 0)
-
                 final_result.extend(series_results)
 
         has_more = False
@@ -770,7 +767,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
             if self.query.samplingFactor and self.query.samplingFactor != 1:
                 factor = self.query.samplingFactor
-                math = series_object.get("action", {}).get("math")
+                math = series.series.math
                 if "count" in series_object:
                     series_object["count"] = correct_result_for_sampling(series_object["count"], factor, math)
                 if "aggregated_value" in series_object:
@@ -782,6 +779,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                         correct_result_for_sampling(value, factor, math) for value in series_object["data"]
                     ]
 
+            series_object["order"] = series.series_order
             res.append(series_object)
         return res
 
