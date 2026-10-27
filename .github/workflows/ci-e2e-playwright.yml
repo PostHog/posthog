@@ -109,12 +109,15 @@ jobs:
         # Run on master push, manual dispatch, and on ready internal-repo PRs.
         # Drafts skip E2E (see the trigger comment); the `Playwright tests pass`
         # aggregator treats skipped as success, and drafts can't merge anyway.
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
         if: |
+            (github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')) && (
             github.event_name == 'push' ||
             github.event_name == 'workflow_dispatch' ||
             (github.event.pull_request.head.repo.full_name == github.repository &&
              (github.event.pull_request.draft != true ||
               startsWith(github.head_ref, 'trunk-merge/')))
+            )
         name: Determine need to run E2E checks
         outputs:
             # Debounce can veto a PR run whose SHA has already been superseded (see below).
