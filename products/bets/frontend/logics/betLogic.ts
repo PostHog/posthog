@@ -68,6 +68,8 @@ export interface betLogicValues {
     bet: BetsDetailApi | null
     betLoading: boolean
     breadcrumbs: Breadcrumb[]
+    buildDialogIdea: string | null
+    buildDialogOpen: boolean
     buildDisabledReason: string | null
     busy: boolean
     busyOperation: string | null
@@ -195,6 +197,9 @@ export interface betLogicActions {
     ) => {
         pullRequestTitles: Record<string, string>
         payload?: string[]
+    }
+    openBuild: (workId: string | null) => {
+        workId: string | null
     }
     openDismiss: (workId: string | null) => {
         workId: string | null
@@ -330,6 +335,7 @@ export const betLogic = kea<betLogicType>([
             value,
         }),
         extendWork: (workId: string) => ({ workId }),
+        openBuild: (workId: string | null) => ({ workId }),
         openStop: (workId: string | null) => ({ workId }),
         stopWork: (workId: string) => ({ workId }),
     }),
@@ -374,6 +380,7 @@ export const betLogic = kea<betLogicType>([
             {
                 setIdeaError: (_, { error }) => error,
                 openDismiss: () => null,
+                openBuild: () => null,
                 setAddingIdea: () => null,
             },
         ],
@@ -416,6 +423,8 @@ export const betLogic = kea<betLogicType>([
             },
         ],
         stoppingWork: [null as string | null, { openStop: (_, { workId }) => workId }],
+        buildDialogIdea: [null as string | null, { openBuild: (state, { workId }) => workId ?? state }],
+        buildDialogOpen: [false, { openBuild: (_, { workId }) => workId !== null, resetIdeas: () => false }],
     }),
     selectors(({ props }) => ({
         busy: [(s) => [s.busyOperation], (operation: string | null): boolean => operation !== null],

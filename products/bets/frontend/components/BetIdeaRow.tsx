@@ -22,7 +22,6 @@ import type { BetsDetailApi, BetsWorkApi } from '../generated/api.schemas'
 import {
     IDEA_ICON_COLOR,
     SHOWN_EVIDENCE,
-    buildCost,
     hasMoreReport,
     ideaAssessment,
     ideaEvidence,
@@ -33,7 +32,6 @@ import {
 import type { BetWorkStatus } from '../lib/workStatus'
 import { betLogic } from '../logics/betLogic'
 import { BetEvidenceChip } from './BetEvidenceChip'
-import { BetIdeaPlan } from './BetIdeaPlan'
 import { BetWorkStatusIcon } from './BetWorkStatusIcon'
 
 const ASSESSMENT_MARKS: Record<string, BetWorkStatus['mark']> = {
@@ -59,10 +57,9 @@ export function BetIdeaRow({ item, bet }: { item: BetsWorkApi; bet: BetsDetailAp
         openIdea,
         allEvidenceShown,
         ideaInProgress,
-        ideaPlans,
     } = useValues(betLogic({ id: bet.id }))
     const {
-        buildIdea,
+        openBuild,
         dismissIdea,
         openDismiss,
         setDismissReason,
@@ -89,8 +86,8 @@ export function BetIdeaRow({ item, bet }: { item: BetsWorkApi; bet: BetsDetailAp
             variant={supported ? 'primary' : 'outline'}
             loading={building}
             disabled={busy && !building}
-            disabledReason={buildDisabledReason ?? ideaPlans[item.id]?.disabledReason ?? undefined}
-            onClick={() => buildIdea(item.id)}
+            disabledReason={buildDisabledReason ?? undefined}
+            onClick={() => openBuild(item.id)}
             data-attr="bets-idea-build"
         >
             {item.assessment === 'not_supported' ? 'Build anyway' : 'Build this idea'}
@@ -179,7 +176,6 @@ export function BetIdeaRow({ item, bet }: { item: BetsWorkApi; bet: BetsDetailAp
                                 </CollapsibleContent>
                             </Collapsible>
                         )}
-                        <BetIdeaPlan item={item} bet={bet} />
                         {bet.is_owner &&
                             (dismissing ? (
                                 <form
@@ -246,9 +242,6 @@ export function BetIdeaRow({ item, bet }: { item: BetsWorkApi; bet: BetsDetailAp
                                     >
                                         Dismiss
                                     </Button>
-                                    <Text size="xs" variant="muted" render={<span className="ps-1" />}>
-                                        {buildCost(bet)}
-                                    </Text>
                                 </div>
                             ))}
                     </div>

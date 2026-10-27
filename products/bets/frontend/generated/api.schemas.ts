@@ -741,13 +741,6 @@ export interface BetsDetailApi {
     /** Current goal revision. */
     goal_version: number
     /**
-     * Average settled cost of building one idea in this project, in USD cents.
-     * @nullable
-     */
-    build_estimate_cents: number | null
-    /** Most that one build run can spend, in USD cents. */
-    build_cap_cents: number
-    /**
      * When the goal metric reached the target; the bet counts as reached after the confirm time.
      * @nullable
      */

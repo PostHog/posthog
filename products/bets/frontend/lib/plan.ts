@@ -39,7 +39,7 @@ export function detectableEffect(plan: Spread, days: number, audience: number): 
 }
 
 function parse(value: string, whole: boolean): number | null {
-    const number = Number(value)
+    const number = Number(value.trim().replace(',', '.'))
     if (!value.trim() || !Number.isFinite(number) || number <= 0) {
         return null
     }
@@ -115,4 +115,11 @@ export function planSummary(plan: BetsPlanApi): string {
         return ''
     }
     return `Planned for ${plan.days} days, to find a change of ${formatMde(plan.mde)}% or more.`
+}
+
+export function stepValue(value: string, field: PlanField, direction: 1 | -1): string {
+    const step = field === 'mde' ? 0.1 : 1
+    const current = parse(value, field !== 'mde') ?? 0
+    const next = Math.max(Math.round((current + step * direction) * 10) / 10, step)
+    return String(next)
 }

@@ -16,13 +16,10 @@ from ..db import WRITER_DB
 from ..facade.enums import BetsAccessLevel, BetStatus, IdeaOutcome, LedgerKind, ModelStep, WorkKind, WorkStage
 from ..models import Bet, BetsSettings, LedgerEntry, WorkItem
 from .ledger import totals
-from .loop import RUN_BUDGET_CENTS
 from .metrics import metric, proposed_plan
 from .next_actions import NextAction, next_actions
 from .step_models import choice, model_options, plan_available
 from .workspace import get_settings, project_id
-
-ESTIMATE_SAMPLE = 10
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -158,21 +155,6 @@ def scout_running(bet: Bet) -> bool:
     return False
 
 
-def build_estimate_cents(team_id: int) -> int | None:
-    spent: dict[str, int] = {}
-    for work_id, amount in (
-        LedgerEntry.objects.for_team(team_id)
-        .using(WRITER_DB)
-        .filter(kind=LedgerKind.SPEND, work_item__kind=WorkKind.IDEA)
-        .order_by("-created_at")
-        .values_list("work_item_id", "amount_cents")[:500]
-    ):
-        if len(spent) >= ESTIMATE_SAMPLE and str(work_id) not in spent:
-            break
-        spent[str(work_id)] = spent.get(str(work_id), 0) + amount
-    return round(sum(spent.values()) / len(spent)) if spent else None
-
-
 def work_entries(bet: Bet, user: User) -> list[dict]:
     items = list(WorkItem.objects.for_team(bet.team_id).using(WRITER_DB).filter(bet=bet).order_by("-created_at"))
     task_ids = [work.task_id for work in items if work.task_id]
@@ -224,8 +206,6 @@ def detail(team: Team, user: User, bet: Bet) -> dict:
     return {
         **entry(team, user, bet),
         "goal_version": bet.goal_version,
-        "build_estimate_cents": build_estimate_cents(bet.team_id),
-        "build_cap_cents": RUN_BUDGET_CENTS,
         "goal_met_since": bet.goal_met_since,
         "work": work_entries(bet, user),
         "spend_history": spend_history(bet),

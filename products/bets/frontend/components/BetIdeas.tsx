@@ -11,6 +11,7 @@ import type { BetsDetailApi } from '../generated/api.schemas'
 import { IDEA_ICON_COLOR, inProgressLabel, laterLabel } from '../lib/ideas'
 import { betLogic } from '../logics/betLogic'
 import { BetAddIdeaForm } from './BetAddIdeaForm'
+import { BetBuildDialog } from './BetBuildDialog'
 import { BetIdeaRow } from './BetIdeaRow'
 import { BetWorkStatusIcon } from './BetWorkStatusIcon'
 
@@ -166,6 +167,7 @@ export function BetIdeas({ bet }: { bet: BetsDetailApi }): JSX.Element | null {
                     )}
                 </CollapsibleContent>
             </Collapsible>
+            <BetBuildDialog bet={bet} />
         </section>
     )
 }

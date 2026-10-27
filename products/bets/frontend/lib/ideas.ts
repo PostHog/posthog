@@ -1,5 +1,4 @@
 import type { BetsDetailApi, BetsEvidenceApi, BetsWorkApi, EvidenceKindEnumApi } from '../generated/api.schemas'
-import { money } from './format'
 import { isOpen } from './workStatus'
 
 export interface IdeaBadge {
@@ -119,12 +118,6 @@ export function buildDisabledReason(bet: BetsDetailApi): string | null {
         return 'Ideas can only be built while the bet runs.'
     }
     return null
-}
-
-export function buildCost(bet: Pick<BetsDetailApi, 'build_estimate_cents' | 'build_cap_cents'>): string {
-    return bet.build_estimate_cents === null
-        ? `At most ${money(bet.build_cap_cents)}`
-        : `Usually about ${money(bet.build_estimate_cents)}, at most ${money(bet.build_cap_cents)}`
 }
 
 const IN_PROGRESS_LABELS: Record<string, string> = {

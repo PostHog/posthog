@@ -243,10 +243,6 @@ class BetsDetailSerializer(BetsEntrySerializer):
     is_owner = serializers.BooleanField(help_text="Whether the viewer owns this bet and can change it.")
     spend_history = BetsSpendPointSerializer(many=True, help_text="Cumulative settled spend over time.")
     goal_version = serializers.IntegerField(help_text="Current goal revision.")
-    build_estimate_cents = serializers.IntegerField(
-        allow_null=True, help_text="Average settled cost of building one idea in this project, in USD cents."
-    )
-    build_cap_cents = serializers.IntegerField(help_text="Most that one build run can spend, in USD cents.")
     goal_met_since = serializers.DateTimeField(
         allow_null=True,
         help_text="When the goal metric reached the target; the bet counts as reached after the confirm time.",

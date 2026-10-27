@@ -509,39 +509,6 @@
         --icon-stack-size: 20px;
     }
 
-    .Bets__planSentence {
-        font-size: 14px;
-        line-height: 2.25;
-        color: var(--today-ink);
-    }
-
-    .Bets__planInput {
-        display: inline-flex;
-        width: 3.75rem;
-        margin-inline: 2px;
-        font-variant-numeric: tabular-nums;
-        text-align: end;
-        vertical-align: baseline;
-        appearance: textfield;
-
-        &::-webkit-inner-spin-button,
-        &::-webkit-outer-spin-button {
-            margin: 0;
-            appearance: none;
-        }
-    }
-
-    .Bets__planInput--wide {
-        width: 6rem;
-    }
-
-    .Bets__planNoteIcon {
-        width: 14px;
-        height: 14px;
-        margin-top: 1px;
-        color: var(--today-faint);
-    }
-
     .Bets__ideaToggle.quill-collapsible__trigger {
         width: auto;
         margin-inline-start: -8px;
@@ -816,6 +783,34 @@
         .BetsTreemap__cell[data-horizontal='center'] .BetsTreemap__label {
             translate: -50% 0;
         }
+    }
+
+    &.BetBuildDialog {
+        top: 50%;
+        max-width: min(520px, calc(100vw - 2rem));
+        max-height: calc(100dvh - 2rem);
+        transition:
+            opacity 200ms var(--today-ease),
+            scale 200ms var(--today-ease);
+        transform-origin: center;
+        translate: -50% -50%;
+
+        &[data-starting-style],
+        &[data-ending-style] {
+            opacity: 0;
+            scale: 0.96;
+        }
+
+        &[data-ending-style] {
+            transition-duration: 150ms;
+        }
+    }
+
+    .BetBuildDialog__warningIcon {
+        width: 14px;
+        height: 14px;
+        margin-top: 1px;
+        color: var(--today-faint);
     }
 
     &.BetsAllocationDialog {
@@ -1167,6 +1162,17 @@
 
     .Bets.BetsAllocationDialog[data-starting-style],
     .Bets.BetsAllocationDialog[data-ending-style] {
+        scale: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .Bets.BetBuildDialog {
+        transition: none;
+    }
+
+    .Bets.BetBuildDialog[data-starting-style],
+    .Bets.BetBuildDialog[data-ending-style] {
         scale: 1;
     }
 }
