@@ -151,7 +151,9 @@ def run_metric(
             run.observe_duration(elapsed_seconds)
 
         _touch_last_run(team, metric)
-        record_metric_run(team, metric, request)
+        # An async enqueue or a cache miss has computed nothing yet, so only a run with results counts.
+        if payload.get("results") is not None:
+            record_metric_run(team, metric, request)
         capture_run(METRIC_RUN_EVENT)
         return _envelope(metric, payload, team, query, is_drifted)
 

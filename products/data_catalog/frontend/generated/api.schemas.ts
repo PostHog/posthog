@@ -212,7 +212,7 @@ export interface DataCatalogMetricApi {
      * @nullable
      */
     readonly last_run_at: string | null
-    /** Runs of this metric in the last 30 days that executed its query, from any surface. A failed run is not counted, and a markdown metric always reads 0. */
+    /** Runs of this metric in the last 30 days that returned results, from any surface. Failed runs, async runs, and cache misses are not counted, and a markdown metric always reads 0. */
     readonly runs_30d: number
     /** The part of runs_30d that agents sent: PostHog AI, MCP clients, and other agent surfaces. */
     readonly ai_runs_30d: number
@@ -319,7 +319,7 @@ export interface DataCatalogMetricCreateApi {
      * @nullable
      */
     readonly last_run_at: string | null
-    /** Runs of this metric in the last 30 days that executed its query, from any surface. A failed run is not counted, and a markdown metric always reads 0. */
+    /** Runs of this metric in the last 30 days that returned results, from any surface. Failed runs, async runs, and cache misses are not counted, and a markdown metric always reads 0. */
     readonly runs_30d: number
     /** The part of runs_30d that agents sent: PostHog AI, MCP clients, and other agent surfaces. */
     readonly ai_runs_30d: number
@@ -450,7 +450,7 @@ export interface PatchedDataCatalogMetricApi {
      * @nullable
      */
     readonly last_run_at?: string | null
-    /** Runs of this metric in the last 30 days that executed its query, from any surface. A failed run is not counted, and a markdown metric always reads 0. */
+    /** Runs of this metric in the last 30 days that returned results, from any surface. Failed runs, async runs, and cache misses are not counted, and a markdown metric always reads 0. */
     readonly runs_30d?: number
     /** The part of runs_30d that agents sent: PostHog AI, MCP clients, and other agent surfaces. */
     readonly ai_runs_30d?: number

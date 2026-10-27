@@ -31,13 +31,15 @@ export function AgentUsageCell({ metric, warned, cleanupCandidate }: AgentUsageC
                 title={`${metric.ai_runs_30d} of ${runCount(metric.runs_30d)} in the last 30 days came from PostHog AI or other agents.`}
             >
                 <span className="whitespace-nowrap">
-                    {runCount(metric.ai_runs_30d)}
-                    {warned && ' with a warning'}
+                    {warned ? `${runCount(metric.ai_runs_30d)} with a warning` : runCount(metric.ai_runs_30d)}
                 </span>
             </Tooltip>
             {warned && (
                 <span className="text-xs text-secondary">
-                    {metric.is_drifted ? 'Refresh it to remove the warning.' : 'Approve it to remove the warning.'}
+                    {/* A refresh resets the metric to proposed, so a drifted metric needs both steps. */}
+                    {metric.is_drifted
+                        ? 'Refresh and approve it to remove the warning.'
+                        : 'Approve it to remove the warning.'}
                 </span>
             )}
         </div>

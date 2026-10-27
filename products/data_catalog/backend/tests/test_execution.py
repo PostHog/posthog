@@ -296,6 +296,18 @@ class TestMetricRunCounts(APIBaseTest):
 
         assert self._counts() == {}
 
+    @parameterized.expand(
+        [
+            ("async_enqueue", {"results": None, "query_status": {"id": "q1", "complete": False}}),
+            ("cache_miss", {"cache_key": "cache-key", "query_status": None}),
+        ]
+    )
+    def test_run_without_results_is_not_counted(self, _name: str, payload: dict) -> None:
+        with patch(_PROCESS_QUERY, return_value=payload):
+            assert self.client.post(self.run_url).status_code == status.HTTP_200_OK
+
+        assert self._counts() == {}
+
     def test_markdown_run_is_not_counted(self) -> None:
         upsert_metric(
             team=self.team,

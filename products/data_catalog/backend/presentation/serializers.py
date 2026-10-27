@@ -5,6 +5,9 @@ help_text. ``status`` is exposed as a plain read-only string (not a ChoiceField)
 the drf-spectacular enum namespace, where a component named ``Status`` collides across the API.
 """
 
+from functools import cached_property
+from uuid import UUID
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field, extend_schema_serializer
 from rest_framework import serializers
@@ -141,8 +144,8 @@ class MetricSerializer(serializers.ModelSerializer):
         help_text="True when the definition has drifted from its linked source insight (or the insight is gone).",
     )
     runs_30d = serializers.SerializerMethodField(
-        help_text="Runs of this metric in the last 30 days that executed its query, from any surface. A "
-        "failed run is not counted, and a markdown metric always reads 0.",
+        help_text="Runs of this metric in the last 30 days that returned results, from any surface. Failed "
+        "runs, async runs, and cache misses are not counted, and a markdown metric always reads 0.",
     )
     ai_runs_30d = serializers.SerializerMethodField(
         help_text="The part of runs_30d that agents sent: PostHog AI, MCP clients, and other agent surfaces.",
@@ -260,8 +263,15 @@ class MetricSerializer(serializers.ModelSerializer):
         # single-object paths fall back to one query for this metric.
         run_counts = self.context.get("run_counts")
         if run_counts is None:
-            run_counts = api.run_counts_for_metrics(obj.team_id, [obj.id])
+            # Both run-count fields read this, so compute the fallback once per metric.
+            run_counts = self._fallback_run_counts
+            if obj.id not in run_counts:
+                run_counts[obj.id] = api.run_counts_for_metrics(obj.team_id, [obj.id]).get(obj.id, _NO_RUNS)
         return run_counts.get(obj.id, _NO_RUNS)
+
+    @cached_property
+    def _fallback_run_counts(self) -> dict[UUID, api.MetricRunCounts]:
+        return {}
 
 
 @extend_schema_serializer(component_name="DataCatalogMetricCreate")
