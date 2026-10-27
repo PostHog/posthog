@@ -393,9 +393,6 @@ tools:
         description: >
             Finalize a task run artifact uploaded through a prepared form. Before revising a file under the same name,
             read its latest version because an interactive user may have edited it since the agent's last upload.
-    tasks-runs-claude-subscription-token-create:
-        operation: tasks_runs_claude_subscription_token_create
-        enabled: false
     tasks-runs-list:
         operation: tasks_runs_list
         enabled: true
