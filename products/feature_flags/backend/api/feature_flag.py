@@ -683,6 +683,12 @@ def calculate_filter_size_bytes(filters: dict | None) -> int:
     return len(filter_json.encode("utf-8"))
 
 
+V2_CONDITIONS_UNAVAILABLE_REASON = (
+    "Per-rule analysis is not available for flags with config version 2. "
+    "`condition_index` is the zero-based index of the deciding rule in `filters.rules`, or null when no rule decided."
+)
+
+
 def _filter_person_properties_for_flag(
     filters: dict[str, Any], person_properties: dict[str, Any], flag_key: str | None = None
 ) -> dict[str, Any]:
@@ -3471,7 +3477,11 @@ class FeatureFlagTestEvaluationResponseSerializer(serializers.Serializer):
         ),
     )
     condition_index = serializers.IntegerField(
-        allow_null=True, help_text="The index of the condition that matched, if applicable"
+        allow_null=True,
+        help_text=(
+            "The index of the condition that matched, if applicable. For a flag with config version 2, the "
+            "zero-based index of the rule in `filters.rules` that decided the result, or null when no rule decided it."
+        ),
     )
     payload = serializers.JSONField(allow_null=True, help_text="Payload associated with the flag result, if any")
     person_properties = serializers.DictField(
@@ -3486,7 +3496,18 @@ class FeatureFlagTestEvaluationResponseSerializer(serializers.Serializer):
         ),
     )
     conditions = FeatureFlagConditionAnalysisSerializer(
-        many=True, help_text="Detailed analysis of each condition in the feature flag"
+        many=True,
+        help_text=(
+            "Detailed analysis of each condition in the feature flag. Always empty for a flag with config "
+            "version 2, which `conditions_unavailable_reason` then explains."
+        ),
+    )
+    conditions_unavailable_reason = serializers.CharField(
+        required=False,
+        help_text=(
+            "Present only when `conditions` is empty because the evaluated config has no per-condition "
+            "analysis. An empty list then does not mean the flag has no conditions or rules."
+        ),
     )
 
 
@@ -5966,6 +5987,8 @@ class FeatureFlagViewSet(
                 "evaluation_distinct_id": response_evaluation_distinct_id,
                 "conditions": detailed_conditions,
             }
+            if detect_config_format(evaluation_filters).kind == "v2":
+                response_data["conditions_unavailable_reason"] = V2_CONDITIONS_UNAVAILABLE_REASON
 
             response_serializer = FeatureFlagTestEvaluationResponseSerializer(data=response_data)
             if not response_serializer.is_valid():
