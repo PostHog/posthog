@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.aws_config
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
     AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
     AwsAuthError,
     aws_auth_field,
     resolve_aws_credentials,
@@ -58,6 +59,7 @@ class AwsConfigSource(ResumableSource[AwsConfigSourceConfig, AwsConfigResumeConf
     )
 
     lists_tables_without_credentials = True
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
     supported_versions = (CONFIG_API_VERSION,)
     default_version = CONFIG_API_VERSION
     api_docs_url = "https://docs.aws.amazon.com/config/latest/APIReference/Welcome.html"

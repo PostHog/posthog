@@ -284,7 +284,9 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             if "require_tls" not in tunnel:
                 tunnel["require_tls"] = {"enabled": True}
 
-        job_inputs = nest_flat_select_containers(job_inputs, source.get_source_config.fields)
+        job_inputs = nest_flat_select_containers(
+            job_inputs, source.get_source_config.fields, source.flat_stored_selects
+        )
         stripped = helpers.strip_sensitive_from_dict(job_inputs, nonsensitive, split.sensitive)
         declared = helpers.get_declared_field_names(source.get_source_config.fields)
         representation["job_inputs"] = helpers.restore_declared_field_names(stripped, declared.hyphenated)
@@ -403,9 +405,12 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         source_type_model = ExternalDataSourceType(instance.source_type)
         source = SourceRegistry.get_source(source_type_model)
-        existing_job_inputs = nest_flat_select_containers(instance.job_inputs or {}, source.get_source_config.fields)
+        source_fields = source.get_source_config.fields
+        existing_job_inputs = nest_flat_select_containers(
+            instance.job_inputs or {}, source_fields, source.flat_stored_selects
+        )
         incoming_job_inputs = nest_flat_select_containers(
-            validated_data.get("job_inputs", {}), source.get_source_config.fields
+            validated_data.get("job_inputs", {}), source_fields, source.flat_stored_selects
         )
         sensitive_fields = helpers.get_sensitive_field_names(source.get_source_config.fields)
         declared_field_names = helpers.get_declared_field_names(source.get_source_config.fields)

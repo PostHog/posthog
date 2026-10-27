@@ -2,6 +2,8 @@ import functools
 from typing import Protocol
 
 from asgiref.sync import async_to_sync
+from botocore.auth import SigV4Auth
+from botocore.awsrequest import AWSRequest
 from botocore.credentials import Credentials, RefreshableCredentials
 from botocore.exceptions import ClientError
 
@@ -15,11 +17,17 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import AWS_AUTH_FIELD_NAME
+
+AWS_AUTH_FIELD_NAME = "aws_auth"
+# AWS sources set this as their `flat_stored_selects`, because their keys sat at the top level before `aws_auth`.
+AWS_FLAT_STORED_SELECTS = frozenset({AWS_AUTH_FIELD_NAME})
 
 MISSING_ACCESS_KEYS_ERROR = "Enter both an AWS access key ID and a secret access key."
 MISSING_ROLE_ERROR = "Select an AWS connection that holds your IAM role."
 ROLE_NOT_FOUND_ERROR = "The AWS connection for this source no longer exists. Select another one."
+KEY_CONNECTION_FOR_ROLE_ERROR = (
+    "This AWS connection holds access keys, not an IAM role. Select a role connection, or choose Access keys."
+)
 ROLE_UNAVAILABLE_ERROR = (
     "Connecting with an IAM role is not available on this PostHog instance. Connect with access keys instead."
 )
@@ -27,17 +35,15 @@ ROLE_ACCESS_DENIED_ERROR = "PostHog could not assume your IAM role"
 ROLE_EXTERNAL_ID_NOT_ENFORCED_ERROR = "Your IAM role does not require an external ID"
 
 # Each one stays the same on every attempt until the user changes the source or the role.
+# `ROLE_UNAVAILABLE_ERROR` is left out because only the deployment can fix it, so the sync retries.
 AWS_AUTH_NON_RETRYABLE_ERRORS: dict[str, str | None] = {
     MISSING_ACCESS_KEYS_ERROR: None,
     MISSING_ROLE_ERROR: None,
     ROLE_NOT_FOUND_ERROR: None,
-    ROLE_UNAVAILABLE_ERROR: None,
+    KEY_CONNECTION_FOR_ROLE_ERROR: None,
     ROLE_ACCESS_DENIED_ERROR: None,
     ROLE_EXTERNAL_ID_NOT_ENFORCED_ERROR: None,
 }
-
-# STS fails these on a trust policy that does not name PostHog's role or the external ID.
-_ACCESS_DENIED_CODES = frozenset({"AccessDenied", "InvalidClientTokenId"})
 
 
 class AwsAuthError(Exception):
@@ -113,14 +119,14 @@ def aws_auth_field() -> SourceFieldSelectConfig:
                 fields=[
                     SourceFieldOauthConfig(
                         name="aws_integration_id",
-                        label="AWS connection",
+                        label="Role connection",
                         kind="aws-s3",
                         required=False,
                     ),
                 ],
             ),
         ],
-        caption="With an IAM role, PostHog reads with short-lived credentials and stores no key. Create an AWS connection with your role's ARN, then grant the role the permissions listed above.",
+        caption="With an IAM role, PostHog reads with short-lived credentials and stores no key. Create a role connection with your role's ARN, then grant the role the permissions listed above.",
     )
 
 
@@ -157,7 +163,7 @@ def _integration_credentials(integration_id: int, team_id: int) -> Credentials:
         raise AwsAuthError(ROLE_NOT_FOUND_ERROR) from None
 
     if isinstance(integration, AWSS3Integration):
-        return Credentials(integration.aws_access_key_id, integration.aws_secret_access_key)
+        raise AwsAuthError(KEY_CONNECTION_FOR_ROLE_ERROR)
     # An S3-compatible connection holds keys for another provider, which AWS does not accept.
     if not isinstance(integration, AWSS3RoleBasedIntegration):
         raise AwsAuthError(ROLE_NOT_FOUND_ERROR)
@@ -189,7 +195,10 @@ def _integration_credentials(integration_id: int, team_id: int) -> Credentials:
                 f"{ROLE_EXTERNAL_ID_NOT_ENFORCED_ERROR}. Add a condition to its trust policy that requires the external ID {external_id}."
             ) from None
         except ClientError as e:
-            if e.response.get("Error", {}).get("Code") not in _ACCESS_DENIED_CODES:
+            # Both hops of the chain are AssumeRole calls. Only a denial that names the customer's role
+            # is theirs to fix. A denial of PostHog's own role is a deployment problem, so it retries.
+            error = e.response.get("Error", {})
+            if error.get("Code") != "AccessDenied" or integration.aws_role_arn not in (error.get("Message") or ""):
                 raise
             raise AwsAuthError(
                 f"{ROLE_ACCESS_DENIED_ERROR}. Check that its trust policy allows PostHog's role and requires the external ID {external_id}."
@@ -204,3 +213,17 @@ def _integration_credentials(integration_id: int, team_id: int) -> Credentials:
         }
 
     return RefreshableCredentials.create_from_metadata(fetch(), refresh_using=fetch, method="sts-assume-role")
+
+
+def sign_aws_request(request: AWSRequest, credentials: Credentials, service: str, region: str) -> None:
+    """Sign one request with a consistent snapshot of the credentials.
+
+    Role credentials refresh, so a signer built once with them could mix the keys of two sessions.
+    """
+    SigV4Auth(credentials.get_frozen_credentials(), service, region).add_auth(request)
+
+
+def aws_redact_values(credentials: Credentials) -> tuple[str, ...]:
+    """The credential strings to mask from logged requests, taken from the current snapshot."""
+    frozen = credentials.get_frozen_credentials()
+    return tuple(value for value in (frozen.access_key, frozen.secret_key, frozen.token) if value)

@@ -111,29 +111,26 @@ UNVERSIONED_API_VERSION = "v1"
 FAST_RETURN_PROBE_TIMEOUT = datetime.timedelta(minutes=2)
 
 
-AWS_AUTH_FIELD_NAME = "aws_auth"
-
-# Selects that took over fields their sources used to declare at the top level. Other selects keep
-# whatever shape their stored configs already have, because their sources parse it themselves.
-FLAT_STORED_SELECTS = frozenset({AWS_AUTH_FIELD_NAME})
-
-
-def nest_flat_select_containers(job_inputs: dict[str, Any], fields: list[FieldType]) -> dict[str, Any]:
+def nest_flat_select_containers(
+    job_inputs: dict[str, Any], fields: list[FieldType], flat_stored_selects: Iterable[str]
+) -> dict[str, Any]:
     """Return a copy of job_inputs with the fields of a select branch moved into the select's container.
 
-    A select in `FLAT_STORED_SELECTS` moved existing top-level fields under it. Configs saved before
-    that change, and API clients that still send the old shape, keep the fields at the top level.
-    Config parsing already reads them as the select's default branch, but validation requires the
-    container, and the settings form and the update merge read the container. Without this, a create
-    with the old shape fails validation, the form shows the fields empty, and an update either drops
-    the stored secrets or ignores the new ones.
+    Configs saved before a select in the source's `flat_stored_selects` existed, and API clients
+    that still send the old shape, keep that select's fields at the top level. Config parsing
+    already reads them as the select's default branch. Validation, the settings form and the update
+    merge read the container instead. Without this, a create with the old shape fails validation,
+    the form shows the fields empty, and an update either drops the stored secrets or ignores the
+    new ones.
     """
     top_level_names = {field.name for field in fields}
     nested = dict(job_inputs)
     for field in fields:
-        if not isinstance(field, SourceFieldSelectConfig) or field.name not in FLAT_STORED_SELECTS:
-            continue
-        if field.name in job_inputs:
+        if (
+            not isinstance(field, SourceFieldSelectConfig)
+            or field.name not in flat_stored_selects
+            or field.name in job_inputs
+        ):
             continue
         # A name that is also a top-level field belongs to that field, as it does in config parsing.
         branch_names = {
@@ -479,10 +476,15 @@ class _BaseSource(ABC, Generic[ConfigType]):
         raise NotImplementedError()
 
     def parse_config(self, job_inputs: dict) -> ConfigType:
-        return self._config_class.from_dict(nest_flat_select_containers(job_inputs, self.get_source_config.fields))
+        return self._config_class.from_dict(job_inputs)
 
     def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
-        return self._config_class.validate_dict(nest_flat_select_containers(job_inputs, self.get_source_config.fields))
+        return self._config_class.validate_dict(
+            nest_flat_select_containers(job_inputs, self.get_source_config.fields, self.flat_stored_selects)
+        )
+
+    # Selects that took over fields this source used to declare at the top level.
+    flat_stored_selects: frozenset[str] = frozenset()
 
     def serialize_config(self, config: ConfigType) -> dict[str, Any]:
         """Serialize parsed config for storage. Sources may retain rollout-compatible fields."""
