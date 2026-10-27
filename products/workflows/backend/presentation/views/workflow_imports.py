@@ -4,9 +4,9 @@ from typing import Any, cast
 from uuid import UUID
 
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -194,7 +194,7 @@ class WorkflowImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "hog_flow"
     serializer_class = WorkflowImportRequestSerializer
     scope_object_read_actions = ["for_workflow"]
-    # Only importing is gated: the editor reads `for_workflow` on every workflow and expects a 404, not a 403.
+    # Only importing is gated: the editor reads `for_workflow` on every workflow, flag or not.
     posthog_feature_flag = {"workflows-customerio-import": ["create"]}
     permission_classes = [PostHogFeatureFlagPermission]
 
@@ -253,7 +253,7 @@ class WorkflowImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ],
         responses={
             200: OpenApiResponse(response=WorkflowImportRecordSerializer),
-            404: OpenApiResponse(description="The workflow was not imported."),
+            204: OpenApiResponse(description="The workflow was not imported."),
         },
         summary="Read what importing a workflow changed or left out",
     )
@@ -265,7 +265,8 @@ class WorkflowImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise ValidationError({"hog_flow_id": "Pass the workflow's id."})
         record = import_for_workflow(self.team, hog_flow_id)
         if record is None or not self._can_view(record):
-            raise NotFound("This workflow was not imported.")
+            # Most workflows were never imported, so that is an empty answer rather than an error.
+            return Response(status=status.HTTP_204_NO_CONTENT)
         return Response(WorkflowImportRecordSerializer(record).data)
 
     def _can_view(self, record: WorkflowImportRecord) -> bool:
