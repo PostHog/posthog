@@ -11,7 +11,16 @@ import { initKeaTests } from '~/test/init'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
 import { TraceScene } from '../TraceScene'
-import { decodeIdSegment, makeEvent, makeNodeDetail, makeTrace, makeTraceResource } from './testFixtures'
+import {
+    decodeIdSegment,
+    makeEvent,
+    makeFeedback,
+    makeFeedbackScore,
+    makeFeedbackText,
+    makeNodeDetail,
+    makeTrace,
+    makeTraceResource,
+} from './testFixtures'
 
 const FLAG = FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN
 const DATASETS_FLAG = FEATURE_FLAGS.LLM_ANALYTICS_DATASETS
@@ -25,6 +34,7 @@ jest.mock('../../../utils', () => ({
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
+const FEEDBACK_URL = '/api/projects/:team_id/ai_observability/traces/:id/feedback/'
 const DATASETS_URL = '/api/projects/:team_id/datasets/'
 const answeredGeneration = makeNodeDetail({
     id: 'gen-2',
@@ -43,6 +53,7 @@ const nodeMock = {
     },
 }
 const evaluationsMock = { [EVALUATIONS_URL]: () => [200, { results: [] }] }
+const feedbackMock = { [FEEDBACK_URL]: () => [200, makeFeedback({ scores: [], responses: [] })] }
 
 const generation = makeEvent({
     id: 'gen-1',
@@ -82,6 +93,7 @@ describe('TraceScene', () => {
                     [DATASETS_URL]: () => [200, { count: 0, results: [] }],
                     ...nodeMock,
                     ...evaluationsMock,
+                    ...feedbackMock,
                 },
             })
         })
@@ -113,11 +125,46 @@ describe('TraceScene', () => {
             expect(await findByText('Two seats were added.')).toBeTruthy()
             expect(queryByText('Add to dataset') !== null).toBe(enabled)
         })
+
+        it('opens the feedback from the header chip and the step chips, and links each entry to its step', async () => {
+            useMocks({
+                get: {
+                    [FEEDBACK_URL]: () => [
+                        200,
+                        makeFeedback({
+                            scores: [makeFeedbackScore({ name: 'helpfulness', value: '0', nodeId: 'gen-1' })],
+                            responses: [makeFeedbackText({ text: 'Too long, but correct.', nodeId: null })],
+                        }),
+                    ],
+                },
+            })
+            const { container, findByText, getByText } = renderNewView()
+
+            fireEvent.click(await findByText('Feedback 2', { selector: 'button *' }))
+            expect(await findByText('Too long, but correct.')).toBeTruthy()
+
+            fireEvent.click(getByText('gen-1', { selector: '[data-attr="trace-view-feedback-step-link"]' }))
+            await waitFor(() =>
+                expect(
+                    container.querySelector('[data-attr="trace-view-tree-node"][aria-current="true"]')?.textContent
+                ).toContain('gen-1')
+            )
+
+            fireEvent.click(await findByText('helpfulness 0'))
+            expect(await findByText('What users said')).toBeTruthy()
+        })
     })
 
     describe('behind the flag gate', () => {
         beforeEach(() => {
-            useMocks({ get: { [TRACE_URL]: () => [200, makeTraceResource()], ...nodeMock, ...evaluationsMock } })
+            useMocks({
+                get: {
+                    [TRACE_URL]: () => [200, makeTraceResource()],
+                    ...nodeMock,
+                    ...evaluationsMock,
+                    ...feedbackMock,
+                },
+            })
         })
 
         async function renderTraceRoute(flagEnabled: boolean): Promise<ReturnType<typeof render>> {

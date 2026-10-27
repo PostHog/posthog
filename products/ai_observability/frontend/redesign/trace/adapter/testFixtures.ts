@@ -3,6 +3,9 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import type {
     TraceApi,
     TraceEvaluationResultApi,
+    TraceFeedbackApi,
+    TraceFeedbackScoreApi,
+    TraceFeedbackTextApi,
     TraceNodeApi,
     TraceNodeDetailApi,
     TraceNodeIOKeysApi,
@@ -138,4 +141,32 @@ export function makeEvaluationResult(overrides: Partial<TraceEvaluationResultApi
         isBackfill: false,
         ...overrides,
     }
+}
+
+export function makeFeedbackScore(overrides: Partial<TraceFeedbackScoreApi> = {}): TraceFeedbackScoreApi {
+    return {
+        id: 'score-1',
+        name: 'helpfulness',
+        value: '0',
+        nodeId: 'gen-1',
+        timestamp: '2026-09-01T10:16:00Z',
+        ...overrides,
+    }
+}
+
+export function makeFeedbackText(overrides: Partial<TraceFeedbackTextApi> = {}): TraceFeedbackTextApi {
+    return {
+        kind: 'text',
+        id: 'text-1',
+        text: 'Too long, but correct.',
+        nodeId: null,
+        timestamp: '2026-09-01T10:17:00Z',
+        ...overrides,
+    }
+}
+
+export function makeFeedback(overrides: Partial<TraceFeedbackApi> = {}): TraceFeedbackApi {
+    const scores = overrides.scores ?? [makeFeedbackScore()]
+    const responses = overrides.responses ?? [makeFeedbackText()]
+    return { scores, responses, summary: { total: scores.length + responses.length }, ...overrides }
 }

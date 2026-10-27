@@ -4,6 +4,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import type { TraceNodeStatsApi } from '../../../generated/api.schemas'
 import { LabeledLink } from '../types'
+import { FeedbackChip, FeedbackChipProps } from './FeedbackChip'
 import { NodeStatsLine } from './NodeStatsLine'
 import { PersonChip } from './PersonChip'
 import { TraceIdChip } from './TraceIdChip'
@@ -13,9 +14,16 @@ export interface TraceSummaryBarProps {
     timestamp: string
     person: LabeledLink | null
     totals: TraceNodeStatsApi
+    feedback?: FeedbackChipProps | null
 }
 
-export function TraceSummaryBar({ traceId, timestamp, person, totals }: TraceSummaryBarProps): JSX.Element {
+export function TraceSummaryBar({
+    traceId,
+    timestamp,
+    person,
+    totals,
+    feedback = null,
+}: TraceSummaryBarProps): JSX.Element {
     return (
         <div className="@container">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -30,6 +38,7 @@ export function TraceSummaryBar({ traceId, timestamp, person, totals }: TraceSum
                         />
                     </LemonTag>
                     {person ? <PersonChip person={person} /> : null}
+                    {feedback ? <FeedbackChip {...feedback} /> : null}
                 </div>
                 <NodeStatsLine stats={totals} className="@2xl:ml-auto" />
             </div>

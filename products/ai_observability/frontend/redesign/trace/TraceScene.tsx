@@ -4,7 +4,7 @@ import { aiObservabilityTraceLogic } from '../../aiObservabilityTraceLogic'
 import { SaveToDatasetButton } from '../../datasets/SaveToDatasetButton'
 import { traceViewAdapterLogic, traceViewAdapterLogicValues } from './adapter/traceViewAdapterLogic'
 import { TraceView, TraceViewProps, TraceViewReadyProps } from './components/TraceView'
-import { NodeDetailTab, TraceMode } from './types'
+import { FeedbackEntry, NodeDetailTab, TraceMode } from './types'
 
 type ReadyValues = Pick<
     traceViewAdapterLogicValues,
@@ -19,6 +19,11 @@ type ReadyValues = Pick<
     | 'canViewInThread'
     | 'thread'
     | 'timeline'
+    | 'feedbackChip'
+    | 'feedbackCount'
+    | 'feedbackCountByNodeId'
+    | 'feedbackMode'
+    | 'selectedStepFeedback'
 >
 
 interface ReadyActions {
@@ -28,6 +33,7 @@ interface ReadyActions {
     setDetailTab: (tab: NodeDetailTab) => void
     viewInThread: () => void
     prefetchNode: (id: string) => void
+    showFeedback: (nodeId: string | null, entry: FeedbackEntry) => void
 }
 
 function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewReadyProps | null {
@@ -36,7 +42,12 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
     }
     return {
         header: values.header,
-        summary: values.summary,
+        summary: {
+            ...values.summary,
+            feedback: values.feedbackChip
+                ? { chip: values.feedbackChip, onClick: () => actions.showFeedback(null, 'chip') }
+                : null,
+        },
         mode: values.mode,
         onModeChange: actions.setMode,
         tree: values.tree,
@@ -51,10 +62,19 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
                   onTabChange: actions.setDetailTab,
                   onViewInThread: values.canViewInThread ? actions.viewInThread : null,
                   actions: values.datasetItemSource ? <SaveToDatasetButton {...values.datasetItemSource} /> : null,
+                  stepFeedback: values.selectedStepFeedback
+                      ? {
+                            feedback: values.selectedStepFeedback,
+                            onOpen: () => actions.showFeedback(values.selectedNodeId, 'step'),
+                        }
+                      : null,
               }
             : null,
         thread: values.thread,
         timeline: values.timeline,
+        feedbackMode: values.feedbackMode,
+        feedbackCount: values.feedbackCount,
+        feedbackCountByNodeId: values.feedbackCountByNodeId,
     }
 }
 
@@ -77,6 +97,11 @@ export function TraceScene(): JSX.Element {
         canViewInThread,
         thread,
         timeline,
+        feedbackChip,
+        feedbackCount,
+        feedbackCountByNodeId,
+        feedbackMode,
+        selectedStepFeedback,
     } = useValues(logic)
     const actions = useActions(logic)
 
@@ -95,6 +120,11 @@ export function TraceScene(): JSX.Element {
                       canViewInThread,
                       thread,
                       timeline,
+                      feedbackChip,
+                      feedbackCount,
+                      feedbackCountByNodeId,
+                      feedbackMode,
+                      selectedStepFeedback,
                   },
                   actions
               )

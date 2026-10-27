@@ -120295,6 +120295,38 @@ export namespace Schemas {
       results: TraceEvaluationResult[];
     }
 
+    export interface TraceFeedbackScore {
+      id: string;
+      name: string | null;
+      /** The score as text: a string as sent, any other value as compact JSON, such as 0, false or 4.5. */
+      value: string;
+      /** The step the score targets, or null for the whole trace. */
+      nodeId: string | null;
+      timestamp: string;
+    }
+
+    export interface TraceFeedbackText {
+      kind: 'text';
+      id: string;
+      text: string;
+      /** The step the feedback targets, or null for the whole trace. */
+      nodeId: string | null;
+      timestamp: string;
+    }
+
+    export interface TraceFeedbackSummary {
+      /** Scores plus responses. */
+      total: number;
+    }
+
+    export interface TraceFeedback {
+      /** Oldest first. */
+      scores: TraceFeedbackScore[];
+      /** What users said, oldest first. */
+      responses: TraceFeedbackText[];
+      summary: TraceFeedbackSummary;
+    }
+
     export interface TraceNodeMetadata {
       provider: string | null;
       temperature: number | null;
@@ -128820,6 +128852,13 @@ export namespace Schemas {
     } as const;
 
     export type AiObservabilityTracesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesFeedbackRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */

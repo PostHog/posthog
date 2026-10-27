@@ -5,13 +5,14 @@ import posthog from 'posthog-js'
 
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
 import type { TraceApi } from '../../../generated/api.schemas'
-import { decodeIdSegment, makeNodeDetail, makeTraceResource } from './testFixtures'
+import { decodeIdSegment, makeFeedback, makeNodeDetail, makeTraceResource } from './testFixtures'
 import { traceViewAdapterLogic } from './traceViewAdapterLogic'
 
 jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), performQuery: jest.fn() }))
@@ -19,6 +20,7 @@ jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), 
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
+const FEEDBACK_URL = '/api/projects/:team_id/ai_observability/traces/:id/feedback/'
 
 const answeredGeneration = makeNodeDetail({
     id: 'gen-2',
@@ -35,6 +37,7 @@ describe('traceViewAdapterLogic', () => {
     let traceGate: Promise<void>
     let nodeRequests: string[]
     let failingNodeId: string | null
+    let feedbackStatus: number
 
     function mountAt(params: Record<string, string> = {}): void {
         router.actions.push(urls.aiObservabilityTrace('trace-1', params))
@@ -47,6 +50,7 @@ describe('traceViewAdapterLogic', () => {
         traceGate = Promise.resolve()
         nodeRequests = []
         failingNodeId = null
+        feedbackStatus = 200
         useMocks({
             get: {
                 [TRACE_URL]: async () => {
@@ -54,6 +58,8 @@ describe('traceViewAdapterLogic', () => {
                     return [200, traceResource]
                 },
                 [EVALUATIONS_URL]: () => [200, { results: [] }],
+                [FEEDBACK_URL]: () =>
+                    feedbackStatus === 200 ? [200, makeFeedback()] : [feedbackStatus, { detail: 'Server error.' }],
                 [NODE_URL]: ({ params }) => {
                     const nodeId = decodeIdSegment(String(params.node_id))
                     nodeRequests.push(nodeId)
@@ -76,6 +82,7 @@ describe('traceViewAdapterLogic', () => {
     })
 
     afterEach(() => {
+        resumeKeaLoadersErrors()
         logic.unmount()
         jest.restoreAllMocks()
     })
@@ -218,5 +225,39 @@ describe('traceViewAdapterLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         await expectLogic(logic, () => logic.actions.selectNode(nodeId)).toMatchValues({ canViewInThread: expected })
+    })
+
+    it('showFeedback opens the Feedback mode focused on the step and reports where it came from', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setMode('thread')
+
+        await expectLogic(logic, () => logic.actions.showFeedback('gen-1', 'step')).toMatchValues({
+            mode: 'feedback',
+            feedbackFocusNodeId: 'gen-1',
+            feedbackChip: { total: 2 },
+            feedbackCountByNodeId: { 'gen-1': 1, 'trace-1': 1 },
+        })
+        expect(capture).toHaveBeenCalledWith('llma trace view feedback viewed', {
+            entry: 'step',
+            scores: 1,
+            responses: 1,
+        })
+    })
+
+    it('has no chip, no counts and an error mode after the feedback read fails', async () => {
+        silenceKeaLoadersErrors()
+        feedbackStatus = 500
+        mountAt()
+
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                status: 'ready',
+                feedbackChip: null,
+                feedbackCountByNodeId: {},
+                feedbackMode: { status: 'error' },
+            })
     })
 })

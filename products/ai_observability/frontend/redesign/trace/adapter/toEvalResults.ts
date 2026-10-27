@@ -14,7 +14,7 @@ function flatten(nodes: TraceNodeApi[]): TraceNodeApi[] {
 }
 
 // Two steps can share a name, such as two calls to the same model, so repeated names get their position.
-function nodeLabels(tree: TraceNodeApi[]): Map<string, string> {
+export function nodeLabels(tree: TraceNodeApi[]): Map<string, string> {
     const nodes = flatten(tree)
     const totals = new Map<string, number>()
     nodes.forEach((node) => totals.set(node.name, (totals.get(node.name) ?? 0) + 1))

@@ -9,12 +9,22 @@ import { TraceTree } from './TraceTree'
 function Stateful({
     nodes,
     initialSelectedId = 'gen-answer',
+    feedbackCountByNodeId,
 }: {
     nodes: TraceNodeApi[]
     initialSelectedId?: string
+    feedbackCountByNodeId?: Record<string, number>
 }): JSX.Element {
     const [selected, setSelected] = useState<string | null>(initialSelectedId)
-    return <TraceTree nodes={nodes} selectedNodeId={selected} onSelectNode={setSelected} onPrefetchNode={() => {}} />
+    return (
+        <TraceTree
+            nodes={nodes}
+            selectedNodeId={selected}
+            onSelectNode={setSelected}
+            onPrefetchNode={() => {}}
+            feedbackCountByNodeId={feedbackCountByNodeId}
+        />
+    )
 }
 
 const meta: Meta<typeof Stateful> = {
@@ -40,4 +50,7 @@ export const WithError: Story = {
             },
         ],
     },
+}
+export const WithFeedbackMarkers: Story = {
+    args: { nodes: FIXTURE_TREE, feedbackCountByNodeId: { 'trace-1': 3, 'gen-answer': 12, 'span-search': 1 } },
 }

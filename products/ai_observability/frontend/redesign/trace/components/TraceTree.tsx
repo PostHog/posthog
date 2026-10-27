@@ -6,9 +6,16 @@ export interface TraceTreeProps {
     selectedNodeId: string | null
     onSelectNode: (id: string) => void
     onPrefetchNode: (id: string) => void
+    feedbackCountByNodeId?: Record<string, number>
 }
 
-export function TraceTree({ nodes, selectedNodeId, onSelectNode, onPrefetchNode }: TraceTreeProps): JSX.Element {
+export function TraceTree({
+    nodes,
+    selectedNodeId,
+    onSelectNode,
+    onPrefetchNode,
+    feedbackCountByNodeId,
+}: TraceTreeProps): JSX.Element {
     return (
         <ul aria-label="Trace steps" className="m-0 list-none rounded border border-primary bg-surface-primary p-1">
             {nodes.map((node) => (
@@ -19,6 +26,7 @@ export function TraceTree({ nodes, selectedNodeId, onSelectNode, onPrefetchNode 
                     selectedNodeId={selectedNodeId}
                     onSelectNode={onSelectNode}
                     onPrefetchNode={onPrefetchNode}
+                    feedbackCountByNodeId={feedbackCountByNodeId}
                 />
             ))}
         </ul>

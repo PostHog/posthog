@@ -3,6 +3,7 @@ from datetime import datetime
 from functools import cached_property
 
 from .event import TraceEvent
+from .node_ids import NodeIdResolver, NodeIds
 from .thread import pick_user_visible_generation
 from .timeline import Timeline
 from .trace_queries import PersonRow, TraceEventRow
@@ -76,14 +77,11 @@ class Trace:
 
     @cached_property
     def node_ids_by_alias(self) -> dict[str, str]:
-        aliases: dict[str, str] = {}
-        for event in self.events:
-            if event.is_annotation or event.is_trace_event:
-                continue
-            for alias in (event.row.generation_id, event.row.span_id):
-                if alias and alias != event.id:
-                    aliases.setdefault(alias, event.id)
-        return aliases
+        return NodeIdResolver(
+            NodeIds(uuid=event.id, generation_id=event.row.generation_id, span_id=event.row.span_id)
+            for event in self.events
+            if not event.is_trace_event
+        ).aliases
 
     @property
     def person_label(self) -> str | None:

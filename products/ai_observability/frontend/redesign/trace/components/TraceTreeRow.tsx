@@ -3,6 +3,7 @@ import { IconWarning } from '@posthog/icons'
 import { cn } from 'lib/utils/css-classes'
 
 import type { TraceNodeApi } from '../../../generated/api.schemas'
+import { FeedbackMarker } from './FeedbackMarker'
 import { NodeKindGlyph } from './NodeKindGlyph'
 import { NodeStatsLine } from './NodeStatsLine'
 
@@ -12,6 +13,8 @@ export interface TraceTreeRowProps {
     selectedNodeId: string | null
     onSelectNode: (id: string) => void
     onPrefetchNode: (id: string) => void
+    /** Feedback entries per step id, trace-level ones on the root. */
+    feedbackCountByNodeId?: Record<string, number>
 }
 
 export function TraceTreeRow({
@@ -20,8 +23,10 @@ export function TraceTreeRow({
     selectedNodeId,
     onSelectNode,
     onPrefetchNode,
+    feedbackCountByNodeId,
 }: TraceTreeRowProps): JSX.Element {
     const isSelected = node.id === selectedNodeId
+    const feedbackCount = feedbackCountByNodeId?.[node.id] ?? 0
     return (
         <li>
             <button
@@ -49,6 +54,7 @@ export function TraceTreeRow({
                     >
                         <span className="truncate">{node.name}</span>
                         {node.hasError ? <IconWarning className="shrink-0" role="img" aria-label="Error" /> : null}
+                        {feedbackCount > 0 ? <FeedbackMarker count={feedbackCount} /> : null}
                     </span>
                     <NodeStatsLine stats={node.stats} model={node.model} compact />
                 </span>
@@ -63,6 +69,7 @@ export function TraceTreeRow({
                             selectedNodeId={selectedNodeId}
                             onSelectNode={onSelectNode}
                             onPrefetchNode={onPrefetchNode}
+                            feedbackCountByNodeId={feedbackCountByNodeId}
                         />
                     ))}
                 </ul>

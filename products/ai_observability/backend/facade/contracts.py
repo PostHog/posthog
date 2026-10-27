@@ -138,6 +138,34 @@ class TraceEvaluationResults(Contract):
     results: list[TraceEvaluationResult]
 
 
+class TraceFeedbackScore(Contract):
+    id: str
+    name: str | None
+    value: str = Field(
+        description="The score as text: a string as sent, any other value as compact JSON, such as 0, false or 4.5."
+    )
+    node_id: str | None = Field(description="The step the score targets, or null for the whole trace.")
+    timestamp: datetime
+
+
+class TraceFeedbackText(Contract):
+    kind: Literal["text"]
+    id: str
+    text: str
+    node_id: str | None = Field(description="The step the feedback targets, or null for the whole trace.")
+    timestamp: datetime
+
+
+class TraceFeedbackSummary(Contract):
+    total: int = Field(description="Scores plus responses.")
+
+
+class TraceFeedback(Contract):
+    scores: list[TraceFeedbackScore] = Field(description="Oldest first.")
+    responses: list[TraceFeedbackText] = Field(description="What users said, oldest first.")
+    summary: TraceFeedbackSummary
+
+
 AttentionReason = Literal["errored", "silent", "worse"]
 BucketStatus = Literal["none", "dip", "normal"]
 Interval = Literal["hour", "day"]
