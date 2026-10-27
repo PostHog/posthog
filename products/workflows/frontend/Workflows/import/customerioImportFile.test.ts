@@ -17,7 +17,7 @@ describe('parseCustomerioFiles', () => {
         const user = {
             campaign: { id: 2 },
             actions: [{ id: '5', type: 'email_action', template_id: 11 }],
-            templates: { 12: { subject: 'Kept', body: '<p>Kept</p>' } },
+            templates: { 12: { id: 99, subject: 'Kept', body: '<p>Kept</p>' } },
         }
         const parsed = parseCustomerioFiles([
             JSON.stringify(automation),
@@ -30,6 +30,25 @@ describe('parseCustomerioFiles', () => {
             { id: '12', subject: 'Kept', body: '<p>Kept</p>' },
             template.template,
         ])
+    })
+
+    it('keeps every option and step of the import request shape', () => {
+        const request = {
+            campaigns: [{ ...automation, actions: [...automation.actions, 'not a step'] }],
+            layouts: { 5: '<html>{{ content }}</html>' },
+            segment_cohorts: { 7: 42 },
+            sender_identities: [{ id: '4', email: 'team@example.com' }],
+            segments: [{ id: '7', name: 'Beta', type: 'dynamic' }],
+        }
+        const parsed = parseCustomerioFiles([JSON.stringify(request)])
+
+        expect(parsed.campaigns[0].actions).toEqual(request.campaigns[0].actions)
+        expect(parsed).toMatchObject({
+            layouts: request.layouts,
+            segment_cohorts: request.segment_cohorts,
+            sender_identities: request.sender_identities,
+            segments: request.segments,
+        })
     })
 
     it('rejects a file that is not JSON', () => {

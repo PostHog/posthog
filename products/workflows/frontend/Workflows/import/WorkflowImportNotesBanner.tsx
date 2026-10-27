@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
@@ -15,9 +15,27 @@ const LEVEL_HEADINGS: Record<WorkflowImportNoteApi['level'], string> = {
 const LEVEL_ORDER: WorkflowImportNoteApi['level'][] = ['needs_input', 'approximated', 'unsupported']
 
 export function WorkflowImportNotesBanner({ id }: { id: string }): JSX.Element | null {
-    const { importRecord } = useValues(workflowImportNotesLogic({ id }))
+    const { importRecord, loadFailed } = useValues(workflowImportNotesLogic({ id }))
+    const { loadImportRecord } = useActions(workflowImportNotesLogic({ id }))
     const [expanded, setExpanded] = useState(false)
 
+    if (loadFailed) {
+        return (
+            <div className="shrink-0" data-attr="workflow-import-notes-banner">
+                <LemonBanner
+                    type="warning"
+                    action={{
+                        children: 'Retry',
+                        onClick: loadImportRecord,
+                        'data-attr': 'workflow-import-notes-retry',
+                    }}
+                >
+                    The import notes for this workflow didn't load. If it was imported from Customer.io, check them
+                    before you enable it.
+                </LemonBanner>
+            </div>
+        )
+    }
     if (!importRecord) {
         return null
     }

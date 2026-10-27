@@ -1,6 +1,7 @@
 import io
 import json
 import base64
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import quote
 
@@ -14,10 +15,13 @@ from PIL import Image
 
 from posthog.event_usage import EventSource
 from posthog.models.integration import Integration
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.uploaded_media import UploadedMedia
+from posthog.models.utils import generate_random_token_personal
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.messaging.backend.facade.categories import create_category
 from products.workflows.backend.facade.contracts import (
     CampaignSource,
@@ -345,6 +349,23 @@ class TestCustomerioConditions(SimpleTestCase):
                 {"type": "attribute", "field": "created_at", "operator": "timestamp_gt", "value": "-2592000"},
                 [{"key": "created_at", "operator": "is_date_after", "type": "person", "value": "-30d"}],
             ),
+            (
+                "relative hours",
+                {"type": "attribute", "field": "created_at", "operator": "timestamp_gt", "value": "-7200"},
+                [{"key": "created_at", "operator": "is_date_after", "type": "person", "value": "-2h"}],
+            ),
+            (
+                "absolute time of day",
+                {"type": "attribute", "field": "created_at", "operator": "timestamp_lta", "value": "1700050000"},
+                [
+                    {
+                        "key": "created_at",
+                        "operator": "is_date_before",
+                        "type": "person",
+                        "value": "2023-11-15T12:06:40+00:00",
+                    }
+                ],
+            ),
         ]
     )
     def test_translates_leaf_operators(
@@ -447,16 +468,42 @@ class TestWorkflowImportAPI(APIBaseTest):
 
     def test_reimport_updates_the_draft_until_it_is_enabled(self) -> None:
         first = self._import()
+        preview = self._import(dry_run=True)
         second = self._import()
 
-        assert (first["status"], second["status"]) == ("created", "updated")
-        assert first["workflow_id"] == second["workflow_id"]
+        assert (first["status"], preview["status"], second["status"]) == ("created", "preview", "updated")
+        assert first["workflow_id"] == preview["workflow_id"] == second["workflow_id"]
         assert HogFlow.objects.filter(team=self.team).count() == 1
 
         HogFlow.objects.filter(pk=first["workflow_id"]).update(status="active")
         third = self._import()
         assert third["status"] == "skipped"
         assert HogFlow.objects.get(pk=first["workflow_id"]).status == "active"
+
+    def test_segment_trigger_uses_the_mapped_realtime_cohort(self) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Beta list",
+            cohort_type=CohortType.REALTIME,
+            last_backfill_person_properties_at=datetime(2026, 1, 1, tzinfo=UTC),
+            last_backfill_events_at=datetime(2026, 1, 1, tzinfo=UTC),
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"key": "plan", "value": "pro", "type": "person", "operator": "exact"}],
+                }
+            },
+        )
+        source = _onboarding_campaign()
+        campaign = {**source.campaign, "type": "seg_attr", "trigger": {"and": [{"segment": {"id": 7}}]}}
+        result = self._import(
+            campaigns=[{"campaign": campaign, "actions": source.actions, "templates": list(source.templates.values())}],
+            segment_cohorts={"7": cohort.id},
+        )
+
+        assert result["status"] == "created", result["validation_errors"]
+        trigger = HogFlow.objects.get(pk=result["workflow_id"]).trigger
+        assert trigger["cohort_id"] == cohort.id
 
     def test_reimport_leaves_a_workflow_the_user_cannot_edit(self) -> None:
         first = self._import()
@@ -578,7 +625,12 @@ class TestWorkflowImportAPI(APIBaseTest):
         gone = "https://userimg-assets.customeriomail.com/images/client-env-1/gone.png"
         # A longer URL that starts with `hero`, and one whose query the HTML escapes.
         hero_webp, sized = f"{hero}.webp", f"{hero}?w=1&amp;h=2"
-        served = {hero, hero_webp, f"{hero}?w=1&h=2"}
+        logo = "https://userimg-assets.customeriomail.com/images/client-env-1/logo(1).png"
+        # Neither may be requested: one only has an address at send time, one unescapes to another host.
+        templated = "https://userimg-assets.customeriomail.com/images/client-env-1/v.png?v={{ person.properties.v }}"
+        smuggled = "https://userimg-assets.customeriomail.com&#64;evil.example.com/a.png"
+        lookalike = "https://userimg-assets.customeriomaİl.com/a.png"
+        served = {hero, hero_webp, f"{hero}?w=1&h=2", logo}
 
         def respond(url: str, **kwargs: Any) -> MagicMock:
             response = MagicMock(status_code=200 if url in served else 404)
@@ -593,13 +645,14 @@ class TestWorkflowImportAPI(APIBaseTest):
             "11": {
                 **source.templates["11"],
                 "body": f'<img src="{hero}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
-                f'<img src="{hero_webp}"><img src="{sized}">',
+                f'<img src="{hero_webp}"><img src="{sized}"><div style="background: url({logo})"></div>'
+                f'<img src="{templated}"><img src="{smuggled}"><img src="{lookalike}">',
             },
         }
         campaigns = [{"campaign": source.campaign, "actions": source.actions, "templates": list(templates.values())}]
 
         preview = self._import(campaigns=campaigns, dry_run=True)
-        assert any("4 email images on Customer.io's servers will be copied" in n["message"] for n in preview["notes"])
+        assert any("5 email images on Customer.io's servers will be copied" in n["message"] for n in preview["notes"])
         assert not mock_get.called
 
         first = self._import(campaigns=campaigns)
@@ -607,18 +660,50 @@ class TestWorkflowImportAPI(APIBaseTest):
             "inputs"
         ]["email"]["value"]["html"]
         copies = list(UploadedMedia.objects.filter(team=self.team, purpose="email").order_by("created_at"))
-        assert [(m.content_type, m.width, m.height) for m in copies] == [("image/png", 3, 2)] * 3
+        assert [(m.content_type, m.width, m.height) for m in copies] == [("image/png", 3, 2)] * 4
         urls = [media.get_absolute_url() for media in copies]
         assert html == (
             f'<img src="{urls[0]}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
-            f'<img src="{urls[1]}"><img src="{urls[2]}">'
+            f'<img src="{urls[1]}"><img src="{urls[2]}"><div style="background: url({urls[3]})"></div>'
+            f'<img src="{templated}"><img src="{smuggled}"><img src="{lookalike}">'
         )
+        assert "evil.example.com" not in " ".join(call.args[0] for call in mock_get.call_args_list)
         assert any(n["step_id"] == "cio_1" and gone in n["message"] for n in first["notes"])
 
         self._import(campaigns=campaigns)
-        assert UploadedMedia.objects.filter(team=self.team, purpose="email").count() == 3
+        assert UploadedMedia.objects.filter(team=self.team, purpose="email").count() == 4
         assert [call.args[0] for call in mock_get.call_args_list].count(hero) == 1
         assert all(call.kwargs["allow_redirects"] is False for call in mock_get.call_args_list)
+
+    @patch("products.workflows.backend.services.customerio_import.images.requests.get")
+    def test_a_key_without_media_access_copies_no_images(self, mock_get: MagicMock) -> None:
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="key", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:write"]
+        )
+        self.client.logout()
+        source = _onboarding_campaign()
+        image = "https://userimg-assets.customeriomail.com/images/client-env-1/hero.png"
+        templates = {**source.templates, "11": {**source.templates["11"], "body": f'<img src="{image}">'}}
+        body = {
+            "source": "customerio",
+            "campaigns": [
+                {"campaign": source.campaign, "actions": source.actions, "templates": list(templates.values())}
+            ],
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/workflow_imports/",
+            body,
+            format="json",
+            headers={"authorization": f"Bearer {key}"},
+        )
+
+        assert response.status_code == 200, response.json()
+        result = response.json()["results"][0]
+        assert result["status"] == "created"
+        assert any("uploaded_media:write" in note["message"] for note in result["notes"])
+        assert not mock_get.called
+        assert not UploadedMedia.objects.filter(team=self.team).exists()
 
     def test_notes_are_readable_by_workflow(self) -> None:
         result = self._import()

@@ -1090,6 +1090,8 @@ class ImageBudget:
     remaining: int = 100
     # A `time.monotonic()` value. Downloads still running then are dropped, so a slow host can't hold the request.
     deadline: float = field(default_factory=lambda: time.monotonic() + 60)
+    # False when the caller's token can't write to the media library, so nothing is copied.
+    can_upload: bool = True
 
 
 @frozen

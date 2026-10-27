@@ -23,7 +23,9 @@ from products.workflows.backend.facade.enums import WorkflowImportNoteLevel
 
 logger = structlog.get_logger(__name__)
 
-_ASSET_URL = re.compile(r"https://[a-z0-9-]+\.customeriomail\.com/[^\s\"'()<>]+", re.IGNORECASE)
+# ASCII only, so a lookalike Unicode host can't match. `_download` checks the host again after unescaping.
+_ASSET_URL = re.compile(r"https://[a-z0-9-]+\.customeriomail\.com/[^\s\"'<>]*", re.IGNORECASE | re.ASCII)
+_ASSET_HOST_SUFFIX = ".customeriomail.com"
 _MAX_BYTES = 4 * 1024 * 1024
 _TIMEOUT_SECONDS = 10
 _DOWNLOAD_THREADS = 4
@@ -34,13 +36,25 @@ def rehost_images(
 ) -> RehostedWorkflow:
     """The workflow with every Customer.io-hosted email image pointing at a copy in the media library."""
     urls_by_step = {
-        action["id"]: list(dict.fromkeys(_ASSET_URL.findall(body)))
+        action["id"]: list(dict.fromkeys(_asset_urls(body)))
         for action in workflow["actions"]
         if (body := _html(action)) is not None
     }
     all_urls = list(dict.fromkeys(url for urls in urls_by_step.values() for url in urls))
     if not all_urls:
         return RehostedWorkflow(workflow=workflow, notes=())
+    if not budget.can_upload:
+        return RehostedWorkflow(
+            workflow=workflow,
+            notes=(
+                ImportNote(
+                    level=WorkflowImportNoteLevel.NEEDS_INPUT,
+                    message=f"{len(all_urls)} email {_images(len(all_urls))} still load from Customer.io's servers, "
+                    "because this API key can't write to the media library (uploaded_media:write). Import with a "
+                    "key that can, or upload them before you close your Customer.io account.",
+                ),
+            ),
+        )
     if dry_run:
         return RehostedWorkflow(
             workflow=workflow,
@@ -62,7 +76,7 @@ def rehost_images(
             actions.append(action)
             continue
         # One pass over whole matches, so a URL that starts with another copied URL keeps its own copy.
-        body = _ASSET_URL.sub(lambda match: copied.get(match.group(0), match.group(0)), body)
+        body = _ASSET_URL.sub(lambda match: _replace(match.group(0), copied), body)
         actions.append(_with_html(action, body))
         missed = [url for url in urls_by_step.get(action["id"], []) if url not in copied]
         if missed:
@@ -83,18 +97,20 @@ def _copy_images(team: Team, user: User, urls: list[str], budget: ImageBudget) -
     """Source URL, as the HTML writes it, to media library URL, for every image that is in the library now."""
     copied: dict[str, str] = {}
     to_download: list[str] = []
-    for url in urls:
-        existing = (
-            UploadedMedia.objects.filter(
-                team=team, purpose=MEDIA_PURPOSE_EMAIL, file_name=_file_name(url), pending=False
-            )
-            .exclude(media_location__isnull=True)
-            .exclude(media_location="")
-            .order_by("created_at")
-            .first()
+    names = {url: _file_name(url) for url in urls}
+    existing: dict[str, UploadedMedia] = {}
+    for media in (
+        UploadedMedia.objects.filter(
+            team=team, purpose=MEDIA_PURPOSE_EMAIL, file_name__in=set(names.values()), pending=False
         )
-        if existing is not None:
-            copied[url] = existing.get_absolute_url()
+        .exclude(media_location__isnull=True)
+        .exclude(media_location="")
+        .order_by("created_at")
+    ):
+        existing.setdefault(media.file_name, media)
+    for url, name in names.items():
+        if name in existing:
+            copied[url] = existing[name].get_absolute_url()
         else:
             to_download.append(url)
     to_download = to_download[: max(budget.remaining, 0)]
@@ -122,6 +138,14 @@ def _copy_images(team: Team, user: User, urls: list[str], budget: ImageBudget) -
 def _download(url: str, deadline: float) -> bytes | None:
     # Browsers read `&amp;` in an attribute as `&`, so the request has to as well.
     source = html.unescape(url)
+    parts = urlsplit(source)
+    if (
+        parts.scheme != "https"
+        or not (parts.hostname or "").endswith(_ASSET_HOST_SUFFIX)
+        or parts.username is not None
+        or parts.port is not None
+    ):
+        return None
     try:
         with requests.get(source, timeout=_TIMEOUT_SECONDS, allow_redirects=False, stream=True) as response:
             if response.status_code != 200:
@@ -137,6 +161,26 @@ def _download(url: str, deadline: float) -> bytes | None:
     except requests.RequestException as error:
         logger.info("workflows.import.image_download_failed", error=type(error).__name__)
         return None
+
+
+def _asset_urls(body: str) -> list[str]:
+    return [url for match in _ASSET_URL.finditer(body) if (url := _trimmed(match.group(0))) is not None]
+
+
+def _trimmed(found: str) -> str | None:
+    """The image URL in a match, or None for a URL built with Liquid, whose real address only exists at send time."""
+    url = found
+    # A parenthesis is part of the URL unless it closes a CSS `url(...)` around it.
+    while url.endswith(")") and url.count(")") > url.count("("):
+        url = url[:-1]
+    return None if "{" in url else url
+
+
+def _replace(found: str, copied: dict[str, str]) -> str:
+    url = _trimmed(found)
+    if url is None or url not in copied:
+        return found
+    return copied[url] + found[len(url) :]
 
 
 def _save(team: Team, user: User, url: str, content: bytes) -> UploadedMedia | None:

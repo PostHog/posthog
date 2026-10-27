@@ -27,9 +27,11 @@ const STATUS_TAGS: Record<WorkflowImportResultApi['status'], { label: string; ty
 }
 
 export function CustomerioImportModal(): JSX.Element {
-    const { isImportModalOpen, campaignCount, parseError, results, resultsLoading } = useValues(customerioImportLogic)
+    const { isImportModalOpen, campaignCount, files, parseError, results, resultsLoading } =
+        useValues(customerioImportLogic)
     const { closeImportModal, setFiles, runImport } = useActions(customerioImportLogic)
     const imported = results && !results.dryRun
+    const replacing = !imported ? (results?.results.filter((result) => replacesDraft(result)).length ?? 0) : 0
 
     return (
         <LemonModal
@@ -104,13 +106,23 @@ export function CustomerioImportModal(): JSX.Element {
                     <LemonFileInput
                         accept=".json"
                         multiple
+                        value={files}
                         onChange={setFiles}
                         disabledReason={resultsLoading ? 'Wait for the import to finish' : undefined}
                         showUploadedFiles
                         callToAction="Drop .json files here or click to browse"
                     />
                     {parseError ? (
-                        <LemonBanner type="error">{parseError}</LemonBanner>
+                        <LemonBanner
+                            type="error"
+                            action={{
+                                children: 'Clear files',
+                                onClick: () => setFiles([]),
+                                'data-attr': 'customerio-import-clear-files',
+                            }}
+                        >
+                            {parseError}
+                        </LemonBanner>
                     ) : campaignCount ? (
                         <span className="text-secondary" data-attr="customerio-import-count">
                             {campaignCount} {campaignCount === 1 ? 'automation' : 'automations'} found.
@@ -121,6 +133,13 @@ export function CustomerioImportModal(): JSX.Element {
                     <span className="text-secondary" data-attr="customerio-import-content-fetched">
                         PostHog read the message content from Customer.io with your stored API key.
                     </span>
+                )}
+                {replacing > 0 && (
+                    <LemonBanner type="warning" data-attr="customerio-import-replaces-drafts">
+                        {replacing === 1
+                            ? 'One automation was imported before. Importing replaces its draft, and edits made to it since are lost.'
+                            : `${replacing} automations were imported before. Importing replaces their drafts, and edits made to them since are lost.`}
+                    </LemonBanner>
                 )}
                 {results && (
                     <LemonTable
@@ -143,11 +162,14 @@ export function CustomerioImportModal(): JSX.Element {
                             {
                                 title: 'Status',
                                 key: 'status',
-                                render: (_, result) => (
-                                    <LemonTag type={STATUS_TAGS[result.status].type}>
-                                        {STATUS_TAGS[result.status].label}
-                                    </LemonTag>
-                                ),
+                                render: (_, result) =>
+                                    replacesDraft(result) ? (
+                                        <LemonTag type="warning">Replaces existing draft</LemonTag>
+                                    ) : (
+                                        <LemonTag type={STATUS_TAGS[result.status].type}>
+                                            {STATUS_TAGS[result.status].label}
+                                        </LemonTag>
+                                    ),
                             },
                             {
                                 title: 'Notes',
@@ -163,6 +185,10 @@ export function CustomerioImportModal(): JSX.Element {
             </div>
         </LemonModal>
     )
+}
+
+function replacesDraft(result: WorkflowImportResultApi): boolean {
+    return result.status === 'preview' && !!result.workflow_id
 }
 
 function summarizeNotes(result: WorkflowImportResultApi): string {

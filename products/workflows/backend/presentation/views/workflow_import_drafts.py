@@ -8,10 +8,13 @@ from django.db import IntegrityError, transaction
 
 import structlog
 from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.models import Team, User
+from posthog.permissions import get_authenticator_scopes
+from posthog.scopes import scopes_not_covered
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -33,7 +36,7 @@ from products.workflows.backend.facade.workflow_imports import (
     rehost_images,
     translate_campaign,
 )
-from products.workflows.backend.facade.writes import create_workflow, update_workflow
+from products.workflows.backend.facade.writes import create_workflow, defer_hog_flow_reloads, update_workflow
 from products.workflows.backend.presentation.views.data_suggestion_drafts import checked_draft
 
 logger = structlog.get_logger(__name__)
@@ -54,23 +57,26 @@ def import_campaigns(
     dry_run: bool,
     sender_identities: list[dict[str, Any]],
     segments: list[dict[str, Any]],
+    request: Request,
 ) -> ImportRun:
     content = import_content(
         team.id, [_campaign_source(payload) for payload in payloads], options, sender_identities, segments
     )
-    budget = ImageBudget()
-    results = [
-        import_campaign(
-            team,
-            user,
-            source,
-            content.options,
-            dry_run,
-            content.fetch_notes.get(str(source.campaign.get("id")), ()),
-            budget,
-        )
-        for source in content.sources
-    ]
+    budget = ImageBudget(can_upload=_can_upload_media(request))
+    with defer_hog_flow_reloads():
+        results = [
+            import_campaign(
+                team,
+                user,
+                source,
+                content.options,
+                dry_run,
+                content.fetch_notes.get(str(source.campaign.get("id")), ()),
+                request,
+                budget,
+            )
+            for source in content.sources
+        ]
     return ImportRun(results=results, content_fetched=content.fetched)
 
 
@@ -92,12 +98,13 @@ def import_campaign(
     options: ImportOptions,
     dry_run: bool,
     extra_notes: tuple[ImportNote, ...],
+    request: Request,
     image_budget: ImageBudget,
 ) -> dict[str, Any]:
     """Imports one Customer.io automation, or previews it, and returns its result in the response shape."""
     try:
         translated = translate_campaign(source, options)
-    except (ValueError, TypeError) as error:
+    except (ValueError, TypeError, RecursionError) as error:
         logger.info("workflows.import.unreadable_campaign", team_id=team.id, error=type(error).__name__)
         return {
             "source_id": str(source.campaign.get("id")),
@@ -117,25 +124,30 @@ def import_campaign(
         "notes": [asdict(note) for note in (*extra_notes, *translated.notes)],
         "validation_errors": [],
     }
-    previous = None if dry_run else previous_import(team, translated.source_id)
+    previous = previous_import(team, translated.source_id)
     # Checked before images are copied, so a workflow the import leaves alone costs no downloads.
-    if previous is not None and previous.hog_flow_id is not None and not _can_edit(team, user, previous):
+    if previous.hog_flow_id is not None and not _can_edit(team, user, previous):
         return _skipped(
             result,
             previous.hog_flow_id,
             "You can't edit the workflow an earlier import of this automation created, so it was left unchanged.",
         )
-    if previous is not None and previous.hog_flow_id is not None and not previous.hog_flow_is_draft:
+    if previous.hog_flow_id is not None and not previous.hog_flow_is_draft:
         return _skipped(result, previous.hog_flow_id, _NO_LONGER_DRAFT)
-
+    # Checked before images are copied too, so a draft that can't save costs no downloads.
+    validated, errors = _validated_draft(team, translated.workflow, request)
+    if validated is None:
+        return {**result, "status": "failed", "validation_errors": errors}
     rehosted = rehost_images(team, user, translated.workflow, dry_run, image_budget)
     notes = (*extra_notes, *translated.notes, *rehosted.notes)
     result["notes"] = [asdict(note) for note in notes]
-    validated, errors = _validated_draft(team, rehosted.workflow)
-    if validated is None:
-        return {**result, "status": "failed", "validation_errors": errors}
-    if previous is None:
-        return {**result, "status": "preview"}
+    if dry_run:
+        replaces = str(previous.hog_flow_id) if previous.hog_flow_id is not None else None
+        return {**result, "status": "preview", "workflow_id": replaces}
+    if rehosted.workflow is not translated.workflow:
+        validated, errors = _validated_draft(team, rehosted.workflow, request)
+        if validated is None:
+            return {**result, "status": "failed", "validation_errors": errors}
     created_name: str | None = None
     try:
         with transaction.atomic():
@@ -198,6 +210,12 @@ def _skipped(result: dict[str, Any], workflow_id: UUID | None, message: str) -> 
     return {**result, "status": "skipped", "workflow_id": str(workflow_id), "notes": [asdict(note)]}
 
 
+def _can_upload_media(request: Request) -> bool:
+    # Copying images writes to the media library, so a token must carry that scope as well as workflow access.
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    return scopes is None or "*" in scopes or not scopes_not_covered(scopes, ["uploaded_media:write"])
+
+
 def _can_edit(team: Team, user: User, previous: PreviousImport) -> bool:
     ref = ObjectAccessRef(
         resource="hog_flow",
@@ -208,9 +226,9 @@ def _can_edit(team: Team, user: User, previous: PreviousImport) -> bool:
     return UserAccessControl(user=user, team=team).check_access_level_for_ref(ref, "editor")
 
 
-def _validated_draft(team: Team, workflow: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:
+def _validated_draft(team: Team, workflow: dict[str, Any], request: Request) -> tuple[dict[str, Any] | None, list[str]]:
     try:
-        return checked_draft(team, workflow, EventSource.API), []
+        return checked_draft(team, workflow, EventSource.API, request), []
     except ValidationError as error:
         logger.info("workflows.import.invalid_workflow", team_id=team.id, errors=str(error.detail)[:500])
         return None, _flatten_errors(error.detail)
