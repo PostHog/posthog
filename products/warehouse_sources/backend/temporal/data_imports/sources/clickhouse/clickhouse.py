@@ -1086,11 +1086,16 @@ _DUPLICATE_PK_CHECK_SETTINGS: dict[str, Any] = {
 #   - A transient egress-proxy blip (`is_transient_egress_proxy_error`) is our own
 #     infrastructure being briefly unreachable, not a sign the probe's query itself
 #     is suspect. Same designed-fallback reasoning as the budget caps above.
+#   - ACCESS_DENIED (code 497): the connecting user lacks SELECT on this table. The main
+#     extraction query against the same table fails identically and the source already
+#     classifies it as a non-retryable customer-config issue (see `get_non_retryable_errors`),
+#     so capturing it here too is the same failure reported twice under a different frame.
 _EXPECTED_PROBE_FAILURE_SUBSTRINGS: tuple[str, ...] = (
     "is unknown or readonly",
     "MEMORY_LIMIT_EXCEEDED",
     "TIMEOUT_EXCEEDED",
     "Read timed out",
+    "ACCESS_DENIED",
 )
 
 

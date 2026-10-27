@@ -148,16 +148,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The delete saga groups its fence calls by the leaders' partition
     // count, which lives in etcd; a service that cannot read it would
     // batch wrong, so refuse to start instead.
-    let etcd_store = EtcdStore::connect(StoreConfig {
+    let etcd_store = EtcdStore::connect_with_member_failover(StoreConfig {
         endpoints: config.etcd_endpoint_list(),
         prefix: config.etcd_prefix.clone(),
     })
     .await
     .expect("Failed to connect to etcd");
     let store = Arc::new(PersonhogStore::new(etcd_store));
-    let loaded = load_changelog_config(&store, CHANGELOG_BOOT_POLL_INTERVAL)
-        .await
-        .expect("Failed to load the changelog config from etcd");
+    // No signal handler is installed until the lifecycle monitor starts,
+    // so SIGTERM ends the process during this wait.
+    let Some(loaded) = load_changelog_config(
+        &store,
+        CHANGELOG_BOOT_POLL_INTERVAL,
+        &CancellationToken::new(),
+    )
+    .await
+    .expect("Failed to load the changelog config from etcd") else {
+        return Ok(());
+    };
     tracing::info!(
         num_partitions = loaded.partitions,
         epoch = loaded.epoch,

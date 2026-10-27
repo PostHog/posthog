@@ -178,6 +178,7 @@ class PlanetScaleMySQLSource(MySQLSource):
                     ),
                     SourceFieldInputConfig(
                         name="schema",
+                        sync_setting=True,
                         label="Schema",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
