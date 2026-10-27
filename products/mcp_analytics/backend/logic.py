@@ -713,7 +713,8 @@ def get_activity_overview(
         filterTestAccounts=filter_test_accounts,
     )
 
-    def run_query(spec: tuple[str, str, dict[str, Any], HogQLFilters]) -> list[Any]:
+    def run_query(spec: tuple[str, str, object, HogQLFilters]) -> list[Any]:
+        assert isinstance(spec[2], dict)
         return _run_activity_query(team, spec[0], spec[1], spec[2], spec[3], user)
 
     stats_rows, missing_capability_rows, top_tools_rows, clients_rows, recent_calls_rows = map_in_caller_context(
