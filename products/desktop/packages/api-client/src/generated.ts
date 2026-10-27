@@ -22574,6 +22574,7 @@ export namespace Endpoints {
                 created_at: string;
                 created_by: string;
                 id: string;
+                latest_send_first: boolean;
                 limit: number;
                 offset: number;
                 optimization_enabled: boolean;

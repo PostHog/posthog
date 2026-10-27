@@ -134810,6 +134810,10 @@ export namespace Schemas {
     created_by?: string;
     id?: string;
     /**
+     * Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last.
+     */
+    latest_send_first?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
