@@ -335,10 +335,8 @@ export class CommonPreTeamStage<
      * open the team-aware scope: every step piped after this runs inside
      * `handleIngestionWarnings`, with warnings routed to the resolved team.
      *
-     * Teams resolved through a team id sent as the token are always recorded
-     * to topHog (`resolveTeamTopHogMetrics`); `options.topHog` appends
-     * metric factories around the team-resolution step (e.g. a per-team
-     * resolved counter).
+     * Always records `resolveTeamTopHogMetrics`. `options.topHog` adds more
+     * metric factories around the team-resolution step.
      */
     resolveTeam(
         this: CommonPreTeamStage<TInput, TContext, ROut, CBatch, TCurrent & { event: IncomingEvent }>,
