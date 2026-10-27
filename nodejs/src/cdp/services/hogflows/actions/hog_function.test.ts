@@ -345,8 +345,15 @@ describe('HogFunctionHandler', () => {
         })
     })
 
-    it('renders the workflow name and id from source in function inputs', async () => {
-        action.config.inputs.name = { value: '{{ source.name }}|{{ source.id }}', templating: 'liquid' }
+    it.each([
+        [
+            'the workflow name and id from source',
+            '{{ source.name }}|{{ source.id }}',
+            () => `Hog Flow|${invocation.hogFlow.id}`,
+        ],
+        ['the project url', '{{ project.url }}', () => `${hub.SITE_URL}/project/${invocation.hogFlow.team_id}`],
+    ])('renders %s in function inputs', async (_name, template, expected) => {
+        action.config.inputs.name = { value: template, templating: 'liquid' }
 
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queue: 'hog',
@@ -356,7 +363,7 @@ describe('HogFunctionHandler', () => {
         const handlerResult = await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
 
         expect(handlerResult.error).toBeUndefined()
-        expect(mockFetch.mock.calls[0][1].body).toContain(`"name":"Hog Flow|${invocation.hogFlow.id}"`)
+        expect(mockFetch.mock.calls[0][1].body).toContain(`"name":"${expected()}"`)
     })
 
     it('should throw an error if template is not found', async () => {
