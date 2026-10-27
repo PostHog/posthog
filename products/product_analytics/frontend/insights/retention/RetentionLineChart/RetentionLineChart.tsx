@@ -198,28 +198,14 @@ export function RetentionLineChart({
                 goalLines,
                 showTrendLines,
                 series,
-                tooltip: {
-                    ...INSIGHT_TOOLTIP_CONFIG,
-                    resolveClickToNearestSeries: resultMenuEnabled && !inSharedMode,
-                },
+                tooltip: INSIGHT_TOOLTIP_CONFIG,
                 isIntervalView,
                 period,
                 timezone,
             }),
             curve: chartStyleCurve(retentionFilter?.chartStyle),
         }),
-        [
-            resultMenuEnabled,
-            inSharedMode,
-            isPercentage,
-            goalLines,
-            showTrendLines,
-            series,
-            isIntervalView,
-            period,
-            timezone,
-            retentionFilter?.chartStyle,
-        ]
+        [isPercentage, goalLines, showTrendLines, series, isIntervalView, period, timezone, retentionFilter?.chartStyle]
     )
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {
@@ -246,6 +232,7 @@ export function RetentionLineChart({
             config={lineConfig}
             tooltip={renderTooltip}
             onPointClick={canClick ? onPointClick : undefined}
+            onPointContextMenu={resultMenuEnabled && !inSharedMode && canClick ? onPointClick : undefined}
             className="LineGraph"
             dataAttr="trend-line-graph"
             onError={handleChartError}

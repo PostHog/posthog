@@ -4,8 +4,9 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
+import { DashboardsTab } from 'scenes/dashboard/dashboards/dashboardsLogic'
+
 import { DashboardsFiltersBar } from './DashboardsFiltersBar'
-import { DashboardsTab } from './dashboardsLogic'
 
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useValues: jest.fn(), useActions: jest.fn() }))
 jest.mock('lib/components/MemberSelectMultiplePopover', () => ({ MemberSelectMultiplePopover: () => null }))

@@ -86,6 +86,7 @@ def _traffic(people_by_set: dict[int, int]) -> ConditionSetTraffic:
     calls = 2 * sum(people_by_set.values())
     return ConditionSetTraffic(
         since=datetime(2026, 9, 13, 8, 0, tzinfo=UTC),
+        until=datetime(2026, 9, 20, 8, 0, tzinfo=UTC),
         team_timezone="Europe/Berlin",
         people_by_set=people_by_set,
         calls=calls,

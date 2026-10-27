@@ -81,7 +81,7 @@ _SCANNED_PROPERTIES = frozenset(
 _LOCALLY_EVALUATED_REASON = "Evaluated locally"
 # Part of the cache key. Raise it when the fields of `ConditionSetTraffic` change, because an answer cached with
 # other fields can't be read back into it.
-_ANSWER_SHAPE = 2
+_ANSWER_SHAPE = 3
 _MAX_CONDITION_SETS = 1000
 _SCAN_LOCK_SECONDS = QUERY_TIMEOUT_SECONDS + 5
 _WAIT_FOR_SCAN_SECONDS = QUERY_TIMEOUT_SECONDS + 1
@@ -217,6 +217,7 @@ def query_condition_set_traffic(
         people_assigned_outside += int(set_assigned_outside)
     return ConditionSetTraffic(
         since=window_start,
+        until=window_end,
         team_timezone=team.timezone,
         people_by_set=people_by_set,
         calls=calls,
@@ -262,7 +263,7 @@ def _scan(
     except Exception as error:
         cache_failed_scan(cache_key, error)
         return None
-    asked_again_sooner = has_too_few_people(ctx, traffic) or outside_assignment_unsettled(ctx, traffic, now=now)
+    asked_again_sooner = has_too_few_people(ctx, traffic) or outside_assignment_unsettled(ctx, traffic)
     cache.set(
         cache_key, asdict(traffic), _TOO_FEW_PEOPLE_CACHE_SECONDS if asked_again_sooner else _ANSWER_CACHE_SECONDS
     )
