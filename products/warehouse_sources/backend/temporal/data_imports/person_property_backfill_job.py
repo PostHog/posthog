@@ -24,7 +24,7 @@ import structlog
 from prometheus_client import Counter, Histogram
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, ApplicationError, TimeoutError, TimeoutType
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_sync import (
     failed_run_error,
+    is_worker_interruption,
     record_completed_runs,
     record_failed_runs,
     record_started_runs,
@@ -46,6 +47,7 @@ logger = structlog.get_logger(__name__)
 
 INTERRUPTED_RUN_NEXT_STEP = "Click Backfill to try again."
 RECORD_FAILED_RUN_PATCH = "person-property-backfill-record-failed-run-2026-10"
+RETRY_INTERRUPTED_RUN_PATCH = "person-property-backfill-retry-interrupted-run-2026-10"
 
 PERSON_PROPERTY_BACKFILL_TOTAL = Counter(
     "warehouse_person_property_backfill_total",
@@ -147,6 +149,7 @@ async def record_failed_person_property_backfill_runs_activity(inputs: PersonPro
         started_at=inputs.started_at,
         finished_at=datetime.now(UTC).isoformat(),
         error=inputs.error,
+        count_failure=inputs.count_failure,
     )
     PERSON_PROPERTY_BACKFILL_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
 
@@ -187,14 +190,25 @@ class BackfillWarehousePersonPropertiesWorkflow(PostHogWorkflow):
             started_at = workflow.now()
             records_failure = workflow.patched(RECORD_FAILED_RUN_PATCH)
             try:
-                await workflow.execute_activity(
-                    backfill_warehouse_person_properties_activity,
-                    dataclasses.replace(activity_inputs, workflow_records_failure=records_failure),
-                    start_to_close_timeout=timedelta(hours=6),
-                    heartbeat_timeout=timedelta(minutes=5),
-                    # A one-off full-table read: don't silently re-scan the whole table on a transient error.
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
+                max_attempts = 3 if workflow.patched(RETRY_INTERRUPTED_RUN_PATCH) else 1
+                for attempt in range(max_attempts):
+                    try:
+                        await workflow.execute_activity(
+                            backfill_warehouse_person_properties_activity,
+                            dataclasses.replace(activity_inputs, workflow_records_failure=records_failure),
+                            start_to_close_timeout=timedelta(hours=6),
+                            heartbeat_timeout=timedelta(minutes=5),
+                            # A full-table read must not retry application errors or the six-hour timeout.
+                            retry_policy=RetryPolicy(maximum_attempts=1),
+                        )
+                        break
+                    except ActivityError as error:
+                        cause = error.cause
+                        can_retry = (isinstance(cause, ApplicationError) and cause.type == "WorkerShutdown") or (
+                            isinstance(cause, TimeoutError) and cause.type == TimeoutType.HEARTBEAT
+                        )
+                        if not can_retry or attempt == max_attempts - 1:
+                            raise
             except ActivityError as e:
                 if records_failure:
                     try:
@@ -208,6 +222,7 @@ class BackfillWarehousePersonPropertiesWorkflow(PostHogWorkflow):
                                 trigger=activity_inputs.trigger,
                                 started_at=started_at.isoformat(),
                                 error=failed_run_error(e, INTERRUPTED_RUN_NEXT_STEP),
+                                count_failure=not is_worker_interruption(e),
                             ),
                             start_to_close_timeout=timedelta(minutes=5),
                             # The recorder swallows its own errors. A retry could only follow a write
