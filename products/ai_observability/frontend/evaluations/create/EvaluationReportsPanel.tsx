@@ -2,7 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 
 import { DeliveryTargetsConfig, GUIDANCE_PLACEHOLDER } from '../components/EvaluationReportConfig'
 import { WEEKDAY_OPTIONS, evaluationReportLogic } from '../evaluationReportLogic'
@@ -15,7 +15,7 @@ export function EvaluationReportsPanel(): JSX.Element | null {
     const { props } = useMountedLogic(llmEvaluationLogic)
     const [guidanceOpen, setGuidanceOpen] = useState(false)
     const { evaluation, isReportableEvaluation } = useValues(llmEvaluationLogic)
-    const { configDraft, configErrors, shownDestinations } = useValues(
+    const { configDraft, configErrors, shownDestinations, reportsLoading, activeReport } = useValues(
         evaluationReportLogic({ evaluationId: props.evaluationId })
     )
     const {
@@ -35,6 +35,15 @@ export function EvaluationReportsPanel(): JSX.Element | null {
 
     if (!evaluation) {
         return null
+    }
+    // The saved settings replace the draft once they load, so edits made before then would be lost.
+    if (props.evaluationId !== 'new' && reportsLoading && !activeReport) {
+        return (
+            <div className="flex flex-col gap-3">
+                <LemonSkeleton className="h-8 w-full" />
+                <LemonSkeleton className="h-8 w-2/3" />
+            </div>
+        )
     }
     const instructions = evaluation.evaluation_type === 'hog' ? 'code' : 'prompt'
     // Reports read pass rates, so a score or category evaluation needs its passing rule first.

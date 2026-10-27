@@ -12,7 +12,8 @@ type ReturnShape = 'boolean' | 'numeric' | 'categorical' | 'categorical_multiple
 
 /** What each run returns, read as one sentence, and which answers count as a pass. */
 export function EvaluationOutputFields(): JSX.Element | null {
-    const { evaluation, numericBoundsRequired, usesDecisionModel, isNewEvaluation } = useValues(llmEvaluationLogic)
+    const { evaluation, originalEvaluation, numericBoundsRequired, usesDecisionModel, isNewEvaluation } =
+        useValues(llmEvaluationLogic)
     const { setOutputType, patchOutputConfig, setAllowsNA, setTrueIsFailure } = useActions(llmEvaluationLogic)
 
     // Sentiment always returns positive, neutral, or negative, which the method hint already says.
@@ -115,6 +116,11 @@ export function EvaluationOutputFields(): JSX.Element | null {
                     config={config}
                     onChange={patchOutputConfig}
                     showKeys={evaluation.evaluation_type === 'hog'}
+                    storedKeys={
+                        isNewEvaluation
+                            ? []
+                            : (originalEvaluation?.output_config.options ?? []).map((option) => option.key)
+                    }
                 />
             )}
             {usesDecisionModel && evaluation.evaluation_type === 'llm_judge' && (

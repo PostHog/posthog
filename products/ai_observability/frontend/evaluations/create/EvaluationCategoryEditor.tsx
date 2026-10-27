@@ -8,18 +8,21 @@ import type { EvaluationOutputConfig } from '../types'
 import { categoryKey } from './categoryKey'
 
 /**
- * The categories of a new evaluation. Keys follow the labels, because nothing has stored them yet, and marking a
- * category as a pass is the passing rule: with none picked, runs get no pass or fail.
+ * The categories of an evaluation. A new category's key follows its label, and marking a category as a pass is the
+ * passing rule: with none picked, runs get no pass or fail.
  */
 export function EvaluationCategoryEditor({
     config,
     onChange,
     showKeys,
+    storedKeys = [],
 }: {
     config: EvaluationOutputConfig
     onChange: (patch: EvaluationOutputConfig) => void
     /** Code returns the key, so a code evaluation shows it next to each name. */
     showKeys: boolean
+    /** Keys the saved evaluation already stores. Past results and code use them, so renaming keeps them. */
+    storedKeys?: string[]
 }): JSX.Element {
     const options = config.options ?? []
     const passing = config.passing_rule && 'categories' in config.passing_rule ? config.passing_rule.categories : []
@@ -41,7 +44,7 @@ export function EvaluationCategoryEditor({
                             value={option.label}
                             maxLength={256}
                             onChange={(label) => {
-                                const key = categoryKey(label)
+                                const key = storedKeys.includes(option.key) ? option.key : categoryKey(label)
                                 onChange({
                                     options: options.map((item, i) => (i === index ? { label, key } : item)),
                                     passing_rule: withPassing(
