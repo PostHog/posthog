@@ -963,6 +963,8 @@ class PlatformAlertConfigurationView:
     created_at: datetime
     updated_at: datetime
     alerts: tuple[PlatformAlertSnapshot, ...]
+    labels: dict[str, str] = field(default_factory=dict)
+    annotations: dict[str, str] = field(default_factory=dict)
 
     @property
     def destination_alert_id(self) -> UUID:
@@ -987,6 +989,8 @@ class PlatformAlertConfigurationEdit:
     evaluation_periods: int
     datapoints_to_alarm: int
     cooldown_minutes: int
+    labels: dict[str, str] = field(default_factory=dict)
+    annotations: dict[str, str] = field(default_factory=dict)
 
 
 class InvalidPlatformAlertEdit(ValueError):
