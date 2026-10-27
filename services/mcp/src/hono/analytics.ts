@@ -337,6 +337,15 @@ function isMetadataQuery(query: string): boolean {
 // way. `$mcp_tool_call` still records that the call happened.
 const PRESIGNED_UPLOAD_TOOL_NAME = 'media-image-upload-start'
 
+// Their output is another project's data, possibly from another region: a wrapped
+// execute-sql result or any API response. The execute-sql exemption below checks only
+// the outer tool name, so without this check the wrapped query's rows land in
+// `$ai_output_state`.
+const POSTHOG_CONNECTION_TOOL_NAMES: ReadonlySet<string> = new Set([
+    'posthog-connection-call',
+    'posthog-connection-forward',
+])
+
 function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     if (isPrivateScoutTrialTool(toolName)) {
         return false
@@ -351,6 +360,9 @@ function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
         return false
     }
     if (toolName === PRESIGNED_UPLOAD_TOOL_NAME) {
+        return false
+    }
+    if (POSTHOG_CONNECTION_TOOL_NAMES.has(toolName)) {
         return false
     }
     // execute-sql can't be captured wholesale: its payload is the query result,
