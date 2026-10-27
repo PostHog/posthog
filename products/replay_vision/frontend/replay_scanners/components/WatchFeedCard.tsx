@@ -28,6 +28,7 @@ import { SCANNER_TYPE_TAG_TYPE, ScannerType } from '../types'
 import { watchFeedLogic } from '../watchFeedLogic'
 import { CARD_SEEN_DWELL_MS, cardProperties } from '../watchFeedTelemetry'
 import { WatchFeedDismissButton } from './WatchFeedDismissButton'
+import { WatchFeedGroupList, WatchFeedGroupToggle } from './WatchFeedGroup'
 
 /** Reason kinds that say nothing about the session. The backend returns these only to pad a near-empty
  * feed, so a feed made up entirely of them means the window turned up no findings at all. */
@@ -177,6 +178,14 @@ export function observationKeyMomentMs(observation: ReplayObservationApi): numbe
 /** Where the player starts: a short lead-in before the key moment, or the recording's start without one. */
 export function watchStartSeconds(keyMomentMs: number | null): number {
     return keyMomentMs === null ? 0 : Math.max(0, Math.floor(keyMomentMs / 1000) - KEY_MOMENT_LEAD_IN_S)
+}
+
+/** The observation page. `t` is always set, so the player opens expanded, and `from` makes the back button return to the feed. */
+export function watchFeedObservationUrl(observation: ReplayObservationApi): string {
+    return combineUrl(urls.replayVisionObservation(observation.id), {
+        t: watchStartSeconds(observationKeyMomentMs(observation)),
+        [OBSERVATION_ORIGIN_PARAM]: WATCH_FEED_ORIGIN,
+    }).url
 }
 
 /**
@@ -376,7 +385,7 @@ export function watchFeedRowTitle(observation: ReplayObservationApi, reason: Wat
  */
 export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element {
     const { observation, reason } = item
-    const { feedLoad } = useValues(watchFeedLogic)
+    const { feedLoad, dateFrom } = useValues(watchFeedLogic)
     const { cardSeen, dismissItem } = useActions(watchFeedLogic)
     const rowRef = useAutoMarkRead(true, () => cardSeen(item, position), CARD_SEEN_DWELL_MS)
     const result = readResult(observation)
@@ -387,14 +396,17 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
     const scannerName = scannerLabel(observation)
     const person = observation.recording_subject_email || observation.distinct_id
     const keyMomentMs = observationKeyMomentMs(observation)
-    // `t` is always set, so the observation page opens with the player expanded. `from` marks the feed as
-    // the origin, so the observation's back button returns here rather than the scanner.
-    const observationUrl = combineUrl(urls.replayVisionObservation(observation.id), {
-        t: watchStartSeconds(keyMomentMs),
-        [OBSERVATION_ORIGIN_PARAM]: WATCH_FEED_ORIGIN,
-    }).url
+    const observationUrl = watchFeedObservationUrl(observation)
     const title = watchFeedRowTitle(observation, reason)
     const filler = FILLER_REASON_KINDS.has(reason.kind)
+    const similarCount = reason.kind === 'embedding_pick' ? (reason.similar_count ?? 0) : 0
+    const groupProps = {
+        observationId: observation.id,
+        scannerId: observation.scanner_id,
+        dateFrom,
+        similarCount,
+        cardContext: cardProperties(feedLoad, item, position, 'feed_tab'),
+    }
     const captureOpened = (): void => {
         posthog.capture('replay_vision_watch_clip_clicked', {
             ...cardProperties(feedLoad, item, position, 'feed_tab'),
@@ -469,7 +481,9 @@ export function WatchFeedRow({ item, position }: WatchFeedRowProps): JSX.Element
                         ? `Watch from ${colonDelimitedDuration(Math.floor(keyMomentMs / 1000), null)}`
                         : 'Watch session'}
                 </LemonButton>
+                {similarCount > 0 && <WatchFeedGroupToggle {...groupProps} />}
             </footer>
+            {similarCount > 0 && <WatchFeedGroupList {...groupProps} />}
         </article>
     )
 }

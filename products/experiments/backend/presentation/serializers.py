@@ -53,6 +53,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
     ExperimentHealthInputsTrafficStatus,
+    ExperimentHealthMetricCompileErrorKind,
     HealthExposureInputsStatus,
     RunningTimeMode,
 )
@@ -3401,6 +3402,44 @@ class ExperimentHealthInputsExposureEventsSerializer(serializers.Serializer):
     )
 
 
+class ExperimentHealthInputsMetricCompileFailureSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="The metric's name as the experiment shows it.")
+    role = serializers.CharField(help_text="'primary' or 'secondary'.")
+    kind = serializers.ChoiceField(
+        choices=ExperimentHealthMetricCompileErrorKind.choices,
+        help_text=(
+            "Who rejected the query: 'rejected' is a validation of the query builder, 'syntax' and 'query' come "
+            "from HogQL, 'definition' means the stored definition doesn't parse into a metric."
+        ),
+    )
+    message = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The compiler's message, without the list of a scope's fields. Null when it can hold the evaluation rules "
+            "that the AI evaluation markers keep out of the browser."
+        ),
+    )
+
+
+class ExperimentHealthInputsMetricCompilesSerializer(serializers.Serializer):
+    metric_count = serializers.IntegerField(help_text="The metrics that the experiment calculates, one per uuid.")
+    unknown_count = serializers.IntegerField(
+        help_text="The metrics whose compile raised an error that names no problem of the metric, such as a defect."
+    )
+    no_access_count = serializers.IntegerField(
+        help_text="The metrics that read a warehouse table or view that the reader may not query, so they aren't checked."
+    )
+    exposure_query_fails = serializers.BooleanField(
+        help_text=(
+            "Whether the exposure query alone doesn't compile. Every metric then fails for that reason, so no "
+            "failure is listed."
+        )
+    )
+    failures = ExperimentHealthInputsMetricCompileFailureSerializer(
+        many=True, help_text="The metrics whose query doesn't compile, with the compiler's message."
+    )
+
+
 class ExperimentHealthInputsReaderAccessSerializer(serializers.Serializer):
     can_read_flag_history = serializers.BooleanField(
         help_text="Whether the reader may read the flag's history, which the flag-change checks need."
@@ -3515,6 +3554,15 @@ class ExperimentHealthInputsSerializer(serializers.Serializer):
             "came after the end, or when the organization's flag calls can't be read."
         ),
     )
+    flag_called_after_end = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "Whether PostHog has recorded a call of the flag after the end. The flag state check reads it on an ended "
+            "experiment whose flag is still active with multiple variants. False only after 3 days without a "
+            "recorded call. Null before the end, before those 3 days are over, or when the organization's flag "
+            "calls can't be read."
+        ),
+    )
     exposure_events = ExperimentHealthInputsExposureEventsSerializer(
         allow_null=True,
         help_text="The events the exposure criteria count. Null when the stored exposure criteria don't parse.",
@@ -3524,6 +3572,14 @@ class ExperimentHealthInputsSerializer(serializers.Serializer):
         help_text=(
             "Whether the project has received each event that the metrics and the exposure criteria name, by event "
             "name. A name that ingestion keeps no record of is absent."
+        ),
+    )
+    metric_compiles = ExperimentHealthInputsMetricCompilesSerializer(
+        allow_null=True,
+        help_text=(
+            "The compile of each metric's query without running it, as the reader, which the metric queries check "
+            "reads. A metric that compiles is cached per reader for a day, and a failing metric compiles again on "
+            "every request. Null when the compile itself failed."
         ),
     )
     flag_history = ExperimentHealthInputsFlagHistorySerializer(

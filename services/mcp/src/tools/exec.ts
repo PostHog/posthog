@@ -590,6 +590,8 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
             ? `${base} For governed business metrics, search \`system.information_schema.metrics\` instead of \`system.insights\`.`
             : base
     },
+    'vision-scanners-suggest-tags': () =>
+        'Tool "vision-scanners-suggest-tags" was removed. Set a classifier\'s tags yourself with "vision-scanners-update", or let "vision-scanners-draft" propose a full classifier config, tags included.',
     'llma-tagger-create': () =>
         'Tool "llma-tagger-create" was removed because taggers are deprecated. To tag or classify generations, use "llma-evaluation-create" with output_type="categorical", output_config.selection_mode="multiple", and one option per tag in output_config.options. Each option is { key, label }: the key is lowercase snake_case or kebab-case (for example "billing-issue"), and the label keeps the tag name. For an LLM tagger, set evaluation_type="llm_judge" with model_configuration (provider and model), and put the tagger prompt plus any tag descriptions in evaluation_config.prompt. For a Hog tagger, set evaluation_type="hog" with Hog source in evaluation_config.source that returns option keys. Run "info llma-evaluation-create" for the full schema.',
     'event-definitions-list': () =>

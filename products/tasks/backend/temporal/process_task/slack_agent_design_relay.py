@@ -362,9 +362,10 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
             start_to_close_timeout=_ACTIVITY_TIMEOUT,
             retry_policy=_ACTIVITY_RETRY,
         )
-        # An older activity returns None, which means the stream is still open. The patch keeps
-        # histories that older workflow code wrote on their recorded command sequence.
-        if stream_open is False and workflow.patched(_PATCH_ID_STREAM_ENDED):
+        # An older activity returns None, which means the stream is still open. Histories that
+        # carry the patch marker replay with deprecate_patch; delete it once those runs drain.
+        if stream_open is False:
+            workflow.deprecate_patch(_PATCH_ID_STREAM_ENDED)
             self._stream_ended = True
 
     @workflow.run

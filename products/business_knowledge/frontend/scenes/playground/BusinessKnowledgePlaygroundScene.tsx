@@ -36,7 +36,7 @@ export function BusinessKnowledgePlaygroundScene(): JSX.Element {
         <SceneContent className="min-h-0 flex-1">
             <SceneTitleSection
                 name="Business knowledge"
-                description="Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies."
+                description="Upload text, public URLs, or files so AI can understand your business context, vision, and policies."
                 resourceType={{ type: 'business_knowledge' }}
             />
             <BusinessKnowledgeTabs activeTab="playground" />

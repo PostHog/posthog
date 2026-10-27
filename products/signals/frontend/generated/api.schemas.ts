@@ -3979,6 +3979,36 @@ export interface ShortcutStorySignalExtraApi {
     created_at: string | null
 }
 
+export interface ClickupTaskSignalExtraApi {
+    status_name: string | null
+    status_type: string | null
+    url: string | null
+    date_created: string | null
+}
+
+export interface WrikeTaskSignalExtraApi {
+    status: string | null
+    importance: string | null
+    permalink: string | null
+    created_date: string | null
+}
+
+export interface TrelloCardSignalExtraApi {
+    url: string | null
+    id_board: string | null
+    id_list: string | null
+    created_at: string | null
+}
+
+export interface BugherdTaskSignalExtraApi {
+    status: string | null
+    priority: string | null
+    site: string | null
+    url: string | null
+    tag_names: unknown[]
+    created_at: string | null
+}
+
 export interface SentryIssueSignalExtraApi {
     level: string | null
     status: string | null
@@ -4638,6 +4668,10 @@ export type SignalExtraApi =
     | GitlabIssueSignalExtraApi
     | GiteaIssueSignalExtraApi
     | ShortcutStorySignalExtraApi
+    | ClickupTaskSignalExtraApi
+    | WrikeTaskSignalExtraApi
+    | TrelloCardSignalExtraApi
+    | BugherdTaskSignalExtraApi
     | SentryIssueSignalExtraApi
     | RollbarItemSignalExtraApi
     | BugsnagErrorSignalExtraApi

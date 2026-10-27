@@ -728,6 +728,16 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * hours after launch, and when only secondary metrics read it, and a warning otherwise.
  * `filter_on_another_flag` is a warning in every state, and the other findings stop at the end.
  *
+ * `metric_cannot_compile` builds and compiles the query of each metric without running it, as
+ * the caller, so a metric that every calculation fails on shows before launch. A metric that
+ * reads a warehouse table or view the caller may not query is not checked for them. The finding
+ * names each failing metric in the `evidence` keys `metric_N`, `metric_N_role`, `metric_N_error`
+ * (the error class, which is also the subcode of the first metric) and `metric_N_message` (the
+ * compiler's message). It is a warning when a primary metric fails before the end, and info
+ * otherwise. A failure inside ClickHouse, such as a type that the data holds, isn't found. A
+ * failing metric compiles again on every request. A metric that compiles is cached per caller
+ * for a day, so a cohort or table that is deleted after a compile can take up to a day to show.
+ *
  * The severity of the `some_conditions_pinned` finding follows the largest share that the
  * users of the pinned release conditions make up among the users who got one variant from
  * the flag, in the last 7 days, or since launch or the flag's last save if later. It reads
@@ -758,6 +768,10 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * `running_but_flag_disabled`, as a warning. A caller who can't view the linked flag's
  * history gets the warning, because the pause is not read. A draft whose flag is already
  * active with multiple variants gets `not_started_but_multiple_variants_rolled_out` as info.
+ * An ended experiment whose flag is still active with multiple variants gets
+ * `ended_but_multiple_variants_rolled_out` as a warning, or `ended_flag_not_called` as info
+ * when the flag's `last_called_at` shows no call in the 3 days after the end. The info waits
+ * an extra hour, because `last_called_at` trails a call.
  *
  * A running experiment whose first primary metric is a funnel gets the info
  * `early_significance` (subcode `below_detectable_effect`) when a significant variant's

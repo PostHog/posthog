@@ -85,8 +85,7 @@ describe('SankeyChart', () => {
                 theme={THEME}
                 onNodeClick={onNodeClick}
                 onHoverChange={onHoverChange}
-            />,
-            { nativeTooltip: true }
+            />
         )
         await waitFor(() => {
             fireEvent.mouseMove(chart.element, nodeCenter('a'))
@@ -148,8 +147,7 @@ describe('SankeyChart', () => {
                 theme={THEME}
                 onNodeClick={onNodeClick}
                 onHoverChange={onHoverChange}
-            />,
-            { nativeTooltip: true }
+            />
         )
         // A tap sends no mousemove first, so nothing is hovered when the click arrives. jsdom has
         // no PointerEvent, so the pointer type rides on a MouseEvent React reads it from.
@@ -215,8 +213,7 @@ describe('SankeyChart', () => {
         const { chart } = renderChart(
             <SankeyChart nodes={NODES} links={LINKS} theme={THEME} onNodeClick={onNodeClick}>
                 <button data-hog-charts-interactive-overlay>overlay</button>
-            </SankeyChart>,
-            { nativeTooltip: true }
+            </SankeyChart>
         )
         await waitFor(() => {
             fireEvent.mouseMove(chart.element, nodeCenter('a'))
@@ -277,9 +274,7 @@ describe('SankeyChart', () => {
     })
 
     it('shows the node tooltip when the pointer is over its label, not the ribbon under it', async () => {
-        const { chart } = renderChart(<SankeyChart nodes={NODES} links={LINKS} theme={THEME} />, {
-            nativeTooltip: true,
-        })
+        const { chart } = renderChart(<SankeyChart nodes={NODES} links={LINKS} theme={THEME} />)
         // Right of the Start node, inside its label and over the Start -> Tool A ribbon.
         const start = nodeCenter('start')
         await waitFor(() => {

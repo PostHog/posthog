@@ -1,4 +1,3 @@
-import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { TimeSeriesComboChart, TooltipSurface, TooltipSwatch } from '@posthog/quill-charts'
@@ -9,17 +8,17 @@ import { getColorVar } from 'lib/colors'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { EvaluationResultApi } from '../../generated/api.schemas'
-import { EvaluationBackfillHint } from './EvaluationBackfillHint'
 import {
+    type BucketInterval,
     formatBucket,
-    hasIsolatedPoints,
     hourTick,
     passFailCounts,
     toChartValues,
     trackedCategory,
 } from './evaluationOverviewDisplay'
-import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
+// The volume axis is hidden, so the chart needs no room for labels on the right.
+const CHART_MARGINS = { right: 16 }
 const VOLUME_KEY = 'volume'
 const PASSED_KEY = 'passed'
 const FAILED_KEY = 'failed'
@@ -44,9 +43,38 @@ function withAlpha(color: string, alpha: number): string {
         : color
 }
 
-export function EvaluationResultTrendChart({ row }: { row: EvaluationResultApi }): JSX.Element {
+/** One value of a breakdown property, aligned with the buckets. NaN marks a bucket where it had nothing graded. */
+export interface TrendBreakdownSeries {
+    key: string
+    label: string
+    values: number[]
+    graded: number[]
+}
+
+/** The overall line uses the theme's first color, so breakdown lines start at the second. */
+function breakdownColor(colors: string[], index: number): string {
+    return colors[(index + 1) % colors.length]
+}
+
+export function EvaluationResultTrendChart({
+    row,
+    buckets,
+    interval,
+    timezone,
+    onSelectBucket,
+    footer,
+    breakdown,
+}: {
+    row: EvaluationResultApi
+    buckets: string[]
+    interval: BucketInterval
+    timezone: string
+    /** Called with the clicked bucket. Without it the chart is not clickable. */
+    onSelectBucket?: (bucket: string) => void
+    footer?: React.ReactNode
+    breakdown?: TrendBreakdownSeries[] | null
+}): JSX.Element {
     const theme = useChartTheme()
-    const { buckets, timezone, interval } = useValues(evaluationsOverviewLogic)
     const { summary, trend } = row
     const isScore = summary.kind === 'score'
     const label = trackedCategory(row)?.label ?? HEADLINE_LABELS[summary.kind]
@@ -97,20 +125,33 @@ export function EvaluationResultTrendChart({ row }: { row: EvaluationResultApi }
                 color: 'transparent',
                 visibility: { tooltip: false, total: false, valueLabel: false },
             },
-            {
-                key: 'headline',
-                label,
-                // NaN leaves a gap, so a bucket with no graded results never reads as a measured 0%.
-                data: values,
-                type: 'line',
-                color: theme.colors[0],
-                points: { radius: 3 },
-            },
+            ...(breakdown
+                ? breakdown.map(
+                      (entry, index): Series => ({
+                          key: `breakdown-${entry.key}`,
+                          label: entry.label,
+                          data: entry.values,
+                          type: 'line',
+                          color: breakdownColor(theme.colors, index),
+                          points: { radius: 3 },
+                      })
+                  )
+                : [
+                      {
+                          key: 'headline',
+                          label,
+                          // NaN leaves a gap, so a bucket with no graded results never reads as a measured 0%.
+                          data: values,
+                          type: 'line' as const,
+                          color: theme.colors[0],
+                          points: { radius: 3 },
+                      },
+                  ]),
         ]
-    }, [trend, values, counts, label, theme])
+    }, [trend, values, counts, label, theme, breakdown])
 
     const config = useMemo<TimeSeriesComboChartConfig>(() => {
-        const finite = values.filter(Number.isFinite)
+        const finite = (breakdown ? breakdown.flatMap((entry) => entry.values) : values).filter(Number.isFinite)
         // Zoom in when every point sits high, and let the axis labels say so.
         const floor = finite.length > 0 ? Math.max(0, Math.floor((Math.min(...finite) - 10) / 10) * 10) : 0
         const scale = summary.kind === 'score' ? summary.score?.scale : null
@@ -125,8 +166,9 @@ export function EvaluationResultTrendChart({ row }: { row: EvaluationResultApi }
                 { id: VOLUME_KEY, position: 'right', hide: true },
             ],
             valueDomain: isScore ? (scale ? { min: scale.min, max: scale.max } : undefined) : { min: floor, max: 100 },
+            margins: CHART_MARGINS,
         }
-    }, [isScore, summary, values, timezone, interval])
+    }, [isScore, summary, values, timezone, interval, breakdown])
 
     const tooltip = (ctx: TooltipContext): JSX.Element => {
         const value = values[ctx.dataIndex]
@@ -134,7 +176,24 @@ export function EvaluationResultTrendChart({ row }: { row: EvaluationResultApi }
         return (
             <TooltipSurface>
                 <div className="font-semibold">{formatBucket(String(ctx.label), interval)}</div>
-                {Number.isFinite(value) ? (
+                {breakdown ? (
+                    breakdown.map((entry, index) =>
+                        Number.isFinite(entry.values[ctx.dataIndex]) ? (
+                            <div key={entry.key} className="flex items-center gap-2 mt-1">
+                                <TooltipSwatch color={breakdownColor(theme.colors, index)} />
+                                <span className="truncate max-w-60">{entry.label}</span>
+                                <strong className="ml-auto tabular-nums">
+                                    {isScore
+                                        ? entry.values[ctx.dataIndex].toFixed(2)
+                                        : `${entry.values[ctx.dataIndex].toFixed(1)}%`}
+                                </strong>
+                                <span className="opacity-70 tabular-nums">
+                                    {`${humanFriendlyNumber(entry.graded[ctx.dataIndex] ?? 0)} graded`}
+                                </span>
+                            </div>
+                        ) : null
+                    )
+                ) : Number.isFinite(value) ? (
                     <div className="flex items-center gap-2 mt-1">
                         {line && <TooltipSwatch color={line.color} />}
                         <span>{label}</span>
@@ -181,14 +240,34 @@ export function EvaluationResultTrendChart({ row }: { row: EvaluationResultApi }
                     theme={theme}
                     config={config}
                     tooltip={tooltip}
+                    onPointClick={
+                        onSelectBucket
+                            ? ({ dataIndex }) => buckets[dataIndex] && onSelectBucket(buckets[dataIndex])
+                            : undefined
+                    }
                 />
             </div>
             <div className="text-xs text-secondary">
                 {counts
                     ? `Bars show how many results passed and failed each ${interval}.`
                     : `Shaded bars show how many results were graded each ${interval}.`}
+                {onSelectBucket ? ` Click a${interval === 'hour' ? 'n' : ''} ${interval} to see its runs.` : ''}
             </div>
-            {hasIsolatedPoints(row) && <EvaluationBackfillHint row={row} source="drawer" />}
+            {breakdown && breakdown.length > 0 && (
+                <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                    {breakdown.map((entry, index) => (
+                        <span key={entry.key} className="flex items-center gap-1 min-w-0">
+                            <span
+                                className="inline-block size-2 shrink-0 rounded-full"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{ backgroundColor: breakdownColor(theme.colors, index) }}
+                            />
+                            <span className="truncate max-w-60">{entry.label}</span>
+                        </span>
+                    ))}
+                </div>
+            )}
+            {footer}
         </div>
     )
 }

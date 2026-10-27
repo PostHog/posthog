@@ -107,6 +107,7 @@ _WITH_A_SECOND_CONDITION = {
 }
 _HEALTH_TRAFFIC = ConditionSetTraffic(
     since=datetime(2026, 10, 12, tzinfo=UTC),
+    until=datetime(2026, 10, 19, tzinfo=UTC),
     team_timezone="UTC",
     people_by_set={1: 120, 2: 880},
     calls=2000,
