@@ -2337,6 +2337,7 @@ return result`,
                     model: 'gpt-5-mini',
                     provider_key_id: 'key-1',
                 })
+                reportLogic.actions.setDraftFrequency('every_n')
                 reportLogic.actions.setDraftTriggerThreshold(67)
 
                 expect(reportLogic.values.configErrors.triggerThreshold).toBe(
@@ -2477,19 +2478,17 @@ return result`,
 
     describe('report destinations', () => {
         it.each([
-            { name: 'switches a new report to weekly', pickedByHand: false, frequency: 'scheduled', cadence: 'weekly' },
-            { name: 'keeps a frequency someone picked', pickedByHand: true, frequency: 'every_n', cadence: 'daily' },
-        ])('$name when the first destination is added', ({ pickedByHand, frequency, cadence }) => {
-            const reportLogic = evaluationReportLogic({ evaluationId: 'new' })
+            { name: 'a new evaluation reports daily', evaluationId: 'new', frequency: 'scheduled' },
+            {
+                name: 'a saved evaluation without a report keeps the older baseline, so it shows no unsaved change',
+                evaluationId: 'saved-eval',
+                frequency: 'every_n',
+            },
+        ])('$name', ({ evaluationId, frequency }) => {
+            const reportLogic = evaluationReportLogic({ evaluationId })
             reportLogic.mount()
             try {
-                reportLogic.actions.setDraftScheduleCadence('daily')
-                if (pickedByHand) {
-                    reportLogic.actions.setDraftFrequency('every_n')
-                }
-                reportLogic.actions.addDraftDestination('email')
-
-                expect(reportLogic.values.configDraft).toMatchObject({ frequency, scheduleCadence: cadence })
+                expect(reportLogic.values.configDraft).toMatchObject({ frequency, scheduleCadence: 'daily' })
             } finally {
                 reportLogic.unmount()
             }

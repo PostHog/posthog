@@ -41,12 +41,11 @@ export function EvaluationSentence(): JSX.Element | null {
         return null
     }
     const needsModel = evaluation.evaluation_type === 'llm_judge' && !selectedModel
-    const part = (key: Part, text: string, warning = false): JSX.Element => (
+    const part = (key: Part, text: React.ReactNode): JSX.Element => (
         <LemonButton
             type="secondary"
             size="small"
             active={open === key}
-            status={warning ? 'danger' : 'default'}
             sideIcon={<IconChevronDown className={cn('transition-transform', open === key && 'rotate-180')} />}
             onClick={() => {
                 if (open !== key) {
@@ -75,8 +74,12 @@ export function EvaluationSentence(): JSX.Element | null {
                             <span>with</span>
                             {part(
                                 'model',
-                                needsModel ? 'pick a model' : (selectedModelName ?? selectedModel),
-                                needsModel
+                                // Reads as an empty field, so it does not look like the part that is open.
+                                needsModel ? (
+                                    <span className="text-secondary">pick a model</span>
+                                ) : (
+                                    (selectedModelName ?? selectedModel)
+                                )
                             )}
                         </>
                     )}

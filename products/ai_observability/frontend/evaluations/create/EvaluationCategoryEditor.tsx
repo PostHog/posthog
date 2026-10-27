@@ -1,5 +1,7 @@
-import { IconCheck, IconPlus, IconTrash } from '@posthog/icons'
+import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
+
+import { cn } from 'lib/utils/css-classes'
 
 import { MAX_CATEGORICAL_OPTIONS } from '../constants'
 import type { EvaluationOutputConfig } from '../types'
@@ -92,12 +94,16 @@ export function EvaluationCategoryEditor({
                         {named.map((option, index) => {
                             const passes = passing.includes(option.key)
                             return (
-                                <LemonButton
+                                <button
                                     key={`${index}-${option.key}`}
-                                    type="secondary"
-                                    size="small"
-                                    active={passes}
-                                    icon={passes ? <IconCheck /> : undefined}
+                                    type="button"
+                                    aria-pressed={passes}
+                                    className={cn(
+                                        'rounded border px-2 py-1 text-sm cursor-pointer transition-colors',
+                                        passes
+                                            ? 'bg-success-highlight border-success text-success font-semibold'
+                                            : 'bg-surface-primary hover:bg-fill-highlight-100'
+                                    )}
                                     onClick={() =>
                                         onChange({
                                             passing_rule: withPassing(
@@ -110,7 +116,7 @@ export function EvaluationCategoryEditor({
                                     data-attr="llma-evaluation-create-category-pass"
                                 >
                                     {option.label}
-                                </LemonButton>
+                                </button>
                             )
                         })}
                     </div>

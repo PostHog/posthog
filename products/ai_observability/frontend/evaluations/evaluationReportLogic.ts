@@ -94,6 +94,10 @@ const DEFAULT_CONFIG_DRAFT: ReportConfigDraft = {
     cooldownHours: COOLDOWN_HOURS_DEFAULT,
 }
 
+// A new evaluation reports daily. Saved evaluations without a report keep the older default as their baseline,
+// so opening one does not show a change nobody made.
+const NEW_EVALUATION_CONFIG_DRAFT: ReportConfigDraft = { ...DEFAULT_CONFIG_DRAFT, frequency: 'scheduled' }
+
 export function getReportConfigErrors(draft: ReportConfigDraft): ReportConfigErrors {
     if (draft.frequency !== 'every_n') {
         return {}
@@ -292,7 +296,6 @@ export interface evaluationReportLogicValues {
     configDraft: ReportConfigDraft
     configError: string | null
     configErrors: ReportConfigErrors
-    frequencyChosen: boolean
     generateResult: null
     generateResultLoading: boolean
     isConfigDirty: boolean
@@ -527,9 +530,9 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
         selectReportRun: (reportRun: EvaluationReportRun | null) => ({ reportRun }),
     }),
 
-    reducers({
+    reducers(({ props }) => ({
         configDraft: [
-            DEFAULT_CONFIG_DRAFT as ReportConfigDraft,
+            (props.evaluationId === 'new' ? NEW_EVALUATION_CONFIG_DRAFT : DEFAULT_CONFIG_DRAFT) as ReportConfigDraft,
             {
                 setDraftEnabled: (state, { enabled }) => {
                     if (enabled) {
@@ -589,7 +592,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                     cooldownHours,
                 }),
                 seedDraftFromReport: (_, { report }) => draftFromReport(report),
-                resetDraft: () => DEFAULT_CONFIG_DRAFT,
+                resetDraft: () => (props.evaluationId === 'new' ? NEW_EVALUATION_CONFIG_DRAFT : DEFAULT_CONFIG_DRAFT),
                 removeDraftDestination: (state, { destination }) =>
                     destination === 'email'
                         ? { ...state, emailValue: '' }
@@ -613,15 +616,7 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
                 resetDraft: () => [],
             },
         ],
-        frequencyChosen: [
-            false,
-            {
-                setDraftFrequency: () => true,
-                seedDraftFromReport: () => true,
-                resetDraft: () => false,
-            },
-        ],
-    }),
+    })),
 
     loaders(({ props, values }) => ({
         reports: [
@@ -753,14 +748,6 @@ export const evaluationReportLogic = kea<evaluationReportLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
-        addDraftDestination: () => {
-            // A person reads a weekly summary, while every 100 results can mean several messages a day on a busy
-            // evaluation. So a new evaluation's first destination makes weekly the default, unless someone picked one.
-            if (props.evaluationId === 'new' && !values.frequencyChosen && values.configDraft.frequency === 'every_n') {
-                actions.setDraftFrequency('scheduled')
-                actions.setDraftScheduleCadence('weekly')
-            }
-        },
         loadReportsSuccess: ({ reports }) => {
             // Auto-load the run history for the saved report so the Reports tab knows
             // whether to render itself and can show data immediately.

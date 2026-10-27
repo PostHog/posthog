@@ -34,7 +34,8 @@ export function EvaluationTriggersPanel(): JSX.Element | null {
                             <strong>10% of all generations:</strong> Set 10% sampling with no filter conditions
                         </li>
                         <li>
-                            <strong>5% of GPT-4 generations:</strong> Set 5% sampling with $ai_model = "gpt-4o"
+                            <strong>5% of one model's generations:</strong> Set 5% sampling with $ai_model containing
+                            your model's name
                         </li>
                         <li>
                             <strong>Exclude internal users:</strong> Set 100% sampling with person property is_internal
