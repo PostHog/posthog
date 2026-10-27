@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import { ApiError } from 'lib/api-error'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
 import { initKeaTests } from '~/test/init'
 
@@ -83,6 +84,30 @@ describe('LemonFormDialog', () => {
         } else {
             expect(captureException).not.toHaveBeenCalled()
         }
+    })
+
+    it('lets a field that handles Enter commit its value instead of submitting', async () => {
+        const onSubmit = jest.fn().mockResolvedValue(undefined)
+        render(
+            <LemonFormDialog
+                dialogKey="test-dialog"
+                title="Test dialog"
+                shouldAwaitSubmit
+                initialValues={{ tags: ['growth'] }}
+                content={
+                    <LemonField name="tags">
+                        <LemonInputSelect mode="multiple" allowCustomValues options={[]} />
+                    </LemonField>
+                }
+                onSubmit={onSubmit}
+            />
+        )
+
+        await userEvent.type(screen.getByRole('textbox'), 'billing{Enter}')
+
+        expect(onSubmit).not.toHaveBeenCalled()
+        await submitViaButton()
+        await waitFor(() => expect(onSubmit).toHaveBeenCalledWith({ tags: ['growth', 'billing'] }))
     })
 
     it('closes the dialog and does not capture when the submit resolves', async () => {
