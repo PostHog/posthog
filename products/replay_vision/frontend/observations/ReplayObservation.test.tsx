@@ -44,6 +44,8 @@ jest.mock('../components/CitedMarkdown', () => {
     }
 })
 
+const notesButton = (): HTMLElement => document.querySelector('[data-attr="vision-observation-notes"]') as HTMLElement
+
 describe('ReplayObservation', () => {
     beforeEach(() => {
         useMocks({
@@ -157,30 +159,31 @@ describe('ReplayObservation', () => {
             false,
         ],
     ])(
-        'for %s, shows the rating question, the event link and the notes only when they apply',
-        async (_name, overrides, asksForRating, linksEvent, showsNotes) => {
+        'for %s, shows the rating question, the event link and the notes button only when they apply',
+        async (_name, overrides, asksForRating, linksEvent, notesEnabled) => {
             observationOverrides = overrides
             render(<ReplayObservationSceneComponent />)
             await screen.findByTestId('observation-recording')
 
             expect(screen.queryByText('Did the scanner get this right?') !== null).toBe(asksForRating)
-            expect(screen.queryByText('Internal notes') !== null).toBe(showsNotes)
-            await waitFor(() =>
-                expect(replayObservationSceneLogic.values.sidePanelContext.discussions_disabled).toBe(!showsNotes)
-            )
+            expect(notesButton()).toHaveAttribute('aria-disabled', String(!notesEnabled))
+            expect(replayObservationSceneLogic.values.sidePanelContext.discussions_disabled).toBe(!notesEnabled)
             fireEvent.click(screen.getByText('Details'))
             expect(screen.queryByText('$recording_observed') !== null).toBe(linksEvent)
         }
     )
 
-    it('hands the notes to the discussion panel while it is open, so one composer edits the thread', async () => {
+    it('keeps notes off the page and toggles them in the discussion panel', async () => {
         render(<ReplayObservationSceneComponent />)
-        await screen.findByText('Internal notes')
-        expect(screen.queryByText('The notes are open in the discussion panel.')).toBeNull()
+        await screen.findByTestId('observation-recording')
+        expect(screen.queryByText('Comment on this Observation')).toBeNull()
 
-        act(() => sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Discussion))
+        fireEvent.click(notesButton())
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(true)
+        expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Discussion)
 
-        await screen.findByText('The notes are open in the discussion panel.')
+        fireEvent.click(notesButton())
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
     })
 
     it.each([

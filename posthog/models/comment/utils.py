@@ -123,7 +123,7 @@ def extract_plain_text_from_rich_content(rich_content: Optional[dict]) -> str:
 OBSERVATION_NOTE_PLACEHOLDER = "A note on a Replay Vision observation. Open it in PostHog to read it."
 
 
-def _mention_fanout_content(comment: "Comment") -> str:
+def _mention_fanout_content(comment: "Comment") -> str | None:
     if comment.scope in OBSERVATION_COMMENT_SCOPES:
         return OBSERVATION_NOTE_PLACEHOLDER
     return extract_plain_text_from_rich_content(comment.rich_content) or comment.content

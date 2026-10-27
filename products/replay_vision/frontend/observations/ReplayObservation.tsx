@@ -31,7 +31,7 @@ import { ObservationDetails } from './ObservationDetails'
 import { ObservationFacts } from './ObservationFacts'
 import { ObservationHeadline } from './ObservationHeadline'
 import { ObservationLabelControl } from './ObservationLabelControl'
-import { ObservationNotes } from './ObservationNotes'
+import { ObservationNotesButton } from './ObservationNotesButton'
 import { ObservationPinnedProperties } from './ObservationPinnedProperties'
 import { ObservationReasoning } from './ObservationReasoning'
 import { ObservationRecordingUnavailable } from './ObservationRecordingUnavailable'
@@ -221,6 +221,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             >
                                 Next
                             </LemonButton>
+                            <ObservationNotesButton />
                             <ObservationShareButton
                                 observationId={observation.id}
                                 sessionRecordingId={observation.session_id}
@@ -325,12 +326,6 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             <div className="border-t pt-3">
                                 <ObservationDetails observation={observation} />
                             </div>
-                            {/* A retry deletes a failed scan and starts a new id, so only a finished scan keeps its notes. */}
-                            {observation.status === 'succeeded' && (
-                                <div className="border-t pt-3">
-                                    <ObservationNotes observation={observation} />
-                                </div>
-                            )}
                         </section>
                     </div>
 
