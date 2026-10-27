@@ -7,7 +7,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import { createHogBrandingExtension } from "./extension";
+import { createHognessBrandingExtension } from "./extension";
 
 // `keyHint`/`keyText`/`rawKeyHint` read the app's active keybindings and
 // current theme through internal singletons initialized by the TUI runtime
@@ -62,12 +62,12 @@ function fakeCtx(options: {
   } as unknown as ExtensionContext;
 }
 
-describe("createHogBrandingExtension", () => {
+describe("createHognessBrandingExtension", () => {
   it("registers a session_start handler that sets a custom header in TUI mode", async () => {
     const { pi, handlers } = fakePi();
     const setHeader = vi.fn();
 
-    const extension = createHogBrandingExtension({ version: "9.9.9" });
+    const extension = createHognessBrandingExtension({ version: "9.9.9" });
     await extension(pi);
 
     expect(pi.on).toHaveBeenCalledWith("session_start", expect.any(Function));
@@ -89,7 +89,7 @@ describe("createHogBrandingExtension", () => {
     const { pi, handlers } = fakePi();
     const setHeader = vi.fn();
 
-    const extension = createHogBrandingExtension();
+    const extension = createHognessBrandingExtension();
     await extension(pi);
 
     const ctx = fakeCtx({ mode: "print", setHeader });
@@ -102,7 +102,7 @@ describe("createHogBrandingExtension", () => {
     const { pi, handlers } = fakePi();
     const setHeader = vi.fn();
 
-    const extension = createHogBrandingExtension();
+    const extension = createHognessBrandingExtension();
     await extension(pi);
 
     const ctx = fakeCtx({ mode: "tui", setHeader });
@@ -127,7 +127,7 @@ describe("createHogBrandingExtension", () => {
     const { pi, handlers } = fakePi();
     const setHeader = vi.fn();
 
-    const extension = createHogBrandingExtension();
+    const extension = createHognessBrandingExtension();
     await extension(pi);
 
     const ctx = fakeCtx({ mode: "tui", setHeader });
@@ -148,7 +148,7 @@ describe("createHogBrandingExtension", () => {
   it("sets a Hog-branded terminal title on session_start, with and without a session name", async () => {
     const { pi, handlers } = fakePi();
 
-    const extension = createHogBrandingExtension();
+    const extension = createHognessBrandingExtension();
     await extension(pi);
 
     const setTitleNoName = vi.fn();
@@ -156,7 +156,7 @@ describe("createHogBrandingExtension", () => {
       {} as SessionStartEvent,
       fakeCtx({ cwd: "/home/user/my-project", setTitle: setTitleNoName }),
     );
-    expect(setTitleNoName).toHaveBeenCalledWith("hog - my-project");
+    expect(setTitleNoName).toHaveBeenCalledWith("hogness - my-project");
 
     const setTitleWithName = vi.fn();
     await handlers.session_start[0]?.(
@@ -167,13 +167,15 @@ describe("createHogBrandingExtension", () => {
         setTitle: setTitleWithName,
       }),
     );
-    expect(setTitleWithName).toHaveBeenCalledWith("hog - fix-bug - my-project");
+    expect(setTitleWithName).toHaveBeenCalledWith(
+      "hogness - fix-bug - my-project",
+    );
   });
 
   it("updates the terminal title on session_info_changed", async () => {
     const { pi, handlers } = fakePi();
 
-    const extension = createHogBrandingExtension();
+    const extension = createHognessBrandingExtension();
     await extension(pi);
 
     expect(pi.on).toHaveBeenCalledWith(
@@ -194,14 +196,14 @@ describe("createHogBrandingExtension", () => {
       }),
     );
 
-    expect(setTitle).toHaveBeenCalledWith("hog - renamed - my-project");
+    expect(setTitle).toHaveBeenCalledWith("hogness - renamed - my-project");
   });
 
   it("re-applies the branded title on the next tick to win the race against pi's own updateTerminalTitle()", async () => {
     vi.useFakeTimers();
     try {
       const { pi, handlers } = fakePi();
-      const extension = createHogBrandingExtension();
+      const extension = createHognessBrandingExtension();
       await extension(pi);
 
       const setTitle = vi.fn();
@@ -210,7 +212,7 @@ describe("createHogBrandingExtension", () => {
 
       // Set immediately...
       expect(setTitle).toHaveBeenCalledTimes(1);
-      expect(setTitle).toHaveBeenLastCalledWith("hog - my-project");
+      expect(setTitle).toHaveBeenLastCalledWith("hogness - my-project");
 
       // Simulate pi's own interactive-mode stomping the title synchronously
       // right after our handler resolves, as it does in practice.
@@ -219,7 +221,7 @@ describe("createHogBrandingExtension", () => {
 
       // ...and re-applied on the next tick, winning the race.
       vi.runAllTimers();
-      expect(setTitle).toHaveBeenLastCalledWith("hog - my-project");
+      expect(setTitle).toHaveBeenLastCalledWith("hogness - my-project");
     } finally {
       vi.useRealTimers();
     }

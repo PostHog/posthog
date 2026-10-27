@@ -1481,9 +1481,15 @@ class SocialAuthExceptionMiddleware:
 # partner pays for, which this check also never judges. Settling the balance is how a member lifts
 # a deactivation; no payment restores a pending deletion. `organizationLogic` holds the same table.
 ALLOWED_WHILE_BLOCKED: dict[str, tuple[str, ...]] = {
-    "/organization-pending-deletion": ("/organization-pending-deletion", "/signup/", "/agentic/authorize"),
+    "/organization-pending-deletion": (
+        "/organization-pending-deletion",
+        "/signup/",
+        "/agentic/authorize",
+        "/_app_context",
+    ),
     "/organization-deactivated": (
         "/organization-deactivated",
+        "/_app_context",
         "/signup/",
         "/agentic/authorize",
         "/organization/billing",

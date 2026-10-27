@@ -13,6 +13,7 @@ packages:
     - packages/quill/apps/*
     - packages/quill/packages/*
     - frontend
+    - hog
     - playwright
     - nodejs
     - nodejs/src/scripts
