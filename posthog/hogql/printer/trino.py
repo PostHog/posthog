@@ -480,10 +480,13 @@ class TrinoPrinter(PostgresPrinter):
             or node.offset is not None
         ):
             return False
-        return all(
-            self._is_constant_expression(projection.expr if isinstance(projection, ast.Alias) else projection)
-            for projection in node.select
-        )
+        expressions = [
+            projection.expr if isinstance(projection, ast.Alias) else projection for projection in node.select
+        ]
+        # Trino expands a ROW value inside VALUES into separate columns, so a tuple column would change shape.
+        if any(isinstance(expr, ast.Call) and expr.name.lower() == "tuple" for expr in expressions):
+            return False
+        return all(self._is_constant_expression(expr) for expr in expressions)
 
     def _is_constant_expression(self, node: ast.Expr) -> bool:
         if isinstance(node, ast.Constant):
@@ -497,6 +500,10 @@ class TrinoPrinter(PostgresPrinter):
                 not node.params
                 and not node.distinct
                 and find_hogql_aggregation(node.name) is None
+                # Window functions such as first_value print as Trino aggregates, which VALUES can't hold.
+                and node.name.lower() not in _TRINO_WINDOW_FUNCTIONS
+                and node.name.lower() not in _TRINO_WINDOW_FUNCTION_RENAMES
+                and node.name.lower() not in _TRINO_CONDITIONAL_WINDOW_FUNCTIONS
                 and all(self._is_constant_expression(arg) for arg in node.args)
             )
         return False

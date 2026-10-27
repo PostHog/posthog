@@ -2961,9 +2961,15 @@ def test_lowers_constant_row_unions_to_one_values_list(query: str, expected: lis
         assert connection.execute(sql, values).fetchall() == expected
 
 
-def test_keeps_union_with_a_table_branch() -> None:
-    sql, _ = prepare_and_print_ast(
-        parse_select("SELECT 'a' AS user_id UNION ALL SELECT user_id FROM users"), _context_with_trino_table(), "trino"
-    )
+@pytest.mark.parametrize(
+    "query",
+    [
+        "SELECT 'a' AS user_id UNION ALL SELECT user_id FROM users",
+        "SELECT tuple(1, 2) AS t UNION ALL SELECT tuple(3, 4)",
+        "SELECT first_value(1) AS x UNION ALL SELECT 2",
+    ],
+)
+def test_keeps_union_when_a_branch_is_not_a_constant_row(query: str) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
     assert "UNION ALL" in sql
     assert "VALUES" not in sql
