@@ -80,12 +80,17 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
-from products.experiments.backend.facade.api import get_experiment_health, get_experiment_health_inputs
-from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
-from products.experiments.backend.facade.legacy_migration import (
-    LegacyMigrationError,
-    migrate_experiment as migrate_legacy_experiment,
+from products.experiments.backend.facade.api import (
+    get_experiment_health,
+    get_experiment_health_inputs,
+    get_running_time_target,
 )
+from products.experiments.backend.facade.contracts import (
+    ExperimentHealthReaderAccess,
+    LegacyMigrationError,
+    RunningTimeMode,
+)
+from products.experiments.backend.facade.legacy_migration import migrate_experiment as migrate_legacy_experiment
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
@@ -139,6 +144,8 @@ from products.experiments.backend.presentation.serializers import (
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
     RunningTimeCalculationResultSerializer,
+    RunningTimeTargetQuerySerializer,
+    RunningTimeTargetSerializer,
     ShipVariantSerializer,
 )
 from products.experiments.backend.recalculation import (
@@ -561,7 +568,7 @@ class EnterpriseExperimentsViewSet(
                 .select_related("created_by")
                 .defer(*LIST_DEFERRED_FIELDS)
             )
-        if self.action in ("health", "health_inputs"):
+        if self.action in ("health", "health_inputs", "in_session_exposure"):
             # The facade reads the experiment again with the joins its checks need, so the object lookup
             # here only checks access.
             queryset = queryset.select_related(None).prefetch_related(None).select_related("team")
@@ -1016,6 +1023,10 @@ class EnterpriseExperimentsViewSet(
         `running_but_flag_disabled`, as a warning. A caller who can't view the linked flag's
         history gets the warning, because the pause is not read. A draft whose flag is already
         active with multiple variants gets `not_started_but_multiple_variants_rolled_out` as info.
+        An ended experiment whose flag is still active with multiple variants gets
+        `ended_but_multiple_variants_rolled_out` as a warning, or `ended_flag_not_called` as info
+        when the flag's `last_called_at` shows no call in the 3 days after the end. The info waits
+        an extra hour, because `last_called_at` trails a call.
 
         A running experiment whose first primary metric is a funnel gets the info
         `early_significance` (subcode `below_detectable_effect`) when a significant variant's
@@ -1688,6 +1699,27 @@ class EnterpriseExperimentsViewSet(
         return Response(service.get_velocity_stats())
 
     @validated_request(
+        query_serializer=RunningTimeTargetQuerySerializer,
+        responses={200: OpenApiResponse(response=RunningTimeTargetSerializer)},
+    )
+    @action(methods=["GET"], detail=True, url_path="running_time_target", required_scopes=["experiment:read"])
+    def running_time_target(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        """The target sample of the experiment's running time estimate, which the experiment page's header compares
+        with the exposures so far, and what the experiment can detect over time.
+
+        In manual running time mode it is the saved target. Otherwise it is sized from the first primary metric's
+        current result: the variance the analysis uses (with CUPED when the analysis applied it) and the flag's
+        traffic split, so that the comparison of each variant with the control reaches the minimum detectable effect.
+        """
+        experiment: Experiment = self.get_object()
+        target = get_running_time_target(
+            team_id=self.team.id,
+            experiment_id=experiment.id,
+            mode=RunningTimeMode(mode) if (mode := request.validated_query_data.get("mode")) else None,
+        )
+        return Response(RunningTimeTargetSerializer(target).data)
+
+    @validated_request(
         request_serializer=RunningTimeCalculationInputSerializer,
         responses={200: OpenApiResponse(response=RunningTimeCalculationResultSerializer)},
     )
@@ -1930,7 +1962,9 @@ class EnterpriseExperimentsViewSet(
         Postgres reads only, so it can serve the tab's mount path.
         """
         experiment: Experiment = self.get_object()
-        semantics = resolve_in_session_exposure_semantics(self.team, experiment)
+        semantics = resolve_in_session_exposure_semantics(team_id=self.team_id, experiment_id=experiment.id)
+        if semantics is None:
+            raise NotFound()
         return Response(ExperimentInSessionExposureSerializer(semantics).data)
 
     @validated_request(

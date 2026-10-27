@@ -8,7 +8,9 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { signalsReportsReviewersMeDestroy } from 'products/signals/frontend/generated/api'
 
+import type { SignalReportAssigneeApi } from '../../generated/api.schemas'
 import { captureInboxReportAction } from '../inboxAnalytics'
+import type { SignalReport } from '../types'
 import { type DismissalFeedback, type ResolveReasonValue, suppressDismissalPayload } from '../utils/dismissalReasons'
 
 /** Tally of a bulk operation that ran one request per selected report. */
@@ -82,6 +84,13 @@ export interface inboxBulkActionsLogicActions {
     }
     clearSelection: () => {
         value: true
+    }
+    reportClaimChanged: (
+        reportId: string,
+        assignee: SignalReport['assignee']
+    ) => {
+        assignee: SignalReportAssigneeApi | null | undefined
+        reportId: string
     }
     reportReviewersChanged: (
         reportId: string,
@@ -172,6 +181,9 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
         /** Broadcast that a report's suggested reviewers were saved, with the PostHog user uuids now on
          * it, so a list scoped to a reviewer who is no longer on the report drops the row in place. */
         reportReviewersChanged: (reportId: string, reviewerUuids: string[]) => ({ reportId, reviewerUuids }),
+        /** Broadcast that a report was claimed or released elsewhere (the detail pane), with the new
+         * assignee (null once released), so every mounted list updates the row's claim in place. */
+        reportClaimChanged: (reportId: string, assignee: SignalReport['assignee']) => ({ reportId, assignee }),
     }),
 
     reducers({
