@@ -18,9 +18,6 @@ export interface HogFlowQuotaLimitResult {
 
 // Transactional emails bypass the email quota. Each send still reports billable usage, so the team pays for it.
 function sendsOnlyTransactionalEmail(hogFlow: HogFlow): boolean {
-    if (hogFlow.trigger.type === 'api') {
-        return true
-    }
     const emailActions = hogFlow.actions.filter(
         (action): action is Extract<HogFlowAction, { type: 'function_email' }> => action.type === 'function_email'
     )

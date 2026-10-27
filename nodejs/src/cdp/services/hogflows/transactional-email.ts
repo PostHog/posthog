@@ -23,6 +23,7 @@ export type TransactionalEmailOutcome =
     | 'invalid_request'
     | 'not_found'
     | 'not_sendable'
+    | 'quota_limited'
     | 'sending_suspended'
     | 'sending_paused'
     | 'recipient_suppressed'

@@ -79,11 +79,11 @@ describe('HogFlow Quota Limiting', () => {
                 expected: false,
             },
             {
-                name: 'api-triggered emails are not limited',
+                name: 'an api trigger alone does not exempt an uncategorized email',
                 trigger: { type: 'api' },
                 actions: [{ type: 'function_email', config: {} }],
                 limitedResources: ['workflow_emails'],
-                expected: false,
+                expected: true,
             },
             {
                 name: 'a marketing email next to a transactional one is limited',
