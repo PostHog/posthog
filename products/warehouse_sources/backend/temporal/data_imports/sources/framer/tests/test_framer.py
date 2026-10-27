@@ -617,11 +617,19 @@ class TestFramer:
         assert rows == groups
         assert cursors == expected_cursors
 
-    def test_streamed_localization_groups_fail_on_missing_cursor(self) -> None:
+    @parameterized.expand(
+        [
+            ("missing_cursor", {"group": {"id": "g1"}}),
+            ("missing_group", {}),
+            ("non_object_response", None),
+            ("invalid_group", {"group": "g1", "cursor": "cur-1"}),
+        ]
+    )
+    def test_streamed_localization_groups_fail_on_malformed_response(self, _name: str, response: Any) -> None:
         with pytest.raises(FramerAPIError) as exc_info:
             self._run_endpoint(
                 "LocalizationGroups",
-                {"listLocalizationGroupsNext": {"group": {"id": "g1"}}},
+                {"listLocalizationGroupsNext": response},
                 "5.1.0",
             )
         assert exc_info.value.code == "INVALID_RESPONSE"

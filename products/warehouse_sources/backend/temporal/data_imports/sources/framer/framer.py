@@ -506,9 +506,13 @@ def _streamed_localization_groups_rows(
     cursor: Optional[str] = None
     for _group_number in range(LOCALIZATION_GROUPS_MAX):
         result = client.call("listLocalizationGroupsNext", {"cursor": cursor})
-        group = result.get("group") if isinstance(result, dict) else None
-        if not isinstance(group, dict):
+        if not isinstance(result, dict) or "group" not in result:
+            raise FramerAPIError("Localization group response is missing its group", code="INVALID_RESPONSE")
+        group = result["group"]
+        if group is None:
             return
+        if not isinstance(group, dict):
+            raise FramerAPIError("Localization group response has an invalid group", code="INVALID_RESPONSE")
         cursor = result.get("cursor")
         if not cursor:
             raise FramerAPIError("Localization group response is missing its cursor", code="INVALID_RESPONSE")
