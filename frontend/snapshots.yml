@@ -193,9 +193,9 @@ snapshots:
     ai-observability-scorer-label--short-name--light:
         hash: v1.k794b7964.14a30b76a81a5f4c56dc83ad82034bc75376f086fa9169cec00cc794f17581f3.I3AWEwAP3UCPcYVt0zJUCAAN6QpdjYIat3dC2zcESYM
     ai-observability-scorers--default--dark:
-        hash: v1.k794b7964.7e6360b5942dc9b07dd1320cb948e4399c258b2658b63a4901b1372dcf053393.WRhW-sd3Gi2dmuYO6-8BWh4ajfU07x3DiBElA_OYFiM
+        hash: v1.k794b7964.f78754ebf8833089df3ed6fce0036b9461a6a6b16ce12a0dde190756f0065cfc.c2zvLQsNEY2Y0bOKgHmp_zedeEiXEKDgnfika37AdcM
     ai-observability-scorers--default--light:
-        hash: v1.k794b7964.0bebe66c2116323db9f4f8d4bc5c2bb4f559457fe4a95c79589fd272e1f74f55.wuclGqR8X6PZXB-ZHF3HLsmv_GOWOO6d7PW54AfCcDQ
+        hash: v1.k794b7964.1ae6964e1c173ed49942f08dee8b37813c2c232134633025e3e1d4fbbe8b1735.JrtueidNH-BTBIz2QYuJCfD_7-xFi13lILhFIg4tIVQ
     ai-observability-scorers--empty--dark:
         hash: v1.k794b7964.e03c91da2bbefb7bf8ffc525d0db578f7ef2d569bb35f7fcbdccc12853d2a56a.wCUMXVf7IxYNH3MnBLe5HAy1cF3f6ya0XHvMiaCqTx0
     ai-observability-scorers--empty--light:
@@ -209,9 +209,9 @@ snapshots:
     ai-observability-scorers--narrow--light:
         hash: v1.k794b7964.82a5256eb013769f0b4321134fa6bd05e0d334b2f289dc04b50b1fdec01578a1.OWBbbeUHjtZE2DFA2fEqJYLvBWf9KCtR23q_AkZFmts
     ai-observability-scorers--offline-disabled--dark:
-        hash: v1.k794b7964.a37dabfadfb5a3f0172066a06f1fd88d6a15df23f56b50b0d5f0847ad0f4c0a5.uA0ytQjh6iVyWMwDJ_F6tOpB2bn-9hhXRXuGx1fRqd0
+        hash: v1.k794b7964.6f40a483b5f9667ae4d7a756d6891631f51722d8e15e204ae90bb7aa8a2ad793.sKw8KEDc0oFdcwVY1v3-aKSTc_1iReoOphfzIvOsv10
     ai-observability-scorers--offline-disabled--light:
-        hash: v1.k794b7964.946f663237c84b1f3b208509cb45ef66a212a28ae8af682215de2ce08baaeb6f.H_QOTkAn0leMRn-Cyz37GHbliOlLSMbIZ2UchWxilhE
+        hash: v1.k794b7964.8653fc6927bddd03f0e54db4fec063bcd19e39cee1cf74ba7d167050e276f960.M7E6GZC6Psi5rOfwVLNry3cZPlCT0T-2NKSyceQmbis
     charts-heatmap--activity-by-day-and-hour--dark:
         hash: v1.k794b7964.cb3a745c072482c2b24a91879fea9a6f72d195ac683a38efc3f222d944828b9e.jlohG3R6gpgos058qmytizuCZtVRjXramep8NJDaIQE
     charts-heatmap--activity-by-day-and-hour--light:
