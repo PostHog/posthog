@@ -62,7 +62,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
+from posthog.hogql.constants import MAX_EXPANDED_INSIGHT_QUERIES, MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
@@ -2641,8 +2641,17 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         assert response.results[0]["data"] == [1, 0, 1, 3, 1, 0, 2, 0, 1, 0, 1, 0]
 
-    @parameterized.expand([(BaseMathType.DAU, [[1, 2, 0]]), (BaseMathType.TOTAL, None)])
-    def test_breakdown_totals_count_each_person_once_per_day(self, math, expected_totals):
+    @parameterized.expand(
+        [
+            ("unique_users", BaseMathType.DAU, False, MAX_EXPANDED_INSIGHT_QUERIES, [[1, 2, 0]]),
+            ("total_count", BaseMathType.TOTAL, False, MAX_EXPANDED_INSIGHT_QUERIES, None),
+            ("other_hidden", BaseMathType.DAU, True, MAX_EXPANDED_INSIGHT_QUERIES, None),
+            ("over_query_limit", BaseMathType.DAU, False, 1, None),
+        ]
+    )
+    def test_breakdown_totals_count_each_person_once_per_day(
+        self, _name, math, hide_other, query_limit, expected_totals
+    ):
         _create_person(team_id=self.team.pk, distinct_ids=["p1"])
         _create_person(team_id=self.team.pk, distinct_ids=["p2"])
         for distinct_id, timestamp, browser in [
@@ -2660,14 +2669,22 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         flush_persons_and_events()
 
-        response = self._run_trends_query(
-            "2020-01-09",
-            "2020-01-11",
-            IntervalType.DAY,
-            [EventsNode(event="$pageview", math=math)],
-            None,
-            BreakdownFilter(breakdown="$browser", breakdown_type=BreakdownType.EVENT),
-        )
+        with patch(
+            "products.product_analytics.backend.hogql_queries.trends.trends_query_runner.MAX_EXPANDED_INSIGHT_QUERIES",
+            query_limit,
+        ):
+            response = self._run_trends_query(
+                "2020-01-09",
+                "2020-01-11",
+                IntervalType.DAY,
+                [EventsNode(event="$pageview", math=math)],
+                None,
+                BreakdownFilter(
+                    breakdown="$browser",
+                    breakdown_type=BreakdownType.EVENT,
+                    breakdown_hide_other_aggregation=hide_other,
+                ),
+            )
 
         totals = None if response.breakdownTotals is None else [total["data"] for total in response.breakdownTotals]
         assert totals == expected_totals

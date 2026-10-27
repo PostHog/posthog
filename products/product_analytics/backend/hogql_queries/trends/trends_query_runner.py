@@ -43,7 +43,12 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings, LimitContext
+from posthog.hogql.constants import (
+    MAX_EXPANDED_INSIGHT_QUERIES,
+    MAX_SELECT_RETURNED_ROWS,
+    HogQLGlobalSettings,
+    LimitContext,
+)
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
@@ -241,12 +246,20 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     @cached_property
     def _breakdown_totals_runner(self) -> Optional["TrendsQueryRunner"]:
         # Unique counts don't add up across breakdown values, so a day's total needs its own distinct count.
+        breakdown_filter = self.query.breakdownFilter
+        unique_series_count = sum(
+            1 for series in self.series if getattr(series.series, "math", None) in UNIQUE_COUNT_MATHS
+        )
         if (
             not self.breakdown_enabled
             or self._trends_display.is_total_value()
             or (self.query.trendsFilter and self.query.trendsFilter.formulaNodes)
-            or (self.query.breakdownFilter and self.query.breakdownFilter.breakdown_type == "cohort")
-            or not any(getattr(series, "math", None) in UNIQUE_COUNT_MATHS for series in self.query.series)
+            or (breakdown_filter and breakdown_filter.breakdown_type == "cohort")
+            # Without "Other" the rows don't make up the whole, so the frontend shows no share.
+            or (breakdown_filter and breakdown_filter.breakdown_hide_other_aggregation)
+            or unique_series_count == 0
+            # Drop the totals rather than fail an insight that is under the limit on its own.
+            or len(self.series) + unique_series_count > MAX_EXPANDED_INSIGHT_QUERIES
         ):
             return None
         return TrendsQueryRunner(
