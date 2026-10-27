@@ -19,6 +19,8 @@ export function ImportWizardStepper<Key extends string>({
     onStepClick,
 }: ImportWizardStepperProps<Key>): JSX.Element {
     const currentIndex = steps.findIndex((step) => step.key === currentStep)
+    // A long wizard shows only the current label until its container is wide enough for all of them.
+    const compact = steps.length > 5
 
     return (
         <nav aria-label="Import progress" className="flex flex-wrap items-center justify-center gap-1">
@@ -27,6 +29,8 @@ export function ImportWizardStepper<Key extends string>({
                     {index > 0 && <Separator className="w-4" />}
                     <Button
                         variant="default"
+                        aria-label={step.label}
+                        tooltip={compact && index !== currentIndex ? step.label : undefined}
                         aria-current={index === currentIndex ? 'step' : undefined}
                         disabledReason={index > currentIndex ? 'Finish the earlier steps first' : undefined}
                         onClick={() => onStepClick(step.key)}
@@ -34,7 +38,9 @@ export function ImportWizardStepper<Key extends string>({
                         <Badge variant={index < currentIndex ? 'success' : index === currentIndex ? 'info' : 'default'}>
                             {index + 1}
                         </Badge>
-                        {step.label}
+                        <span className={compact && index !== currentIndex ? 'hidden @5xl:inline' : undefined}>
+                            {step.label}
+                        </span>
                     </Button>
                 </Fragment>
             ))}
