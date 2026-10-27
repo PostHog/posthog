@@ -17,8 +17,13 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
-import { editorSceneLogic } from './editorSceneLogic'
+import { SaveAsMenuItem, editorSceneLogic } from './editorSceneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
+
+export interface QuillSQLEditorSecondarySaveMenuItem extends SaveAsMenuItem {
+    onClick: () => void
+    disabledReason: string | null | undefined
+}
 
 export interface QuillSQLEditorSceneActionsProps {
     isMaterializedView: boolean
@@ -29,6 +34,11 @@ export interface QuillSQLEditorSceneActionsProps {
     saveAsInsightDisabledReason: string | undefined
     saveAsDisabledReason: string | undefined
     continueInNotebookAccessDisabledReason: string | null
+    secondarySaveMenuItems: QuillSQLEditorSecondarySaveMenuItem[]
+    legacySaveMenuItems: QuillSQLEditorSecondarySaveMenuItem[]
+    onPrimarySaveClick: () => void
+    primarySaveDisabledReason: string | null | undefined
+    saveAsChooserEnabled: boolean
 }
 
 export function QuillSQLEditorSceneActions({
@@ -40,6 +50,11 @@ export function QuillSQLEditorSceneActions({
     saveAsInsightDisabledReason,
     saveAsDisabledReason,
     continueInNotebookAccessDisabledReason,
+    secondarySaveMenuItems,
+    legacySaveMenuItems,
+    onPrimarySaveClick,
+    primarySaveDisabledReason,
+    saveAsChooserEnabled,
 }: QuillSQLEditorSceneActionsProps): JSX.Element {
     const { updateInsightButtonEnabled, saveAsMenuItems, notebooksLoading } = useValues(editorSceneLogic)
     const {
@@ -104,13 +119,27 @@ export function QuillSQLEditorSceneActions({
     const saveAsMenuItemsGroup = (
         <DropdownMenuGroup>
             {continueInNotebookMenuItem}
-            {saveAsMenuItem}
+            {saveAsChooserEnabled
+                ? saveAsMenuItem
+                : legacySaveMenuItems.map((item) => (
+                      <DropdownMenuItem key={item.action} disabledReason={item.disabledReason} onClick={item.onClick}>
+                          {item.label}
+                      </DropdownMenuItem>
+                  ))}
         </DropdownMenuGroup>
     )
 
     const saveAsMenuContent = (
         <DropdownMenuContent align="end">
-            <DropdownMenuGroup>{saveAsMenuItem}</DropdownMenuGroup>
+            {saveAsChooserEnabled ? (
+                <DropdownMenuGroup>{saveAsMenuItem}</DropdownMenuGroup>
+            ) : (
+                secondarySaveMenuItems.map((item) => (
+                    <DropdownMenuItem key={item.action} disabledReason={item.disabledReason} onClick={item.onClick}>
+                        {item.label}
+                    </DropdownMenuItem>
+                ))
+            )}
         </DropdownMenuContent>
     )
 
@@ -240,14 +269,30 @@ export function QuillSQLEditorSceneActions({
                             Continue in a notebook
                         </Button>
                     )}
-                    <Button
-                        variant="primary"
-                        onClick={() => openSaveAsModal()}
-                        disabledReason={saveAsInsightDisabledReason}
-                        data-attr="sql-editor-save-options-button"
-                    >
-                        Save as...
-                    </Button>
+                    {saveAsChooserEnabled ? (
+                        <Button
+                            variant="primary"
+                            onClick={() => openSaveAsModal()}
+                            disabledReason={saveAsInsightDisabledReason}
+                            data-attr="sql-editor-save-options-button"
+                        >
+                            Save as...
+                        </Button>
+                    ) : (
+                        <DropdownMenu>
+                            <ButtonGroup>
+                                <Button
+                                    variant="primary"
+                                    onClick={onPrimarySaveClick}
+                                    disabledReason={primarySaveDisabledReason}
+                                >
+                                    {saveAsMenuItems.primary.label}
+                                </Button>
+                                {saveOptionsTrigger('sql-editor-save-options-button')}
+                            </ButtonGroup>
+                            {saveAsMenuContent}
+                        </DropdownMenu>
+                    )}
                 </>
             )}
         </div>

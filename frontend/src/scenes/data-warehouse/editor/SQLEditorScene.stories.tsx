@@ -37,8 +37,7 @@ import { expect, userEvent } from 'storybook/test'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
 import { sqlEditorLogic } from './sqlEditorLogic'
 
-// The SQL editor scene gates on warehouse-objects access; grant it on the storybook app context
-// before the story mounts and restore the original on unmount so story order can't leak.
+// Grant saved-object access before the story mounts and restore it on unmount so story order can't leak.
 const grantWarehouseAccess: Decorator = function GrantWarehouseAccess(Story): JSX.Element {
     const appContext = (window as any).POSTHOG_APP_CONTEXT
     const original = useRef<{ value: unknown }>()
@@ -47,6 +46,7 @@ const grantWarehouseAccess: Decorator = function GrantWarehouseAccess(Story): JS
         appContext.resource_access_control = {
             ...appContext.resource_access_control,
             [AccessControlResourceType.WarehouseObjects]: AccessControlLevel.Editor,
+            [AccessControlResourceType.Endpoint]: AccessControlLevel.Editor,
         }
     }
     useEffect(
@@ -445,6 +445,7 @@ export const EditedView: Story = {
 
 export const EditedInsight: Story = {
     parameters: {
+        featureFlags: [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER],
         pageUrl: `${urls.sqlEditor({ insightShortId: DISCARD_INSIGHT.short_id })}#q=SELECT%202`,
         msw: { mocks: discardMocks },
     },
@@ -476,6 +477,60 @@ export const EditedInsight: Story = {
         await waitFor(() => expect(canvas.queryByRole('button', { name: 'Update insight' })).not.toBeInTheDocument())
         await expect(canvas.getByRole('button', { name: 'Save as...' })).toBeVisible()
         await expect(sqlEditorLogic({ tabId: 'default' }).values.queryInput).toEqual('SELECT 2')
+    },
+}
+
+export const EditedInsightSaveAsFlow: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER],
+        pageUrl: `${urls.sqlEditor({ insightShortId: DISCARD_INSIGHT.short_id })}#q=SELECT%202`,
+        msw: { mocks: discardMocks },
+    },
+}
+
+export const EditedInsightSaveAsFlowQuill: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER, FEATURE_FLAGS.TODAY_RAIL_NAV],
+        pageUrl: `${urls.sqlEditor({ insightShortId: DISCARD_INSIGHT.short_id })}#q=SELECT%202`,
+        msw: { mocks: discardMocks },
+    },
+}
+
+export const EditedInsightLegacySaveMenu: Story = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER]: false },
+        pageUrl: `${urls.sqlEditor({ insightShortId: DISCARD_INSIGHT.short_id })}#q=SELECT%202`,
+        msw: { mocks: discardMocks },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByRole('button', { name: 'Discard changes' }, { timeout: 15000 })
+        await userEvent.click(canvasElement.querySelector('[data-attr="sql-editor-save-options-button"]')!)
+        const menu = within(canvasElement.ownerDocument.body)
+        await expect(await menu.findByRole('menuitem', { name: 'Save as new insight...' })).toHaveAttribute(
+            'aria-disabled',
+            'false'
+        )
+        await expect(menu.getByRole('menuitem', { name: 'Save as new view...' })).toHaveAttribute(
+            'aria-disabled',
+            'true'
+        )
+        await expect(menu.getByRole('menuitem', { name: 'Save as endpoint...' })).toHaveAttribute(
+            'aria-disabled',
+            'false'
+        )
+        await expect(menu.queryByText('Save query as')).not.toBeInTheDocument()
+    },
+}
+
+export const EditedInsightLegacySaveMenuQuill: Story = {
+    ...EditedInsightLegacySaveMenu,
+    parameters: {
+        ...EditedInsightLegacySaveMenu.parameters,
+        featureFlags: {
+            [FEATURE_FLAGS.SQL_EDITOR_SAVE_AS_CHOOSER]: false,
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+        },
     },
 }
 
