@@ -1,6 +1,7 @@
 from posthog.exceptions_capture import capture_exception
 
 from products.experiments.backend.health.context import PrimaryMetric
+from products.experiments.backend.logic.result_stats import MetricResultStats
 from products.experiments.backend.metric_calculation.config import (
     build_primary_calculation_configs,
     calculation_metric_name,
@@ -8,8 +9,7 @@ from products.experiments.backend.metric_calculation.config import (
 )
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.models.experiment import Experiment
-from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.setup_context import PRODUCT_DEFAULT_MINIMUM_DETECTABLE_EFFECT
+from products.experiments.backend.running_time_target import running_time_target
 
 
 def load_primary_metric(experiment: Experiment) -> PrimaryMetric | None:
@@ -32,31 +32,12 @@ def _load_primary_metric(experiment: Experiment) -> PrimaryMetric | None:
     if calculation_config is None:
         return None
     is_funnel = calculation_config.definition.get("metric_type") == "funnel"
+    response = MetricResultStore(experiment_id=experiment.id).current_response(calculation_config)
     return PrimaryMetric(
         name=calculation_metric_name(experiment, calculation_config),
         is_funnel=is_funnel,
-        minimum_detectable_effect=_minimum_detectable_effect(experiment, team_config),
-        manual_running_time=_manual_running_time(experiment),
-        result=MetricResultStore(experiment_id=experiment.id).current_result(calculation_config) if is_funnel else None,
+        target=running_time_target(
+            experiment, team_config=team_config, calculation_config=calculation_config, response=response
+        ),
+        result=MetricResultStats.from_response(response) if is_funnel and response is not None else None,
     )
-
-
-def _minimum_detectable_effect(experiment: Experiment, team_config: TeamExperimentsConfig) -> float:
-    running_time_calculation = experiment.running_time_calculation
-    planned = (
-        running_time_calculation.get("minimum_detectable_effect")
-        if isinstance(running_time_calculation, dict)
-        else None
-    )
-    if isinstance(planned, int | float) and not isinstance(planned, bool) and planned > 0:
-        return float(planned)
-    return float(team_config.default_minimum_detectable_effect or PRODUCT_DEFAULT_MINIMUM_DETECTABLE_EFFECT)
-
-
-def _manual_running_time(experiment: Experiment) -> bool:
-    # pinned: the page's `ConversionRateInputType.MANUAL` in frontend/src/types.ts, read by `runningTimeLogic`.
-    running_time_calculation = experiment.running_time_calculation
-    estimate_config = (
-        running_time_calculation.get("exposure_estimate_config") if isinstance(running_time_calculation, dict) else None
-    )
-    return isinstance(estimate_config, dict) and estimate_config.get("conversionRateInputType") == "manual"
