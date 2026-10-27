@@ -8,9 +8,12 @@ them to draw on, which closes the loop without putting agent output in front of 
 
 from __future__ import annotations
 
+from urllib.parse import quote
+
 import structlog
 
 from posthog.models import Team
+from posthog.models.github_integration_base import GitHubIntegrationBase
 
 from products.conversations.backend.facade import api as conversations_facade
 from products.signals.backend.enums import SignalSourceProduct
@@ -95,6 +98,10 @@ def post_report_findings_to_tickets(team: Team, report_id: str, signals: list[di
 
 
 def post_pull_request_to_tickets(team: Team, report_id: str, pr_url: str, signals: list[dict]) -> int:
+    parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
+    if parsed is None:
+        return 0
+    pr_url = f"https://github.com/{quote(parsed.owner, safe='')}/{quote(parsed.repo, safe='')}/pull/{parsed.number}"
     ticket_ids = _ticket_ids(signals)
     if not ticket_ids or not SignalReport.objects.filter(id=report_id, team_id=team.pk).exists():
         return 0

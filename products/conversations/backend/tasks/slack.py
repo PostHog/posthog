@@ -83,6 +83,7 @@ from products.conversations.backend.slack import (
     NudgeClassifierVerdict,
     NudgeFunnelVerdict,
     SlackConfirmationNeedsRetry,
+    _is_internal_channel,
     capture_nudge_event,
     capture_support_event,
     create_ticket_from_confirmation,
@@ -846,6 +847,9 @@ def _post_slack_body(
         "text": slack_text,
         "username": sender.username,
     }
+    if payload.get("internal_channel_only") is True:
+        message_kwargs["unfurl_links"] = False
+        message_kwargs["unfurl_media"] = False
     if client_msg_id:
         message_kwargs["client_msg_id"] = client_msg_id
     if sender.icon_url:
@@ -928,6 +932,15 @@ def _load_slack_delivery_runtime(claim: DeliveryClaim) -> SlackDeliveryRuntime |
 
 
 def _deliver_slack_body(claim: DeliveryClaim, runtime: SlackDeliveryRuntime) -> None:
+    if runtime.payload.get("internal_channel_only") is True and not _is_internal_channel(
+        runtime.client, str(runtime.route.get("channel") or "")
+    ):
+        _fail_claimed_delivery_part(
+            claim,
+            error_code="channel_not_internal",
+            error="The Slack channel is not confirmed as internal",
+        )
+        return
     ts = _post_slack_body(
         client=runtime.client,
         team=runtime.team,

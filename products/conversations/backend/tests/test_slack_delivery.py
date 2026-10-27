@@ -99,6 +99,48 @@ class TestSlackDelivery(BaseTest):
     def _part(self) -> ConversationDeliveryPart:
         return ConversationDeliveryPart.objects.unscoped().select_related("delivery").get()
 
+    @parameterized.expand(
+        [
+            ("shared", {"is_channel": True, "is_ext_shared": True}, False),
+            ("internal", {"is_channel": True}, True),
+        ]
+    )
+    @patch("products.conversations.backend.tasks.slack.get_slack_client")
+    def test_automated_update_checks_channel_before_delivery(
+        self, _name: str, channel_info: dict, expected_sent: bool, mock_get_client: MagicMock
+    ) -> None:
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="[PostHog bot] Pull request opened",
+            item_context={
+                "author_type": "AI",
+                "is_private": False,
+                "automated_update_key": "signals_pr:report:pr",
+                "internal_channel_only": True,
+            },
+        )
+        part = self._part()
+        assert part.payload["internal_channel_only"] is True
+        client = MagicMock()
+        client.conversations_info.return_value = {"channel": channel_info}
+        client.chat_postMessage.return_value = {"ts": "1700.1"}
+        mock_get_client.return_value = client
+
+        process_slack_delivery_part(str(part.id))
+
+        part.refresh_from_db()
+        if expected_sent:
+            assert part.status == ConversationDeliveryPart.Status.ACCEPTED
+            kwargs = client.chat_postMessage.call_args.kwargs
+            assert kwargs["unfurl_links"] is False
+            assert kwargs["unfurl_media"] is False
+        else:
+            assert part.status == ConversationDeliveryPart.Status.FAILED
+            assert part.last_error_code == "channel_not_internal"
+            client.chat_postMessage.assert_not_called()
+
     def test_enqueue_failure_rolls_back_the_comment(self) -> None:
         with (
             self.assertRaises(RuntimeError),
