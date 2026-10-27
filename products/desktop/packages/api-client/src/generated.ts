@@ -3847,94 +3847,18 @@ export namespace Schemas {
         timestamp_field: string;
         version?: (number | null) | undefined;
     };
+    export type ExperimentWarehouseNativeMathType = "total" | "sum";
     export type ExperimentWarehouseNativeNode = {
         /**
          * The direct-query source (an ExternalDataSource id) the SQL is written for.
          */
         connection_id: string;
         custom_name?: (string | null) | undefined;
-        fixedProperties?:
-            | (Array<
-                  | EventPropertyFilter
-                  | PersonPropertyFilter
-                  | PersonMetadataPropertyFilter
-                  | ElementPropertyFilter
-                  | EventMetadataPropertyFilter
-                  | SessionPropertyFilter
-                  | CohortPropertyFilter
-                  | RecordingPropertyFilter
-                  | LogEntryPropertyFilter
-                  | GroupPropertyFilter
-                  | FeaturePropertyFilter
-                  | FlagPropertyFilter
-                  | HogQLPropertyFilter
-                  | EmptyPropertyFilter
-                  | DataWarehousePropertyFilter
-                  | DataWarehousePersonPropertyFilter
-                  | ErrorTrackingIssueFilter
-                  | LogPropertyFilter
-                  | MetricPropertyFilter
-                  | SpanPropertyFilter
-                  | RevenueAnalyticsPropertyFilter
-                  | AccountCustomPropertyFilter
-                  | WorkflowVariablePropertyFilter
-                  | BehavioralPropertyFilter
-              > | null)
-            | undefined;
         kind?: string | undefined;
-        math?:
-            | (
-                  | BaseMathType
-                  | FunnelMathType
-                  | PropertyMathType
-                  | CountPerActorMathType
-                  | GroupMathType
-                  | ExperimentMetricMathType
-                  | CalendarHeatmapMathType
-                  | string
-                  | null
-              )
-            | undefined;
-        math_group_type_index?: (MathGroupTypeIndex | null) | undefined;
-        math_hogql?: (string | null) | undefined;
-        math_multiplier?: (number | null) | undefined;
+        math?: (ExperimentWarehouseNativeMathType | null) | undefined;
         math_property?: (string | null) | undefined;
-        math_property_revenue_currency?:
-            | (RevenueCurrencyPropertyConfig | null)
-            | undefined;
-        math_property_type?: (string | null) | undefined;
-        name?: (string | null) | undefined;
-        optionalInFunnel?: (boolean | null) | undefined;
-        properties?:
-            | (Array<
-                  | EventPropertyFilter
-                  | PersonPropertyFilter
-                  | PersonMetadataPropertyFilter
-                  | ElementPropertyFilter
-                  | EventMetadataPropertyFilter
-                  | SessionPropertyFilter
-                  | CohortPropertyFilter
-                  | RecordingPropertyFilter
-                  | LogEntryPropertyFilter
-                  | GroupPropertyFilter
-                  | FeaturePropertyFilter
-                  | FlagPropertyFilter
-                  | HogQLPropertyFilter
-                  | EmptyPropertyFilter
-                  | DataWarehousePropertyFilter
-                  | DataWarehousePersonPropertyFilter
-                  | ErrorTrackingIssueFilter
-                  | LogPropertyFilter
-                  | MetricPropertyFilter
-                  | SpanPropertyFilter
-                  | RevenueAnalyticsPropertyFilter
-                  | AccountCustomPropertyFilter
-                  | WorkflowVariablePropertyFilter
-                  | BehavioralPropertyFilter
-              > | null)
-            | undefined;
         /**
-         * Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id`, `timestamp` and `value` columns. `value` may be omitted when `math` is `total`.
+         * Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure.
          */
         query: string;
         response?: (Record<string, unknown> | null) | undefined;
@@ -3984,12 +3908,7 @@ export namespace Schemas {
         metric_type?: string | undefined;
         name?: (string | null) | undefined;
         response?: (Record<string, unknown> | null) | undefined;
-        series: Array<
-            | EventsNode
-            | ActionsNode
-            | ExperimentDataWarehouseNode
-            | ExperimentWarehouseNativeNode
-        >;
+        series: Array<EventsNode | ActionsNode | ExperimentDataWarehouseNode>;
         sharedMetricId?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
         version?: (number | null) | undefined;
@@ -4043,8 +3962,7 @@ export namespace Schemas {
         completion_event:
             | EventsNode
             | ActionsNode
-            | ExperimentDataWarehouseNode
-            | ExperimentWarehouseNativeNode;
+            | ExperimentDataWarehouseNode;
         conversion_window?: (number | null) | undefined;
         conversion_window_unit?:
             | (FunnelConversionWindowTimeUnit | null)
@@ -4064,7 +3982,6 @@ export namespace Schemas {
             | EventsNode
             | ActionsNode
             | ExperimentDataWarehouseNode
-            | ExperimentWarehouseNativeNode
             | ExperimentExposureNode;
         start_handling: StartHandling;
         uuid?: (string | null) | undefined;
