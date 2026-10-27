@@ -30,7 +30,7 @@ class HistoryWindow:
     lookback: Optional[timedelta] = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class OpenWeatherEndpointConfig:
     name: str
     path: str
@@ -136,6 +136,8 @@ OPENWEATHER_ENDPOINTS: dict[str, OpenWeatherEndpointConfig] = {
         # One week is the most the API returns per call. How far back data goes depends on the
         # subscription, so the first sync reads only the last week and later syncs extend it.
         history_window=HistoryWindow(size=timedelta(days=7), lookback=timedelta(days=7)),
+        # Sold separately, so a key that passes validation can still get a 401 here.
+        should_sync_default=False,
         description="Hourly historical weather observations for each configured location. The first sync reads "
         "the last 7 days and each sync after it adds the hours since. Needs a History API subscription.",
     ),
@@ -177,19 +179,14 @@ OPENWEATHER_ENDPOINTS_3_0: dict[str, OpenWeatherEndpointConfig] = {
         path=_ONECALL_PATH,
         data_key="alerts",
         # Alerts carry no `dt` or id; an issuer's alert is identified by its event and start time.
-        incremental_fields=[
-            {
-                "label": "start",
-                "type": IncrementalFieldType.Integer,
-                "field": "start",
-                "field_type": IncrementalFieldType.Integer,
-            },
-        ],
+        # Full refresh only: an alert stays in the response while active, so append would insert it again
+        # on every sync.
+        incremental_fields=[],
         primary_keys=["lat", "lon", "sender_name", "event", "start"],
         timestamp_field="start",
         partition_key="start_iso",
-        description="Active government weather alerts for each configured location. One row per alert; "
-        "use append sync to keep alerts after they expire.",
+        supports_append=False,
+        description="Government weather alerts active at sync time for each configured location. One row per alert.",
     ),
     **_SHARED_ENDPOINTS,
 }

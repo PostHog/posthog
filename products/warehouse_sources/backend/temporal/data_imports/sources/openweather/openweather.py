@@ -9,7 +9,12 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+    interruptible_wait,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.openweather.settings import (
@@ -27,6 +32,9 @@ MAX_RETRY_ATTEMPTS = 5
 # Each location costs one request per enabled endpoint on every sync, so cap the config to bound
 # worker time and outbound fan-out — a malformed/abusive config can't tie up the pipeline.
 MAX_LOCATIONS = 100
+
+# A history backfill makes many calls per location, and the free tier allows 60 calls a minute.
+HISTORY_REQUEST_INTERVAL_SECONDS = 1.0
 
 
 class OpenWeatherRetryableError(Exception):
@@ -89,8 +97,14 @@ def _build_url(path: str, params: dict[str, Any], base_url: str | None = None) -
     return f"{base_url or OPENWEATHER_BASE_URL}{path}?{urlencode(params)}"
 
 
-def history_windows(window: HistoryWindow, start_from: int | None, end: int) -> Iterator[tuple[int, int]]:
-    """Split ``[start, end]`` into consecutive ``(start, end)`` Unix ranges of at most ``window.size``.
+@frozen
+class TimeWindow:
+    start: int
+    end: int
+
+
+def history_windows(window: HistoryWindow, start_from: int | None, end: int) -> Iterator[TimeWindow]:
+    """Split ``[start, end]`` into consecutive inclusive Unix ranges of at most ``window.size``.
 
     ``start_from`` is the incremental watermark. Without one the read starts at the window's
     ``earliest_start``, or ``lookback`` before ``end``.
@@ -107,7 +121,7 @@ def history_windows(window: HistoryWindow, start_from: int | None, end: int) -> 
     size = int(window.size.total_seconds())
     while start <= end:
         window_end = min(start + size, end)
-        yield start, window_end
+        yield TimeWindow(start=start, end=window_end)
         # Ranges are inclusive, so the next one starts a second later to not read a boundary row twice.
         start = window_end + 1
 
@@ -255,8 +269,12 @@ def get_rows(
                 yield rows
             continue
 
-        for window_start, window_end in history_windows(window, start_from, end):
-            url = _build_url(config.path, {**params, "start": window_start, "end": window_end}, config.base_url)
+        for index, time_window in enumerate(history_windows(window, start_from, end)):
+            if index > 0:
+                interruptible_wait(HISTORY_REQUEST_INTERVAL_SECONDS, safe_point=reach_safe_point)
+            url = _build_url(
+                config.path, {**params, "start": time_window.start, "end": time_window.end}, config.base_url
+            )
             rows = _normalize_rows(config, _fetch(session, url, logger), location)
             if rows:
                 yield rows
