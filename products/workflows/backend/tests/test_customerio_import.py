@@ -1,3 +1,4 @@
+import io
 import json
 import base64
 from typing import Any
@@ -9,9 +10,11 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from PIL import Image
 
 from posthog.event_usage import EventSource
 from posthog.models.integration import Integration
+from posthog.models.uploaded_media import UploadedMedia
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
@@ -425,6 +428,51 @@ class TestWorkflowImportAPI(APIBaseTest):
         result = response.json()["results"][0]
         assert result["status"] == "created", result["validation_errors"]
         assert any("could not read this automation's messages" in note["message"] for note in result["notes"])
+
+    @patch("products.workflows.backend.services.customerio_import.images.requests.get")
+    def test_copies_customerio_email_images_into_the_media_library(self, mock_get: MagicMock) -> None:
+        png = io.BytesIO()
+        Image.new("RGB", (3, 2)).save(png, "PNG")
+        hero = "https://userimg-assets.customeriomail.com/images/client-env-1/hero.png"
+        gone = "https://userimg-assets.customeriomail.com/images/client-env-1/gone.png"
+
+        def respond(url: str, **kwargs: Any) -> MagicMock:
+            response = MagicMock(status_code=200 if url == hero else 404)
+            response.__enter__.return_value = response
+            response.iter_content.return_value = [png.getvalue()]
+            return response
+
+        mock_get.side_effect = respond
+        source = _onboarding_campaign()
+        templates = {
+            **source.templates,
+            "11": {
+                **source.templates["11"],
+                "body": f'<img src="{hero}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">',
+            },
+        }
+        campaigns = [{"campaign": source.campaign, "actions": source.actions, "templates": list(templates.values())}]
+
+        preview = self._import(campaigns=campaigns, dry_run=True)
+        assert any("2 email images on Customer.io's servers will be copied" in n["message"] for n in preview["notes"])
+        assert not mock_get.called
+
+        first = self._import(campaigns=campaigns)
+        html = next(a for a in HogFlow.objects.get(pk=first["workflow_id"]).actions if a["id"] == "cio_1")["config"][
+            "inputs"
+        ]["email"]["value"]["html"]
+        media = UploadedMedia.objects.get(team=self.team, purpose="email")
+        assert (media.content_type, media.width, media.height) == ("image/png", 3, 2)
+        assert (
+            html
+            == f'<img src="{media.get_absolute_url()}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
+        )
+        assert any(n["step_id"] == "cio_1" and gone in n["message"] for n in first["notes"])
+
+        self._import(campaigns=campaigns)
+        assert UploadedMedia.objects.filter(team=self.team, purpose="email").count() == 1
+        assert [call.args[0] for call in mock_get.call_args_list].count(hero) == 1
+        assert all(call.kwargs["allow_redirects"] is False for call in mock_get.call_args_list)
 
     def test_notes_are_readable_by_workflow(self) -> None:
         result = self._import()

@@ -972,6 +972,14 @@ class ImportContent:
 
 
 @frozen
+class RehostedWorkflow:
+    """An imported workflow whose email images point at copies in the team's media library."""
+
+    workflow: dict[str, Any]
+    notes: tuple[ImportNote, ...]
+
+
+@frozen
 class PreviousImport:
     """The earlier import of a source object, when there is one."""
 

@@ -18,6 +18,7 @@ from products.workflows.backend.facade.workflow_imports import (
     import_content,
     previous_import,
     record_import,
+    rehost_images,
     translate_campaign,
 )
 from products.workflows.backend.facade.writes import create_workflow, update_workflow
@@ -76,22 +77,14 @@ def import_campaign(
 ) -> dict[str, Any]:
     """Imports one Customer.io automation, or previews it, and returns its result in the response shape."""
     translated = translate_campaign(source, options)
-    notes = (*extra_notes, *translated.notes)
     result: dict[str, Any] = {
         "source_id": translated.source_id,
         "name": translated.name,
         "workflow_id": None,
-        "notes": [asdict(note) for note in notes],
         "validation_errors": [],
     }
-    validated, errors = _validated_draft(team, translated.workflow)
-    if validated is None:
-        return {**result, "status": "failed", "validation_errors": errors}
-    if dry_run:
-        return {**result, "status": "preview"}
-
-    previous = previous_import(team, translated.source_id)
-    if previous.hog_flow_id is not None and not previous.hog_flow_is_draft:
+    previous = None if dry_run else previous_import(team, translated.source_id)
+    if previous is not None and previous.hog_flow_id is not None and not previous.hog_flow_is_draft:
         # Someone enabled the earlier import, so a re-import must not change what is running.
         skipped = ImportNote(
             level=WorkflowImportNoteLevel.APPROXIMATED,
@@ -99,6 +92,16 @@ def import_campaign(
             "unchanged.",
         )
         return {**result, "status": "skipped", "workflow_id": str(previous.hog_flow_id), "notes": [asdict(skipped)]}
+
+    rehosted = rehost_images(team, user, translated.workflow, dry_run)
+    notes = (*extra_notes, *translated.notes, *rehosted.notes)
+    result["notes"] = [asdict(note) for note in notes]
+    validated, errors = _validated_draft(team, rehosted.workflow)
+    if validated is None:
+        return {**result, "status": "failed", "validation_errors": errors}
+    if previous is None:
+        return {**result, "status": "preview"}
+
     if previous.hog_flow_id is not None:
         update_workflow(
             team_id=team.id,
