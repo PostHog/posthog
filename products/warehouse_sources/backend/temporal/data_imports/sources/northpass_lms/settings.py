@@ -8,7 +8,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 # cursor. See `northpass_lms.py` for the pagination transport.
 
 
-@dataclass
+@dataclass(frozen=True)
 class NorthpassEndpointConfig:
     name: str
     # JSON:API collection path relative to the API base. Fan-out children use a `{parent_id}`
@@ -28,7 +28,7 @@ class NorthpassEndpointConfig:
     parent_id_field: Optional[str] = None
     # For endpoints whose rows reference other resources only inside JSON:API `relationships`
     # (e.g. `/events` rows carry no `id` of their own): relationship name -> column name under
-    # which the related resource's id is promoted to the row root.
+    # which the related resource's id is promoted to the row root. Applies to fan-out children too.
     relationship_id_fields: Optional[dict[str, str]] = None
     # Human-readable note surfaced in the schema picker / docs.
     description: Optional[str] = None
@@ -148,12 +148,69 @@ NORTHPASS_ENDPOINTS: dict[str, NorthpassEndpointConfig] = {
         primary_keys=["quiz_attempt_id", "id"],
         fan_out_parent="quiz_attempts",
         parent_id_field="quiz_attempt_id",
+        relationship_id_fields={"question": "question_id"},
         should_sync_default=False,
         description=(
             "Per-question learner answers for every completed quiz attempt. Fans out one request per "
             "attempt found in the sent-webhooks log (same coverage caveats as quiz_attempts), so the "
             "table is off by default. Full refresh only."
         ),
+    ),
+    # Group membership rows only reference their person inside `relationships`; the person id is
+    # promoted so the table joins `people` to `groups`.
+    "group_memberships": NorthpassEndpointConfig(
+        name="group_memberships",
+        path="/groups/{parent_id}/memberships",
+        partition_key="created_at",
+        primary_keys=["group_id", "id"],
+        fan_out_parent="groups",
+        parent_id_field="group_id",
+        relationship_id_fields={"person": "person_id"},
+        description="People in every group, one row per membership. Fans out one request per group. Full refresh only.",
+    ),
+    "credentials": NorthpassEndpointConfig(
+        name="credentials",
+        path="/credentials",
+        partition_key="created_at",
+    ),
+    "credential_achievements": NorthpassEndpointConfig(
+        name="credential_achievements",
+        path="/credentials/{parent_id}/achievements",
+        partition_key="issued_at",
+        primary_keys=["credential_id", "id"],
+        fan_out_parent="credentials",
+        parent_id_field="credential_id",
+        description="Credentials (certificates) issued to learners, one row per achievement. Fans out one request per credential. Full refresh only.",
+    ),
+    # `/submissions` lists submissions across every assignment, so the per-assignment
+    # `/assignments/{uuid}/submissions` endpoint would only re-fetch the same rows.
+    "assignment_submissions": NorthpassEndpointConfig(
+        name="assignment_submissions",
+        path="/submissions",
+        partition_key="created_at",
+        relationship_id_fields={
+            "assignment": "assignment_id",
+            "course": "course_id",
+            "person": "person_id",
+            "course_attempt": "course_attempt_id",
+        },
+    ),
+    # The `/properties` endpoints document no page-size param, so they page at the server default.
+    # Their rows carry no timestamps, so they are unpartitioned.
+    "person_properties": NorthpassEndpointConfig(
+        name="person_properties",
+        path="/properties/people",
+        params={},
+    ),
+    "course_properties": NorthpassEndpointConfig(
+        name="course_properties",
+        path="/properties/courses",
+        params={},
+    ),
+    "property_definitions": NorthpassEndpointConfig(
+        name="property_definitions",
+        path="/properties/property_definitions",
+        params={},
     ),
 }
 
