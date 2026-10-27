@@ -150,6 +150,15 @@ class TestTicketMessageSignals(BaseTest):
         self.ticket.refresh_from_db()
         assert self.ticket.ai_triage["human_outcome"] == "used"
 
+    def test_automated_update_does_not_replace_draft_for_human_outcome(self, mock_on_commit):
+        draft = "Add the snippet to the head of every page."
+        self._create_ai_message(draft)
+        self._create_ai_message("Pull request update", item_context={"automated_update_key": "pr-123"})
+        self._create_team_message(draft)
+
+        self.ticket.refresh_from_db()
+        assert self.ticket.ai_triage["human_outcome"] == "used"
+
     def test_used_draft_then_edited_send_upgrades_human_outcome(self, mock_on_commit):
         draft = "Add the snippet to the head of every page, then reload to send a pageview."
         ai_draft = self._create_ai_message(draft)

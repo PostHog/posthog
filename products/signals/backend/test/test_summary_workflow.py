@@ -201,6 +201,7 @@ class _Recorder:
         self.checks_monitoring_enabled = False
         self.selected_repository = selected_repository
         self.research_errors = list(research_errors or [])
+        self.failure_error_types: list[str | None] = []
         self.gate_checks: list[str] = []
         self.fetches = 0
         self.assigned_signal_checks = 0
@@ -328,6 +329,7 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     async def fake_failed(input: MarkReportFailedInput) -> None:
         recorder.failures += 1
         recorder.failure_reasons.append(input.failure_reason)
+        recorder.failure_error_types.append(input.error_type)
 
     # The production self-driving worker runs with the pydantic data converter; the default converter
     # mangles the enum/pydantic payloads these activities exchange (RepoSelectionResult,
@@ -427,13 +429,21 @@ async def test_research_fails_the_report_once_the_sandbox_retry_budget_is_spent(
 
 
 @pytest.mark.asyncio
-async def test_research_does_not_retry_other_activity_errors():
-    recorder = _Recorder(research_errors=[ApplicationError("bad output", type="ValueError") for _ in range(2)])
+@pytest.mark.parametrize(
+    "research_error,error_type",
+    [
+        (ApplicationError("No JSON in initial turn", type="output_parse_failed"), "output_parse_failed"),
+        (RuntimeError("sandbox failed"), "RuntimeError"),
+    ],
+)
+async def test_research_does_not_retry_other_activity_errors(research_error: Exception, error_type: str):
+    recorder = _Recorder(research_errors=[research_error, research_error])
     with pytest.raises(WorkflowFailureError):
         await _run_summary_workflow(recorder)
     assert recorder.researches == 2
     assert recorder.failures == 1
     assert recorder.failure_reasons == ["agentic_activity_error"]
+    assert recorder.failure_error_types == [error_type]
 
 
 @pytest.mark.asyncio

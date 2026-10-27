@@ -2257,13 +2257,11 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         }
         root_id = str(rows["root"].id)
 
-        def rank(
-            duplicate_of: str | None, category: str = "failure", anchor_version: int = ANCHOR_VERSION
-        ) -> dict[str, Any]:
+        def rank(group: str | None, category: str = "failure", anchor_version: int = ANCHOR_VERSION) -> dict[str, Any]:
             return {
                 "category": category,
                 "contrast": 0.3,
-                "duplicate_of": duplicate_of,
+                "group": group,
                 "anchor_version": anchor_version,
             }
 
@@ -5214,12 +5212,12 @@ class TestWatchFeedAPI(_VisionAPITestCase):
                 watch_rank={
                     "category": "routine",
                     "contrast": -0.1,
-                    "duplicate_of": None,
+                    "group": None,
                     "anchor_version": ANCHOR_VERSION,
                 }
             )
         ReplayObservation.objects.filter(id=jev_low.id).update(
-            watch_rank={"category": "failure", "contrast": 0.2, "duplicate_of": None, "anchor_version": ANCHOR_VERSION}
+            watch_rank={"category": "failure", "contrast": 0.2, "group": None, "anchor_version": ANCHOR_VERSION}
         )
         with patch(ranker, return_value="embedding"):
             resp = self.client.get(self.feed_url)
@@ -5267,7 +5265,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
                 watch_rank={
                     "category": "failure",
                     "contrast": 1 - index / 20,
-                    "duplicate_of": None,
+                    "group": None,
                     "anchor_version": ANCHOR_VERSION,
                 },
             )
@@ -5283,13 +5281,13 @@ class TestWatchFeedAPI(_VisionAPITestCase):
     def test_embedding_picks_reach_past_the_recency_slice_and_count_hidden_duplicates(self) -> None:
         scanner = self._create_scanner(name="m")
 
-        def ranked(session_id: str, minutes_ago: int, category: str, contrast: float, duplicate_of: str | None = None):
+        def ranked(session_id: str, minutes_ago: int, category: str, contrast: float, group: str | None = None):
             obs = self._succeeded_observation(scanner, session_id, minutes_ago, self._monitor_result("no"))
             ReplayObservation.objects.filter(id=obs.id).update(
                 watch_rank={
                     "category": category,
                     "contrast": contrast,
-                    "duplicate_of": duplicate_of,
+                    "group": group,
                     "anchor_version": ANCHOR_VERSION,
                 }
             )
@@ -5297,7 +5295,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
 
         oldest = ranked("oldest-failure", 500, "failure", 0.9)
         # A copy of the pick that scores below the cut still makes the group bigger.
-        ranked("copy", 400, "failure", -0.5, duplicate_of=str(oldest.id))
+        ranked("copy", 400, "failure", -0.5, group=str(oldest.id))
         for index in range(10):
             ranked(f"routine-{index}", index, "routine", -0.1)
 
@@ -5315,13 +5313,13 @@ class TestWatchFeedAPI(_VisionAPITestCase):
     def test_a_thin_embedding_feed_pads_by_group_and_never_pads_with_a_copy_of_a_pick(self) -> None:
         scanner = self._create_scanner(name="m")
 
-        def ranked(session_id: str, minutes_ago: int, category: str, contrast: float, duplicate_of: str | None = None):
+        def ranked(session_id: str, minutes_ago: int, category: str, contrast: float, group: str | None = None):
             obs = self._succeeded_observation(scanner, session_id, minutes_ago, self._monitor_result("no"))
             ReplayObservation.objects.filter(id=obs.id).update(
                 watch_rank={
                     "category": category,
                     "contrast": contrast,
-                    "duplicate_of": duplicate_of,
+                    "group": group,
                     "anchor_version": ANCHOR_VERSION,
                 }
             )
@@ -5329,8 +5327,8 @@ class TestWatchFeedAPI(_VisionAPITestCase):
 
         root = ranked("pick", 500, "failure", 0.9)
         # Two copies of the one finding: one above the cut, one newest of all and below it.
-        ranked("copy-above", 400, "failure", 0.8, duplicate_of=str(root.id))
-        ranked("copy-newest", 0, "failure", -0.9, duplicate_of=str(root.id))
+        ranked("copy-above", 400, "failure", 0.8, group=str(root.id))
+        ranked("copy-newest", 0, "failure", -0.9, group=str(root.id))
         for index in range(10):
             ranked(f"routine-{index}", 10 + index, "routine", -0.1)
 
@@ -5352,7 +5350,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
                     watch_rank={
                         "category": "failure",
                         "contrast": top - index / 100,
-                        "duplicate_of": None,
+                        "group": None,
                         "anchor_version": ANCHOR_VERSION,
                     }
                 )
@@ -5382,7 +5380,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
                 watch_rank={
                     "category": "failure",
                     "contrast": 1 - index / 100,
-                    "duplicate_of": root_id if 0 < index < 5 else None,
+                    "group": root_id if 0 < index < 5 else None,
                     "anchor_version": ANCHOR_VERSION,
                 }
             )
@@ -5408,7 +5406,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
                 watch_rank={
                     "category": category,
                     "contrast": 0.5 - index * 0.01,
-                    "duplicate_of": None,
+                    "group": None,
                     "anchor_version": ANCHOR_VERSION,
                 }
             )
@@ -5960,7 +5958,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
                 watch_rank={
                     "category": "failure",
                     "contrast": index / 10,
-                    "duplicate_of": None,
+                    "group": None,
                     "anchor_version": ANCHOR_VERSION,
                 }
             )
