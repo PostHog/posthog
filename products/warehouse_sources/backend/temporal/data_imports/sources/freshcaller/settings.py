@@ -15,7 +15,7 @@ PER_PAGE = 1000
 DEFAULT_START_DATETIME = "2022-01-01T00:00:00Z"
 
 
-@dataclass
+@dataclass(frozen=True)
 class FreshcallerEndpointConfig:
     name: str
     path: str
