@@ -1,4 +1,7 @@
+from datetime import UTC, datetime
 from typing import Any
+
+import time_machine
 
 from parameterized import parameterized
 
@@ -77,6 +80,87 @@ class TestFanOut:
         assert [request.param("account_id") for request in child_requests] == ["acc_a", "acc_c"]
         assert [request.param("offset") for request in child_requests] == ["0", "0"]
 
+    def test_comments_bind_account_and_content_ids(self) -> None:
+        result = _driver().run(
+            "social_comments",
+            route(
+                {
+                    "/v1/accounts": [_response([{"id": "acc_a"}, {"id": "acc_b"}])],
+                    "/v1/social/contents": [
+                        _response([{"id": "con_1"}, {"id": "con_2"}]),
+                        _response([{"id": "con_3"}]),
+                    ],
+                    "/v1/social/comments": [
+                        _response([{"id": "cm_1"}]),
+                        _response([]),
+                        _response([{"id": "cm_3"}]),
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        # The account id carried onto each content row to bind the request must not leak into rows.
+        assert result.rows == [{"id": "cm_1"}, {"id": "cm_3"}]
+        comment_requests = [request for request in result.requests if request.path == "/v1/social/comments"]
+        assert [(request.param("account_id"), request.param("content_id")) for request in comment_requests] == [
+            ("acc_a", "con_1"),
+            ("acc_a", "con_2"),
+            ("acc_b", "con_3"),
+        ]
+
+    def test_audience_yields_one_row_per_account(self) -> None:
+        result = _driver().run(
+            "audience",
+            route(
+                {
+                    "/v1/accounts": [_response([{"id": "acc_a"}, {"id": "acc_b"}])],
+                    "/v1/audience": [
+                        ScriptedResponse(json={"id": "aud_a", "countries": [{"code": "US", "value": 60.5}]}),
+                        ScriptedResponse(json={"id": "aud_b", "countries": []}),
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["aud_a", "aud_b"]
+        audience_requests = [request for request in result.requests if request.path == "/v1/audience"]
+        assert [request.param("account_id") for request in audience_requests] == ["acc_a", "acc_b"]
+
+
+class TestCommerceTransactionDateWindow:
+    @parameterized.expand(
+        [
+            ("full_refresh_ignores_stored_value", False, datetime(2026, 3, 1, tzinfo=UTC), "2000-01-01"),
+            ("incremental_datetime", True, datetime(2026, 3, 1, 23, 30, tzinfo=UTC), "2026-03-01"),
+            ("incremental_iso_string", True, "2026-02-10T08:00:00Z", "2026-02-10"),
+            ("incremental_without_stored_value", True, None, "2000-01-01"),
+            ("incremental_future_value_capped_to_today", True, datetime(2026, 4, 1, tzinfo=UTC), "2026-03-15"),
+        ]
+    )
+    def test_window_params(self, _name: str, use_incremental: bool, last_value: Any, expected_from: str) -> None:
+        with time_machine.travel(datetime(2026, 3, 15, 12, 0, tzinfo=UTC), tick=False):
+            result = _driver().run(
+                "commerce_income_transactions",
+                route(
+                    {
+                        "/v1/accounts": [_response([{"id": "acc_a"}])],
+                        "/v1/commerce/income/transactions": [_response([{"id": "txn_1"}])],
+                    }
+                ),
+                incremental_field="transaction_at",
+                should_use_incremental_field=use_incremental,
+                db_incremental_field_last_value=last_value,
+            )
+
+        assert result.raised is None
+        assert result.rows == [{"id": "txn_1"}]
+        [request] = [r for r in result.requests if r.path == "/v1/commerce/income/transactions"]
+        assert request.param("account_id") == "acc_a"
+        assert request.param("transaction_from_date") == expected_from
+        assert request.param("transaction_to_date") == "2026-03-15"
+
 
 class TestMalformedBody:
     def test_top_level_persistent_malformed_body_reraises(self) -> None:
@@ -138,7 +222,15 @@ class TestPhylloSourceResponse:
         # These endpoints require an account_id query param; a config regression here would 400 on
         # every page.
         fan_out = {name for name, config in PHYLLO_ENDPOINTS.items() if config.fan_out_by_account}
-        assert fan_out == {"social_contents", "income_transactions", "income_payouts"}
+        assert fan_out == {
+            "social_contents",
+            "income_transactions",
+            "income_payouts",
+            "audience",
+            "social_comments",
+            "social_content_groups",
+            "commerce_income_transactions",
+        }
 
     @parameterized.expand(
         [("production", "https://api.getphyllo.com"), ("sandbox", "https://api.sandbox.getphyllo.com")]

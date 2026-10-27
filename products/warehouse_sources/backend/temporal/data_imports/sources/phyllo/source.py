@@ -125,9 +125,10 @@ You can find your client ID and secret in the [Phyllo developer dashboard](https
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only (INCREMENTAL_FIELDS is empty) — see the note in
-        # settings.py on the unverified from_date/to_date filters.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # Only commerce_income_transactions is incremental — see the note in settings.py on the
+        # unverified from_date/to_date filters of the other endpoints. Its day-granular window reads
+        # the last synced day again, which only a merge dedupes, so it does not offer append.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=INCREMENTAL_FIELDS.keys())
 
     def validate_credentials(
         self,
@@ -159,5 +160,7 @@ You can find your client ID and secret in the [Phyllo developer dashboard](https
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            db_incremental_field_last_value=None,  # every Phyllo endpoint is full refresh
+            db_incremental_field_last_value=(
+                inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
+            ),
         )

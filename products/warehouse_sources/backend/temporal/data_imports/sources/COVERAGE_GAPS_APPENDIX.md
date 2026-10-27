@@ -9379,10 +9379,10 @@ Today (7): `accounts`, `income_payouts`, `income_transactions`, `profiles`, `soc
 
 Diffed against: <https://rapidapi.com/phyllo-phyllo-default/api/phyllo-apis-v1>
 
-- [ ] `/v1/audience` — audience demographics and follower breakdowns - the headline output of the Identity & Audience product (high)
-- [ ] `/v1/social/comments` — comment-level engagement for the contents we already sync; the Comments API is one of Phyllo's three product lines (high)
-- [ ] `/v1/social/content-groups` — stories/albums/series groupings that contents belong to; needed to roll engagement up above the individual post (medium)
-- [ ] `/v1/commerce/income/transactions` — commerce-platform earnings; the synced income_transactions table only covers the social income path (medium)
+- [x] `/v1/audience` — audience demographics and follower breakdowns - the headline output of the Identity & Audience product (high)
+- [x] `/v1/social/comments` — comment-level engagement for the contents we already sync; the Comments API is one of Phyllo's three product lines (high)
+- [x] `/v1/social/content-groups` — stories/albums/series groupings that contents belong to; needed to roll engagement up above the individual post (medium)
+- [x] `/v1/commerce/income/transactions` — commerce-platform earnings; the synced income_transactions table only covers the social income path (medium)
 - [ ] `/v1/commerce/income/payouts` — commerce payout records, same coverage gap as commerce transactions (medium)
 - [ ] `/v1/commerce/income/balances` — current and pending balances per connected commerce account, not derivable from payouts alone (medium)
 - [ ] `/v1/media/activity/contents` — media-activity (listening/watching) items for accounts on media platforms (medium)
