@@ -107,6 +107,20 @@ Additional signals that a skill is the right answer even when tool prompts are a
 
 Don't write a skill for something the agent already one-shots from generic knowledge. A few real examples from review: `creating-isolated-project` or `finding-experiments` were unnecessary — the agent can do it without help. `setting-up-reverse-proxy` was the right call — the agent failed at it, and the skill needed to ship code snippets it couldn't derive. The bar is PostHog-specific judgement that a smart generalist agent wouldn't have, not project setup it can already handle.
 
+### Docs or skill?
+
+A skill holds the steps an agent follows for one job: the order of tool calls, the checks to run before it reports done, and the decisions it must not make alone.
+Most of that is detail a person doing the same job would skip.
+
+Everything else goes in docs, because people need it too.
+That covers how a system works, how to set it up or run it, its options, and its gotchas.
+Put it in a README next to the code or in an existing page under `docs/`, and have the skill link to it with a line on when to read it.
+A published product skill links to the public page on posthog.com.
+If an engineer would look something up without an agent, it belongs in docs.
+
+The `working-with-charts` skill is the model.
+The chart API docs live in the package. The skill keeps how to pick a chart, a few rules for its data, and what to check before calling the work done, and links to the package docs for the rest.
+
 ### How many skills is too many?
 
 A common worry when shipping a set of skills is "am I adding too many?" — and it's the right worry. Skill count is a budgeted, shared resource, not a free axis to expand. Agents pick skills from a list of _all_ available descriptions, and many harnesses **truncate that list** once it grows long. Every extra skill dilutes discovery for every other skill, so a bloated set makes each individual skill _less_ likely to fire, not more.
