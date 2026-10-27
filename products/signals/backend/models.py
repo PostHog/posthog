@@ -2659,13 +2659,16 @@ class SignalReportAgentEvaluation(UUIDModel):
     output = models.JSONField(null=True)
     completed_at = models.DateTimeField(null=True)
     drained_at = models.DateTimeField(null=True)
+    last_drain_attempt_at = models.DateTimeField(null=True)
     last_dispatch_at = models.DateTimeField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         indexes = [
             models.Index(
-                fields=["created_at", "id"],
+                models.F("last_drain_attempt_at").asc(nulls_first=True),
+                "created_at",
+                "id",
                 condition=models.Q(
                     state__in=["abandoned", "errored", "running"],
                     task_run_id__isnull=False,

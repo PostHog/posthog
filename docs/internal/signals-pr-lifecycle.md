@@ -170,6 +170,8 @@ evaluations before claiming work. Each sweep has a 30-second deadline within the
 remaining budget. Recovery has a separate bounded batch, rotates by the last dispatch attempt,
 and retries no sooner than one minute later. Existing workflows do not consume the new-dispatch
 allowance. Monitoring task runs participate in Signals spend accounting.
+Cancellation cleanup rotates independently by its last attempt, including failed requests, with
+a one-minute retry floor so older live runs cannot starve newer undrained evaluations.
 
 The dedicated Monitoring workflow supplies the authored criteria, original findings, implementation
 history, and current-attempt evidence through a session attachment. The agent uses read-only tools

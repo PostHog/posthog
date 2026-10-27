@@ -50,6 +50,7 @@ class Migration(migrations.Migration):
                 ("output", models.JSONField(null=True)),
                 ("completed_at", models.DateTimeField(null=True)),
                 ("drained_at", models.DateTimeField(null=True)),
+                ("last_drain_attempt_at", models.DateTimeField(null=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
                     "attempt",

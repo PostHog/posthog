@@ -14,12 +14,14 @@ class Migration(migrations.Migration):
         SafeAddIndexConcurrently(
             model_name="signalreportagentevaluation",
             index=models.Index(
+                models.OrderBy(models.F("last_drain_attempt_at"), nulls_first=True),
+                models.F("created_at"),
+                models.F("id"),
                 condition=models.Q(
                     ("drained_at__isnull", True),
                     ("state__in", ["abandoned", "errored", "running"]),
                     ("task_run_id__isnull", False),
                 ),
-                fields=["created_at", "id"],
                 name="signals_agent_eval_drain_idx",
             ),
         ),

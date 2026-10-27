@@ -52,6 +52,7 @@ MAX_AGENT_DISPATCHES_PER_TICK = 50
 MAX_AGENT_RECOVERIES_PER_TICK = 50
 AGENT_SWEEP_SECONDS = 30
 AGENT_RECOVERY_SECONDS = 10
+AGENT_DRAIN_RETRY_AFTER = timedelta(minutes=1)
 AGENT_DISPATCH_RETRY_AFTER = timedelta(minutes=1)
 
 
@@ -381,10 +382,14 @@ def run_due_agent_evaluations(*, deadline: float | None = None) -> int:
             drained_at__isnull=True,
             state__in=["abandoned", "errored", "running"],
         )
-        .order_by("created_at", "id")[:MAX_AGENT_RECOVERIES_PER_TICK]
+        .filter(Q(last_drain_attempt_at__isnull=True) | Q(last_drain_attempt_at__lte=now - AGENT_DRAIN_RETRY_AFTER))
+        .order_by(F("last_drain_attempt_at").asc(nulls_first=True), "created_at", "id")[:MAX_AGENT_RECOVERIES_PER_TICK]
     ):
         if time.monotonic() >= recovery_deadline:
             break
+        SignalReportAgentEvaluation.objects.for_team(evaluation.team_id).filter(id=evaluation.id).update(
+            last_drain_attempt_at=now
+        )
         try:
             _stop_bound_run(evaluation)
         except Exception:

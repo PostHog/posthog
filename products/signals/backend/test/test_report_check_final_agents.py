@@ -4,7 +4,7 @@ import json
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import time_machine
 from posthog.test.base import BaseTest
@@ -395,6 +395,53 @@ class TestFinalAuthoredAgentChecks(BaseTest):
             dispatched.clear()
             run_due_agent_evaluations()
         assert pending_ids - first_recovered <= set(dispatched)
+
+    @parameterized.expand([("exception", True), ("live_run", False)])
+    def test_failed_drain_requests_rotate_before_retrying(self, _name: str, raises: bool) -> None:
+        run_ids: list[UUID] = []
+        for sequence in range(1, 4):
+            run = TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+            evaluation = SignalReportAgentEvaluation.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                report=self.report,
+                attempt=self.attempt,
+                report_check=self.check,
+                definition_version=check_definition_version(self.check),
+                window_start=self.attempt.monitoring_started_at,
+                window_end=self.attempt.monitoring_started_at + timedelta(hours=1),
+                sequence=sequence,
+                state=SignalReportAgentEvaluation.State.ABANDONED,
+                task_id=self.task.id,
+                task_run_id=run.id,
+            )
+            SignalReportAgentEvaluation.objects.for_team(self.team.id).filter(id=evaluation.id).update(
+                created_at=self.now - timedelta(minutes=4 - sequence)
+            )
+            run_ids.append(run.id)
+        requested: list[UUID] = []
+
+        def cancel(run_id: UUID, *args: object, **kwargs: object) -> None:
+            requested.append(run_id)
+            if raises:
+                raise RuntimeError("Cancellation is unavailable")
+
+        self.monitoring_flag.return_value = False
+        with (
+            patch("products.signals.backend.report_check_final_agents.MAX_AGENT_RECOVERIES_PER_TICK", 2),
+            patch("products.signals.backend.report_check_final_agents.cancel_task_run", side_effect=cancel),
+        ):
+            run_due_agent_evaluations()
+            assert requested == run_ids[:2]
+            requested.clear()
+            run_due_agent_evaluations()
+            assert requested == run_ids[2:]
+            requested.clear()
+            run_due_agent_evaluations()
+            assert requested == []
+            self.clock.shift(timedelta(minutes=1))
+            run_due_agent_evaluations()
+            assert requested == run_ids[:2]
+        assert SignalReportAgentEvaluation.objects.for_team(self.team.id).filter(drained_at__isnull=True).count() == 3
 
     def test_expired_sweep_budget_defers_new_dispatches(self) -> None:
         with patch("products.signals.backend.report_check_final_agents.time.monotonic", return_value=10):
