@@ -5,7 +5,6 @@ import yaml
 
 PATH_MAP_FILE = Path(__file__).with_name("path_map.yaml")
 DOCS_URL_PREFIX = "https://posthog.com/docs/"
-MAX_PAGES_PER_SECTION = 150
 
 
 def load_path_map() -> dict[str, str]:
@@ -20,5 +19,4 @@ def mapped_sections(touched_paths: Iterable[str], path_map: dict[str, str]) -> l
 
 def section_page_urls(section: str, docs_page_urls: list[str]) -> list[str]:
     section_url = f"{DOCS_URL_PREFIX}{section}"
-    in_section = [url for url in docs_page_urls if url == section_url or url.startswith(f"{section_url}/")]
-    return in_section[:MAX_PAGES_PER_SECTION]
+    return [url for url in docs_page_urls if url == section_url or url.startswith(f"{section_url}/")]

@@ -12,7 +12,7 @@ from products.knowledge_writer.merge_check.check import run_merge_check
 from products.knowledge_writer.merge_check.judge import JudgeVerdict
 
 COMPONENT_PATH = "products/feature_flags/frontend/FlagBanner.tsx"
-FLAGS_PAGES = [f"https://posthog.com/docs/feature-flags/page-{number}" for number in range(5)]
+FLAGS_PAGES = [f"https://posthog.com/docs/feature-flags/page-{number}" for number in range(200)]
 
 
 class FakePostHogGitHub:
@@ -72,7 +72,7 @@ def test_mapped_merge_flagged_by_judge_yields_kind_and_at_most_three_listed_page
     verdict = JudgeVerdict(
         needs_docs=True,
         change_kind=DocsChangeKind.UPDATE,
-        page_urls=[*FLAGS_PAGES, "https://example.com/not-listed"],
+        page_urls=[FLAGS_PAGES[-1], *FLAGS_PAGES[:3], "https://example.com/not-listed"],
         reason="new option",
     )
 
@@ -84,7 +84,7 @@ def test_mapped_merge_flagged_by_judge_yields_kind_and_at_most_three_listed_page
     )
 
     assert (report.needs_docs, report.change_kind) == (True, DocsChangeKind.UPDATE)
-    assert report.page_urls == tuple(FLAGS_PAGES[:3])
+    assert report.page_urls == (FLAGS_PAGES[-1], *FLAGS_PAGES[:2])
 
 
 def test_malformed_judge_output_declines_instead_of_raising() -> None:

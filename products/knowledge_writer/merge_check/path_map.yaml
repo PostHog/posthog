@@ -34,7 +34,7 @@ products/surveys/: surveys
 products/tasks/: tasks
 products/toolbar/: toolbar
 products/tracing/: distributed-tracing
-products/warehouse_sources/: data-warehouse
+products/warehouse_sources/: data-pipelines/sources
 products/web_analytics/: web-analytics
 products/workflows/: workflows
 frontend/src/scenes/data-warehouse/: data-warehouse
