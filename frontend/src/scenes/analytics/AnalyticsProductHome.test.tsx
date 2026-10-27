@@ -1,7 +1,10 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { cleanup, render, screen } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -11,12 +14,16 @@ jest.mock('products/product_analytics/frontend/insights/home/HomeTab', () => ({
     HomeTab: () => <div>Product analytics dashboard</div>,
 }))
 
+jest.mock('products/product_analytics/frontend/insights/home/HomeDashboardModals', () => ({
+    HomeDashboardModals: () => null,
+}))
+
 jest.mock('./AnalyticsCreateModals', () => ({
     AnalyticsCreateModals: () => null,
 }))
 
 jest.mock('~/layout/scenes/components/SceneTitleSection', () => ({
-    SceneTitleSection: () => null,
+    SceneTitleSection: ({ actions }: { actions?: JSX.Element }) => <div>{actions}</div>,
 }))
 
 describe('AnalyticsProductHome', () => {
@@ -46,5 +53,18 @@ describe('AnalyticsProductHome', () => {
         render(<AnalyticsProductHome />)
 
         expect(screen.queryByText('Product analytics dashboard') !== null).toBe(railEnabled)
+    })
+
+    test.each([
+        ['the default dashboard', null, 'Make my own dashboard'],
+        ['a custom Home dashboard', 42, 'Home dashboard options'],
+    ])('lets the user change Home from %s', (_scenario, homeDashboardId, expectedControl) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true })
+        teamLogic.mount()
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, home_tab_dashboard: homeDashboardId })
+
+        render(<AnalyticsProductHome />)
+
+        expect(screen.queryByText(expectedControl) ?? screen.queryByLabelText(expectedControl)).not.toBeNull()
     })
 })
