@@ -9,14 +9,56 @@ use object_store::aws::{AmazonS3, AmazonS3Builder};
 use object_store::limit::LimitStore;
 use object_store::path::Path as ObjectPath;
 use object_store::{BackoffConfig, ClientOptions, ObjectStore};
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, info};
+use tokio_util::sync::CancellationToken;
+use tracing::{debug, info, warn};
 
 use super::config::DurabilityConfig;
 
 /// Short timeout for bucket validation so misconfiguration fails fast.
 const VALIDATION_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// object_store never retries an error of kind `Unknown`, such as a TLS EOF on a proxied
+/// connection, so a whole file is tried again instead.
+const FILE_ATTEMPTS: u32 = 3;
+const FILE_RETRY_WAIT: Duration = Duration::from_secs(1);
+
+/// Runs `attempt` up to `FILE_ATTEMPTS` times, and stops once `cancel` fires.
+pub(super) async fn retry_file<T, Fut>(
+    key: &str,
+    cancel: &CancellationToken,
+    mut attempt: impl FnMut() -> Fut,
+) -> Result<T>
+where
+    Fut: Future<Output = Result<T>>,
+{
+    let mut result = attempt().await;
+    for retry in 1..FILE_ATTEMPTS {
+        let Err(e) = &result else { break };
+        if cancel.is_cancelled() {
+            break;
+        }
+        let wait = FILE_RETRY_WAIT * retry;
+        warn!(
+            key,
+            retry,
+            wait_secs = wait.as_secs(),
+            error = %format!("{e:#}"),
+            "checkpoint file failed; trying it again",
+        );
+        if cancel
+            .run_until_cancelled(tokio::time::sleep(wait))
+            .await
+            .is_none()
+        {
+            break;
+        }
+        result = attempt().await;
+    }
+    result
+}
 
 /// Build an S3 client wrapped in a `LimitStore` for bounded concurrency, and check that it can list
 /// `lineage_dir`.
