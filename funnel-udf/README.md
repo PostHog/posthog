@@ -30,6 +30,7 @@ For revertible cloud deploys:
 - Unversioned binaries use the current event layout. Replay queries must use that layout even while cloud queries select an older UDF version.
 - We tried writing the UDFs in Python, but this cause ClickHouse nodes to crash as the garbage collector could not keep up. As such we're now writing the functions in Rust.
 - We're using `cross-rs` to compile the binaries - it's a cross platfrom rust compiler.
+- `Cross.toml` pins the build images, which link against glibc 2.23. Check the highest version a new binary needs with `objdump -T <binary> | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1`.
 
 ## Troubleshooting
 
