@@ -174,10 +174,6 @@ function shorthandKey(expression: string, prefix: 'attributes' | 'resource_attri
     return key || null
 }
 
-/**
- * The attribute a custom column's cells filter on. It comes from the expression, because `column.name`
- * is a label the user can rename. Free-form HogQL names no attribute, so it keeps the label as the key.
- */
 export function customColumnFilterTarget(
     column: LogsColumnConfig,
     attributes: Record<string, unknown> | undefined,
