@@ -10,7 +10,7 @@ import { EvaluationExplanation } from '../../components/EvaluationExplanation'
 import { EvaluationResultTag, compareEvaluationResults } from '../../components/EvaluationResultTag'
 import { EvaluationRunTargetCell } from '../../components/EvaluationRunTargetCell'
 import { EvaluationRunTimestampCell } from '../../components/EvaluationRunTimestampCell'
-import { EVALUATION_RUNS_QUERY_LIMIT, evaluationIsDetector } from '../constants'
+import { evaluationIsDetector } from '../constants'
 import { evaluationSupportsRunOutcomes } from '../evaluationCapabilities'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { EvaluationRun, EvaluationRunsFilter, SentimentEvaluationRunsFilter } from '../types'
@@ -169,29 +169,30 @@ export function EvaluationRunsTable(): JSX.Element {
                     ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                    {(evaluationRunsHasMore || evaluationRuns.length > EVALUATION_RUNS_QUERY_LIMIT) &&
-                        !evaluationRunsError && (
-                            <>
-                                <span className="text-muted text-sm">
-                                    {!evaluationRunsHasMore
-                                        ? `Showing all ${evaluationRuns.length.toLocaleString()} runs.`
-                                        : matchingRunsTotal && matchingRunsTotal > evaluationRuns.length
-                                          ? `Showing the latest ${evaluationRuns.length.toLocaleString()} of ${matchingRunsTotal.toLocaleString()} runs.`
-                                          : `Showing the latest ${evaluationRuns.length.toLocaleString()} runs.`}
-                                </span>
-                                {evaluationRunsHasMore && (
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        onClick={() => loadOlderEvaluationRuns()}
-                                        loading={evaluationRunsLoading}
-                                        data-attr="llma-evaluation-runs-load-older"
-                                    >
-                                        Load older runs
-                                    </LemonButton>
-                                )}
-                            </>
-                        )}
+                    {evaluationRuns.length > 0 && !evaluationRunsError && (
+                        <>
+                            <span className="text-muted text-sm">
+                                {!evaluationRunsHasMore
+                                    ? evaluationRuns.length === 1
+                                        ? 'Showing 1 run.'
+                                        : `Showing all ${evaluationRuns.length.toLocaleString()} runs.`
+                                    : matchingRunsTotal && matchingRunsTotal > evaluationRuns.length
+                                      ? `Showing the latest ${evaluationRuns.length.toLocaleString()} of ${matchingRunsTotal.toLocaleString()} runs.`
+                                      : `Showing the latest ${evaluationRuns.length.toLocaleString()} runs.`}
+                            </span>
+                            {evaluationRunsHasMore && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    onClick={() => loadOlderEvaluationRuns()}
+                                    loading={evaluationRunsLoading}
+                                    data-attr="llma-evaluation-runs-load-older"
+                                >
+                                    Load older runs
+                                </LemonButton>
+                            )}
+                        </>
+                    )}
                     <LemonButton
                         type="secondary"
                         icon={<IconRefresh />}
