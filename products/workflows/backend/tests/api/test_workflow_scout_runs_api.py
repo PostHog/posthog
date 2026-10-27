@@ -74,7 +74,11 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
         assert response.json() == {"scout": SCOUT, "workflow_id": "signals-scout-workflow-run-1"}
         start.assert_called_once_with(
-            team_id=self.team.id, skill_name=SCOUT, workflow_origin_key="job:step:1", run_note=expected_note
+            team_id=self.team.id,
+            skill_name=SCOUT,
+            workflow_origin_key="job:step:1",
+            run_note=expected_note,
+            trigger_workflow_id=str(self.hog_flow.id),
         )
 
     def test_rejects_a_note_over_the_run_note_limit(self) -> None:
@@ -118,7 +122,11 @@ class TestWorkflowScoutRunsAPI(APIBaseTest):
         assert second.status_code == status.HTTP_202_ACCEPTED, second.json()
         assert first.json() == second.json() == {"scout": SCOUT, "workflow_id": "signals-scout-workflow-run-1"}
         start.assert_called_once_with(
-            team_id=self.team.id, skill_name=SCOUT, workflow_origin_key="invocation-1:action-1", run_note=None
+            team_id=self.team.id,
+            skill_name=SCOUT,
+            workflow_origin_key="invocation-1:action-1",
+            run_note=None,
+            trigger_workflow_id=str(self.hog_flow.id),
         )
 
     def test_a_different_idempotency_key_still_dispatches_its_own_run(self) -> None:

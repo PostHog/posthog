@@ -14,7 +14,7 @@ export function WorkflowsPathChoice(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <PathButtons messagingIsPrimary={cards.length === 0} />
-            <WorkflowDataSuggestions />
+            <WorkflowDataSuggestions surface="empty_state" />
         </div>
     )
 }

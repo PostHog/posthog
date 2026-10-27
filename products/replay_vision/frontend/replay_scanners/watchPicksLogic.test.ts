@@ -7,7 +7,6 @@ import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playli
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { picksInListFromFlag } from './picksInList'
 import { emptyImpressionsStorageKey, picksShownCountStorageKey, watchPicksLogic } from './watchPicksLogic'
 
 describe('watchPicksLogic', () => {
@@ -39,16 +38,6 @@ describe('watchPicksLogic', () => {
         })
         localStorage.clear()
         initKeaTests()
-    })
-
-    it.each([
-        ['in-list', true],
-        ['control', false],
-        ['watch-tab', false],
-        ['both', false],
-        [undefined, false],
-    ])('maps flag value %p to picks in the list: %p', (flagValue, expected) => {
-        expect(picksInListFromFlag(flagValue)).toBe(expected)
     })
 
     describe('inside a recordings list', () => {

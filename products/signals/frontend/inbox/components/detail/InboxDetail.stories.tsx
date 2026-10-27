@@ -462,6 +462,21 @@ export const PullRequest: Story = {
     ),
 }
 
+export const PullRequestPlainTitle: Story = {
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
+            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
+            [FEATURE_FLAGS.SIGNALS_PLAIN_REPORT_TITLES]: 'test',
+        },
+    },
+    render: () => (
+        <Frame>
+            <ReportDetail report={pullRequestReports[0]} />
+        </Frame>
+    ),
+}
+
 export const PullRequestStack: Story = {
     render: () => (
         <Frame>

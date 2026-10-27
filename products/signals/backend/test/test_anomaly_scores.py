@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -40,12 +41,13 @@ from products.signals.backend.anomaly_scores.scoring import (
     bucket_end,
     buckets_to_score,
     fetch_buckets,
+    history_buckets,
     query_cost,
     score_insight,
     score_series,
     trends_query_for,
 )
-from products.signals.backend.anomaly_scores.state import needs_training
+from products.signals.backend.anomaly_scores.state import TrainDue, train_due
 from products.signals.backend.anomaly_scores.tick import _INSIGHT_TIMEOUT
 
 NEW_YORK = ZoneInfo("America/New_York")
@@ -376,29 +378,46 @@ class TestScoreInsight(SimpleTestCase):
         assert runner.call_args.kwargs["query"].dateRange.date_from == "-90d"
 
     @parameterized.expand([(interval.value, interval) for interval in DEFAULT_PROFILE.intervals])
-    def test_a_train_step_fits_every_series_at_each_default_interval(self, _name: str, interval: IntervalType) -> None:
+    def test_a_train_step_scores_a_backfill_like_score_series_and_stores_the_newest_fit(
+        self, _name: str, interval: IntervalType
+    ) -> None:
         buckets = [datetime(2024, 1, 1, tzinfo=UTC)]
         while len(buckets) < 400:
             buckets.append(bucket_end(buckets[-1], interval))
+        rng = np.random.default_rng(5)
+        # The step size grows with the level, so one fit before the backfill goes stale over its buckets.
+        steps = np.linspace(1, 40, len(buckets)) * (1 + rng.normal(0, 0.3, size=len(buckets)))
+        values = list(1000 + np.cumsum(steps))
         result = {
             "action": {"order": 0},
             "label": "pageview",
             "breakdown_value": None,
             "days": [bucket.strftime("%Y-%m-%d %H:%M:%S") for bucket in buckets],
-            "data": list(np.random.default_rng(5).normal(100, 10, size=len(buckets))),
+            "data": values,
         }
+        now = bucket_end(buckets[-1], interval)
         with patch("products.signals.backend.anomaly_scores.scoring.TrendsQueryRunner") as runner:
             runner.return_value.run.return_value = MagicMock(results=[result])
             scores = score_insight(
                 _insight([EventsNode(event="$pageview")], interval=interval),
                 Team(timezone="UTC"),
-                now=bucket_end(buckets[-1], interval),
+                now=now,
                 split=SplitRun(),
             )
 
         assert scores.run == ScoringRun.TRAIN and scores.artifacts is not None
         assert set(scores.artifacts) == {series.series_key for series in scores.series} != set()
-        assert all(point.score is not None for point in scores.series[0].points)
+        scoring = DEFAULT_PROFILE.intervals[interval]
+        expected = score_series(values, buckets, scoring=scoring, interval=interval, now=now)
+        points = scores.series[0].points
+        assert len(points) == DEFAULT_LIMITS.max_backfill_buckets
+        assert all(point.score is not None for point in points)
+        assert [(point.bucket_start, point.flag) for point in points] == [
+            (point.bucket_start, point.flag) for point in expected
+        ]
+        assert [point.score for point in points] == pytest.approx([point.score for point in expected])
+        newest_window = np.array(values[len(values) - (history_buckets(scoring) - 1) :], dtype=float)
+        assert scores.artifacts[scores.series[0].series_key] == get_detector(scoring.detector).fit(newest_window)
 
 
 _IDENTITY = StateIdentity(interval=IntervalType.DAY, detector_version="v1", query_hash="q1")
@@ -417,41 +436,68 @@ def _state(**changes: Any) -> TrainedState:
     return TrainedState(**fields)
 
 
-class TestNeedsTraining(SimpleTestCase):
+class TestTrainDue(SimpleTestCase):
     @parameterized.expand(
         [
-            ("fresh_state", _state(), False),
-            ("one_of_two_series_missing", _state(missing_series=1), False),
-            ("no_state", None, True),
-            ("no_artifact", _state(artifact_key=""), True),
+            ("fresh_state", _state(), TrainDue.NO),
+            ("one_of_two_series_missing", _state(missing_series=1), TrainDue.NO),
+            ("no_state", None, TrainDue.HARD),
+            ("no_artifact", _state(artifact_key=""), TrainDue.HARD),
             (
                 "query_changed",
                 _state(identity=StateIdentity(interval=IntervalType.DAY, detector_version="v1", query_hash="q0")),
-                True,
+                TrainDue.HARD,
             ),
             (
                 "detector_changed",
                 _state(identity=StateIdentity(interval=IntervalType.DAY, detector_version="v0", query_hash="q1")),
-                True,
+                TrainDue.HARD,
             ),
-            ("trained_too_long_ago", _state(trained_at=datetime(2026, 1, 2, tzinfo=UTC)), True),
-            ("gap_over_the_backfill_cap", _state(scored_through=datetime(2025, 12, 1, tzinfo=UTC)), True),
-            ("most_series_missing", _state(missing_series=2), True),
+            ("trained_too_long_ago", _state(trained_at=datetime(2026, 1, 2, tzinfo=UTC)), TrainDue.SOFT),
+            ("past_the_model_age_ceiling", _state(trained_at=datetime(2025, 12, 13, tzinfo=UTC)), TrainDue.HARD),
+            ("gap_over_the_backfill_cap", _state(scored_through=datetime(2025, 12, 1, tzinfo=UTC)), TrainDue.SOFT),
+            ("most_series_missing", _state(missing_series=2), TrainDue.HARD),
         ]
     )
-    def test_a_visit_trains_when_the_stored_state_cannot_score_it(
-        self, _name: str, state: TrainedState | None, trains: bool
+    def test_only_a_missing_or_untrusted_model_stops_score_steps(
+        self, _name: str, state: TrainedState | None, expected: TrainDue
     ) -> None:
         assert (
-            needs_training(
+            train_due(
                 state,
                 identity=_IDENTITY,
                 now=datetime(2026, 1, 10, 1, tzinfo=UTC),
                 timezone=ZoneInfo("UTC"),
                 train_every=7,
+                max_model_age=28,
                 max_backfill=30,
             )
-            is trains
+            == expected
+        )
+
+    @parameterized.expand([("kept_current", 23, TrainDue.NO), ("retrain_due", 24, TrainDue.SOFT)])
+    def test_an_hourly_insight_kept_current_is_due_only_after_train_every(
+        self, _name: str, hours_since_trained: int, expected: TrainDue
+    ) -> None:
+        identity = StateIdentity(interval=IntervalType.HOUR, detector_version="v1", query_hash="q1")
+        now = datetime(2026, 1, 10, 12, 5, tzinfo=UTC)
+        state = _state(
+            identity=identity,
+            trained_at=now - timedelta(hours=hours_since_trained),
+            scored_through=datetime(2026, 1, 10, 10, tzinfo=UTC),
+        )
+
+        assert (
+            train_due(
+                state,
+                identity=identity,
+                now=now,
+                timezone=ZoneInfo("UTC"),
+                train_every=24,
+                max_model_age=96,
+                max_backfill=30,
+            )
+            == expected
         )
 
 

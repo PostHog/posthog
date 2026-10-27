@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 import modal
 from grpclib import GRPCError, Status
 from modal.client import _Client
-from modal.exception import AuthError, PermissionDeniedError, ResourceExhaustedError, ServiceError
+from modal.exception import AuthError, NotFoundError, PermissionDeniedError, ResourceExhaustedError, ServiceError
 from modal.types import BillingReportItem, WorkspaceBillingSummary
 from modal_proto import api_pb2
 
@@ -23,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.modal.moda
     ModalPermissionError,
     ModalResumeConfig,
     modal_source,
+    strip_url_credentials,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.modal.source import ModalSource
@@ -557,4 +558,168 @@ def test_sandbox_row_shape(
             "idle_timeout_secs": None,
             "tags": {"team": "example"},
         }
+    ]
+
+
+def test_app_deployments_skip_undeployed_and_deleted_apps(
+    config: ModalSourceConfig, inputs: SourceInputs, manager: MagicMock, real_client: modal.Client, stub: MagicMock
+) -> None:
+    inputs.schema_name = "app_deployments"
+    apps = {
+        "main": [
+            app_item("ap-deployed"),
+            app_item("ap-ephemeral", state=api_pb2.APP_STATE_EPHEMERAL),
+            app_item("ap-deleted", state=api_pb2.APP_STATE_STOPPED),
+        ],
+        "dev": [],
+    }
+    stub.AppList = AsyncMock(side_effect=lambda request: api_pb2.AppListResponse(apps=apps[request.environment_name]))
+    deployed_at = NOW.timestamp() - 3600
+    histories = {
+        "ap-deployed": api_pb2.AppDeploymentHistoryResponse(
+            app_deployment_histories=[
+                api_pb2.AppDeploymentHistory(
+                    app_id="ap-deployed",
+                    version=2,
+                    deployed_at=deployed_at,
+                    deployed_by="example-user",
+                    client_version="1.5.4",
+                    deployment_type=api_pb2.DEPLOYMENT_TYPE_ROLLBACK,
+                    rollback_version=1,
+                ),
+                api_pb2.AppDeploymentHistory(
+                    app_id="ap-deployed",
+                    version=1,
+                    deployed_at=deployed_at - 60,
+                    deployed_by="example-user",
+                    deployment_type=api_pb2.DeploymentType.ValueType(99),
+                    commit_info=api_pb2.CommitInfo(
+                        vcs="git",
+                        branch="main",
+                        commit_hash="abc123",
+                        commit_timestamp=int(deployed_at) - 120,
+                        dirty=True,
+                    ),
+                ),
+            ],
+            production_app_version=2,
+        ),
+    }
+
+    def deployment_history(request: api_pb2.AppDeploymentHistoryRequest) -> api_pb2.AppDeploymentHistoryResponse:
+        if request.app_id not in histories:
+            raise NotFoundError("App not found")
+        return histories[request.app_id]
+
+    stub.AppDeploymentHistory = AsyncMock(side_effect=deployment_history)
+
+    batches = list(source_items(modal_source(config, inputs, manager)))
+
+    assert [call.args[0].app_id for call in stub.AppDeploymentHistory.call_args_list] == ["ap-deployed", "ap-deleted"]
+    common = {
+        "app_id": "ap-deployed",
+        "app_name": "name-ap-deployed",
+        "environment_name": "main",
+        "deployed_by": "example-user",
+        "tag": None,
+        "rollback_allowed": False,
+        "commit_repo_url": None,
+        "commit_author_name": None,
+    }
+    assert batches == [
+        [
+            {
+                **common,
+                "version": 2,
+                "is_production": True,
+                "deployed_at": NOW - timedelta(hours=1),
+                "client_version": "1.5.4",
+                "deployment_type": "rollback",
+                "rollback_version": 1,
+                "commit_hash": None,
+                "commit_branch": None,
+                "commit_dirty": None,
+                "committed_at": None,
+            },
+            {
+                **common,
+                "version": 1,
+                "is_production": False,
+                "deployed_at": NOW - timedelta(hours=1, minutes=1),
+                "client_version": None,
+                "deployment_type": "99",
+                "rollback_version": None,
+                "commit_hash": "abc123",
+                "commit_branch": "main",
+                "commit_dirty": True,
+                "committed_at": NOW - timedelta(hours=1, minutes=2),
+            },
+        ]
+    ]
+    assert manager.safe_point.call_count == 2
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://x-access-token:fake-token@github.com/example/repo.git", "https://github.com/example/repo.git"),
+        ("https://fake-token@gitlab.example.com:8443/example/repo", "https://gitlab.example.com:8443/example/repo"),
+        ("https://github.com/example/repo.git", "https://github.com/example/repo.git"),
+        ("git@github.com:example/repo.git", "git@github.com:example/repo.git"),
+        ("", ""),
+    ],
+)
+def test_strip_url_credentials(url: str, expected: str) -> None:
+    assert strip_url_credentials(url) == expected
+
+
+def test_workspace_members(
+    config: ModalSourceConfig, inputs: SourceInputs, manager: MagicMock, real_client: modal.Client, stub: MagicMock
+) -> None:
+    inputs.schema_name = "workspace_members"
+    joined_at = NOW.timestamp() - 86400
+    stub.WorkspaceMembersList = AsyncMock(
+        return_value=api_pb2.WorkspaceMembersListResponse(
+            members=[
+                api_pb2.WorkspaceMembersListItem(
+                    user_id="us-one",
+                    member_displayname="example-owner",
+                    email="owner@example.com",
+                    member_role=api_pb2.MEMBER_ROLE_OWNER,
+                    identity_provider_type=api_pb2.IDENTITY_PROVIDER_TYPE_GITHUB,
+                    joined_at=joined_at,
+                    last_active_at=joined_at + 60,
+                ),
+                api_pb2.WorkspaceMembersListItem(
+                    user_id="us-two", member_role=api_pb2.MemberRole.ValueType(99), joined_at=joined_at
+                ),
+            ]
+        )
+    )
+
+    batches = list(source_items(modal_source(config, inputs, manager)))
+
+    assert batches == [
+        [
+            {
+                "user_id": "us-one",
+                "name": "example-owner",
+                "email": "owner@example.com",
+                "role": "owner",
+                "identity_provider": "github",
+                "joined_at": NOW - timedelta(days=1),
+                "last_active_at": NOW - timedelta(days=1) + timedelta(minutes=1),
+                "deleted_at": None,
+            },
+            {
+                "user_id": "us-two",
+                "name": None,
+                "email": None,
+                "role": "99",
+                "identity_provider": "unspecified",
+                "joined_at": NOW - timedelta(days=1),
+                "last_active_at": None,
+                "deleted_at": None,
+            },
+        ]
     ]

@@ -58,22 +58,17 @@ def create_default_modifiers_for_team(
     else:
         modifiers = modifiers.model_copy()
 
-    from posthog.models.event.new_events_schema import use_new_events_cluster  # noqa: PLC0415
-
-    if use_new_events_cluster(team.pk, modifiers):
-        if modifiers.useNewEventsSchema is False:
-            from posthog.hogql.errors import ExposedHogQLError  # noqa: PLC0415
-
-            raise ExposedHogQLError("Native events cluster queries require the native events schema.")
-        modifiers.useNewEventsSchema = True
-
     if modifiers.useMaterializedViews is None:
         modifiers.useMaterializedViews = True
 
     if isinstance(team.modifiers, dict):
         for key, value in team.modifiers.items():
-            # Cluster routing requires a query opt-in, even if a project stores the modifier.
-            if key == "useNewEventsCluster":
+            # A modifier removed from the schema can stay stored on a project, and the model rejects unknown fields.
+            if key not in HogQLQueryModifiers.model_fields:
+                continue
+            # The events table is switched per project by CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS, which every
+            # reader of the table checks. A stored modifier would switch the HogQL readers alone.
+            if key == "useNewEventsSchema":
                 continue
             if getattr(modifiers, key, None) is None:
                 if key == "customChannelTypeRules":

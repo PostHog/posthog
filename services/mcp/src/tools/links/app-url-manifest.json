@@ -249,6 +249,11 @@
         "params": [],
         "scope": "project"
     },
+    "applicationObservability": {
+        "template": "/application-observability",
+        "params": [],
+        "scope": "project"
+    },
     "approval": {
         "template": "/approvals/{id}",
         "params": ["id"],
@@ -587,6 +592,11 @@
     "dataCatalogMetric": {
         "template": "/data-catalog/metrics/{name}",
         "params": ["name"],
+        "scope": "project"
+    },
+    "dataCatalogNewMetric": {
+        "template": "/data-catalog/new-metric",
+        "params": [],
         "scope": "project"
     },
     "dataManagementHistory": {
@@ -2017,6 +2027,11 @@
     "workflows": {
         "template": "/workflows",
         "params": [],
+        "scope": "project"
+    },
+    "workflowsEmailDomain": {
+        "template": "/workflows/channels/email/{id}",
+        "params": ["id"],
         "scope": "project"
     },
     "workflowsLibraryMessage": {

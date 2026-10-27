@@ -61,6 +61,14 @@ export const EVALUATION_NUMERIC_GRADED_HOGQL = `properties.$ai_evaluation_result
 export const EVALUATION_BOOLEAN_GRADED_HOGQL = `(isNull(properties.$ai_evaluation_result_type) OR properties.$ai_evaluation_result_type = 'boolean') AND properties.$ai_evaluation_result IS NOT NULL AND ${EVALUATION_NOT_SKIPPED_HOGQL}`
 export const EVALUATION_NUMERIC_MEAN_HOGQL = `avgIf(toFloat(properties.$ai_evaluation_numeric_result), ${EVALUATION_NUMERIC_GRADED_HOGQL})`
 
+export function evaluationGradedHogQL(outputType: string): string {
+    return outputType === 'categorical'
+        ? EVALUATION_CATEGORICAL_GRADED_HOGQL
+        : outputType === 'numeric'
+          ? EVALUATION_NUMERIC_GRADED_HOGQL
+          : EVALUATION_BOOLEAN_GRADED_HOGQL
+}
+
 export function numericEvaluationPassedHogQL(evaluation: Pick<EvaluationConfig, 'output_config'>): string {
     const rule = evaluation.output_config.passing_rule
     if (!rule || !('threshold' in rule) || !Number.isFinite(rule.threshold)) {

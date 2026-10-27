@@ -79,6 +79,7 @@ from .activities.get_task_processing_context import (
 from .activities.materialize_context_layer import MaterializeContextLayerInput, materialize_context_layer_in_sandbox
 from .activities.post_slack_update import PostSlackUpdateInput, post_slack_update
 from .activities.provision_sandbox import (
+    REPOSITORY_CLONE_RETRY_DELAYS_SECONDS,
     CheckoutBranchInSandboxInput,
     CloneRepositoryInSandboxInput,
     CloneRepositoryInSandboxOutput,
@@ -99,12 +100,6 @@ from .activities.provision_sandbox import (
     restore_sandbox_connection_state,
 )
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
-from .activities.record_peer_message_outcome import (
-    RecordPeerMessageOutcomeInput,
-    is_timeout_activity_failure,
-    peer_message_id_from_context,
-    record_peer_message_outcome,
-)
 from .activities.relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events_deferred_completion
 from .activities.run_wizard import RunWizardInput, run_wizard
 from .activities.send_followup_to_sandbox import (
@@ -353,7 +348,8 @@ _ORIGIN_PRODUCT_SIGNAL_REPORT = "signal_report"
 
 # Gates the forward of the agent_final_text signal to the Slack relay. A worker without the
 # handler records that signal in history and sends nothing, so a replay that forwards it emits a
-# command the history does not have (TMPRL1100).
+# command the history does not have (TMPRL1100). Every worker now has the handler, so the patch is
+# deprecated; delete it once histories that carry the marker drain.
 _PATCH_ID_SLACK_AGENT_FINAL_TEXT = "tasks-slack-agent-final-text"
 
 # Progress steps of sandbox setup. The Slack plan shows them until the first turn starts.
@@ -1202,7 +1198,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             self._sandbox_url = sandbox_url
             self._sandbox_connect_token = sandbox_connect_token
             if self._is_agent_design_enabled:
-                self._forwards_agent_final_text = workflow.patched(_PATCH_ID_SLACK_AGENT_FINAL_TEXT)
+                workflow.deprecate_patch(_PATCH_ID_SLACK_AGENT_FINAL_TEXT)
+                self._forwards_agent_final_text = True
 
             relay_task: asyncio.Task[None] | None = self._spawn_event_relay(
                 sandbox_url, sandbox_connect_token, sandbox_id
@@ -2102,7 +2099,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             shallow_clone=prepared.shallow_clone,
                         ),
                         start_to_close_timeout=timedelta(minutes=5),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
+                        retry_policy=RetryPolicy(maximum_attempts=len(REPOSITORY_CLONE_RETRY_DELAYS_SECONDS) + 1),
                     )
                 except Exception as error:
                     if _is_dead_sandbox_failure(error):
@@ -3756,22 +3753,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     **error_properties,
                 },
             )
-            peer_message_id = peer_message_id_from_context(context)
-            if peer_message_id is not None:
-                # Peer messages are best-effort: record the outcome on the sender's
-                # audit row and leave this (recipient) run's completion state
-                # untouched. The branch is replay-safe because pre-feature histories
-                # cannot contain peer context.
-                if is_timeout_activity_failure(e):
-                    # The timed-out attempt may still deliver, so leave the row
-                    # non-terminal for a possible delivered write.
-                    workflow.logger.warning(
-                        "peer_message_delivery_timeout_left_nonterminal",
-                        extra={"run_id": self.context.run_id, "peer_message_id": peer_message_id},
-                    )
-                    return None
-                await self._record_peer_message_delivery_failure(peer_message_id, cause_message or str(e))
-                return None
             if self.context.mode == "interactive":
                 if message_id:
                     dedupe_key = _message_dedupe_key(message_id, actor_user_id, context)
@@ -3795,30 +3776,3 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             self._completion_error_type = "followup_delivery_failed"
             self._task_completed = True
         return None
-
-    async def _record_peer_message_delivery_failure(self, peer_message_id: str, detail: str) -> None:
-        """Terminalize the peer message row when delivery failed in a way the
-        delivery activity could not record itself (worker death, timeout). The
-        transition is idempotent (non-terminal rows only), so double-reporting with
-        the activity is harmless; a recording failure is logged and swallowed —
-        bookkeeping must not take the run down either."""
-        try:
-            await workflow.execute_activity(
-                record_peer_message_outcome,
-                RecordPeerMessageOutcomeInput(
-                    peer_message_id=peer_message_id,
-                    outcome="delivery_failed",
-                    failure_phase="sandbox_delivery",
-                    failure_detail=truncate_error_message(detail),
-                ),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(
-                    initial_interval=timedelta(seconds=2),
-                    maximum_attempts=3,
-                ),
-            )
-        except Exception:
-            workflow.logger.warning(
-                "peer_message_failure_record_failed",
-                extra={"run_id": self.context.run_id, "peer_message_id": peer_message_id},
-            )

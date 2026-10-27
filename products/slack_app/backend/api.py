@@ -53,7 +53,7 @@ from products.slack_app.backend.feature_flags import (
     is_slack_app_unprompted_answers_enabled,
 )
 from products.slack_app.backend.helpers import local_dev_slack_email
-from products.slack_app.backend.logic import reply_suggestions
+from products.slack_app.backend.logic import interview_recruitment, reply_suggestions
 from products.slack_app.backend.logic.feature_tips import interactivity as feature_tip_interactivity
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
@@ -6301,6 +6301,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         or turn_feedback.extract_modal_hint(payload)
         or (clicked_reply_suggestion.integration_id if clicked_reply_suggestion else None)
         or feature_tip_interactivity.feature_tip_integration_hint(payload)
+        or interview_recruitment.interview_integration_hint(payload)
     )
     requesting_user = payload.get("user", {}).get("id", "")
     slack_team_id = payload.get("team", {}).get("id")
@@ -6468,6 +6469,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return turn_feedback.handle_turn_feedback_click(payload)
             if feature_tip_interactivity.is_feature_tip_action(action_id):
                 return feature_tip_interactivity.handle_feature_tip_action(payload)
+            if interview_recruitment.is_interview_action(action_id):
+                return interview_recruitment.handle_interview_action(payload)
             if reply_suggestions.is_reply_suggestion_action(action_id) and clicked_reply_suggestion:
                 return _handle_reply_suggestion_click(payload, clicked_reply_suggestion)
             if action_id == CHANNEL_APPROVAL_ACTION_APPROVE:
