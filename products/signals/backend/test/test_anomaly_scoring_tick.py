@@ -607,6 +607,8 @@ class TestTrainScoreSplit(BaseTest):
             )
             for event in scored
         ] == [("score", "2026-10-20T00:00:00+00:00", 0), ("score", "2026-10-21T00:00:00+00:00", 1)]
+        # A score step names the train time of its model, so a reader can tell a stale-model score apart.
+        assert {event["properties"]["$anomaly_trained_at"] for event in scored} == {trained_at.isoformat()}
         model_ids = {event["properties"]["$anomaly_model_id"] for event in [*trained, *scored]}
         assert model_ids == {first_key.rsplit("/", 1)[-1]}
         state = AnomalyScoringState.objects.for_team(self.team.id).get(insight_id=insight.id)
@@ -968,6 +970,79 @@ class TestScoredBuckets(ClickhouseTestMixin, BaseTest):
 
         names = {insight.id: name for name, insight in insights.items()}
         assert [(names[pick.insight_id], pick.run) for pick in selection.picks] == expected
+
+    @parameterized.expand(
+        [
+            (
+                "train_budget_spent",
+                True,
+                [("past_train_every", ScoringRun.SCORE)],
+                (1, 1, 1),
+            ),
+            (
+                "train_budget_left",
+                False,
+                [("past_age_ceiling", ScoringRun.TRAIN), ("past_train_every", ScoringRun.TRAIN)],
+                (0, 0, 0),
+            ),
+        ]
+    )
+    @time_machine.travel(NOW, tick=False)
+    def test_a_model_past_train_every_keeps_scoring_until_the_train_pass_has_budget_for_it(
+        self,
+        _name: str,
+        train_budget_spent: bool,
+        expected: list[tuple[str, ScoringRun]],
+        stale_and_backlog: tuple[int, int, int],
+    ) -> None:
+        self.team.timezone = "UTC"
+        self.team.save()
+        dashboard = Dashboard.objects.create(team=self.team, name="Main")
+        insights = {
+            name: Insight.objects.create(team=self.team, name=name, query=_trends(interval="day"))
+            for name in ("past_train_every", "past_age_ceiling")
+        }
+        for insight in insights.values():
+            DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+            cache.delete(_cooldown_key(insight.id))
+        config = parse_config(
+            {**_SPLIT_PAYLOAD, "organization_ids": [str(self.organization.id)], "allow_team_ids": [self.team.id]}
+        )
+        today = NOW.replace(hour=0)
+        for name, trained_days_ago in (("past_train_every", 10), ("past_age_ceiling", 30)):
+            insight = insights[name]
+            save_state(
+                self.team,
+                insight.id,
+                DEFAULT_PROFILE.name,
+                TrainedState(
+                    identity=state_identity(
+                        trends_query_for(insight, DEFAULT_PROFILE),
+                        interval_scoring(DEFAULT_PROFILE, IntervalType.DAY),
+                        self.team,
+                        config.limits,
+                    ),
+                    trained_at=NOW - timedelta(days=trained_days_ago),
+                    scored_through=today - timedelta(days=2),
+                    series_keys=("a",),
+                    artifact_key=f"anomaly_models/{insight.id}",
+                ),
+            )
+        for kind in ScoringRun:
+            cache.delete_many([_fleet_budget_key(NOW, kind), _project_budget_key(self.team.id, NOW, kind)])
+        if train_budget_spent:
+            cache.set(_fleet_budget_key(NOW, ScoringRun.TRAIN), config.max_queries_per_hour)
+
+        with patch("products.signals.backend.anomaly_scores.queue.list_limited_team_attributes", return_value=[]):
+            selection = select_insights(config, SelectionConfig(weighting=Weighting.UNIFORM), NOW)
+
+        names = {insight.id: name for name, insight in insights.items()}
+        assert sorted((names[pick.insight_id], pick.run) for pick in selection.picks) == expected
+        assert (
+            selection.scored_stale_model,
+            selection.train_backlog_soft,
+            selection.train_backlog_hard,
+        ) == stale_and_backlog
 
 
 async def _run_tick(

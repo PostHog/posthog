@@ -3,6 +3,7 @@ from typing import Any
 
 from unittest.mock import patch
 
+from django.db.models import Q
 from django.test import SimpleTestCase
 
 import numpy as np
@@ -11,6 +12,7 @@ from parameterized import parameterized
 from posthog.exceptions import ClickHouseAtCapacity
 
 from products.replay_vision.backend import watch_rank_backfill
+from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.watch_feed import SESSION_SPACING
 from products.replay_vision.backend.watch_rank import (
     ANCHOR_VERSION,
@@ -75,6 +77,15 @@ class TestClassify(SimpleTestCase):
         got_category, contrast = classify(vector, anchors)
         assert got_category == category
         assert (contrast > 0) is positive
+
+
+class TestPickIndexes(SimpleTestCase):
+    @parameterized.expand([("rlo_ranked_count_idx",), ("rlo_ranked_contrast_idx",)])
+    def test_pick_index_matches_the_current_anchor_version(self, name: str) -> None:
+        index = next(index for index in ReplayObservation._meta.indexes if index.name == name)
+        assert index.condition == Q(
+            status="succeeded", watch_rank__isnull=False, watch_rank__anchor_version=ANCHOR_VERSION
+        )
 
 
 class TestDuplicateRoot(SimpleTestCase):

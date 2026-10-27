@@ -31,6 +31,7 @@ function makeHogFlowInvocation(hogFlowId = 'flow-1', overrides: { billable_actio
             name: 'test flow',
             version: 5,
             billable_action_types: overrides.billable_action_types ?? [],
+            actions: (overrides.billable_action_types ?? []).map((type) => ({ type, config: {} })),
         },
         state: { event: { uuid: 'evt-1' } },
         person: undefined,
