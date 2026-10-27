@@ -1383,8 +1383,9 @@ def update_scout_for_source(
     enabled: bool | None = None,
     run_cron_schedule: str | None = None,
     output_destinations: dict[str, Any] | None = None,
+    model: str | None = None,
 ) -> bool:
-    """Apply the schedule/enablement/delivery updates a source product may make to its own scout.
+    """Apply the schedule/enablement/delivery/model updates a source product may make to its own scout.
 
     Returns False when no scout with that config id belongs to the source. The skill body is
     deliberately not updatable here — prompt edits go through the scout surface, where the
@@ -1404,6 +1405,9 @@ def update_scout_for_source(
     if output_destinations is not None and output_destinations != config.output_destinations:
         config.output_destinations = output_destinations
         update_fields.append("output_destinations")
+    if model is not None and (model or None) != config.model:
+        config.model = model or None
+        update_fields.append("model")
     if len(update_fields) > 1:
         config.save(update_fields=update_fields)
     return True

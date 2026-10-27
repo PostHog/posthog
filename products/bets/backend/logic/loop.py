@@ -492,13 +492,13 @@ def set_scout(bet: Bet, enabled: bool) -> None:
 
 
 def run_scout(team: Team, user: User, bet: Bet, reason: str) -> str:
+    try:
+        model = run_settings(get_settings(bet.team_id), user, ModelStep.SCOUT).get("model")
+    except ValueError:
+        model = None
     if not signals.scouts_for_source(bet.team_id, "bets", source_id(bet)):
         request = Request(HttpRequest())
         request.user = user
-        try:
-            model = run_settings(get_settings(bet.team_id), user, ModelStep.SCOUT).get("model")
-        except ValueError:
-            model = None
         created = signals.create_scout_for_source(
             team=team,
             user=user,
@@ -521,7 +521,7 @@ def run_scout(team: Team, user: User, bet: Bet, reason: str) -> str:
         )
         bet.scout_config_id = created.config.id
         bet.save(using=WRITER_DB, update_fields=["scout_config_id", "updated_at"])
-    set_scout(bet, True)
+    signals.update_scout_for_source(bet.team_id, "bets", str(bet.scout_config_id), enabled=True, model=model or "")
     try:
         signals.run_scout_for_source(bet.team_id, "bets", str(bet.scout_config_id))
     except signals.WorkflowScoutRunRejected as error:

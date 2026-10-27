@@ -19,7 +19,7 @@ Repository: {bet.repository}
 CHECK_RULES = """## Rules for this run
 An idea is in an experiment now, on the feature flag `{flag}`. This run only checks the owner's ideas. Do not file ideas of your own.
 
-1. For each owner idea below, file one report. The title starts with "Owner idea N:" (N is the number below) and then the idea. The summary starts with the word "Supported." or "Not supported." Then give the evidence.
+1. For each owner idea below, file one report. The title starts with "Owner idea N:" (N is the number below) and then the idea. The summary starts with the word "Supported." or "Not supported." Then give the evidence. Add one line "Audience: <number> people a day" with how many people a day reach the place this idea touches, measured in PostHog, and link the insight you used.
 2. The live experiment changes the data. Split every number by the variant of `{flag}`, or use data from before the experiment started. Say which one you used.
 3. Evidence must be links to PostHog data in markdown link form: session replays you watched (with the time), insights or queries with the numbers, error groups, experiments. Never invent evidence.
 
