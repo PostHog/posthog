@@ -476,7 +476,7 @@ impl WorkerStreamRunner {
         };
 
         let mut next_seq = 1u64;
-        let mut encode_buffers = EncodeBuffers::open();
+        let mut retained_frames = RetainedFrameGauge::open();
         self.record_ledger_depth(0);
 
         loop {
@@ -486,7 +486,7 @@ impl WorkerStreamRunner {
                 &mut pending_first,
                 &mut ledger,
                 &mut next_seq,
-                &mut encode_buffers,
+                &mut retained_frames,
             ) {
                 return end;
             }
@@ -592,7 +592,7 @@ impl WorkerStreamRunner {
         pending_first: &mut Option<WorkerStreamItem>,
         ledger: &mut VecDeque<LedgerEntry>,
         next_seq: &mut u64,
-        encode_buffers: &mut EncodeBuffers,
+        retained_frames: &mut RetainedFrameGauge,
     ) -> Result<(), StreamEnd> {
         loop {
             let item = match pending_first.take() {
@@ -625,7 +625,7 @@ impl WorkerStreamRunner {
             let encoded_len = request.encoded_len() as u64;
             counter!("ingestion_consumer_transport_body_bytes_total", "encoding" => "protobuf")
                 .increment(encoded_len);
-            encode_buffers.record_frame(encoded_len);
+            retained_frames.record_frame(encoded_len);
             let deadline = tokio::time::Instant::now() + self.ack_timeout;
             let sent = out_tx.send(request).is_ok();
             ledger.push_back(LedgerEntry {
@@ -959,11 +959,11 @@ enum StreamEnd {
     Idle,
 }
 
-struct EncodeBuffers {
+struct RetainedFrameGauge {
     largest_frame: u64,
 }
 
-impl EncodeBuffers {
+impl RetainedFrameGauge {
     fn open() -> Self {
         gauge!("ingestion_consumer_worker_streams_open").increment(1.0);
         Self { largest_frame: 0 }
@@ -978,7 +978,7 @@ impl EncodeBuffers {
     }
 }
 
-impl Drop for EncodeBuffers {
+impl Drop for RetainedFrameGauge {
     fn drop(&mut self) {
         gauge!("ingestion_consumer_worker_streams_open").decrement(1.0);
         gauge!("ingestion_consumer_worker_stream_largest_frame_bytes")
