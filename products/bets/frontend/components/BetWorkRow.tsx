@@ -12,8 +12,10 @@ import { getIconColor } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import type { BetsDetailApi, BetsWorkApi } from '../generated/api.schemas'
 import { number } from '../lib/format'
+import { planSummary } from '../lib/plan'
 import { isOpen, liveFact, workStatus } from '../lib/workStatus'
 import { betLogic } from '../logics/betLogic'
+import { BetPlanDecision } from './BetPlanDecision'
 import { BetResourceLink } from './BetResourceLink'
 import { BetWorkStatusIcon } from './BetWorkStatusIcon'
 
@@ -27,7 +29,7 @@ function effect(item: BetsWorkApi): string {
 }
 
 export function BetWorkRow({ item, bet }: { item: BetsWorkApi; bet: BetsDetailApi }): JSX.Element {
-    const { busy, busyOperation, expandedWork, pullRequestTitles } = useValues(betLogic({ id: bet.id }))
+    const { busy, busyOperation, openWork, pullRequestTitles } = useValues(betLogic({ id: bet.id }))
     const { setExpandedWork, work, openTask } = useActions(betLogic({ id: bet.id }))
     const status = workStatus(item)
     const idea = item.kind === 'idea'
@@ -35,12 +37,15 @@ export function BetWorkRow({ item, bet }: { item: BetsWorkApi; bet: BetsDetailAp
     const [iconColor] = getIconColor(idea ? 'experiment' : 'task')
     const exposures = Object.values(item.result.exposures ?? {}).reduce((total, value) => total + value, 0)
     const pullRequestTitle = (item.task_id && pullRequestTitles[item.task_id]) || 'Pull request'
+    const live = item.stage === 'live'
+    const needsDecision = live && idea && !!item.plan.proposed_days
+    const summary = idea && isOpen(item) ? planSummary(item.plan) : ''
     const facts = [
         status.label,
-        item.stage === 'live' && item.note ? liveFact(item.note) : '',
+        needsDecision ? 'Needs more days' : live && item.note ? liveFact(item.note) : '',
         item.stage === 'live' && exposures ? `${number(exposures)} people exposed` : '',
     ]
-    const expanded = expandedWork === item.id
+    const expanded = openWork === item.id
     return (
         <TodayRow
             tone={item.stage === 'stuck' ? 'risk' : isOpen(item) ? 'neutral' : 'quiet'}
@@ -63,6 +68,15 @@ export function BetWorkRow({ item, bet }: { item: BetsWorkApi; bet: BetsDetailAp
                     >
                         Retry
                     </Button>
+                ) : bet.is_owner && needsDecision && openWork !== item.id ? (
+                    <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setExpandedWork(item.id)}
+                        data-attr="bets-work-decide"
+                    >
+                        Extend or stop
+                    </Button>
                 ) : item.stage === 'review' && item.pr_url ? (
                     <Button
                         size="sm"
@@ -81,10 +95,21 @@ export function BetWorkRow({ item, bet }: { item: BetsWorkApi; bet: BetsDetailAp
                     <div className="TodayRow__detailBody min-w-0 pb-2">
                         <div className="max-w-prose flex flex-col gap-3">
                             {item.note && (
-                                <Text size="sm" variant={item.stage === 'stuck' ? 'destructive' : 'muted'}>
+                                <Text
+                                    size="sm"
+                                    variant={
+                                        item.stage === 'stuck' ? 'destructive' : needsDecision ? 'default' : 'muted'
+                                    }
+                                >
                                     {item.note}
                                 </Text>
                             )}
+                            {summary && (
+                                <Text size="sm" variant="muted" render={<p className="m-0" />}>
+                                    {summary}
+                                </Text>
+                            )}
+                            <BetPlanDecision item={item} bet={bet} />
                             {item.result.summary && (
                                 <Text size="sm" render={<p className="m-0 leading-relaxed" />}>
                                     {item.result.summary}
@@ -126,7 +151,7 @@ export function BetWorkRow({ item, bet }: { item: BetsWorkApi; bet: BetsDetailAp
                             )}
                         </div>
                         <div className="TodayRow__detailFooter gap-3">
-                            {bet.is_owner && idea && isOpen(item) && item.stage !== 'stuck' && (
+                            {bet.is_owner && idea && isOpen(item) && item.stage !== 'stuck' && !needsDecision && (
                                 <Button
                                     size="sm"
                                     variant="link-muted"

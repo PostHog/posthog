@@ -179,7 +179,7 @@ export const betsLogic = kea<betsLogicType>([
         overview: [
             null as BetsOverviewApi | null,
             {
-                loadOverview: async (refresh = false) => await betsList(String(values.currentProjectId), { refresh }),
+                loadOverview: async () => await betsList(String(values.currentProjectId)),
                 updateBetEntry: ({ bet }) =>
                     values.overview && {
                         ...values.overview,

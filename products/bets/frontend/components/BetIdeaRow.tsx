@@ -33,6 +33,7 @@ import {
 import type { BetWorkStatus } from '../lib/workStatus'
 import { betLogic } from '../logics/betLogic'
 import { BetEvidenceChip } from './BetEvidenceChip'
+import { BetIdeaPlan } from './BetIdeaPlan'
 import { BetWorkStatusIcon } from './BetWorkStatusIcon'
 
 const ASSESSMENT_MARKS: Record<string, BetWorkStatus['mark']> = {
@@ -58,6 +59,7 @@ export function BetIdeaRow({ item, bet }: { item: BetsWorkApi; bet: BetsDetailAp
         openIdea,
         allEvidenceShown,
         ideaInProgress,
+        ideaPlans,
     } = useValues(betLogic({ id: bet.id }))
     const {
         buildIdea,
@@ -87,7 +89,7 @@ export function BetIdeaRow({ item, bet }: { item: BetsWorkApi; bet: BetsDetailAp
             variant={supported ? 'primary' : 'outline'}
             loading={building}
             disabled={busy && !building}
-            disabledReason={buildDisabledReason ?? undefined}
+            disabledReason={buildDisabledReason ?? ideaPlans[item.id]?.disabledReason ?? undefined}
             onClick={() => buildIdea(item.id)}
             data-attr="bets-idea-build"
         >
@@ -177,6 +179,7 @@ export function BetIdeaRow({ item, bet }: { item: BetsWorkApi; bet: BetsDetailAp
                                 </CollapsibleContent>
                             </Collapsible>
                         )}
+                        <BetIdeaPlan item={item} bet={bet} />
                         {bet.is_owner &&
                             (dismissing ? (
                                 <form

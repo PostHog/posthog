@@ -40,9 +40,7 @@ def _bet(team: Team, bet_id: str | UUID) -> Bet:
     return get_object_or_404(Bet.objects.for_team(project_id(team)).using(WRITER_DB), id=bet_id)
 
 
-def overview(team: Team, user: User, *, force_refresh: bool = False) -> dict:
-    if force_refresh:
-        refresh_metrics(team, user, [get_settings(project_id(team)).north_star_insight])
+def overview(team: Team, user: User) -> dict:
     return read.overview(team, user)
 
 
@@ -82,13 +80,6 @@ def change_status(team: Team, user: User, bet_id: str | UUID, status: str) -> di
         loop.set_scout(changed, False)
     wake(changed)
     return read.detail(team, user, changed)
-
-
-def refresh(team: Team, user: User, bet_id: str | UUID) -> dict:
-    bet = _bet(team, bet_id)
-    refresh_metrics(team, user, [bet.goal_insight, *[item["insight"] for item in bet.secondary_metrics]])
-    wake(bet)
-    return read.detail(team, user, bet)
 
 
 def work(

@@ -13,11 +13,9 @@ from ..facade import api
 from .serializers import (
     BetsActivitySerializer,
     BetsDetailSerializer,
-    BetsEmptySerializer,
     BetsIdeaSerializer,
     BetsMetricPreviewQuerySerializer,
     BetsMetricSerializer,
-    BetsOverviewQuerySerializer,
     BetsOverviewSerializer,
     BetsSettingsSerializer,
     BetsSettingsWriteSerializer,
@@ -42,15 +40,9 @@ class BetsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def user(self) -> User:
         return cast(User, self.request.user)
 
-    @extend_schema(parameters=[BetsOverviewQuerySerializer], responses=BetsOverviewSerializer(many=False))
+    @extend_schema(responses=BetsOverviewSerializer(many=False))
     def list(self, request: Request, **kwargs: object) -> Response:
-        serializer = BetsOverviewQuerySerializer(data=request.query_params)
-        serializer.is_valid(raise_exception=True)
-        return Response(
-            BetsOverviewSerializer(
-                api.overview(self.team, self.user, force_refresh=serializer.validated_data["refresh"])
-            ).data
-        )
+        return Response(BetsOverviewSerializer(api.overview(self.team, self.user)).data)
 
     @extend_schema(request=BetsWriteSerializer, responses={201: BetsDetailSerializer})
     def create(self, request: Request, **kwargs: object) -> Response:
@@ -88,11 +80,6 @@ class BetsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(
             BetsDetailSerializer(api.change_status(self.team, self.user, id, serializer.validated_data["status"])).data
         )
-
-    @extend_schema(request=BetsEmptySerializer, responses=BetsDetailSerializer)
-    @action(detail=True, methods=["post"])
-    def refresh(self, request: Request, id: str, **kwargs: object) -> Response:
-        return Response(BetsDetailSerializer(api.refresh(self.team, self.user, id)).data)
 
     @extend_schema(request=BetsWorkActionSerializer, responses=BetsDetailSerializer)
     @action(detail=True, methods=["post"])

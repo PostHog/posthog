@@ -29,12 +29,6 @@ class BetsActivitySerializer(serializers.Serializer):
     resource_id = serializers.CharField(allow_blank=True, help_text="Identifier or URL of the linked native resource.")
 
 
-class BetsOverviewQuerySerializer(serializers.Serializer):
-    refresh = serializers.BooleanField(
-        required=False, default=False, help_text="Recalculate the saved North Star insight before returning."
-    )
-
-
 class BetsSecondaryMetricSerializer(serializers.Serializer):
     insight = serializers.CharField(max_length=32, help_text="Saved PostHog insight used as a guardrail.")
     name = serializers.CharField(max_length=255, help_text="Name of the guardrail metric.")
@@ -368,7 +362,3 @@ class BetsWorkActionSerializer(serializers.Serializer):
 
 class BetsIdeaSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=255, help_text="The owner's idea, in one sentence.")
-
-
-class BetsEmptySerializer(serializers.Serializer):
-    pass

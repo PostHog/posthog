@@ -19,7 +19,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { BetsPage } from '../BetsPage'
 import { BetsSettingsSkeleton } from '../components/BetsSettingsSkeleton'
 import { BetStepModelField } from '../components/BetStepModelField'
-import { betsSettingsLogic } from '../logics/betsSettingsLogic'
+import { type MinRunUnit, betsSettingsLogic } from '../logics/betsSettingsLogic'
+
+const RUN_UNITS: { value: MinRunUnit; label: string }[] = [
+    { value: 'days', label: 'days' },
+    { value: 'hours', label: 'hours' },
+]
 
 export const scene: SceneExport = { component: BetsSettingsScene, logic: betsSettingsLogic }
 
@@ -31,7 +36,9 @@ export function BetsSettingsScene(): JSX.Element {
         insight,
         insights,
         stepModels,
-        minRunHours,
+        minRun,
+        minRunUnit,
+        mdePercent,
         goalConfirmHours,
         busy,
         message,
@@ -42,7 +49,9 @@ export function BetsSettingsScene(): JSX.Element {
         setBudget,
         setInsight,
         setStepModel,
-        setMinRunHours,
+        setMinRun,
+        setMinRunUnit,
+        setMdePercent,
         setGoalConfirmHours,
         save,
         loadSettings,
@@ -122,23 +131,61 @@ export function BetsSettingsScene(): JSX.Element {
                         <legend className="Bets__sectionTitle mb-1">Experiments</legend>
                         <div className="Bets__formRow">
                             <Field>
-                                <FieldLabel htmlFor="bets-min-run-hours">Minimum experiment run (hours)</FieldLabel>
+                                <FieldLabel htmlFor="bets-mde-percent">Smallest change to find (%)</FieldLabel>
                                 <Input
-                                    id="bets-min-run-hours"
+                                    id="bets-mde-percent"
                                     type="number"
-                                    min={0}
-                                    max={1440}
-                                    step="1"
+                                    min={0.1}
+                                    max={100}
+                                    step="0.1"
                                     required
-                                    value={minRunHours}
-                                    onChange={(event) => setMinRunHours(Math.round(Number(event.target.value)))}
+                                    value={mdePercent}
+                                    onChange={(event) => setMdePercent(Number(event.target.value))}
                                     disabled={!overview.can_edit}
                                 />
                                 <FieldDescription>
-                                    Bets reads a win or a loss only after this time. A guardrail that gets worse stops
-                                    the experiment at once.
+                                    Each experiment runs long enough to find a change this large.
                                 </FieldDescription>
                             </Field>
+                            <Field>
+                                <FieldLabel htmlFor="bets-min-run">Shortest run (optional)</FieldLabel>
+                                <div className="flex min-w-0 gap-2">
+                                    <Input
+                                        id="bets-min-run"
+                                        className="min-w-0 flex-1"
+                                        type="number"
+                                        min={0}
+                                        max={minRunUnit === 'days' ? 60 : 1440}
+                                        step="1"
+                                        required
+                                        value={minRun}
+                                        onChange={(event) => setMinRun(Math.round(Number(event.target.value)))}
+                                        disabled={!overview.can_edit}
+                                    />
+                                    <Select
+                                        value={minRunUnit}
+                                        items={RUN_UNITS}
+                                        onValueChange={(value) => value && setMinRunUnit(value as MinRunUnit)}
+                                        disabled={!overview.can_edit}
+                                    >
+                                        <SelectTrigger aria-label="Shortest run unit" className="w-24 shrink-0">
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {RUN_UNITS.map((unit) => (
+                                                <SelectItem key={unit.value} value={unit.value}>
+                                                    {unit.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <FieldDescription>
+                                    Every experiment runs at least this long. 0 lets the plan decide.
+                                </FieldDescription>
+                            </Field>
+                        </div>
+                        <div className="Bets__formRow">
                             <Field>
                                 <FieldLabel htmlFor="bets-goal-confirm-hours">Confirm the goal for (hours)</FieldLabel>
                                 <Input

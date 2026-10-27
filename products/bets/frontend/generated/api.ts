@@ -12,7 +12,6 @@ import type {
     BetsActivityApi,
     BetsDetailApi,
     BetsIdeaApi,
-    BetsListParams,
     BetsMetricApi,
     BetsMetricPreviewRetrieveParams,
     BetsOverviewApi,
@@ -24,28 +23,12 @@ import type {
     PatchedBetsWriteApi,
 } from './api.schemas'
 
-export const getBetsListUrl = (projectId: string, params?: BetsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/bets/?${stringifiedParams}`
-        : `/api/projects/${projectId}/bets/`
+export const getBetsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/bets/`
 }
 
-export const betsList = async (
-    projectId: string,
-    params?: BetsListParams,
-    options?: RequestInit
-): Promise<BetsOverviewApi> => {
-    return apiMutator<BetsOverviewApi>(getBetsListUrl(projectId, params), {
+export const betsList = async (projectId: string, options?: RequestInit): Promise<BetsOverviewApi> => {
+    return apiMutator<BetsOverviewApi>(getBetsListUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -127,21 +110,6 @@ export const betsIdeasCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(betsIdeaApi),
-    })
-}
-
-export const getBetsRefreshCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/bets/${id}/refresh/`
-}
-
-export const betsRefreshCreate = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<BetsDetailApi> => {
-    return apiMutator<BetsDetailApi>(getBetsRefreshCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
     })
 }
 

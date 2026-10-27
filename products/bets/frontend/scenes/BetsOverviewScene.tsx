@@ -26,9 +26,6 @@ export function BetsOverviewScene(): JSX.Element {
             breadcrumbs={breadcrumbs}
             actions={
                 <>
-                    <Button variant="link-muted" size="sm" loading={overviewLoading} onClick={() => loadOverview(true)}>
-                        Refresh
-                    </Button>
                     {overview?.can_edit && (
                         <Button variant="primary" size="sm" render={<LinkPrimitive to={urls.betsNew()} />}>
                             <IconPlus /> New bet

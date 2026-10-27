@@ -28,7 +28,7 @@ export const scene: SceneExport<{ id: string }> = {
 export function BetDetailScene({ id }: { id: string }): JSX.Element {
     const { bet, betLoading, busy, busyOperation, error, breadcrumbs, activity, activityLoading, activityError } =
         useValues(betLogic({ id }))
-    const { refresh, changeStatus, loadBet, loadActivity, setExpandedWork } = useActions(betLogic({ id }))
+    const { changeStatus, loadBet, loadActivity, setExpandedWork } = useActions(betLogic({ id }))
     const { searchParams } = useValues(router)
     const live = !!bet && ['setting_up', 'running'].includes(bet.status)
     const workRef = useRef<HTMLDivElement>(null)
@@ -88,15 +88,6 @@ export function BetDetailScene({ id }: { id: string }): JSX.Element {
                                         Edit bet
                                     </Button>
                                 )}
-                                <Button
-                                    size="sm"
-                                    variant="link-muted"
-                                    loading={busyOperation === 'refresh'}
-                                    disabled={busy}
-                                    onClick={refresh}
-                                >
-                                    Refresh
-                                </Button>
                                 {bet.status !== 'closed' && (
                                     <Button
                                         size="sm"

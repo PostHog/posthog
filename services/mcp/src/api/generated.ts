@@ -129371,13 +129371,6 @@ export namespace Schemas {
     search?: string;
     };
 
-    export type BetsListParams = {
-    /**
-     * Recalculate the saved North Star insight before returning.
-     */
-    refresh?: boolean;
-    };
-
     export type BetsMetricPreviewRetrieveParams = {
     /**
      * Short ID of the saved insight to preview.
