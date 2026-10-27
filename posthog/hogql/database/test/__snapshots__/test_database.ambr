@@ -2889,6 +2889,26 @@
                   "table": null,
                   "type": "json"
               },
+              "brand_sentiment": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "brand_sentiment",
+                  "id": null,
+                  "name": "brand_sentiment",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "brand_sentiment_score": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "brand_sentiment_score",
+                  "id": null,
+                  "name": "brand_sentiment_score",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
+              },
               "cost_usd": {
                   "chain": null,
                   "fields": null,
@@ -17536,6 +17556,26 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "json"
+              },
+              "brand_sentiment": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "brand_sentiment",
+                  "id": null,
+                  "name": "brand_sentiment",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "brand_sentiment_score": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "brand_sentiment_score",
+                  "id": null,
+                  "name": "brand_sentiment_score",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "float"
               },
               "cost_usd": {
                   "chain": null,
