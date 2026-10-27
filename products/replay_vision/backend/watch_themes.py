@@ -23,7 +23,6 @@ from posthog.dataclasses import frozen
 
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
-from products.replay_vision.backend.gemini_client import AI_PRODUCT, replay_gemini_client
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import PromptValence, ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_semantics import ReplayScannerSearchTheme
@@ -179,7 +178,12 @@ async def name_theme(team_id: int, theme_id: uuid.UUID, now: datetime) -> str | 
         return None
     scanner, samples = context
     prompt = (scanner.scanner_config or {}).get("prompt") if isinstance(scanner.scanner_config, dict) else None
-    client = await replay_gemini_client(team_id, properties={"ai_product": AI_PRODUCT, "feature": "name_search_theme"})
+    # gemini_client imports the Temporal package, which imports gemini_client back, so a cold import here would fail.
+    from products.replay_vision.backend import gemini_client  # noqa: PLC0415 — circular import through temporal
+
+    client = await gemini_client.replay_gemini_client(
+        team_id, properties={"ai_product": gemini_client.AI_PRODUCT, "feature": "name_search_theme"}
+    )
     try:
         response = await client.models.generate_content(
             model=_THEME_MODEL,
