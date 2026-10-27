@@ -19,7 +19,7 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DashboardAddTileKey, getDashboardAddTileOptions } from './dashboardAddTileOptions'
-import { dashboardEventsLogic } from './dashboardEventsLogic'
+import { reportDashboardAddMenuOpened } from './dashboardEvents'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 
 // pinned: autocapture data-attrs for the header's Add menu items
@@ -41,7 +41,6 @@ export function QuillDashboardAddTileButton(): JSX.Element | null {
         openImageTileModal,
         openButtonTileModal,
     } = useActions(dashboardLogic)
-    const { reportDashboardAddMenuOpened } = useActions(dashboardEventsLogic)
 
     if (!dashboard || tiles.length === 0) {
         return null

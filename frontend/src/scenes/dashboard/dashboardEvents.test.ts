@@ -1,9 +1,9 @@
 import { NodeKind } from '~/queries/schema/schema-general'
 import type { DashboardTile, DashboardType } from '~/types'
 
-import { dashboardViewedProperties, sanitizeDashboard } from './dashboardEventsLogic'
+import { dashboardViewedProperties, sanitizeDashboard } from './dashboardEvents'
 
-describe('dashboardEventsLogic', () => {
+describe('dashboardEvents', () => {
     it('keeps metric variable definitions out of a sanitized dashboard', () => {
         const metricVariables = [{ name: 'env', source: 'sql', query: 'SELECT private_value' }]
         const tile = { id: 1, insight: { id: 2, filter_override_context: { dashboard: { metricVariables } } } }

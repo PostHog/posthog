@@ -6,7 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { Scene } from 'scenes/sceneTypes'
 
-import { sanitizeDashboard } from './dashboardEventsLogic'
+import { sanitizeDashboard } from './dashboardEvents'
 import { dashboardLogic } from './dashboardLogic'
 
 interface DashboardZoomControlProps {

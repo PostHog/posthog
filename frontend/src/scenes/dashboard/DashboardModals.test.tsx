@@ -44,8 +44,6 @@ jest.mock('lib/components/Shortcuts/Shortcut', () => ({
 
 jest.mock('lib/utils/eventUsageLogic', () => ({ eventUsageLogic: { __mock: 'eventUsageLogic' } }))
 
-jest.mock('./dashboardEventsLogic', () => ({ dashboardEventsLogic: { __mock: 'dashboardEventsLogic' } }))
-
 jest.mock('products/dashboards/frontend/components/DashboardCustomizeMenu/DashboardCustomizeMenu', () => ({
     DashboardCustomizeMenu: () => null,
 }))

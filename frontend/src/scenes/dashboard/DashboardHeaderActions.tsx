@@ -22,7 +22,7 @@ import { DashboardCustomizeMenu } from 'products/dashboards/frontend/components/
 
 import { DashboardAddTileHandlers, DashboardAddTileKey, getDashboardAddTileOptions } from './dashboardAddTileOptions'
 import { DashboardCustomizeButton } from './DashboardCustomizeButton'
-import { dashboardEventsLogic } from './dashboardEventsLogic'
+import { reportDashboardAddMenuOpened } from './dashboardEvents'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 import { DashboardSubscribeButton } from './DashboardSubscribeButton'
 
@@ -62,7 +62,6 @@ export function DashboardAddTileButton(): JSX.Element | null {
         openImageTileModal,
         openButtonTileModal,
     } = useActions(dashboardLogic)
-    const { reportDashboardAddMenuOpened } = useActions(dashboardEventsLogic)
 
     if (!dashboard || tiles.length === 0) {
         return null

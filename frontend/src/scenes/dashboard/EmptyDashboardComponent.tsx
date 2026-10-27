@@ -17,7 +17,7 @@ import { AccessControlLevel, AccessControlResourceType, DashboardType, SidePanel
 
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardAiPromptComposer } from './DashboardAiPromptComposer'
-import { dashboardEventsLogic } from './dashboardEventsLogic'
+import { reportDashboardEmptyAddChartClicked, reportDashboardEmptyWebAnalyticsClicked } from './dashboardEvents'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
 import { getAddTileMenuItems } from './DashboardHeaderActions'
 import { dashboardLogic } from './dashboardLogic'
@@ -47,8 +47,6 @@ function DashboardEmptyActions({
     onAddWidget: () => void
     onOpenAiWithPrompt: (prompt: string) => void
 }): JSX.Element {
-    const { reportDashboardEmptyAddChartClicked, reportDashboardEmptyWebAnalyticsClicked } =
-        useActions(dashboardEventsLogic)
     const chipDisabledReason = !canEdit ? DASHBOARD_CANNOT_EDIT_MESSAGE : aiDisabledReason || undefined
     const handleAddInsight = (): void => {
         reportDashboardEmptyAddChartClicked(dashboard?.id)
