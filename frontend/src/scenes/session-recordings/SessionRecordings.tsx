@@ -36,6 +36,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, ReplayTab, ReplayTabs } from '~/types'
 
 import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
+import { ReplayVisionListUpsellCard } from 'products/replay_vision/frontend/upsell/ReplayVisionListUpsellCard'
+import { ReplayVisionPlayerUpsellCard } from 'products/replay_vision/frontend/upsell/ReplayVisionPlayerUpsellCard'
+import { replayVisionUpsellLogic } from 'products/replay_vision/frontend/upsell/replayVisionUpsellLogic'
 
 import { SessionRecordingCollections } from './collections/SessionRecordingCollections'
 import { SessionRecordingsPlaylistRedesign } from './playlist-redesign/SessionRecordingsPlaylistRedesign'
@@ -201,6 +204,13 @@ function ReplayVisionPromoBanner(): JSX.Element | null {
     )
 }
 
+// The upsell logic reads its experiment flag when it mounts, and that read records an exposure.
+// Only the classic recordings list can show the upsell cards, so only that path mounts the logic.
+function RecordingsListReplayVisionPromoBanner(): JSX.Element | null {
+    const { replacesLaunchBanner } = useValues(replayVisionUpsellLogic)
+    return replacesLaunchBanner ? null : <ReplayVisionPromoBanner />
+}
+
 function FieldGuideBanner(): JSX.Element | null {
     const { isDismissed } = useValues(lemonBannerLogic({ dismissKey: FIELD_GUIDE_DISMISS_KEY }))
 
@@ -255,7 +265,11 @@ function MainPanel(): JSX.Element {
 
     return (
         <div className={cn('flex flex-col gap-y-4', ReplayTabs.Home === tab && 'grow')}>
-            <ReplayVisionPromoBanner />
+            {tab === ReplayTabs.Home && !isRedesignEnabled ? (
+                <RecordingsListReplayVisionPromoBanner />
+            ) : (
+                <ReplayVisionPromoBanner />
+            )}
             {tab === ReplayTabs.Home && <FieldGuideBanner />}
 
             {!tab ? (
@@ -266,7 +280,12 @@ function MainPanel(): JSX.Element {
                     {isRedesignEnabled ? (
                         <SessionRecordingsPlaylistRedesign {...SCENE_PLAYLIST_LOGIC_PROPS} />
                     ) : (
-                        <SessionRecordingsPlaylist {...SCENE_PLAYLIST_LOGIC_PROPS} picksInList={picksInList} />
+                        <SessionRecordingsPlaylist
+                            {...SCENE_PLAYLIST_LOGIC_PROPS}
+                            picksInList={picksInList}
+                            listBanner={<ReplayVisionListUpsellCard />}
+                            playerFooter={<ReplayVisionPlayerUpsellCard />}
+                        />
                     )}
                 </div>
             ) : tab === ReplayTabs.Playlists ? (
