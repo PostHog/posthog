@@ -763,6 +763,37 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?broadcast_status=paused")
         assert response.status_code == 400
 
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_list_latest_send_first_orders_by_run_completion_not_edit_time(self, _mock_dispatch):
+        def create(name: str, finished_minutes_ago: int | None) -> None:
+            flow = HogFlow.objects.create(
+                team=self.team, name=name, created_by=self.user, origin_product="broadcasts", status="active"
+            )
+            if finished_minutes_ago is not None:
+                job = HogFlowBatchJob.objects.create(
+                    team=self.team, hog_flow=flow, status="completed", filters={}, variables={}
+                )
+                HogFlowBatchJob.objects.filter(pk=job.pk).update(
+                    updated_at=timezone.now() - timedelta(minutes=finished_minutes_ago)
+                )
+
+        # Created, and so edited, in the reverse of the order their runs finished.
+        create("Finished last", finished_minutes_ago=1)
+        create("Finished first", finished_minutes_ago=30)
+        create("Never ran", finished_minutes_ago=None)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows?broadcast_status=sent&latest_send_first=true&limit=1"
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["count"] == 2
+        assert [flow["name"] for flow in response.json()["results"]] == ["Finished last"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?latest_send_first=true")
+        assert [flow["name"] for flow in response.json()["results"]] == ["Finished last", "Finished first", "Never ran"]
+
     def test_list_field_filter_rejection_keeps_the_validation_code(self):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?status=invalid-status")
         assert response.status_code == 400, response.json()
