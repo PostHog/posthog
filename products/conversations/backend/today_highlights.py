@@ -2,11 +2,10 @@ from datetime import timedelta
 
 from django.utils import timezone
 
-from products.conversations.backend.facade.api import list_role_sla_breaches
 from products.conversations.backend.facade.types import RoleSlaBreach
-
-from ...facade.enums import HighlightLabel
-from ..highlight_types import Candidate, Context, Found, Source
+from products.conversations.backend.role_sla import list_role_sla_breaches
+from products.today.backend.facade.contracts import HighlightCandidate, HighlightContext, HighlightFindings
+from products.today.backend.facade.enums import HighlightLabel
 
 WINDOW = timedelta(hours=24)
 # Relevance is 1 because the ticket is assigned to the viewer's role, so the score
@@ -20,18 +19,12 @@ MANY_DETAIL = "Ticket #{number} is the soonest."
 OPEN_STATUSES = ("new", "open", "pending", "on_hold")
 
 
-def find(context: Context) -> Found:
-    now = timezone.now()
-    breaches = list_role_sla_breaches(context.team.id, context.user.id, due_after=now, due_before=now + WINDOW)
-    return Found(items=tuple(_candidate(breach) for breach in breaches))
-
-
-def _candidate(breach: RoleSlaBreach) -> Candidate:
+def _candidate(breach: RoleSlaBreach) -> HighlightCandidate:
     number = breach.soonest_ticket_number
     role = breach.role_name
     one = breach.ticket_count == 1
     statuses = "&".join(f"status={status}" for status in OPEN_STATUSES)
-    return Candidate(
+    return HighlightCandidate(
         key=f"ticket_sla:{breach.role_id}",
         label=HighlightLabel.RISK,
         family="support",
@@ -48,4 +41,7 @@ def _candidate(breach: RoleSlaBreach) -> Candidate:
     )
 
 
-SOURCE = Source(name="ticket_sla", find=find, scopes=("ticket:read",))
+def find_ticket_sla(context: HighlightContext) -> HighlightFindings:
+    now = timezone.now()
+    breaches = list_role_sla_breaches(context.team.id, context.user.id, due_after=now, due_before=now + WINDOW)
+    return HighlightFindings(items=tuple(_candidate(breach) for breach in breaches))
