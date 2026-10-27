@@ -1511,6 +1511,19 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         return {"type": "AND", "values": []}
 
     @staticmethod
+    def _filter_group_from_query_params(request: Request) -> PropertyGroupFilter | None:
+        try:
+            filter_group = json.loads(request.GET.get("filterGroup") or "null")
+        except ValueError:
+            return None
+        if not isinstance(filter_group, dict | list) or not filter_group:
+            return None
+        try:
+            return PropertyGroupFilter.model_validate(LogsViewSet._normalize_filter_group(filter_group))
+        except ValidationError:
+            return None
+
+    @staticmethod
     def _require_dict_query(query_data: object) -> None:
         """Guard against a non-object `query` field crashing on the first `.get()` call below."""
         if not isinstance(query_data, dict):
@@ -1651,18 +1664,22 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             next_cursor = base64.b64encode(json.dumps(cursor_data).encode("utf-8")).decode("utf-8")
 
         if not live_logs_checkpoint:
+            event_properties: dict[str, object] = {
+                "results_count": len(results),
+                "has_more": has_more,
+                "has_search_term": bool(query_data.get("searchTerm")),
+                "has_filter_group": bool(query_data.get("filterGroup")),
+                "severity_levels_count": len(query_data.get("severityLevels") or []),
+                "service_names_count": len(query_data.get("serviceNames") or []),
+                "is_paginated": bool(after_cursor),
+            }
+            if results:
+                # This endpoint serves the app, API keys, MCP and other integrations, so the property covers all of them.
+                event_properties["$set_once"] = {"first_used_logs_at": timezone.now().isoformat()}
             report_user_action(
                 request.user,
                 "logs query executed",
-                {
-                    "results_count": len(results),
-                    "has_more": has_more,
-                    "has_search_term": bool(query_data.get("searchTerm")),
-                    "has_filter_group": bool(query_data.get("filterGroup")),
-                    "severity_levels_count": len(query_data.get("severityLevels") or []),
-                    "service_names_count": len(query_data.get("serviceNames") or []),
-                    "is_paginated": bool(after_cursor),
-                },
+                event_properties,
                 team=self.team,
                 request=request,
             )
@@ -2092,10 +2109,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             serviceNames = json.loads(request.GET.get("serviceNames", "[]"))
         except json.JSONDecodeError:
             serviceNames = []
-        try:
-            filterGroup = self.get_model(json.loads(request.GET.get("filterGroup", "{}")), PropertyGroupFilter)
-        except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
-            filterGroup = None
+        filterGroup = self._filter_group_from_query_params(request)
 
         attributeType = request.GET.get("attribute_type", "log")
         # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'
@@ -2176,10 +2190,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 serviceNames = json.loads(request.GET.get("serviceNames", "[]"))
             except json.JSONDecodeError:
                 serviceNames = []
-            try:
-                filterGroup = self.get_model(json.loads(request.GET.get("filterGroup", "{}")), PropertyGroupFilter)
-            except (json.JSONDecodeError, ValidationError, ValueError, ParseError):
-                filterGroup = None
+            filterGroup = self._filter_group_from_query_params(request)
 
             attributeType = request.GET.get("attribute_type", "log")
             # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'

@@ -456,22 +456,24 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             assert serialized_database.get(table_name) is not None
 
     @parameterized.expand([(True,), (False,)])
-    def test_flag_evaluations_visibility_follows_the_org_flag(self, flag_enabled: bool) -> None:
+    def test_flag_evaluations_visibility_follows_the_table_gate(self, table_enabled: bool) -> None:
         with patch(
             "products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled",
-            return_value=flag_enabled,
+            return_value=table_enabled,
         ):
             database = Database.create_for(team=self.team)
             context = HogQLContext(team_id=self.team.pk, database=database)
             serialized = database.serialize(context, include_hidden_posthog_tables=True)
 
-            assert ("posthog.flag_evaluations" in database.get_posthog_table_names(include_hidden=True)) is flag_enabled
-            assert ("posthog.flag_evaluations" in serialized) is flag_enabled
+            assert (
+                "posthog.flag_evaluations" in database.get_posthog_table_names(include_hidden=True)
+            ) is table_enabled
+            assert ("posthog.flag_evaluations" in serialized) is table_enabled
 
             # The person traverser is the part that resolves through a virtual subtable rather than
             # straight to a column, so the query exercises that rather than a bare one.
             query = "SELECT flag_key, person.id, `$group_0` FROM posthog.flag_evaluations"
-            if flag_enabled:
+            if table_enabled:
                 execute_hogql_query(query, team=self.team, pretty=False)
             else:
                 with pytest.raises(QueryError, match="Unknown table"):

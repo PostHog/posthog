@@ -180,7 +180,7 @@ const llmDetectorAlert = makeAlert({
     id: 'alert-llm',
     name: 'Watch signups',
     calculation_interval: AlertCalculationInterval.DAILY,
-    detector_config: { type: 'llm', threshold: 0.7, window: 90, instructions: 'Only tell me about drops.' },
+    detector_config: { type: 'llm', instructions: 'Only tell me about drops.' },
     threshold: undefined,
     checks: makeChecks([980, 1010, 960, 1030, 990, 1020, 640]).map((check, index, checks) =>
         index === checks.length - 1

@@ -20,8 +20,13 @@ from products.mcp_store.backend.facade.api import (
     get_sandbox_mcp_server_names,
     member_server_tools,
     resolve_agent_gateway_server_ids,
+    resolve_installations_for_sandbox,
 )
-from products.mcp_store.backend.facade.contracts import ActiveInstallation
+from products.mcp_store.backend.facade.contracts import (
+    ActiveInstallation,
+    UnmountedInstallation,
+    UnmountedInstallationReason,
+)
 from products.mcp_store.backend.models import (
     MCPGatewayServer,
     MCPMemberServerRevocation,
@@ -291,6 +296,55 @@ class TestGetInstallationsForSandbox(BaseTest):
         assert len(results) == 2
         scopes = {r.scope for r in results}
         assert scopes == {"shared", "personal"}
+
+    @parameterized.expand(
+        [
+            ("needs_reconnect", None, "needs_reconnect"),
+            ("server_disabled", None, "server_disabled"),
+            ("revoked", None, "revoked"),
+            ("replaced_by_personal", None, "replaced_by_personal"),
+            ("needs_reconnect", [], "not_selected"),
+            ("server_disabled", [], "not_selected"),
+            ("revoked", [], "not_selected"),
+        ]
+    )
+    def test_member_run_reports_why_a_reachable_installation_is_not_mounted(
+        self,
+        reason: UnmountedInstallationReason,
+        allowed_installation_ids: list[str] | None,
+        expected_reason: UnmountedInstallationReason,
+    ) -> None:
+        server = self._create_gateway_server(
+            name="Linear", url="https://mcp.linear.app/mcp", is_team_enabled=reason != "server_disabled"
+        )
+        left_out = self._create_installation(
+            scope="shared",
+            display_name="Linear",
+            url=server.url,
+            gateway_server=server,
+            auth_type="oauth",
+            sensitive_configuration={"access_token": "tok", "needs_reauth": True}
+            if reason == "needs_reconnect"
+            else {"access_token": "tok"},
+        )
+        if reason == "revoked":
+            MCPMemberServerRevocation.objects.for_team(self.team.id).create(
+                team_id=self.team.id, gateway_server=server, user=self.user
+            )
+        if reason == "replaced_by_personal":
+            self._create_installation(scope="personal", url=server.url, display_name="My Linear")
+
+        resolution = resolve_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            include_personal=True,
+            allowed_installation_ids=allowed_installation_ids,
+        )
+
+        assert str(left_out.id) not in {installation.id for installation in resolution.mounted}
+        assert resolution.unmounted == (
+            UnmountedInstallation(id=str(left_out.id), name="Linear", scope="shared", reason=expected_reason),
+        )
 
     def test_shared_visible_to_any_team_member(self) -> None:
         other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "password")
@@ -985,7 +1039,10 @@ class TestCallMemberServerTool(BaseTest):
         self._installation(user=other_user, url="https://mcp.example.com.evil.test/mcp")
         self._tool(shared)
 
-        assert self._call().status == "ok"
+        # The owner's approval does not carry over, so the teammate approves the call first.
+        pending = self._call()
+        assert pending.status == "needs_approval"
+        assert self._call(approval_token=pending.approval_token).status == "ok"
         assert mock_call.call_args.args[0].id == shared.id
 
     @patch("products.mcp_store.backend.facade.api.call_upstream_tool")

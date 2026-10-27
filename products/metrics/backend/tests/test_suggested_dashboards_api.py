@@ -167,6 +167,7 @@ class TestSuggestedDashboardsAPI(APIBaseTest):
         dashboard = Dashboard.objects.get(id=response.json()["dashboard_id"])
         assert dashboard.filters["metricVariables"] == [template.variables[0]]
         assert dashboard.filters["metricVariables"][0]["current"] == {"values": [], "all": True}
+        assert dashboard.filters["date_from"] == "-1h"
 
     def test_suggestions_need_the_feature_flag(self) -> None:
         self.flags.discard("metrics-suggested-dashboards")

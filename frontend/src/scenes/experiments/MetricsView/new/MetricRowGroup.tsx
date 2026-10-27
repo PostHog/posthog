@@ -162,6 +162,7 @@ function CollapsibleBreakdownSection({
                 <LemonCollapse
                     multiple={false}
                     embedded
+                    size="small"
                     activeKey={isExpanded ? 'breakdowns' : undefined}
                     className={`breakdown-collapse breakdown-collapse--${isAlternatingRow ? 'alt-row' : 'normal-row'}`}
                     panels={[
@@ -185,9 +186,12 @@ function CollapsibleBreakdownSection({
                                     <div className="p-0 -m-4">
                                         <table ref={nestedTableRef} className="w-full">
                                             <tbody>
-                                                {breakdownResults.map((breakdownResult) => {
+                                                {breakdownResults.map((breakdownResult, breakdownIndex) => {
                                                     const baselineResult = breakdownResult.baseline
                                                     const variantResults = breakdownResult.variants || []
+                                                    // The wrapping cell already draws the bottom border, so the last group must not add its own
+                                                    const isLastBreakdown =
+                                                        breakdownIndex === breakdownResults.length - 1
 
                                                     if (variantResults.length === 0) {
                                                         return (
@@ -244,7 +248,7 @@ function CollapsibleBreakdownSection({
                                                                 style={FIXED_HEIGHT_STYLE}
                                                             >
                                                                 <td
-                                                                    className={`w-1/5 border-r p-3 align-top border-b ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} text-xs`}
+                                                                    className={`w-1/5 border-r p-3 align-top ${isLastBreakdown ? '' : 'border-b'} ${isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'} text-xs`}
                                                                     rowSpan={totalRows}
                                                                     // eslint-disable-next-line react/forbid-dom-props
                                                                     style={totalRowsHeightStyle}
@@ -344,7 +348,8 @@ function CollapsibleBreakdownSection({
                                                             {variantResults.map(
                                                                 (variant: ExperimentVariantResult, index: number) => {
                                                                     const isLastRow =
-                                                                        index === variantResults.length - 1
+                                                                        index === variantResults.length - 1 &&
+                                                                        !isLastBreakdown
                                                                     const significant = isSignificant(variant)
                                                                     const deltaPositive = isDeltaPositive(variant)
                                                                     const winning = isWinning(variant, metric.goal)

@@ -5,12 +5,21 @@ import pytest
 import numpy as np
 import pandas as pd
 import dagster
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from posthog import settings
 
-from products.signals.backend.ranking.features import REPORT_EMBEDDINGS_FEATURE_SET
+from products.signals.backend.ranking.features import (
+    EMBEDDING_DIMENSIONS,
+    REPORT_EMBEDDINGS_EXTRA,
+    REPORT_EMBEDDINGS_FEATURE_SET,
+    REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
+    REPORT_SOURCES_EXTRA,
+)
 from products.signals.dags.inbox_ranking.common import partition_object_key
-from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable
+from products.signals.dags.inbox_ranking.dataset.dag import SIGNAL_EMBEDDINGS_SCHEMA, SIGNAL_EMBEDDINGS_TABLE
+from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable, report_matrix
 from products.signals.dags.inbox_ranking.nn import experiments
 from products.signals.dags.inbox_ranking.nn.dag import NN_EXAMPLES_TABLE
 from products.signals.dags.inbox_ranking.nn.examples import NN_HEAD_NAMES
@@ -180,3 +189,59 @@ def test_vs_baseline_pairs_each_seed_inside_each_team_on_the_same_holdout_rows()
     assert block["heads"][first]["pooled"] == paired
     assert block["heads"][third]["within_team"]["paired_seeds"] == 0
     assert block["heads"][third]["within_team"]["mean_delta_auc"] is None
+
+
+def _signal_log(signals: list[tuple[str, str, str, str]]) -> bytes:
+    table = pa.Table.from_pylist(
+        [
+            {
+                "signal_id": signal_id,
+                "team_id": 1,
+                "report_id": report_id,
+                "source_product": product,
+                "embedding_inserted_at": datetime.datetime.fromisoformat(inserted_at),
+                "is_deleted": False,
+            }
+            for signal_id, report_id, product, inserted_at in signals
+        ],
+        schema=SIGNAL_EMBEDDINGS_SCHEMA,
+    )
+    sink = pa.BufferOutputStream()
+    pq.write_table(table, sink)
+    return sink.getvalue().to_pybytes()
+
+
+def test_a_late_signal_does_not_leak_into_an_earlier_row():
+    day_before, day = datetime.date(2026, 10, 19), datetime.date(2026, 10, 20)
+    objects = {
+        partition_object_key(PREFIX, SIGNAL_EMBEDDINGS_TABLE, day_before.isoformat()): _signal_log(
+            [("s1", "r1", "error_tracking", "2026-10-19T10:00:00+00:00")]
+        ),
+        partition_object_key(PREFIX, SIGNAL_EMBEDDINGS_TABLE, day.isoformat()): _signal_log(
+            [("s2", "r1", "github", "2026-10-20T10:00:00+00:00")]
+        ),
+    }
+    vectors = pd.DataFrame(
+        {
+            "embedding_small": [np.zeros(EMBEDDING_DIMENSIONS, dtype=np.float32)] * 2,
+            "embedding_inserted_at": pd.to_datetime(["2026-10-19T00:00:00"] * 2, utc=True),
+        },
+        index=pd.Index(["r1", "r2"], name="report_id"),
+    )
+    extras = {
+        REPORT_EMBEDDINGS_EXTRA: vectors,
+        **load_side_inputs(_ModelStoreS3(objects), "bucket", PREFIX, PARTITION, [REPORT_SOURCES_EXTRA]),
+    }
+    rows = pd.DataFrame(
+        {"snapshot_date": [day_before, day, day_before], "report_id": ["r1", "r1", "r2"], "priority": [None] * 3}
+    )
+
+    matrix = pd.DataFrame(
+        report_matrix(rows, extras, REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET),
+        columns=list(REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET.feature_names),
+    )
+
+    columns = ["source_error_tracking", "source_github", "source_other", "source_count", "has_sources"]
+    # The github signal landed on dt=D, after the dt=D-1 row's moment, so only the dt=D row sees it.
+    # A report with no signals has zero in every source column.
+    assert matrix[columns].values.tolist() == [[1, 0, 0, 1, 1], [1, 1, 0, 2, 1], [0, 0, 0, 0, 0]]

@@ -248,13 +248,9 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         )
         assert response.status_code == 400, response.json()
 
-    @parameterized.expand([("wizard_blocklist", True, False), ("security_rule", False, True)])
-    def test_banned_staff_cannot_grant_llm_gateway_scope(self, _name, wizard_blocked, security_refused):
+    def test_banned_staff_cannot_grant_llm_gateway_scope(self):
         self._make_staff()
-        with (
-            patch("posthog.api.project_secret_api_key.wizard_identity_blocked", return_value=wizard_blocked),
-            patch("posthog.api.project_secret_api_key.security_access_refused", return_value=security_refused),
-        ):
+        with patch("posthog.api.project_secret_api_key.security_access_refused", return_value=True):
             create = self.client.post(
                 f"/api/projects/{self.team.id}/project_secret_api_keys",
                 {"label": "my key", "scopes": ["llm_gateway:read"]},
@@ -269,9 +265,8 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         assert update.status_code == 403, update.json()
         assert not ProjectSecretAPIKey.objects.filter(team=self.team, label="my key").exists()
 
-    @patch("posthog.api.project_secret_api_key.security_access_refused", return_value=False)
-    @patch("posthog.api.project_secret_api_key.wizard_identity_blocked", return_value=True)
-    def test_ban_checks_skip_kept_and_other_scopes(self, mock_blocked, mock_refused):
+    @patch("posthog.api.project_secret_api_key.security_access_refused", return_value=True)
+    def test_ban_checks_skip_kept_and_other_scopes(self, mock_refused):
         self._make_staff()
         key = self._key(["llm_gateway:read"])
         kept = self.client.patch(
@@ -284,7 +279,6 @@ class TestProjectSecretAPIKeysAPI(APIBaseTest):
         )
         assert kept.status_code == 200, kept.json()
         assert other.status_code == 201, other.json()
-        mock_blocked.assert_not_called()
         mock_refused.assert_not_called()
 
     def test_llm_gateway_write_scope_rejected(self):

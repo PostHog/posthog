@@ -2,14 +2,18 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
+import type { SaveToDatasetButtonProps } from '../../../datasets/SaveToDatasetButton'
 import type { TraceEvaluationResultApi, TraceNodeApi, TraceTimelineRowApi } from '../../../generated/api.schemas'
 import { TraceHeaderProps } from '../components/TraceHeader'
 import { TraceSummaryBarProps } from '../components/TraceSummaryBar'
 import { TraceViewStatus, traceViewLogic } from '../traceViewLogic'
 import { ConversationState, LabeledLink, NodeDetailTab, NodeLoad, TraceMode } from '../types'
+import { toDatasetItemSource } from './toDatasetItemSource'
 import { toBackLink, toHeader } from './toHeader'
 import { NodeDetailData, toNodeDetail } from './toNodeDetail'
 import { toThread } from './toThread'
@@ -28,6 +32,7 @@ export interface traceViewAdapterLogicValues {
     newerTraceId: string | null // aiObservabilityTraceLogic
     olderTimestamp: string | null // aiObservabilityTraceLogic
     olderTraceId: string | null // aiObservabilityTraceLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     searchParams: Record<string, any> // router
     currentTeamId: number | null // teamLogic
     createdAt: string | null // traceViewLogic
@@ -51,6 +56,7 @@ export interface traceViewAdapterLogicValues {
     tree: TraceNodeApi[] // traceViewLogic
     backLink: LabeledLink
     canViewInThread: boolean
+    datasetItemSource: SaveToDatasetButtonProps | null
     detailData: NodeDetailData | null
     detailTab: NodeDetailTab
     header: TraceHeaderProps
@@ -145,6 +151,12 @@ export interface traceViewAdapterLogicMeta {
             createdAt: string | null,
             sessionId: string | null
         ) => NodeDetailData | null
+        datasetItemSource: (
+            featureFlags: FeatureFlagsSet,
+            selectedNodeLoad: NodeLoad,
+            createdAt: string | null,
+            traceId: string
+        ) => SaveToDatasetButtonProps | null
         thread: (
             status: TraceViewStatus,
             threadNodeLoad: NodeLoad | null,
@@ -198,6 +210,8 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             ['currentTeamId'],
             router,
             ['searchParams'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             aiObservabilityTraceLogic,
@@ -327,6 +341,18 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                           person,
                           trace: { createdAt, sessionId },
                       })
+                    : null,
+        ],
+        datasetItemSource: [
+            (s, p) => [s.featureFlags, s.selectedNodeLoad, s.createdAt, p.traceId],
+            (
+                featureFlags: FeatureFlagsSet,
+                load: NodeLoad,
+                createdAt: string | null,
+                traceId: string
+            ): SaveToDatasetButtonProps | null =>
+                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS] && createdAt
+                    ? toDatasetItemSource({ traceId, createdAt, load })
                     : null,
         ],
         thread: [

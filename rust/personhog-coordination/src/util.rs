@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use etcd_client::{EventType, WatchStream};
 use metrics::{counter, histogram};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -24,16 +25,38 @@ pub fn new_handoff_id() -> String {
     format!("{}-{}", millis, Uuid::new_v4())
 }
 
-/// Record one supervisor-level failure against the consecutive budget;
-/// returns `false` when it is exhausted. Progress resets the count
-/// first, and INVARIANT: progress means *applied* work (a completed
-/// convergence, an applied snapshot or event) — never a read that
-/// changed nothing, which stays available in exactly the wedges the
-/// budget exists for. Measured rather than time-based, because a
-/// "healthy after N seconds" threshold exempts every failure detector
-/// slower than N.
+/// A supervisor's consecutive failures since its last applied work.
+#[derive(Debug, Default)]
+pub(crate) struct RunFailures {
+    /// Every failure; paces the backoff.
+    consecutive: u32,
+    /// Failures that spend the budget.
+    budgeted: u32,
+}
+
+impl RunFailures {
+    pub(crate) fn consecutive(&self) -> u32 {
+        self.consecutive
+    }
+}
+
+/// Whether a coordination failure only says etcd could not be reached.
+pub(crate) fn is_etcd_unavailable(err: &Error) -> bool {
+    err.etcd_error()
+        .is_some_and(assignment_coordination::failover::is_member_level)
+}
+
+/// Whether a restart would fix nothing a new attempt does not: etcd could
+/// not be reached, or a lease was lost. These do not spend the budget.
+fn spends_budget(err: &Error) -> bool {
+    !(is_etcd_unavailable(err) || err.is_lease_lost())
+}
+
+/// Records one supervisor failure; returns `false` once the budget is spent.
+/// INVARIANT: only applied work resets the counts, never a read that changed
+/// nothing. Failures a restart cannot fix spend no budget: see `spends_budget`.
 pub(crate) fn note_run_failure(
-    consecutive: &mut u32,
+    failures: &mut RunFailures,
     progress: &AtomicBool,
     budget: u32,
     component: &'static str,
@@ -41,9 +64,12 @@ pub(crate) fn note_run_failure(
     err: &Error,
 ) -> bool {
     if progress.swap(false, Ordering::SeqCst) {
-        *consecutive = 1;
-    } else {
-        *consecutive += 1;
+        *failures = RunFailures::default();
+    }
+    failures.consecutive += 1;
+    let spends_budget = spends_budget(err);
+    if spends_budget {
+        failures.budgeted += 1;
     }
     counter!(
         "personhog_coordination_run_restarts_total",
@@ -54,11 +80,13 @@ pub(crate) fn note_run_failure(
         component,
         name,
         error = %err,
-        consecutive = *consecutive,
+        consecutive = failures.consecutive,
+        budget_spent = failures.budgeted,
         budget,
+        spends_budget,
         "coordination run failed; rebuilding in place while the data plane keeps serving"
     );
-    *consecutive < budget
+    failures.budgeted < budget
 }
 
 /// Log and count a coordination-run failure for a component with no
@@ -84,6 +112,118 @@ pub(crate) fn record_run_failure(
         consecutive,
         "coordination run failed; retrying while the data plane keeps serving"
     );
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum HeldKey<'a> {
+    Leader,
+    Router(&'a str),
+}
+
+impl HeldKey<'_> {
+    fn label(self) -> &'static str {
+        match self {
+            HeldKey::Leader => "leader",
+            HeldKey::Router(_) => "router",
+        }
+    }
+
+    /// (exists, the lease the value records if it records one, read revision)
+    async fn read(self, store: &PersonhogStore) -> Result<(bool, Option<i64>, i64)> {
+        match self {
+            HeldKey::Leader => {
+                let (leader, revision) = store.get_leader_with_revision().await?;
+                Ok((
+                    leader.is_some(),
+                    leader.map(|leader| leader.lease_id),
+                    revision,
+                ))
+            }
+            HeldKey::Router(name) => {
+                let (router, revision) = store.get_router_with_revision(name).await?;
+                Ok((router.is_some(), None, revision))
+            }
+        }
+    }
+
+    async fn watch_from(self, store: &PersonhogStore, start_revision: i64) -> Result<WatchStream> {
+        match self {
+            HeldKey::Leader => store.watch_leader_from(start_revision).await,
+            HeldKey::Router(name) => store.watch_router_from(name, start_revision).await,
+        }
+    }
+}
+
+/// Resolve once `key` is deleted or rewritten under a lease other than
+/// `lease_id`; `None` on cancellation. One watch stays open; a failed call or
+/// an ended watch re-reads after `retry_interval`.
+pub(crate) async fn await_held_key_lost(
+    store: &PersonhogStore,
+    key: HeldKey<'_>,
+    lease_id: i64,
+    retry_interval: Duration,
+    cancel: &CancellationToken,
+) -> Option<&'static str> {
+    let lost = |how: &'static str| {
+        counter!(
+            "personhog_coordination_held_key_lost_total",
+            "key" => key.label(),
+            "how" => how
+        )
+        .increment(1);
+        Some(how)
+    };
+    loop {
+        let earliest_retry = tokio::time::Instant::now() + retry_interval;
+        let read = tokio::select! {
+            _ = cancel.cancelled() => return None,
+            read = key.read(store) => read,
+        };
+        let revision = match read {
+            Ok((false, _, _)) => return lost("deleted"),
+            Ok((true, Some(holder), _)) if holder != lease_id => return lost("replaced"),
+            Ok((true, _, revision)) => Some(revision),
+            Err(e) => {
+                tracing::warn!(key = key.label(), error = %e, "held key read failed; retrying");
+                None
+            }
+        };
+        let stream = match revision {
+            Some(revision) => tokio::select! {
+                _ = cancel.cancelled() => return None,
+                stream = key.watch_from(store, revision + 1) => stream.map_err(|e| {
+                    tracing::warn!(key = key.label(), error = %e, "held key watch failed; retrying");
+                }).ok(),
+            },
+            None => None,
+        };
+        if let Some(mut stream) = stream {
+            loop {
+                let message = tokio::select! {
+                    _ = cancel.cancelled() => return None,
+                    message = stream.message() => message,
+                };
+                let Ok(Some(response)) = message else { break };
+                if response.canceled() {
+                    break;
+                }
+                for event in response.events() {
+                    match event.event_type() {
+                        EventType::Delete => return lost("deleted"),
+                        EventType::Put => {
+                            if event.kv().is_some_and(|kv| kv.lease() != lease_id) {
+                                return lost("replaced");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        tokio::select! {
+            _ = cancel.cancelled() => return None,
+            _ = tokio::time::sleep_until(earliest_retry) => {}
+        }
+    }
 }
 
 /// Maintain a lease keepalive until cancelled, treating connection
@@ -135,11 +275,7 @@ pub async fn run_lease_keepalive(
     // however long registration took.
     let mut last_renewed = granted_at;
 
-    let margin_exhausted = || {
-        Error::invalid_state(format!(
-            "lease renewal margin exhausted: no confirmed renewal in {renewal_margin:?}"
-        ))
-    };
+    let margin_exhausted = || Error::LeaseMarginExhausted(renewal_margin);
 
     'stream: loop {
         // (Re)establish the keepalive stream, bounded by the margin.
@@ -148,15 +284,19 @@ pub async fn run_lease_keepalive(
             if left.is_zero() {
                 return Err(margin_exhausted());
             }
-            let attempt = tokio::time::timeout(left.min(interval), store.keep_alive(lease_id));
+            let wait = left.min(interval);
+            let attempt = tokio::time::timeout(wait, store.keep_alive(lease_id));
             let failure = tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 r = attempt => match r {
                     Ok(Ok(pair)) => break pair,
                     Ok(Err(e)) => e,
-                    Err(_) => Error::invalid_state(
-                        "keepalive stream establishment timed out".to_string(),
-                    ),
+                    Err(_) => {
+                        store.inner().observe_member_unanswered(wait);
+                        Error::invalid_state(
+                            "keepalive stream establishment timed out".to_string(),
+                        )
+                    }
                 },
             };
             counter!(
@@ -219,12 +359,24 @@ pub async fn run_lease_keepalive(
                 // catches those.
                 crate::store::count_call("keep_alive_renewal");
                 let _renewal = assignment_coordination::store::OpTimer::new("keep_alive_renewal");
-                match tokio::time::timeout(left.min(interval), round).await {
-                    Ok(r) => r,
-                    Err(_) => Err(Error::invalid_state(format!(
-                        "keepalive round unanswered within {:?}",
-                        left.min(interval)
-                    ))),
+                let wait = left.min(interval);
+                match tokio::time::timeout(wait, round).await {
+                    Ok(r) => {
+                        match &r {
+                            Ok(_) => store.inner().observe_member_outcome(Ok(())),
+                            Err(e) => match e.etcd_error() {
+                                Some(etcd) => store.inner().observe_member_outcome(Err(etcd)),
+                                None => store.inner().observe_member_failure(),
+                            },
+                        }
+                        r
+                    }
+                    Err(_) => {
+                        store.inner().observe_member_unanswered(wait);
+                        Err(Error::invalid_state(format!(
+                            "keepalive round unanswered within {wait:?}"
+                        )))
+                    }
                 }
             };
             match outcome {
@@ -289,13 +441,32 @@ pub(crate) fn live_watch_response(
 ) -> Result<etcd_client::WatchResponse> {
     let resp = resp.ok_or_else(|| Error::invalid_state(format!("{what} watch stream ended")))?;
     if resp.canceled() {
-        return Err(Error::invalid_state(format!(
-            "{what} watcher cancelled by etcd (reason: {:?}, compact_revision: {})",
+        return Err(watch_cancelled(
+            what,
             resp.cancel_reason(),
             resp.compact_revision(),
-        )));
+        ));
     }
     Ok(resp)
+}
+
+/// The cancel reason etcd sends when the member serving a require-leader
+/// watch loses its leader (rpctypes.ErrNoLeader).
+const NO_LEADER_CANCEL_REASON: &str = "etcdserver: no leader";
+
+/// A member without a leader cancels the watch rather than failing it, so
+/// that case maps to the same Unavailable status etcd answers a
+/// require-leader request with.
+fn watch_cancelled(what: &str, reason: &str, compact_revision: i64) -> Error {
+    if reason == NO_LEADER_CANCEL_REASON {
+        return assignment_coordination::failover::no_leader_error(format!(
+            "{what} watcher cancelled by etcd: {reason}"
+        ))
+        .into();
+    }
+    Error::invalid_state(format!(
+        "{what} watcher cancelled by etcd (reason: {reason:?}, compact_revision: {compact_revision})"
+    ))
 }
 
 /// Count one resolution that found no record — not one record lost: a
@@ -368,6 +539,14 @@ pub fn preregister_coordinator_metrics() {
     metrics::counter!("personhog_coordination_elections_won_total").increment(0);
     metrics::counter!("personhog_coordination_election_campaigns_total").increment(0);
     metrics::counter!("personhog_coordination_abdications_total").increment(0);
+    for how in ["deleted", "replaced"] {
+        metrics::counter!(
+            "personhog_coordination_held_key_lost_total",
+            "key" => "leader",
+            "how" => how
+        )
+        .increment(0);
+    }
     metrics::counter!("personhog_coordination_election_observation_failures_total").increment(0);
     metrics::counter!("personhog_coordination_election_watch_interruptions_total").increment(0);
     for stage in ["list", "delete"] {
@@ -506,6 +685,14 @@ pub fn preregister_router_coordination_metrics() {
         .increment(0);
     }
     metrics::counter!("personhog_coordination_freeze_acks_written_total").increment(0);
+    for how in ["deleted", "replaced"] {
+        metrics::counter!(
+            "personhog_coordination_held_key_lost_total",
+            "key" => "router",
+            "how" => how
+        )
+        .increment(0);
+    }
 }
 
 #[cfg(test)]
@@ -513,7 +700,7 @@ mod tests {
     use std::collections::HashSet;
     use std::sync::atomic::{AtomicBool, Ordering};
 
-    use super::{new_handoff_id, note_run_failure};
+    use super::{new_handoff_id, note_run_failure, watch_cancelled, RunFailures};
     use crate::error::Error;
 
     /// Losing the election lease ends a leadership term but says nothing
@@ -536,22 +723,22 @@ mod tests {
     #[test]
     fn applied_work_clears_the_failure_count() {
         let progress = AtomicBool::new(false);
-        let err = Error::invalid_state("etcd unreachable");
-        let mut consecutive = 0u32;
+        let err = Error::invalid_state("list_handoffs failed");
+        let mut failures = RunFailures::default();
 
         for attempt in 1..3 {
             assert!(
-                note_run_failure(&mut consecutive, &progress, 3, "pod", "p", &err),
+                note_run_failure(&mut failures, &progress, 3, "pod", "p", &err),
                 "attempt {attempt} is within budget"
             );
         }
 
         progress.store(true, Ordering::SeqCst);
         assert!(
-            note_run_failure(&mut consecutive, &progress, 3, "pod", "p", &err),
+            note_run_failure(&mut failures, &progress, 3, "pod", "p", &err),
             "applied work resets the count"
         );
-        assert_eq!(consecutive, 1);
+        assert_eq!(failures.consecutive(), 1);
     }
 
     /// And it must escalate when nothing succeeds in between — this is
@@ -561,10 +748,10 @@ mod tests {
     fn an_unbroken_run_of_failures_exhausts_the_budget() {
         let progress = AtomicBool::new(false);
         let err = Error::invalid_state("list_handoffs failed");
-        let mut consecutive = 0u32;
+        let mut failures = RunFailures::default();
 
         assert!(note_run_failure(
-            &mut consecutive,
+            &mut failures,
             &progress,
             2,
             "pod",
@@ -572,9 +759,71 @@ mod tests {
             &err
         ));
         assert!(
-            !note_run_failure(&mut consecutive, &progress, 2, "pod", "p", &err),
+            !note_run_failure(&mut failures, &progress, 2, "pod", "p", &err),
             "the budget is spent, so the caller must stop retrying"
         );
+    }
+
+    #[test]
+    fn failures_a_restart_cannot_fix_back_off_without_spending_the_budget() {
+        let unfixable_by_restart: Vec<(&str, Error)> = vec![
+            (
+                "etcd unreachable",
+                etcd_client::Error::IoError(std::io::Error::from(
+                    std::io::ErrorKind::ConnectionRefused,
+                ))
+                .into(),
+            ),
+            ("lease expired in etcd", Error::leadership_lost()),
+            (
+                "renewal margin exhausted",
+                Error::LeaseMarginExhausted(std::time::Duration::from_secs(20)),
+            ),
+            (
+                "watch cancelled for no leader",
+                watch_cancelled("routing table", "etcdserver: no leader", 0),
+            ),
+        ];
+        for (case, err) in unfixable_by_restart {
+            let progress = AtomicBool::new(false);
+            let mut failures = RunFailures::default();
+            for _ in 0..50 {
+                assert!(
+                    note_run_failure(&mut failures, &progress, 2, "pod", "p", &err),
+                    "{case} spent the budget"
+                );
+            }
+            assert_eq!(
+                failures.consecutive(),
+                50,
+                "{case}: the backoff still grows"
+            );
+        }
+
+        let wedges = [
+            Error::invalid_state("list_handoffs failed"),
+            watch_cancelled(
+                "routing table",
+                "etcdserver: mvcc: required revision has been compacted",
+                42,
+            ),
+        ];
+        for wedge in wedges {
+            let progress = AtomicBool::new(false);
+            let mut failures = RunFailures::default();
+            assert!(note_run_failure(
+                &mut failures,
+                &progress,
+                2,
+                "pod",
+                "p",
+                &wedge
+            ));
+            assert!(
+                !note_run_failure(&mut failures, &progress, 2, "pod", "p", &wedge),
+                "{wedge} must still exhaust the budget"
+            );
+        }
     }
 
     /// Quorum correlation and cancellation detection hang off id

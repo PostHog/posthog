@@ -9,6 +9,7 @@ import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
+import type { ExperimentWizardStepNavigation } from 'scenes/experiments/ExperimentWizard/experimentWizardLogic'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import type { InstallationErrorKind } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
@@ -67,6 +68,7 @@ import {
     PropertyFilterType,
     InsightModel,
     type SDK,
+    TileGroupDisplay,
 } from '~/types'
 
 import { captureBIWorksheetAction } from 'products/business_intelligence/frontend/biEditorAnalytics'
@@ -104,7 +106,6 @@ export type DashboardFilterChangeType =
     | 'interval'
     | 'test_accounts'
     | 'compare'
-    | 'metric_labels'
     | 'metric_variables'
 
 export enum InsightEventSource {
@@ -737,6 +738,16 @@ function countDashboardTiles(tiles: DashboardTile[], properties: Record<string, 
     }
 }
 
+export function tileGroupProperties(
+    groupDisplay: TileGroupDisplay | undefined,
+    tiles: DashboardTile[]
+): { group_display: TileGroupDisplay; group_count: number } {
+    return {
+        group_display: groupDisplay ?? 'sections',
+        group_count: new Set(tiles.map((tile) => tile.group_key).filter(Boolean)).size,
+    }
+}
+
 export function dashboardViewedProperties(
     dashboard: DashboardType,
     lastRefreshed: Dayjs | null,
@@ -754,6 +765,7 @@ export function dashboardViewedProperties(
         item_count: dashboard.tiles?.length || 0,
         created_by_system: !dashboard.created_by,
         dashboard_id: id,
+        ...tileGroupProperties(dashboard.customization?.group_display, dashboard.tiles || []),
         lastRefreshed: lastRefreshed?.toISOString(),
         refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
         uses_data_warehouse_source: false,
@@ -1219,6 +1231,17 @@ export interface eventUsageLogicActions {
     }
     reportExperimentWizardStarted: () => {
         value: true
+    }
+    reportExperimentWizardStepViewed: (
+        step: string,
+        stepNumber: number,
+        previousStep: string | null,
+        navigation: ExperimentWizardStepNavigation
+    ) => {
+        navigation: ExperimentWizardStepNavigation
+        previousStep: string | null
+        step: string
+        stepNumber: number
     }
     reportExperimentsListAiBadgeClicked: () => {
         value: true
@@ -1807,6 +1830,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             breakdown,
             isPrimary,
         }),
+        reportExperimentWizardStepViewed: (
+            step: string,
+            stepNumber: number,
+            previousStep: string | null,
+            navigation: ExperimentWizardStepNavigation
+        ) => ({ step, stepNumber, previousStep, navigation }),
         reportExperimentMetricBreakdownRemoved: (
             experiment: Experiment,
             metricUuid: string,
@@ -2379,6 +2408,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 breakdown_type: breakdown.type,
                 breakdown_property: breakdown.property,
                 is_primary_metric: isPrimary,
+            })
+        },
+        reportExperimentWizardStepViewed: ({ step, stepNumber, previousStep, navigation }) => {
+            posthog.capture('experiment wizard step viewed', {
+                step,
+                step_number: stepNumber,
+                previous_step: previousStep,
+                navigation,
             })
         },
         reportExperimentMetricBreakdownRemoved: ({ experiment, metricUuid, breakdown, index, isPrimary }) => {

@@ -14,6 +14,8 @@ from typing import cast
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
 
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import EvalReportContent
@@ -51,26 +53,43 @@ def _resolver_response(rows: list[list]) -> MagicMock:
 
 
 class TestSampleGenerationDetailsRoutesThroughResolver(BaseTest):
+    @parameterized.expand(
+        [
+            ("short", [{"role": "user", "content": "hi"}], None, None),
+            ("at_limit", "x" * 500, 0, 0),
+            ("long", "BEGIN_INPUT " + "x" * 800 + " END_INPUT", 1000, 50),
+        ]
+    )
     @patch("posthog.hogql_queries.ai.ai_table_resolver.query_ai_events")
     @patch(_RESOLVE_PATH, return_value={_VALID_GEN_ID: "trace-1"})
-    def test_routes_through_resolver_against_ai_events(self, _mock_lookup, mock_resolver):
+    def test_routes_through_resolver_against_ai_events(
+        self,
+        _name: str,
+        input_value: str | list[dict[str, str]],
+        cache_read_tokens: int | None,
+        cache_creation_tokens: int | None,
+        _mock_lookup: MagicMock,
+        mock_resolver: MagicMock,
+    ) -> None:
         """The heavy-prop tool must hit the resolver, not raw `execute_hogql_query`."""
         mock_resolver.return_value = _resolver_response(
             [
                 [
                     _VALID_GEN_ID,
                     "gpt-4o",  # model
-                    [{"role": "user", "content": "hi"}],  # input (heavy, native column)
+                    input_value,
                     [{"role": "assistant", "content": "hello"}],  # output
-                    10,
+                    3,
                     5,
                     "trace-1",
                     False,
                     None,
                     None,
                     None,
+                    input_value,
                     None,
-                    None,
+                    cache_read_tokens,
+                    cache_creation_tokens,
                 ]
             ]
         )
@@ -79,9 +98,26 @@ class TestSampleGenerationDetailsRoutesThroughResolver(BaseTest):
 
         # Returns rendered JSON with input/output previews from heavy columns.
         assert result
+        generation = json.loads(result)[0]
+        input_text = str(input_value)
+        for preview in (generation["input_preview"], generation["input_state_preview"]):
+            if len(input_text) <= 500:
+                assert preview == input_text
+            else:
+                assert len(preview) == 500
+                assert preview.startswith(input_text[:250])
+                assert preview.endswith(input_text[-245:])
+                assert "\n...\n" in preview
+        assert generation["input_tokens"] == 3
+        assert generation["cache_read_input_tokens"] == cache_read_tokens
+        assert generation["cache_creation_input_tokens"] == cache_creation_tokens
         assert mock_resolver.call_count == 1
         kwargs = mock_resolver.call_args.kwargs
         select = cast(ast.SelectQuery, kwargs["query"])
+        assert [cast(ast.Field, field).chain for field in select.select[-2:]] == [
+            ["cache_read_input_tokens"],
+            ["cache_creation_input_tokens"],
+        ]
         from_chain = select.select_from.table.chain  # type: ignore[union-attr]
         # nosemgrep: hogql-no-string-table-chain
         assert from_chain == ["posthog", "ai_events"]
@@ -137,6 +173,8 @@ class TestGetGenerationDetailRoutesThroughResolver(BaseTest):
                     None,
                     None,
                     None,
+                    1000,
+                    50,
                 ]
             ]
         )
@@ -148,6 +186,8 @@ class TestGetGenerationDetailRoutesThroughResolver(BaseTest):
         result = json.loads(_get_detail_fn(state=_state(self.team.id), generation_id=_VALID_GEN_ID))
 
         assert result["eval_results"][0]["outcome"] == "skipped"
+        assert result["cache_read_input_tokens"] == 1000
+        assert result["cache_creation_input_tokens"] == 50
         eval_query = cast(ast.SelectQuery, mock_events.call_args.kwargs["query"])
         skipped = cast(ast.Alias, eval_query.select[-1])
         assert skipped.alias == "skipped"
@@ -161,6 +201,11 @@ class TestGetGenerationDetailRoutesThroughResolver(BaseTest):
         # Heavy fetch carries the resolved trace_id — proves the two-query
         # pattern wires through, not just that the WHERE has uuid.
         kwargs = mock_resolver.call_args.kwargs
+        generation_query = cast(ast.SelectQuery, kwargs["query"])
+        assert [cast(ast.Field, field).chain for field in generation_query.select[-2:]] == [
+            ["cache_read_input_tokens"],
+            ["cache_creation_input_tokens"],
+        ]
         placeholders = kwargs["placeholders"]
         assert "trace_id" in placeholders
         assert placeholders["trace_id"].value == "trace-1"

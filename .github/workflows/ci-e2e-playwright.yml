@@ -98,6 +98,9 @@ jobs:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
     changes:
+        permissions:
+            contents: read
+            pull-requests: read
         runs-on: ubuntu-24.04
         # 7 not 5: the debounce step below sleeps up to 60s, so widen the budget to
         # keep ample headroom. A timeout here skips Playwright, which the aggregator
@@ -106,12 +109,15 @@ jobs:
         # Run on master push, manual dispatch, and on ready internal-repo PRs.
         # Drafts skip E2E (see the trigger comment); the `Playwright tests pass`
         # aggregator treats skipped as success, and drafts can't merge anyway.
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
         if: |
+            (github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')) && (
             github.event_name == 'push' ||
             github.event_name == 'workflow_dispatch' ||
             (github.event.pull_request.head.repo.full_name == github.repository &&
              (github.event.pull_request.draft != true ||
               startsWith(github.head_ref, 'trunk-merge/')))
+            )
         name: Determine need to run E2E checks
         outputs:
             # Debounce can veto a PR run whose SHA has already been superseded (see below).
@@ -145,7 +151,7 @@ jobs:
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -311,8 +317,8 @@ jobs:
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
                   IS_PR: ${{ github.event_name == 'pull_request' }}
-                  # Manual cache-bust knob — keep in sync with SCHEMA_CACHE_EPOCH in
-                  # ci-backend.yml, which saves these caches on master pushes.
+                  # Keep SCHEMA_CACHE_EPOCH in sync with .depot/workflows/ci-backend.yml
+                  # so both workflows use the same schema cache keys.
                   SCHEMA_CACHE_EPOCH: v2
               run: |
                   if [ "$IS_PR" != "true" ]; then
@@ -354,11 +360,9 @@ jobs:
                   if [ "$GITHUB_EVENT_NAME" != "workflow_dispatch" ] && [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
                       echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
                   fi
-                  # Shared migration-set key: mirrors the save-side computation in
-                  # ci-backend.yml (same inputs, hash, and prefix) so it hits whenever
-                  # the ref's migration files match a saved master schema — far more
-                  # stable than the per-SHA key, which needs that exact commit's cache
-                  # to still be alive.
+                  # Match the inputs, hash, and prefix in .depot/workflows/ci-backend.yml.
+                  # The migration-set key lets refs with identical migrations share a schema
+                  # dump even after a per-SHA cache expires.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
@@ -833,10 +837,9 @@ jobs:
 
             - name: Prime posthog_e2e_test from cached schema
               # Schema dump is from master's `posthog` db but schemas are db-name agnostic.
-              # Hogli's db:restore-schema-fresh DROPs+CREATEs the target db, restores the
-              # schema, and runs ensure_migration_defaults to seed RunPython data that's
-              # missing from a schema-only dump. The migrate step below still runs and
-              # layers any newer migrations on top — the cache just skips the bulk of
+              # Hogli's db:restore-schema-fresh DROPs+CREATEs the target db and restores the
+              # schema. The migrate step below layers any newer migrations on top and
+              # seeds the RunPython data a schema-only dump lacks. The cache just skips the bulk of
               # the historical migration work. Treat cache/restore problems as misses:
               # restore-schema-fresh leaves a fresh empty db on failure, so the migrate
               # step below runs the full history.

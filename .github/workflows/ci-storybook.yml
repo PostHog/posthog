@@ -63,16 +63,22 @@ jobs:
     # Job to decide if we should run storybook ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
+        permissions:
+            contents: read
+            pull-requests: read
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         # A draft PR labeled `no-ci` skips this workflow entirely (prototypes):
         # every other job needs this one, and the gates treat skipped as success.
         # ready_for_review re-runs everything, so the merge gate is unaffected.
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
         if: >-
+            (github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')) && (
             github.event_name != 'pull_request'
             || github.event.pull_request.draft != true
             || startsWith(github.head_ref, 'trunk-merge/')
             || !contains(github.event.pull_request.labels.*.name, 'no-ci')
+            )
         name: Determine need to run storybook checks
         # Set job outputs to values from filter step
         outputs:
@@ -122,7 +128,7 @@ jobs:
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}

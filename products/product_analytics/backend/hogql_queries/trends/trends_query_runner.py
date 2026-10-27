@@ -174,8 +174,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     def single_flight_variant(self) -> str:
         # A caller can pass its own execution time, which does not reach the cache key.
         variant = super().single_flight_variant()
-        if self.ch_user != ClickHouseUser.DEFAULT:
-            variant = f"{variant}:ch_user={self.ch_user.value}"
         if self.hogql_settings is not None:
             variant = f"{variant}:max_execution_time={self.hogql_settings.max_execution_time}"
         return variant

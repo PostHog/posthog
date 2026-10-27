@@ -1160,7 +1160,7 @@ describe('biSceneLogic', () => {
     })
 
     test.each(['ready', 'failed', 'cancelled', 'missing'] as const)(
-        'handles chart-only edits with %s results',
+        'reuses chart-only edits and reruns pivot edits with %s results',
         async (state) => {
             logic.actions.restoreWorksheet(worksheet())
             const data = dataNodeLogic({
@@ -1185,9 +1185,12 @@ describe('biSceneLogic', () => {
                 editor.actions.setChartType(ChartDisplayType.ActionsStackedBar)
                 await jest.advanceTimersByTimeAsync(500)
                 expect(run).toHaveBeenCalledTimes(state === 'ready' ? 0 : 1)
-                editor.actions.setChartType(ChartDisplayType.ActionsTable)
+                editor.actions.setChartType(ChartDisplayType.ActionsAreaGraph)
                 await jest.advanceTimersByTimeAsync(500)
                 expect(run).toHaveBeenCalledTimes(state === 'ready' ? 0 : 1)
+                editor.actions.setChartType(ChartDisplayType.ActionsTable)
+                await jest.advanceTimersByTimeAsync(500)
+                expect(run).toHaveBeenCalledTimes(state === 'ready' ? 1 : 2)
             } finally {
                 jest.useRealTimers()
                 data.unmount()
@@ -1201,11 +1204,13 @@ describe('biSceneLogic', () => {
         editor.actions.setAutoUpdate(false)
         const run = jest.spyOn(logic.actions, 'runQuery')
         try {
+            editor.actions.setChartType(ChartDisplayType.ActionsAreaGraph)
+            expect(logic.values.lastRunQuery?.display).toBe(ChartDisplayType.ActionsAreaGraph)
             editor.actions.setChartType(ChartDisplayType.ActionsTable)
-            expect(logic.values.lastRunQuery?.display).toBe(ChartDisplayType.ActionsTable)
+            expect(logic.values.lastRunQuery?.display).toBe(ChartDisplayType.ActionsAreaGraph)
             editor.actions.setLimit(10000)
             editor.actions.setChartType(ChartDisplayType.ActionsLineGraph)
-            expect(logic.values.lastRunQuery?.display).toBe(ChartDisplayType.ActionsTable)
+            expect(logic.values.lastRunQuery?.display).toBe(ChartDisplayType.ActionsAreaGraph)
             expect(logic.values.lastRunQuery?.config.limit).toBe(1000)
             expect(run).not.toHaveBeenCalled()
         } finally {

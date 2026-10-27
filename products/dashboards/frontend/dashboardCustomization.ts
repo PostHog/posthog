@@ -2,7 +2,7 @@ import { cloneLayoutItem, horizontalCompactor, noCompactor } from 'react-grid-la
 import type { Compactor, Layout, LayoutItem } from 'react-grid-layout'
 import { fastVerticalCompactor } from 'react-grid-layout/extras'
 
-import type { DashboardTileSpacing } from '~/types'
+import type { DashboardTileSpacing, TileGroupDisplay } from '~/types'
 
 export const DashboardGridCompaction = {
     Vertical: 'vertical',
@@ -32,6 +32,11 @@ export const DASHBOARD_GRID_COMPACTION_LABELS: Record<DashboardGridCompaction, s
     [DashboardGridCompaction.Vertical]: 'Stack tiles upward',
     [DashboardGridCompaction.Horizontal]: 'Stack tiles to the left',
     [DashboardGridCompaction.Stable]: 'Free-form placement',
+}
+
+export const TILE_GROUP_DISPLAY_LABELS: Record<TileGroupDisplay, string> = {
+    sections: 'Sections',
+    tabs: 'Tabs',
 }
 
 type GridOccupancy = Map<number, Array<LayoutItem | undefined>>

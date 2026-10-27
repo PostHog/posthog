@@ -58,7 +58,7 @@ Set `POSTHOG_REGION` to `us`, `eu`, or `dev` when needed.
 | `@posthog/harness/extensions/enrichment` | File enrichment behavior |
 | `@posthog/harness/extensions/task-system-prompt` | Task prompt builders and Pi task-prompt extension |
 | `@posthog/harness/extensions/posthog-mcp-policy` | PostHog MCP permission policy and product-id classification |
-| `@posthog/harness/extensions/local-tools` | Injected local tools (signed git, artifacts, peer messaging) and their PostHog task/run API client |
+| `@posthog/harness/extensions/local-tools` | Injected local tools (signed git, artifacts) and their PostHog task/run API client |
 | `@posthog/harness/extensions/rtk` | RTK command-compression: Pi's native rewrite, the pure matching rules Claude's hook uses, and the Codex guidance text |
 | `@posthog/harness/extensions/benjamin` | Vendored Benjamin-Plus and Simplified Technical English (ASD-STE100) system-prompt instructions, gated by `POSTHOG_BENJAMIN` |
 | `@posthog/harness/extensions/agent-instructions` | Base appended system-prompt content (branch naming, PR links, plan mode, shell efficiency, spoken narration, …) |

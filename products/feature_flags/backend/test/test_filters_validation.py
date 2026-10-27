@@ -388,7 +388,7 @@ class TestFiltersValidation(SimpleTestCase):
             assert not serializer.is_valid()
         assert str(serializer.errors["filters"][0]).startswith("groups[1].properties[0].type: "), (
             "services/mcp/src/tools/featureFlags/updateFeatureFlagHooks.ts matches this prefix "
-            "(PROPERTY_TYPE_REJECTION) to add a recovery step to the update-feature-flag error. "
+            "(PROPERTY_REJECTION) to add a recovery step to the update-feature-flag error. "
             "If the prefix changes, update that regex and "
             "services/mcp/tests/unit/update-feature-flag-preserving-groups.test.ts, then this assertion."
         )
