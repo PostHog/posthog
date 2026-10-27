@@ -26,7 +26,8 @@ export function TraceTreeRow({
     evalOutcomes,
 }: TraceTreeRowProps): JSX.Element {
     const isSelected = node.id === selectedNodeId
-    const evalOutcome = evalOutcomes[node.id]
+    // Node ids come from free-form trace ids, so a name like "constructor" would read an inherited property.
+    const evalOutcome = Object.hasOwn(evalOutcomes, node.id) ? evalOutcomes[node.id] : null
     return (
         <li>
             <button
