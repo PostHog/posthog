@@ -56,6 +56,15 @@ def schema(**definitions: Any) -> dict[str, Any]:
             id="inline-object-extracted-to-a-ref-with-a-removal",
         ),
         pytest.param(
+            schema(Modifiers={"properties": {"a": {"properties": {"y": {"properties": {"gone": {}}}}}}}),
+            schema(
+                Modifiers={"properties": {"a": {"$ref": "#/definitions/Inner"}}},
+                Inner={"properties": {"y": {"$ref": "#/definitions/Inner"}}},
+            ),
+            ["`Modifiers` at `a.y`: property `gone`"],
+            id="inline-object-extracted-to-a-recursive-ref",
+        ),
+        pytest.param(
             schema(
                 Modifiers={"properties": {"tree": {"$ref": "#/definitions/Old"}}},
                 Old={"properties": {"gone": {}, "child": {"$ref": "#/definitions/Old"}}},

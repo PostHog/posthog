@@ -113,16 +113,17 @@ class SchemaPair:
         base: Any,
         head: Any,
         location: str,
-        followed: frozenset[tuple[str | None, str | None]] = frozenset(),
+        followed: frozenset[tuple[str, str]] = frozenset(),
     ) -> Iterator[Removal]:
         base_ref = reference_name(base)
         head_ref = reference_name(head)
         if base_ref is not None and base_ref == head_ref:
             return
-        if base_ref is not None or head_ref is not None:
+        if base_ref is not None and head_ref is not None:
             if (base_ref, head_ref) in followed:
                 return
             followed = followed | {(base_ref, head_ref)}
+        if base_ref is not None or head_ref is not None:
             base = self.base_definitions.get(base_ref) if base_ref is not None else base
             head = self.head_definitions.get(head_ref) if head_ref is not None else head
         if not isinstance(base, dict) or not isinstance(head, dict):
