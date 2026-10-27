@@ -77,6 +77,7 @@ WARMING_CHAIN_LIFETIME = timedelta(minutes=50)
 RETRIABLE_WARMING_ERRORS = (*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded)
 
 SkipReason = Literal["over_max_duration", "expensive_not_recently_viewed"]
+MAX_VIEWED_WINDOW_DAYS = 365
 
 _SETTING_KEYS = [
     "CACHE_WARMING_EXPENSIVE_SECONDS",
@@ -106,11 +107,12 @@ class WarmingSelection:
     skipped: dict[SkipReason, int]
 
 
-def _as_int(value: Any, *, minimum: int) -> int:
+def _as_int(value: Any, *, minimum: int, maximum: Optional[int] = None) -> int:
     try:
-        return max(minimum, int(value))
-    except (TypeError, ValueError):
+        parsed = max(minimum, int(value))
+    except (TypeError, ValueError, OverflowError):
         return minimum
+    return parsed if maximum is None else min(maximum, parsed)
 
 
 def _as_team_ids(value: Any) -> frozenset[int]:
@@ -130,12 +132,18 @@ def load_warming_settings() -> WarmingSettings:
     values = get_instance_settings(_SETTING_KEYS)
     return WarmingSettings(
         expensive_seconds=_as_int(values["CACHE_WARMING_EXPENSIVE_SECONDS"], minimum=0),
-        expensive_viewed_window=timedelta(hours=_as_int(values["CACHE_WARMING_EXPENSIVE_VIEWED_HOURS"], minimum=0)),
+        expensive_viewed_window=timedelta(
+            hours=_as_int(
+                values["CACHE_WARMING_EXPENSIVE_VIEWED_HOURS"], minimum=0, maximum=MAX_VIEWED_WINDOW_DAYS * 24
+            )
+        ),
         max_seconds=_as_int(values["CACHE_WARMING_MAX_SECONDS"], minimum=0),
         excluded_team_ids=_as_team_ids(values["CACHE_WARMING_EXCLUDED_TEAMS"]),
         max_insights_per_team=_as_int(values["CACHE_WARMING_MAX_INSIGHTS_PER_TEAM"], minimum=1),
         largest_teams=_as_int(values["CACHE_WARMING_LARGEST_TEAMS"], minimum=0),
-        last_viewed_window=timedelta(days=_as_int(values["CACHE_WARMING_LAST_VIEWED_DAYS"], minimum=1)),
+        last_viewed_window=timedelta(
+            days=_as_int(values["CACHE_WARMING_LAST_VIEWED_DAYS"], minimum=1, maximum=MAX_VIEWED_WINDOW_DAYS)
+        ),
     )
 
 
