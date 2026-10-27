@@ -131,7 +131,6 @@ from products.replay_vision.backend.temporal.estimates import create_replay_visi
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
 )
-from products.replay_vision.backend.temporal.jev_watch_rank import create_replay_vision_jev_watch_rank_schedule
 from products.replay_vision.backend.temporal.learned_rules import create_replay_vision_learned_rules_schedule
 from products.replay_vision.backend.temporal.read_meter import create_replay_vision_read_meter_schedule
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
@@ -171,6 +170,12 @@ async def cleanup_replay_vision_search_suggestions_schedule(client: Client):
     """Retired: the search suggestion refresher is gone, and its in-flight run ends on its own execution timeout."""
     if await a_schedule_exists(client, "replay-vision-search-suggestions-refresher-schedule"):
         await a_delete_schedule(client, "replay-vision-search-suggestions-refresher-schedule")
+
+
+async def cleanup_replay_vision_jev_watch_rank_schedule(client: Client):
+    """Retired: the Highlights feed ranks on embeddings alone, and an in-flight run ends on its own execution timeout."""
+    if await a_schedule_exists(client, "replay-vision-jev-watch-rank-schedule"):
+        await a_delete_schedule(client, "replay-vision-jev-watch-rank-schedule")
 
 
 async def create_run_quota_limiting_schedule(client: Client):
@@ -1027,7 +1032,7 @@ schedules = [
     create_replay_vision_learned_rules_schedule,
     create_vision_alert_check_schedule,
     create_replay_vision_read_meter_schedule,
-    create_replay_vision_jev_watch_rank_schedule,
+    cleanup_replay_vision_jev_watch_rank_schedule,
     create_github_job_logs_coordinator_schedule,
     create_review_hog_finding_outcomes_schedule,
     create_ci_signals_coordinator_schedule,
