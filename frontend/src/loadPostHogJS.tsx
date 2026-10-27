@@ -98,6 +98,7 @@ export function loadPostHogJS(): void {
             api_host: window.JS_POSTHOG_HOST,
             ui_host: window.JS_POSTHOG_UI_HOST,
             defaults: 'latest',
+            disable_capture_url_hashes: false,
             // Cookie reconciliation breaks the anonymous flag handoff and group persistence in this startup flow.
             cookieWinsOnConflict: false,
             // Hobby static files use /static/<asset>.js, without a version directory.
@@ -239,6 +240,7 @@ export function loadPostHogJS(): void {
             session_recording: {
                 blockSelector: '.ph-replay-block',
                 streamNetworkBody: true,
+                captureJsonLd: false,
             },
             person_profiles: 'always',
             // posthog-js patches fetch to add X-POSTHOG-* tracing headers to these hosts. In OAuth
