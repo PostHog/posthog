@@ -38,6 +38,8 @@ The thread hides empty and whitespace-only assistant messages during streaming a
 
 An idle sandbox resume does not run an agent turn, so it does not send a finished notification or mark the run's activity completed.
 
+Unattended initial and resume turns allow two retries for transient upstream failures. When Codex reports an explicit Flex capacity refusal and the gateway headers allow standard fallback, the next existing retry switches the session to standard capacity at standard pricing. The switch preserves the conversation and completed work; it does not add retries. Generic capacity errors do not trigger a tier switch.
+
 The chat history filters for PostHog AI, Slack, and Desktop show tasks created by the current user.
 These requests wait until the current user's ID is available, including filter changes, searches, and refreshes.
 When the user loads, the pending request uses the active filter and search term.

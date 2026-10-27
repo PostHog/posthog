@@ -2256,6 +2256,9 @@ describe("AgentServer HTTP Mode", () => {
           getFullAgentResponse: vi.fn(),
         },
         clientConnection: { prompt, cancel: vi.fn(async () => {}) },
+        acpConnection: {
+          fallbackToStandard: vi.fn(async () => false),
+        },
       };
       testServer.session = session;
       return testServer as unknown as {
@@ -2480,31 +2483,142 @@ describe("AgentServer HTTP Mode", () => {
       }
     });
 
-    it("stops retrying when the user cancels during the retry delay", async () => {
+    it.each([
+      new Error("API Error: Connection error."),
+      new RequestError(-32603, "Flex capacity unavailable", {
+        classification: "upstream_provider_failure",
+        flexUnavailable: true,
+      }),
+    ])(
+      "stops retrying when the user cancels during the retry delay (%s)",
+      async (error) => {
+        vi.useFakeTimers();
+        try {
+          const prompt = vi.fn().mockRejectedValueOnce(error);
+          const testServer = createRetryTestServer(prompt);
+          const resultPromise = testServer.runRetryWrappedTurn(() =>
+            testServer.promptWithUpstreamRetry({
+              sessionId: "acp-1",
+              prompt: [{ type: "text", text: "do the task" }],
+            }),
+          );
+          await Promise.resolve();
+          await testServer.executeCommand("cancel", {});
+          await vi.advanceTimersByTimeAsync(5_000);
+
+          await expect(resultPromise).resolves.toEqual({
+            stopReason: "cancelled",
+          });
+          expect(prompt).toHaveBeenCalledOnce();
+          expect(
+            testServer.session.acpConnection.fallbackToStandard,
+          ).not.toHaveBeenCalled();
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
+
+    it("does not retry after cancellation while switching to standard capacity", async () => {
       vi.useFakeTimers();
       try {
-        const prompt = vi
-          .fn()
-          .mockRejectedValueOnce(new Error("API Error: Connection error."));
+        const prompt = vi.fn().mockRejectedValueOnce(
+          new RequestError(-32603, "Flex capacity unavailable", {
+            classification: "upstream_provider_failure",
+            flexUnavailable: true,
+            usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+          }),
+        );
         const testServer = createRetryTestServer(prompt);
+        let finishFallback!: (switched: boolean) => void;
+        const fallback = new Promise<boolean>((resolve) => {
+          finishFallback = resolve;
+        });
+        testServer.session.acpConnection.fallbackToStandard.mockReturnValue(
+          fallback,
+        );
         const resultPromise = testServer.runRetryWrappedTurn(() =>
           testServer.promptWithUpstreamRetry({
             sessionId: "acp-1",
             prompt: [{ type: "text", text: "do the task" }],
           }),
         );
-        await Promise.resolve();
-        await testServer.executeCommand("cancel", {});
         await vi.advanceTimersByTimeAsync(5_000);
+        expect(
+          testServer.session.acpConnection.fallbackToStandard,
+        ).toHaveBeenCalledOnce();
+        await testServer.executeCommand("cancel", {});
+        finishFallback(true);
 
-        await expect(resultPromise).resolves.toEqual({
+        await expect(resultPromise).resolves.toMatchObject({
           stopReason: "cancelled",
+          usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
         });
         expect(prompt).toHaveBeenCalledOnce();
       } finally {
         vi.useRealTimers();
       }
     });
+
+    it.each([true, false])(
+      "preserves failed-attempt usage when switching capacity fails (recordFailedUsage=%s)",
+      async (recordFailedUsage) => {
+        vi.useFakeTimers();
+        try {
+          const prompt = vi.fn().mockRejectedValueOnce(
+            new RequestError(-32603, "Flex capacity unavailable", {
+              classification: "upstream_provider_failure",
+              flexUnavailable: true,
+              madeProgress: true,
+              usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+            }),
+          );
+          const testServer = createRetryTestServer(prompt);
+          testServer.session.acpConnection.fallbackToStandard.mockRejectedValue(
+            new Error("Thread reload failed"),
+          );
+          const resultPromise = testServer.promptWithUpstreamRetry(
+            {
+              sessionId: "acp-1",
+              prompt: [{ type: "text", text: "do the task" }],
+            },
+            recordFailedUsage,
+          );
+          const assertion = expect(resultPromise).rejects.toMatchObject({
+            message: "Unable to switch the session to standard capacity",
+            data: {
+              classification: "agent_error",
+              result: "service_tier_fallback_failed",
+              madeProgress: true,
+              usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+            },
+          });
+          await vi.advanceTimersByTimeAsync(5_000);
+
+          await assertion;
+          expect(prompt).toHaveBeenCalledOnce();
+          if (recordFailedUsage) {
+            expect(testServer.posthogAPI.updateTaskRun).toHaveBeenCalledWith(
+              "task-1",
+              "run-1",
+              expect.objectContaining({
+                state: {
+                  token_usage: expect.objectContaining({
+                    input_tokens: 10,
+                    output_tokens: 5,
+                    total_tokens: 15,
+                  }),
+                },
+              }),
+            );
+          } else {
+            expect(testServer.posthogAPI.updateTaskRun).not.toHaveBeenCalled();
+          }
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
 
     it("does not dispatch a startup prompt after an earlier cancellation", async () => {
       const prompt = vi.fn();
@@ -2646,88 +2760,130 @@ describe("AgentServer HTTP Mode", () => {
       }
     });
 
-    it("continues after tool progress and preserves usage across retries", async () => {
-      vi.useFakeTimers();
-      try {
-        const prompt = vi
-          .fn()
-          .mockRejectedValueOnce(
-            new RequestError(-32603, "transient failure", {
-              classification: "upstream_provider_failure",
-              result: "unexpected status 503",
-              madeProgress: true,
-              usage: {
-                inputTokens: 10,
-                outputTokens: 5,
-                totalTokens: 15,
-              },
-            }),
-          )
-          .mockResolvedValueOnce({
-            stopReason: "end_turn",
-            usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
+    it.each([false, true])(
+      "continues after tool progress and preserves usage across retries (flexUnavailable=%s)",
+      async (flexUnavailable) => {
+        vi.useFakeTimers();
+        try {
+          let serviceTier = "flex";
+          const requestedTiers: string[] = [];
+          const prompt = vi
+            .fn()
+            .mockRejectedValueOnce(
+              new RequestError(-32603, "transient failure", {
+                classification: "upstream_provider_failure",
+                ...(flexUnavailable ? { flexUnavailable: true } : {}),
+                result: "unexpected status 503",
+                madeProgress: true,
+                usage: {
+                  inputTokens: 10,
+                  outputTokens: 5,
+                  totalTokens: 15,
+                },
+              }),
+            )
+            .mockImplementationOnce(async () => {
+              requestedTiers.push(serviceTier);
+              return {
+                stopReason: "end_turn",
+                usage: { inputTokens: 20, outputTokens: 10, totalTokens: 30 },
+              };
+            });
+          const testServer = createRetryTestServer(prompt);
+          testServer.session.acpConnection.fallbackToStandard.mockImplementation(
+            async () => {
+              serviceTier = "default";
+              return true;
+            },
+          );
+          const resultPromise = testServer.promptWithUpstreamRetry({
+            sessionId: "acp-1",
+            prompt: [{ type: "text", text: "do the task" }],
           });
-        const testServer = createRetryTestServer(prompt);
-        const resultPromise = testServer.promptWithUpstreamRetry({
-          sessionId: "acp-1",
-          prompt: [{ type: "text", text: "do the task" }],
-        });
-        await vi.advanceTimersByTimeAsync(5_000);
+          await vi.advanceTimersByTimeAsync(5_000);
 
-        await expect(resultPromise).resolves.toMatchObject({
-          stopReason: "end_turn",
-          usage: { inputTokens: 30, outputTokens: 15, totalTokens: 45 },
-        });
-        const retryRequest = prompt.mock.calls[1][0] as {
-          prompt: Array<{
-            text: string;
-            _meta?: { ui?: { hidden?: boolean } };
-          }>;
-        };
-        expect(retryRequest.prompt[0].text).toContain(
-          "Continue from where you left off",
-        );
-        expect(retryRequest.prompt[0]._meta?.ui?.hidden).toBe(true);
-      } finally {
-        vi.useRealTimers();
-      }
-    });
+          await expect(resultPromise).resolves.toMatchObject({
+            stopReason: "end_turn",
+            usage: { inputTokens: 30, outputTokens: 15, totalTokens: 45 },
+          });
+          expect(requestedTiers).toEqual([
+            flexUnavailable ? "default" : "flex",
+          ]);
+          const retryRequest = prompt.mock.calls[1][0] as {
+            sessionId: string;
+            prompt: Array<{
+              text: string;
+              _meta?: { ui?: { hidden?: boolean } };
+            }>;
+          };
+          expect(retryRequest.sessionId).toBe("acp-1");
+          expect(retryRequest.prompt[0].text).toContain(
+            "Continue from where you left off",
+          );
+          expect(retryRequest.prompt[0]._meta?.ui?.hidden).toBe(true);
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
 
-    it("re-sends the original prompt when the failure happened before the stream started", async () => {
-      vi.useFakeTimers();
-      try {
-        const prompt = vi
-          .fn()
-          .mockRejectedValueOnce(new Error("API Error: Connection error."))
-          .mockResolvedValueOnce({ stopReason: "end_turn" });
-        const testServer = createRetryTestServer(prompt);
+    it.each([
+      {
+        error: new Error("API Error: Connection error."),
+        fallback: false,
+      },
+      {
+        error: new Error("Capacity unavailable"),
+        fallback: false,
+      },
+      {
+        error: new RequestError(-32603, "Flex capacity unavailable", {
+          classification: "upstream_provider_failure",
+          flexUnavailable: true,
+        }),
+        fallback: true,
+      },
+    ])(
+      "re-sends the original prompt when the failure happened before the stream started ($error)",
+      async ({ error, fallback }) => {
+        vi.useFakeTimers();
+        try {
+          const prompt = vi
+            .fn()
+            .mockRejectedValueOnce(error)
+            .mockResolvedValueOnce({ stopReason: "end_turn" });
+          const testServer = createRetryTestServer(prompt);
 
-        const resultPromise = testServer.promptWithUpstreamRetry({
-          sessionId: "acp-1",
-          prompt: [{ type: "text", text: "do the task" }],
-        });
-        await vi.advanceTimersByTimeAsync(5_000);
+          const resultPromise = testServer.promptWithUpstreamRetry({
+            sessionId: "acp-1",
+            prompt: [{ type: "text", text: "do the task" }],
+          });
+          await vi.advanceTimersByTimeAsync(5_000);
 
-        await expect(resultPromise).resolves.toEqual({
-          stopReason: "end_turn",
-        });
-        expect(prompt).toHaveBeenCalledTimes(2);
-        const retryRequest = prompt.mock.calls[1][0] as {
-          sessionId: string;
-          prompt: Array<{ type: string; text: string }>;
-        };
-        expect(retryRequest.sessionId).toBe("acp-1");
-        expect(retryRequest.prompt).toEqual([
-          {
-            type: "text",
-            text: "do the task",
-            _meta: { ui: { hidden: true } },
-          },
-        ]);
-      } finally {
-        vi.useRealTimers();
-      }
-    });
+          await expect(resultPromise).resolves.toEqual({
+            stopReason: "end_turn",
+          });
+          expect(prompt).toHaveBeenCalledTimes(2);
+          expect(
+            testServer.session.acpConnection.fallbackToStandard,
+          ).toHaveBeenCalledTimes(fallback ? 1 : 0);
+          const retryRequest = prompt.mock.calls[1][0] as {
+            sessionId: string;
+            prompt: Array<{ type: string; text: string }>;
+          };
+          expect(retryRequest.sessionId).toBe("acp-1");
+          expect(retryRequest.prompt).toEqual([
+            {
+              type: "text",
+              text: "do the task",
+              _meta: { ui: { hidden: true } },
+            },
+          ]);
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
 
     it("does not retry a genuine agent error", async () => {
       const prompt = vi.fn().mockRejectedValue(new Error("boom"));
@@ -2772,29 +2928,41 @@ describe("AgentServer HTTP Mode", () => {
       );
     });
 
-    it("stops continuing once the bounded retry budget is exhausted", async () => {
-      vi.useFakeTimers();
-      try {
-        const prompt = vi
-          .fn()
-          .mockRejectedValue(new Error("API Error: terminated"));
-        const testServer = createRetryTestServer(prompt);
+    it.each([
+      new Error("API Error: terminated"),
+      new RequestError(-32603, "Flex capacity unavailable", {
+        classification: "upstream_provider_failure",
+        flexUnavailable: true,
+      }),
+    ])(
+      "stops continuing once the bounded retry budget is exhausted (%s)",
+      async (finalError) => {
+        vi.useFakeTimers();
+        try {
+          const prompt = vi
+            .fn()
+            .mockRejectedValueOnce(new Error("API Error: terminated"))
+            .mockRejectedValueOnce(new Error("API Error: terminated"))
+            .mockRejectedValueOnce(finalError);
+          const testServer = createRetryTestServer(prompt);
 
-        const resultPromise = testServer.promptWithUpstreamRetry({
-          sessionId: "acp-1",
-          prompt: [{ type: "text", text: "do the task" }],
-        });
-        const assertion = expect(resultPromise).rejects.toThrow(
-          "API Error: terminated",
-        );
-        await vi.advanceTimersByTimeAsync(15_000);
+          const resultPromise = testServer.promptWithUpstreamRetry({
+            sessionId: "acp-1",
+            prompt: [{ type: "text", text: "do the task" }],
+          });
+          const assertion = expect(resultPromise).rejects.toBe(finalError);
+          await vi.advanceTimersByTimeAsync(15_000);
 
-        await assertion;
-        expect(prompt).toHaveBeenCalledTimes(3);
-      } finally {
-        vi.useRealTimers();
-      }
-    });
+          await assertion;
+          expect(prompt).toHaveBeenCalledTimes(3);
+          expect(
+            testServer.session.acpConnection.fallbackToStandard,
+          ).not.toHaveBeenCalled();
+        } finally {
+          vi.useRealTimers();
+        }
+      },
+    );
 
     it("persists structured turn completion notifications", () => {
       const appendRawLine = vi.fn();

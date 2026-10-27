@@ -52,6 +52,7 @@ export type AcpConnectionConfig = {
 export type AcpConnection = {
   agentConnection?: AgentSideConnection;
   clientStreams: StreamPair;
+  fallbackToStandard?: () => Promise<boolean>;
   cleanup: () => Promise<void>;
 };
 
@@ -269,6 +270,7 @@ function createCodexConnection(config: AcpConnectionConfig): AcpConnection {
 
   return {
     agentConnection,
+    fallbackToStandard: async () => agent?.fallbackToStandard() ?? false,
     clientStreams: {
       readable: streams.client.readable,
       writable: clientWritable,

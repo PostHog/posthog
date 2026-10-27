@@ -216,6 +216,7 @@ const errorWithClassificationSchema = z.object({
     // path can report it separately from the generic ACP display text.
     result: z.string().optional(),
     madeProgress: z.boolean().optional(),
+    flexUnavailable: z.boolean().optional(),
     usage: z
       .object({
         inputTokens: z.number(),
@@ -2676,6 +2677,7 @@ export class AgentServer {
     message: string;
     cause: string;
     madeProgress: boolean;
+    flexUnavailable?: boolean;
     usage?: NonNullable<PromptResponse["usage"]>;
   } {
     const message =
@@ -2695,6 +2697,7 @@ export class AgentServer {
         message,
         cause,
         madeProgress: parsed.data.data.madeProgress ?? false,
+        flexUnavailable: parsed.data.data.flexUnavailable,
         usage: parsed.data.data.usage,
       };
     }
@@ -2819,15 +2822,18 @@ export class AgentServer {
     let retries = 0;
     let continueInterruptedTurn = false;
     let retryUsage: NonNullable<PromptResponse["usage"]> | undefined;
-    if (this.cancelledStartupSessions.delete(originatingSession)) {
-      return { stopReason: "cancelled" };
-    }
     for (;;) {
       const session = this.session;
       if (session !== originatingSession) {
         throw new Error(
           "Agent session changed before the turn could be retried",
         );
+      }
+      if (this.cancelledStartupSessions.delete(originatingSession)) {
+        return {
+          stopReason: "cancelled",
+          ...(retryUsage ? { usage: retryUsage } : {}),
+        };
       }
       this.emitFirstCommandDispatched();
       const attempt = continueInterruptedTurn
@@ -2862,8 +2868,14 @@ export class AgentServer {
         const usage = mergeUsage(retryUsage, response.usage ?? undefined);
         return { ...response, ...(usage ? { usage } : {}) };
       } catch (error) {
-        const { classification, message, cause, madeProgress, usage } =
-          this.extractErrorClassification(error);
+        const {
+          classification,
+          message,
+          cause,
+          madeProgress,
+          flexUnavailable,
+          usage,
+        } = this.extractErrorClassification(error);
         const accumulatedUsage = mergeUsage(retryUsage, usage);
         const retryable =
           isRetryableUpstreamErrorClassification(classification);
@@ -2912,6 +2924,44 @@ export class AgentServer {
             stopReason: "cancelled",
             ...(retryUsage ? { usage: retryUsage } : {}),
           };
+        }
+        if (flexUnavailable) {
+          let switched: boolean | undefined;
+          try {
+            switched =
+              await originatingSession.acpConnection.fallbackToStandard?.();
+          } catch {
+            if (
+              this.session === originatingSession &&
+              this.cancelledStartupSessions.delete(originatingSession)
+            ) {
+              return {
+                stopReason: "cancelled",
+                ...(retryUsage ? { usage: retryUsage } : {}),
+              };
+            }
+            if (recordFailedUsage && this.session === originatingSession) {
+              await this.recordTurnUsage(
+                retryUsage,
+                originatingSession.payload,
+              );
+            }
+            throw new RequestError(
+              -32603,
+              "Unable to switch the session to standard capacity",
+              {
+                classification: "agent_error",
+                result: "service_tier_fallback_failed",
+                madeProgress: continueInterruptedTurn || madeProgress,
+                ...(retryUsage ? { usage: retryUsage } : {}),
+              },
+            );
+          }
+          if (switched) {
+            this.logger.info("Retrying the turn on standard capacity", {
+              attempt: retries,
+            });
+          }
         }
       }
     }

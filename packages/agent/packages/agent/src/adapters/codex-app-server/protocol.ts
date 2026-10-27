@@ -18,6 +18,7 @@ export const APP_SERVER_METHODS = {
   ACCOUNT_LOGOUT: "account/logout",
   THREAD_START: "thread/start",
   THREAD_RESUME: "thread/resume",
+  THREAD_UNSUBSCRIBE: "thread/unsubscribe",
   THREAD_FORK: "thread/fork",
   TURN_START: "turn/start",
   // Inject input into the active turn (mirrors Claude's mid-turn steering); fails unless `expectedTurnId` matches.
@@ -35,6 +36,7 @@ export const APP_SERVER_NOTIFICATIONS = {
   INITIALIZED: "initialized",
   ACCOUNT_LOGIN_COMPLETED: "account/login/completed",
   THREAD_STARTED: "thread/started",
+  THREAD_CLOSED: "thread/closed",
   // Carries the active turn id — precondition for turn/steer + turn/interrupt.
   TURN_STARTED: "turn/started",
   ITEM_STARTED: "item/started",

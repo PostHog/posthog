@@ -31,6 +31,7 @@ const REQUIRED_FIELDS: Record<string, string[]> = {
   "thread/goal/clear": ["threadId"],
   "thread/goal/get": ["threadId"],
   "thread/goal/set": ["threadId"],
+  "thread/unsubscribe": ["threadId"],
   "turn/interrupt": ["threadId", "turnId"],
   "turn/steer": ["threadId", "input", "expectedTurnId"],
 };
@@ -302,6 +303,204 @@ describe("CodexAppServerAgent", () => {
       expect(Object.hasOwn(threadStart?.params as object, "serviceTier")).toBe(
         serviceTier !== undefined,
       );
+    },
+  );
+
+  it.each([
+    { fallback: "standard", cancelDuringUnload: false },
+    { fallback: undefined, cancelDuringUnload: false },
+    { fallback: "standard", cancelDuringUnload: true },
+  ])(
+    "switches Flex with fallback=$fallback and preserves the session when cancelled=$cancelDuringUnload",
+    async ({ fallback, cancelDuringUnload }) => {
+      const stub = makeStubRpc({
+        "thread/start": { thread: { id: "t" } },
+        "thread/resume": { thread: { id: "t" }, serviceTier: "default" },
+        "thread/unsubscribe": async () => {
+          if (cancelDuringUnload) await agent.cancel({ sessionId: "t" });
+          stub.emit("thread/closed", { threadId: "t" });
+          return { status: "unsubscribed" };
+        },
+      });
+      const { client, extNotifications } = makeFakeClient();
+      const headers: Record<string, string> = {
+        "X-PostHog-Service-Tier": "flex",
+        "X-PostHog-Trace-Id": "test-trace",
+        ...(fallback ? { "X-PostHog-Flex-Fallback": fallback } : {}),
+      };
+      const agent = new CodexAppServerAgent(client, {
+        processOptions: {
+          binaryPath: "/x/codex",
+          apiBaseUrl: "https://gateway.example.com",
+          httpHeaders: headers,
+          developerInstructions: "Preserve completed work.",
+        },
+        serviceTier: "flex",
+        rpcFactory: stub.factory,
+      });
+      await agent.newSession({
+        cwd: "/r",
+        additionalDirectories: ["/extra"],
+        mcpServers: [{ name: "test", command: "test-mcp", args: [], env: [] }],
+        _meta: {
+          taskRunId: "test-run",
+          systemPrompt: "Keep the task context.",
+          jsonSchema: {
+            type: "object",
+            properties: { result: { type: "string" } },
+          },
+        },
+      } as unknown as NewSessionRequest);
+      const prompt = {
+        sessionId: "t",
+        prompt: [{ type: "text", text: "go" }],
+      } as unknown as PromptRequest;
+      const done = agent.prompt(prompt);
+      const failed = expect(done).rejects.toMatchObject({
+        data: {
+          classification: "upstream_provider_failure",
+          flexUnavailable: true,
+          madeProgress: true,
+        },
+      });
+      stub.emit("turn/started", { turn: { id: "turn_1" } });
+      stub.emit("item/completed", {
+        item: { type: "fileChange", id: "write-1", changes: [] },
+      });
+      stub.emit("error", {
+        turnId: "turn_1",
+        willRetry: false,
+        error: { codexErrorInfo: "flexUnavailable" },
+      });
+      await failed;
+      const switched = agent.fallbackToStandard();
+      expect(stub.requests.some((r) => r.method === "thread/unsubscribe")).toBe(
+        false,
+      );
+      stub.emit("turn/completed", { turn: { id: "turn_1", status: "failed" } });
+      await expect(switched).resolves.toBe(fallback === "standard");
+      expect(headers["X-PostHog-Service-Tier"]).toBe("flex");
+      const original = stub.requests.find((r) => r.method === "thread/start")
+        ?.params as Record<string, unknown>;
+      const resumed = stub.requests.find((r) => r.method === "thread/resume")
+        ?.params as Record<string, unknown> | undefined;
+      if (fallback) {
+        expect(resumed).toMatchObject({
+          threadId: "t",
+          cwd: "/r",
+          serviceTier: "default",
+          excludeTurns: true,
+          developerInstructions: original.developerInstructions,
+          config: {
+            ...(original.config as object),
+            "model_providers.posthog.http_headers": {
+              ...headers,
+              "X-PostHog-Service-Tier": "default",
+            },
+          },
+        });
+        await expect(agent.fallbackToStandard()).resolves.toBe(false);
+      } else {
+        expect(resumed).toBeUndefined();
+      }
+      const retry = agent.prompt(prompt);
+      const starts = stub.requests
+        .filter((r) => r.method === "turn/start")
+        .map((r) => r.params as Record<string, unknown>);
+      expect(starts[1]).toMatchObject({
+        threadId: "t",
+        serviceTier: fallback ? "default" : "flex",
+        outputSchema: starts[0].outputSchema,
+      });
+      stub.emit("turn/started", { turn: { id: "turn_2" } });
+      stub.emit("turn/completed", {
+        turn: { id: "turn_2", status: "completed" },
+      });
+      await expect(retry).resolves.toMatchObject({ stopReason: "end_turn" });
+      expect(
+        extNotifications.filter((n) => n.method === "_posthog/turn_complete"),
+      ).toHaveLength(1);
+      if (fallback) {
+        await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+        expect(
+          stub.requests.filter((r) => r.method === "thread/start").at(-1)
+            ?.params,
+        ).toMatchObject({
+          serviceTier: "default",
+          config: {
+            "model_providers.posthog.http_headers": {
+              ...headers,
+              "X-PostHog-Service-Tier": "default",
+            },
+          },
+        });
+      }
+    },
+  );
+
+  it.each(["timeout", "close timeout", "resume failure", "ignored config"])(
+    "stops instead of silently retrying Flex after fallback %s",
+    async (failure) => {
+      vi.useFakeTimers();
+      try {
+        const stub = makeStubRpc({
+          "thread/start": { thread: { id: "t" } },
+          "thread/unsubscribe": () => {
+            if (failure !== "close timeout")
+              stub.emit("thread/closed", { threadId: "t" });
+            return { status: "unsubscribed" };
+          },
+          "thread/resume":
+            failure === "resume failure"
+              ? new Error("reload failed")
+              : { thread: { id: "t" }, serviceTier: "flex" },
+        });
+        const { client } = makeFakeClient();
+        const agent = new CodexAppServerAgent(client, {
+          processOptions: {
+            binaryPath: "/x/codex",
+            apiBaseUrl: "https://gateway.example.com",
+            httpHeaders: {
+              "X-PostHog-Service-Tier": "flex",
+              "X-PostHog-Flex-Fallback": "standard",
+            },
+          },
+          serviceTier: "flex",
+          rpcFactory: stub.factory,
+        });
+        await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+        const done = agent.prompt({
+          sessionId: "t",
+          prompt: [{ type: "text", text: "go" }],
+        } as unknown as PromptRequest);
+        const failed = expect(done).rejects.toMatchObject({
+          data: {
+            classification: "upstream_provider_failure",
+            flexUnavailable: true,
+          },
+        });
+        stub.emit("turn/started", { turn: { id: "turn_1" } });
+        stub.emit("error", {
+          turnId: "turn_1",
+          willRetry: false,
+          error: { codexErrorInfo: "flexUnavailable" },
+        });
+        await failed;
+        if (failure !== "timeout")
+          stub.emit("turn/completed", {
+            turn: { id: "turn_1", status: "failed" },
+          });
+        const switched = expect(agent.fallbackToStandard()).rejects.toThrow();
+        if (failure === "timeout") await vi.advanceTimersByTimeAsync(5000);
+        if (failure === "close timeout")
+          await vi.advanceTimersByTimeAsync(10_000);
+        await switched;
+        expect(
+          stub.requests.filter((r) => r.method === "turn/start"),
+        ).toHaveLength(1);
+      } finally {
+        vi.useRealTimers();
+      }
     },
   );
 
@@ -2709,94 +2908,124 @@ describe("CodexAppServerAgent", () => {
     vi.useRealTimers();
   });
 
-  it("keeps the retried cause when the retries run out", async () => {
-    vi.useFakeTimers();
-    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
-    const { client, sessionUpdates } = makeFakeClient();
-    const agent = new CodexAppServerAgent(client, {
-      processOptions: { binaryPath: "/x/codex" },
-      rpcFactory: stub.factory,
-    });
-
-    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
-    const done = agent.prompt({
-      sessionId: "t",
-      prompt: [{ type: "text", text: "go" }],
-    } as unknown as PromptRequest);
-    const rejection = expect(done).rejects.toMatchObject({
-      data: expect.objectContaining({
-        classification: "upstream_provider_failure",
-        result: "API Error: 503",
-      }),
-    });
-    stub.emit("turn/started", { turn: { id: "turn_1" } });
-    // A retried error carries the only text; turn/completed has none of its own.
-    stub.emit("error", {
-      turnId: "turn_1",
-      willRetry: true,
+  it.each([
+    {
       error: { message: "API Error: 503 Service Unavailable" },
-    });
-    stub.emit("turn/completed", {
-      turn: { id: "turn_1", status: "failed" },
-    });
+      classification: "upstream_provider_failure",
+      result: "API Error: 503",
+    },
+    {
+      error: { codexErrorInfo: "flexUnavailable" },
+      classification: "upstream_provider_failure",
+      result: "upstream_provider_failure",
+    },
+  ])(
+    "keeps the retried $classification cause when the retries run out",
+    async ({ error, classification, result }) => {
+      vi.useFakeTimers();
+      const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+      const { client, sessionUpdates } = makeFakeClient();
+      const agent = new CodexAppServerAgent(client, {
+        processOptions: { binaryPath: "/x/codex" },
+        rpcFactory: stub.factory,
+      });
 
-    await vi.advanceTimersByTimeAsync(250);
-    await rejection;
-    expect(sessionUpdates).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          update: expect.objectContaining({
-            sessionUpdate: "agent_message_chunk",
-          }),
+      await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+      const done = agent.prompt({
+        sessionId: "t",
+        prompt: [{ type: "text", text: "go" }],
+      } as unknown as PromptRequest);
+      const rejection = expect(done).rejects.toMatchObject({
+        data: expect.objectContaining({
+          classification,
+          result,
+          ...("codexErrorInfo" in error ? { flexUnavailable: true } : {}),
         }),
-      ]),
-    );
-    vi.useRealTimers();
-  });
+      });
+      stub.emit("turn/started", { turn: { id: "turn_1" } });
+      // A retried error carries the only text; turn/completed has none of its own.
+      stub.emit("error", {
+        turnId: "turn_1",
+        willRetry: true,
+        error,
+      });
+      stub.emit("turn/completed", {
+        turn: { id: "turn_1", status: "failed" },
+      });
 
-  it("surfaces the completion's own fatal cause when it is the only one", async () => {
-    vi.useFakeTimers();
-    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
-    const { client, sessionUpdates } = makeFakeClient();
-    const agent = new CodexAppServerAgent(client, {
-      processOptions: { binaryPath: "/x/codex" },
-      rpcFactory: stub.factory,
-    });
-
-    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
-    const done = agent.prompt({
-      sessionId: "t",
-      prompt: [{ type: "text", text: "go" }],
-    } as unknown as PromptRequest);
-    const rejection = expect(done).rejects.toMatchObject({
-      data: expect.objectContaining({
-        classification: "upstream_provider_failure",
-        result: "API Error: 502",
-      }),
-    });
-    stub.emit("turn/started", { turn: { id: "turn_1" } });
-    // codex reports the cause only on the completion — no error notification arrived.
-    stub.emit("turn/completed", {
-      turn: {
-        id: "turn_1",
-        status: "failed",
-        error: { message: "API Error: 502 Bad Gateway" },
-      },
-    });
-
-    await vi.advanceTimersByTimeAsync(250);
-    await rejection;
-    expect(sessionUpdates).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          update: expect.objectContaining({
-            sessionUpdate: "agent_message_chunk",
+      await vi.advanceTimersByTimeAsync(250);
+      await rejection;
+      expect(sessionUpdates).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            update: expect.objectContaining({
+              sessionUpdate: "agent_message_chunk",
+            }),
           }),
+        ]),
+      );
+      vi.useRealTimers();
+    },
+  );
+
+  it.each([
+    {
+      error: { message: "API Error: 502 Bad Gateway" },
+      classification: "upstream_provider_failure",
+      result: "API Error: 502",
+    },
+    {
+      error: { codexErrorInfo: "flexUnavailable" },
+      classification: "upstream_provider_failure",
+      result: "upstream_provider_failure",
+    },
+  ])(
+    "surfaces the completion's own $classification cause when it is the only one",
+    async ({ error, classification, result }) => {
+      vi.useFakeTimers();
+      const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+      const { client, sessionUpdates } = makeFakeClient();
+      const agent = new CodexAppServerAgent(client, {
+        processOptions: { binaryPath: "/x/codex" },
+        rpcFactory: stub.factory,
+      });
+
+      await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+      const done = agent.prompt({
+        sessionId: "t",
+        prompt: [{ type: "text", text: "go" }],
+      } as unknown as PromptRequest);
+      const rejection = expect(done).rejects.toMatchObject({
+        data: expect.objectContaining({
+          classification,
+          result,
+          ...("codexErrorInfo" in error ? { flexUnavailable: true } : {}),
         }),
-      ]),
-    );
-    vi.useRealTimers();
-  });
+      });
+      stub.emit("turn/started", { turn: { id: "turn_1" } });
+      // codex reports the cause only on the completion — no error notification arrived.
+      stub.emit("turn/completed", {
+        turn: {
+          id: "turn_1",
+          status: "failed",
+          error,
+        },
+      });
+
+      await vi.advanceTimersByTimeAsync(250);
+      await rejection;
+      expect(sessionUpdates).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            update: expect.objectContaining({
+              sessionUpdate: "agent_message_chunk",
+            }),
+          }),
+        ]),
+      );
+      vi.useRealTimers();
+    },
+  );
 
   it("prefers the completion's terminal cause over a stale retry message", async () => {
     vi.useFakeTimers();

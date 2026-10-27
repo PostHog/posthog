@@ -314,7 +314,8 @@ export class CodexAppServerAgent extends BaseAcpAgent {
    * model catalogue and sends the request untiered when the model doesn't
    * advertise it, so an unsupported tier degrades rather than failing.
    */
-  private readonly serviceTier?: string;
+  private serviceTier?: string;
+  private readonly gatewayHttpHeaders: Record<string, string>;
   /** Codex-specific guidance injected at spawn time; replayed per-thread. */
   private readonly developerInstructions?: string;
   private readonly contextWiki?: ContextWikiEnv;
@@ -331,7 +332,17 @@ export class CodexAppServerAgent extends BaseAcpAgent {
    * Newest upstream error for the in-flight turn, retried ones included, bound to
    * its turn id so a steer that rotates the id cannot borrow the wrong cause.
    */
-  private lastTurnError?: { turnId?: string; message: string };
+  private lastTurnError?: {
+    turnId?: string;
+    message: string;
+    codexErrorInfo?: string;
+  };
+  private nativeTurnCompletion?: {
+    turnId?: string;
+    completion: Promise<void>;
+    resolve: () => void;
+  };
+  private resolveThreadClosed?: () => void;
   /** True between a contextCompaction item's start and its boundary (dedupes the boundary). */
   private compactionActive = false;
   /** Maps the host's taskRunId to this session, replayed for cloud notifications. */
@@ -354,6 +365,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   private threadSetup?: {
     meta?: AppServerSessionMeta;
     developerInstructions?: string;
+    config?: Record<string, unknown>;
   };
   /** The in-flight turn's <proposed_plan>, streamed or completed (drives the implement handoff). */
   private planProposal?: { itemId: string; text: string };
@@ -389,6 +401,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     );
     this.onStructuredOutput = options.onStructuredOutput;
     this.serviceTier = options.serviceTier;
+    this.gatewayHttpHeaders = { ...options.processOptions.httpHeaders };
     this.developerInstructions = options.processOptions.developerInstructions;
     this.contextWiki = options.processOptions.contextWiki;
     this.gatewayConfigured = Boolean(options.processOptions.apiBaseUrl);
@@ -566,6 +579,120 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     return { refreshed: true };
   }
 
+  async fallbackToStandard(): Promise<boolean> {
+    if (
+      !this.gatewayConfigured ||
+      this.serviceTier !== "flex" ||
+      this.gatewayHttpHeaders["X-PostHog-Service-Tier"] !== "flex" ||
+      this.gatewayHttpHeaders["X-PostHog-Flex-Fallback"] !== "standard"
+    ) {
+      return false;
+    }
+    if (!this.threadId || !this.threadSetup || this.turns.isPending) {
+      throw new Error("Cannot change service tier while a prompt is in flight");
+    }
+    if (this.nativeTurnCompletion) {
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          this.nativeTurnCompletion.completion,
+          new Promise<never>((_, reject) => {
+            timeout = setTimeout(
+              () =>
+                reject(
+                  new Error(
+                    "Codex turn did not finish before service tier fallback",
+                  ),
+                ),
+              5000,
+            );
+          }),
+        ]);
+      } finally {
+        clearTimeout(timeout);
+      }
+    }
+    if (this.session.cancelled) return false;
+    if (this.nativeGoalTurnId) {
+      throw new Error("Cannot change service tier during a background turn");
+    }
+    const config = {
+      ...this.threadSetup.config,
+      "model_providers.posthog.http_headers": {
+        ...this.gatewayHttpHeaders,
+        "X-PostHog-Service-Tier": "default",
+      },
+    };
+    // Loaded threads in systemError ignore resume config overrides, even without subscribers. Wait for the configured immediate unload before resuming the persisted thread.
+    let closeTimeout: ReturnType<typeof setTimeout> | undefined;
+    const closed = new Promise<void>((resolve, reject) => {
+      this.resolveThreadClosed = resolve;
+      closeTimeout = setTimeout(
+        () =>
+          reject(
+            new Error(
+              "Codex thread did not close before service tier fallback",
+            ),
+          ),
+        10_000,
+      );
+    });
+    try {
+      await Promise.all([
+        closed,
+        this.rpc
+          .request<{ status?: string }>(APP_SERVER_METHODS.THREAD_UNSUBSCRIBE, {
+            threadId: this.threadId,
+          })
+          .then((result) => {
+            if (result.status === "notLoaded") this.resolveThreadClosed?.();
+          }),
+      ]);
+    } finally {
+      clearTimeout(closeTimeout);
+      this.resolveThreadClosed = undefined;
+    }
+    const result = await this.rpc.request<{
+      thread?: AppServerThread;
+      serviceTier?: string | null;
+    }>(APP_SERVER_METHODS.THREAD_RESUME, {
+      threadId: this.threadId,
+      model: this.config.model,
+      cwd: this.workspaceDirectory,
+      serviceTier: "default",
+      excludeTurns: true,
+      config,
+      ...(this.threadSetup.developerInstructions
+        ? { developerInstructions: this.threadSetup.developerInstructions }
+        : {}),
+    });
+    if (
+      result.thread?.id !== this.threadId ||
+      result.serviceTier !== "default"
+    ) {
+      throw new Error("Codex did not apply the standard service tier fallback");
+    }
+    this.serviceTier = "default";
+    this.gatewayHttpHeaders["X-PostHog-Service-Tier"] = "default";
+    this.threadSetup.config = config;
+    return true;
+  }
+
+  private threadRoutingConfig(): Record<string, unknown> | undefined {
+    if (
+      !this.gatewayConfigured ||
+      (this.serviceTier !== "flex" && this.serviceTier !== "default") ||
+      this.gatewayHttpHeaders["X-PostHog-Service-Tier"] !== this.serviceTier ||
+      this.gatewayHttpHeaders["X-PostHog-Flex-Fallback"] !== "standard"
+    )
+      return undefined;
+    return {
+      "model_providers.posthog.http_headers": { ...this.gatewayHttpHeaders },
+      // Subscribed threads stay loaded. Immediate unload makes a failed Flex thread reloadable without restarting the app-server process.
+      thread_unload_delay_secs: 0,
+    };
+  }
+
   private async refreshThreadMcpServers(servers: McpServer[]): Promise<void> {
     const cwd = this.workspaceDirectory;
     let localTools: ReturnType<typeof buildLocalToolsServer> = null;
@@ -584,7 +711,11 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       [...servers, ...(localTools ? [localTools] : [])],
       { gatePosthogExec: true },
     );
-    const config = buildThreadConfig(mcpServers, this.additionalDirectories);
+    const config = buildThreadConfig(
+      mcpServers,
+      this.additionalDirectories,
+      this.threadRoutingConfig(),
+    );
     if (config && localTools && cwd && isTaskRunSandbox(process.env)) {
       config["hooks.state"] = await getMemoryKillHookTrust(this.rpc, cwd);
     }
@@ -597,6 +728,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       ...(developerInstructions ? { developerInstructions } : {}),
       ...(config ? { config } : {}),
     });
+    if (this.threadSetup) this.threadSetup.config = config;
 
     this.logger.info("Refreshed codex thread MCP servers", {
       threadId: this.threadId,
@@ -731,13 +863,18 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         requirePosthogMcp: this.environment === "cloud",
       },
     );
-    const config = buildThreadConfig(mcpServers, params.additionalDirectories);
+    const config = buildThreadConfig(
+      mcpServers,
+      params.additionalDirectories,
+      this.threadRoutingConfig(),
+    );
     if (config && localTools && params.cwd && isTaskRunSandbox(process.env)) {
       config["hooks.state"] = await getMemoryKillHookTrust(
         this.rpc,
         params.cwd,
       );
     }
+    this.threadSetup.config = config;
 
     const result = await this.rpc.request<{ thread?: AppServerThread }>(
       method,
@@ -1141,6 +1278,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       threadId: this.threadId,
       input,
       model: this.config.model,
+      ...(this.serviceTier ? { serviceTier: this.serviceTier } : {}),
       ...(this.config.effort ? { effort: this.config.effort } : {}),
       // Always request a reasoning summary; the default "auto" can skip it on trivial turns.
       summary: "detailed",
@@ -1235,6 +1373,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     // A new turn owns the idle boundary; its own completion emits the signal.
     this.deferredTurnComplete = undefined;
     const { completion, turn } = this.turns.begin();
+    this.trackNativeTurn();
     try {
       await this.rpc.request(
         APP_SERVER_METHODS.TURN_START,
@@ -1244,6 +1383,14 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     } finally {
       this.turns.finishPrompt(turn);
     }
+  }
+
+  private trackNativeTurn(turnId?: string): void {
+    let resolve!: () => void;
+    const completion = new Promise<void>((done) => {
+      resolve = done;
+    });
+    this.nativeTurnCompletion = { turnId, completion, resolve };
   }
 
   /**
@@ -1614,6 +1761,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     this.session.cancelled = true;
     this.planHandoffCancel?.();
     this.turns.close("cancelled");
+    this.nativeTurnCompletion?.resolve();
+    this.nativeTurnCompletion = undefined;
+    this.resolveThreadClosed?.();
     this.session.settingsManager.dispose();
     // Close the transport BEFORE kill() destroys the stdio streams (else close() blocks on
     // an ack that never arrives). Bounded so cleanup can't hang the caller.
@@ -1672,9 +1822,18 @@ export class CodexAppServerAgent extends BaseAcpAgent {
 
     if (!isMainThread) return;
 
+    if (method === APP_SERVER_NOTIFICATIONS.THREAD_CLOSED) {
+      this.resolveThreadClosed?.();
+    }
+
     if (method === APP_SERVER_NOTIFICATIONS.TURN_STARTED) {
       // Capture the active turn id (steer precondition / interrupt target).
       const turnId = (params as { turn?: { id?: string } })?.turn?.id;
+      if (this.nativeTurnCompletion && !this.nativeTurnCompletion.turnId) {
+        this.nativeTurnCompletion.turnId = turnId;
+      } else if (this.nativeTurnCompletion?.turnId !== turnId) {
+        this.trackNativeTurn(turnId);
+      }
       if (!this.turns.isPending && turnId) {
         this.nativeGoalTurnId = turnId;
         void this.client
@@ -1748,10 +1907,18 @@ export class CodexAppServerAgent extends BaseAcpAgent {
           turn?: {
             id?: string;
             status?: string;
-            error?: { message?: unknown };
+            error?: { message?: unknown; codexErrorInfo?: unknown };
           };
         }
       )?.turn;
+      if (
+        this.nativeTurnCompletion &&
+        (!this.nativeTurnCompletion.turnId ||
+          this.nativeTurnCompletion.turnId === turn?.id)
+      ) {
+        this.nativeTurnCompletion.resolve();
+        this.nativeTurnCompletion = undefined;
+      }
       const completedNativeGoalTurn = turn?.id === this.nativeGoalTurnId;
       if (completedNativeGoalTurn) {
         this.nativeGoalTurnId = undefined;
@@ -1781,6 +1948,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
           turn?.id,
           this.turns.currentGeneration,
           terminalCause,
+          !refreshFailure && typeof turn.error?.codexErrorInfo === "string"
+            ? turn.error.codexErrorInfo
+            : undefined,
         );
         return;
       }
@@ -1817,23 +1987,24 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       const message =
         refreshFailure ??
         (typeof error?.message === "string" ? error.message : "");
+      const codexErrorInfo =
+        !refreshFailure && typeof error?.codexErrorInfo === "string"
+          ? error.codexErrorInfo
+          : undefined;
       // Keep the newest cause even while codex retries: when the retries run out the
       // turn dies through `turn/completed`, which carries no error text of its own.
       // Bind it to the turn so a later steered turn cannot inherit this cause.
-      if (message) {
+      if (message || codexErrorInfo) {
         this.lastTurnError = {
           turnId: turnId ?? this.turns.activeTurnId,
           message,
+          codexErrorInfo,
         };
       }
       if (willRetry === false) {
         this.logger.warn("codex app-server fatal error notification", {
           params,
         });
-        const codexErrorInfo =
-          typeof error?.codexErrorInfo === "string"
-            ? error.codexErrorInfo
-            : undefined;
         // A gateway billing denial rejects the prompt so the host classifies
         // it and shows the upgrade gate. It must be a RequestError: a plain
         // Error serializes to a bare "Internal error" at the ACP boundary,
@@ -1873,7 +2044,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         }
         // The client displays the full cause. The error data keeps only the
         // fields that can enter wider diagnostic sinks.
-        const failure = this.classifiedTurnFailure(message);
+        const failure = this.classifiedTurnFailure(message, codexErrorInfo);
         void this.failTurn(
           failure.error,
           !isRetryableUpstreamErrorClassification(failure.classification),
@@ -2216,6 +2387,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     turnId: string | undefined,
     generation: number,
     terminalCause: string,
+    terminalCode?: string,
   ): void {
     setTimeout(() => {
       if (generation !== this.turns.currentGeneration) return;
@@ -2236,7 +2408,13 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         saved.turnId !== turnId;
       const savedCause = saved && !mismatched ? saved.message : "";
       const cause = terminalCause || savedCause;
-      const failure = this.classifiedTurnFailure(cause);
+      const code =
+        terminalCause || terminalCode
+          ? terminalCode
+          : saved && !mismatched
+            ? saved.codexErrorInfo
+            : undefined;
+      const failure = this.classifiedTurnFailure(cause, code);
       if (isRetryableUpstreamErrorClassification(failure.classification)) {
         void this.failTurn(failure.error, false);
         return;
@@ -2245,16 +2423,25 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     }, 250);
   }
 
-  private classifiedTurnFailure(message: string): {
+  private classifiedTurnFailure(
+    message: string,
+    codexErrorInfo?: string,
+  ): {
     classification: ReturnType<typeof classifyAgentError>;
     error: RequestError;
   } {
-    const classification = classifyAgentError(message);
+    const classification =
+      codexErrorInfo === "flexUnavailable"
+        ? "upstream_provider_failure"
+        : classifyAgentError(message);
     const usage = this.usage.perTurnUsage();
     return {
       classification,
       error: new RequestError(-32603, describeFatalError(message), {
         classification,
+        ...(codexErrorInfo === "flexUnavailable"
+          ? { flexUnavailable: true }
+          : {}),
         result: sanitizeAgentErrorCause(message, classification),
         madeProgress: this.turnMadeProgress,
         ...(usage ? { usage } : {}),
@@ -2331,6 +2518,9 @@ export class CodexAppServerAgent extends BaseAcpAgent {
   }
 
   private handleServerClosed(): void {
+    this.nativeTurnCompletion?.resolve();
+    this.nativeTurnCompletion = undefined;
+    this.resolveThreadClosed?.();
     this.turns.fail(
       new Error("codex app-server exited before the turn completed"),
     );
@@ -2644,8 +2834,9 @@ function isSubagentActivityNotification(
 function buildThreadConfig(
   mcpServers: ReturnType<typeof toCodexMcpServers>,
   additionalDirectories: string[] | undefined,
+  routingConfig?: Record<string, unknown>,
 ): Record<string, unknown> | undefined {
-  const config: Record<string, unknown> = {};
+  const config: Record<string, unknown> = { ...routingConfig };
   if (mcpServers) {
     config.mcp_servers = mcpServers;
   }
