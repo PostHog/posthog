@@ -575,6 +575,8 @@ REST_FRAMEWORK = {
     ],
     # The default STRICT_JSON fails the whole request if the data can't be strictly JSON-serialized
     "STRICT_JSON": False,
+    # Keep the pre-3.18 list shape for `many=True` errors that API clients parse. DRF drops this setting in 3.20.
+    "LIST_SERIALIZER_ERRORS_AS_DICT": False,
 }
 
 if DEBUG:
