@@ -27,6 +27,7 @@ import psycopg
 import pyarrow as pa
 import structlog
 from psycopg import sql
+from psycopg.abc import AdaptContext
 from psycopg.adapt import Loader
 from psycopg.types.datetime import TimeLoader, TimestampLoader, TimestamptzLoader, TimetzLoader
 from structlog.types import FilteringBoundLogger
@@ -2078,6 +2079,31 @@ class NetworkAsStringLoader(Loader):
         if data is None:
             return None
         return bytes(data).decode("utf-8")
+
+
+class LenientTextLoader(Loader):
+    """Load PostgreSQL text values, replacing bytes that are not valid UTF-8.
+
+    Postgres does not re-validate stored text on output, so a `SQL_ASCII` database or an
+    extension that writes raw bytes into a `text` column (e.g. Supabase's `pg_net` storing
+    binary HTTP response bodies) can send invalid UTF-8. psycopg's default loader decodes
+    strictly, so one such value fails the whole sync with `UnicodeDecodeError`.
+
+    Decodes with the negotiated client encoding, because a pooler that rejects the startup
+    `options` leaves the connection on the server's own encoding (e.g. LATIN1). `SQL_ASCII`
+    decodes as UTF-8, because psycopg would return `bytes` for it, which Arrow cannot store
+    in a string column.
+    """
+
+    def __init__(self, oid: int, context: AdaptContext | None = None):
+        super().__init__(oid, context)
+        encoding = self.connection.info.encoding if self.connection else "utf-8"
+        self._encoding = "utf-8" if encoding == "ascii" else encoding
+
+    def load(self, data):
+        if data is None:
+            return None
+        return bytes(data).decode(self._encoding, "replace")
 
 
 class SafeDateLoader(Loader):
@@ -4207,6 +4233,10 @@ def postgres_source(
                 connection.adapters.register_loader("timetz", SafeTimetzLoader)
                 connection.adapters.register_loader("inet", NetworkAsStringLoader)
                 connection.adapters.register_loader("cidr", NetworkAsStringLoader)
+                connection.adapters.register_loader("text", LenientTextLoader)
+                connection.adapters.register_loader("varchar", LenientTextLoader)
+                connection.adapters.register_loader("bpchar", LenientTextLoader)
+                connection.adapters.register_loader("name", LenientTextLoader)
                 # Bump statement_timeout for the streaming connection. A server
                 # cursor FETCH inherits the session statement_timeout, and on
                 # wide/partitioned scans the source's default (often 30-60s)

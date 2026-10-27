@@ -172,6 +172,11 @@ class AmazonAdsDefaultSources(StrEnum):
     AMAZON_ADS = "amazon_ads"
 
 
+class DefaultSort(StrEnum):
+    FIELD_LAST_VIEWED_AT = "-last_viewed_at"
+    FIELD_CREATED_AT = "-created_at"
+
+
 class AnnotationScope(StrEnum):
     DASHBOARD_ITEM = "dashboard_item"
     DASHBOARD = "dashboard"
@@ -1509,14 +1514,6 @@ class PrecomputationMode(StrEnum):
     DIRECT = "direct"
 
 
-class ExperimentSignificanceCode(StrEnum):
-    SIGNIFICANT = "significant"
-    NOT_ENOUGH_EXPOSURE = "not_enough_exposure"
-    LOW_WIN_PROBABILITY = "low_win_probability"
-    HIGH_LOSS = "high_loss"
-    HIGH_P_VALUE = "high_p_value"
-
-
 class ExperimentStatsMethod(StrEnum):
     BAYESIAN = "bayesian"
     FREQUENTIST = "frequentist"
@@ -1581,6 +1578,7 @@ class FileSystemIconType(StrEnum):
     UPTIME_MONITORING = "uptime_monitoring"
     WORKFLOWS = "workflows"
     BROADCASTS = "broadcasts"
+    TRANSACTIONAL = "transactional"
     NOTEBOOK = "notebook"
     ACTION = "action"
     ACTIVITY = "activity"
