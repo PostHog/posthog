@@ -1275,13 +1275,14 @@ class TestDestinationConnectLinkQuery(SimpleTestCase):
 class TestDestinationConnectLink(DestinationAPITestBase):
     @parameterized.expand(
         [
-            ("single_kind", "destination_type=Snowflake", "Snowflake", "snowflake"),
-            ("s3_defaults_to_aws", "destination_type=S3", "S3", "aws-s3"),
-            ("s3_compatible", "destination_type=S3&integration_kind=s3-compatible", "S3", "s3-compatible"),
+            ("single_kind", "destination_type=Snowflake", "Snowflake", "snowflake", True),
+            ("s3_defaults_to_aws", "destination_type=S3", "S3", "aws-s3", True),
+            ("s3_compatible", "destination_type=S3&integration_kind=s3-compatible", "S3", "s3-compatible", True),
+            ("untested_type", "destination_type=Redshift", "Redshift", "aws-redshift", False),
         ]
     )
     def test_points_at_the_connect_page_for_the_integration_kind(
-        self, _name: str, query: str, destination_type: str, kind: str
+        self, _name: str, query: str, destination_type: str, kind: str, tested_on_create: bool
     ) -> None:
         response = self.client.get(f"{self.base}/connect_link?{query}")
 
@@ -1292,6 +1293,7 @@ class TestDestinationConnectLink(DestinationAPITestBase):
         assert data["connect_url"].endswith(f"/project/{self.team.pk}/data-warehouse/connect-destination?kind={kind}")
         assert f"kind='{kind}'" in data["instructions"]
         assert f"type='{destination_type}'" in data["instructions"]
+        assert ("tests the connection" in data["instructions"]) == tested_on_create
 
 
 class TestDestinationAPIKeyScopes(DestinationAPITestBase):

@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.presentation.destination_connection_chec
 from products.warehouse_sources.backend.presentation.destination_connection_testing import (
     ConnectionTestRun,
     DestinationConnectionTestStepStatus,
+    has_connection_test,
     run_connection_test,
     run_postgres_connection_test,
 )
@@ -569,6 +570,12 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         """
         destination_type = request.validated_query_data["destination_type"]
         kind = request.validated_query_data["integration_kind"]
+        target_check = (
+            "Creating the destination tests the connection, so a wrong target fails at that step."
+            if has_connection_test(destination_type)
+            else f"Nothing tests a {destination_type} target before the first sync, so confirm it with the user "
+            "before creating the destination."
+        )
         data = {
             "destination_type": destination_type,
             "integration_kind": kind,
@@ -583,8 +590,7 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 f"kind='{kind}' and take the entry with the latest created_at (the list is oldest first), then "
                 "confirm its display_name with the user. Then call external-data-destinations-create with "
                 f"type='{destination_type}', a name, that integration id, and the target config that tool lists "
-                f"for {destination_type}. Creating the destination tests the connection, so a wrong target fails at "
-                "that step."
+                f"for {destination_type}. {target_check}"
             ),
         }
         return Response(DestinationConnectLinkSerializer(data).data)
