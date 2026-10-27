@@ -27,6 +27,14 @@ const cloudSubscription = vi.hoisted(() => ({
   cloudSubscriptionOn: false,
   cloudFlagEnabled: true,
 }));
+const claudeCloudAccount = vi.hoisted(() => ({
+  data: null as {
+    status: "connected" | "reauth_required" | "not_connected";
+    connected_at: string | null;
+    expires_at: string | null;
+  } | null,
+}));
+const toastMock = vi.hoisted(() => ({ error: vi.fn(), warning: vi.fn() }));
 
 vi.mock("@posthog/di/react", () => ({
   useService: () => ({ createTask: createTaskMock }),
@@ -79,8 +87,11 @@ vi.mock("../../../hooks/useConnectivity", () => ({
 vi.mock("../../billing/preflightCloudUsage", () => ({
   assertCloudUsageAvailable: assertCloudUsageAvailableMock,
 }));
+vi.mock("@posthog/ui/features/settings/claudeCloudAccount", () => ({
+  useClaudeCloudAccount: () => claudeCloudAccount,
+}));
 vi.mock("../../../primitives/toast", () => ({
-  toast: { error: vi.fn() },
+  toast: toastMock,
 }));
 vi.mock("../../../shell/analytics", () => ({ track: trackMock }));
 vi.mock("../../../shell/logger", () => ({
@@ -186,6 +197,7 @@ describe("useTaskCreation prompt records", () => {
     vi.clearAllMocks();
     createTaskMock.mockReset();
     cloudSubscription.cloudSubscriptionOn = false;
+    claudeCloudAccount.data = null;
     usePendingTaskPromptStore.setState({ byKey: {}, _hasHydrated: true });
     useTaskInputPrefillStore.setState({ prefill: {} });
     useTaskInputHistoryStore.setState({ entries: [] });
@@ -298,6 +310,59 @@ describe("useTaskCreation prompt records", () => {
       codexModelAccess: undefined,
     });
   });
+
+  it.each([
+    {
+      name: "a token that expires in 3 days",
+      daysLeft: 3,
+      subscription: true,
+      warns: true,
+    },
+    {
+      name: "a token that expires in 30 days",
+      daysLeft: 30,
+      subscription: true,
+      warns: false,
+    },
+    { name: "PostHog billing", daysLeft: 3, subscription: false, warns: false },
+  ])(
+    "starts a cloud Claude task with $name and warns only when the token expires soon",
+    async ({ daysLeft, subscription, warns }) => {
+      cloudSubscription.cloudSubscriptionOn = subscription;
+      claudeCloudAccount.data = {
+        status: "connected",
+        connected_at: "2026-01-01T00:00:00Z",
+        expires_at: new Date(
+          Date.now() + daysLeft * 24 * 60 * 60 * 1000 - 60 * 60 * 1000,
+        ).toISOString(),
+      };
+      createTaskMock.mockResolvedValueOnce({
+        success: true,
+        data: { task: fakeTask(), workspace: null },
+      });
+      const { result } = renderTaskCreation(
+        textToContent("Check the build"),
+        "cloud",
+      );
+
+      await act(async () => {
+        expect(await result.current.handleSubmit()).toBe(true);
+      });
+
+      expect(toastMock.warning.mock.calls).toEqual(
+        warns
+          ? [
+              [
+                "Claude token expires soon",
+                {
+                  description: `Your Claude token expires in about ${daysLeft} days. Create a new token before this date.`,
+                },
+              ],
+            ]
+          : [],
+      );
+    },
+  );
 
   it.each(["local", "worktree", "cloud"] as const)(
     "keeps the submitted prompt visible after successful %s creation until the chat takes over",

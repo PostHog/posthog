@@ -434,3 +434,12 @@ tools:
         param_overrides:
             uuid:
                 description: User UUID, or `@me` to target the authenticated user.
+    users-integrations-claude-create:
+        operation: users_integrations_claude_create
+        enabled: false
+    users-integrations-claude-destroy:
+        operation: users_integrations_claude_destroy
+        enabled: false
+    users-integrations-claude-retrieve:
+        operation: users_integrations_claude_retrieve
+        enabled: false

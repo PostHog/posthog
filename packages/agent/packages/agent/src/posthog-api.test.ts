@@ -544,4 +544,78 @@ describe("PostHogAPIClient", () => {
       });
     },
   );
+  it("asks the run's claude_subscription_token endpoint with the fd 3 run token", async () => {
+    const client = new PostHogAPIClient({
+      apiUrl: "https://app.posthog.com",
+      getApiKey: vi.fn().mockResolvedValue("token"),
+      projectId: 7,
+    });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({ token: "sk-ant-oat01-fake" }),
+    });
+
+    await expect(
+      client.requestClaudeSubscriptionToken(
+        "task-1",
+        "run-1",
+        "run-token",
+        "b".repeat(64),
+        5_000,
+      ),
+    ).resolves.toBe("sk-ant-oat01-fake");
+
+    expect(mockFetch).toHaveBeenLastCalledWith(
+      "https://app.posthog.com/api/projects/7/tasks/task-1/runs/run-1/claude_subscription_token/",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ rejected_token_sha256: "b".repeat(64) }),
+      }),
+    );
+    const request = mockFetch.mock.calls.at(-1)?.[1] as RequestInit;
+    expect((request.headers as Headers).get("X-Task-Run-Token")).toBe(
+      "run-token",
+    );
+  });
+
+  it.each([
+    [
+      409,
+      { code: "reauth_required", error: "Paste again." },
+      "reauth_required",
+    ],
+    [403, {}, "forbidden"],
+    [400, {}, "request_failed"],
+    [200, {}, "request_failed"],
+  ])(
+    "maps a %s from claude_subscription_token to the %s error code",
+    async (status, body, code) => {
+      const client = new PostHogAPIClient({
+        apiUrl: "https://app.posthog.com",
+        getApiKey: vi.fn().mockResolvedValue("token"),
+        projectId: 7,
+      });
+      mockFetch.mockResolvedValueOnce({
+        ok: status < 300,
+        status,
+        statusText: "Error",
+        json: vi.fn().mockResolvedValue(body),
+      });
+
+      await expect(
+        client.requestClaudeSubscriptionToken(
+          "task-1",
+          "run-1",
+          "run-token",
+          null,
+          5_000,
+        ),
+      ).rejects.toMatchObject({
+        name: "ClaudeSubscriptionTokenError",
+        code,
+        status,
+      });
+    },
+  );
 });

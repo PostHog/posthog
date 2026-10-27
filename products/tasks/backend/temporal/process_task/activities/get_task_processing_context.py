@@ -13,6 +13,7 @@ from temporalio import activity
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.models.integration.claude import STATUS_CONNECTED, STATUS_REAUTH_REQUIRED, ClaudeUserIntegration
 from posthog.models.integration.codex import CodexUserIntegration
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
@@ -21,6 +22,7 @@ from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_SERVER_SHADOW_FEATURE_FLAG,
     BENJAMIN_FEATURE_FLAG,
+    CLAUDE_REJECTED_TOKEN_MESSAGE,
     CODEX_SUBSCRIPTION_EGRESS_DOMAINS,
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     DEV_STACK_IMAGE_NAME,
@@ -72,7 +74,7 @@ from products.tasks.backend.logic.stream.redis_stream import get_task_run_stream
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.redis import run_uses_dedicated_stream
 from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
-from products.tasks.backend.temporal.metrics import StepTimer, sandbox_runtime_label
+from products.tasks.backend.temporal.metrics import StepTimer, increment_credential_refresh, sandbox_runtime_label
 from products.tasks.backend.temporal.oauth import is_interactive_signals_run
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
@@ -178,6 +180,7 @@ class TaskProcessingContext:
     dev_stack_preview_enabled: bool = False
     claude_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
     codex_model_access: Literal["posthog-gateway", "own-subscription"] = "posthog-gateway"
+    claude_subscription_server: bool = False
 
     @property
     def model_access(self) -> ModelAccess:
@@ -531,6 +534,23 @@ def _ensure_codex_account_connected(owner_id: int | None, run_id: str) -> None:
             cause=ValueError("Codex subscription requested without a connected ChatGPT account"),
             capture=False,
         )
+
+
+def _claude_server_token_status(owner_id: int | None) -> str | None:
+    integration = ClaudeUserIntegration.for_user(owner_id) if owner_id is not None else None
+    return integration.status if integration is not None else None
+
+
+def _ensure_claude_token_not_rejected(status: str | None, run_id: str) -> None:
+    if status != STATUS_REAUTH_REQUIRED:
+        return
+    increment_credential_refresh("claude", "blocked")
+    raise ProcessTaskFatalError(
+        CLAUDE_REJECTED_TOKEN_MESSAGE,
+        {"run_id": run_id},
+        cause=ValueError("Claude subscription requested with a token Claude rejected"),
+        capture=False,
+    )
 
 
 def _is_benjamin_enabled(
@@ -1320,6 +1340,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         benjamin_enabled=benjamin_enabled,
         claude_model_access=claude_model_access,
         codex_model_access=codex_model_access,
+        claude_subscription_server=claude_subscription_server,
         continue_as_new_enabled=True,
         continue_as_new_history_threshold=settings.TASKS_CONTINUE_AS_NEW_HISTORY_THRESHOLD,
         interactive_max_run_duration_seconds=interactive_max_run_duration_seconds,
