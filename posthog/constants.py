@@ -348,7 +348,12 @@ LOGIN_METHODS = [
     {
         "key": "google-oauth2",
         "display": "Google OAuth",
-        "backends": ["google-oauth2", "posthog.api.sso.CustomGoogleOAuth2"],
+        # The `ee.` path is only carried by sessions issued before the move to `posthog.api.sso`.
+        "backends": [
+            "google-oauth2",
+            "posthog.api.sso.CustomGoogleOAuth2",
+            "ee.api.authentication.CustomGoogleOAuth2",
+        ],
     },
     {
         "key": "github",
@@ -363,7 +368,8 @@ LOGIN_METHODS = [
     {
         "key": "saml",
         "display": "SAML",
-        "backends": ["saml", "posthog.api.sso.MultitenantSAMLAuth"],
+        # The `ee.` path is only carried by sessions issued before the move to `posthog.api.sso`.
+        "backends": ["saml", "posthog.api.sso.MultitenantSAMLAuth", "ee.api.authentication.MultitenantSAMLAuth"],
     },
     {
         "key": "oidc",

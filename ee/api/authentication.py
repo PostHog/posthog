@@ -8,6 +8,10 @@ from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
+from posthog.api.sso import (
+    CustomGoogleOAuth2 as _CustomGoogleOAuth2,
+    MultitenantSAMLAuth as _MultitenantSAMLAuth,
+)
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.utils import ActivityCredentialMixin
@@ -17,6 +21,28 @@ from ee.api.vercel.types import VercelClaims, VercelSystemClaims, VercelUser, Ve
 from ee.api.vercel.utils import get_vercel_jwks
 
 logger = structlog.get_logger(__name__)
+
+
+class MultitenantSAMLAuth(_MultitenantSAMLAuth):
+    """Legacy alias for sessions created before SAML auth moved to posthog.api.sso.
+
+    `django.contrib.auth.get_user()` only restores a session if its stored backend path is in
+    `AUTHENTICATION_BACKENDS`. `authenticate()` returns None so no new session adopts this path.
+    """
+
+    name = "saml-legacy"
+
+    def authenticate(self, request, *args, **kwargs):
+        return None
+
+
+class CustomGoogleOAuth2(_CustomGoogleOAuth2):
+    """Legacy alias for sessions created before Google auth moved to posthog.api.sso."""
+
+    name = "google-oauth2-legacy"
+
+    def authenticate(self, request, *args, **kwargs):
+        return None
 
 
 def _get_bearer_token(request: Request) -> str | None:

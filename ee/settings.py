@@ -14,6 +14,10 @@ AUTHENTICATION_BACKENDS = [
     "posthog.api.sso.MultitenantSAMLAuth",
     "posthog.api.oidc.MultitenantOIDCAuth",
     "posthog.api.sso.CustomGoogleOAuth2",
+    # Legacy paths for sessions issued before the move. They resolve existing sessions but
+    # refuse to authenticate, so new sessions only ever use the paths above.
+    "ee.api.authentication.MultitenantSAMLAuth",
+    "ee.api.authentication.CustomGoogleOAuth2",
 ]
 
 # SAML base attributes
