@@ -8,7 +8,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 # cursor. See `northpass_lms.py` for the pagination transport.
 
 
-@dataclass
+@dataclass(frozen=True)
 class NorthpassEndpointConfig:
     name: str
     # JSON:API collection path relative to the API base. Fan-out children use a `{parent_id}`
