@@ -169,7 +169,7 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
             explanation="The expectation holds.",
         )
 
-    @parameterized.expand([("cancelled",), ("definition",), ("expired",), ("flag_off",)])
+    @parameterized.expand([("cancelled",), ("definition",), ("completed",), ("flag_off",), ("errored",), ("expired",)])
     def test_final_result_rechecks_check_invalidation_after_a_lock_wait(self, change: str) -> None:
         with (
             patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True) as flag,
@@ -187,13 +187,25 @@ class TestReportCheckConcurrency(NonAtomicBaseTest):
                     )
                 elif change == "definition":
                     checks.update(title="A different expectation")
-                elif change == "expired":
-                    checks.update(expires_at=timezone.now())
+                elif change in {"errored", "expired", "completed"}:
+                    checks.update(
+                        status=SignalReportCheck.Status.PASSED if change == "completed" else change,
+                        expires_at=timezone.now(),
+                    )
                 else:
                     flag.return_value = False
-            with self.assertRaises(InvalidMonitoringResult):
-                future.result(timeout=10)
-        assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
+            if change in {"errored", "expired"}:
+                result = future.result(timeout=10)
+                assert isinstance(result, SignalReportMonitoringResult)
+                assert result.outcome == "passed"
+                self.check.refresh_from_db()
+                assert self.check.status == change
+            else:
+                with self.assertRaises(InvalidMonitoringResult):
+                    future.result(timeout=10)
+        assert SignalReportMonitoringResult.objects.for_team(self.team.id).exists() == (
+            change in {"errored", "expired"}
+        )
 
     @parameterized.expand([("resolved",), ("suppressed",), ("reopened",)])
     def test_final_result_rechecks_report_state_after_a_lock_wait(self, change: str) -> None:

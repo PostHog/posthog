@@ -979,7 +979,6 @@ class DockerSandbox(AgentServerLaunchMixin):
         repo_ready_file: str | None = None,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
-        peer_messaging: bool = False,
         pi_acp_conversation: bool = False,
         posthog_exec_permission_regex: str | None = None,
         claude_model_access: str | None = None,
@@ -1009,7 +1008,6 @@ class DockerSandbox(AgentServerLaunchMixin):
             event_ingest_url=event_ingest_url,
             rtk_enabled=rtk_enabled,
             benjamin_enabled=benjamin_enabled,
-            peer_messaging=peer_messaging,
             pi_acp_conversation=pi_acp_conversation,
         )
         subscription_flag = build_subscription_flags(claude_model_access, codex_model_access)
