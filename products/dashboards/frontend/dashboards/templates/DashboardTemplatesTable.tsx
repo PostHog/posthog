@@ -14,6 +14,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { dashboardTemplateModalLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplateModalLogic'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { dashboardTemplateEditorLogic } from 'scenes/dashboard/dashboardTemplateEditorLogic'
 import { urls } from 'scenes/urls'
@@ -21,7 +22,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { DashboardTemplateType } from '~/types'
 
-import { dashboardTemplateModalLogic } from './dashboardTemplateModalLogic'
 import { DashboardTemplatesEmptyState } from './DashboardTemplatesEmptyState'
 
 const templatesTableLogic = dashboardTemplatesLogic({ scope: 'default', templatesTabList: true })
