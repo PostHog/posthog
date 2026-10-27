@@ -4,6 +4,18 @@
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
     },
     "dependencies": {
-        "kea": "catalog:"
+        "@posthog/quill": "workspace:*",
+        "kea": "catalog:",
+        "posthog-js": "catalog:"
+    },
+    "devDependencies": {
+        "kea-test-utils": "catalog:"
+    },
+    "peerDependencies": {
+        "@posthog/icons": "catalog:",
+        "@storybook/react": "catalog:",
+        "@types/react": "*",
+        "kea-router": "catalog:",
+        "react": "*"
     }
 }

@@ -3,6 +3,7 @@ import { Suspense } from 'react'
 
 import { PostHogErrorBoundary } from '@posthog/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { projectLogic } from 'scenes/projectLogic'
@@ -18,6 +19,14 @@ const WizardRailButton = lazyWithRetry(() =>
     import('products/wizard/frontend/views/run-sidebar/WizardRailButton').then(({ WizardRailButton }) => ({
         default: WizardRailButton,
     }))
+)
+
+const TodayNotificationsRailTile = lazyWithRetry(() =>
+    import('products/notifications/frontend/pane/TodayNotificationsRailTile').then(
+        ({ TodayNotificationsRailTile }) => ({
+            default: TodayNotificationsRailTile,
+        })
+    )
 )
 
 // pinned: autocapture data-attr. The Settings tile kept the attribute of the gear button it replaced.
@@ -60,6 +69,14 @@ export function TodayRail(): JSX.Element {
                     </PostHogErrorBoundary>
                 )}
             <div className="mt-auto flex w-full flex-col items-center gap-3">
+                {featureFlags[FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS] && (
+                    <Suspense fallback={null}>
+                        <TodayNotificationsRailTile
+                            active={activePane === 'notifications'}
+                            onClick={() => clickRailPane('notifications')}
+                        />
+                    </Suspense>
+                )}
                 <TodayMoreMenu />
                 {TODAY_RAIL_FOOTER_PANES.map(renderTile)}
             </div>

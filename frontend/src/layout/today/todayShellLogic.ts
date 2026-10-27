@@ -22,7 +22,15 @@ import { FileSystemImport } from '~/queries/schema/schema-general'
 import { isPeopleDetailPath, isPeopleListPath } from './todayPeople'
 import { todayPeopleRecentsLogic } from './todayPeopleRecentsLogic'
 
-export type TodayRailPane = 'home' | 'spaces' | 'analytics' | 'people' | 'release' | 'products' | 'settings'
+export type TodayRailPane =
+    | 'home'
+    | 'spaces'
+    | 'analytics'
+    | 'people'
+    | 'release'
+    | 'products'
+    | 'settings'
+    | 'notifications'
 
 /** What the shell shows: the page, the pane picked on the rail, and whether its sidebar is open. */
 export interface TodayView {
@@ -199,6 +207,9 @@ function paneAfterNavigation(
     shownPane: TodayRailPane | null
 ): TodayRailPane | null {
     const path = removeProjectIdIfPresent(pathname)
+    if (openPane === 'notifications') {
+        return openPane
+    }
     const routePane = railPaneForPath(pathname)
     if (openPane === 'products' && productsPaneKeepsPath(path, routePane)) {
         return openPane
@@ -276,6 +287,9 @@ export interface todayShellLogicActions {
         pane: TodayRailPane
     }
     goBackOnPhone: () => {
+        value: true
+    }
+    keepSidebarOnNextPage: () => {
         value: true
     }
     pickPane: (pane: TodayRailPane) => {
@@ -417,6 +431,7 @@ export const todayShellLogic = kea<todayShellLogicType>([
         toggleSidebar: (source: TodaySidebarToggleSource) => ({ source }),
         toggleSidebarPinned: true,
         clickRailPane: (pane: TodayRailPane) => ({ pane }),
+        keepSidebarOnNextPage: true,
     }),
     windowValues(() => ({
         phoneLayout: (window: Window) => window.innerWidth < TODAY_PHONE_MAX_WIDTH,
@@ -591,11 +606,16 @@ export const todayShellLogic = kea<todayShellLogicType>([
                 mobile_layout: values.mobileLayout,
             })
         },
+        keepSidebarOnNextPage: () => {
+            cache.keepSidebarOnNextPage = true
+        },
         locationChanged: ({ method, pathname }) => {
             const { pickedPane } = values
             const shownPane = pickedPane ?? railPaneForPath(cache.lastPathname ?? '')
             actions.setPickedPane(paneAfterNavigation(pickedPane, pathname, shownPane))
             const pageChanged = method === 'PUSH' && pathname !== cache.lastPathname
+            const keepSidebar = !!cache.keepSidebarOnNextPage
+            cache.keepSidebarOnNextPage = false
             cache.lastPathname = pathname
             // An unpinned sidebar gives the new page room. The drawer closes on its own, and a rail pick wants it open.
             if (
@@ -603,7 +623,8 @@ export const todayShellLogic = kea<todayShellLogicType>([
                 !values.sidebarPinned &&
                 !values.mobileLayout &&
                 values.sidebarOpen &&
-                !cache.pickingPane
+                !cache.pickingPane &&
+                !keepSidebar
             ) {
                 actions.toggleSidebar('navigation')
             }

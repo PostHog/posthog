@@ -1,5 +1,8 @@
+import { Suspense } from 'react'
+
 import {
     IconApps,
+    IconBell,
     IconChat,
     IconFlag,
     IconGear,
@@ -11,6 +14,7 @@ import {
 
 import { IconAnalyticsBars } from 'lib/lemon-ui/icons'
 import { isMac } from 'lib/utils/dom'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import { TodayNewAnalyticsButton } from './TodayNewAnalyticsButton'
 import { TodayNewChatButton } from './TodayNewChatButton'
@@ -23,6 +27,20 @@ export interface TodayPane {
     title: string
     icon: JSX.Element
     action?: () => JSX.Element
+}
+
+const NotificationsPaneHeaderActions = lazyWithRetry(() =>
+    import('products/notifications/frontend/pane/NotificationsPaneHeaderActions').then((m) => ({
+        default: m.NotificationsPaneHeaderActions,
+    }))
+)
+
+function TodayNotificationsHeaderActions(): JSX.Element {
+    return (
+        <Suspense fallback={null}>
+            <NotificationsPaneHeaderActions />
+        </Suspense>
+    )
 }
 
 export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
@@ -38,6 +56,12 @@ export const TODAY_PANES: Record<TodayRailPane, TodayPane> = {
     release: { label: 'Releases', title: 'Releases', icon: <IconFlag /> },
     products: { label: 'Products', title: 'Products', icon: <IconApps /> },
     settings: { label: 'Settings', title: 'Settings', icon: <IconGear /> },
+    notifications: {
+        label: 'Updates',
+        title: 'Notifications',
+        icon: <IconBell />,
+        action: TodayNotificationsHeaderActions,
+    },
 }
 
 export const TODAY_RAIL_FOOTER_PANES: TodayRailPane[] = ['settings']
