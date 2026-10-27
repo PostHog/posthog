@@ -1533,6 +1533,7 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_frequent_files_filter_access_before_selecting_top_items(self, mock_flag: MagicMock) -> None:
+        assert self.file_b.ref is not None
         Dashboard.objects.filter(id=self.file_b.ref).update(created_by=self.other_user)
         FileSystem.objects.filter(team=self.team, type="dashboard", ref=self.file_b.ref).update(
             created_by=self.other_user
@@ -1540,6 +1541,7 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self._create_access_control(resource="dashboard", resource_id=self.file_b.ref, access_level="none")
         now = timezone.now()
         for entry, days in ((self.file_a, [1, 2]), (self.file_b, [0, 1, 2, 3])):
+            assert entry.ref is not None
             FileSystemViewLog.objects.create(
                 team=self.team,
                 user=self.user,
