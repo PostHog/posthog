@@ -9,6 +9,7 @@ import posthog from 'posthog-js'
 import type { Layout } from 'react-grid-layout'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
+import * as dashboardGeneratedApi from '@posthog/products-dashboards/frontend/generated/api'
 import * as dashboardWidgetUtils from '@posthog/products-dashboards/frontend/utils'
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
 
@@ -6555,6 +6556,35 @@ describe('dashboardLogic', () => {
             expect(api.create).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/8/copy_tile`, {
                 fromDashboardId: 5,
                 tileId: WIDGET_TILE.id,
+            })
+        })
+
+        it('copies a group once and records the completed action', async () => {
+            const copyGroup = jest
+                .spyOn(dashboardGeneratedApi, 'dashboardsCopyGroupCreate')
+                .mockResolvedValueOnce(
+                    {} as Awaited<ReturnType<typeof dashboardGeneratedApi.dashboardsCopyGroupCreate>>
+                )
+
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.copyGroupToDashboard('plans', 8, 'Target dashboard')
+            })
+                .toDispatchActions(['copyGroupToDashboardFinished'])
+                .toFinishAllListeners()
+                .toMatchValues({ copyGroupToDashboardLoading: false })
+
+            expect(copyGroup).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 8, {
+                fromDashboardId: 5,
+                groupKey: 'plans',
+            })
+            expect(posthog.capture).toHaveBeenCalledWith('dashboard tile group copied to other dashboard', {
+                from_dashboard_id: 5,
+                to_dashboard_id: 8,
+                tile_count: 0,
             })
         })
     })

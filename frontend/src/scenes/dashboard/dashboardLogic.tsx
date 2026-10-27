@@ -25,6 +25,7 @@ import { ResponsiveLayouts } from 'react-grid-layout'
 import type { Layout } from 'react-grid-layout'
 
 import { LemonButton, LemonDialog, lemonToast } from '@posthog/lemon-ui'
+import { dashboardsCopyGroupCreate } from '@posthog/products-dashboards/frontend/generated/api'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 import { isWidgetConfigValidationError, updateDashboardWidgetTile } from '@posthog/products-dashboards/frontend/utils'
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
@@ -697,6 +698,7 @@ export interface dashboardLogicValues {
     collapsedTileIds: Set<number>
     columns: number | null
     containerWidth: number | null
+    copyGroupToDashboardLoading: boolean
     currentDashboardSettings: DashboardSettings
     currentDashboardVariables: Record<string, HogQLVariable>
     currentLayoutSize: 'sm' | 'xs'
@@ -903,6 +905,18 @@ export interface dashboardLogicActions {
         tileIds: number[]
     }
     closeTileModal: () => {
+        value: true
+    }
+    copyGroupToDashboard: (
+        groupKey: string,
+        toDashboard: number,
+        toDashboardName: string
+    ) => {
+        groupKey: string
+        toDashboard: number
+        toDashboardName: string
+    }
+    copyGroupToDashboardFinished: () => {
         value: true
     }
     copyToDashboard: (
@@ -2185,6 +2199,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             toDashboard,
             toDashboardName,
         }),
+        copyGroupToDashboard: (groupKey: string, toDashboard: number, toDashboardName: string) => ({
+            groupKey,
+            toDashboard,
+            toDashboardName,
+        }),
+        copyGroupToDashboardFinished: true,
         setTextTileId: (textTileId: DashboardTileIdOrNew) => ({ textTileId }),
         setButtonTileId: (buttonTileId: DashboardTileIdOrNew) => ({ buttonTileId }),
         openAddInsightModal: true,
@@ -2659,6 +2679,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
     })),
     reducers(({ props }) => ({
+        copyGroupToDashboardLoading: [
+            false,
+            {
+                copyGroupToDashboard: () => true,
+                copyGroupToDashboardFinished: () => false,
+            },
+        ],
         dashboardLoading: [
             false,
             {
@@ -4485,6 +4512,28 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
+        copyGroupToDashboard: async ({ groupKey, toDashboard, toDashboardName }) => {
+            try {
+                await dashboardsCopyGroupCreate(String(teamLogic.values.currentTeamId), toDashboard, {
+                    fromDashboardId: props.id,
+                    groupKey,
+                })
+                posthog.capture('dashboard tile group copied to other dashboard', {
+                    from_dashboard_id: props.id,
+                    to_dashboard_id: toDashboard,
+                    tile_count: values.tiles.filter((tile) => tile.group_key === groupKey).length,
+                })
+                lemonToast.success(
+                    <>
+                        Group copied to <Link to={urls.dashboard(toDashboard)}>{toDashboardName}</Link>
+                    </>
+                )
+            } catch (error) {
+                lemonToast.error(`Could not copy group to dashboard: ${String(error)}`)
+            } finally {
+                actions.copyGroupToDashboardFinished()
+            }
+        },
         revealHighlightedInsight: () => {
             const insightId = values.highlightedInsightId
             const tile = values.tiles.find((tile) => insightId && tile.insight?.short_id === insightId)

@@ -501,6 +501,88 @@ class TestDashboardWidgets(APIBaseTest):
         assert (dest_dashboard["tiles"][0]["group_key"], dest_dashboard["tiles"][0]["badge"]) == (None, "winner")
 
     @override_settings(IN_UNIT_TESTING=True)
+    def test_copy_group_copies_tiles_settings_and_relative_layout(self) -> None:
+        source_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        dest_id, _ = self.dashboard_api.create_dashboard({"name": "dest"})
+        self.dashboard_api.create_text_tile(
+            dest_id,
+            extra_data={"layouts": {"sm": {"x": 0, "y": 0, "w": 6, "h": 3}, "xs": {"x": 0, "y": 0, "w": 1, "h": 2}}},
+        )
+        _, source = self.dashboard_api.create_widget_tile(source_id)
+        widget_id = source["tiles"][0]["id"]
+        _, source = self.dashboard_api.create_text_tile(source_id)
+        text_id = next(tile["id"] for tile in source["tiles"] if tile["text"])
+        insight_id, _ = self.dashboard_api.create_insight({"name": "Activation"})
+        self.dashboard_api.add_insight_to_dashboard([source_id], insight_id)
+        source = self.dashboard_api.get_dashboard(source_id)
+        insight_tile_id = next(tile["id"] for tile in source["tiles"] if tile["insight"])
+        self.dashboard_api.update_dashboard(
+            source_id,
+            {
+                "groups": {"plans": {"title": "Plans", "color": "green", "collapsed": True}},
+                "tiles": [
+                    {
+                        "id": widget_id,
+                        "group_key": "plans",
+                        "layouts": {"sm": {"x": 0, "y": 4, "w": 6, "h": 3}, "xs": {"x": 0, "y": 7, "w": 1, "h": 2}},
+                    },
+                    {
+                        "id": text_id,
+                        "group_key": "plans",
+                        "layouts": {"sm": {"x": 6, "y": 5, "w": 6, "h": 2}, "xs": {"x": 0, "y": 9, "w": 1, "h": 2}},
+                    },
+                    {
+                        "id": insight_tile_id,
+                        "group_key": "plans",
+                        "layouts": {"sm": {"x": 0, "y": 6, "w": 6, "h": 2}, "xs": {"x": 0, "y": 11, "w": 1, "h": 2}},
+                    },
+                ],
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dest_id}/copy_group",
+            {"fromDashboardId": source_id, "groupKey": "plans"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        copied = [tile for tile in response.json()["tiles"] if tile["group_key"]]
+        assert len(copied) == 3
+        new_key = copied[0]["group_key"]
+        assert new_key != "plans"
+        assert all(tile["group_key"] == new_key for tile in copied)
+        assert next(tile["insight"]["id"] for tile in copied if tile["insight"]) == insight_id
+        assert next(tile["widget"]["id"] for tile in copied if tile["widget"]) != next(
+            tile["widget"]["id"] for tile in source["tiles"] if tile["widget"]
+        )
+        assert response.json()["customization"]["groups"][new_key] == {
+            "title": "Plans",
+            "color": "green",
+            "collapsed": True,
+        }
+        assert sorted(tile["layouts"]["sm"]["y"] for tile in copied) == [3, 4, 5]
+        assert sorted(tile["layouts"]["xs"]["y"] for tile in copied) == [2, 4, 6]
+        assert self.dashboard_api.get_dashboard(source_id)["customization"]["groups"]["plans"]["title"] == "Plans"
+
+    def test_copy_group_rejects_existing_tile_without_partial_copy(self) -> None:
+        source_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
+        dest_id, _ = self.dashboard_api.create_dashboard({"name": "dest"})
+        _, source = self.dashboard_api.create_text_tile(source_id, extra_data={"group_key": "plans"})
+        self.dashboard_api.create_text_tile(dest_id, text="I AM TEXT!")
+        source_tile = source["tiles"][0]
+        self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dest_id}/copy_tile",
+            {"fromDashboardId": source_id, "tileId": source_tile["id"]},
+        )
+        before = self.dashboard_api.get_dashboard(dest_id)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/{dest_id}/copy_group",
+            {"fromDashboardId": source_id, "groupKey": "plans"},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert self.dashboard_api.get_dashboard(dest_id)["tiles"] == before["tiles"]
+
+    @override_settings(IN_UNIT_TESTING=True)
     def test_move_tile_moves_widget_tile(self) -> None:
         source_id, _ = self.dashboard_api.create_dashboard({"name": "source"})
         dest_id, _ = self.dashboard_api.create_dashboard({"name": "dest"})

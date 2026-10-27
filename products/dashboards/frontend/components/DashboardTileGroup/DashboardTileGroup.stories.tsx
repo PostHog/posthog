@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import type { DashboardBasicType } from '~/types'
+
 import type { DashboardTileGroupApi } from '../../generated/api.schemas'
 import { DashboardTileGroup } from './DashboardTileGroup'
 
@@ -33,6 +35,8 @@ export const LongTitleInNarrowScene: StoryObj = {
                 tileCount={12}
                 collapsed
                 onToggle={() => {}}
+                copyToDestinations={[{ dashboard: { id: 42, name: 'Example dashboard' } as DashboardBasicType }]}
+                onCopyToDashboard={() => {}}
             >
                 <FakeTile />
             </DashboardTileGroup>

@@ -289,6 +289,7 @@ describe('DashboardItems', () => {
                     refreshDashboardWidgets: jest.fn(),
                     moveToDashboard: jest.fn(),
                     copyToDashboard: jest.fn(),
+                    copyGroupToDashboard: jest.fn(),
                     setTileOverride: jest.fn(),
                     setDashboardMode: jest.fn(),
                     moveTileToSection: mockMoveTileToSection,
@@ -693,7 +694,10 @@ describe('DashboardItems', () => {
         const showBands = (overrides: Record<string, unknown> = {}, streamedTileIds: number[] = []): void => {
             const defaultValues = mockedUseValues.getMockImplementation()!
             mockedUseValues.mockImplementation((logic) => {
-                const values = { ...defaultValues(logic), ...(logic === dashboardLogic ? overrides : {}) }
+                if (logic !== dashboardLogic) {
+                    return defaultValues(logic)
+                }
+                const values = { ...defaultValues(logic), ...overrides }
                 const tiles = [
                     ...values.tiles,
                     ...streamedTileIds.map((id) => ({ id, insight: { id: 100 + id, short_id: `tile${id}` } })),
@@ -704,26 +708,24 @@ describe('DashboardItems', () => {
                         ...streamedTileIds.map((id) => ({ i: String(id), x: 6, y: 0, w: 6, h: 5 })),
                     ],
                 }
-                return logic === dashboardLogic
-                    ? {
-                          ...values,
-                          tiles,
-                          layouts,
-                          tileGroupSections: [
-                              {
-                                  kind: 'group',
-                                  key: 'group-plans',
-                                  groupKey: 'plans',
-                                  group: { title: 'Plans' },
-                                  tiles,
-                              },
-                          ],
-                          tileGroupSectionLayouts: [layouts],
-                          collapsedTileGroupKeys: [],
-                          tileGroupMoveOptions: {},
-                          ...overrides,
-                      }
-                    : values
+                return {
+                    ...values,
+                    tiles,
+                    layouts,
+                    tileGroupSections: [
+                        {
+                            kind: 'group',
+                            key: 'group-plans',
+                            groupKey: 'plans',
+                            group: { title: 'Plans' },
+                            tiles,
+                        },
+                    ],
+                    tileGroupSectionLayouts: [layouts],
+                    collapsedTileGroupKeys: [],
+                    tileGroupMoveOptions: {},
+                    ...overrides,
+                }
             })
         }
 
@@ -748,6 +750,16 @@ describe('DashboardItems', () => {
 
             expect(getByText('Plans')).toBeInTheDocument()
             expect(mockUpdateContainerWidth).toHaveBeenCalledWith(1200, 12)
+        })
+
+        it('shows group copy only to dashboard editors', () => {
+            showBands()
+            const { container, rerender } = render(<DashboardItems />)
+            expect(container.querySelector('[data-attr="dashboard-tile-group-menu"]')).toBeInTheDocument()
+
+            canEditDashboard = false
+            rerender(<DashboardItems />)
+            expect(container.querySelector('[data-attr="dashboard-tile-group-menu"]')).not.toBeInTheDocument()
         })
 
         it('keeps a band grid mounted when a tile streams into the band', () => {
