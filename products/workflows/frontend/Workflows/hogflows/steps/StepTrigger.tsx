@@ -68,6 +68,7 @@ import { EmailSendingRateLimitPicker } from './components/EmailSendingRateLimitP
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { RealtimeCohortAudienceNotice } from './components/RealtimeCohortAudienceNotice'
 import { RecurringSchedulePicker } from './components/RecurringSchedulePicker'
+import { ScheduleList } from './components/ScheduleList'
 import { ScheduleStatusBadge } from './components/ScheduleStatusBadge'
 import { TriggerVolumeEstimate } from './components/TriggerVolumeEstimate'
 import { keepOnlyRealtimeCohort } from './realtimeCohortStatus'
@@ -377,6 +378,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                         Schedule triggers run without a person or event. If your workflow needs to target specific
                         users, use a batch trigger instead.
                     </p>
+                    <ScheduleList />
                     <LemonField.Pure error={validationResult?.errors?.schedule}>
                         <WorkflowRecurringSchedulePicker />
                     </LemonField.Pure>
@@ -642,6 +644,7 @@ function BatchScheduleSection(): JSX.Element {
         <>
             <LemonDivider />
             <LemonLabel showOptional>Schedule</LemonLabel>
+            <ScheduleList />
             <WorkflowRecurringSchedulePicker />
         </>
     )
