@@ -398,6 +398,23 @@ Large payloads have separate storage and 30-day deadlines anchored to first acce
 Retries neither extend deadlines nor restore deleted payloads.
 Automatic payload deletion and usage billing are not enabled by these endpoints.
 
+### Durable usage recording
+
+Newly accepted Postgres results produce durable `OfflineEvaluationUsageLedger` entries.
+Each upload transaction that inserts new results writes one entry with a quantity equal to the number of new results, including error, skipped, and not-applicable outcomes.
+Results, payloads, and usage commit together; a ledger write failure rolls back the upload.
+Exact retries add no usage, including retries split or regrouped into different requests.
+Mixed uploads count only new results, and changed content still returns a conflict.
+
+Each entry stores the environment's team ID, the owning organization's ID at acceptance, the experiment ID, and the same server acceptance timestamp as its new results.
+These identifiers are stored independently of the product records, so deleting results, experiments, or their owners does not remove usage.
+Moving a project to another organization does not rewrite historical attribution.
+The ownership snapshots and timestamp preserve the information needed for future aggregation by organization, team, and UTC day.
+
+Recording begins with newly accepted results after deployment; there is no historical backfill, compaction, or ledger cleanup.
+The ledger has no editing API or editable admin interface.
+Organization usage reporting, billing, actual charging, and quota enforcement remain unchanged and do not consume this ledger.
+
 ## Resource tags
 
 Datasets, stable scorer definitions, and offline experiments use the shared project tag vocabulary.
