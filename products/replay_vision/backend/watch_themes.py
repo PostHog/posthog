@@ -34,6 +34,7 @@ from products.replay_vision.backend.semantic_space import (
     SemanticSpace,
     nearest_cluster,
     pack,
+    unit,
     unpack,
 )
 from products.replay_vision.backend.watch_rank import ISSUE_CATEGORIES
@@ -49,6 +50,8 @@ MAX_ACTIVE_THEMES = 2_000
 MAX_SUGGESTED_QUERIES = 4
 # A cross-scanner view takes at most this many suggestions from one scanner, so one busy scanner never fills it.
 _PER_SCANNER_SUGGESTIONS = 2
+# Two themes whose mean meanings are this close tell one story, so the list shows only the larger one.
+SUGGESTION_MAX_SIMILARITY = 0.92
 THEME_NAME_SAMPLES = 8
 THEME_NAMING_DAILY_CAP = 100
 MAX_THEME_LABEL_WORDS = 10
@@ -242,16 +245,30 @@ def theme_suggestions(team_id: int, scanner_ids: list[str], now: datetime) -> li
         .annotate(
             scanner_rank=Window(RowNumber(), partition_by=[F("scanner_id")], order_by=[F("member_count").desc(), "id"])
         )
-        .filter(scanner_rank__lte=per_scanner_cap)
+        # A spare candidate per slot lets a scanner fall back to its next theme when one is a duplicate.
+        .filter(scanner_rank__lte=per_scanner_cap * 2)
         .order_by("-member_count", "id")
-        # Twice the slots leaves room for duplicate names across scanners.
-        .values_list("name", flat=True)[: MAX_SUGGESTED_QUERIES * 2]
+        .values_list("scanner_id", "name", "vector_sum")[: MAX_SUGGESTED_QUERIES * 4]
     )
     queries: list[str] = []
-    for name in themes:
-        if name in queries:
+    picked: list[np.ndarray] = []
+    per_scanner: dict[uuid.UUID, int] = {}
+    for scanner_id, name, vector_sum in themes:
+        if name in queries or per_scanner.get(scanner_id, 0) >= per_scanner_cap:
+            continue
+        mean = _theme_direction(vector_sum)
+        if any(float(mean @ other) >= SUGGESTION_MAX_SIMILARITY for other in picked):
             continue
         queries.append(name)
+        picked.append(mean)
+        per_scanner[scanner_id] = per_scanner.get(scanner_id, 0) + 1
         if len(queries) == MAX_SUGGESTED_QUERIES:
             break
     return queries
+
+
+def _theme_direction(vector_sum: bytes | memoryview) -> np.ndarray:
+    vector = unpack(vector_sum)
+    if len(vector) != SEMANTIC_DIMENSIONS:
+        return np.zeros(SEMANTIC_DIMENSIONS, dtype=np.float32)
+    return unit(vector)

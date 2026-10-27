@@ -11,6 +11,7 @@ from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+import numpy as np
 import requests
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -69,6 +70,7 @@ from products.replay_vision.backend.queries.scanner_volume_estimate import estim
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft
 from products.replay_vision.backend.search import ObservationMatch
+from products.replay_vision.backend.semantic_space import SEMANTIC_DIMENSIONS, pack
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
@@ -4077,18 +4079,21 @@ class TestSearchSuggestionsAction(_VisionAPITestCase):
         self.checkout = self._create_scanner(name="checkout")
         self.signup = self._create_scanner(name="signup")
         now = timezone.now()
-        for scanner, label, members, last_member_at in [
-            (self.checkout, "coupon rejected", 10, now),
-            (self.checkout, "card declined", 8, now),
-            (self.checkout, "address form loops", 6, now),
-            (self.checkout, "", 20, now),
-            (self.checkout, "old checkout crash", 50, now - timedelta(days=31)),
-            (self.signup, "email never arrives", 9, now),
+        stories = np.eye(SEMANTIC_DIMENSIONS, dtype=np.float32)
+        near_coupon = stories[0] + 0.1 * stories[5]
+        for scanner, label, members, last_member_at, direction in [
+            (self.checkout, "coupon rejected", 10, now, stories[0]),
+            (self.checkout, "card declined", 8, now, stories[1]),
+            (self.checkout, "address form loops", 6, now, stories[2]),
+            (self.checkout, "", 20, now, stories[3]),
+            (self.checkout, "old checkout crash", 50, now - timedelta(days=31), stories[4]),
+            (self.signup, "discount code refused", 9, now, near_coupon),
+            (self.signup, "email never arrives", 7, now, stories[6]),
         ]:
             ReplayScannerSearchTheme.objects.for_team(self.team.id).create(
                 team=self.team,
                 scanner=scanner,
-                vector_sum=b"",
+                vector_sum=pack(direction * members),
                 member_count=members,
                 name=label,
                 last_member_at=last_member_at,
@@ -4100,7 +4105,11 @@ class TestSearchSuggestionsAction(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("cross_scanner_caps_each_scanner", None, ["coupon rejected", "email never arrives", "card declined"]),
+            (
+                "cross_scanner_caps_each_scanner_and_drops_the_same_story",
+                None,
+                ["coupon rejected", "card declined", "email never arrives"],
+            ),
             ("one_scanner", "checkout", ["coupon rejected", "card declined", "address form loops"]),
         ]
     )
