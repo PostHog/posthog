@@ -13,6 +13,17 @@ Other points keep hover and tooltip, and show the drag crosshair if the chart ha
 
 Chart-specific variants: `FunnelChart.onStepClick` reports `{ stepIndex, converted }`, where `converted: false` means the hatched drop-off track was clicked; `PieChart.onSliceClick`; `BoxPlot.onBoxClick`; `Heatmap.onCellClick` reports `{ xIndex, yIndex, value }`; `ScatterChart.onPointClick` receives the resolved `ScatterPointDatum`.
 
+## Right click: `onPointContextMenu`
+
+On `LineChart`, `TimeSeriesLineChart`, `BarChart`, `TimeSeriesBarChart`, and the base `Chart`.
+It fires on a right click with the same `PointClickData` as `onPointClick`, for the series nearest the cursor.
+
+- A right click never pins or unpins the tooltip, and it works while a tooltip is pinned.
+- `isPointClickable` limits it the same way it limits `onPointClick`. A right click outside the plot area, or on a point that is not clickable, fires nothing.
+- The chart does not suppress the browser menu. Call `preventDefault()` on the `contextmenu` event in the host, for example to show your own menu.
+- When the prop is set, the chart root carries `data-hog-charts-context-menu`, so a host can tell that the chart handles right clicks itself.
+- Other charts have no right-click callback yet.
+
 ## Drag-to-zoom: `onDateRangeZoom`
 
 On `LineChart`, `TimeSeriesLineChart`, `BarChart`, `TimeSeriesBarChart`, and the base `Chart`.
@@ -50,8 +61,8 @@ See [legend.md](./legend.md).
 
 ## Testing interactions
 
-`hoverAtIndex`, `clickAtIndex`, `hoverUntilTooltip`, and `dragSelection` from `@posthog/quill-charts/testing` drive these gestures in jsdom.
-`hoverUntilTooltip` and `clickAtIndex` re-dispatch until the tooltip portal mounts, because the chart drops events fired before it commits its scales.
+The chart accessor from `@posthog/quill-charts/testing` drives these gestures in jsdom: `chart.hoverAtIndex`, `chart.hoverTooltip`, `chart.clickAtIndex` and `chart.dragSelection`.
+`hoverTooltip` and `clickAtIndex` re-dispatch until the tooltip portal mounts, because the chart drops events fired before it commits its scales.
 Both default to a 3000ms budget.
 Pass an explicit `timeout` whenever the call sits behind another wait in the same test; two full-length waits chained together exceed Jest's 5000ms per-test budget, so give the pair one shared deadline.
 See [TESTING.md](./TESTING.md).

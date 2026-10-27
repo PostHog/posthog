@@ -231,6 +231,7 @@ MIDDLEWARE = [
     "posthog.middleware.AutoLogoutImpersonateMiddleware",
     "posthog.middleware.ImpersonationReadOnlyMiddleware",
     "posthog.middleware.ImpersonationBlockedPathsMiddleware",
+    "posthog.middleware.NewEventsSchemaCookieMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
     "axes.middleware.AxesMiddleware",
@@ -710,6 +711,8 @@ SPECTACULAR_SETTINGS = {
             "InitialPermissionModeEnum": ["default", "acceptEdits", "plan", "bypassPermissions", "auto"],
             "NotificationDestinationTypeEnum": ["slack", "webhook", "teams"],
             "LogsAlertDestinationTypeEnum": ["slack", "webhook", "teams", "pagerduty"],
+            "WarehouseAlertDestinationTypeEnum": ["slack", "webhook", "teams", "discord", "pagerduty"],
+            "WarehouseAlertGroupByEnum": ["schema", "source"],
             "PagerDutySeverityEnum": ["critical", "error", "warning", "info"],
             "PagerDutyRegionEnum": ["us", "eu"],
             # growth's identity-matching tier and the signals scout suggestion confidence.
@@ -849,6 +852,7 @@ SPECTACULAR_SETTINGS = {
             "NotebookWidgetTypeEnum": ["notebook_widget"],
             "ConversationsRecentTicketsWidgetTypeEnum": ["conversations_recent_tickets"],
             "CanvasAppWidgetTypeEnum": ["canvas_app"],
+            "MetricsTableWidgetTypeEnum": ["metrics_table"],
         }
     ),
 }

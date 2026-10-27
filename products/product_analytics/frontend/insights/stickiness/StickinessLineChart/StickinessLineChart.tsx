@@ -220,6 +220,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
             config={chartConfig}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
+            onPointContextMenu={context?.dashboardResultMenu && canHandleClick ? onPointClick : undefined}
             className="LineGraph"
             dataAttr="trend-line-graph"
             onError={handleChartError}

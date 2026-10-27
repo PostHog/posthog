@@ -37,6 +37,8 @@ UNEVEN_SPLIT_TOTALS = ExposureTotals(
     total_exposures={"control": 800, "test": 200, "$multiple": 20},
     multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
     sample_ratio_mismatch_p_value=None,
+    sample_ratio_expected={},
+    daily_exposures={},
     hours_since_launch=72,
     counts_groups=False,
 )

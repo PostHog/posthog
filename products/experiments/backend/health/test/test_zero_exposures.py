@@ -1,7 +1,8 @@
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest import TestCase
 
@@ -11,7 +12,11 @@ from parameterized import parameterized
 
 from posthog.schema import MultipleVariantHandling
 
-from products.experiments.backend.facade.contracts import ExperimentHealthFinding, ExperimentHealthFindingActionKind
+from products.experiments.backend.facade.contracts import (
+    ExperimentHealthFinding,
+    ExperimentHealthFindingActionKind,
+    ExperimentHealthFindingSeverity,
+)
 from products.experiments.backend.health.checks.zero_exposures import (
     CALLS_NOT_COUNTED,
     CUSTOM_EXPOSURE_NOT_MATCHED,
@@ -20,7 +25,7 @@ from products.experiments.backend.health.checks.zero_exposures import (
     zero_exposures,
 )
 from products.experiments.backend.health.context import ExposureEvents, ExposureTotals, FlagState, load_health_context
-from products.experiments.backend.health.test.factories import RUNNING_CONTEXT
+from products.experiments.backend.health.test.factories import ENDED, RUNNING_CONTEXT
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.facade.edits import FlagVariant
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
@@ -28,6 +33,8 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 Action = ExperimentHealthFindingActionKind
+WARNING = ExperimentHealthFindingSeverity.WARNING
+INFO = ExperimentHealthFindingSeverity.INFO
 
 FLAG = FlagState(
     active=True,
@@ -40,6 +47,8 @@ NO_EXPOSURES = ExposureTotals(
     total_exposures={"control": 0, "test": 0},
     multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
     sample_ratio_mismatch_p_value=None,
+    sample_ratio_expected={},
+    daily_exposures={},
     hours_since_launch=48,
     counts_groups=False,
 )
@@ -56,48 +65,81 @@ ACTION = replace(CUSTOM_EVENT, custom_event=None)
 
 LAUNCHED_AT = datetime(2026, 10, 1, tzinfo=UTC)
 ENDED_AT = datetime(2026, 10, 10, tzinfo=UTC)
+NOW = datetime(2026, 10, 20, 12, 0, tzinfo=UTC)
 
 
 class TestZeroExposures(TestCase):
     @parameterized.expand(
         [
-            ("flag_not_called", {"flag_called_during_run": False}, FLAG_NOT_CALLED, ()),
+            ("flag_not_called", {"flag_called_during_run": False}, FLAG_NOT_CALLED, (), WARNING),
             (
                 "flag_called",
                 {"flag_called_during_run": True},
                 CALLS_NOT_COUNTED,
                 (Action.OPEN_FEATURE_FLAG, Action.EDIT_EXPOSURE_CRITERIA),
+                WARNING,
             ),
-            ("calls_unknown", {"flag_called_during_run": None}, None, (Action.EDIT_EXPOSURE_CRITERIA,)),
-            ("paused", {"is_paused": True, "flag_called_during_run": True}, EXPERIMENT_PAUSED, ()),
+            ("calls_unknown", {"flag_called_during_run": None}, None, (Action.EDIT_EXPOSURE_CRITERIA,), WARNING),
+            ("paused", {"is_paused": True, "flag_called_during_run": True}, EXPERIMENT_PAUSED, (), INFO),
             (
                 "custom_event_whatever_the_flag_calls",
                 {"exposure_events": CUSTOM_EVENT, "flag_called_during_run": False},
                 CUSTOM_EXPOSURE_NOT_MATCHED,
                 (Action.EDIT_EXPOSURE_CRITERIA,),
+                WARNING,
             ),
             (
                 "action",
                 {"exposure_events": ACTION, "flag_called_during_run": False},
                 CUSTOM_EXPOSURE_NOT_MATCHED,
                 (Action.EDIT_EXPOSURE_CRITERIA,),
+                WARNING,
             ),
             (
                 "unreadable_criteria",
                 {"exposure_events": None, "flag_called_during_run": False},
                 None,
                 (Action.EDIT_EXPOSURE_CRITERIA,),
+                WARNING,
             ),
             (
                 "deleted_flag",
                 {"flag": replace(FLAG, deleted=True), "flag_called_during_run": False},
                 None,
                 (Action.EDIT_EXPOSURE_CRITERIA,),
+                WARNING,
+            ),
+            ("ended_flag_not_called", {**ENDED, "flag_called_during_run": False}, FLAG_NOT_CALLED, (), INFO),
+            (
+                "ended_flag_called",
+                {**ENDED, "flag_called_during_run": True},
+                CALLS_NOT_COUNTED,
+                (Action.OPEN_FEATURE_FLAG, Action.EDIT_EXPOSURE_CRITERIA),
+                WARNING,
+            ),
+            (
+                "ended_calls_unknown",
+                {**ENDED, "flag_called_during_run": None},
+                None,
+                (Action.EDIT_EXPOSURE_CRITERIA,),
+                INFO,
+            ),
+            (
+                "ended_custom_event",
+                {**ENDED, "exposure_events": CUSTOM_EVENT, "flag_called_during_run": False},
+                CUSTOM_EXPOSURE_NOT_MATCHED,
+                (Action.EDIT_EXPOSURE_CRITERIA,),
+                WARNING,
             ),
         ]
     )
     def test_names_the_cause(
-        self, _name: str, changes: dict[str, Any], subcode: str | None, actions: tuple[Action, ...]
+        self,
+        _name: str,
+        changes: dict[str, Any],
+        subcode: str | None,
+        actions: tuple[Action, ...],
+        severity: ExperimentHealthFindingSeverity,
     ) -> None:
         ctx = replace(
             RUNNING_CONTEXT, **{"flag": FLAG, "exposures": NO_EXPOSURES, "exposure_events": FLAG_CALLS, **changes}
@@ -106,7 +148,8 @@ class TestZeroExposures(TestCase):
         finding = zero_exposures(ctx)
 
         assert isinstance(finding, ExperimentHealthFinding)
-        self.assertEqual((finding.subcode, finding.actions), (subcode, actions))
+        self.assertEqual((finding.subcode, finding.actions, finding.severity), (subcode, actions, severity))
+        self.assertEqual(finding.detail.startswith("No users were exposed while the experiment ran"), ctx.has_ended)
 
     @parameterized.expand(
         [
@@ -183,7 +226,7 @@ class TestExposureActivation(BaseTest):
 class TestFlagCalledDuringRun(BaseTest):
     @parameterized.expand(
         [
-            ("never_called", LAUNCHED_AT, None, None, FlagEvaluationsMode.EVENTS, False),
+            ("never_called", LAUNCHED_AT, None, None, FlagEvaluationsMode.EVENTS, False, None),
             (
                 "called_after_launch",
                 LAUNCHED_AT,
@@ -191,6 +234,7 @@ class TestFlagCalledDuringRun(BaseTest):
                 datetime(2026, 10, 2, tzinfo=UTC),
                 FlagEvaluationsMode.EVENTS,
                 True,
+                None,
             ),
             (
                 "called_before_launch_only",
@@ -199,6 +243,7 @@ class TestFlagCalledDuringRun(BaseTest):
                 datetime(2026, 9, 1, tzinfo=UTC),
                 FlagEvaluationsMode.EVENTS,
                 False,
+                None,
             ),
             (
                 "called_before_launch_with_calls_kept_out_of_events",
@@ -206,6 +251,7 @@ class TestFlagCalledDuringRun(BaseTest):
                 None,
                 datetime(2026, 9, 1, tzinfo=UTC),
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                None,
                 None,
             ),
             (
@@ -215,6 +261,7 @@ class TestFlagCalledDuringRun(BaseTest):
                 datetime(2026, 10, 5, tzinfo=UTC),
                 FlagEvaluationsMode.EVENTS,
                 True,
+                False,
             ),
             (
                 "ended_called_after_the_end",
@@ -223,18 +270,48 @@ class TestFlagCalledDuringRun(BaseTest):
                 datetime(2026, 10, 15, tzinfo=UTC),
                 FlagEvaluationsMode.EVENTS,
                 None,
+                True,
             ),
-            ("draft", None, None, None, FlagEvaluationsMode.EVENTS, None),
+            ("ended_never_called", LAUNCHED_AT, ENDED_AT, None, FlagEvaluationsMode.EVENTS, False, False),
+            (
+                "ended_called_during_the_run_with_calls_kept_out_of_events",
+                LAUNCHED_AT,
+                ENDED_AT,
+                datetime(2026, 10, 5, tzinfo=UTC),
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                True,
+                None,
+            ),
+            (
+                "ended_inside_the_quiet_period",
+                LAUNCHED_AT,
+                NOW - timedelta(days=3, minutes=59),
+                datetime(2026, 10, 5, tzinfo=UTC),
+                FlagEvaluationsMode.EVENTS,
+                True,
+                None,
+            ),
+            (
+                "ended_past_the_quiet_period",
+                LAUNCHED_AT,
+                NOW - timedelta(days=3, minutes=61),
+                datetime(2026, 10, 5, tzinfo=UTC),
+                FlagEvaluationsMode.EVENTS,
+                True,
+                False,
+            ),
+            ("draft", None, None, None, FlagEvaluationsMode.EVENTS, None, None),
         ]
     )
-    def test_reads_the_calls_during_the_run(
+    def test_reads_the_calls_during_and_after_the_run(
         self,
         _name: str,
         start_date: datetime | None,
         end_date: datetime | None,
         last_called_at: datetime | None,
         mode: FlagEvaluationsMode,
-        expected: bool | None,
+        during_run: bool | None,
+        after_end: bool | None,
     ) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization, defaults={"flag_evaluations_mode": mode}
@@ -258,7 +335,7 @@ class TestFlagCalledDuringRun(BaseTest):
             team=self.team, name="exp", feature_flag=flag, start_date=start_date, end_date=end_date
         )
 
-        with override_settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE="events"):
+        with override_settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE="events"), time_machine.travel(NOW, tick=False):
             ctx = load_health_context(experiment)
 
-        self.assertEqual(ctx.flag_called_during_run, expected)
+        self.assertEqual((ctx.flag_called_during_run, ctx.flag_called_after_end), (during_run, after_end))

@@ -416,6 +416,8 @@ class _UnfurlCard:
     timestamp_label: str = "Updated"
     button: _CardButton | None = None
     chart_insight_id: int | None = None
+    # Set for a saved insight link with unsaved edits. The chart renders this query instead of the saved one.
+    chart_edited_query: dict | None = None
     # Set for an ad hoc insight. Its card goes out only together with its chart.
     chart_query: dict | None = None
     artifact_image: bool = False
@@ -752,13 +754,19 @@ def _insight_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Ski
     level = ctx.uac.get_user_access_level(insight)
     if not level or not access_level_satisfied_for_resource("insight", level, "viewer"):
         return "no_access"
+    # A link copied from the insight editor carries unsaved edits in `#q`, such as another date
+    # range or hidden series. The person who opens the link sees these edits, so the card shows them too.
+    edited_query = adhoc_insight_query(url)
+    if edited_query == insight.query:
+        edited_query = None
     return _UnfurlCard(
         label=_insight_resource_label(insight),
         title=insight.name or insight.derived_name or "Untitled",
-        details=(*filter(None, [_date_range(insight.query)]), *_by(insight.created_by)),
+        details=(*filter(None, [_date_range(edited_query or insight.query)]), *_by(insight.created_by)),
         body=insight.description,
         timestamp=insight.last_modified_at,
         chart_insight_id=insight.id,
+        chart_edited_query=edited_query,
     )
 
 
@@ -1481,6 +1489,7 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             kinds=kinds,
             compact=compact,
             error=error,
+            bot_reply=bot_reply_actor is not None,
         )
         if error not in _REJECTED_PAYLOAD_ERRORS:
             return
@@ -1488,7 +1497,9 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         return
 
     chart_requests = [
-        SlackUnfurlChartRequest(url=url, insight_id=card.chart_insight_id, title=card.title)
+        SlackUnfurlChartRequest(url=url, query=card.chart_edited_query, title=card.title)
+        if card.chart_edited_query is not None
+        else SlackUnfurlChartRequest(url=url, insight_id=card.chart_insight_id, title=card.title)
         for url, (_, card) in cards.items()
         if card.chart_insight_id is not None and not compact
     ]

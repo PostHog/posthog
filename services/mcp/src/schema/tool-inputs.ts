@@ -6,6 +6,7 @@ import {
     aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax,
 } from '../generated/ai_observability/api'
 import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
+import { FeatureFlagsPartialUpdateBody, FeatureFlagsPartialUpdateParams } from '../generated/feature_flags/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
@@ -786,9 +787,12 @@ export const PathCleaningRulesUpdateSchema = z.object({
         ),
 })
 
-export const ProjectSetActiveSchema = z.object({
-    projectId: z.number().int().positive(),
-})
+export const ProjectSetActiveSchema = z.preprocess(
+    normalizeParamAliases({ projectId: ['project_id', 'new_project_id'] }),
+    z.object({
+        projectId: z.number().int().positive(),
+    })
+)
 
 const taskAgentRunOptions = {
     // Use a pattern because JSON Schema's date-time format requires a timezone offset.
@@ -1322,3 +1326,59 @@ export const WorkflowActionEmailPatchSchema = z
             })
         }
     })
+
+const FeatureFlagUpdateFilters = FeatureFlagsPartialUpdateBody().shape.filters.unwrap()
+const FeatureFlagUpdateConditionGroup = FeatureFlagUpdateFilters.shape.groups.unwrap().element
+
+export const UpdateFeatureFlagFiltersSchema = FeatureFlagUpdateFilters.extend({
+    groups: z
+        .array(
+            FeatureFlagUpdateConditionGroup.extend({
+                condition_id: z
+                    .string()
+                    .optional()
+                    .describe(
+                        'The condition_id this condition had when you read the flag. Send it unchanged when you ' +
+                            'keep, edit, or move the condition. Leave it off a new condition or one copied from a ' +
+                            'different flag. The update is refused when no condition on the flag has this ID.'
+                    ),
+            })
+        )
+        .optional()
+        .describe(FeatureFlagUpdateFilters.shape.groups.description!),
+}).describe(
+    'Full release-condition object. It replaces the stored filters, so read the flag first and send every ' +
+        'condition you want to keep. The tool description covers condition_id and group targeting.'
+)
+
+// Rules stay opaque: the server's v2 validator is the only schema, and its field errors name the path to fix.
+// A loose object keeps every key the agent sends, so nothing it echoed from the read is dropped here.
+export const FlagRulesV2UpdateInputSchema = z.preprocess(
+    normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+    z.object({
+        id: z.preprocess(castStringToInt, FeatureFlagsPartialUpdateParams().shape.id),
+        version: z
+            .number()
+            .int()
+            .min(0)
+            .describe(
+                "The flag's top-level `version` from your latest read. The write is refused with 409 when the flag " +
+                    'changed after it.'
+            ),
+        filters: z
+            .looseObject({
+                version: z.literal(2).describe('Config format. Always 2 here; unrelated to the top-level `version`.'),
+                return_type: z.string().describe('Copy it from the flag you read. It cannot change.'),
+                default_value: z
+                    .union([z.boolean(), z.string(), z.number(), z.record(z.string(), z.unknown()), z.null()])
+                    .describe('Value served when no rule returns one. Must match `return_type`, or null.'),
+                rules: z
+                    .array(z.record(z.string(), z.unknown()))
+                    .describe(
+                        'The complete ordered rule list, in the shape the flag read returns. Keep `id` and `seed` on ' +
+                            'every rule you keep; omit both on a new rule.'
+                    ),
+            })
+            .describe('The complete new configuration. It replaces the stored `filters`.'),
+    })
+)

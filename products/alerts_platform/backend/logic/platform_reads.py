@@ -18,6 +18,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertHistory,
     PlatformAlertRuntime,
     PlatformAlertSnapshot,
+    PlatformCheckEntry,
     PlatformCheckEventPage,
     PlatformCheckPage,
     PlatformLastCheck,
@@ -121,10 +122,16 @@ def list_configurations(
 
 
 def get_configuration(
-    *, team_id: int, source_kinds: Sequence[str], configuration_id: UUID
+    *, team_id: int, source_kinds: Sequence[str], configuration_id: UUID, lock: bool = False
 ) -> PlatformAlertConfigurationView | None:
-    """One configuration, or None when it does not exist or the caller may not read its kind."""
-    row = _readable(team_id, source_kinds).filter(id=configuration_id).first()
+    """One configuration, or None when it does not exist or the caller may not read its kind.
+
+    With `lock`, the row stays locked until the caller's transaction ends, so a delete waits for it.
+    """
+    rows = _readable(team_id, source_kinds).filter(id=configuration_id)
+    if lock:
+        rows = rows.select_for_update(no_key=True)
+    row = rows.first()
     return None if row is None else _configuration_view(row)
 
 
@@ -196,6 +203,17 @@ def runtime_by_legacy_id(
     }
 
 
+def _owned_by_legacy_id(team_id: int, legacy_configuration_ids: Collection[UUID]) -> dict[UUID, UUID]:
+    """The source's id of each named alert the platform owns, keyed by the platform's id."""
+    return {
+        platform_id: legacy_id
+        for platform_id, legacy_id in PlatformAlertConfiguration.objects.for_team(team_id)
+        .filter(legacy_configuration_id__in=list(legacy_configuration_ids), owner=PlatformAlertOwner.PLATFORM)
+        .values_list("id", "legacy_configuration_id")
+        if legacy_id is not None
+    }
+
+
 def history_by_legacy_id(
     *, team_id: int, legacy_configuration_ids: Collection[UUID], since: datetime, until: datetime
 ) -> dict[UUID, PlatformAlertHistory]:
@@ -207,13 +225,7 @@ def history_by_legacy_id(
     """
     if not legacy_configuration_ids:
         return {}
-    legacy_by_platform_id = {
-        platform_id: legacy_id
-        for platform_id, legacy_id in PlatformAlertConfiguration.objects.for_team(team_id)
-        .filter(legacy_configuration_id__in=list(legacy_configuration_ids), owner=PlatformAlertOwner.PLATFORM)
-        .values_list("id", "legacy_configuration_id")
-        if legacy_id is not None
-    }
+    legacy_by_platform_id = _owned_by_legacy_id(team_id, legacy_configuration_ids)
     histories = platform_alert_events.history(team_id, legacy_by_platform_id, since=since, until=until)
     return {legacy_by_platform_id[platform_id]: history for platform_id, history in histories.items()}
 
@@ -227,13 +239,7 @@ def last_check_by_legacy_id(
     """
     if not legacy_configuration_ids:
         return {}
-    legacy_by_platform_id = {
-        platform_id: legacy_id
-        for platform_id, legacy_id in PlatformAlertConfiguration.objects.for_team(team_id)
-        .filter(legacy_configuration_id__in=list(legacy_configuration_ids), owner=PlatformAlertOwner.PLATFORM)
-        .values_list("id", "legacy_configuration_id")
-        if legacy_id is not None
-    }
+    legacy_by_platform_id = _owned_by_legacy_id(team_id, legacy_configuration_ids)
     checks = platform_alert_events.last_checks(team_id, legacy_by_platform_id)
     return {legacy_by_platform_id[platform_id]: check for platform_id, check in checks.items()}
 
@@ -267,3 +273,25 @@ def check_page_by_legacy_id(
     if platform_id is None:
         return None
     return platform_alert_events.check_page(team_id, platform_id, since=since, until=until, limit=limit, offset=offset)
+
+
+def checks_with_detail_by_legacy_id(
+    *,
+    team_id: int,
+    legacy_configuration_ids: Collection[UUID],
+    detail_paths: Sequence[Sequence[str]],
+    since: datetime,
+    limit: int,
+) -> dict[UUID, tuple[PlatformCheckEntry, ...]]:
+    """Each named alert's newest `limit` checks since `since` whose source detail holds every one of `detail_paths`,
+    keyed by the source's id.
+
+    An alert the platform does not own is left out, as in `runtime_by_legacy_id`.
+    """
+    if not legacy_configuration_ids:
+        return {}
+    legacy_by_platform_id = _owned_by_legacy_id(team_id, legacy_configuration_ids)
+    checks = platform_alert_events.checks_with_detail(
+        team_id, legacy_by_platform_id, detail_paths=detail_paths, since=since, limit=limit
+    )
+    return {legacy_by_platform_id[platform_id]: entries for platform_id, entries in checks.items()}

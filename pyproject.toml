@@ -105,7 +105,7 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.3.0",
     "protobuf~=6.31.1",
-    "posthoganalytics==7.75.6",
+    "posthoganalytics==7.75.11",
     "polars==1.37.1",
     "psycopg2-binary==2.9.11",
     "psycopg[binary]==3.2.10",
@@ -134,7 +134,7 @@ dependencies = [
     "semantic-version==2.8.5",
     "simple-salesforce~=1.12.9",
     "slack-sdk==3.42.0",
-    "snowflake-connector-python==4.4.0",
+    "snowflake-connector-python==4.7.5",
     "social-auth-app-django~=5.8.0",
     "social-auth-core~=4.8.7",
     "django-scim2==0.23.0",
@@ -168,6 +168,8 @@ dependencies = [
     "zxcvbn==4.5.0",
     "pyyaml~=6.0.2",
     "chdb==4.3.0",
+    # chdb allows any chdb-core>=26.7.0, and engines before 26.9.0 accept a TLS certificate issued for another host.
+    "chdb-core==26.9.0",
     "elevenlabs~=2.1.0",
     "django-oauth-toolkit~=3.2.0",
     "azure-ai-projects~=1.0.0b11",
@@ -343,7 +345,7 @@ members = ["tools/hogli", "packages/owners-yaml", "packages/personhog-proto"]
 hogli = { workspace = true }
 owners-yaml = { workspace = true }
 personhog-proto = { workspace = true }
-infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "4e3996becf66bf5c26580aff12a80425d9d56fe5" }
+infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "fa20b806e32cf748dfee3545d8926b9c36aff789" }
 # pytest-split: pinned to PostHog's fork (immutable tag) for the order-preserving
 # optimal_chunks split. Fork: PostHog/pytest-split (of jerry-git/pytest-split).
 # To pull upstream fixes: rebase the fork's feat branch onto upstream, cut the next
