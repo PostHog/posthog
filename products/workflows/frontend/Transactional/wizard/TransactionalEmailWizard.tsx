@@ -51,7 +51,8 @@ export function TransactionalEmailWizard(): JSX.Element {
             <GuidedWizardStepper
                 steps={STEPS}
                 currentStep={currentStep}
-                onStepClick={setStep}
+                // The draft is already on its way, so edits made now would be lost.
+                onStepClick={isCreating ? undefined : setStep}
                 className="flex-wrap"
                 aria-label="Transactional email wizard progress"
             />

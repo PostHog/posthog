@@ -17,7 +17,8 @@ export function SenderStep(): JSX.Element {
     const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const { loadIntegrations } = useActions(integrationsLogic)
 
-    if (integrations === null) {
+    // A failed load clears the loading flag, and falls through to the retry below.
+    if (integrations === null && integrationsLoading) {
         return <Spinner className="text-lg" />
     }
 

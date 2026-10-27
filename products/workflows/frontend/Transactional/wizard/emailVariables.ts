@@ -5,9 +5,14 @@ import type { EmailTemplate } from 'scenes/hog-functions/email-templater/types'
 const LIQUID_EXPRESSION = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}/g
 const VARIABLE_REFERENCE = /\bvariables\.([A-Za-z_][A-Za-z0-9_]*)/g
 
-/** The `message_data` keys an email reads, in the order they first appear in the subject, preheader and body. */
-export function variablesInEmail(email: Pick<EmailTemplate, 'subject' | 'html' | 'text' | 'preheader'>): string[] {
-    const source = [email.subject, email.preheader, email.html, email.text].filter(Boolean).join('\n')
+/** The `message_data` keys an email reads, in the order they first appear in its sender, subject, preheader and body. */
+export function variablesInEmail(
+    email: Pick<EmailTemplate, 'subject' | 'html' | 'text' | 'preheader' | 'from' | 'replyTo'>
+): string[] {
+    const from = typeof email.from === 'object' && email.from ? email.from : {}
+    const source = [from.name, from.email, email.replyTo, email.subject, email.preheader, email.html, email.text]
+        .filter(Boolean)
+        .join('\n')
     const expressions = source.match(LIQUID_EXPRESSION) ?? []
     return [
         ...new Set(

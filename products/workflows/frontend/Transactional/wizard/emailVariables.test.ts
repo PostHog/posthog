@@ -25,7 +25,17 @@ describe('variablesInEmail', () => {
             ['name', 'fallback_name'],
         ],
         ['ignores the word outside Liquid', { subject: 'See variables.example in the docs', html: '' }, []],
+        [
+            'finds a variable in the sender name and reply-to',
+            {
+                subject: '',
+                html: '',
+                from: { name: '{{ variables.sender_name }}' },
+                replyTo: '{{ variables.reply_to }}',
+            },
+            ['sender_name', 'reply_to'],
+        ],
     ])('%s', (_, email, expected) => {
-        expect(variablesInEmail({ text: '', ...email })).toEqual(expected)
+        expect(variablesInEmail({ text: '', from: '', ...email })).toEqual(expected)
     })
 })
