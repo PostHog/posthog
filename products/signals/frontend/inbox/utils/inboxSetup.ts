@@ -133,7 +133,10 @@ export function reconcileInboxSetupDraft(
     sources: InboxSetupSource[],
     scannerIds: string[] | null = null
 ): InboxOnboardingDraftApi {
-    const chosenProducts = new Set(draft.sources.map((source) => source.source_product))
+    // A draft saved before a source left onboarding still lists it, and activation would turn it on.
+    const offeredProducts = new Set(sources.map((source) => source.definition.sourceProduct))
+    const offeredSources = draft.sources.filter((source) => offeredProducts.has(source.source_product))
+    const chosenProducts = new Set(offeredSources.map((source) => source.source_product))
     const newSources = sources
         .filter((source) => source.available && !chosenProducts.has(source.definition.sourceProduct))
         .flatMap((source) => source.sources)
@@ -141,8 +144,10 @@ export function reconcileInboxSetupDraft(
     const selectedScanners = availableScanners
         ? draft.scanner_ids.filter((id) => availableScanners.has(id))
         : draft.scanner_ids
-    return newSources.length || selectedScanners.length !== draft.scanner_ids.length
-        ? { ...draft, sources: [...draft.sources, ...newSources], scanner_ids: selectedScanners }
+    return newSources.length ||
+        offeredSources.length !== draft.sources.length ||
+        selectedScanners.length !== draft.scanner_ids.length
+        ? { ...draft, sources: [...offeredSources, ...newSources], scanner_ids: selectedScanners }
         : draft
 }
 

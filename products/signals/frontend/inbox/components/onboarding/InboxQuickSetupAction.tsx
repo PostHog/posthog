@@ -66,7 +66,7 @@ export function InboxQuickSetupAction(): JSX.Element {
                 />
             )}
             {error && (
-                <LemonBanner type="error">
+                <LemonBanner type="error" className="w-full">
                     {error}
                     <LemonButton
                         size="small"

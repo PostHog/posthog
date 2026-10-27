@@ -61,6 +61,12 @@ describe('Inbox setup defaults', () => {
         )
         expect(sources.map((source) => source.definition.source)).toEqual(posthogSources)
         expect(newInboxSetupDraft(sources, []).sources).toEqual([])
+        const errorTracking = { source_product: 'error_tracking', source_type: 'issue_created', enabled: true } as const
+        const savedDraft = {
+            ...newInboxSetupDraft([], []),
+            sources: [errorTracking, { source_product: 'hubspot', source_type: 'ticket', enabled: true } as const],
+        }
+        expect(reconcileInboxSetupDraft(savedDraft, sources).sources).toEqual([errorTracking])
     })
 
     it.each([
