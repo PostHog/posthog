@@ -87,11 +87,11 @@ call posthog-connection-call {"connection_id": "<your connection id>", "tool": "
 Pick a source by `prefix`, `source_type` and `description`. Never reuse a remembered id.
 In US team 2 the production sources are:
 
-| Prefix | Engine | `access_method` | Use for |
-| --- | --- | --- | --- |
-| `Production` | ClickHouse | `direct` | data tier: `posthog.*` (events, person, `query_log_archive`, `models.posthog_team`) |
-| `ClickHouse Prod US OPs` | ClickHouse | `direct` | ops node: `system.*` (`query_log`, `parts`, `mutations`, `merges`, `replication_queue`, `processes`) |
-| (no prefix), description `US prod` | Postgres | `warehouse`, live queries on | the app database (`public.posthog_*` and product tables) |
+| Prefix                             | Engine     | `access_method`              | Use for                                                                                              |
+| ---------------------------------- | ---------- | ---------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `Production`                       | ClickHouse | `direct`                     | data tier: `posthog.*` (events, person, `query_log_archive`, `models.posthog_team`)                  |
+| `ClickHouse Prod US OPs`           | ClickHouse | `direct`                     | ops node: `system.*` (`query_log`, `parts`, `mutations`, `merges`, `replication_queue`, `processes`) |
+| (no prefix), description `US prod` | Postgres   | `warehouse`, live queries on | the app database (`public.posthog_*` and product tables)                                             |
 
 The EU project has its own sources and names. Read them from the list. Do not assume the US names.
 
@@ -147,11 +147,11 @@ Use [`querying-production-databases-via-metabase`](../querying-production-databa
 
 ## Errors
 
-| Error | Cause | Fix |
-| --- | --- | --- |
-| `Your API key must carry the scopes this connection was granted` | The PostHog connection has broader scopes than the MCP token | Delete it and connect again with only `query` read, `external_data_source` read and `user` read |
-| `This ClickHouse table function is not allowed in direct queries` | `clusterAllReplicas()` or another table function | Use `posthog.query_log_archive` or the plain table |
-| Unknown table in HogQL mode | HogQL cannot see the table | Add `"sendRawQuery": true` (ClickHouse only) |
-| `sendRawQuery` refused | The source is a synced source | Write HogQL, or fall back to Metabase |
-| `integrations-list` returns no `posthog` connection | The connection was made in another project, or by someone else | Create it while US team 2 is the current project |
-| Memory or timeout error | Scan too wide | Narrow the time range, add `team_id`, aggregate earlier |
+| Error                                                             | Cause                                                          | Fix                                                                                             |
+| ----------------------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `Your API key must carry the scopes this connection was granted`  | The PostHog connection has broader scopes than the MCP token   | Delete it and connect again with only `query` read, `external_data_source` read and `user` read |
+| `This ClickHouse table function is not allowed in direct queries` | `clusterAllReplicas()` or another table function               | Use `posthog.query_log_archive` or the plain table                                              |
+| Unknown table in HogQL mode                                       | HogQL cannot see the table                                     | Add `"sendRawQuery": true` (ClickHouse only)                                                    |
+| `sendRawQuery` refused                                            | The source is a synced source                                  | Write HogQL, or fall back to Metabase                                                           |
+| `integrations-list` returns no `posthog` connection               | The connection was made in another project, or by someone else | Create it while US team 2 is the current project                                                |
+| Memory or timeout error                                           | Scan too wide                                                  | Narrow the time range, add `team_id`, aggregate earlier                                         |

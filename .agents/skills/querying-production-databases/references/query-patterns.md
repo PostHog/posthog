@@ -15,11 +15,11 @@ For a full slow-query report, use the patterns in [`generating-clickhouse-query-
 
 A slow query is `query_duration_ms > 30000`, or one of these exception codes:
 
-| Code | Meaning |
-| --- | --- |
-| 159 | TIMEOUT_EXCEEDED |
-| 160 | TOO_SLOW |
-| 241 | MEMORY_LIMIT_EXCEEDED |
+| Code | Meaning               |
+| ---- | --------------------- |
+| 159  | TIMEOUT_EXCEEDED      |
+| 160  | TOO_SLOW              |
+| 241  | MEMORY_LIMIT_EXCEEDED |
 
 ### Slowest user queries in the last day
 
