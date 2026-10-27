@@ -2117,7 +2117,11 @@ describe('CDP API', () => {
             } = {}
         ) => jwt.sign({ team_id: teamId, hog_flow_id: hogFlowId }, secret, { audience, expiresIn: '2m' })
 
-        const transactionalFlow = (trigger: 'api' | 'schedule', status: HogFlow['status']): HogFlow =>
+        const transactionalFlow = (
+            trigger: 'api' | 'schedule',
+            status: HogFlow['status'],
+            category: 'transactional' | 'marketing' = 'transactional'
+        ): HogFlow =>
             new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
                 .withStatus(status)
@@ -2125,7 +2129,10 @@ describe('CDP API', () => {
                 .withWorkflow({
                     actions: {
                         trigger: { type: 'trigger', config: { type: trigger } },
-                        email: { type: 'function_email', config: { template_id: 'template-email', inputs: {} } },
+                        email: {
+                            type: 'function_email',
+                            config: { template_id: 'template-email', inputs: {}, message_category_type: category },
+                        },
                     },
                     edges: [{ from: 'trigger', to: 'email', type: 'continue' }],
                 })
@@ -2259,11 +2266,25 @@ describe('CDP API', () => {
             })
         })
 
-        it('refuses a send when the team is over its email quota', async () => {
+        it('queues a send when the team is over its email quota', async () => {
             jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
-            const limitedBefore = await outcomeCount('quota_limited')
+            const queuedBefore = await outcomeCount('queued')
 
             const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+
+            expect(res.status).toEqual(202)
+            expect(await outcomeCount('queued')).toEqual(queuedBefore + 1)
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
+
+        it('refuses a send of a marketing email when the team is over its email quota', async () => {
+            jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+            const marketingFlow = await insertHogFlow(transactionalFlow('api', 'active', 'marketing'))
+            const limitedBefore = await outcomeCount('quota_limited')
+
+            const res = await send(marketingFlow.id, {
+                Authorization: `Bearer ${mintToken(team.id, marketingFlow.id)}`,
+            })
 
             expect(res.status).toEqual(429)
             expect(await outcomeCount('quota_limited')).toEqual(limitedBefore + 1)

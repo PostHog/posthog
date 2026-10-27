@@ -1652,6 +1652,17 @@ export interface DependentFlagApi {
     name: string
 }
 
+export interface FeatureFlagSetActiveRequestApi {
+    /**
+     * The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2, optional otherwise. When sent, the change is refused with 409 if anyone else changed the flag after that version. Null is the same as leaving it out.
+     * @minimum 0
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type FeatureFlagActionConflictApi = FlagActionErrorApi | FlagApprovalConflictApi
+
 export interface FeatureFlagRollOutToEveryoneRequestApi {
     /**
      * The `version` from your most recent read of this flag. The change is refused with 409 if anyone else changed the flag after that version. A flag written before versioning reads as `null`; send that back unchanged and it is read as 0, so the value a read returns is always one this accepts.
@@ -1665,8 +1676,6 @@ export interface FeatureFlagRollOutToEveryoneRequestApi {
      */
     variant_key?: string | null
 }
-
-export type FeatureFlagActionConflictApi = FlagActionErrorApi | FlagApprovalConflictApi
 
 export interface FeatureFlagSetReleaseConditionRolloutRequestApi {
     /**
@@ -1784,7 +1793,7 @@ export interface FeatureFlagTestEvaluationResponseApi {
      */
     reason_description?: string | null
     /**
-     * The index of the condition that matched, if applicable
+     * The index of the condition that matched, if applicable. For a flag with config version 2, the zero-based index of the rule in `filters.rules` that decided the result, or null when no rule decided it.
      * @nullable
      */
     condition_index: number | null
@@ -1797,8 +1806,10 @@ export interface FeatureFlagTestEvaluationResponseApi {
      * @nullable
      */
     evaluation_distinct_id: string | null
-    /** Detailed analysis of each condition in the feature flag */
+    /** Detailed analysis of each condition in the feature flag. Always empty for a flag with config version 2, which `conditions_unavailable_reason` then explains. */
     conditions: FeatureFlagConditionAnalysisApi[]
+    /** Present only when `conditions` is empty because the evaluated config has no per-condition analysis. An empty list then does not mean the flag has no conditions or rules. */
+    conditions_unavailable_reason?: string
 }
 
 export type FeatureFlagVersionResponseApiFilters = { [key: string]: unknown }

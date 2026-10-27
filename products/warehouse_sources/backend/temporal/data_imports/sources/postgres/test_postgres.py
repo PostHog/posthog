@@ -5667,6 +5667,11 @@ class TestValidateCredentialsErrorMapping:
                 "The database rejected the username or password. Check the user and password for this source and try again.",
             ),
             (
+                'connection failed: connection to server at "203.0.113.20", port 5432 failed: '
+                "FATAL:  password authentication failed",
+                "The database rejected the username or password. Check the user and password for this source and try again.",
+            ),
+            (
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 'FATAL:  PAM authentication failed for user "example_user"',
                 "The database rejected the username or password. Check the user and password for this source and try again.",
@@ -5744,6 +5749,14 @@ class TestValidateCredentialsErrorMapping:
                 "through an SSH tunnel, which can't carry that information to Neon. Update the "
                 "host to the hostname your database provider gave you, or connect directly instead "
                 "of through an SSH tunnel, then try again.",
+            ),
+            # A truncated certificate authority. Host and temp path are invented, not real values.
+            (
+                'connection failed: connection to server at "203.0.113.7", port 5432 failed: could not read '
+                'root certificate file "/tmp/source-tls-xxxxxxxx/ca.crt": bad end line',
+                "The certificate authority you configured isn't a valid PEM certificate. Paste the complete "
+                "certificate (including the BEGIN/END lines), or remove it and turn off certificate "
+                "verification instead.",
             ),
             # Unmapped errors fall back to the generic message.
             (
