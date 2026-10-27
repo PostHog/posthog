@@ -1,3 +1,4 @@
+import type { Prompts } from '@/core/prompts'
 import type { Env, Runtime } from '@/core/runtime'
 
 import { run } from './cli'
@@ -8,6 +9,8 @@ export interface FakeRuntimeOptions {
     columns?: number
     files?: Record<string, string>
     stdin?: string
+    // Answers to prompts, in the order hog asks them. A prompt with no answer left fails the test.
+    answers?: string[]
     // Answers every API request. Without it, requests fail with HTTP 500.
     respond?: (url: string, body: unknown) => { status: number; body: unknown }
 }
@@ -16,15 +19,38 @@ export interface FakeRuntime extends Runtime {
     stdout: () => string
     stderr: () => string
     requests: { method: string; url: string; body: unknown }[]
+    files: Record<string, string>
+    opened: string[]
+}
+
+function fakePrompts(answers: string[]): Prompts {
+    const next = async (message: string): Promise<string> => {
+        const value = answers.shift()
+        if (value === undefined) {
+            throw new Error(`No answer for the prompt "${message}"`)
+        }
+        return value
+    }
+    return {
+        select: (message) => next(message) as never,
+        text: (message) => next(message),
+        password: (message) => next(message),
+        note: () => {},
+        spinner: () => ({ stop: () => {}, error: () => {} }),
+    }
 }
 
 export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
     let stdout = ''
     let stderr = ''
     const requests: FakeRuntime['requests'] = []
-    const files = options.files ?? {}
+    const files = { ...options.files }
+    const opened: string[] = []
+    // A clock that only moves when hog sleeps, so polling runs instantly.
+    let clock = Date.UTC(2026, 0, 1)
     return {
         env: options.env ?? {},
+        stdinIsTTY: options.stdoutIsTTY ?? false,
         stdoutIsTTY: options.stdoutIsTTY ?? false,
         stdoutHasColors: options.stdoutIsTTY ?? false,
         stdoutColumns: options.columns,
@@ -41,6 +67,10 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
             const reply = options.respond?.(url, body) ?? { status: 500, body: { detail: 'no fake response' } }
             return new Response(JSON.stringify(reply.body), { status: reply.status })
         }) as typeof fetch,
+        now: () => clock,
+        sleep: async (ms) => {
+            clock += ms
+        },
         homeDir: () => '/home/test',
         readFile: async (path) => {
             const contents = files[path]
@@ -49,10 +79,23 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
             }
             return contents
         },
+        writePrivateFile: async (path, contents) => {
+            files[path] = contents
+        },
+        removeFile: async (path) => {
+            delete files[path]
+        },
         readStdin: async () => options.stdin ?? '',
+        openUrl: async (url) => {
+            opened.push(url)
+            return true
+        },
+        prompts: fakePrompts([...(options.answers ?? [])]),
         stdout: () => stdout,
         stderr: () => stderr,
         requests,
+        files,
+        opened,
     }
 }
 
@@ -69,6 +112,8 @@ export interface HogRun {
     stdout: string
     stderr: string
     requests: FakeRuntime['requests']
+    files: Record<string, string>
+    opened: string[]
     json: () => any
     error: () => any
 }
@@ -81,6 +126,8 @@ export async function runHog(argv: string[], options: FakeRuntimeOptions = {}): 
         stdout: runtime.stdout(),
         stderr: runtime.stderr(),
         requests: runtime.requests,
+        files: runtime.files,
+        opened: runtime.opened,
         json: () => JSON.parse(runtime.stdout()),
         error: () => JSON.parse(runtime.stderr()).error,
     }
