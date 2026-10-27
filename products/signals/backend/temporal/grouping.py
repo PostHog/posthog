@@ -1,4 +1,5 @@
 import os
+import re
 import json
 import uuid
 import asyncio
@@ -367,6 +368,37 @@ class SpecificityResult(BaseModel):
 
 MAX_SIGNALS_IN_SPECIFICITY_CONTEXT = 8
 MAX_RESEARCHED_SUMMARY_CHARS = 2000
+
+# A report split out of a group carries a provisional title until a research pass names it. The
+# signal's own first line does not serve as one, because a support transcript opens with a one-letter
+# speaker prefix and a greeting, and a replay observation opens with a whole paragraph. The inbox
+# then shows a fragment, or a wall of text, where a title belongs, beside a summary that names the
+# group the signal was just rejected from.
+PROVISIONAL_TITLE_MAX_CHARS = 70
+PROVISIONAL_TITLE_MIN_CHARS = 20
+# Transcript sources open each line with the speaker, as an initial or as a role.
+_SPEAKER_PREFIX = re.compile(r"^\s*(?:[a-z]|customer|support|agent|user|assistant)\s*:\s+", re.IGNORECASE)
+_MARKDOWN_ESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!])")
+
+
+def provisional_split_title(description: str, source_product: str) -> str:
+    """Title for a report split out of a group, shown until a research pass names it.
+
+    Falls back to a neutral label naming the source when no line of the signal is long enough to
+    read as a title, rather than surfacing a fragment such as a transcript's opening greeting.
+    """
+    for line in description.splitlines():
+        candidate = _MARKDOWN_ESCAPE.sub(r"\1", _SPEAKER_PREFIX.sub("", line))
+        candidate = " ".join(candidate.split())
+        if len(candidate) < PROVISIONAL_TITLE_MIN_CHARS:
+            continue
+        if len(candidate) <= PROVISIONAL_TITLE_MAX_CHARS:
+            return candidate
+        head = candidate[:PROVISIONAL_TITLE_MAX_CHARS].rsplit(" ", 1)[0] or candidate[:PROVISIONAL_TITLE_MAX_CHARS]
+        return f"{head.rstrip(' ,.;:-')}…"
+
+    source = source_product.replace("_", " ").strip()
+    return f"New {source} signal" if source else "New signal"
 
 
 def _build_matching_prompt(
@@ -1595,7 +1627,7 @@ async def _process_signal_batch(
                     match_result.match_metadata.specificity = specificity_meta
                 else:
                     match_result = NewReportMatch(
-                        title=signal.description.split("\n")[0],
+                        title=provisional_split_title(signal.description, signal.source_product),
                         summary=f"Split from group: {report_title}",
                         match_metadata=NoMatchMetadata(
                             reason=f'PR-specificity rejected: "{specificity_result.pr_title}" — {specificity_result.reason}',

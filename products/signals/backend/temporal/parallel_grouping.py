@@ -22,6 +22,7 @@ from products.signals.backend.temporal.grouping import (
     _ProcessedBatchSignal,
     assign_and_emit_signal_activity,
     match_signal_to_report_activity,
+    provisional_split_title,
     verify_match_specificity_activity,
 )
 from products.signals.backend.temporal.signal_queries import (
@@ -226,7 +227,7 @@ async def _process_signal(
             match_result.match_metadata.specificity = specificity_meta
         else:
             match_result = NewReportMatch(
-                title=signal.description.split("\n")[0],
+                title=provisional_split_title(signal.description, signal.source_product),
                 summary=f"Split from group: {report_title}",
                 match_metadata=NoMatchMetadata(
                     reason=f'PR-specificity rejected: "{specificity_result.pr_title}" — {specificity_result.reason}',
