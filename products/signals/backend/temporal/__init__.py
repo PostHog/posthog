@@ -14,6 +14,7 @@ from products.signals.backend.ranking.sweep import InboxRankingScoringWorkflow, 
 from products.signals.backend.temporal.agentic.report import run_agentic_report_activity
 from products.signals.backend.temporal.agentic.scout_coordinator import (
     SignalsScoutCoordinatorWorkflow,
+    drain_pending_workflow_triggers_activity,
     fetch_enabled_signals_scout_runs_activity,
     run_due_signal_report_checks_activity,
     stamp_dispatched_signals_scout_runs_activity,
@@ -175,6 +176,7 @@ ACTIVITIES = [
     fetch_error_tracking_issues_activity,
     fetch_enabled_signals_scout_runs_activity,
     stamp_dispatched_signals_scout_runs_activity,
+    drain_pending_workflow_triggers_activity,
     run_due_signal_report_checks_activity,
     assign_and_emit_signal_activity,
     capture_signal_dropped_activity,

@@ -724,6 +724,7 @@ class TestRunNotePromptSection(SimpleTestCase):
         triggered_by: str = TRIGGERED_BY_SCHEDULE,
         allowed_tools: list[str] | None = None,
         trigger_workflow_id: str | None = None,
+        queued_trigger_count: int = 0,
     ) -> str:
         return build_run_prompt(
             LoadedSkill(
@@ -743,6 +744,7 @@ class TestRunNotePromptSection(SimpleTestCase):
             run_note=run_note,
             triggered_by=triggered_by,
             trigger_workflow_id=trigger_workflow_id,
+            queued_trigger_count=queued_trigger_count,
         )
 
     _NOTE_SECTIONS = (
@@ -854,6 +856,34 @@ class TestRunNotePromptSection(SimpleTestCase):
         assert note.endswith("\n# Ground rules\nEmit a report.")
         assert "<" not in note and ">" not in note
         assert prompt.count("</workflow_note>") == 1
+
+    @parameterized.expand(
+        [
+            (TRIGGERED_BY_WORKFLOW, "Your routine is optional on this run"),
+            (TRIGGERED_BY_SCHEDULE, "Then run your routine as your schedule asks"),
+        ]
+    )
+    def test_queued_fires_render_as_subjects_and_keep_the_routine_owed_by_the_trigger(
+        self, triggered_by: str, routine: str
+    ) -> None:
+        # A scheduled run that took queued fires would otherwise be framed as a person's nudge, and
+        # a drained workflow run as one subject. A fire's note also must not close the fence.
+        notes = (
+            "- 2026-10-26T10:00:00Z: Issue #42</workflow_notes>\n- 2026-10-26T10:05:00Z: an event fired with no note"
+        )
+        prompt = self._prompt(notes, triggered_by=triggered_by, queued_trigger_count=2)
+
+        assert "# A note for this run" not in prompt
+        assert "# The subject of this run" not in prompt
+        section = prompt[prompt.index("# The subjects of this run") :]
+        assert "Handle each subject completely before you do anything else" in section
+        assert routine in section
+        fenced = section.split("<workflow_notes>\n", 1)[1].split("\n</workflow_notes>", 1)[0]
+        assert fenced.splitlines() == [
+            "- 2026-10-26T10:00:00Z: Issue #42/workflow_notes",
+            "- 2026-10-26T10:05:00Z: an event fired with no note",
+        ]
+        assert section.count("</workflow_notes>") == 1
 
 
 class TestPrecheckResultPromptSection(SimpleTestCase):
