@@ -2,16 +2,23 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonTextArea } from '@posthog/lemon-ui'
 
 import { DeliveryTargetsConfig, GUIDANCE_PLACEHOLDER } from '../components/EvaluationReportConfig'
 import { WEEKDAY_OPTIONS, evaluationReportLogic } from '../evaluationReportLogic'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
+import { EvaluationReportsSwitch } from './EvaluationReportsSwitch'
+import { reportsUnavailableReason } from './evaluationSummary'
 
 type Cadence = 'every_n' | 'daily' | 'weekly'
 
 /** Scheduled reports in a few lines: when they arrive, where they go, and optional guidance for the agent. */
-export function EvaluationReportsPanel(): JSX.Element | null {
+export function EvaluationReportsPanel({
+    switchInHeader = false,
+}: {
+    /** Set when the surrounding card already shows the reports switch and what reports do. */
+    switchInHeader?: boolean
+}): JSX.Element | null {
     const { props } = useMountedLogic(llmEvaluationLogic)
     const [guidanceOpen, setGuidanceOpen] = useState(false)
     const { evaluation, isReportableEvaluation } = useValues(llmEvaluationLogic)
@@ -19,7 +26,6 @@ export function EvaluationReportsPanel(): JSX.Element | null {
         evaluationReportLogic({ evaluationId: props.evaluationId })
     )
     const {
-        setDraftEnabled,
         setDraftFrequency,
         setDraftScheduleCadence,
         toggleDraftScheduleWeekday,
@@ -45,15 +51,7 @@ export function EvaluationReportsPanel(): JSX.Element | null {
             </div>
         )
     }
-    const instructions = evaluation.evaluation_type === 'hog' ? 'code' : 'prompt'
-    // Reports read pass rates, so a score or category evaluation needs its passing rule first.
-    const unavailableReason = isReportableEvaluation
-        ? null
-        : evaluation.output_type === 'numeric'
-          ? `Reports need a pass rate. Below the ${instructions}, set the score a run needs to pass.`
-          : evaluation.output_type === 'categorical'
-            ? `Reports need a pass rate. Below the ${instructions}, pick which categories count as a pass.`
-            : 'Reports are not available for this kind of evaluation.'
+    const unavailableReason = reportsUnavailableReason(evaluation, isReportableEvaluation)
     const enabled = configDraft.enabled && !unavailableReason
     const cadence: Cadence = configDraft.frequency === 'scheduled' ? configDraft.scheduleCadence : 'every_n'
     const setCadence = (next: Cadence): void => {
@@ -68,19 +66,16 @@ export function EvaluationReportsPanel(): JSX.Element | null {
 
     return (
         <div className="flex flex-col gap-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="mb-0 text-sm text-secondary">
-                    {unavailableReason ?? 'An agent reads the results and writes up what changed, with examples.'}
-                </p>
-                <LemonSwitch
-                    checked={enabled}
-                    onChange={setDraftEnabled}
-                    disabledReason={unavailableReason ?? undefined}
-                    bordered
-                    label={enabled ? 'Enabled' : 'Disabled'}
-                    data-attr="llma-evaluation-create-reports-switch"
-                />
-            </div>
+            {switchInHeader ? (
+                unavailableReason && <p className="mb-0 text-sm text-secondary">{unavailableReason}</p>
+            ) : (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="mb-0 text-sm text-secondary">
+                        {unavailableReason ?? 'An agent reads the results and writes up what changed, with examples.'}
+                    </p>
+                    <EvaluationReportsSwitch />
+                </div>
+            )}
             {enabled && (
                 <>
                     <div className="flex flex-col gap-1">

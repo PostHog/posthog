@@ -6,6 +6,7 @@ import * as judgePng from '@posthog/brand/hoggies/png/judge'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import * as officeWorkerPng from '@posthog/brand/hoggies/png/office-worker'
 import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
+import * as stampApprovedPng from '@posthog/brand/hoggies/png/stamp-approved'
 import { IconCheck } from '@posthog/icons'
 import { LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
@@ -24,13 +25,14 @@ import { EvaluationModelPanel } from './EvaluationModelPanel'
 import { EvaluationNameFields } from './EvaluationNameFields'
 import { EvaluationOutputFields } from './EvaluationOutputFields'
 import { EvaluationReportsPanel } from './EvaluationReportsPanel'
+import { EvaluationReportsSwitch } from './EvaluationReportsSwitch'
 import { EvaluationSentence, type SentencePart } from './EvaluationSentence'
 import { EvaluationTargetPanel } from './EvaluationTargetPanel'
 import { EvaluationVolumeEstimate } from './EvaluationVolumeEstimate'
 
 interface Step {
     // pinned: analytics property value, because the creation funnel reads it
-    key: 'name' | 'check' | 'traffic' | 'reports'
+    key: 'name' | 'check' | 'traffic' | 'reports' | 'create'
     title: string
     heading: string
     description: string
@@ -73,9 +75,19 @@ const STEPS: Step[] = [
         key: 'reports',
         title: 'Reports',
         heading: 'Reports',
-        description: 'Choose how often a report arrives and where it goes.',
+        description:
+            'An agent reads the results and writes up what changed, with examples. Choose how often a report arrives and where it goes.',
         hoggie: pngHoggie(reporterPng),
         parts: ['reports'],
+        checks: [],
+    },
+    {
+        key: 'create',
+        title: 'Create',
+        heading: 'Ready to create',
+        description: 'Check the sentence above. It is what the evaluation will do.',
+        hoggie: pngHoggie(stampApprovedPng),
+        parts: [],
         checks: [],
     },
 ]
@@ -111,7 +123,9 @@ function StepContent({ step }: { step: Step['key'] }): JSX.Element | null {
                 </>
             )
         case 'reports':
-            return <EvaluationReportsPanel />
+            return <EvaluationReportsPanel switchInHeader />
+        case 'create':
+            return null
     }
 }
 
@@ -204,16 +218,22 @@ export function EvaluationCreateSteps({
             >
                 <div className="flex items-center gap-4">
                     <Hoggie className="w-16 shrink-0" />
-                    <div className="flex flex-col gap-1 min-w-0">
-                        <h2 className="mb-0 text-lg font-semibold">{step.heading}</h2>
+                    <div className="flex flex-col gap-1 min-w-0 flex-1">
+                        <h2 className="mb-0 text-lg font-semibold">
+                            {isLast && todo.length > 0 ? 'Before you create' : step.heading}
+                        </h2>
                         <p className="mb-0 text-sm text-secondary">{step.description}</p>
                     </div>
+                    {step.key === 'reports' && <EvaluationReportsSwitch />}
                 </div>
-                <div className="flex flex-col gap-4 min-w-0">
-                    <StepContent step={step.key} />
-                </div>
+                {!isLast && (
+                    <div className="flex flex-col gap-4 min-w-0">
+                        <StepContent step={step.key} />
+                    </div>
+                )}
                 {isLast && (
-                    <div className="flex flex-col gap-3 border-t pt-4">
+                    <div className="flex flex-col gap-3">
+                        {todo.length === 0 && <p className="mb-0 text-sm text-success">Everything it needs is set.</p>}
                         {todo.length > 0 && (
                             <ul
                                 className="flex flex-col gap-1 m-0 p-0 list-none text-sm"

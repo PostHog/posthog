@@ -70,3 +70,16 @@ export function returnText(evaluation: EvaluationConfig): string {
     }
     return RETURN_LABELS[evaluation.output_type]
 }
+
+/** Why reports cannot be turned on yet, or null when they can. Reports read pass rates. */
+export function reportsUnavailableReason(evaluation: EvaluationConfig, isReportable: boolean): string | null {
+    if (isReportable) {
+        return null
+    }
+    const instructions = evaluation.evaluation_type === 'hog' ? 'code' : 'prompt'
+    return evaluation.output_type === 'numeric'
+        ? `Reports need a pass rate. Below the ${instructions}, set the score a run needs to pass.`
+        : evaluation.output_type === 'categorical'
+          ? `Reports need a pass rate. Below the ${instructions}, pick which categories count as a pass.`
+          : 'Reports are not available for this kind of evaluation.'
+}

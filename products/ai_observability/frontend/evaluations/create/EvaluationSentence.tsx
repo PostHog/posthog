@@ -19,7 +19,7 @@ import { EvaluationVolumeEstimate } from './EvaluationVolumeEstimate'
 
 export type SentencePart = 'method' | 'model' | 'target' | 'triggers' | 'reports'
 
-const PANELS: Record<SentencePart, () => JSX.Element | null> = {
+const PANELS: Record<SentencePart, React.ComponentType> = {
     method: EvaluationMethodPanel,
     model: EvaluationModelPanel,
     target: EvaluationTargetPanel,
