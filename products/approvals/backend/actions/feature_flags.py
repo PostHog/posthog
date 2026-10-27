@@ -82,6 +82,17 @@ def _get_validated_change(request, view, *args, **kwargs) -> dict[str, Any]:
     return {key: _to_wire_form(value) for key, value in change.items()}
 
 
+# Serializer context key a product sets on a flag write that rewrites the release conditions of a
+# flag it owns, inside an operation it gates itself. The owning product reviews that operation as a
+# whole, for example freezing an experiment's exposure, so the write must not be reviewed again.
+OWNER_REWRITES_RELEASE_CONDITIONS = "owner_rewrites_release_conditions"
+
+
+def _owner_rewrites_release_conditions(view) -> bool:
+    context = getattr(view, "context", None)
+    return isinstance(context, dict) and context.get(OWNER_REWRITES_RELEASE_CONDITIONS) is True
+
+
 def _get_flag_instance(view, *args, **kwargs) -> Optional[FeatureFlag]:
     """Resolve the FeatureFlag being changed, or None on a create.
 
@@ -632,9 +643,11 @@ class DisableFeatureFlagAction(FeatureFlagActionBase):
 class UpdateFeatureFlagAction(BaseAction):
     """Gate changes to a feature flag's rollout and release conditions.
 
-    A rollout change is gated on every flag. A release condition change is gated on a standalone
-    flag only. Product code rewrites the release conditions of a flag its product owns, for example
-    when an experiment freezes its exposure, and those writes cannot wait for an approval.
+    A rollout change is gated on every flag. A release condition change is gated on the flags the
+    family governs: standalone flags here, an experiment's flags under `experiment.update`. Product
+    code that rewrites the release conditions of its own flag inside an operation it gates itself,
+    such as an experiment freezing its exposure, marks the write with
+    `OWNER_REWRITES_RELEASE_CONDITIONS`, so the operation is reviewed once, as itself.
     """
 
     key = "feature_flag.update"
@@ -752,26 +765,32 @@ class UpdateFeatureFlagAction(BaseAction):
         return [path for path in paths if old_by_path.get(path) != new_by_path.get(path)]
 
     @classmethod
-    def _gated_values(cls, flag: Optional[FeatureFlag], change: dict[str, Any]) -> _GatedValues:
+    def _gated_values(
+        cls, flag: Optional[FeatureFlag], change: dict[str, Any], *, owner_rewrite: bool = False
+    ) -> _GatedValues:
         """Return the values of each gated field before and after the change.
 
-        `release_conditions` is present only when the release conditions of a standalone flag
-        changed. A create compares its rollout against an empty baseline, so a flag born with any
-        rollout trips an "any change / >0" policy, and its release conditions are not compared:
-        a new flag serves nobody until it is enabled, and `feature_flag.enable` gates that.
+        `release_conditions` is present only when the release conditions changed on a flag this
+        family governs. Comparing them for a flag another family governs would gate one change
+        under two policies, so each family reads only its own flags. They are not compared on an
+        owner's rewrite (`owner_rewrite`), which the owning product gates as its own operation.
+
+        A create compares its rollout against an empty baseline, so a flag born with any rollout
+        trips an "any change / >0" policy, and its release conditions are not compared: a new flag
+        serves nobody until it is enabled, and `feature_flag.enable` gates that.
         """
         old_filters = (flag.filters or {}) if flag is not None else {}
         new_filters = change["filters"] if "filters" in change else old_filters
 
         before = {"rollout_percentage": cls._extract_rollout_percentages(old_filters)}
         after = {"rollout_percentage": cls._extract_rollout_percentages(new_filters)}
-        if flag is None:
+        if flag is None or owner_rewrite:
             return _GatedValues(before=before, after=after)
 
         old_release = _release_conditions(old_filters, flag.bucketing_identifier)
         new_release = _release_conditions(new_filters, change.get("bucketing_identifier", flag.bucketing_identifier))
         # The owner lookup runs queries, so it runs only after the cheap comparison found a change.
-        if cls._changed_paths(old_release, new_release, strict=True) and _cached_owner_kind(flag) is None:
+        if cls._changed_paths(old_release, new_release, strict=True) and _cached_owner_kind(flag) == cls.owner_scope:
             before["release_conditions"] = old_release
             after["release_conditions"] = new_release
 
@@ -796,7 +815,9 @@ class UpdateFeatureFlagAction(BaseAction):
 
         change = _get_validated_change(request, view, *args, **kwargs)
 
-        if not cls._triggered_paths(cls._gated_values(flag, change)):
+        if not cls._triggered_paths(
+            cls._gated_values(flag, change, owner_rewrite=_owner_rewrites_release_conditions(view))
+        ):
             return False
 
         team = cls._get_team(view)
@@ -810,7 +831,7 @@ class UpdateFeatureFlagAction(BaseAction):
         flag = _get_flag_instance(view, *args, **kwargs)
         change = _get_validated_change(request, view, *args, **kwargs)
 
-        values = cls._gated_values(flag, change)
+        values = cls._gated_values(flag, change, owner_rewrite=_owner_rewrites_release_conditions(view))
 
         # A caller exempt from the serializer's opportunistic filter cleanup stays exempt when
         # the approved change replays, the way the lifecycle base records it. Without this an

@@ -62,18 +62,19 @@ class PauseExperimentAction(DisableFeatureFlagAction):
 
 
 class UpdateExperimentAction(UpdateFeatureFlagAction):
-    """Gate a change to how an experiment's traffic is split, including shipping a winner.
+    """Gate a change to who an experiment reaches and how its traffic is split.
 
-    Shipping a winning variant is a rollout change with a different button on it, so it belongs to
-    this action rather than one of its own. The description says so, because "update" alone does
-    not tell an approver that a request may hand one variant every user.
+    That covers the rollout, the variant split, the holdout exclusion and the release conditions,
+    and shipping a winner, which is a rollout change with a different button on it. Freezing
+    exposure, unfreezing it and resetting also rewrite the release conditions, but the experiment
+    gates those as operations of their own, which borrow this action's policy.
     """
 
     key = "experiment.update"
     version = 1
-    description = "Change an experiment's rollout or variant split, or ship a winning variant"
+    description = "Change an experiment's rollout, variant split or targeting, or ship a winning variant"
     owner_scope = FLAG_OWNER_EXPERIMENT
 
     @classmethod
     def _display_subject(cls, flag_key: str, changed_fields: list[str]) -> str:
-        return f"Change the rollout or variant split of the experiment on feature flag '{flag_key}'"
+        return f"Update {' and '.join(changed_fields)} of the experiment on feature flag '{flag_key}'"

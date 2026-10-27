@@ -125,8 +125,8 @@ DECISION_TABLE: dict[str, dict[str, Optional[str]]] = {
 #
 # A create has no owner yet, so it does not move. A flag a product merely references is unowned,
 # so it does not move either. A release condition change on an experiment's flag is gated by
-# nothing today and by `experiment.update` once narrowed, so that cell gains coverage rather than
-# moving or losing it.
+# nothing before narrowing and by `experiment.update` after it, so that cell gains coverage rather
+# than moving or losing it.
 DECISION_TABLE_NARROWED: dict[str, dict[str, Optional[str]]] = {
     #                                   create  update   release   enable   disable   delete
     "standalone":                  _row(ENABLE,  UPDATE,  UPDATE,   ENABLE,  DISABLE,  UNGATED),
