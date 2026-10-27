@@ -271,6 +271,92 @@ class TestFanOut:
         assert result.paths == ["/v1/projects", "/v1/projects/proj-b/jobs", *child_paths]
         assert result.params("cursor")[2] == resume_state.cursor
 
+    @parameterized.expand(
+        [
+            ("full_run", None, ["development", "staging", "production"], ["d1", "p1"]),
+            (
+                "resume_mid_stage",
+                NorthflankResumeConfig(
+                    cursor="dev-cursor-2", project_id="proj-a", parent_id="pl-1", stage="development"
+                ),
+                ["development", "staging", "production"],
+                ["d1", "p1"],
+            ),
+            (
+                "resume_after_stage",
+                NorthflankResumeConfig(cursor=None, project_id="proj-a", parent_id="pl-1", stage="staging"),
+                ["production"],
+                ["p1"],
+            ),
+        ]
+    )
+    def test_release_flow_runs_walk_each_stage(self, _name, resume_state, stages_requested, expected_ids):
+        stage_path = "/v1/projects/proj-a/pipelines/pl-1/release-flows/{}/runs"
+        result = _driver().run(
+            "release_flow_runs",
+            route(
+                {
+                    "/v1/projects": [ScriptedResponse(json=_page("projects", [{"id": "proj-a"}], None))],
+                    "/v1/projects/proj-a/pipelines": [
+                        ScriptedResponse(json=_page("pipelines", [{"id": "pl-1"}], None))
+                    ],
+                    stage_path.format("development"): [ScriptedResponse(json=_page("runs", [{"id": "d1"}], None))],
+                    # A stage without a release flow 404s.
+                    stage_path.format("staging"): [ScriptedResponse(status=404, json={})],
+                    stage_path.format("production"): [ScriptedResponse(json=_page("runs", [{"id": "p1"}], None))],
+                }
+            ),
+            resume_state=resume_state,
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == expected_ids
+        assert all(row["projectId"] == "proj-a" and row["pipelineId"] == "pl-1" for row in result.rows)
+        stage_by_id = {"d1": "development", "p1": "production"}
+        assert [row["stage"] for row in result.rows] == [stage_by_id[row_id] for row_id in expected_ids]
+        assert result.paths[2:] == [stage_path.format(stage) for stage in stages_requested]
+        assert result.params("cursor")[2] == (resume_state.cursor if resume_state else None)
+        assert result.saved_states[-1] == NorthflankResumeConfig(
+            cursor=None, project_id="proj-a", parent_id="pl-1", stage="production"
+        )
+
+    @parameterized.expand(
+        [
+            ("job_builds_skips_missing", "job_builds", "jobs", "jobs", "/v1/projects/proj-a/jobs/j1/build", False),
+            ("job_runs_raises", "job_runs", "jobs", "jobs", "/v1/projects/proj-a/jobs/j1/runs", True),
+            # The workflow list nests its rows under `data.pipelines`.
+            (
+                "workflow_runs_raises",
+                "workflow_runs",
+                "workflows",
+                "pipelines",
+                "/v1/projects/proj-a/workflows/j1/runs",
+                True,
+            ),
+        ]
+    )
+    def test_child_not_found(self, _name, endpoint, parent_resource, parent_data_key, child_path, raises):
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    "/v1/projects": [ScriptedResponse(json=_page("projects", [{"id": "proj-a"}], None))],
+                    f"/v1/projects/proj-a/{parent_resource}": [
+                        ScriptedResponse(json=_page(parent_data_key, [{"id": "j1"}], None))
+                    ],
+                    child_path: [ScriptedResponse(status=404, json={})],
+                }
+            ),
+        )
+
+        assert result.paths == ["/v1/projects", f"/v1/projects/proj-a/{parent_resource}", child_path]
+        assert result.rows == []
+        if raises:
+            assert isinstance(result.raised, requests.HTTPError)
+            assert "404 Client Error" in str(result.raised)
+        else:
+            assert result.raised is None
+
     def test_project_without_id_raises(self):
         # A project missing its id would silently drop all of its nested resources; fail loudly instead.
         result = _driver().run("services", [ScriptedResponse(json=_page("projects", [{"name": "no id"}], None))])
