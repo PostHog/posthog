@@ -641,4 +641,4 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert response.json()["notes"] == result["notes"]
 
         other = HogFlow.objects.create(team=self.team, name="Built by hand")
-        assert self.client.get(url, {"hog_flow_id": str(other.id)}).status_code == 404
+        assert self.client.get(url, {"hog_flow_id": str(other.id)}).status_code == 204

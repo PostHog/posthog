@@ -320,8 +320,8 @@ tools:
             idempotent: true
         title: Get a workflow's import notes
         description: >
-            What importing a workflow from Customer.io changed or left out, step by step. Returns 404 for a workflow
-            that was not imported.
+            What importing a workflow from Customer.io changed or left out, step by step. Returns an empty response for
+            a workflow that was not imported.
         feature_flag: workflows-customerio-import
     workflows-list:
         operation: hog_flows_list
