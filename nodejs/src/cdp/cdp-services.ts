@@ -9,6 +9,7 @@ import { getRedisHost } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
 import { TeamManager } from '~/common/utils/team-manager'
+import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/internal-logs-producer'
 
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
@@ -193,7 +194,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_DLQ_BATCH_FAIL_RATIO'
         | 'CDP_EVENTS_DLQ_TOPIC'
         | 'CDP_EVENTS_DLQ_PRODUCER'
-    >
+    > &
+    InternalLogsProducerConfig
 
 export interface CdpCoreServicesDeps {
     postgres: PostgresRouter
@@ -561,7 +563,10 @@ export function createCdpCoreServices(
         { awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED }
     )
 
-    const hogFunctionMonitoringService = new HogFunctionMonitoringService(outputs)
+    const hogFunctionMonitoringService = new HogFunctionMonitoringService(
+        outputs,
+        new InternalLogsProducer(config, deps.teamManager)
+    )
     const hogInvocationResultsService = new HogInvocationResultsService(outputs, config)
     const warehouseWebhooksService = new WarehouseWebhooksService(outputs)
     const capturedEventsService = new CapturedEventsService(deps.internalCaptureService, deps.teamManager)

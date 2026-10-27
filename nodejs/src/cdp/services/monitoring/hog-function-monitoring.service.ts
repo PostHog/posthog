@@ -6,6 +6,7 @@ import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { safeClickhouseString } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
+import type { InternalLogRecord, InternalLogsProducer } from '~/logs/internal-logs-producer'
 
 import {
     CyclotronJobInvocationHogFlow,
@@ -65,10 +66,14 @@ export const isHogFlowResult = (
 
 export class HogFunctionMonitoringService {
     queuedLogMessages: LogEntrySerialized[] = []
+    private queuedInternalLogs: InternalLogRecord[] = []
 
     private appMetricsAggregator: AppMetricsAggregator
 
-    constructor(private outputs: IngestionOutputs<MonitoringOutput>) {
+    constructor(
+        private outputs: IngestionOutputs<MonitoringOutput>,
+        private internalLogsProducer?: InternalLogsProducer
+    ) {
         this.appMetricsAggregator = new AppMetricsAggregator(outputs)
     }
 
@@ -82,6 +87,12 @@ export class HogFunctionMonitoringService {
         const messages = [...this.queuedLogMessages]
         this.queuedLogMessages = []
         hogFunctionMonitoringPendingMessages.set(0)
+
+        if (this.internalLogsProducer && this.queuedInternalLogs.length > 0) {
+            // Not awaited, so a slow capture-logs cannot hold up the Kafka flush. The producer caps its own requests.
+            void this.internalLogsProducer.send(this.queuedInternalLogs)
+            this.queuedInternalLogs = []
+        }
 
         await Promise.all([
             this.appMetricsAggregator.flush().catch((error) => {
@@ -144,6 +155,19 @@ export class HogFunctionMonitoringService {
     }
 
     queueLogs(logEntries: LogEntry[], source: MetricLogSource) {
+        for (const logEntry of logEntries) {
+            if (this.internalLogsProducer?.accepts(source, logEntry.team_id)) {
+                this.queuedInternalLogs.push({
+                    source,
+                    teamId: logEntry.team_id,
+                    timestamp: logEntry.timestamp,
+                    level: logEntry.level,
+                    message: logEntry.message,
+                    attributes: { log_source_id: logEntry.log_source_id, instance_id: logEntry.instance_id },
+                })
+            }
+        }
+
         const logs = fixLogDeduplication(
             logEntries.map((logEntry) => ({
                 ...logEntry,
