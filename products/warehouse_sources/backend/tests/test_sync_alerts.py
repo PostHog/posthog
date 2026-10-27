@@ -1,10 +1,12 @@
 from datetime import UTC, datetime, timedelta
+from io import StringIO
 from typing import Any
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.management import call_command
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -45,6 +47,8 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.templates.fixtures import template_pagerduty, template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.data_warehouse.backend.facade.models import TeamDataWarehouseConfig
+from products.warehouse_sources.backend.facade.sync_alerts import create_default_failure_alert
 from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -60,6 +64,12 @@ Status = ExternalDataSchema.Status
 DestinationStatus = ExternalDataDestination.Status
 SECRET = "hunter2-correct-horse"
 PAGERDUTY_ROUTING_KEY = "0123456789abcdef0123456789abcdef"
+DEFAULT_ALERT_FLAG_PATH = "products.warehouse_sources.backend.sync_alerts.default_alert.posthog_feature_flag_enabled"
+DEFAULT_ALERT = (
+    "Warehouse sync failures",
+    {"source_ids": [], "group_by": "source", "email_project_members": True},
+)
+OWN_ALERT = ("Sync failures", {"group_by": "source"})
 
 
 class TestWarehouseAlerts(APIBaseTest):
@@ -712,3 +722,77 @@ class TestWarehouseAlerts(APIBaseTest):
             [self.user.email, "member@example.com"]
         )
         email_message.return_value.send.assert_called_once_with()
+
+    def _source_alerts(self) -> list[tuple[str, dict[str, Any]]]:
+        with team_scope(self.team.id):
+            page = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.WAREHOUSE_SOURCE.value], limit=10, offset=0
+            )
+        return [(view.name, view.source_config) for view in page.configurations]
+
+    def _delete_source_alerts(self) -> None:
+        with team_scope(self.team.id):
+            page = list_configurations(
+                team_id=self.team.id, source_kinds=[SourceKind.WAREHOUSE_SOURCE.value], limit=10, offset=0
+            )
+            for view in page.configurations:
+                delete_configuration(
+                    team_id=self.team.id, source_kinds=[SourceKind.WAREHOUSE_SOURCE.value], configuration_id=view.id
+                )
+
+    @parameterized.expand(
+        [
+            ("one_default_for_two_sources", True, False, False, [DEFAULT_ALERT]),
+            ("no_default_again_after_it_was_deleted", True, False, True, []),
+            ("no_default_beside_an_alert_of_its_own", True, True, False, [OWN_ALERT]),
+            ("no_default_after_its_own_alert_was_deleted", True, True, True, []),
+            ("nothing_with_the_flag_off", False, False, False, []),
+        ]
+    )
+    def test_a_project_gets_its_default_failure_alert_once(
+        self,
+        _name: str,
+        flag_on: bool,
+        own_alert: bool,
+        delete_between_sources: bool,
+        expected: list[tuple[str, dict[str, Any]]],
+    ) -> None:
+        if own_alert:
+            self._alert(SourceKind.WAREHOUSE_SOURCE, {"group_by": "source"}, "source_id")
+        with patch(DEFAULT_ALERT_FLAG_PATH, return_value=flag_on):
+            create_default_failure_alert(self.team)
+            self._source()
+            create_default_failure_alert(self.team)
+            if delete_between_sources:
+                self._delete_source_alerts()
+            self._source(prefix="second")
+            create_default_failure_alert(self.team)
+
+        assert self._source_alerts() == expected
+
+    @parameterized.expand([("dry_run", True, []), ("live_run", False, [DEFAULT_ALERT])])
+    def test_the_backfill_gives_projects_with_a_source_the_default_alert(
+        self, _name: str, dry_run: bool, expected: list[tuple[str, dict[str, Any]]]
+    ) -> None:
+        self._source()
+        project_without_source = Team.objects.create(organization=self.organization, name="No sources")
+        output = StringIO()
+
+        with patch(DEFAULT_ALERT_FLAG_PATH, return_value=True):
+            call_command(
+                "backfill_default_warehouse_failure_alert",
+                "--team-ids",
+                str(self.team.id),
+                str(project_without_source.id),
+                *(["--dry-run"] if dry_run else []),
+                stdout=output,
+            )
+
+        assert self._source_alerts() == expected
+        assert ("would create: 1" if dry_run else "created: 1") in output.getvalue()
+        decided_at = (
+            TeamDataWarehouseConfig.objects.filter(team_id=self.team.id)
+            .values_list("default_failure_alert_at", flat=True)
+            .first()
+        )
+        assert (decided_at is not None) == (not dry_run)
