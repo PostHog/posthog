@@ -5,6 +5,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -117,6 +118,15 @@ class TestInternalTicketAPI(BaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["first_customer_message_text"], expected)
+
+    def test_get_skips_a_first_message_that_is_only_a_cut_link(self):
+        self._create_customer_message("[report.pdf](https://example.com/files/" + "a" * 5000 + ")")
+        Comment.objects.filter(item_id=str(self.ticket.id)).update(created_at=timezone.now() - timedelta(minutes=10))
+        self._create_customer_message("Actual question")
+
+        response = self._get_first_message(2200)
+
+        self.assertEqual(response.json()["first_customer_message_text"], "Actual question")
 
     def test_get_fits_a_longer_first_message_into_the_response_budget(self):
         self._create_customer_message("あ" * 3000)

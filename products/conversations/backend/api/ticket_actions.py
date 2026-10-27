@@ -225,6 +225,15 @@ _INVISIBLE_PADDING = re.compile(r"[\u00ad\u034f\u200b\u2060\ufeff]")
 _PADDING_NON_JOINER = re.compile(r"(?:^|(?<=[\s\u200c]))\u200c|\u200c(?=[\s\u200c]|$)")
 
 
+def _strip_severed_link(window: str) -> str:
+    # A link whose long URL runs past the window starts before the tail strip reaches it.
+    opener = window.rfind("](")
+    start = window.rfind("[", 0, opener) if opener != -1 and ")" not in window[opener:] else -1
+    if start == -1:
+        return window
+    return window[: start - 1 if window[start - 1 : start] == "!" else start]
+
+
 def _quotable_text(content: str, *, scan_chars: int, unescape_markdown: bool, strip_padding: bool = False) -> str:
     window = content[:scan_chars]
     # Only a window that actually cut the body can hold a severed construct. Applying this to a
@@ -233,6 +242,8 @@ def _quotable_text(content: str, *, scan_chars: int, unescape_markdown: bool, st
         # Only the end can hold a severed attachment, and stripping the whole window is quadratic.
         head, tail = window[:-FIRST_MESSAGE_SCAN_CHARS], window[-FIRST_MESSAGE_SCAN_CHARS:]
         window = head + _PARTIAL_MARKDOWN_TAIL.sub("", tail)
+        if head:
+            window = _strip_severed_link(window)
     text = _LINK_MARKDOWN.sub(r"\1", _IMAGE_MARKDOWN.sub("", window))
     # Only the widget editor escapes the customer's punctuation on the way in (its escapeMarkdown),
     # so only a widget message is unescaped here. Email, Slack, Teams and imports store the text as
