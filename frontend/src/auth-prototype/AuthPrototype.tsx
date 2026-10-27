@@ -7,13 +7,13 @@ import { Slide, ToastContainer } from 'react-toastify'
 import { PostHogProvider } from '@posthog/react'
 
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { Login } from 'scenes/authentication/login/Login'
-import { loginLogic } from 'scenes/authentication/login/loginLogic'
+import { Auth } from 'scenes/authentication/auth/Auth'
+import { authLogic } from 'scenes/authentication/auth/authLogic'
 
 import { authPrototypeLogic } from './authPrototypeLogic'
 
 export function AuthPrototype(): JSX.Element {
-    useMountedLogic(loginLogic)
+    useMountedLogic(authLogic)
     useMountedLogic(authPrototypeLogic)
 
     useLayoutEffect(() => {
@@ -23,7 +23,7 @@ export function AuthPrototype(): JSX.Element {
     return (
         <PostHogProvider client={posthog}>
             <Tooltip.Provider delay={500} closeDelay={0} timeout={400}>
-                <Login />
+                <Auth />
                 <ToastContainer
                     autoClose={6000}
                     transition={Slide}

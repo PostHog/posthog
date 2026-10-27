@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Optional
 
@@ -122,6 +123,12 @@ def delete_file(*, team: Team, file_type: str, ref: str, surface: str = DEFAULT_
     count, _ = FileSystem.objects.filter(surface_q(surface), team=team, type=file_type, ref=ref).delete()
     if count > 0:
         FileSystemShortcut.objects.filter(surface_q(surface), team=team, type=file_type, ref=ref).delete()
+
+
+def delete_files(*, team: Team, file_type: str, refs: Sequence[str], surface: str = DEFAULT_SURFACE) -> None:
+    count, _ = FileSystem.objects.filter(surface_q(surface), team=team, type=file_type, ref__in=refs).delete()
+    if count > 0:
+        FileSystemShortcut.objects.filter(surface_q(surface), team=team, type=file_type, ref__in=refs).delete()
 
 
 def split_path(path: str) -> list[str]:

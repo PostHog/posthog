@@ -79,11 +79,23 @@ export function applyVolumeSpikeHighlights(
     }
 
     const binSizeMs = data[1].date.getTime() - data[0].date.getTime()
-    const spikeTimestamps = spikeEvents.map((s) => new Date(s.detected_at).getTime())
+    const spikes = spikeEvents.map((s) => ({
+        time: new Date(s.detected_at).getTime(),
+        multiplier: s.computed_baseline > 0 ? s.current_bucket_value / s.computed_baseline : undefined,
+    }))
 
     return data.map((datum) => {
         const datumTime = datum.date.getTime()
-        const hasSpikeInBin = spikeTimestamps.some((st) => st >= datumTime && st < datumTime + binSizeMs)
-        return hasSpikeInBin ? { ...datum, color: spikeStripeColor, isSpike: true } : datum
+        const spikesInBin = spikes.filter((spike) => spike.time >= datumTime && spike.time < datumTime + binSizeMs)
+        if (spikesInBin.length === 0) {
+            return datum
+        }
+        const multipliers = spikesInBin.flatMap((spike) => (spike.multiplier === undefined ? [] : [spike.multiplier]))
+        return {
+            ...datum,
+            color: spikeStripeColor,
+            isSpike: true,
+            spikeMultiplier: multipliers.length > 0 ? Math.max(...multipliers) : undefined,
+        }
     })
 }

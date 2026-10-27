@@ -34,7 +34,8 @@ export function EmailSenderForm({
     senders: EmailSender[]
     onChangeFrom: (from: EmailTemplateFrom) => void
     onChangeReplyTo: (replyTo: string) => void
-    onDone: () => void
+    /** Shows a Done button, for when the form sits in a dropdown. */
+    onDone?: () => void
 }): JSX.Element {
     const sender = senders.find((candidate) => candidate.id === from.integrationId)
     const domain = senderDomain(sender)
@@ -106,11 +107,13 @@ export function EmailSenderForm({
                     data-attr="transactional-email-reply-to"
                 />
             </LemonField.Pure>
-            <div className="flex justify-end">
-                <LemonButton type="primary" size="small" onClick={onDone}>
-                    Done
-                </LemonButton>
-            </div>
+            {onDone ? (
+                <div className="flex justify-end">
+                    <LemonButton type="primary" size="small" onClick={onDone}>
+                        Done
+                    </LemonButton>
+                </div>
+            ) : null}
         </div>
     )
 }

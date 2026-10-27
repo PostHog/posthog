@@ -11,6 +11,7 @@ import structlog
 import temporalio
 import posthoganalytics
 from pydantic import BaseModel, ValidationError
+from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
@@ -84,7 +85,7 @@ from products.signals.backend.typed_report_links import (
     outgoing_links,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.agents import CustomPromptSandboxContext, SandboxRunFailed
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext, SandboxRunFailed, turn_failure_error_type
 
 logger = structlog.get_logger(__name__)
 
@@ -1145,6 +1146,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 runtime_adapter=agent_runtime.runtime_adapter,
                 reasoning_effort=agent_runtime.reasoning_effort,
                 service_tier=agent_runtime.service_tier,
+                disable_repo_hooks=True,
             )
             has_bk = await database_sync_to_async(_team_has_business_knowledge, thread_sensitive=False)(input.team_id)
             metrics_enabled = await database_sync_to_async(team_report_metrics_enabled, thread_sensitive=False)(
@@ -1294,4 +1296,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             team_id=input.team_id,
             error=str(error),
         )
+        error_type = turn_failure_error_type(error)
+        if error_type is not None:
+            raise ApplicationError(str(error), type=error_type) from error
         raise
