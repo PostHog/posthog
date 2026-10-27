@@ -606,7 +606,14 @@ def _is_permanent_auth_error(response: Response) -> bool:
 
 
 def _is_rate_limit_error(response: Response) -> bool:
-    """Return True for Meta errors that mean "too many requests", which only waiting fixes."""
+    """Return True for Meta errors that mean "too many requests", which only waiting fixes.
+
+    A fronting proxy in front of the Graph API has been observed to answer throttling with a
+    bare HTTP 429 and an HTML error page instead of Meta's own JSON error body, so the status
+    code alone is also treated as the signal — ``_meta_error_code`` has nothing to parse there.
+    """
+    if response.status_code == 429:
+        return True
     return _meta_error_code(response) in META_RATE_LIMIT_ERROR_CODES
 
 

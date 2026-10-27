@@ -1895,6 +1895,21 @@ class TestRetryableErrors:
             _raise_meta_api_error(response)
         assert any(pattern in str(exc_info.value) for pattern in patterns)
 
+    def test_html_429_matches_rate_limit_pattern(self) -> None:
+        # A fronting proxy has been observed answering throttling with a bare HTTP 429 and an
+        # HTML error page instead of Meta's own JSON error body. With no error code to parse,
+        # this must still be tagged as rate-limiting rather than falling through to the generic,
+        # unclassified message on every attempt.
+        response = mock.MagicMock()
+        response.status_code = 429
+        response.json.side_effect = RequestsJSONDecodeError("Expecting value", "", 0)
+        response.text = "<!DOCTYPE html><html><body><h1>4xx Client Error</h1></body></html>"
+
+        patterns = MetaAdsSource().get_retryable_errors()
+        with pytest.raises(Exception) as exc_info:
+            _raise_meta_api_error(response)
+        assert any(pattern in str(exc_info.value) for pattern in patterns)
+
     @pytest.mark.parametrize(
         "error_message,expected_fragment",
         [
