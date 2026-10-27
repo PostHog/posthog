@@ -681,6 +681,7 @@ export const BatchExportsCreateBody = () => zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsCluster: zod.union([zod.boolean(), zod.null()]).optional(),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -1424,6 +1425,7 @@ export const BatchExportsPartialUpdateBody = () => zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsCluster: zod.union([zod.boolean(), zod.null()]).optional(),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -1898,6 +1900,7 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsCluster: zod.union([zod.boolean(), zod.null()]).optional(),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -2198,6 +2201,7 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
                         'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                     ),
                 useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                useNewEventsCluster: zod.union([zod.boolean(), zod.null()]).optional(),
                 useNewEventsSchema: zod
                     .union([zod.boolean(), zod.null()])
                     .optional()

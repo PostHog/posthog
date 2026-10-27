@@ -547,6 +547,10 @@ export interface HogQLQueryModifiers {
     useMaterializedViews?: boolean
     /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
     useNewEventsSchema?: boolean
+    /**
+     * @deprecated Ignored. Saved queries and cached responses written before its removal can still carry it.
+     */
+    useNewEventsCluster?: boolean
     customChannelTypeRules?: CustomChannelRule[]
     customBotDefinitions?: CustomBotRule[]
     /** Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients. */

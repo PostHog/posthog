@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
 
 # TODO: Remove the route helpers in this block after the events cluster migration is complete.
-EVENTS_ROUTE_MODIFIER_KEYS = ("useNewEventsSchema",)
+EVENTS_ROUTE_MODIFIER_KEYS = ("useNewEventsSchema", "useNewEventsCluster")
 _query_route: ContextVar["HogQLQueryModifiers | None"] = ContextVar("new_events_query_route", default=None)
 
 
@@ -65,6 +65,8 @@ def events_route_cache_modifiers(modifiers: dict[str, Any], *, reads_events: boo
     modifiers = dict(modifiers)
     if modifiers.get("useNewEventsSchema") is False or not reads_events:
         modifiers.pop("useNewEventsSchema", None)
+    # Nothing reads this deprecated modifier, so it must not split the cache key.
+    modifiers.pop("useNewEventsCluster", None)
     return modifiers
 
 

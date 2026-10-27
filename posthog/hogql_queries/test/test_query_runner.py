@@ -881,6 +881,16 @@ class TestQueryRunner(BaseTest):
 
         assert tagged.get_cache_key() == untagged.get_cache_key()
 
+    @parameterized.expand([(False,), (True,)])
+    def test_cache_key_ignores_the_deprecated_events_cluster_modifier(self, value: bool) -> None:
+        plain = HogQLQueryRunner(query={"kind": "HogQLQuery", "query": "SELECT 1"}, team=self.team)
+        stale = HogQLQueryRunner(
+            query={"kind": "HogQLQuery", "query": "SELECT 1", "modifiers": {"useNewEventsCluster": value}},
+            team=self.team,
+        )
+
+        assert stale.get_cache_key() == plain.get_cache_key()
+
     @override_settings(
         PERSON_ON_EVENTS_OVERRIDE=False,
         PERSON_ON_EVENTS_V2_OVERRIDE=False,

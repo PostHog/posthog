@@ -6369,6 +6369,7 @@ class HogQLQueryModifiers(BaseModel):
         ),
     )
     useMaterializedViews: bool | None = None
+    useNewEventsCluster: bool | None = None
     useNewEventsSchema: bool | None = Field(
         default=None,
         description=(
