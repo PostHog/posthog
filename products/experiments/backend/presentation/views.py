@@ -976,6 +976,16 @@ class EnterpriseExperimentsViewSet(
         hours after launch, and when only secondary metrics read it, and a warning otherwise.
         `filter_on_another_flag` is a warning in every state, and the other findings stop at the end.
 
+        `metric_cannot_compile` builds and compiles the query of each metric without running it, as
+        the caller, so a metric that every calculation fails on shows before launch. A metric that
+        reads a warehouse table or view the caller may not query is not checked for them. The finding
+        names each failing metric in the `evidence` keys `metric_N`, `metric_N_role`, `metric_N_error`
+        (the error class, which is also the subcode of the first metric) and `metric_N_message` (the
+        compiler's message). It is a warning when a primary metric fails before the end, and info
+        otherwise. A failure inside ClickHouse, such as a type that the data holds, isn't found. A
+        failing metric compiles again on every request. A metric that compiles is cached per caller
+        for a day, so a cohort or table that is deleted after a compile can take up to a day to show.
+
         The severity of the `some_conditions_pinned` finding follows the largest share that the
         users of the pinned release conditions make up among the users who got one variant from
         the flag, in the last 7 days, or since launch or the flag's last save if later. It reads
@@ -1019,6 +1029,7 @@ class EnterpriseExperimentsViewSet(
             team_id=self.team_id,
             experiment_id=experiment.id,
             reader_access=self._health_reader_access(request, experiment),
+            user=request.user if isinstance(request.user, User) else None,
         )
         return Response(ExperimentHealthSerializer(health).data)
 

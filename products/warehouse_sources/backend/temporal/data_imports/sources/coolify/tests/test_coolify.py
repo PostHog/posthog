@@ -103,6 +103,10 @@ class TestCoolifyClientConfig:
             pytest.param("audit_events", True, id="change_diffs_in_the_response"),
             pytest.param("application_task_executions", True, id="command_output_in_the_response"),
             pytest.param("backup_executions", True, id="raw_backup_configs_in_the_walk"),
+            pytest.param("service_task_executions", True, id="service_command_output_in_the_response"),
+            pytest.param("preview_deployments", True, id="application_secrets_in_the_walk"),
+            pytest.param("service_applications", True, id="service_compose_in_the_walk"),
+            pytest.param("service_databases", True, id="service_compose_in_the_walk_for_databases"),
             pytest.param("projects", False, id="nothing_to_withhold"),
             pytest.param("project_environments", False, id="environments_nothing_to_withhold"),
         ],
@@ -264,6 +268,79 @@ class TestCoolifyNestedFanout:
                     }
                 ],
                 id="backup_executions",
+            ),
+            pytest.param(
+                "service_task_executions",
+                [
+                    ScriptedResponse(json=[{"uuid": "svc-1", "docker_compose": "secret: x"}]),
+                    ScriptedResponse(
+                        json=[{"uuid": "task-1", "name": "cleanup"}, {"uuid": "task-gone", "name": "old"}]
+                    ),
+                    ScriptedResponse(json=[{"uuid": "exe-1", "status": "success", "message": "token=abc"}]),
+                    ScriptedResponse(status=404, json={}),
+                ],
+                [
+                    "/api/v1/services",
+                    "/api/v1/services/svc-1/scheduled-tasks",
+                    "/api/v1/services/svc-1/scheduled-tasks/task-1/executions",
+                    "/api/v1/services/svc-1/scheduled-tasks/task-gone/executions",
+                ],
+                [
+                    {
+                        "uuid": "exe-1",
+                        "status": "success",
+                        "task_uuid": "task-1",
+                        "task_name": "cleanup",
+                        "service_uuid": "svc-1",
+                    }
+                ],
+                id="service_task_executions",
+            ),
+            pytest.param(
+                "preview_deployments",
+                [
+                    ScriptedResponse(json=[{"uuid": "app-old-instance"}, {"uuid": APP_UUID}]),
+                    # An instance that predates the previews endpoint answers 404.
+                    ScriptedResponse(status=404, json={}),
+                    ScriptedResponse(json=[{"uuid": "pr-1", "pull_request_id": 42, "status": "running:healthy"}]),
+                ],
+                [
+                    "/api/v1/applications",
+                    "/api/v1/applications/app-old-instance/previews",
+                    f"/api/v1/applications/{APP_UUID}/previews",
+                ],
+                [{"uuid": "pr-1", "pull_request_id": 42, "status": "running:healthy", "application_uuid": APP_UUID}],
+                id="preview_deployments",
+            ),
+            pytest.param(
+                "service_applications",
+                [
+                    ScriptedResponse(json=[{"uuid": "svc-1"}, {"uuid": "svc-2"}]),
+                    ScriptedResponse(json=[{"uuid": "sa-1", "name": "app", "image": "ghost:5"}]),
+                    ScriptedResponse(json=[]),
+                ],
+                [
+                    "/api/v1/services",
+                    "/api/v1/services/svc-1/applications",
+                    "/api/v1/services/svc-2/applications",
+                ],
+                [{"uuid": "sa-1", "name": "app", "image": "ghost:5", "service_uuid": "svc-1"}],
+                id="service_applications",
+            ),
+            pytest.param(
+                "service_databases",
+                [
+                    ScriptedResponse(json=[{"uuid": "svc-gone"}, {"uuid": "svc-1"}]),
+                    ScriptedResponse(status=404, json={}),
+                    ScriptedResponse(json=[{"uuid": "sd-1", "name": "mysql", "is_public": False}]),
+                ],
+                [
+                    "/api/v1/services",
+                    "/api/v1/services/svc-gone/databases",
+                    "/api/v1/services/svc-1/databases",
+                ],
+                [{"uuid": "sd-1", "name": "mysql", "is_public": False, "service_uuid": "svc-1"}],
+                id="service_databases",
             ),
         ],
     )
