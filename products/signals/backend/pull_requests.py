@@ -138,7 +138,16 @@ def link_pull_request(
         )
         link.pull_request = pr
         link.save(update_fields=["pull_request"])
-        if state_source != PullRequestStateSource.LEGACY_ASSIGNMENT:
+        if (
+            actor.kind == "task"
+            and state_source != PullRequestStateSource.LEGACY_ASSIGNMENT
+            and pr.state
+            in {
+                SignalReportPullRequest.State.DRAFT,
+                SignalReportPullRequest.State.OPEN,
+                SignalReportPullRequest.State.UNKNOWN,
+            }
+        ):
             from products.signals.backend.tasks import write_pull_request_to_support_tickets
 
             transaction.on_commit(

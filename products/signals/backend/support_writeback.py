@@ -100,8 +100,36 @@ def post_pull_request_to_tickets(team: Team, report_id: str, pr_url: str, signal
         return 0
 
     body = (
-        "**Self-driving linked a pull request to this report.** Internal note, not sent to the customer.\n\n"
+        "[PostHog bot] **Self-driving linked a pull request to this report.** Internal note, not sent to the customer.\n\n"
         f"Pull request: {pr_url}\n"
         f"Report: {build_report_url(team.pk, report_id, ReportLinkSource.SUPPORT)}"
     )
-    return _post_notes(team, report_id, ticket_ids, body, f"signals_pr:{report_id}:{pr_url}", "pull_request")
+    public_body = f"[PostHog bot] Self-driving opened a pull request related to this ticket: {pr_url}"
+    posted = 0
+    for ticket_id in ticket_ids:
+        try:
+            comment_id = conversations_facade.post_ticket_automated_update(
+                team_id=team.pk,
+                ticket_id=ticket_id,
+                public_content=public_body,
+                private_content=body,
+                dedupe_key=f"signals_pr:{report_id}:{pr_url}",
+            )
+        except Exception:
+            logger.exception(
+                "Failed to post signals pull request to support ticket",
+                report_id=report_id,
+                ticket_id=ticket_id,
+                team_id=team.pk,
+            )
+            continue
+        if comment_id is not None:
+            posted += 1
+    logger.info(
+        "Posted signals pull request to support tickets",
+        report_id=report_id,
+        team_id=team.pk,
+        tickets=len(ticket_ids),
+        posted=posted,
+    )
+    return posted

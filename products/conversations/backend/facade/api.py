@@ -59,7 +59,7 @@ from products.conversations.backend.models import (
     Status,
     Ticket,
 )
-from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE
+from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE, Channel
 from products.conversations.backend.services.messages import public_human_ticket_replies
 from products.conversations.backend.slack import get_slack_client
 from products.conversations.backend.support_slack import (
@@ -438,6 +438,38 @@ def post_ticket_internal_note(team_id: int, ticket_id: str, content: str, *, ded
         content=content,
         item_context={"author_type": "AI", "is_private": True, "internal_note_key": dedupe_key},
     )
+    return str(comment.id)
+
+
+def post_ticket_automated_update(
+    team_id: int, ticket_id: str, *, public_content: str, private_content: str, dedupe_key: str
+) -> str | None:
+    with transaction.atomic():
+        ticket = Ticket.objects.select_for_update().filter(team_id=team_id, id=ticket_id).first()
+        if ticket is None:
+            return None
+        if Comment.objects.filter(
+            team_id=team_id,
+            scope="conversations_ticket",
+            item_id=ticket_id,
+            item_context__automated_update_key=dedupe_key,
+            deleted=False,
+        ).exists():
+            return None
+        send_to_slack = bool(
+            ticket.channel_source == Channel.SLACK and ticket.slack_channel_id and ticket.slack_thread_ts
+        )
+        comment = Comment.objects.create(
+            team_id=team_id,
+            scope="conversations_ticket",
+            item_id=ticket_id,
+            content=public_content if send_to_slack else private_content,
+            item_context={
+                "author_type": "AI",
+                "is_private": not send_to_slack,
+                "automated_update_key": dedupe_key,
+            },
+        )
     return str(comment.id)
 
 
