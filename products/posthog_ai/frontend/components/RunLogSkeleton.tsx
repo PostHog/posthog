@@ -23,11 +23,7 @@ interface SkeletonTurn {
     paragraphs: number[]
 }
 
-const TURNS: SkeletonTurn[] = [
-    { question: 'w-48', tools: ['w-32'], paragraphs: [2] },
-    { question: 'w-36', tools: ['w-24'], paragraphs: [3, 2] },
-    { question: 'w-56', tools: ['w-28', 'w-20'], paragraphs: [3, 2] },
-]
+const TURNS: SkeletonTurn[] = [{ question: 'w-56', tools: ['w-28'], paragraphs: [3, 2] }]
 
 /** Fades a thread in after a skeleton was on screen, so the swap reads as one change and not as a jump. */
 export const RUN_LOG_REVEAL_CLASS = 'RunLogReveal'
@@ -51,8 +47,8 @@ function fadeInDelayMs(): number {
  * Loading state for "a run/task log is loading" — shared by the runner scene, the lazy `ReadonlyRunSurface`
  * chunk's Suspense fallback, and the `RunSurface` in-stream bootstrap. Built from the quill thread's own
  * parts (`ChatBubble`, `ThreadMarker`, the reserved message footer, `ThreadView`'s 16px row gap), so each turn
- * takes the same space as the turn that replaces it. It sits at the bottom and fades out toward the top, like
- * the loaded thread, which opens scrolled to its latest turn. Kept free of the markdown and virtualization
+ * takes the same space as the turn that replaces it. It shows one turn at the bottom, where the loaded thread
+ * opens on its latest turn, and leaves the rest empty, because more guessed turns only add noise. Kept free of the markdown and virtualization
  * chunk, so it is safe as a fallback.
  */
 export const RunLogSkeleton = memo(function RunLogSkeleton({
@@ -74,11 +70,7 @@ export const RunLogSkeleton = memo(function RunLogSkeleton({
     }, [])
     return (
         <div
-            className={cn(
-                'RunLogSkeleton flex flex-col justify-end h-full min-h-0 w-full overflow-hidden',
-                '[mask-image:linear-gradient(to_bottom,transparent,black_50%)]',
-                className
-            )}
+            className={cn('RunLogSkeleton flex flex-col justify-end h-full min-h-0 w-full overflow-hidden', className)}
             data-attr="run-log-skeleton"
             style={{ animationDelay }}
             role="status"
