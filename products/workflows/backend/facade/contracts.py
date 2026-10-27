@@ -920,6 +920,8 @@ class DataSuggestionsResult:
     suggestions: tuple[DataSuggestion, ...]
     # The project's events that a build can wait on. Kept with the cards, so a build does not count events again.
     events: tuple[str, ...] = ()
+    # Whether most of the project's app events come from its mobile SDKs. Kept with the cards for the same reason.
+    mobile_first: bool = False
 
 
 DataSuggestionBuildStatus = Literal["ready", "building", "failed"]

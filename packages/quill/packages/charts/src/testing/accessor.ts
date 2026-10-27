@@ -6,12 +6,16 @@
 // contract — renaming them breaks consumers' tests. Keep in sync with the
 // overlay components that emit them.
 
-import { act, fireEvent } from '@testing-library/react'
+import { act, fireEvent, waitFor } from '@testing-library/react'
 
 import type { TooltipContext } from '../core/types'
-import { dragSelection } from './interactions'
-import { clientForIndex } from './jsdom'
-import { type ChartTooltipAccessor, waitForChartTooltip } from './tooltip'
+import { clickAtIndex, dragSelection, hoverAtIndex, hoverUntilTooltip } from './interactions'
+import {
+    type ChartTooltipAccessor,
+    createDefaultTooltipAccessor,
+    type DefaultTooltipAccessor,
+    waitForChartTooltip,
+} from './tooltip'
 
 /** A single entry of `TooltipContext.seriesData`. */
 type TooltipSeriesEntry<Meta = unknown> = TooltipContext<Meta>['seriesData'][number]
@@ -67,7 +71,7 @@ export interface ChartAccessor<Meta = unknown> {
     /** The static (data) canvas, as opposed to the `aria-hidden` hover overlay. */
     canvas: HTMLCanvasElement
     /** Number of non-excluded data series rendered (read from the chart's aria-label). */
-    seriesCount: number
+    readonly seriesCount: number
     /** Visible y-axis tick labels (left axis). */
     yTicks(): string[]
     /** Visible right y-axis tick labels (multi-axis charts). */
@@ -105,13 +109,14 @@ export interface ChartAccessor<Meta = unknown> {
     sankeyColumnLabels(): string[]
     /** Annotation badges currently rendered. */
     annotationBadges(): HTMLElement[]
-    /** Fire a `mouseMove` over the data point at `index`. Only available when the chart was
-     *  rendered via `renderChart` (it reads label count from `ui.props.labels`); the
-     *  module-level `hoverAtIndex(wrapper, index, totalLabels)` is the explicit alternative. */
+    /** Fire one `mouseMove` over the label at `index`, without waiting for a tooltip. */
     hoverAtIndex(index: number): void
+    /** Hover the label at `index` until the tooltip shows its content, then read it as a `DefaultTooltip`.
+     *  For a custom tooltip, read `tooltip.element`. */
+    hoverTooltip(index: number, timeout?: number): Promise<DefaultTooltipAccessor>
     /** Hover at the index, wait for the tooltip to settle, then click. Mirrors the
      *  hover-then-click sequence the chart's onClick handler relies on. */
-    clickAtIndex(index: number): Promise<void>
+    clickAtIndex(index: number, timeout?: number): Promise<void>
     dragSelection(fromIndex: number, toIndex: number): void
     /** Wait for the tooltip to mount, then return a snapshot — every `TooltipContext` field
      *  plus the rendered portal element and an `isPinned` getter. Only available when the
@@ -123,9 +128,30 @@ export interface GetChartOptions<Meta = unknown> {
     /** Returns the most recent `TooltipContext` the chart computed (set up by `renderChart`'s
      *  capturing tooltip wrapper). When omitted, `chart.waitForTooltip()` throws. */
     getLastTooltipContext?: () => TooltipContext<Meta> | null
-    /** Total label count for `chart.hoverAtIndex` / `chart.clickAtIndex`. When omitted, those
-     *  methods throw — use the module-level `hoverAtIndex` instead. */
-    totalLabels?: number
+}
+
+export interface FindChartOptions {
+    scope?: HTMLElement
+    seriesCount?: number
+    timeout?: number
+}
+
+export async function findChart<Meta = unknown>({
+    scope = document.body,
+    seriesCount,
+    timeout = 3000,
+}: FindChartOptions = {}): Promise<ChartAccessor<Meta>> {
+    let chart!: ChartAccessor<Meta>
+    await waitFor(
+        () => {
+            chart = getChart<Meta>(scope)
+            if (seriesCount !== undefined && chart.seriesCount !== seriesCount) {
+                throw new Error(`Expected ${seriesCount} series, the chart has ${chart.seriesCount}`)
+            }
+        },
+        { timeout }
+    )
+    return chart
 }
 
 const SERIES_COUNT_RE = /Chart with (\d+) data series/i
@@ -181,16 +207,23 @@ export function getChart<Meta = unknown>(
         throw new Error('quill-charts canvas has no parent wrapper')
     }
 
-    const ariaLabel = canvas.getAttribute('aria-label') ?? ''
-    const match = SERIES_COUNT_RE.exec(ariaLabel)
-    const seriesCount = match ? Number(match[1]) : 0
+    const { getLastTooltipContext } = options
 
-    const { getLastTooltipContext, totalLabels } = options
+    const labelCount = (): number => {
+        const count = Number(wrapper.dataset.hogChartsLabelCount)
+        if (!Number.isFinite(count)) {
+            throw new Error('This chart has no labels to hover by index')
+        }
+        return count
+    }
 
     return {
         element: wrapper,
         canvas,
-        seriesCount,
+        get seriesCount(): number {
+            const match = SERIES_COUNT_RE.exec(canvas.getAttribute('aria-label') ?? '')
+            return match ? Number(match[1]) : 0
+        },
         get hasRightAxis(): boolean {
             return wrapper.querySelectorAll('[data-attr="hog-chart-axis-tick-yr"]').length > 0
         },
@@ -262,26 +295,26 @@ export function getChart<Meta = unknown>(
             ),
         annotationBadges: () => Array.from(wrapper.querySelectorAll<HTMLElement>('.AnnotationsBadge')),
         hoverAtIndex(index: number): void {
-            if (totalLabels === undefined) {
-                throw new Error('chart.hoverAtIndex requires renderChart (which captures labels.length)')
-            }
-            fireEvent.mouseMove(wrapper, clientForIndex(index, totalLabels))
+            hoverAtIndex(wrapper, index, labelCount())
         },
-        async clickAtIndex(index: number): Promise<void> {
-            if (totalLabels === undefined) {
-                throw new Error('chart.clickAtIndex requires renderChart (which captures labels.length)')
-            }
-            fireEvent.mouseMove(wrapper, clientForIndex(index, totalLabels))
-            // Wait for the hover state to flush — the click handler reads live tooltipCtx
-            // synchronously to choose between pinning and onPointClick.
-            await waitForChartTooltip()
-            fireEvent.click(wrapper)
+        async hoverTooltip(index: number, timeout?: number): Promise<DefaultTooltipAccessor> {
+            const element = await hoverUntilTooltip(wrapper, index, labelCount(), timeout)
+            // The portal can mount a commit before its content does.
+            await waitFor(
+                () => {
+                    if (!element.textContent?.trim()) {
+                        throw new Error('tooltip has no content yet')
+                    }
+                },
+                { timeout }
+            )
+            return createDefaultTooltipAccessor(element)
+        },
+        async clickAtIndex(index: number, timeout?: number): Promise<void> {
+            await clickAtIndex(wrapper, index, labelCount(), timeout)
         },
         dragSelection(fromIndex: number, toIndex: number): void {
-            if (totalLabels === undefined) {
-                throw new Error('chart.dragSelection requires renderChart (which captures labels.length)')
-            }
-            dragSelection(wrapper, fromIndex, toIndex, totalLabels)
+            dragSelection(wrapper, fromIndex, toIndex, labelCount())
         },
         async waitForTooltip(timeout?: number): Promise<TooltipSnapshot<Meta>> {
             const element = await waitForChartTooltip(timeout)

@@ -1,6 +1,9 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 ORB_API_BASE_URL = "https://api.withorb.com/v1"
@@ -18,7 +21,7 @@ def _datetime_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class OrbEndpointConfig:
     name: str
     path: str
@@ -33,11 +36,36 @@ class OrbEndpointConfig:
     # creation-style field (created_at), never a mutable one.
     partition_key: Optional[str] = None
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    page_size: int = DEFAULT_PAGE_SIZE
+    # Set for per-customer child endpoints, which fan out over the Customers listing.
+    fanout: Optional[DependentEndpointConfig] = None
+
+    @property
+    def incremental_fields(self) -> list[IncrementalField]:
+        return [_datetime_field(self.incremental_field)] if self.incremental_field else []
+
+    @property
+    def default_incremental_field(self) -> Optional[str]:
+        return self.incremental_field
 
 
-# Top-level Orb list endpoints. All return `{"data": [...], "pagination_metadata": {...}}`, are
+def _customer_fanout() -> DependentEndpointConfig:
+    return DependentEndpointConfig(
+        parent_name="Customers",
+        resolve_param="customer_id",
+        resolve_field="id",
+        include_from_parent=["id"],
+        parent_field_renames={"id": "customer_id"},
+        # A customer deleted between the parent listing and its child fetch 404s; skip it rather
+        # than failing the whole fan-out.
+        child_response_actions=[{"status_code": 404, "action": "ignore"}],
+    )
+
+
+# Orb list endpoints. All return `{"data": [...], "pagination_metadata": {...}}`, are
 # cursor-paginated, and sort newest-first by creation time. Incremental endpoints expose a
-# server-side `<field>[gt]` timestamp filter; the rest are full-refresh only.
+# server-side `<field>[gt]` timestamp filter; the rest are full-refresh only. Endpoints with a
+# `fanout` are per-customer and run once for every row of the Customers listing.
 #
 # Invoices is the odd one out: it has no `created_at` filter, only `invoice_date[gt]`, so its
 # incremental cursor is `invoice_date` while it still partitions on the stable `created_at`.
@@ -93,12 +121,43 @@ ORB_ENDPOINTS: dict[str, OrbEndpointConfig] = {
         path="/coupons",
         table_name="coupons",
     ),
+    "Prices": OrbEndpointConfig(
+        name="Prices",
+        path="/prices",
+        table_name="prices",
+        partition_key="created_at",
+    ),
+    # Billable metric objects carry no created_at, so there is neither a cursor nor a stable
+    # datetime to partition on.
+    "BillableMetrics": OrbEndpointConfig(
+        name="BillableMetrics",
+        path="/metrics",
+        table_name="billable_metrics",
+    ),
+    # Ledger entries are full refresh: decrements are grouped per day and pending entries can
+    # later commit, so an entry can change after its created_at has passed the watermark.
+    "CreditLedgerEntries": OrbEndpointConfig(
+        name="CreditLedgerEntries",
+        path="/customers/{customer_id}/credits/ledger",
+        table_name="credit_ledger_entries",
+        partition_key="created_at",
+        primary_keys=["customer_id", "id"],
+        fanout=_customer_fanout(),
+    ),
+    # The list filter is on `operation_time`, which the returned rows do not carry, so there is no
+    # field to track a watermark on.
+    "BalanceTransactions": OrbEndpointConfig(
+        name="BalanceTransactions",
+        path="/customers/{customer_id}/balance_transactions",
+        table_name="balance_transactions",
+        partition_key="created_at",
+        primary_keys=["customer_id", "id"],
+        fanout=_customer_fanout(),
+    ),
 }
 
 ENDPOINTS = tuple(ORB_ENDPOINTS.keys())
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
-    name: [_datetime_field(cfg.incremental_field)]
-    for name, cfg in ORB_ENDPOINTS.items()
-    if cfg.incremental_field is not None
+    name: cfg.incremental_fields for name, cfg in ORB_ENDPOINTS.items() if cfg.incremental_fields
 }
