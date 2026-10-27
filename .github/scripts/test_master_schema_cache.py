@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from validate_schema_cache import MasterSchemaCache
+from master_schema_cache import MasterSchemaCache
 
 
 def git(repository: Path, *args: str) -> str:
@@ -23,19 +23,27 @@ def repository(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         "posthog/migrations/0002_squashed.py": "replaces = [('posthog', '0001_initial')]",
         "posthog/clickhouse/migrations/0001_initial.py": "initial = True",
         "uv.lock": "version = 1",
-        "docker-compose.base.yml": "image: postgres:15",
+        "docker-compose.base.yml": "services:\n    db:\n        image: postgres:15\n",
         "products/db_routing.yaml": "{}",
         "posthog/product_db_config.py": "config = {}",
         "posthog/product_db_router.py": "router = None",
-        ".depot/workflows/ci-backend.yml": "    SCHEMA_CACHE_EPOCH: v2",
+        ".depot/workflows/ci-backend.yml": "env:\n    SCHEMA_CACHE_EPOCH: 'v2' # bump to abandon cached dumps\n",
     }.items():
         path = tmp_path / filename
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content)
     git(tmp_path, "add", ".")
     git(tmp_path, "commit", "-qm", "baseline")
+    git(tmp_path, "config", "uploadpack.allowFilter", "true")
     git(tmp_path, "remote", "add", "origin", str(tmp_path))
     return tmp_path
+
+
+def test_key_matches_the_shell_key_other_workflows_restore(repository: Path) -> None:
+    assert (
+        MasterSchemaCache(repository).key(epoch="v2")
+        == "posthog-schema-mig-v2-52d5a77f1c27d98c132143f281c4cde90dd58d74"
+    )
 
 
 @pytest.mark.parametrize(
@@ -46,7 +54,15 @@ def repository(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         pytest.param("posthog/migrations/0001_initial.py", None, False, id="reverted-migration"),
         pytest.param("posthog/migrations/0002_squashed.py", "replaces = []", False, id="retired-squash"),
         pytest.param("products/db_routing.yaml", "new_product: separate", False, id="routing-change"),
-        pytest.param("docker-compose.base.yml", "image: postgres:16", False, id="postgres-change"),
+        pytest.param(
+            "docker-compose.base.yml", "services:\n    db:\n        image: postgres:16\n", False, id="postgres-change"
+        ),
+        pytest.param(
+            "docker-compose.base.yml",
+            "services:\n    db:\n        image: postgres:15\n    redis:\n        image: redis:7\n",
+            True,
+            id="unrelated-compose-change",
+        ),
         pytest.param("uv.lock", "version = 2", False, id="dependency-change"),
         pytest.param("posthog/models.py", "unrelated = True", True, id="unrelated-source-change"),
         pytest.param("posthog/clickhouse/migrations/0001_initial.py", "changed = True", True, id="clickhouse-change"),
@@ -101,3 +117,4 @@ def test_validate_fetches_source_in_shallow_checkout(repository: Path, tmp_path:
 
     assert MasterSchemaCache(checkout).validate(key=f"posthog-schema-master-{source}", epoch="v2", dump=dump) is True
     assert dump.exists()
+    assert "promisor" not in git(checkout, "config", "--list", "--local")

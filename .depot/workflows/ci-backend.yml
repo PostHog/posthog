@@ -744,6 +744,8 @@ jobs:
                   # postgres image is folded in so a server-version bump invalidates the key.
                   # Non-Django migration frameworks are excluded from this Postgres schema dump.
                   # SCHEMA_CACHE_EPOCH (workflow env) prefixes the key as a manual cache-bust knob.
+                  # SchemaInputs.cache_key in .github/scripts/master_schema_cache.py names the saved
+                  # dumps, so this hash must stay byte-identical to it.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$BASE_SHA" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \
@@ -1786,28 +1788,14 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev --no-install-package pytest-split
             - name: Compute master schema cache key
-              # Must match the migration-set computation in turbo-discover and the
-              # push-side save below (inputs, hash, and key prefix). Keyed off the
-              # master checkout (HEAD here) so a restored dump is exactly the state
+              # Keyed off the master checkout (HEAD here), so an exact hit is the state
               # that "Run migrations up to master" would build from scratch.
               if: github.event_name != 'push'
               id: master-schema-key
-              working-directory: upstream-master
               run: |
-                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' HEAD \
-                      | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
-                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
-                      | LC_ALL=C sort) || true
-                  # Routing decides which app labels are in the dump, so these inputs belong in the key.
-                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
-                  PG_IMAGE=$(git show "HEAD:docker-compose.base.yml" 2>/dev/null \
-                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
-                  if [ -z "$MIG_FILES" ]; then
-                      echo "key=" >> $GITHUB_OUTPUT
-                  else
-                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
-                      echo "key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
-                  fi
+                  KEY=$(upstream-master/.venv-master/bin/python .github/scripts/master_schema_cache.py \
+                      --repository upstream-master --epoch "$SCHEMA_CACHE_EPOCH" key)
+                  echo "key=$KEY" >> "$GITHUB_OUTPUT"
             - name: Restore master schema dump from cache
               id: master-schema-cache
               if: github.event_name != 'push' && steps.master-schema-key.outputs.key != ''
@@ -1815,9 +1803,11 @@ jobs:
               with:
                   path: schema.sql.gz
                   key: ${{ steps.master-schema-key.outputs.key }}
-                  # PR-base dumps can include unmerged migrations on stacked PRs.
-                  # Fall back to master snapshots, then check their schema inputs below.
+                  # Only master pushes save posthog-schema-master-<sha>, so the PR-base key
+                  # matches when the base is a master commit. A merge queue or stacked base
+                  # matches nothing and falls through to the newest master snapshot.
                   restore-keys: |
+                      posthog-schema-master-${{ github.event.pull_request.base.sha }}
                       posthog-schema-master-
             - name: Validate fallback master schema
               id: validate-master-schema
@@ -1825,9 +1815,9 @@ jobs:
               env:
                   CACHED_KEY: ${{ steps.master-schema-cache.outputs.cache-matched-key }}
               run: >-
-                  python .github/scripts/validate_schema_cache.py
-                  --repository upstream-master --dump schema.sql.gz
-                  --cache-key "$CACHED_KEY" --epoch "$SCHEMA_CACHE_EPOCH"
+                  upstream-master/.venv-master/bin/python .github/scripts/master_schema_cache.py
+                  --repository upstream-master --epoch "$SCHEMA_CACHE_EPOCH"
+                  validate --dump schema.sql.gz --cache-key "$CACHED_KEY"
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
@@ -1835,8 +1825,8 @@ jobs:
                   bin/ci-wait-for-docker wait --only db redis7 clickhouse \
                     || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
             - name: Prime posthog DB from cached schema
-              # Turns "Run migrations up to master" below into a no-op instead
-              # of a full migration run.
+              # Leaves "Run migrations up to master" below to apply only the migrations
+              # the dump lacks, instead of a full migration run.
               if: github.event_name != 'push'
               run: |
                   if [ ! -f schema.sql.gz ]; then
@@ -2262,25 +2252,12 @@ jobs:
                   gunzip -t schema.sql.gz
 
             - name: Compute migration-set schema key
-              # Must match the PR-base computation in turbo-discover and the
-              # master restore key above (inputs, hash, and key prefix).
               if: github.event_name == 'push'
               id: mig-schema-key
               run: |
-                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' HEAD \
-                      | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
-                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
-                      | LC_ALL=C sort) || true
-                  # Routing decides which app labels are in the dump, so these inputs belong in the key.
-                  DB_ROUTING=$(git ls-tree -r --format='%(objectname) %(path)' HEAD -- products/db_routing.yaml posthog/product_db_config.py posthog/product_db_router.py)
-                  PG_IMAGE=$(git show "HEAD:docker-compose.base.yml" 2>/dev/null \
-                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
-                  KEY=""
-                  if [ -z "$MIG_FILES" ]; then
-                      echo "::notice::no migration files matched — skipping migration-set schema save"
-                  else
-                      MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
-                      KEY="posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}"
+                  KEY=$(python .github/scripts/master_schema_cache.py --repository . --epoch "$SCHEMA_CACHE_EPOCH" key)
+                  if [ -z "$KEY" ]; then
+                      echo "::notice::no migration files matched, so the migration-set schema save is skipped"
                   fi
                   echo "key=$KEY" >> $GITHUB_OUTPUT
                   printf '%s' "$KEY" > schema-cache-key
@@ -2298,7 +2275,8 @@ jobs:
                   # adds pages to the artifacts listing that db:download-schema walks.
                   retention-days: 7
             - name: Save schema to Actions cache for PR shards
-              # Kept as the exact PR-base key that every consumer's restore-keys falls back to.
+              # Consumers restore this key by their PR base or merge base. check-migrations
+              # also restores the newest one by prefix and validates it first.
               if: github.event_name == 'push'
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
