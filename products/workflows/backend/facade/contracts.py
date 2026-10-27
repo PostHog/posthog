@@ -1,4 +1,5 @@
 import json
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -1082,9 +1083,11 @@ class RehostedWorkflow:
 
 @dataclass(frozen=False)
 class ImageBudget:
-    """How many more email images one import request may copy, shared by every automation in it."""
+    """How many more email images one import request may copy, and until when, shared by every automation in it."""
 
     remaining: int = 100
+    # A `time.monotonic()` value. Downloads still running then are dropped, so a slow host can't hold the request.
+    deadline: float = field(default_factory=lambda: time.monotonic() + 60)
 
 
 @frozen

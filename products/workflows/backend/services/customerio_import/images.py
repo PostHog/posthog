@@ -8,7 +8,7 @@ import re
 import html
 import time
 import hashlib
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -26,7 +26,6 @@ logger = structlog.get_logger(__name__)
 _ASSET_URL = re.compile(r"https://[a-z0-9-]+\.customeriomail\.com/[^\s\"'()<>]+", re.IGNORECASE)
 _MAX_BYTES = 4 * 1024 * 1024
 _TIMEOUT_SECONDS = 10
-_DOWNLOAD_DEADLINE_SECONDS = 30
 _DOWNLOAD_THREADS = 4
 
 
@@ -97,28 +96,36 @@ def _copy_images(team: Team, user: User, urls: list[str], budget: ImageBudget) -
             to_download.append(url)
     to_download = to_download[: max(budget.remaining, 0)]
     budget.remaining -= len(to_download)
-    with ThreadPoolExecutor(max_workers=_DOWNLOAD_THREADS) as pool:
+    pool = ThreadPoolExecutor(max_workers=_DOWNLOAD_THREADS)
+    try:
         # A few at a time, so at most that many images sit in memory before they are saved.
         for start in range(0, len(to_download), _DOWNLOAD_THREADS):
-            batch = to_download[start : start + _DOWNLOAD_THREADS]
-            for url, content in zip(batch, pool.map(_download, batch)):
+            futures = {
+                pool.submit(_download, url, budget.deadline): url
+                for url in to_download[start : start + _DOWNLOAD_THREADS]
+            }
+            done, _ = wait(futures, timeout=max(budget.deadline - time.monotonic(), 0))
+            for future, url in futures.items():
+                content = future.result() if future in done else None
                 media = _save(team, user, url, content) if content is not None else None
                 if media is not None:
                     copied[url] = media.get_absolute_url()
+    finally:
+        # A download still running stops at its next read after the deadline, so the request does not wait for it.
+        pool.shutdown(wait=False, cancel_futures=True)
     return copied
 
 
-def _download(url: str) -> bytes | None:
+def _download(url: str, deadline: float) -> bytes | None:
     # Browsers read `&amp;` in an attribute as `&`, so the request has to as well.
     source = html.unescape(url)
-    deadline = time.monotonic() + _DOWNLOAD_DEADLINE_SECONDS
     try:
         with requests.get(source, timeout=_TIMEOUT_SECONDS, allow_redirects=False, stream=True) as response:
             if response.status_code != 200:
                 logger.info("workflows.import.image_download_failed", status=response.status_code)
                 return None
             content = b""
-            for chunk in response.iter_content(64 * 1024):
+            for chunk in response.iter_content(16 * 1024):
                 content += chunk
                 if len(content) > _MAX_BYTES or time.monotonic() > deadline:
                     logger.info("workflows.import.image_download_failed", reason="too_large_or_slow")
