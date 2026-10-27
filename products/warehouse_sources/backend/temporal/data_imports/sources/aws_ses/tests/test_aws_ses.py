@@ -212,6 +212,22 @@ class TestGetRows:
                 endpoint="multi_region_endpoints",
             )
 
+    def test_multi_region_endpoints_pages_with_a_page_size_aws_accepts(self) -> None:
+        batches, send, manager = self._run(
+            [
+                {"MultiRegionEndpoints": [{"EndpointId": "e-1"}], "NextToken": "page-2"},
+                {"MultiRegionEndpoints": []},
+            ],
+            endpoint="multi_region_endpoints",
+        )
+
+        assert [row["endpoint_id"] for batch in batches for row in batch] == ["e-1"]
+        params = [call[0][5] for call in send.call_args_list]
+        assert [p["PageSize"] <= 100 for p in params] == [True, True]
+        assert "NextToken" not in params[0]
+        assert params[1]["NextToken"] == "page-2"
+        assert manager.cleared is True
+
     def test_an_incremental_run_asks_aws_only_for_updates_since_the_watermark(self) -> None:
         _, send, _ = self._run(
             [suppression_page([])],
