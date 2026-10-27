@@ -31,6 +31,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertUpsert,
     PlatformHandback,
     PlatformOwnershipHandover,
+    SourceKind,
     source_condition,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
@@ -49,8 +50,14 @@ from products.alerts_platform.backend.facade.scheduling import (
     to_recurrence_interval,
     validate_and_normalize_schedule_start_time,
 )
+from products.alerts_platform.backend.logic import delivery_holds
 from products.alerts_platform.backend.logic.platform_alert_events import PlatformAlertEventRow, insert_events
-from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertThread
+from products.alerts_platform.backend.models import (
+    PlatformAlert,
+    PlatformAlertConfiguration,
+    PlatformAlertDeliveryHold,
+    PlatformAlertThread,
+)
 
 
 def due_q(moment: datetime) -> Q:
@@ -483,7 +490,7 @@ def _without_stale_groups(
         return outcome
     if outcome.grouping.splits_like(Grouping.from_stored(configuration.grouping)):
         return outcome
-    return replace(outcome, groups=(), overflowed=0, overflow_is_lower_bound=False, evicted=())
+    return replace(outcome, groups=(), overflowed=0, overflow_is_lower_bound=False, evicted=(), held_delivery=None)
 
 
 _HELD_BY_MUTE: Final = {
@@ -567,8 +574,12 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         team_timezone = Team.objects.filter(id=team_id).values_list("timezone", flat=True).first() or "UTC"
 
         rows: list[PlatformAlertEventRow] = []
+        holds: list[PlatformAlertDeliveryHold] = []
         for configuration in configurations:
             outcome = by_id[str(configuration.id)]
+            hold = delivery_holds.hold_for(configuration, outcome, now)
+            if hold is not None:
+                holds.append(hold)
             turned_away = 0
             for reported in outcome.groups:
                 alert = alerts.get(
@@ -654,6 +665,9 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                 "overflow_is_lower_bound",
             ],
         )
+        # In this transaction, because a recorded firing whose hold was lost would never be sent. A
+        # conflict keeps the first hold, so a repeated evaluation key cannot fail every later record.
+        PlatformAlertDeliveryHold.objects.for_team(team_id).bulk_create(holds, ignore_conflicts=True)
         # `on_commit` rather than a statement after the block, so a caller that wraps this in its
         # own `atomic()` cannot leave history for state its rollback removed.
         transaction.on_commit(lambda: record_history(team_id, rows))
@@ -804,6 +818,33 @@ def write_edit(
     if reenabled:
         configuration.next_check_at = now + _REVIVE_FENCE
         update_fields.append("next_check_at")
+    _assign_edit(configuration, edit)
+    configuration.save(update_fields=update_fields)
+
+
+def create_native_configuration(
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    edit: PlatformAlertConfigurationEdit,
+    check_interval_minutes: int,
+    now: datetime,
+) -> PlatformAlertConfiguration:
+    """Creates an alert the platform owns from the start, for a kind whose source keeps no row for it."""
+    configuration = PlatformAlertConfiguration(
+        team_id=team_id,
+        source_kind=source_kind.value,
+        check_interval_minutes=check_interval_minutes,
+        next_check_at=now,
+        owner=PlatformAlertOwner.PLATFORM,
+    )
+    _assign_edit(configuration, edit)
+    # The model's own save logs the creation.
+    configuration.save()
+    return configuration
+
+
+def _assign_edit(configuration: PlatformAlertConfiguration, edit: PlatformAlertConfigurationEdit) -> None:
     configuration.name = edit.name
     configuration.enabled = edit.enabled
     configuration.source_config = edit.source_config
@@ -814,7 +855,6 @@ def write_edit(
     configuration.cooldown_minutes = edit.cooldown_minutes
     configuration.labels = edit.labels
     configuration.annotations = edit.annotations
-    configuration.save(update_fields=update_fields)
 
 
 def end_firing_instances(configuration: PlatformAlertConfiguration, *, now: datetime) -> list[PlatformAlert]:

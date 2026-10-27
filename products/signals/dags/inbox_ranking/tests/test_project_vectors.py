@@ -34,7 +34,10 @@ from products.signals.dags.inbox_ranking.dataset.project_vectors import (
 )
 from products.signals.dags.inbox_ranking.mirror import dag as mirror_dag
 from products.signals.dags.inbox_ranking.multihead.prototype import project_context
-from products.signals.dags.inbox_ranking.training import dag as training_dag
+from products.signals.dags.inbox_ranking.training import (
+    dag as training_dag,
+    telemetry,
+)
 
 AS_OF = datetime.datetime(2026, 7, 30, tzinfo=datetime.UTC)
 BEFORE = AS_OF - datetime.timedelta(days=3)
@@ -224,29 +227,62 @@ class _MirrorStorage:
         self.writes.append({"bucket": bucket, "key": key, "content": content, "extras": extras})
 
 
+REMOTE_REPORT_IDS = [f"00000000-0000-4000-8000-00000000001{index}" for index in range(4)]
+
+
+class _CaptureClient:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def capture(self, **kwargs: Any) -> None:
+        self.calls.append(kwargs)
+
+    def shutdown(self) -> None:
+        pass
+
+
 @pytest.mark.parametrize(
-    "mirror_bucket,mirror_fails",
-    [("mirror-bucket", False), ("mirror-bucket", True), ("", False)],
-    ids=["mirror_set", "mirror_down", "no_mirror"],
+    "mirror_bucket,mirror_fails,label_ids,local_ids,skip_reason",
+    [
+        ("mirror-bucket", False, [LOCAL_REPORT_ID, REMOTE_REPORT_ID, "not-a-uuid"], {LOCAL_REPORT_ID}, None),
+        ("mirror-bucket", True, [LOCAL_REPORT_ID, REMOTE_REPORT_ID, "not-a-uuid"], {LOCAL_REPORT_ID}, None),
+        ("", False, [LOCAL_REPORT_ID, REMOTE_REPORT_ID, "not-a-uuid"], {LOCAL_REPORT_ID}, None),
+        ("mirror-bucket", False, [LOCAL_REPORT_ID, REMOTE_REPORT_ID], set(), dag.NO_LOCAL_REPORTS),
+        (
+            "mirror-bucket",
+            False,
+            [LOCAL_REPORT_ID, *REMOTE_REPORT_IDS],
+            {LOCAL_REPORT_ID},
+            dag.LOCAL_SHARE_COLLAPSED,
+        ),
+        ("mirror-bucket", False, [], set(), None),
+    ],
+    ids=["mirror_set", "mirror_down", "no_mirror", "no_local_reports", "local_share_collapsed", "empty_labels"],
 )
 def test_the_engagement_export_sends_only_remote_reports_to_the_mirror(
-    monkeypatch: pytest.MonkeyPatch, mirror_bucket: str, mirror_fails: bool
+    monkeypatch: pytest.MonkeyPatch,
+    mirror_bucket: str,
+    mirror_fails: bool,
+    label_ids: list[str],
+    local_ids: set[str],
+    skip_reason: str | None,
 ) -> None:
     partition_key = BEFORE.date().isoformat()
     labels = pa.Table.from_pylist(
         [
             {"snapshot_date": AS_OF.date(), "report_id": report_id, "first_opened_at": BEFORE, "open_count": 1}
-            for report_id in (LOCAL_REPORT_ID, REMOTE_REPORT_ID, "not-a-uuid")
+            for report_id in label_ids
         ],
         schema=LABELS_SCHEMA,
     )
     labels_key = common.partition_object_key("inbox_ranking", dag.LABELS_TABLE, partition_key)
     mirror = _MirrorStorage(fail=mirror_fails)
     looked_up: list[list[str]] = []
+    capture = _CaptureClient()
 
     def fake_report_teams(report_ids: list[str], snapshot_end: datetime.datetime) -> dict[str, int]:
         looked_up.append(report_ids)
-        return {LOCAL_REPORT_ID: 2}
+        return dict.fromkeys(local_ids & set(report_ids), 2)
 
     def mirror_storage() -> _MirrorStorage:
         assert mirror_bucket, "no mirror is set, so nothing may reach a second store"
@@ -262,13 +298,38 @@ def test_the_engagement_export_sends_only_remote_reports_to_the_mirror(
     monkeypatch.setattr(dag, "serving_mirror_storage", mirror_storage)
     monkeypatch.setattr(dag.settings, "INBOX_RANKING_DATASET_S3_PREFIX", "inbox_ranking")
     monkeypatch.setattr(dag.settings, "INBOX_RANKING_SERVING_MIRROR_BUCKET", mirror_bucket)
+    monkeypatch.setattr(telemetry, "is_cloud", lambda: True)
+    monkeypatch.setattr(telemetry, "get_client", lambda region, **kwargs: capture)
 
-    dag.inbox_engagement_export(dagster.build_asset_context(partition_key=partition_key))
+    context = dagster.build_asset_context(partition_key=partition_key)
+    dag.inbox_engagement_export(context)
 
-    if not mirror_bucket or mirror_fails:
+    if not mirror_bucket:
+        assert mirror.writes == []
+        assert capture.calls == []
+        return
+    metadata = context.get_output_metadata("result")
+    written = not mirror_fails and skip_reason is None
+    assert metadata["written"].value is written
+    assert ("skip_reason" in metadata) is (skip_reason is not None)
+    (event,) = capture.calls
+    assert event["event"] == telemetry.ENGAGEMENT_EXPORT_PUBLISHED_EVENT
+    local_rows = len(local_ids)
+    assert {key: event["properties"][key] for key in ("written", "skip_reason", "excluded_rows", "local_share")} == {
+        "written": written,
+        "skip_reason": skip_reason,
+        "excluded_rows": local_rows,
+        "local_share": local_rows / len(label_ids) if label_ids else None,
+    }
+    assert event["properties"]["partition"] == partition_key
+    assert event["properties"]["schema_version"] == dag.ENGAGEMENT_EXPORT_SCHEMA_VERSION
+    # No report id and no team id leaves the region through the event.
+    assert not {"report_id", "report_ids", "team_id", "team_ids"} & set(event["properties"])
+    assert not set(label_ids) & {str(value) for value in event["properties"].values()}
+
+    if not written:
         assert mirror.writes == []
         return
-    assert looked_up == [[LOCAL_REPORT_ID, REMOTE_REPORT_ID]]
     (write,) = mirror.writes
     assert write["bucket"] == mirror_bucket
     assert write["key"] == serving_engagement_key("inbox_ranking", partition_key)
@@ -277,6 +338,10 @@ def test_the_engagement_export_sends_only_remote_reports_to_the_mirror(
     assert write["extras"]["Metadata"][common.SCHEMA_VERSION_METADATA_KEY] == str(dag.ENGAGEMENT_EXPORT_SCHEMA_VERSION)
     exported = pq.read_table(io.BytesIO(write["content"]))
     assert exported.column_names == list(LABEL_COLUMNS)
+    if not label_ids:
+        assert exported.num_rows == 0
+        return
+    assert looked_up == [[LOCAL_REPORT_ID, REMOTE_REPORT_ID]]
     assert exported.to_pylist() == [
         dict.fromkeys(LABEL_COLUMNS) | {"report_id": REMOTE_REPORT_ID, "first_opened_at": BEFORE}
     ]

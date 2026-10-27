@@ -211,7 +211,7 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
     })),
 
     urlToAction(({ actions, values }) => ({
-        '/organization/confirm-creation': (_, { email, organization_name, first_name }) => {
+        '/organization/confirm-creation': (_, __, ___, { search }) => {
             // Prefill from the URL once. Later location changes on this same page (for example
             // opening the docs side panel) re-fire this handler with empty params, which would
             // otherwise wipe what the user has typed.
@@ -220,15 +220,22 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
             }
             actions.setHasPrefilled()
 
+            // Read the raw query string, because kea-router parses a value that looks like a number
+            // into one. A name of only digits must stay text for the validators to trim it.
+            const params = new URLSearchParams(search)
+            const email = params.get('email')
+            const organizationName = params.get('organization_name')
+            const firstName = params.get('first_name')
+
             if (email) {
                 actions.setEmail(email)
             }
             const prefill: DeepPartial<ConfirmOrganizationFormValues> = {}
-            if (organization_name) {
-                prefill.organization_name = organization_name
+            if (organizationName) {
+                prefill.organization_name = organizationName
             }
-            if (first_name) {
-                prefill.first_name = first_name
+            if (firstName) {
+                prefill.first_name = firstName
             }
             if (Object.keys(prefill).length > 0) {
                 actions.setConfirmOrganizationValues(prefill)

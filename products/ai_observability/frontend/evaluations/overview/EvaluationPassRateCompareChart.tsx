@@ -8,7 +8,15 @@ import { useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { bucketHeadline, formatBucket, hourTick, percentTrend, toChartValues } from './evaluationOverviewDisplay'
+import { EvaluationBackfillHint } from './EvaluationBackfillHint'
+import {
+    bucketHeadline,
+    formatBucket,
+    hasIsolatedPoints,
+    hourTick,
+    percentTrend,
+    toChartValues,
+} from './evaluationOverviewDisplay'
 import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
 const MEDIAN_KEY = '__median'
@@ -103,9 +111,15 @@ export function EvaluationPassRateCompareChart({ colors }: { colors: Map<string,
         )
     }
 
+    const sparse = drawn.picked.filter(hasIsolatedPoints)
     return (
-        <div className="h-96 min-w-0 flex flex-col">
-            <TimeSeriesLineChart series={series} labels={buckets} theme={theme} config={config} tooltip={tooltip} />
-        </div>
+        <>
+            <div className="h-96 min-w-0 flex flex-col">
+                <TimeSeriesLineChart series={series} labels={buckets} theme={theme} config={config} tooltip={tooltip} />
+            </div>
+            {sparse.map((row) => (
+                <EvaluationBackfillHint key={row.id} row={row} source="compare_chart" named />
+            ))}
+        </>
     )
 }
