@@ -317,12 +317,27 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
         bounced_at, earlier_at, spam_at = 1700000000, 1700100000, 1700200000
         pages = {
             ("bounces", 0): [
-                {"email": " Bounced@Example.com ", "created": bounced_at, "status": "5.1.1", "reason": "user unknown"},
-                {"email": "manual@example.com", "created": bounced_at, "status": "5.1.1", "reason": "user unknown"},
+                {
+                    "email": " Bounced@Example.com ",
+                    "created": bounced_at,
+                    "status": "550",
+                    "reason": "Recipient address rejected: user unknown",
+                },
+                {
+                    "email": "manual@example.com",
+                    "created": bounced_at,
+                    "status": "550",
+                    "reason": "Recipient address rejected: user unknown",
+                },
             ],
             ("bounces", 2): [
-                {"email": "removed@example.com", "created": bounced_at, "status": "5.1.1", "reason": "user unknown"},
-                {"email": "earlier@example.com", "created": earlier_at, "status": "5.2.2", "reason": "mailbox full"},
+                {
+                    "email": "removed@example.com",
+                    "created": bounced_at,
+                    "status": "550",
+                    "reason": "Recipient address rejected: user unknown",
+                },
+                {"email": "earlier@example.com", "created": earlier_at, "status": "550", "reason": "Mailbox full"},
             ],
             ("spam_reports", 0): [{"email": "spam@example.com", "created": spam_at, "status": "", "reason": ""}],
         }
@@ -364,9 +379,13 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
                 identifier__in=["bounced@example.com", "spam@example.com", "earlier@example.com", "manual@example.com"]
             )
         }
-        assert details["bounced@example.com"] == (bounced_at, bounced_at, "5.1.1 user unknown")
+        assert details["bounced@example.com"] == (
+            bounced_at,
+            bounced_at,
+            "550 Recipient address rejected: user unknown",
+        )
         assert details["spam@example.com"] == (spam_at, None, None)
-        assert details["earlier@example.com"] == (earlier_at, earlier_at, "5.2.2 mailbox full")
+        assert details["earlier@example.com"] == (earlier_at, earlier_at, "550 Mailbox full")
         assert details["manual@example.com"][2] is None
 
     @patch("products.messaging.backend.services.customerio_import_service.SUPPRESSION_PAGE_DELAY_SECONDS", 0)

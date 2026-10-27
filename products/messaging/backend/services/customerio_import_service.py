@@ -41,7 +41,7 @@ SUPPRESSION_PAGE_DELAY_SECONDS = 0.2
 class _ImportedSuppression:
     # When Customer.io suppressed the address, or None when the entry has no time.
     suppressed_at: datetime | None
-    # The bounce status code and diagnostic, for example "5.1.1 550 user unknown". None for spam reports.
+    # The bounce status code and Mailgun's reason, for example "550 Mailbox full". None for spam reports.
     diagnostic: str | None
 
 
