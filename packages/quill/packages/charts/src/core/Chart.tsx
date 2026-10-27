@@ -72,6 +72,10 @@ export interface ChartProps<Meta = unknown> {
     drawHover: (args: ChartDrawArgs) => DrawHoverResult
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
+    /** Fires on a right click with the series nearest the cursor. It never pins or unpins the
+     *  tooltip. The browser menu still opens unless the host calls `preventDefault()` on the
+     *  `contextmenu` event. `isPointClickable` limits it like `onPointClick`. */
+    onPointContextMenu?: (data: PointClickData<Meta>) => void
     /** Limits `onPointClick` and the pointer cursor to the points it returns true for. */
     isPointClickable?: (dataIndex: number) => boolean
     /** Enables x-axis drag-to-zoom. Fired with the label range the user dragged across.
@@ -130,6 +134,7 @@ export function Chart<Meta = unknown>({
     drawHover,
     tooltip: renderTooltipProp,
     onPointClick,
+    onPointContextMenu,
     isPointClickable,
     onDateRangeZoom,
     onAreaSelect,
@@ -349,6 +354,7 @@ export function Chart<Meta = unknown>({
         pinnable: pinnableTooltip,
         resolveClickToNearestSeries,
         onPointClick,
+        onPointContextMenu,
         isPointClickable,
         onDateRangeZoom,
         onAreaSelect,
@@ -457,6 +463,7 @@ export function Chart<Meta = unknown>({
                         (isPointClickable?.(hoverIndex) ?? true)
                     }
                     crosshair={!!onDateRangeZoom || !!onAreaSelect}
+                    contextMenu={!!onPointContextMenu}
                     ariaLabel={ariaLabel}
                     labelCount={labels.length}
                     handlers={handlers}

@@ -47030,6 +47030,7 @@ export namespace Schemas {
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_cannot_compile` - Metric Cannot Compile
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
@@ -47053,6 +47054,7 @@ export namespace Schemas {
       MultipleVariantsShare: 'multiple_variants_share',
       NoMetric: 'no_metric',
       MetricEventNotIngested: 'metric_event_not_ingested',
+      MetricCannotCompile: 'metric_cannot_compile',
       ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
       Srm: 'srm',
       ZeroExposures: 'zero_exposures',
@@ -47119,6 +47121,7 @@ export namespace Schemas {
        * * `multiple_variants_share` - Multiple Variants Share
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `metric_cannot_compile` - Metric Cannot Compile
        * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
        * * `srm` - Sample Ratio Mismatch
        * * `zero_exposures` - Zero Exposures
@@ -47167,6 +47170,7 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_cannot_compile` - Metric Cannot Compile
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
@@ -47188,6 +47192,7 @@ export namespace Schemas {
       NewFlagNoTraffic: 'new_flag_no_traffic',
       NoMetric: 'no_metric',
       MetricEventNotIngested: 'metric_event_not_ingested',
+      MetricCannotCompile: 'metric_cannot_compile',
       ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
       EarlySignificance: 'early_significance',
       ZeroExposures: 'zero_exposures',
@@ -47225,6 +47230,7 @@ export namespace Schemas {
        * * `new_flag_no_traffic` - New Flag No Traffic
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `metric_cannot_compile` - Metric Cannot Compile
        * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
        * * `early_significance` - Early Significance
        * * `zero_exposures` - Zero Exposures
@@ -47910,6 +47916,54 @@ export namespace Schemas {
       activation: string | null;
     }
 
+    /**
+     * * `rejected` - Rejected
+     * * `syntax` - Syntax
+     * * `query` - Query
+     * * `definition` - Definition
+     */
+    export type ExperimentHealthMetricCompileErrorKindEnum = typeof ExperimentHealthMetricCompileErrorKindEnum[keyof typeof ExperimentHealthMetricCompileErrorKindEnum];
+
+
+    export const ExperimentHealthMetricCompileErrorKindEnum = {
+      Rejected: 'rejected',
+      Syntax: 'syntax',
+      Query: 'query',
+      Definition: 'definition',
+    } as const;
+
+    export interface ExperimentHealthInputsMetricCompileFailure {
+      /** The metric's name as the experiment shows it. */
+      name: string;
+      /** 'primary' or 'secondary'. */
+      role: string;
+      /** Who rejected the query: 'rejected' is a validation of the query builder, 'syntax' and 'query' come from HogQL, 'definition' means the stored definition doesn't parse into a metric.
+       *
+       * * `rejected` - Rejected
+       * * `syntax` - Syntax
+       * * `query` - Query
+       * * `definition` - Definition */
+      kind: ExperimentHealthMetricCompileErrorKindEnum;
+      /**
+         * The compiler's message, without the list of a scope's fields. Null when it can hold the evaluation rules that the AI evaluation markers keep out of the browser.
+         * @nullable
+         */
+      message: string | null;
+    }
+
+    export interface ExperimentHealthInputsMetricCompiles {
+      /** The metrics that the experiment calculates, one per uuid. */
+      metric_count: number;
+      /** The metrics whose compile raised an error that names no problem of the metric, such as a defect. */
+      unknown_count: number;
+      /** The metrics that read a warehouse table or view that the reader may not query, so they aren't checked. */
+      no_access_count: number;
+      /** Whether the exposure query alone doesn't compile. Every metric then fails for that reason, so no failure is listed. */
+      exposure_query_fails: boolean;
+      /** The metrics whose query doesn't compile, with the compiler's message. */
+      failures: ExperimentHealthInputsMetricCompileFailure[];
+    }
+
     export interface ExperimentHealthInputsFlagChange {
       /** The kind of change. A bucketing change is a change of a setting that decides the variant draw.
        *
@@ -48303,10 +48357,17 @@ export namespace Schemas {
          * @nullable
          */
       flag_called_during_run: boolean | null;
+      /**
+         * Whether PostHog has recorded a call of the flag after the end. The flag state check reads it on an ended experiment whose flag is still active with multiple variants. False only after 3 days without a recorded call. Null before the end, before those 3 days are over, or when the organization's flag calls can't be read.
+         * @nullable
+         */
+      flag_called_after_end: boolean | null;
       /** The events the exposure criteria count. Null when the stored exposure criteria don't parse. */
       exposure_events: ExperimentHealthInputsExposureEvents | null;
       /** Whether the project has received each event that the metrics and the exposure criteria name, by event name. A name that ingestion keeps no record of is absent. */
       events_received: ExperimentHealthInputsEventsReceived;
+      /** The compile of each metric's query without running it, as the reader, which the metric queries check reads. A metric that compiles is cached per reader for a day, and a failing metric compiles again on every request. Null when the compile itself failed. */
+      metric_compiles: ExperimentHealthInputsMetricCompiles | null;
       /** The changes of the flag since launch that can move exposed people. Null when the experiment is not running, is archived, its flag is missing or deleted, or the read failed. */
       flag_history: ExperimentHealthInputsFlagHistory | null;
       /** Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the experiment is launched and some but not all release conditions pin a variant that has a share of the split and is not excluded from the analysis. The release-condition check needs it when such an override was removed after launch.
@@ -77242,6 +77303,8 @@ export namespace Schemas {
     /**
      * * `logs` - Logs
      * * `insight` - Insight
+     * * `warehouse_source` - Warehouse source
+     * * `warehouse_destination` - Warehouse destination
      */
     export type PlatformAlertConfigurationSourceKindEnum = typeof PlatformAlertConfigurationSourceKindEnum[keyof typeof PlatformAlertConfigurationSourceKindEnum];
 
@@ -77249,6 +77312,8 @@ export namespace Schemas {
     export const PlatformAlertConfigurationSourceKindEnum = {
       Logs: 'logs',
       Insight: 'insight',
+      WarehouseSource: 'warehouse_source',
+      WarehouseDestination: 'warehouse_destination',
     } as const;
 
     /**
@@ -77329,7 +77394,9 @@ export namespace Schemas {
       /** Product whose data the alert evaluates.
        *
        * * `logs` - Logs
-       * * `insight` - Insight */
+       * * `insight` - Insight
+       * * `warehouse_source` - Warehouse source
+       * * `warehouse_destination` - Warehouse destination */
       readonly source_kind: PlatformAlertConfigurationSourceKindEnum;
       /** Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key. */
       readonly source_config: PlatformAlertConfigurationSourceConfig;
@@ -89035,7 +89102,137 @@ export namespace Schemas {
       homepage?: PinnedSceneTab | null;
     }
 
-    export type PatchedPlatformAlertConfigurationEdit = PatchedInsightPlatformAlertConfigurationEdit | PatchedLogsPlatformAlertConfigurationEdit;
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type PatchedWarehouseDestinationPlatformAlertConfigurationEditSourceKind = typeof PatchedWarehouseDestinationPlatformAlertConfigurationEditSourceKind[keyof typeof PatchedWarehouseDestinationPlatformAlertConfigurationEditSourceKind];
+
+
+    export const PatchedWarehouseDestinationPlatformAlertConfigurationEditSourceKind = {
+      WarehouseDestination: 'warehouse_destination',
+    } as const;
+
+    export interface WarehouseDestinationAlertConfig {
+      /**
+         * Warehouse destinations the alert watches. Empty watches every destination in the project, including destinations added later. The grouping must be by_result_labels with keys [destination_id].
+         * @maxItems 100
+         */
+      destination_ids?: string[];
+      /** Whether project members who get data pipeline error emails also get an email when this alert fires or resolves. */
+      email_project_members?: boolean;
+    }
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface PatchedWarehouseDestinationPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: PatchedWarehouseDestinationPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled?: boolean;
+      /** Settings for a warehouse_destination alert. The bound the alert is evaluated against is under condition. */
+      source_config?: WarehouseDestinationAlertConfig;
+      /** How the alert splits its results into instances. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type PatchedWarehouseSourcePlatformAlertConfigurationEditSourceKind = typeof PatchedWarehouseSourcePlatformAlertConfigurationEditSourceKind[keyof typeof PatchedWarehouseSourcePlatformAlertConfigurationEditSourceKind];
+
+
+    export const PatchedWarehouseSourcePlatformAlertConfigurationEditSourceKind = {
+      WarehouseSource: 'warehouse_source',
+    } as const;
+
+    export type WarehouseAlertGroupByEnum = typeof WarehouseAlertGroupByEnum[keyof typeof WarehouseAlertGroupByEnum];
+
+
+    export const WarehouseAlertGroupByEnum = {
+      Schema: 'schema',
+      Source: 'source',
+    } as const;
+
+    export interface WarehouseSourceAlertConfig {
+      /**
+         * Warehouse sources the alert watches. Empty watches every source in the project, including sources added later.
+         * @maxItems 100
+         */
+      source_ids?: string[];
+      /** schema keeps one alert instance, and sends one message, per failing table. source keeps one per source, whatever number of its tables fail. The grouping must be by_result_labels with keys [schema_id] or [source_id] to match. */
+      group_by?: WarehouseAlertGroupByEnum;
+      /** Whether a table that stops syncing at the project's billing limit also fires the alert. */
+      include_billing_limits?: boolean;
+      /** Whether project members who get data pipeline error emails also get an email when this alert fires or resolves. */
+      email_project_members?: boolean;
+    }
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface PatchedWarehouseSourcePlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: PatchedWarehouseSourcePlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled?: boolean;
+      /** Settings for a warehouse_source alert. The bound the alert is evaluated against is under condition. */
+      source_config?: WarehouseSourceAlertConfig;
+      /** How the alert splits its results into instances. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+    }
+
+    export type PatchedPlatformAlertConfigurationEdit = PatchedInsightPlatformAlertConfigurationEdit | PatchedLogsPlatformAlertConfigurationEdit | PatchedWarehouseDestinationPlatformAlertConfigurationEdit | PatchedWarehouseSourcePlatformAlertConfigurationEdit;
 
     /**
      * Request body for PATCH /api/users/@me/product_intro_seen.
@@ -94152,9 +94349,205 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate;
+    /**
+     * Product whose data the alert evaluates. It cannot change after the create.
+     */
+    export type WarehouseDestinationPlatformAlertConfigurationCreateSourceKind = typeof WarehouseDestinationPlatformAlertConfigurationCreateSourceKind[keyof typeof WarehouseDestinationPlatformAlertConfigurationCreateSourceKind];
 
-    export type PlatformAlertConfigurationEdit = InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit;
+
+    export const WarehouseDestinationPlatformAlertConfigurationCreateSourceKind = {
+      WarehouseDestination: 'warehouse_destination',
+    } as const;
+
+    /**
+     * The settings of a new alert. Every one but source_config has a default, which is stored.
+     */
+    export interface WarehouseDestinationPlatformAlertConfigurationCreate {
+      /** Product whose data the alert evaluates. It cannot change after the create. */
+      source_kind: WarehouseDestinationPlatformAlertConfigurationCreateSourceKind;
+      /**
+         * Human-readable name of the alert. Defaults to 'Untitled alert'.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. Defaults to true. */
+      enabled?: boolean;
+      /** Settings for a warehouse_destination alert. The bound the alert is evaluated against is under condition. */
+      source_config: WarehouseDestinationAlertConfig;
+      /** How the alert splits its results into instances. Defaults to mode single. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert. Defaults to 0.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change after the create.
+     */
+    export type WarehouseSourcePlatformAlertConfigurationCreateSourceKind = typeof WarehouseSourcePlatformAlertConfigurationCreateSourceKind[keyof typeof WarehouseSourcePlatformAlertConfigurationCreateSourceKind];
+
+
+    export const WarehouseSourcePlatformAlertConfigurationCreateSourceKind = {
+      WarehouseSource: 'warehouse_source',
+    } as const;
+
+    /**
+     * The settings of a new alert. Every one but source_config has a default, which is stored.
+     */
+    export interface WarehouseSourcePlatformAlertConfigurationCreate {
+      /** Product whose data the alert evaluates. It cannot change after the create. */
+      source_kind: WarehouseSourcePlatformAlertConfigurationCreateSourceKind;
+      /**
+         * Human-readable name of the alert. Defaults to 'Untitled alert'.
+         * @maxLength 255
+         */
+      name?: string;
+      /** Whether the alert is evaluated on schedule. Defaults to true. */
+      enabled?: boolean;
+      /** Settings for a warehouse_source alert. The bound the alert is evaluated against is under condition. */
+      source_config: WarehouseSourceAlertConfig;
+      /** How the alert splits its results into instances. Defaults to mode single. */
+      grouping?: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
+      schedule_restriction?: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods?: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods. Defaults to 1.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm?: number;
+      /**
+         * Minimum minutes between notifications for the same alert. Defaults to 0.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes?: number;
+    }
+
+    export type PlatformAlertConfigurationCreate = LogsPlatformAlertConfigurationCreate | WarehouseDestinationPlatformAlertConfigurationCreate | WarehouseSourcePlatformAlertConfigurationCreate;
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type WarehouseDestinationPlatformAlertConfigurationEditSourceKind = typeof WarehouseDestinationPlatformAlertConfigurationEditSourceKind[keyof typeof WarehouseDestinationPlatformAlertConfigurationEditSourceKind];
+
+
+    export const WarehouseDestinationPlatformAlertConfigurationEditSourceKind = {
+      WarehouseDestination: 'warehouse_destination',
+    } as const;
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface WarehouseDestinationPlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: WarehouseDestinationPlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled: boolean;
+      /** Settings for a warehouse_destination alert. The bound the alert is evaluated against is under condition. */
+      source_config: WarehouseDestinationAlertConfig;
+      /** How the alert splits its results into instances. */
+      grouping: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes: number;
+    }
+
+    /**
+     * Product whose data the alert evaluates. It cannot change, so it must match the stored value.
+     */
+    export type WarehouseSourcePlatformAlertConfigurationEditSourceKind = typeof WarehouseSourcePlatformAlertConfigurationEditSourceKind[keyof typeof WarehouseSourcePlatformAlertConfigurationEditSourceKind];
+
+
+    export const WarehouseSourcePlatformAlertConfigurationEditSourceKind = {
+      WarehouseSource: 'warehouse_source',
+    } as const;
+
+    /**
+     * The settings an edit can change. Each source kind subclasses it with a typed `source_config`.
+     */
+    export interface WarehouseSourcePlatformAlertConfigurationEdit {
+      /** Product whose data the alert evaluates. It cannot change, so it must match the stored value. */
+      source_kind: WarehouseSourcePlatformAlertConfigurationEditSourceKind;
+      /**
+         * Human-readable name of the alert.
+         * @maxLength 255
+         */
+      name: string;
+      /** Whether the alert is evaluated on schedule. */
+      enabled: boolean;
+      /** Settings for a warehouse_source alert. The bound the alert is evaluated against is under condition. */
+      source_config: WarehouseSourceAlertConfig;
+      /** How the alert splits its results into instances. */
+      grouping: Grouping;
+      /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
+      schedule_restriction: AlertScheduleRestriction | null;
+      /**
+         * Number of recent checks considered when deciding to fire.
+         * @minimum 1
+         * @maximum 10
+         */
+      evaluation_periods: number;
+      /**
+         * Number of breaching checks within evaluation_periods required to fire. Cannot exceed evaluation_periods.
+         * @minimum 1
+         * @maximum 10
+         */
+      datapoints_to_alarm: number;
+      /**
+         * Minimum minutes between notifications for the same alert.
+         * @minimum 0
+         * @maximum 2147483647
+         */
+      cooldown_minutes: number;
+    }
+
+    export type PlatformAlertConfigurationEdit = InsightPlatformAlertConfigurationEdit | LogsPlatformAlertConfigurationEdit | WarehouseDestinationPlatformAlertConfigurationEdit | WarehouseSourcePlatformAlertConfigurationEdit;
 
     export interface PlatformAlertGroupSnooze {
       /**
@@ -120791,6 +121184,108 @@ export namespace Schemas {
       readonly days: readonly VisionSpendDay[];
     }
 
+    /**
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams
+     * * `discord` - discord
+     * * `pagerduty` - pagerduty
+     */
+    export type WarehouseAlertDestinationTypeEnum = typeof WarehouseAlertDestinationTypeEnum[keyof typeof WarehouseAlertDestinationTypeEnum];
+
+
+    export const WarehouseAlertDestinationTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+      Teams: 'teams',
+      Discord: 'discord',
+      Pagerduty: 'pagerduty',
+    } as const;
+
+    export interface WarehouseAlertCreateDestination {
+      /** Notification destination type.
+       *
+       * * `slack` - slack
+       * * `webhook` - webhook
+       * * `teams` - teams
+       * * `discord` - discord
+       * * `pagerduty` - pagerduty */
+      type: WarehouseAlertDestinationTypeEnum;
+      /** Integration ID for the Slack workspace. Required when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Required when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable channel name for display. */
+      slack_channel_name?: string;
+      /** HTTPS endpoint to post to. Required for webhook, teams and discord. */
+      webhook_url?: string;
+      /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. */
+      pagerduty_routing_key?: string;
+      /** Severity PagerDuty records on the incident. Used when type=pagerduty.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region of the account. Used when type=pagerduty.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
+    }
+
+    export interface WarehouseAlertDeleteDestination {
+      /**
+         * HogFunction IDs of one destination, as the list endpoint returns them. They are deleted together.
+         * @minItems 1
+         * @maxItems 100
+         */
+      hog_function_ids: string[];
+    }
+
+    export interface WarehouseAlertDestination {
+      /** HogFunction IDs that make up this destination, one per alert event kind it handles. Send them all to the delete endpoint to remove the destination. */
+      hog_function_ids: string[];
+      /** Notification destination type.
+       *
+       * * `slack` - slack
+       * * `webhook` - webhook
+       * * `teams` - teams
+       * * `discord` - discord
+       * * `pagerduty` - pagerduty */
+      type: WarehouseAlertDestinationTypeEnum;
+      /** Whether every HogFunction of the destination is enabled, so it notifies for every event kind. */
+      enabled: boolean;
+      /** Integration ID of the Slack workspace. Set when type=slack. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. Set when type=slack. */
+      slack_channel_id?: string;
+      /** Human-readable Slack channel name. Set when type=slack. */
+      slack_channel_name?: string;
+      /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
+      webhook_url?: string;
+      /** PagerDuty integration key reduced to its last four characters. */
+      pagerduty_routing_key?: string;
+      /** Severity of the PagerDuty incident.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** PagerDuty service region the events go to.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
+    }
+
+    export interface WarehouseAlertDestinationCreated {
+      /** HogFunction IDs created for the destination, one per event kind. */
+      hog_function_ids: string[];
+    }
+
     export interface WarehouseConnection {
       /** Postgres connection host. The warehouse name is the SNI subdomain, e.g. my-warehouse.dw.us.postwh.com */
       host: string;
@@ -124689,6 +125184,23 @@ export namespace Schemas {
     }
 
     /**
+     * Event attributes. Keys are whatever the instrumentation set.
+     */
+    export type _SpanEventAttributes = {[key: string]: string};
+
+    export interface _SpanEvent {
+      /** Event name, for example `exception`. */
+      name: string;
+      /**
+         * When the event occurred. Null when the SDK did not set a time.
+         * @nullable
+         */
+      timestamp: string | null;
+      /** Event attributes. Keys are whatever the instrumentation set. */
+      attributes: _SpanEventAttributes;
+    }
+
+    /**
      * * `exact` - exact
      * * `is_not` - is_not
      * * `icontains` - icontains
@@ -124932,7 +125444,7 @@ export namespace Schemas {
     export type _TraceSpanResourceAttributes = {[key: string]: string};
 
     /**
-     * A span in a single trace. The trace action adds self time, which the list does not compute.
+     * A span in a single trace. The trace action adds self time and span events, which the list does not return.
      */
     export interface _TraceSpan {
       /** Span's own UUID. */
@@ -124971,6 +125483,8 @@ export namespace Schemas {
       resource_attributes: _TraceSpanResourceAttributes;
       /** Span duration minus the time spent in its children, in nanoseconds. */
       self_time_nano: number;
+      /** OpenTelemetry span events, earliest first. Omitted when `excludeAttributes` is true. */
+      events?: _SpanEvent[];
     }
 
     export interface _TracingAggregationQueryBody {
@@ -125462,7 +125976,7 @@ export namespace Schemas {
     export interface _TracingTraceRequest {
       /** Date range for the query. Omit it to search all retained spans for this trace. */
       dateRange?: _TracingDateRange;
-      /** Omit the per-span attributes and resource attributes maps from results to keep payloads compact. Defaults to false. */
+      /** Omit the per-span attributes, resource attributes and events from results to keep payloads compact. Defaults to false. */
       excludeAttributes?: boolean;
       /**
          * Pagination offset into the trace's spans (ordered by start time ascending). Each page returns up to 2000 spans; pass the response's `nextOffset` to load the next page. Defaults to 0.

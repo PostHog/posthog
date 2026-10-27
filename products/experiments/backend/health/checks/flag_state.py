@@ -9,8 +9,11 @@ A running experiment whose flag has a 0% rollout is the exception. The flag serv
 variant then, so people who still get one get it from the customer's own assignment, which only the flag's calls
 show. Only the server reports that case.
 
-A paused experiment is the other exception. Only the server reads the experiment's activity log, so only the server
+A paused experiment is another exception. Only the server reads the experiment's activity log, so only the server
 tells a pause from the experiment from a flag disabled elsewhere, and reports the pause with its own subcode.
+
+An ended experiment whose flag has no recorded call since the end is the last exception. Only the server reads the
+flag's latest call, so only the server reports that case, with its own subcode.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -48,6 +51,7 @@ NOT_STARTED_BUT_MULTIPLE_VARIANTS_ROLLED_OUT = "not_started_but_multiple_variant
 RUNNING_BUT_FLAG_DELETED = "running_but_flag_deleted"
 ASSIGNED_OUTSIDE_FLAG_SERVICE = "assigned_outside_flag_service"
 PAUSED_FROM_EXPERIMENT = "paused_from_experiment"
+ENDED_FLAG_NOT_CALLED = "ended_flag_not_called"
 
 # The experiment's Pause and Resume write activity log entries since August 25, 2026, and a pause before then has
 # none. So a missing entry shows that the flag was disabled outside the experiment only for an experiment launched
@@ -100,16 +104,7 @@ def flag_state(ctx: HealthContext) -> CheckOutcome:
             traffic = ctx.condition_set_traffic
             if traffic is not None and traffic.people_assigned_outside >= _MIN_PEOPLE_ASSIGNED_OUTSIDE:
                 return _assigned_outside(traffic)
-            return _finding(
-                code=ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING,
-                subcode=RUNNING_BUT_NO_ROLLOUT,
-                title="The experiment is running, but no new users are being exposed",
-                detail=(
-                    "The linked feature flag has a 0% rollout, so no new users are being exposed. "
-                    "Users exposed earlier are still included in the results. End the experiment with a "
-                    "conclusion, or increase the rollout percentage to expose users."
-                ),
-            )
+            return _no_rollout(observed=traffic is not None and not outside_assignment_unsettled(ctx, traffic))
         if single_variant_shipped:
             variant_key = shipped_variant_key(flag)
             shipped = f'Variant "{variant_key}" is' if variant_key else "One variant is"
@@ -127,15 +122,9 @@ def flag_state(ctx: HealthContext) -> CheckOutcome:
             )
     elif ctx.has_ended:
         if flag.active and _has_multiple_variants_active(flag) and not zero_rollout and not single_variant_shipped:
-            return _finding(
-                code=ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END,
-                subcode=ENDED_BUT_MULTIPLE_VARIANTS_ROLLED_OUT,
-                title=_NOT_RUNNING_BUT_EXPOSED_TITLE,
-                detail=(
-                    "This experiment has ended, but the linked feature flag is still active and distributing "
-                    "traffic across multiple variants. Disable the flag, or resume the experiment."
-                ),
-            )
+            if ctx.flag_called_after_end is False and ctx.ended_at is not None:
+                return _ended_flag_not_called(ctx.ended_at, ctx.team_timezone)
+            return _live_after_end(called_after_end=ctx.flag_called_after_end is True)
     elif not ctx.archived:
         # The draft state is also reached again when resetting experiment measurements.
         if flag.active and _has_multiple_variants_active(flag) and not zero_rollout:
@@ -195,18 +184,87 @@ def _flag_disabled(pause: PauseHistory | None) -> ExperimentHealthFinding:
     )
 
 
+def _no_rollout(*, observed: bool) -> ExperimentHealthFinding:
+    """`observed` says whether the flag's calls were read over a window long enough to show users assigned outside
+    the flag service. Without that, the finding says only what the rollout shows."""
+    if observed:
+        return _finding(
+            code=ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING,
+            subcode=RUNNING_BUT_NO_ROLLOUT,
+            title="The experiment is running, but no new users are being exposed",
+            detail=(
+                "The linked feature flag has a 0% rollout, so no new users are being exposed. "
+                "Users exposed earlier are still included in the results. End the experiment with a "
+                "conclusion, or increase the rollout percentage to expose users."
+            ),
+        )
+    return _finding(
+        code=ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING,
+        subcode=RUNNING_BUT_NO_ROLLOUT,
+        title="The experiment is running, but its feature flag has a 0% rollout",
+        detail=(
+            "The linked feature flag has a 0% rollout, so PostHog serves no variant. Only users whose variant your "
+            "own code assigns are exposed. If your code doesn't assign variants, no new users are being exposed. "
+            "Users exposed earlier are still included in the results. End the experiment with a conclusion, or "
+            "increase the rollout percentage to expose users."
+        ),
+    )
+
+
+def _live_after_end(*, called_after_end: bool) -> ExperimentHealthFinding:
+    if called_after_end:
+        return _finding(
+            code=ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END,
+            subcode=ENDED_BUT_MULTIPLE_VARIANTS_ROLLED_OUT,
+            title=_NOT_RUNNING_BUT_EXPOSED_TITLE,
+            detail=(
+                "This experiment has ended, but the linked feature flag is still active and distributing "
+                "traffic across multiple variants. Disable the flag, or resume the experiment."
+            ),
+        )
+    # Without a call recorded after the end, the finding says only what the flag's settings show.
+    return _finding(
+        code=ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END,
+        subcode=ENDED_BUT_MULTIPLE_VARIANTS_ROLLED_OUT,
+        title="The experiment has ended, but its feature flag is still active with multiple variants",
+        detail=(
+            "This experiment has ended, but the linked feature flag is still active with multiple variants, so users "
+            "still get one of them whenever your code reads the flag. Disable the flag, or resume the experiment."
+        ),
+    )
+
+
+def _ended_flag_not_called(ended_at: datetime, team_timezone: str) -> ExperimentHealthFinding:
+    # Info, because a flag that nothing reads exposes nobody. The finding says only what `last_called_at` shows,
+    # because reads that record no call can still get a variant.
+    return _finding(
+        code=ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END,
+        subcode=ENDED_FLAG_NOT_CALLED,
+        severity=ExperimentHealthFindingSeverity.INFO,
+        title="The feature flag is still active after the experiment ended",
+        detail=(
+            f"The experiment ended on {format_change_time(ended_at, team_timezone)}, and the linked feature flag is "
+            "still active with multiple variants. PostHog hasn't recorded a call of the flag since then. Reading only "
+            "a payload or a list of all flags records no call, and neither does a call with send_event set to false, "
+            "so your code may still read the flag that way. If nothing reads the flag anymore, disable or archive it "
+            "to clean up."
+        ),
+        evidence={"ended_at": ended_at.astimezone(UTC).isoformat()},
+    )
+
+
 def needs_outside_assignment_check(ctx: HealthContext) -> bool:
     """Whether this check reads the flag's calls: a running experiment whose flag has a 0% rollout."""
     flag = ctx.flag
     return ctx.is_running and not ctx.is_paused and flag is not None and not flag.deleted and _has_zero_rollout(flag)
 
 
-def outside_assignment_unsettled(ctx: HealthContext, traffic: ConditionSetTraffic, *, now: datetime) -> bool:
+def outside_assignment_unsettled(ctx: HealthContext, traffic: ConditionSetTraffic) -> bool:
     """Whether `traffic` holds too few people assigned outside the flag service only because its window is young."""
     return (
         needs_outside_assignment_check(ctx)
         and traffic.people_assigned_outside < _MIN_PEOPLE_ASSIGNED_OUTSIDE
-        and now - traffic.since < _OUTSIDE_ASSIGNMENT_SETTLED_AFTER
+        and traffic.until - traffic.since < _OUTSIDE_ASSIGNMENT_SETTLED_AFTER
     )
 
 

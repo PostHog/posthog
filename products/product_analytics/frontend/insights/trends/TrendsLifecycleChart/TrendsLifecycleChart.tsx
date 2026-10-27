@@ -140,11 +140,10 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
                 valueLabels: showValuesOnSeries || showPercentagesOnSeries ? { formatter: valueLabelFormatter } : false,
-                tooltip: { ...LIFECYCLE_TOOLTIP_CONFIG, resolveClickToNearestSeries: context?.dashboardResultMenu },
+                tooltip: LIFECYCLE_TOOLTIP_CONFIG,
                 legend: legendConfig,
             }),
         [
-            context?.dashboardResultMenu,
             indexedResults,
             buildMeta,
             currentPeriodResult?.labels,
@@ -261,6 +260,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             theme={theme}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
+            onPointContextMenu={context?.dashboardResultMenu && canHandleClick ? onPointClick : undefined}
             onDateRangeZoom={onDateRangeZoom}
             className="BarGraph"
             dataAttr="trend-lifecycle-graph"

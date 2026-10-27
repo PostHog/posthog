@@ -112,6 +112,16 @@ PLATFORM_DEFAULT_ALERT_POLICY = replace(LOGS_ALERT_POLICY, mute_gates_notificati
 
 PLATFORM_LOGS_ALERT_POLICY = PLATFORM_DEFAULT_ALERT_POLICY
 
+# A warehouse sync alert watches a status that stays failed until a sync succeeds. So it announces
+# a failure once, keeps quiet while the status stays failed, and resolves when a sync recovers.
+# A mute holds only the message, so the state keeps tracking the status during quiet hours.
+PLATFORM_WAREHOUSE_ALERT_POLICY = replace(
+    LOGS_ALERT_POLICY,
+    renotify_while_firing=False,
+    notify_resolve=True,
+    mute_gates_notification_only=True,
+)
+
 BILLING_ALERT_POLICY = AlertPolicy(
     broken_is_terminal=False,
     transient_errors_count_toward_broken=True,
