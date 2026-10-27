@@ -5081,6 +5081,12 @@ class AgentProxyCallbackKind(models.TextChoices):
 
 
 class AgentCallbackRequestSerializer(serializers.Serializer):
+    stream_generation = serializers.CharField(
+        required=False,
+        default="initial",
+        max_length=200,
+        help_text="Stream generation from the agent event ingest token. Rejects callbacks from an earlier stream.",
+    )
     kind = serializers.ChoiceField(
         choices=AgentProxyCallbackKind.choices,
         help_text=(

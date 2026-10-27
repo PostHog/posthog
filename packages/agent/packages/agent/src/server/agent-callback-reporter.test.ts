@@ -310,7 +310,9 @@ describe("AgentCallbackReporter", () => {
     report(reporter);
     await reporter.settled();
 
-    expect(sent.filter((callback) => callback.kind !== "agent_activity")).toHaveLength(attempts);
+    expect(
+      sent.filter((callback) => callback.kind !== "agent_activity"),
+    ).toHaveLength(attempts);
   });
 
   it.each([
@@ -344,6 +346,27 @@ describe("AgentCallbackReporter", () => {
 
     expect(reporter !== null).toBe(reports);
   });
+  it("sends the ingest token generation on every callback", async () => {
+    const send = vi.fn(async () => true);
+    const reporter = createAgentCallbackReporter({
+      eventIngestToken: ingestToken({
+        agent_sends_callbacks: true,
+        stream_generation: "resumed",
+      }),
+      send,
+      awaitEventAck: async () => 5,
+      logger: new Logger({ debug: false }),
+    });
+    reporter?.turnFailed();
+    await reporter?.settled();
+    expect(send).toHaveBeenCalledWith({
+      kind: "turn_failed",
+      agent_active: false,
+      sequence: 5,
+      stream_generation: "resumed",
+    });
+  });
+
   it("reports at once without a sequence after it stops waiting for acks", async () => {
     const { reporter, sent } = createReporter({
       awaitEventAck: () => new Promise<number>(() => {}),

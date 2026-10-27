@@ -27,7 +27,7 @@ export const AGENT_CALLBACK_SETTLE_BUDGET_MS =
 
 type BootMilestone = "command_dispatched" | "agent_activity";
 
-export type AgentCallback =
+type AgentCallbackPayload =
   | { kind: "heartbeat"; agent_active: true; activity_started: boolean }
   | { kind: "agent_activity"; agent_active: true }
   | { kind: "command_dispatched"; agent_active: false }
@@ -57,6 +57,8 @@ export type AgentCallback =
         memory_limit_bytes: number;
       };
     };
+
+export type AgentCallback = AgentCallbackPayload & { stream_generation?: string };
 
 type DeliveryOutcome = "dispatched" | "skipped" | "refused" | "failed";
 
@@ -313,8 +315,13 @@ export function createAgentCallbackReporter(options: {
   if (!agentSendsCallbacks(options.eventIngestToken)) {
     return null;
   }
+  const claims = JSON.parse(
+    Buffer.from(options.eventIngestToken.split(".")[1], "base64url").toString("utf8"),
+  );
+  const generation = claims.stream_generation ?? "initial";
   return new AgentCallbackReporter({
-    send: options.send,
+    send: (callback) =>
+      options.send({ ...callback, stream_generation: generation }),
     awaitEventAck: options.awaitEventAck,
     logger: options.logger,
   });

@@ -43,7 +43,8 @@ The `tasks-agent-sends-callbacks` feature flag opts a run in.
 Django stamps the decision into the run state at dispatch and into the `agent_sends_callbacks` claim of the event ingest token.
 
 An agent that reads the claim sends `X-PostHog-Agent-Callbacks: 1` on every ingest request.
-For a request with that header and the claim this service only writes events to Redis and sends no callback to Django.
+For a request with that header and the claim this service writes events to Redis without sending those callbacks to Django.
+Permission-request notifications remain on the proxy.
 The header alone changes nothing, so an agent cannot turn off callbacks for a run that did not opt in.
 It still records whether the agent is active, because the ingest disconnect metric needs it.
 

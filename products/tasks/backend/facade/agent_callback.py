@@ -21,6 +21,8 @@ def dispatch_agent_callback(
     if not run_agent_sends_callbacks(state):
         return CallbackOutcome(status=403, error="The agent-proxy sends the callbacks for this run")
     generation = (state or {}).get("stream_generation") or TASK_RUN_STREAM_INITIAL_GENERATION
+    if data.get("stream_generation", TASK_RUN_STREAM_INITIAL_GENERATION) != generation:
+        return CallbackOutcome(status=409, error="Callback belongs to an earlier stream generation")
     dedupe_key = _turn_dedupe_key(run_id, generation, data)
     cache = get_tasks_cache()
     if dedupe_key is not None and not cache.add(dedupe_key, TURN_CLAIM_PENDING, timeout=TURN_CLAIM_TTL_SECONDS):

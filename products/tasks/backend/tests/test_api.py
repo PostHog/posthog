@@ -15122,6 +15122,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         with patch.object(TaskRun, "signal_agent_turn_completed", return_value=True) as turn_completed:
             for generation in ("first", "first", "resumed", "resumed"):
+                body["stream_generation"] = generation
                 run.state = {**run.state, "agent_sends_callbacks": True, "stream_generation": generation}
                 run.save(update_fields=["state"])
                 response = client.post(
@@ -15130,6 +15131,24 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         self.assertEqual(turn_completed.call_count, 2)
+
+    @parameterized.expand([("heartbeat",), ("awaiting_input",), ("turn_failed",)])
+    def test_agent_callback_rejects_previous_stream_generation(self, kind):
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        run.state = {**run.state, "agent_sends_callbacks": True, "stream_generation": "resumed"}
+        run.save(update_fields=["state"])
+        client = self._sandbox_oauth_client(task.id)
+
+        with patch("products.tasks.backend.facade.agent_callback.AgentProxyCallbackDispatcher") as dispatcher:
+            response = client.post(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/agent_callback/",
+                {"kind": kind, "agent_active": False, "stream_generation": "initial", "sequence": 5},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        dispatcher.assert_not_called()
 
     @patch("posthog.storage.object_storage.get_presigned_url")
     def test_task_session_is_readable_for_a_public_channel_task(self, mock_download_url):
