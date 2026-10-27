@@ -6,6 +6,7 @@ All serializer classes and custom field classes live here.
 ViewSet remains in experiments.py.
 """
 
+import math
 from copy import deepcopy
 from typing import Annotated, Any, TypeGuard
 
@@ -55,6 +56,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthMetricCompileErrorKind,
     ExperimentValidationError,
     HealthExposureInputsStatus,
+    RunningTimeMode,
 )
 from products.experiments.backend.facade.timeseries import METRIC_BUILDERS, apply_saved_metric_overrides
 from products.experiments.backend.hogql_queries.exposure_query_logic import resolve_default_exposure_event
@@ -1724,6 +1726,17 @@ class ExperimentMetricsRecalculationLatestSerializer(ExperimentMetricsRecalculat
     )
 
 
+class FiniteFloatField(serializers.FloatField):
+    """A float field that rejects "nan" and "inf". `FloatField` accepts both, no estimate can use them, and JSON can't
+    carry them back."""
+
+    def to_internal_value(self, data: Any) -> float:
+        value = super().to_internal_value(data)
+        if not math.isfinite(value):
+            self.fail("invalid")
+        return value
+
+
 class RunningTimeBaselineStatsSerializer(serializers.Serializer):
     """Raw control-group statistics the calculator uses to derive a baseline value and variance.
 
@@ -1734,27 +1747,32 @@ class RunningTimeBaselineStatsSerializer(serializers.Serializer):
     number_of_samples = serializers.IntegerField(
         min_value=0, help_text="Number of control-group samples (users/units) observed."
     )
-    sum = serializers.FloatField(
+    sum = FiniteFloatField(
         help_text="Sum of the metric values across the control group (for funnels, the numerator/conversions)."
     )
-    sum_squares = serializers.FloatField(
-        required=False, default=0.0, help_text="Sum of squared metric values. Required for ratio/retention variance."
+    sum_squares = FiniteFloatField(
+        required=False,
+        default=0.0,
+        help_text=(
+            "Sum of squared metric values. Mean metrics read their variance from it, and ratio/retention metrics need "
+            "it. Without it, a mean metric's variance is approximated from the baseline value."
+        ),
     )
-    denominator_sum = serializers.FloatField(
+    denominator_sum = FiniteFloatField(
         required=False,
         allow_null=True,
         help_text="Sum of the denominator values. Required for ratio/retention metrics.",
     )
-    denominator_sum_squares = serializers.FloatField(
+    denominator_sum_squares = FiniteFloatField(
         required=False, allow_null=True, help_text="Sum of squared denominator values (ratio/retention variance)."
     )
-    numerator_denominator_sum_product = serializers.FloatField(
+    numerator_denominator_sum_product = FiniteFloatField(
         required=False,
         allow_null=True,
         help_text="Sum of numerator×denominator products, used for the delta-method covariance term.",
     )
     step_counts = serializers.ListField(
-        child=serializers.FloatField(),
+        child=FiniteFloatField(),
         required=False,
         help_text="Per-step counts for funnel metrics; the last entry is the final-step count.",
     )
@@ -1771,7 +1789,7 @@ class RunningTimeCalculationInputSerializer(serializers.Serializer):
             "(both require baseline_stats or an explicit variance)."
         ),
     )
-    minimum_detectable_effect = serializers.FloatField(
+    minimum_detectable_effect = FiniteFloatField(
         min_value=0,
         help_text="Smallest relative change to detect, as a percentage (e.g. 5 means a 5% lift). Must be > 0.",
     )
@@ -1779,15 +1797,16 @@ class RunningTimeCalculationInputSerializer(serializers.Serializer):
         required=False,
         default=2,
         min_value=2,
-        help_text="Total number of variants including control (default 2).",
+        max_value=100,
+        help_text="Total number of variants including control (default 2, at most 100).",
     )
-    exposure_rate_per_day = serializers.FloatField(
+    exposure_rate_per_day = FiniteFloatField(
         required=False,
         allow_null=True,
         min_value=0,
         help_text="Expected exposures per day. When provided, the response includes the recommended running time.",
     )
-    baseline_value = serializers.FloatField(
+    baseline_value = FiniteFloatField(
         required=False,
         allow_null=True,
         help_text=(
@@ -1795,12 +1814,13 @@ class RunningTimeCalculationInputSerializer(serializers.Serializer):
             "(ratio/retention). Provide this or baseline_stats."
         ),
     )
-    variance = serializers.FloatField(
+    variance = FiniteFloatField(
         required=False,
         allow_null=True,
         help_text=(
-            "Pre-computed variance for ratio/retention metrics. Provide this or baseline_stats when metric_type is "
-            "ratio/retention and baseline_value is given directly."
+            "Pre-computed variance per user. Provide this or baseline_stats when metric_type is ratio/retention and "
+            "baseline_value is given directly. When given, it replaces the variance the calculator derives for any "
+            "metric type, including p(1-p) for funnels."
         ),
     )
     baseline_stats = RunningTimeBaselineStatsSerializer(
@@ -1852,6 +1872,85 @@ class RunningTimeCalculationResultSerializer(serializers.Serializer):
     recommended_running_time_days = serializers.IntegerField(
         allow_null=True,
         help_text="Estimated days to reach the recommended sample size. Null when exposure_rate_per_day is omitted.",
+    )
+
+
+class RunningTimeTargetQuerySerializer(serializers.Serializer):
+    mode = serializers.ChoiceField(
+        required=False,
+        choices=RunningTimeMode.choices,
+        help_text=(
+            "The running time mode to size the target for. Defaults to the experiment's saved mode. 'automatic' sizes "
+            "it from the results, also for an experiment saved in manual mode."
+        ),
+    )
+
+
+class DetectableEffectCheckpointSerializer(serializers.Serializer):
+    weeks_since_launch = serializers.IntegerField(help_text="The week mark, in whole weeks since launch.")
+    detectable_effect = serializers.FloatField(
+        help_text="The smallest relative change, as a percentage, that the exposures by this week mark can detect."
+    )
+
+
+class RunningTimeOutlookSerializer(serializers.Serializer):
+    """What the experiment can detect over time, at its exposure rate so far."""
+
+    days_since_launch = serializers.FloatField(help_text="Days since the experiment launched, with fractions.")
+    exposures_per_day = serializers.FloatField(
+        help_text=(
+            "Exposures that count toward the target, per day from launch to the end of the window the current "
+            "results cover."
+        )
+    )
+    detectable_effect_now = serializers.FloatField(
+        help_text="The smallest relative change, as a percentage, that the exposures so far can detect."
+    )
+    upcoming_checkpoints = DetectableEffectCheckpointSerializer(
+        many=True,
+        help_text=(
+            "Up to three week marks after today, out of weeks 1, 2, 4, 6, 8, 12, 16, 26 and 52, with the change each "
+            "can detect at the exposure rate so far."
+        ),
+    )
+    reachable_effect = serializers.FloatField(
+        help_text=(
+            "The smallest relative change, as a percentage, that the experiment can detect within four weeks from "
+            "today. A target for a smaller change is out of reach."
+        )
+    )
+
+
+class RunningTimeTargetSerializer(serializers.Serializer):
+    """The target sample of the experiment's running time estimate."""
+
+    minimum_detectable_effect = serializers.FloatField(
+        help_text="The relative change, as a percentage, that the target sample is sized to detect."
+    )
+    recommended_sample_size = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Exposures needed across the analyzed variants, so that the comparison of each variant with the control "
+            "can detect the minimum detectable effect at the analysis's confidence level and 80% power. In manual running time mode, "
+            "the saved target. Otherwise sized from the first primary metric's current result, with the variance the "
+            "analysis uses and the flag's traffic split. Null when no result can size it yet. The variances come from "
+            "the result and don't depend on the effect, so the sample scales with 1 / effect²: the target for another "
+            "effect is recommended_sample_size × (minimum_detectable_effect / effect)²."
+        ),
+    )
+    current_sample_size = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Exposures so far that count toward the target: the control's and those of the variants that get "
+            "traffic. A variant at 0% does not count. Null in manual mode, and when no result can size the target."
+        ),
+    )
+    outlook = RunningTimeOutlookSerializer(
+        allow_null=True,
+        help_text=(
+            "What the experiment can detect over time, on the same curve the target is sized on. Null in manual mode, "
+            "before launch, when the current results cover less than 0.1 days, and when no result can size the target."
+        ),
     )
 
 
