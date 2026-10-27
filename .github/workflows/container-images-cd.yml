@@ -396,8 +396,12 @@ jobs:
             # CDN reads each environment's static-assets bucket. Publishing from the pushed digest before
             # any dispatch below means no pod can serve a page whose files the bucket lacks, whichever sync
             # path rolls it out. An upload error fails the job, and with it every dispatch. The pushed image
-            # is the only correct source: the sourcemap stage rewrites the JS and deletes the maps after
-            # the frontend build stage, so only the final image's dist matches what pods serve.
+            # is the only correct source: the sourcemap stage rewrites the JS after the frontend build
+            # stage, so only the final image's dist matches what pods serve.
+            #
+            # Files named Name-HASH.ext, with an uppercase content hash after the last hyphen, are copied
+            # into a second tree so the publish can give them a longer, immutable CDN cache than the
+            # fixed-name files such as index.html.
             - name: Extract the frontend build from the image
               env:
                   IMAGE: ${{ steps.docker-meta.outputs.ecr-registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.image.outputs.digest }}
@@ -406,19 +410,34 @@ jobs:
                   container=$(docker create "$IMAGE")
                   docker cp "$container:/code/frontend/dist" "$RUNNER_TEMP/frontend-dist"
                   docker rm "$container" > /dev/null
+                  staging="$RUNNER_TEMP/frontend-dist-immutable"
+                  mkdir -p "$staging"
+                  cd "$RUNNER_TEMP/frontend-dist"
+                  find . -type f -regextype posix-extended \
+                      -regex '.*/[A-Za-z0-9][A-Za-z0-9._-]*-[A-Z0-9]{6,}\.[a-z0-9]+(\.map)?$' > "$RUNNER_TEMP/hashed.txt"
+                  while IFS= read -r f; do
+                      rel="${f#./}"
+                      mkdir -p "$staging/$(dirname "$rel")"
+                      cp "$f" "$staging/$rel"
+                  done < "$RUNNER_TEMP/hashed.txt"
+                  echo "$(wc -l < "$RUNNER_TEMP/hashed.txt") content-hashed files"
 
-            - name: Install uv for the asset publisher and dependency analysis
-              uses: ./.github/actions/setup-uv
-              with:
-                  enable-cache: false
-
+            # The image keeps its .map files when the sourcemap upload fails, and they must not be public.
+            # The build marker is written last: a pod-start gate reads it as proof that every file above
+            # is in the bucket.
             - name: Assume the dev static-assets role
               uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
               with:
                   role-to-assume: ${{ vars.AWS_STATIC_ASSETS_DEV_UPLOAD_IAM_ROLE }}
                   aws-region: us-east-1
             - name: Publish frontend assets to dev
-              run: uv run --script .github/scripts/publish_frontend_assets.py "$RUNNER_TEMP/frontend-dist" --bucket posthog-cloud-dev-us-east-1-static-assets --build-sha "$GITHUB_SHA"
+              env:
+                  BUCKET: posthog-cloud-dev-us-east-1-static-assets
+              run: |
+                  set -euo pipefail
+                  aws s3 cp --recursive --exclude "*.map" --cache-control "public, max-age=60, must-revalidate" "$RUNNER_TEMP/frontend-dist" "s3://$BUCKET/static/"
+                  aws s3 cp --recursive --exclude "*.map" --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             - name: Assume the prod-us static-assets role
               uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
@@ -426,7 +445,13 @@ jobs:
                   role-to-assume: ${{ vars.AWS_STATIC_ASSETS_PROD_US_UPLOAD_IAM_ROLE }}
                   aws-region: us-east-1
             - name: Publish frontend assets to prod-us
-              run: uv run --script .github/scripts/publish_frontend_assets.py "$RUNNER_TEMP/frontend-dist" --bucket posthog-cloud-prod-us-east-1-static-assets --build-sha "$GITHUB_SHA"
+              env:
+                  BUCKET: posthog-cloud-prod-us-east-1-static-assets
+              run: |
+                  set -euo pipefail
+                  aws s3 cp --recursive --exclude "*.map" --cache-control "public, max-age=60, must-revalidate" "$RUNNER_TEMP/frontend-dist" "s3://$BUCKET/static/"
+                  aws s3 cp --recursive --exclude "*.map" --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             - name: Assume the prod-eu static-assets role
               uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
@@ -434,7 +459,13 @@ jobs:
                   role-to-assume: ${{ vars.AWS_STATIC_ASSETS_PROD_EU_UPLOAD_IAM_ROLE }}
                   aws-region: eu-central-1
             - name: Publish frontend assets to prod-eu
-              run: uv run --script .github/scripts/publish_frontend_assets.py "$RUNNER_TEMP/frontend-dist" --bucket posthog-cloud-prod-eu-central-1-static-assets --build-sha "$GITHUB_SHA"
+              env:
+                  BUCKET: posthog-cloud-prod-eu-central-1-static-assets
+              run: |
+                  set -euo pipefail
+                  aws s3 cp --recursive --exclude "*.map" --cache-control "public, max-age=60, must-revalidate" "$RUNNER_TEMP/frontend-dist" "s3://$BUCKET/static/"
+                  aws s3 cp --recursive --exclude "*.map" --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             - name: get deployer token
               id: deployer
@@ -883,6 +914,11 @@ jobs:
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ steps.commit-time.outputs.timestamp }}"
                       }
+
+            - name: Install uv for dependency analysis
+              uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
 
             - name: Check for Python dependency changes that affect analytics platform temporal worker
               id: check_python_changes_analytics_platform_temporal_worker
