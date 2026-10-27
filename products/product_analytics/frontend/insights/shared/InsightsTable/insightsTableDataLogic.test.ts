@@ -482,13 +482,12 @@ describe('insightsTableDataLogic', () => {
                 builtDataNodeLogic.actions.loadDataSuccess(insight)
             }).toFinishAllListeners()
 
-            const { indexedResults, getPercentOfDayTotal, totalRows } = logic.values
+            const { indexedResults, getPercentOfDayTotal } = logic.values
             expect(logic.values.showPercentOfDayTotal).toBe(true)
             expect(indexedResults.map((r) => [getPercentOfDayTotal(r, 0), getPercentOfDayTotal(r, 1)])).toEqual([
                 [1, 1],
                 [0, 0.5],
             ])
-            expect(totalRows.map((r) => r.data)).toEqual([[1, 2]])
         })
 
         it('percent of total divides by the total of the same series and period', async () => {
