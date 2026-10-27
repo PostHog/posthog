@@ -152,3 +152,41 @@ class TestObservationNotesAccess(APIBaseTest):
         assert notification.body == OBSERVATION_NOTE_PLACEHOLDER[:200]
         assert event.properties["comment_content"] == OBSERVATION_NOTE_PLACEHOLDER
         assert "checkout secret" not in f"{notification} {event.properties}"
+
+    @parameterized.expand(
+        [
+            ("note_to_other_observation", SCOPE, {"item_id": "other"}),
+            ("other_comment_into_observation", "Notebook", {"scope": SCOPE, "item_id": "target"}),
+        ]
+    )
+    def test_comment_cannot_move_across_an_observation_boundary(
+        self, _name: str, root_scope: str, change: dict[str, str]
+    ) -> None:
+        # /thread authorizes only the root, so a moved root would carry its replies across the access check.
+        other = ReplayObservation.objects.create(
+            scanner=self.scanner,
+            team=self.team,
+            session_id="s-other",
+            status=ObservationStatus.SUCCEEDED,
+            scanner_snapshot=snapshot_for(self.scanner),
+            triggered_by=ObservationTrigger.SCHEDULE,
+            completed_at=timezone.now(),
+        )
+        item_ids = {"other": str(other.id), "target": str(self.observation.id)}
+        root = Comment.objects.create(
+            team=self.team,
+            scope=root_scope,
+            item_id=str(self.observation.id) if root_scope == SCOPE else "n1",
+            content="root",
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/comments/{root.id}",
+            {"content": "root", **{key: item_ids.get(value, value) for key, value in change.items()}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "item_id"
+        root.refresh_from_db()
+        assert (root.scope, root.item_id) == (root_scope, str(self.observation.id) if root_scope == SCOPE else "n1")

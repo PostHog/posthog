@@ -461,6 +461,15 @@ class CommentSerializer(serializers.ModelSerializer):
             scope = root.scope
             item_id = root.item_id
 
+        # A note's replies are read through its thread, which checks only the root. Keeping each observation
+        # note on its first observation keeps a whole thread under one access check.
+        if (
+            instance
+            and (scope, item_id) != (instance.scope, instance.item_id)
+            and (instance.scope in OBSERVATION_COMMENT_SCOPES or scope in OBSERVATION_COMMENT_SCOPES)
+        ):
+            raise exceptions.ValidationError({"item_id": "An observation note cannot move to another item."})
+
         scopes_and_items = {(scope, item_id)}
         if instance:
             scopes_and_items.add((instance.scope, instance.item_id))
