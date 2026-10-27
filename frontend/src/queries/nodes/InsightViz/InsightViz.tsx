@@ -18,8 +18,9 @@ import { AnyResponseType, DashboardFilter, HogQLVariable, InsightVizNode } from 
 import { QueryContext } from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
+import { EditorFilters } from 'products/product_analytics/frontend/insights/editor/EditorFilters'
+
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { EditorFilters } from './EditorFilters'
 import { InsightVizDisplay } from './InsightVizDisplay'
 import { insightVizDataCollectionId, insightVizDataNodeKey } from './insightVizKeys'
 import { getCachedResults } from './utils'

@@ -171,6 +171,7 @@ class ErrorTrackingSettings:
     project_rate_limit_bucket_size_minutes: int | None
     per_issue_rate_limit_value: int | None
     per_issue_rate_limit_bucket_size_minutes: int | None
+    ingestion_enabled: bool
 
 
 @dataclass(frozen=True)
@@ -454,3 +455,5 @@ class ErrorTrackingIssueSummary:
     category: IssueSummaryCategory | None
     model: str
     generated_at: datetime
+    # When the summary was last generated or confirmed unchanged. The 24h regenerate interval runs from it.
+    checked_at: datetime

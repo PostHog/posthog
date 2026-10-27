@@ -38,6 +38,7 @@ UNSEEN_CALIBRATION_EVENT = "inbox_ranking_unseen_calibration"
 HOLDOUT_CALIBRATION_EVENT = "inbox_ranking_holdout_calibration"
 SERVING_MANIFEST_PUBLISHED_EVENT = "inbox_ranking_serving_manifest_published"
 EXPERIMENT_COMPARED_EVENT = "inbox_ranking_experiment_compared"
+ENGAGEMENT_EXPORT_PUBLISHED_EVENT = "inbox_ranking_engagement_export_published"
 
 # Candidate metadata copied onto every per-head event so a chart can filter or break down on it.
 _CANDIDATE_CONTEXT_KEYS = (
@@ -58,6 +59,19 @@ _HEAD_FILE_KEYS = ("file", "holdout_file")
 class TrainingEvent:
     event: str
     properties: dict[str, object]
+
+
+@frozen
+class MirrorPublication:
+    """What one serving publish did in the mirror store."""
+
+    published: bool
+    # The mirror region's own project vectors day that the mirror manifest names, or None.
+    project_vectors_key: str | None = None
+    project_vectors_date: str | None = None
+    engagement_export_date: str | None = None
+    # Why the mirror keeps its previous manifest, or None when it published.
+    skip_reason: str | None = None
 
 
 def candidate_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
@@ -169,7 +183,7 @@ def serving_manifest_event(
     copied_keys: Sequence[str] = (),
     present_keys: Sequence[str] = (),
     bytes_copied: int = 0,
-    mirror_published: bool | None = None,
+    mirror: MirrorPublication | None = None,
     recipe_hashes: Mapping[str, str | None] | None = None,
 ) -> TrainingEvent:
     """What the day's manifest published. A run that wrote nothing still reports, with `reason`:
@@ -194,9 +208,42 @@ def serving_manifest_event(
             "model_roles": {entry.key: entry.roles for entry in manifest.models},
             "model_recipe_hashes": {entry.key: (recipe_hashes or {}).get(entry.key) for entry in manifest.models},
         }
-    if mirror_published is not None:
-        properties["mirror_published"] = mirror_published
+    if mirror is not None:
+        properties |= {
+            "mirror_published": mirror.published,
+            "mirror_project_vectors_key": mirror.project_vectors_key,
+            "mirror_project_vectors_date": mirror.project_vectors_date,
+            "mirror_engagement_export_date": mirror.engagement_export_date,
+        }
+        if mirror.skip_reason is not None:
+            properties["mirror_skip_reason"] = mirror.skip_reason
     return TrainingEvent(event=SERVING_MANIFEST_PUBLISHED_EVENT, properties=properties)
+
+
+def engagement_export_event(
+    *,
+    written: bool,
+    skip_reason: str | None,
+    rows: int,
+    excluded_rows: int,
+    local_share: float | None,
+    bytes_written: int,
+    schema_version: int,
+) -> TrainingEvent:
+    """What the day's engagement export sent to the mirror store. It carries counts only, never a
+    report id or a team id."""
+    return TrainingEvent(
+        event=ENGAGEMENT_EXPORT_PUBLISHED_EVENT,
+        properties={
+            "written": written,
+            "skip_reason": skip_reason,
+            "rows": rows,
+            "excluded_rows": excluded_rows,
+            "local_share": local_share,
+            "bytes": bytes_written,
+            "schema_version": schema_version,
+        },
+    )
 
 
 def unseen_head_graded_events(*, run_id: str, grades: Sequence[HeadGrade]) -> list[TrainingEvent]:

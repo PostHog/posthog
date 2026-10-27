@@ -1,25 +1,47 @@
 import { EdgeLabelRenderer, EdgeProps } from '@xyflow/react'
+import { useValues } from 'kea'
 import { useState } from 'react'
 
+import { getEdgeId } from '../../edgeId'
 import { QuickAddButton } from './QuickAddButton'
-import { arrowHead, EDGE_LABEL_HEIGHT, edgeLabelWidth, insertPoint, roundedPath, shortLabel } from './tileCanvasLayout'
-import type { TileEdgeType } from './tileCanvasNodes'
-
-const QUICK_ADD_GAP = 14
+import {
+    arrowHead,
+    EDGE_LABEL_HEIGHT,
+    edgeLabelWidth,
+    quickAddPoint,
+    roundedPath,
+    shortLabel,
+} from './tileCanvasLayout'
+import { tileCanvasLogic } from './tileCanvasLogic'
+import { edgeLabelText, type TileEdgeType } from './tileCanvasNodes'
 
 export function TileEdge({ data }: EdgeProps<TileEdgeType>): JSX.Element | null {
     const routed = data?.routed
     const [hovered, setHovered] = useState(false)
+    const { dropTargetEdgeKey } = useValues(tileCanvasLogic)
     if (!data || !routed) {
         return null
     }
     const { edge } = data
-    const label = edge.label && routed.label ? edge.label : undefined
-    const at = label && routed.label ? routed.label : insertPoint(routed.points)
+    const label = edgeLabelText(edge, routed)
+    const isDropTarget = !!edge.insertEdge && dropTargetEdgeKey === getEdgeId(edge.insertEdge)
+    const stroke = isDropTarget ? 'var(--color-accent)' : 'var(--tile-canvas-edge)'
     return (
         <>
-            <path d={roundedPath(routed.points)} fill="none" stroke="var(--tile-canvas-edge)" strokeWidth={1.5} />
-            <path d={arrowHead(routed.points)} fill="none" stroke="var(--tile-canvas-edge)" strokeWidth={1.5} />
+            <path
+                d={roundedPath(routed.points)}
+                className="TileCanvas__edge"
+                fill="none"
+                stroke={stroke}
+                strokeWidth={isDropTarget ? 2 : 1.5}
+            />
+            <path
+                d={arrowHead(routed.points)}
+                className="TileCanvas__edge"
+                fill="none"
+                stroke={stroke}
+                strokeWidth={isDropTarget ? 2 : 1.5}
+            />
             {/* A wide invisible stroke lets the pointer find the arrow, which shows the button that adds a step on it. */}
             <path
                 d={roundedPath(routed.points)}
@@ -49,7 +71,8 @@ export function TileEdge({ data }: EdgeProps<TileEdgeType>): JSX.Element | null 
                     <QuickAddButton
                         edge={edge.insertEdge}
                         revealed={hovered}
-                        at={{ x: at.x + (label ? edgeLabelWidth(label) / 2 + QUICK_ADD_GAP : 0), y: at.y }}
+                        isDropTarget={isDropTarget}
+                        at={quickAddPoint(routed, label)}
                     />
                 )}
             </EdgeLabelRenderer>

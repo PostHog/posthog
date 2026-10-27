@@ -106,7 +106,8 @@ CREATE TABLE posthog.writable_logs34 (
   _bytes_compressed UInt64,
   _record_count UInt64,
   pattern String,
-  pattern_version UInt8
+  pattern_version UInt8,
+  internal_source LowCardinality(String) DEFAULT ''
 ) ENGINE = Distributed('logs', 'posthog', 'logs34') SETTINGS background_insert_batch = 1;
 CREATE TABLE posthog.writable_metrics4_attributes (
   team_id Int32,
@@ -288,7 +289,7 @@ CREATE TABLE posthog.writable_query_log_archive_v3 (
   lc_estimated_rows SimpleAggregateFunction(max, Int64),
   lc_estimated_bytes SimpleAggregateFunction(max, Int64)
 ) ENGINE = Distributed('ops', 'posthog', 'query_log_archive_v3_buffer');
-CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.writable_logs34 (uuid String, trace_id String, span_id String, trace_flags Int32, timestamp DateTime64(6), observed_timestamp DateTime64(6), body String, severity_text String, severity_number Int32, service_name String, instrumentation_scope String, event_name String, attributes_map_str Map(String, String), resource_attributes Map(String, String), team_id Int32, original_expiry_timestamp DateTime64(6), _partition UInt64, _topic LowCardinality(String), _offset UInt64, _record_count Int64, _bytes_uncompressed Nullable(Int64), _bytes_compressed Nullable(Int64), pattern String, pattern_version UInt8) AS SELECT
+CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.writable_logs34 (uuid String, trace_id String, span_id String, trace_flags Int32, timestamp DateTime64(6), observed_timestamp DateTime64(6), body String, severity_text String, severity_number Int32, service_name String, instrumentation_scope String, event_name String, attributes_map_str Map(String, String), resource_attributes Map(String, String), team_id Int32, original_expiry_timestamp DateTime64(6), _partition UInt64, _topic LowCardinality(String), _offset UInt64, _record_count Int64, _bytes_uncompressed Nullable(Int64), _bytes_compressed Nullable(Int64), pattern String, pattern_version UInt8, internal_source LowCardinality(String)) AS SELECT
   uuid,
   trace_id,
   span_id,
@@ -319,7 +320,8 @@ CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.writable_logs34
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
   toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
   ifNull(pattern, '') AS pattern,
-  toUInt8(ifNull(pattern_version, 0)) AS pattern_version
+  toUInt8(ifNull(pattern_version, 0)) AS pattern_version,
+  _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source
 FROM posthog.kafka_logs_avro;
 CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro4_mv TO posthog.metrics4_input (uuid String, team_id Int32, metric_name String, series_fingerprint UInt64, resource_fingerprint UInt64, timestamp DateTime64(6), observed_timestamp DateTime64(6), original_expiry_timestamp DateTime64(6), service_name String, metric_type String, value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32, has_labels Bool, unit String, aggregation_temporality String, is_monotonic UInt8, instrumentation_scope String, resource_attributes Map(String, String), attributes Map(String, String), _partition UInt64, _topic LowCardinality(String), _offset UInt64) AS SELECT
   uuid,

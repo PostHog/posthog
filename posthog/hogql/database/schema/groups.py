@@ -56,17 +56,17 @@ GROUPS_TABLE_FIELDS: dict[str, FieldOrTable] = {
 }
 
 
-def select_from_groups_table(requested_fields: dict[str, list[str | int]], key_limit: int | None = None):
+def select_from_groups_table(
+    requested_fields: dict[str, list[str | int]], keys: ast.SelectQuery | ast.SelectSetQuery | None = None
+) -> ast.SelectQuery:
+    """``keys`` selects ``(index, key)`` pairs. When it is given, the dedup reads only those groups."""
     select = argmax_select(
         table_name="raw_groups",
         select_fields=requested_fields,
         group_fields=["index", "key"],
         argmax_field="updated_at",
     )
-    if key_limit is not None:
-        # Two-phase dedup: pick the N group keys cheaply, then argMax the heavy properties for only those keys.
-        keys = parse_select("SELECT index, key FROM raw_groups GROUP BY index, key")
-        keys.limit = ast.Constant(value=key_limit)
+    if keys is not None:
         # GLOBAL IN, not IN: groups is Distributed(rand()); a plain IN dedups per-shard over a subset of versions.
         select.where = ast.CompareOperation(
             op=ast.CompareOperationOp.GlobalIn,
@@ -385,7 +385,13 @@ class GroupsTable(LazyTable):
     fields: dict[str, FieldOrTable] = GROUPS_TABLE_FIELDS
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
-        return select_from_groups_table(table_to_add.fields_accessed, key_limit=_bare_limit_key_count(node))
+        key_limit = _bare_limit_key_count(node)
+        if key_limit is None:
+            return select_from_groups_table(table_to_add.fields_accessed)
+        # Two-phase dedup: pick the N group keys cheaply, then argMax the heavy properties for only those keys.
+        keys = parse_select("SELECT index, key FROM raw_groups GROUP BY index, key")
+        keys.limit = ast.Constant(value=key_limit)
+        return select_from_groups_table(table_to_add.fields_accessed, keys=keys)
 
     def to_printed_clickhouse(self, context):
         return "groups"
