@@ -1,5 +1,5 @@
 from posthog.settings.base_variables import DEBUG, TEST
-from posthog.settings.utils import get_from_env, str_to_bool
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 
@@ -437,7 +437,7 @@ CONSTANCE_CONFIG = {
         int,
     ),
     "CACHE_WARMING_EXCLUDED_TEAMS": (
-        get_from_env("CACHE_WARMING_EXCLUDED_TEAMS", default=[], type_cast=list[int]),
+        get_from_env("CACHE_WARMING_EXCLUDED_TEAMS", default=[], type_cast=get_list),
         "Comma-separated team IDs that insight cache warming always skips, including the largest teams and teams "
         "with shared dashboards.",
         list[int],
