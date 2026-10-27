@@ -12,6 +12,7 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
+from products.replay_vision.backend.models.replay_observation_anchor_similarity import ReplayObservationAnchorSimilarity
 from products.replay_vision.backend.models.replay_scanner import PromptValence, ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.replay_scanner_semantics import (
     ReplayScannerFeedGroup,
@@ -19,17 +20,19 @@ from products.replay_vision.backend.models.replay_scanner_semantics import (
     ReplayScannerSemanticCenter,
 )
 from products.replay_vision.backend.semantic_space import SEMANTIC_DIMENSIONS, pack, semantic_vector
-from products.replay_vision.backend.tests.helpers import snapshot_for
+from products.replay_vision.backend.tests.helpers import axis_anchors, snapshot_for
 from products.replay_vision.backend.watch_feed_groups import feed_group_cache
 from products.replay_vision.backend.watch_rank import ANCHOR_VERSION
 from products.replay_vision.backend.watch_semantics import assign_semantics
+from products.replay_vision.backend.watch_semantics_backfill import backfill_team_semantics
 from products.replay_vision.backend.watch_themes import belongs_in_theme, finalize_label, name_theme
 
 _THEMES = "products.replay_vision.backend.watch_themes"
+_BACKFILL = "products.replay_vision.backend.watch_semantics_backfill"
 
 
 def _rank(category: str = "failure") -> dict[str, Any]:
-    return {"category": category, "contrast": 0.2, "anchor_version": ANCHOR_VERSION}
+    return {"category": category, "contrast": 0.2, "anchor_version": ANCHOR_VERSION, "duplicate_of": "retired"}
 
 
 def _vector(*head: float) -> list[float]:
@@ -119,14 +122,18 @@ class TestAssignSemantics(BaseTest):
         assert joined[0].theme.theme_id == joined[1].theme.theme_id
         assert self._assign(first, _vector(1.0)) is None
         assert self._assign(far, _vector(0.0, 1.0)).group_id != joined[0].group_id
-        assert self._assign(routine, _vector(1.0)) is None
+        # A routine row joins a feed group, so a viewer who counts it as an issue finds it grouped, but never a theme.
+        routine_assignment = self._assign(routine, _vector(1.0))
+        assert routine_assignment.group_id == joined[0].group_id
+        assert routine_assignment.theme is None
 
-        assert self._counts(ReplayScannerFeedGroup) == [1, 2]
+        assert self._counts(ReplayScannerFeedGroup) == [1, 3]
         assert self._counts(ReplayScannerSearchTheme) == [1, 2]
         first.refresh_from_db()
         assert first.watch_rank is not None
         assert first.watch_rank["group"] == str(joined[0].group_id)
         assert first.watch_rank["theme"] == str(joined[0].theme.theme_id)
+        assert "duplicate_of" not in first.watch_rank
 
     @parameterized.expand(
         [
@@ -193,6 +200,29 @@ class TestAssignSemantics(BaseTest):
         self._assign(self._observation(), _vector(0.0, 1.0))
 
         assert self._counts(ReplayScannerFeedGroup) == [1, 2]
+
+    def test_the_backfill_fills_only_what_a_ranked_row_is_missing(self) -> None:
+        grouped = self._observation()
+        ReplayObservation.objects.filter(id=grouped.id).update(
+            watch_rank={**_rank(), "group": "kept"}, status="succeeded", completed_at=timezone.now()
+        )
+        vector = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+        with (
+            patch(f"{_BACKFILL}._stored_vectors", return_value={str(grouped.id): vector}),
+            patch(f"{_BACKFILL}.anchor_vectors", AsyncMock(return_value=axis_anchors())),
+        ):
+            backfill_team_semantics(self.team.id, timezone.now() - timedelta(days=1))
+
+        grouped.refresh_from_db()
+        assert grouped.watch_rank is not None
+        assert grouped.watch_rank["group"] == "kept"
+        assert set(grouped.watch_rank["scores"]) == {"failure", "struggle", "revenue", "routine"}
+        assert (
+            ReplayObservationAnchorSimilarity.objects.for_team(self.team.id)
+            .filter(observation_id=grouped.id, anchor_version=ANCHOR_VERSION)
+            .exists()
+        )
+        assert self._counts(ReplayScannerFeedGroup) == []
 
     def test_clusters_without_a_member_for_the_retention_window_are_pruned(self) -> None:
         stale = timezone.now() - timedelta(days=91)

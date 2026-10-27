@@ -350,6 +350,7 @@ rules:
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
+                              |ReplayObservationAnchorSimilarity
                               |ReplayObservationFeedDismissal
                               |ReplayObservationFeedImpression
                               |ReplayObservationLabel
@@ -833,6 +834,7 @@ rules:
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
+                        |ReplayObservationAnchorSimilarity
                         |ReplayObservationFeedDismissal
                         |ReplayObservationFeedImpression
                         |ReplayObservationLabel

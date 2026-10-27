@@ -13,13 +13,9 @@ from posthog.exceptions import ClickHouseAtCapacity
 
 from products.replay_vision.backend import watch_rank_backfill
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
+from products.replay_vision.backend.tests.helpers import axis_anchors
 from products.replay_vision.backend.watch_feed import SESSION_SPACING
-from products.replay_vision.backend.watch_rank import (
-    ANCHOR_VERSION,
-    WatchCategory,
-    classify,
-    rank_watch_feed_by_embedding,
-)
+from products.replay_vision.backend.watch_rank import ANCHOR_VERSION, ANCHORS, classify, rank_watch_feed_by_embedding
 from products.replay_vision.backend.watch_rank_backfill import _rank_scanner, _stored_vectors
 
 _NOW = datetime(2026, 10, 23, 12, 0, tzinfo=UTC)
@@ -67,15 +63,12 @@ class TestClassify(SimpleTestCase):
     def test_routine_wins_over_the_closest_issue_when_it_is_closer(
         self, _name: str, vector: list[float], category: str, positive: bool
     ) -> None:
-        anchors: dict[WatchCategory, np.ndarray] = {
-            "failure": np.array([[1.0, 0.0, 0.0]]),
-            "struggle": np.array([[0.0, 1.0, 0.0]]),
-            "revenue": np.array([[0.0, -1.0, 0.0]]),
-            "routine": np.array([[0.0, 0.0, 1.0]]),
-        }
-        got_category, contrast = classify(vector, anchors)
-        assert got_category == category
-        assert (contrast > 0) is positive
+        anchors = axis_anchors()
+        reading = classify(vector, anchors)
+        assert reading.rank.category == category
+        assert (reading.rank.contrast > 0) is positive
+        assert set(reading.similarities) == {key for texts in ANCHORS.values() for key in texts}
+        assert reading.rank.scores["routine"] == max(reading.similarities[key] for key in ANCHORS["routine"])
 
 
 class TestPickIndexes(SimpleTestCase):
@@ -171,12 +164,7 @@ class TestRankWatchFeedByEmbedding(SimpleTestCase):
 
 class TestBackfillRankScanner(SimpleTestCase):
     def test_ranks_only_rows_without_a_current_rank(self) -> None:
-        anchors: dict[WatchCategory, np.ndarray] = {
-            "failure": np.array([[1.0, 0.0, 0.0]]),
-            "struggle": np.array([[0.0, 1.0, 0.0]]),
-            "revenue": np.array([[0.0, -1.0, 0.0]]),
-            "routine": np.array([[0.0, 0.0, 1.0]]),
-        }
+        anchors = axis_anchors()
         error = np.array([1.0, 0.0, 0.0])
         current = {"category": "failure", "contrast": 1.0, "anchor_version": ANCHOR_VERSION}
         rows: list[dict[str, Any]] = [
@@ -191,8 +179,8 @@ class TestBackfillRankScanner(SimpleTestCase):
         written = _rank_scanner(rows, vectors, anchors)
 
         assert set(written) == {"copy", "stale", "calm"}
-        assert written["copy"]["category"] == "failure"
-        assert written["calm"]["category"] == "routine"
+        assert written["copy"].rank.category == "failure"
+        assert written["calm"].rank.category == "routine"
 
     @parameterized.expand(
         [

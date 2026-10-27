@@ -22,9 +22,11 @@ from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Coalesce, NullIf, RowNumber
 
 import numpy as np
+from asgiref.sync import sync_to_async
 
 from posthog.api.embedding_worker import async_generate_embedding
 from posthog.dataclasses import frozen
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 from posthog.utils import dict_from_cursor_fetchall
 
@@ -36,6 +38,7 @@ from products.replay_vision.backend.models.replay_observation import (
     watch_group_root,
     watch_rank_contrast,
 )
+from products.replay_vision.backend.models.replay_observation_anchor_similarity import ReplayObservationAnchorSimilarity
 from products.replay_vision.backend.scanner_access import accessible_observations
 from products.replay_vision.backend.watch_feed import WATCH_FEED_MIN_ITEMS, WatchFeedEntry, finish_feed
 
@@ -45,41 +48,42 @@ WatchCategory = Literal["failure", "struggle", "revenue", "routine"]
 # ignores ranks written under another version until they age out of the window.
 ANCHOR_VERSION = 1
 
-ANCHORS: dict[WatchCategory, tuple[str, ...]] = {
-    "failure": (
-        "The user saw an error message and the action they tried failed.",
-        "A request failed or the page crashed, showing an error to the user.",
-        "The user clicked a button and nothing happened; the action silently did not work.",
-        "The page got stuck loading and the user waited on a spinner that never finished.",
-        "The user was blocked by a dead end, a 404 page, or an access denied message.",
-    ),
-    "struggle": (
-        "The user repeated the same action several times because it did not give the result they expected.",
-        "The user rage clicked and gave up on the task without finishing.",
-        "The user hit a validation error or confusing state in a form and abandoned it.",
-        "The user was stuck: they tried several different ways to do one thing and none worked.",
-        "The user worked around a broken or missing feature to get their task done.",
-    ),
-    "revenue": (
-        "The user went to billing to cancel their subscription or downgrade their plan.",
-        "The user tried to upgrade or pay but the upgrade or payment failed.",
-        "The user hit a usage limit that stopped a feature from working.",
-        "The user contacted support frustrated about a problem.",
-    ),
-    "routine": (
-        "The user browsed normally and completed what they came to do without any issues.",
-        "A routine session with nothing notable: normal navigation and expected behavior.",
-        "The user viewed a few pages and left; nothing went wrong.",
-        "Nothing stands out in this session.",
-        "Routine session with no errors or friction; the user did what they intended.",
-        "The user browsed the pricing page and documentation normally.",
-        "The user successfully completed the task without problems.",
-        "The user explored different sections of the website to learn about the product.",
-        "The user read through a product or documentation page.",
-        "The user looked through a list and opened a few items to review them.",
-        "The user started something and left before finishing, with no sign of a problem.",
-        "The user never reached the part of the product this check is about.",
-    ),
+# Each sentence keeps its key for good: stored similarities and a viewer's anchor choices refer to anchors by key.
+ANCHORS: dict[WatchCategory, dict[str, str]] = {
+    "failure": {
+        "error_message": "The user saw an error message and the action they tried failed.",
+        "request_failed": "A request failed or the page crashed, showing an error to the user.",
+        "silent_click": "The user clicked a button and nothing happened; the action silently did not work.",
+        "endless_spinner": "The page got stuck loading and the user waited on a spinner that never finished.",
+        "dead_end": "The user was blocked by a dead end, a 404 page, or an access denied message.",
+    },
+    "struggle": {
+        "repeated_action": "The user repeated the same action several times because it did not give the result they expected.",
+        "rage_click": "The user rage clicked and gave up on the task without finishing.",
+        "form_abandoned": "The user hit a validation error or confusing state in a form and abandoned it.",
+        "stuck_trying": "The user was stuck: they tried several different ways to do one thing and none worked.",
+        "workaround": "The user worked around a broken or missing feature to get their task done.",
+    },
+    "revenue": {
+        "cancel_or_downgrade": "The user went to billing to cancel their subscription or downgrade their plan.",
+        "payment_failed": "The user tried to upgrade or pay but the upgrade or payment failed.",
+        "usage_limit": "The user hit a usage limit that stopped a feature from working.",
+        "frustrated_support": "The user contacted support frustrated about a problem.",
+    },
+    "routine": {
+        "completed_task": "The user browsed normally and completed what they came to do without any issues.",
+        "nothing_notable": "A routine session with nothing notable: normal navigation and expected behavior.",
+        "few_pages": "The user viewed a few pages and left; nothing went wrong.",
+        "nothing_stands_out": "Nothing stands out in this session.",
+        "no_friction": "Routine session with no errors or friction; the user did what they intended.",
+        "pricing_docs": "The user browsed the pricing page and documentation normally.",
+        "task_success": "The user successfully completed the task without problems.",
+        "exploring_site": "The user explored different sections of the website to learn about the product.",
+        "reading_docs": "The user read through a product or documentation page.",
+        "reviewing_list": "The user looked through a list and opened a few items to review them.",
+        "left_early": "The user started something and left before finishing, with no sign of a problem.",
+        "never_reached": "The user never reached the part of the product this check is about.",
+    },
 }
 ISSUE_CATEGORIES: tuple[WatchCategory, ...] = ("failure", "struggle", "revenue")
 
@@ -108,10 +112,18 @@ _ANCHOR_CACHE_TTL_S = 7 * 24 * 3600
 class WatchRank:
     category: WatchCategory
     contrast: float
+    # The closest anchor's similarity per category, so a viewer's choice of categories can be scored from the row.
+    scores: dict[WatchCategory, float]
     anchor_version: int = ANCHOR_VERSION
 
     def to_json(self) -> dict[str, Any]:
         return asdict(self)
+
+
+@frozen
+class AnchorReading:
+    rank: WatchRank
+    similarities: dict[str, float]
 
 
 _ANCHOR_CACHE_KEY = f"replay-vision:watch-rank-anchors:v{ANCHOR_VERSION}:{OBSERVATION_EMBEDDING_MODEL.value}"
@@ -145,7 +157,7 @@ async def _load_anchor_vectors(team_id: int) -> dict[WatchCategory, np.ndarray]:
             *(
                 async_generate_embedding(team, text, model=OBSERVATION_EMBEDDING_MODEL.value)
                 for texts in ANCHORS.values()
-                for text in texts
+                for text in texts.values()
             )
         )
         rows = iter(response.embedding for response in embedded)
@@ -155,17 +167,26 @@ async def _load_anchor_vectors(team_id: int) -> dict[WatchCategory, np.ndarray]:
     return anchors
 
 
-def classify(vector: list[float] | np.ndarray, anchors: dict[WatchCategory, np.ndarray]) -> tuple[WatchCategory, float]:
+def classify(vector: list[float] | np.ndarray, anchors: dict[WatchCategory, np.ndarray]) -> AnchorReading:
     """The closest issue category and its lead over the closest routine anchor, given unit anchors.
 
     A negative lead means the observation reads more like routine than like any issue, and the
     category is then routine.
     """
     unit = normalize(np.asarray(vector, dtype=float))
-    closest = {category: float(np.max(anchors[category] @ unit)) for category in anchors}
+    by_category = {category: anchors[category] @ unit for category in ANCHORS}
+    closest = {category: float(np.max(sims)) for category, sims in by_category.items()}
     category = max(ISSUE_CATEGORIES, key=lambda c: closest[c])
     contrast = round(closest[category] - closest["routine"], 4)
-    return (category if contrast > 0 else "routine"), contrast
+    rank = WatchRank(
+        category=category if contrast > 0 else "routine",
+        contrast=contrast,
+        scores={c: round(score, 4) for c, score in closest.items()},
+    )
+    similarities = {
+        key: round(float(sim), 4) for c, sims in by_category.items() for key, sim in zip(ANCHORS[c], sims, strict=True)
+    }
+    return AnchorReading(rank=rank, similarities=similarities)
 
 
 def current_rank(row: dict[str, Any]) -> dict[str, Any] | None:
@@ -177,6 +198,25 @@ def current_rank(row: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(contrast, int | float) or isinstance(contrast, bool):
         return None
     return rank
+
+
+def save_anchor_similarities(team_id: int, similarities: dict[str, dict[str, float]]) -> None:
+    # A bulk insert skips the model's canonical-team rewrite, so the row carries the id reads are scoped to.
+    canonical_team_id = resolve_effective_team_id(team_id)
+    ReplayObservationAnchorSimilarity.objects.for_team(canonical_team_id, canonical=True).bulk_create(
+        [
+            ReplayObservationAnchorSimilarity(
+                observation_id=observation_id,
+                team_id=canonical_team_id,
+                anchor_version=ANCHOR_VERSION,
+                similarities=values,
+            )
+            for observation_id, values in similarities.items()
+        ],
+        update_conflicts=True,
+        unique_fields=["observation"],
+        update_fields=["anchor_version", "similarities"],
+    )
 
 
 @frozen
@@ -203,10 +243,11 @@ async def rank_observation(request: RankRequest) -> Literal["ranked", "already_r
         return "missing"
     if current_rank({"watch_rank": row["watch_rank"]}) is not None:
         return "already_ranked"
-    category, contrast = classify(request.vector, await anchor_vectors(request.team_id))
-    rank = WatchRank(category=category, contrast=contrast)
+    reading = classify(request.vector, await anchor_vectors(request.team_id))
+    # The similarities land first, so a rank on the row means its similarities are there too.
+    await sync_to_async(save_anchor_similarities)(request.team_id, {request.observation_id: reading.similarities})
     await ReplayObservation.objects.filter(team_id=request.team_id, id=request.observation_id).aupdate(
-        watch_rank=rank.to_json()
+        watch_rank=reading.rank.to_json()
     )
     return "ranked"
 

@@ -1,4 +1,7 @@
-"""Places each ranked issue observation in a feed group and, when it qualifies, a search theme.
+"""Places each ranked observation in a feed group and, when it qualifies, a search theme.
+
+Every ranked row gets a group, not only issues, so a viewer who counts different anchors as issues finds those rows
+already grouped.
 
 The embedding consumer and the semantics backfill both call `assign_semantics`. It locks the scanner's semantic
 centre for the whole assignment, so two observations of one scanner never race on its clusters, and writes both ids
@@ -31,7 +34,7 @@ from products.replay_vision.backend.semantic_space import (
     unpack,
 )
 from products.replay_vision.backend.watch_feed_groups import feed_group_cache
-from products.replay_vision.backend.watch_rank import ISSUE_CATEGORIES, current_rank
+from products.replay_vision.backend.watch_rank import current_rank
 from products.replay_vision.backend.watch_themes import ThemeAssignment, assign_theme, belongs_in_theme
 
 # Clusters with no member for this long are deleted, since the feed's longest window no longer reaches them.
@@ -49,7 +52,7 @@ class SemanticAssignment:
 def assign_semantics(
     *, team_id: int, scanner_id: str, observation_id: str, vector: list[float], now: datetime
 ) -> SemanticAssignment | None:
-    """None when the observation is not a ranked issue, already has its clusters, or is gone."""
+    """None when the observation has no current rank, already has its clusters, or is gone."""
     scanner = (
         ReplayScanner.objects.filter(team_id=team_id, id=scanner_id)
         .values("scanner_type", "prompt_valence", "scanner_config")
@@ -75,7 +78,7 @@ def assign_semantics(
             if row is None:
                 return None
             rank = current_rank({"watch_rank": row["watch_rank"]})
-            if rank is None or rank.get("group") or rank.get("category") not in ISSUE_CATEGORIES:
+            if rank is None or rank.get("group"):
                 return None
 
             v = semantic_vector(vector)
@@ -111,20 +114,30 @@ def assign_semantics(
             if center.member_count % _PRUNE_EVERY == 0:
                 _prune(team_id, scanner_id, now)
 
-            keys = {"group": str(group_id)} | ({"theme": str(theme.theme_id)} if theme else {})
-            ReplayObservation.objects.filter(team_id=team_id, id=observation_id).update(
-                watch_rank=Func(
-                    F("watch_rank"),
-                    Value(keys, output_field=JSONField()),
-                    template="%(expressions)s",
-                    arg_joiner=" || ",
-                    output_field=JSONField(),
-                )
+            merge_watch_rank(
+                team_id, observation_id, {"group": str(group_id)} | ({"theme": str(theme.theme_id)} if theme else {})
             )
     except Exception:
         feed_group_cache.forget(scanner_id)
         raise
     return SemanticAssignment(group_id=group_id, theme=theme)
+
+
+def merge_watch_rank(team_id: int, observation_id: str, keys: dict[str, Any]) -> None:
+    """Add keys to an observation's rank without rewriting what another writer put there, and drop the retired
+    duplicate link."""
+    without_duplicate = Func(
+        F("watch_rank"), Value("duplicate_of"), template="(%(expressions)s)", arg_joiner=" - ", output_field=JSONField()
+    )
+    ReplayObservation.objects.filter(team_id=team_id, id=observation_id).update(
+        watch_rank=Func(
+            without_duplicate,
+            Value(keys, output_field=JSONField()),
+            template="%(expressions)s",
+            arg_joiner=" || ",
+            output_field=JSONField(),
+        )
+    )
 
 
 def _valence_unknown_for_row(

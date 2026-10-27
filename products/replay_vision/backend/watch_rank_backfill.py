@@ -36,12 +36,13 @@ from products.replay_vision.backend.embeddings import (
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.watch_rank import (
     ANCHOR_VERSION,
+    AnchorReading,
     WatchCategory,
-    WatchRank,
     anchor_vectors,
     classify,
     current_rank,
     normalize,
+    save_anchor_similarities,
 )
 
 logger = structlog.get_logger(__name__)
@@ -112,16 +113,15 @@ def _read_stored_vectors(
 
 def _rank_scanner(
     rows: list[dict[str, Any]], vectors: dict[str, np.ndarray], anchors: dict[WatchCategory, np.ndarray]
-) -> dict[str, dict[str, Any]]:
+) -> dict[str, AnchorReading]:
     """New ranks for the rows that lack a current one."""
-    written: dict[str, dict[str, Any]] = {}
+    written: dict[str, AnchorReading] = {}
     for row in rows:
         observation_id = str(row["id"])
         vector = vectors.get(observation_id)
         if vector is None or current_rank(row) is not None:
             continue
-        category, contrast = classify(vector, anchors)
-        written[observation_id] = WatchRank(category=category, contrast=contrast).to_json()
+        written[observation_id] = classify(vector, anchors)
     return written
 
 
@@ -152,6 +152,9 @@ def backfill_team_watch_ranks(team_id: int, since: datetime, *, dry_run: bool = 
             written = _rank_scanner(list(batch), vectors, anchors)
             ranked += len(written)
             if not dry_run and written:
+                save_anchor_similarities(
+                    team_id, {observation_id: reading.similarities for observation_id, reading in written.items()}
+                )
                 # Only rows still without a current rank, locked until the write, so a rank the consumer writes meanwhile
                 # waits for this one and a rank it already wrote, with its group, stays.
                 with transaction.atomic():
@@ -163,8 +166,8 @@ def backfill_team_watch_ranks(team_id: int, since: datetime, *, dry_run: bool = 
                     )
                     ReplayObservation.objects.bulk_update(
                         [
-                            ReplayObservation(id=observation_id, watch_rank=rank)
-                            for observation_id, rank in written.items()
+                            ReplayObservation(id=observation_id, watch_rank=reading.rank.to_json())
+                            for observation_id, reading in written.items()
                             if UUID(observation_id) in still_unranked
                         ],
                         ["watch_rank"],
