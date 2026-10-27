@@ -49,7 +49,6 @@ class TestFrustrationInvite:
             team=self.team, kind="slack", integration_id=WORKSPACE, sensitive_config={"access_token": "xoxb-test"}
         )
         with (
-            patch.object(interview_recruitment, "is_slack_app_interview_recruitment_enabled", return_value=True),
             patch.object(interview_recruitment, "post_slack_ephemeral") as self.post,
             patch.object(interview_recruitment, "SlackIntegration"),
             patch.object(interview_recruitment, "capture_slack_event") as self.capture,
