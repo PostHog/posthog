@@ -110,7 +110,7 @@ class OrganizationEventsRetentionConfig(models.Model):
 
 
 class TeamEventsRetentionConfig(models.Model):
-    """Events deletion setting for a team. Project admins set it within the organization's range."""
+    """Events deletion setting for a team. Organization admins set it within the organization's range."""
 
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, db_constraint=False)
     events_retention_months = _months_field(

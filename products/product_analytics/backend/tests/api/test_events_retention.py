@@ -45,7 +45,7 @@ class TestEventsRetentionAPI(APIBaseTest):
                 team_id=self.team.id,
                 resource="project",
                 resource_id=str(self.team.id),
-                access_level="admin" if level == "project_admin" else "member",
+                access_level="admin",
                 organization_member_id=self.organization_membership.id,
             )
 
@@ -84,8 +84,8 @@ class TestEventsRetentionAPI(APIBaseTest):
         assert response.json()["retention_months"] is None
         assert response.json()["retained_from"] is None
 
-    def test_project_admin_sets_and_clears_the_project_window(self) -> None:
-        self._set_membership("project_admin")
+    def test_organization_admin_sets_and_clears_the_project_window(self) -> None:
+        self._set_membership("organization_admin")
         OrganizationEventsRetentionConfig.objects.create(
             organization=self.organization, default_events_retention_months=12
         )
@@ -106,9 +106,9 @@ class TestEventsRetentionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("longer_than_the_plan", "project_admin", 36, status.HTTP_400_BAD_REQUEST),
-            ("shorter_than_the_staff_minimum", "project_admin", 3, status.HTTP_400_BAD_REQUEST),
-            ("not_a_project_admin", "member", 6, status.HTTP_403_FORBIDDEN),
+            ("longer_than_the_plan", "organization_admin", 36, status.HTTP_400_BAD_REQUEST),
+            ("shorter_than_the_staff_minimum", "organization_admin", 3, status.HTTP_400_BAD_REQUEST),
+            ("only_a_project_admin", "project_admin", 6, status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_rejects_a_project_window(self, _name: str, level: str, months: int, expected_status: int) -> None:

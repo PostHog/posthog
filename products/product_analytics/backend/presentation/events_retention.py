@@ -12,7 +12,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.team.event_retention import events_retention_floor_date, events_retention_months_for_team
 from posthog.models.user import User
-from posthog.permissions import OrganizationAdminWritePermissions, TeamMemberStrictManagementPermission
+from posthog.permissions import OrganizationAdminWritePermissions
 
 from products.product_analytics.backend.facade.events_retention import (
     organization_events_retention,
@@ -80,7 +80,7 @@ class EventsRetentionUpdateSerializer(serializers.Serializer):
 class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "project"
     pagination_class = None
-    permission_classes = [TeamMemberStrictManagementPermission]
+    permission_classes = [OrganizationAdminWritePermissions]
 
     def _retention_response(self) -> Response:
         retention_months = events_retention_months_for_team(self.team, self.team_id)
@@ -122,12 +122,12 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         summary="Set the events retention window for a project",
         description=(
             "Sets how long this project keeps events, overriding the organization's window. Events older than the "
-            "window are deleted on the next monthly cleanup and can't be restored. Project admins only."
+            "window are deleted on the next monthly cleanup and can't be restored. Organization admins only."
         ),
         responses={
             200: OpenApiResponse(response=EventsRetentionSerializer, description="The project's new window."),
             400: OpenApiResponse(description="The window is outside the range an admin can set."),
-            403: OpenApiResponse(description="The user isn't a project admin."),
+            403: OpenApiResponse(description="The user isn't an organization admin."),
         },
     )
     def create(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:

@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { Link } from '@posthog/lemon-ui'
 
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TeamMembershipLevel } from 'lib/constants'
+import { useRestrictedArea } from 'lib/components/RestrictedArea'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { eventsRetentionSettingsLogic } from './eventsRetentionSettingsLogic'
@@ -12,10 +12,7 @@ import { EventsRetentionWindowForm } from './EventsRetentionWindowForm'
 export function ProjectEventsRetentionSetting(): JSX.Element | null {
     const { projectRetention, projectRetentionLoading } = useValues(eventsRetentionSettingsLogic)
     const { updateProjectRetention } = useActions(eventsRetentionSettingsLogic)
-    const restrictionReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
-    })
+    const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
 
     if (!projectRetention) {
         return null
