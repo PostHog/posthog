@@ -301,7 +301,9 @@ describe('inboxReportDetailLogic', () => {
         })
 
         afterEach(() => {
-            logic.unmount()
+            if (logic.isMounted()) {
+                logic.unmount()
+            }
         })
 
         it('finishes slow pagination across polls and retains project-scoped activity, task runs, and reviewers', async () => {
@@ -490,6 +492,41 @@ describe('inboxReportDetailLogic', () => {
                 expect(broadcast).toHaveBeenCalledWith(REPORT.id, [savedReviewer.user_uuid])
             } finally {
                 resumeKeaLoadersErrors()
+                bulk.unmount()
+            }
+        })
+
+        it('broadcasts saved reviewers when the logic unmounts while the save is in flight', async () => {
+            const savedReviewer = { ...reviewer, user_uuid: 'saved-reviewer-uuid' }
+            let releaseSave: () => void = () => {}
+            const heldSave = new Promise<void>((resolve) => {
+                releaseSave = resolve
+            })
+            let saveStarted = false
+            const bulk = inboxBulkActionsLogic()
+            bulk.mount()
+            const broadcast = jest.spyOn(bulk.actions, 'reportReviewersChanged')
+            const toastError = jest.spyOn(lemonToast, 'error')
+            useMocks({
+                put: {
+                    '/api/projects/:team_id/signals/reports/:id/reviewers/': async () => {
+                        saveStarted = true
+                        await heldSave
+                        return { ...artefact, content: [savedReviewer] }
+                    },
+                },
+            })
+            try {
+                logic.actions.updateReviewers([{ github_login: reviewer.github_login! }], [savedReviewer], 'remove')
+                await waitFor(() => expect(saveStarted).toBe(true))
+                logic.unmount()
+                releaseSave()
+                await waitFor(() => expect(broadcast).toHaveBeenCalledWith(REPORT.id, [savedReviewer.user_uuid]))
+                expect(toastError).not.toHaveBeenCalled()
+            } finally {
+                releaseSave()
+                broadcast.mockRestore()
+                toastError.mockRestore()
                 bulk.unmount()
             }
         })
