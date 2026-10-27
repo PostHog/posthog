@@ -1,3 +1,6 @@
+export const EXIT_FAILURE = 1
+export const EXIT_USAGE = 2
+
 // A failure hog reports to the caller. `code` is stable and machine-readable, so agents and
 // scripts can branch on it; `message` and `hint` are for people.
 export class HogError extends Error {
@@ -5,12 +8,13 @@ export class HogError extends Error {
         readonly code: string,
         message: string,
         readonly hint?: string,
-        readonly exitCode = 1
+        readonly exitCode = EXIT_FAILURE
     ) {
         super(message)
         this.name = 'HogError'
     }
-}
 
-export const EXIT_FAILURE = 1
-export const EXIT_USAGE = 2
+    withHint(hint: string): HogError {
+        return new HogError(this.code, this.message, hint, this.exitCode)
+    }
+}

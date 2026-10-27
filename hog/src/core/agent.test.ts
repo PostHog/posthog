@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 
-import { resolveExecutionContext, type OutputFormat } from './agent'
+import { resolveMode, type OutputFormat } from './agent'
 
-describe('resolveExecutionContext', () => {
+describe('resolveMode', () => {
     test.each([
         ['a person at a terminal gets text with color', {}, true, undefined, undefined, 'text', true],
         ['a pipe gets json', {}, false, undefined, undefined, 'json', false],
@@ -32,7 +32,7 @@ describe('resolveExecutionContext', () => {
         ['--output text for an agent stays uncolored', { CLAUDECODE: '1' }, true, 'text', 'claude-code', 'text', false],
         ['NO_COLOR turns color off', { NO_COLOR: '1' }, true, undefined, undefined, 'text', false],
     ] as const)('%s', (_name, env, tty, requested, agent, format, color) => {
-        const context = resolveExecutionContext(env, tty, requested as OutputFormat | undefined)
-        expect(context).toMatchObject({ agent, format, color })
+        const mode = resolveMode(env, tty, requested as OutputFormat | undefined)
+        expect(mode).toMatchObject({ agent, format, color })
     })
 })

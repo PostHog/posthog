@@ -15,7 +15,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | ------------------------- | --------------------------------------------------------------------------------------------------------------- |
 | `hog query run <query>`   | Runs a HogQL query. `-` reads the query from stdin.                                                             |
 | `hog query check <query>` | Checks a query without running it. Exits with code 1 when the query has errors.                                 |
-| `hog commands`            | Lists every command, its arguments and its options.                                                             |
+| `hog commands`            | Lists every command, its arguments, options and scopes.                                                         |
 | Everything else           | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments. |
 
 ## Agents, people and pipes
@@ -29,7 +29,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | An agent               | JSON                                      | One JSON object on stderr: `{"error":{"code","message","hint"}}` |
 | A pipe or a script     | JSON                                      | Same as an agent                                                 |
 
-`-o text` or `-o json` overrides the default.
+`-o text` or `-o json` overrides the default, and `--raw` prints a command's full result as JSON.
 Exit codes: 0 on success, 1 when a command fails, 2 for a usage error.
 
 ## Credentials
@@ -43,6 +43,9 @@ Exit codes: 0 on success, 1 when a command fails, 2 for a usage error.
 `--host` overrides the host from any of these.
 
 ## Develop
+
+Each command is one file under `src/commands/`, and declares what people and agents see separately.
+[AGENTS.md](AGENTS.md) has the layout and the steps to add a command.
 
 Install [Bun](https://bun.sh), then from the repo root:
 

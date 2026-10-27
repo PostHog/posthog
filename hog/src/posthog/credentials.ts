@@ -1,18 +1,15 @@
 import { join } from 'node:path'
 
-import { HogError } from './errors'
-import type { Env, Runtime } from './runtime'
+import { HogError } from '../core/errors'
+import type { Env, Runtime } from '../core/runtime'
 
 // posthog-cli falls back to this host when neither --host nor the credentials name one.
 export const DEFAULT_HOST = 'https://us.i.posthog.com'
-
-export type CredentialSource = 'env' | 'dotenv-file' | 'credentials-file'
 
 export interface Credentials {
     apiKey: string
     projectId: string
     host: string
-    source: CredentialSource
 }
 
 interface RawCredentials {
@@ -32,7 +29,7 @@ function fromLookup(lookup: (name: string) => string | undefined): RawCredential
     return { apiKey, projectId, host: lookup('POSTHOG_CLI_HOST') || undefined }
 }
 
-export function parseDotenv(contents: string, path: string): Map<string, string> {
+function parseDotenv(contents: string, path: string): Map<string, string> {
     const values = new Map<string, string>()
     contents.split(/\r?\n/).forEach((raw, index) => {
         const line = raw.trim()
@@ -58,14 +55,14 @@ export function parseDotenv(contents: string, path: string): Map<string, string>
     return values
 }
 
-export function posthogHomeDir(env: Env, homeDir: string | undefined): string | undefined {
+function posthogHomeDir(env: Env, homeDir: string | undefined): string | undefined {
     if (env.POSTHOG_HOME) {
         return env.POSTHOG_HOME
     }
     return homeDir === undefined ? undefined : join(homeDir, '.posthog')
 }
 
-function validate(raw: RawCredentials, host: string, source: CredentialSource): Credentials {
+function validate(raw: RawCredentials, host: string): Credentials {
     if (!raw.apiKey.startsWith('phx_')) {
         throw new HogError(
             'invalid_credentials',
@@ -85,7 +82,7 @@ function validate(raw: RawCredentials, host: string, source: CredentialSource): 
     } catch {
         throw new HogError('invalid_credentials', `The host must be a valid URL, but it is "${host}".`)
     }
-    return { apiKey: raw.apiKey, projectId: raw.projectId, host, source }
+    return { apiKey: raw.apiKey, projectId: raw.projectId, host }
 }
 
 // Lookup order matches posthog-cli: process env, then --dotenv-file, then the credentials
@@ -94,12 +91,11 @@ export async function resolveCredentials(
     runtime: Runtime,
     options: { host?: string; dotenvFile?: string }
 ): Promise<Credentials> {
-    const withHost = (raw: RawCredentials, source: CredentialSource): Credentials =>
-        validate(raw, options.host ?? raw.host ?? DEFAULT_HOST, source)
+    const withHost = (raw: RawCredentials): Credentials => validate(raw, options.host ?? raw.host ?? DEFAULT_HOST)
 
     const fromEnv = fromLookup((name) => runtime.env[name] || undefined)
     if (fromEnv) {
-        return withHost(fromEnv, 'env')
+        return withHost(fromEnv)
     }
 
     if (options.dotenvFile) {
@@ -113,7 +109,7 @@ export async function resolveCredentials(
             const values = parseDotenv(contents, options.dotenvFile)
             const fromFile = fromLookup((name) => values.get(name) || undefined)
             if (fromFile) {
-                return withHost(fromFile, 'dotenv-file')
+                return withHost(fromFile)
             }
         }
     }
@@ -132,7 +128,7 @@ export async function resolveCredentials(
                 projectId: String(stored.env_id),
                 host: typeof stored.host === 'string' ? stored.host : undefined,
             }
-            return withHost(raw, 'credentials-file')
+            return withHost(raw)
         }
     }
 

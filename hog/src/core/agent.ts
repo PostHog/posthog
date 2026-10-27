@@ -26,18 +26,17 @@ const FALSE_VALUES = new Set(['0', 'false', 'no'])
 
 export type OutputFormat = 'text' | 'json'
 
-export interface ExecutionContext {
+// Who is calling hog, and how hog prints for them.
+export interface Mode {
     // The agent running hog, or undefined for a person or a script.
     agent: string | undefined
     // Why hog decided the caller is or isn't an agent. `hog commands` reports it.
     agentReason: string
-    // Whether stdout is a terminal a person can read.
-    interactive: boolean
     format: OutputFormat
     color: boolean
 }
 
-export function detectAgent(env: Env): { agent: string | undefined; reason: string } {
+function detectAgent(env: Env): { agent: string | undefined; reason: string } {
     const override = env.HOG_AGENT?.trim().toLowerCase()
     if (override !== undefined && FALSE_VALUES.has(override)) {
         return { agent: undefined, reason: 'HOG_AGENT disables agent detection' }
@@ -60,15 +59,11 @@ export function detectAgent(env: Env): { agent: string | undefined; reason: stri
     return { agent: undefined, reason: 'no agent env var is set' }
 }
 
-export function resolveExecutionContext(
-    env: Env,
-    stdoutIsTTY: boolean,
-    requestedFormat: OutputFormat | undefined
-): ExecutionContext {
+export function resolveMode(env: Env, stdoutIsTTY: boolean, requestedFormat: OutputFormat | undefined): Mode {
     const { agent, reason } = detectAgent(env)
     // Agents and pipes get JSON by default, people at a terminal get text.
     const format = requestedFormat ?? (agent !== undefined || !stdoutIsTTY ? 'json' : 'text')
     const colorForced = env.FORCE_COLOR !== undefined && env.FORCE_COLOR !== '0'
     const color = colorForced || (format === 'text' && stdoutIsTTY && agent === undefined && env.NO_COLOR === undefined)
-    return { agent, agentReason: reason, interactive: stdoutIsTTY, format, color }
+    return { agent, agentReason: reason, format, color }
 }
