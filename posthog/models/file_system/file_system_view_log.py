@@ -182,7 +182,11 @@ def get_recent_file_system_items(
     query so the ``limit`` slice picks the globally oldest/newest views, not a re-sorted page.
     """
     entries = (
-        (file_system_queryset if file_system_queryset is not None else FileSystem.objects.all())
+        (
+            file_system_queryset
+            if frequent_on is not None and file_system_queryset is not None
+            else FileSystem.objects.all()
+        )
         .filter(surface_q(surface), team_id=team_id, type=OuterRef("type"), ref=OuterRef("ref"))
         .exclude(shortcut=True)
     )
