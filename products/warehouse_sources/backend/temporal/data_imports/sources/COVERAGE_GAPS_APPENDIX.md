@@ -8985,11 +8985,11 @@ Today (10): `daily_activity`, `daily_readiness`, `daily_sleep`, `daily_spo2`, `d
 
 Diffed against: <https://cloud.ouraring.com/v2/static/json/openapi-1.37.json>
 
-- [ ] `/v2/usercollection/daily_resilience` — daily resilience score — one of Oura's headline daily scores, alongside the readiness/sleep/activity scores already synced (high)
-- [ ] `/v2/usercollection/daily_cardiovascular_age` — daily cardiovascular age, a headline long-term health metric with no equivalent in the current tables (medium)
-- [ ] `/v2/usercollection/vO2_max` — VO2 max estimates over time, the standard cardio-fitness trend series (medium)
+- [x] `/v2/usercollection/daily_resilience` — daily resilience score — one of Oura's headline daily scores, alongside the readiness/sleep/activity scores already synced (high)
+- [x] `/v2/usercollection/daily_cardiovascular_age` — daily cardiovascular age, a headline long-term health metric with no equivalent in the current tables (medium)
+- [x] `/v2/usercollection/vO2_max` — VO2 max estimates over time, the standard cardio-fitness trend series (medium)
 - [ ] `/v2/usercollection/enhanced_tag` — user-annotated events (illness, alcohol, travel) — the dimension table for segmenting every daily metric (medium)
-- [ ] `/v2/usercollection/rest_mode_period` — rest-mode intervals that suppress scores; needed to exclude or explain anomalous daily rows (medium)
+- [x] `/v2/usercollection/rest_mode_period` — rest-mode intervals that suppress scores; needed to exclude or explain anomalous daily rows (medium)
 - [ ] `/v2/usercollection/sleep_time` — recommended bedtime windows, joins to the sleep table for adherence analysis (low)
 - [ ] `/v2/usercollection/tag` — legacy tag events; superseded by enhanced_tag but still the only history for older data (low)
 - [ ] `/v2/usercollection/ring_configuration` — lookup resolving the ring/device that produced each measurement (hardware, size, firmware) (low)
@@ -9041,10 +9041,10 @@ Today (13): `addon_list_category`, `addons`, `coupons`, `customers`, `invoices`,
 
 Diffed against: <https://apidocs.pabbly.com/pabbly/subscription-billing>
 
-- [ ] `/plans (and /plans/{product_id})` — lookup table for the plan ids carried on every subscription and invoice - currently unresolvable (high)
-- [ ] `/commissions` — affiliate commission records, the revenue-share ledger (high)
-- [ ] `/mrrsubscription/` — vendor's headline MRR metric endpoint (high)
-- [ ] `/revenuetransaction/` — net-revenue / ARPU report rows (high)
+- [x] `/plans (and /plans/{product_id})` — lookup table for the plan ids carried on every subscription and invoice - currently unresolvable (high). Added as `plans` (the global `/plans` list). `/plans/{product_id}` skipped: it returns the same rows filtered per product.
+- [x] `/commissions` — affiliate commission records, the revenue-share ledger (high). Added as `commissions`.
+- ~~`/mrrsubscription/` — vendor's headline MRR metric endpoint (high)~~ — skipped: it is a `POST` report over a relative interval such as `last_30_days` for one product, and its rows carry no subscription or customer id to key on
+- ~~`/revenuetransaction/` — net-revenue / ARPU report rows (high)~~ — skipped: it is a `POST` report over a relative interval for one product, and its rows repeat the invoices, refunds and transactions this source already syncs
 - [ ] `/commissions/clicks` — affiliate click events - the top of the partner funnel (medium)
 - [ ] `/affiliate/links` — lookup resolving affiliate link ids on commissions and clicks (medium)
 - [ ] `/scheduledchanges/{subscription_id}` — pending plan changes; needed for forward-looking churn/upgrade analysis (medium)

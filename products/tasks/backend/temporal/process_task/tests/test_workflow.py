@@ -2530,7 +2530,6 @@ class TestProcessTaskWorkflowUnit:
         start_slack_relay_mock = AsyncMock()
         monkeypatch.setattr(workflow, "_start_slack_agent_design_relay", start_slack_relay_mock)
         monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
-        monkeypatch.setattr(process_task_workflow_module.workflow, "deprecate_patch", Mock())
         monkeypatch.setattr(process_task_workflow_module.workflow, "now", Mock(return_value=datetime.now(UTC)))
 
         result = await workflow.run(
