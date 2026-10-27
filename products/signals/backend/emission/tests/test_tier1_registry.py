@@ -19,6 +19,10 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.GITLAB, "issues", "gitlab", "issue"),
     (ExternalDataSourceType.GITEA, "issues", "gitea", "issue"),
     (ExternalDataSourceType.SHORTCUT, "stories", "shortcut", "issue"),
+    (ExternalDataSourceType.CLICKUP, "tasks", "clickup", "issue"),
+    (ExternalDataSourceType.WRIKE, "tasks", "wrike", "issue"),
+    (ExternalDataSourceType.TRELLO, "cards", "trello", "issue"),
+    (ExternalDataSourceType.BUGHERD, "Tasks", "bugherd", "issue"),
     (ExternalDataSourceType.SENTRY, "issues", "sentry", "issue"),
     (ExternalDataSourceType.ROLLBAR, "items", "rollbar", "issue"),
     (ExternalDataSourceType.BUGSNAG, "errors", "bugsnag", "issue"),
@@ -112,6 +116,16 @@ TIER1_SOURCES = [
     # Business and product reviews
     (ExternalDataSourceType.TRUSTPILOT, "service_reviews", "trustpilot", "review"),
     (ExternalDataSourceType.OKENDO, "reviews", "okendo", "review"),
+    # Cloud security
+    (ExternalDataSourceType.AWSSECURITYHUB, "findings", "aws_security_hub", "scanner_finding"),
+    (ExternalDataSourceType.AWSGUARDDUTY, "findings", "aws_guardduty", "scanner_finding"),
+    (ExternalDataSourceType.AWSINSPECTOR, "findings", "aws_inspector", "scanner_finding"),
+    (ExternalDataSourceType.MICROSOFTDEFENDERCLOUDAPPS, "alerts", "microsoft_defender_cloud_apps", "scanner_finding"),
+    # Tier-2 errors and code review
+    (ExternalDataSourceType.GOOGLEPLAYCONSOLE, "error_issues", "google_play_console", "issue"),
+    (ExternalDataSourceType.AZUREAPPLICATIONINSIGHTS, "exceptions", "azure_application_insights", "issue"),
+    (ExternalDataSourceType.APPSIGNAL, "exception_incidents", "appsignal", "issue"),
+    (ExternalDataSourceType.CURSOR, "bugbot_reviews", "cursor", "issue"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]
@@ -138,12 +152,18 @@ def _mock_record(fields: tuple[str, ...], product: str = "") -> dict:
         name = field.rsplit(" AS ", 1)[-1]
         if product in _SURVEY_ANSWERS and name == _SURVEY_ANSWERS[product][0]:
             record[name] = _SURVEY_ANSWERS[product][1]
-        elif name in ("tags", "labels", "projects"):
+        elif name in ("tags", "labels", "tag_names", "projects"):
             record[name] = '[{"name": "one"}, {"name": "two"}]' if name == "projects" else '["one", "two"]'
         elif name == "column_values":
             record[name] = '[{"id": "a", "type": "text", "text": "some text"}]'
         elif name == "messages":
             record[name] = '[{"role": "USER", "text": "hello", "body": "hello"}]'
+        elif name == "bugs_found":
+            record[name] = 2
+        elif name == "dry_run":
+            record[name] = False
+        elif name == "bugs":
+            record[name] = '[{"severity": "high", "resolution_status": "unresolved"}]'
         elif name in ("id", "iid", "project_id", "number", "workflow_state_id"):
             record[name] = 123
         else:

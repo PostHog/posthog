@@ -6,6 +6,7 @@ import asyncio
 import zipfile
 import itertools
 import subprocess
+from contextlib import ExitStack
 from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
@@ -30,11 +31,144 @@ from products.posthog_ai.eval_harness.harness.services import (
     provision_ai_gateway_mint_key,
     start_mcp_server,
 )
+from products.posthog_ai.eval_harness.harness.skill_snapshot import SkillSnapshot
 from products.posthog_ai.eval_harness.long_lived_subprocess import (
     LongLivedSubprocessManager,
     SubprocessReadinessTimeout,
     SubprocessStartupError,
 )
+from products.tasks.backend.exceptions import ProcessTaskFatalError
+from products.tasks.backend.logic.services.local_skills import (
+    ENV_EVAL_SKILLS_MANIFEST,
+    ENV_LOCAL_SKILLS_HOST_PATH,
+    populate_skills_directory,
+    verify_eval_skills,
+)
+from products.tasks.backend.logic.services.skill_manifest import hash_skill_files, verify_skill_files
+
+
+@pytest.mark.parametrize("retain", [False, True])
+def test_skill_snapshot_keeps_branch_files_when_the_build_directory_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, retain: bool
+) -> None:
+    monkeypatch.setattr("products.posthog_ai.eval_harness.harness.skill_snapshot.LOGS_ROOT", tmp_path / "logs")
+    source = tmp_path / "built"
+    skill = source / "sample" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("branch version")
+    with ExitStack() as stack:
+        snapshot = SkillSnapshot.capture(source, stack, source_sha256="source", retain=retain)
+        skill.write_text("later version")
+        assert (snapshot.directory / "sample" / "SKILL.md").read_text() == "branch version"
+        assert json.loads(snapshot.manifest_path.read_text()) == hash_skill_files(snapshot.directory)
+        restored = SkillSnapshot.restore(
+            snapshot.archive_path,
+            stack,
+            expected_sha256=snapshot.sha256,
+            source_sha256=snapshot.source_sha256,
+            retain=retain,
+        )
+        assert restored.sha256 == snapshot.sha256
+        assert (restored.directory / "sample" / "SKILL.md").read_text() == "branch version"
+        with pytest.raises(RuntimeError, match="recorded hash"):
+            SkillSnapshot.restore(
+                snapshot.archive_path, stack, expected_sha256="0" * 64, source_sha256=snapshot.source_sha256
+            )
+    assert (snapshot.directory / "sample" / "SKILL.md").is_file() is retain
+    assert (restored.directory / "sample" / "SKILL.md").is_file() is retain
+
+
+def test_skill_verification_rejects_stale_native_copies(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    roots = [tmp_path / name for name in ("plugin", "claude", "codex")]
+    for index, root in enumerate(roots):
+        skill = root / "sample" / "SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text("branch version" if index == 0 else "image version")
+    expected = hash_skill_files(roots[0])
+    with pytest.raises(RuntimeError, match="snapshot mismatch"):
+        verify_skill_files(expected, [str(root) for root in roots])
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(expected))
+    monkeypatch.setenv(ENV_EVAL_SKILLS_MANIFEST, str(manifest))
+    sandbox = MagicMock()
+    sandbox.config.environment_variables = {}
+    sandbox.write_file.return_value.exit_code = 0
+    sandbox.execute_in_task_filesystem.return_value = SimpleNamespace(
+        exit_code=1, stdout="", stderr="Eval skill snapshot mismatch"
+    )
+    with pytest.raises(ProcessTaskFatalError, match="Eval skill verification failed") as failure:
+        verify_eval_skills(sandbox)
+    assert failure.value.non_retryable
+    for root in roots[1:]:
+        (root / "sample" / "SKILL.md").write_text("branch version")
+    verify_skill_files(expected, [str(root) for root in roots])
+
+
+@pytest.mark.parametrize("disabled", [False, True])
+def test_skill_verification_uses_task_filesystem_and_running_container_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, disabled: bool
+) -> None:
+    root = tmp_path / "agent-home"
+    skill = root / "sample" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("branch version")
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps(hash_skill_files(root)))
+    if disabled:
+        skill.unlink()
+    monkeypatch.setenv(ENV_EVAL_SKILLS_MANIFEST, str(manifest))
+    monkeypatch.setattr("products.tasks.backend.logic.services.local_skills.BUNDLED_SKILLS_PATHS", (str(root),))
+    sandbox = MagicMock()
+    sandbox.config.environment_variables = {}
+    sandbox.write_file.return_value.exit_code = 0
+
+    def execute_in_task_filesystem(command: str, timeout_seconds: int) -> SimpleNamespace:
+        target, payload = sandbox.write_file.call_args.args
+        assert target.startswith("/opt/posthog/")
+        program = tmp_path / "verification.py"
+        program.write_bytes(payload)
+        result = subprocess.run(
+            ["python3", str(program)],
+            env={**os.environ, "POSTHOG_CODE_DISABLE_BUNDLED_SKILLS": "1" if disabled else "0"},
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+        )
+        return SimpleNamespace(exit_code=result.returncode, stdout=result.stdout, stderr=result.stderr)
+
+    sandbox.execute_in_task_filesystem.side_effect = execute_in_task_filesystem
+    verify_eval_skills(sandbox)
+    sandbox.execute.assert_not_called()
+
+
+def test_skill_source_fingerprint_detects_schema_edits_outside_skill_directories(tmp_path: Path) -> None:
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    schema = tmp_path / "schema.py"
+    schema.write_text("version = 1\n")
+    subprocess.run(["git", "add", "schema.py"], cwd=tmp_path, check=True)
+    original = SkillSnapshot.source_fingerprint(tmp_path, "skills")
+    schema.write_text("version = 2\n")
+    changed = SkillSnapshot.source_fingerprint(tmp_path, "skills")
+    assert changed != original
+    (tmp_path / "new_schema.py").write_text("version = 3\n")
+    assert SkillSnapshot.source_fingerprint(tmp_path, "skills") != changed
+
+
+def test_eval_skill_population_uses_the_snapshot_instead_of_the_shared_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    snapshot = tmp_path / "snapshot"
+    shared = tmp_path / "products/posthog_ai/dist/skills"
+    for root, content in ((snapshot, "snapshot version"), (shared, "shared build version")):
+        skill = root / "sample" / "SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text(content)
+    monkeypatch.setenv(ENV_EVAL_SKILLS_MANIFEST, "manifest.json")
+    monkeypatch.setenv(ENV_LOCAL_SKILLS_HOST_PATH, str(snapshot))
+    destination = tmp_path / "modal-build"
+    populate_skills_directory(destination, base_dir=tmp_path)
+    assert (destination / "sample" / "SKILL.md").read_text() == "snapshot version"
 
 
 def test_package_local_skills_archive_is_deterministic_and_excludes_cache_markers(tmp_path: Path) -> None:
@@ -73,7 +207,14 @@ def test_start_mcp_server_isolates_the_selected_skill_delivery(
     stop = MagicMock()
 
     with (
-        patch.dict(os.environ, {"POSTHOG_MCP_SKILLS_URL": "https://stale.example/skills.zip"}),
+        patch.dict(
+            os.environ,
+            {
+                "POSTHOG_MCP_SKILLS_URL": "https://stale.example/skills.zip",
+                "POSTHOG_MCP_LOCAL_SKILLS_URL": "https://local.example/skills.zip",
+                "POSTHOG_MCP_SKILLS_SHA256": "stale",
+            },
+        ),
         patch("products.posthog_ai.eval_harness.harness.services.settings.BASE_DIR", tmp_path),
         patch(
             "products.posthog_ai.eval_harness.harness.services.LONG_LIVED_SUBPROCESSES.start",
@@ -84,6 +225,7 @@ def test_start_mcp_server_isolates_the_selected_skill_delivery(
             "http://localhost:18000",
             skill_archive_url,
             exec_skills_enabled=exec_skills_enabled,
+            skill_archive_sha256="a" * 64 if exec_skills_enabled else None,
         )
 
     env = start.call_args.kwargs["env"]
@@ -95,8 +237,11 @@ def test_start_mcp_server_isolates_the_selected_skill_delivery(
     assert overrides["dashboard-widgets"] is True
     if skill_archive_url is None:
         assert "POSTHOG_MCP_SKILLS_URL" not in env
+        assert "POSTHOG_MCP_SKILLS_SHA256" not in env
     else:
         assert env["POSTHOG_MCP_SKILLS_URL"] == skill_archive_url
+        assert env["POSTHOG_MCP_SKILLS_SHA256"] == "a" * 64
+    assert "POSTHOG_MCP_LOCAL_SKILLS_URL" not in env
     assert result is stop
 
 

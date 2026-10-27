@@ -131,10 +131,11 @@ describe('experimentLogic', () => {
             total_exposures: { control: 600, test: 350, $multiple: 50 },
             sample_ratio_mismatch: { expected: { control: 475, test: 475 }, p_value: 0.0001 },
             bias_risk: { multiple_variant_percentage: 5 },
-            health_findings: [{ code: 'srm' }, { code: 'bias_risk_multiple_excluded' }],
+            health_findings: [{ code: 'srm', subcode: 'split_changed' }, { code: 'bias_risk_multiple_excluded' }],
         }
         const noServerVerdicts = {
             srm_server: null,
+            srm_cause: null,
             zero_exposures_server: null,
             zero_exposures_cause: null,
             bias_risk_server: null,
@@ -176,6 +177,7 @@ describe('experimentLogic', () => {
                     has_srm: true,
                     has_bias_risk: true,
                     srm_server: true,
+                    srm_cause: 'split_changed',
                     zero_exposures_server: false,
                     bias_risk_server: true,
                 },
@@ -388,36 +390,70 @@ describe('experimentLogic', () => {
                 .toFinishAllListeners()
         })
 
-        it('addSharedMetricsToExperiment reuses the window (metric_config_change)', async () => {
-            // A keyed logic with a real experiment id so loadExperiment returns the launched experiment
-            // (the default unkeyed logic resolves experimentId to "new" and loads a draft). Mock every
-            // endpoint the follow-up refresh touches so its async work settles before unmount.
-            useMocks({
-                get: { '/api/projects/:team/experiments/:id': experiment },
-                post: {
-                    '/api/environments/:team/query': () => [
-                        200,
-                        { cache_key: 'cache_key', query_status: experimentMetricResultsSuccessJson.query_status },
-                    ],
-                },
-            })
-            jest.spyOn(api, 'update').mockResolvedValue(experiment)
-            const keyed = experimentLogic({ experimentId: experiment.id })
-            keyed.mount()
-            keyed.actions.setExperiment(experiment)
+        const attachedSharedMetric = {
+            id: 7,
+            experiment: experiment.id as number,
+            saved_metric: 1,
+            name: 'Attached shared metric',
+            query: experiment.metrics[0],
+            metadata: { type: 'primary' },
+            created_at: '2024-01-01T00:00:00Z',
+        } as unknown as ExperimentSavedMetric
+        const keptSharedMetric = { ...attachedSharedMetric, id: 8, saved_metric: 2 } as ExperimentSavedMetric
 
-            await expectLogic(keyed, () => {
-                keyed.actions.addSharedMetricsToExperiment([1], { type: 'primary' })
-            })
-                .toDispatchActions([
-                    (action) =>
-                        action.type === keyed.actionTypes.refreshExperimentResults &&
-                        action.payload.triggeredBy === 'metric_config_change',
-                ])
-                .toFinishAllListeners()
+        it.each([
+            [
+                'addSharedMetricsToExperiment',
+                [attachedSharedMetric],
+                [],
+                (keyed: ReturnType<typeof experimentLogic>): void =>
+                    keyed.actions.addSharedMetricsToExperiment([1], { type: 'primary' }),
+            ],
+            [
+                'removeSharedMetricFromExperiment',
+                [keptSharedMetric],
+                [attachedSharedMetric, keptSharedMetric],
+                (keyed: ReturnType<typeof experimentLogic>): void => keyed.actions.removeSharedMetricFromExperiment(1),
+            ],
+        ])(
+            '%s applies the save response, clears positional results and reuses the window (metric_config_change)',
+            async (_name, savedMetricsAfter, savedMetricsBefore, dispatch) => {
+                useMocks({
+                    post: {
+                        '/api/environments/:team/query': () => [
+                            200,
+                            { cache_key: 'cache_key', query_status: experimentMetricResultsSuccessJson.query_status },
+                        ],
+                    },
+                })
+                const before = { ...experiment, version: 4, saved_metrics: savedMetricsBefore } as Experiment
+                const response = { ...experiment, version: 5, saved_metrics: savedMetricsAfter } as Experiment
+                jest.spyOn(api, 'update').mockResolvedValue(response)
+                const keyed = experimentLogic({ experimentId: experiment.id })
+                keyed.mount()
+                keyed.actions.setUnmodifiedExperiment(before)
+                keyed.actions.setExperiment(before)
 
-            keyed.unmount()
-        })
+                await expectLogic(keyed, () => dispatch(keyed))
+                    .toFinishAllListeners()
+                    .toNotHaveDispatchedActions(['loadExperiment'])
+                    .toDispatchActions([
+                        (action) =>
+                            action.type ===
+                                experimentMetricsLogic({ experiment }).actionTypes.setPrimaryMetricsResults &&
+                            action.payload.results.length === 0,
+                        (action) =>
+                            action.type === keyed.actionTypes.refreshExperimentResults &&
+                            action.payload.forceRefresh === false &&
+                            action.payload.triggeredBy === 'metric_config_change',
+                    ])
+
+                expect(keyed.values.experiment.saved_metrics).toEqual(savedMetricsAfter)
+                expect(keyed.values.unmodifiedExperiment?.version).toEqual(5)
+
+                keyed.unmount()
+            }
+        )
     })
 
     describe('currentRefresh tracking', () => {

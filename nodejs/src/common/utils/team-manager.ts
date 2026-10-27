@@ -17,6 +17,11 @@ export function isValidTeamId(value: unknown): value is number {
     return Number.isInteger(value) && (value as number) > 0 && (value as number) <= 2_147_483_647
 }
 
+export function validTeamIds(keys: string[]): number[] {
+    // parseInt would read "1.5" as team 1. Number keeps it 1.5, which isValidTeamId rejects.
+    return keys.map(Number).filter(isValidTeamId)
+}
+
 export interface TeamManagerOptions {
     /** Retry transient team-load failures (e.g. a Postgres pooler blip) instead of letting them propagate. */
     loaderRetry?: LoaderRetryOptions

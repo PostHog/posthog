@@ -22,6 +22,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.facade.enums import AZURE_BLOB_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS
 from products.batch_exports.backend.service import (
     AzureBlobBatchExportInputs,
     BatchExportField,
@@ -36,10 +37,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
     is_over_billing_limit_error,
     start_batch_export_run,
 )
-from products.batch_exports.backend.temporal.destinations.constants import (
-    AZURE_BLOB_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS,
-    FILE_FORMAT_EXTENSIONS,
-)
+from products.batch_exports.backend.temporal.destinations.constants import FILE_FORMAT_EXTENSIONS
 from products.batch_exports.backend.temporal.destinations.utils import EXTERNAL_LOGGER, get_manifest_key, get_object_key
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage

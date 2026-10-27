@@ -11,8 +11,9 @@ is visible in one place.
 and ``temporalio`` on the ``django.setup()`` path. Core config-time consumers import this
 facade, so it reaches the service only through ``_service()``, which imports it at call
 time. For the same reason the Temporal client is built in ``_get_temporal_client()``, and
-the HogQL, file download, run and backfill modules load through ``_import_hogql_source()``,
-``_import_file_downloads()``, ``_import_runs()`` and ``_import_backfills()``.
+the HogQL, destination config, file download, run and backfill modules load through
+``_import_hogql_source()``, ``_import_destination_config()``, ``_import_file_downloads()``,
+``_import_runs()`` and ``_import_backfills()``.
 
 Temporal workflow and activity registration crosses as objects, not data, so it lives in
 ``facade/temporal.py``. The destination clients the warehouse writers reuse live in
@@ -35,9 +36,11 @@ import structlog
 from posthog.models import Team, User
 from posthog.models.integration import Integration
 
-from products.batch_exports.backend import destination_tests
+from products.batch_exports.backend import (
+    destination_tests,
+    filters as batch_export_filters,
+)
 from products.batch_exports.backend.billing import exclude_non_billable_runs
-from products.batch_exports.backend.filters import validate_batch_export_filters
 from products.batch_exports.backend.models.batch_export import (
     BATCH_EXPORT_INTERVALS,
     BatchExport,
@@ -59,6 +62,7 @@ __all__ = [
     "cancel_batch_export_backfill",
     "cancel_batch_export_run",
     "cancel_file_download",
+    "coerce_destination_config",
     "count_batch_exports_for_teams",
     "count_hogql_rows",
     "create_batch_export",
@@ -89,6 +93,8 @@ __all__ = [
     "retry_batch_export_run",
     "run_destination_test_step",
     "start_file_download",
+    "validate_batch_export_filters",
+    "validate_destination_config",
     "validate_hogql_query",
 ]
 
@@ -133,6 +139,15 @@ def _import_hogql_source() -> ModuleType:
     from products.batch_exports.backend import hogql_source
 
     return hogql_source
+
+
+def _import_destination_config() -> ModuleType:
+    """Import the destination config checks at call time. See the module docstring for why."""
+    from products.batch_exports.backend.logic import (  # noqa: PLC0415 — keeps the service layer and temporalio off the django.setup() path
+        destination_config,
+    )
+
+    return destination_config
 
 
 def _import_file_downloads() -> ModuleType:
@@ -422,6 +437,15 @@ def create_batch_export(
     return _to_detail(batch_export)
 
 
+def validate_batch_export_filters(filters: object) -> None:
+    """Check the event filters a batch export stores.
+
+    Raises ``contracts.InvalidBatchExportFilters`` unless ``filters`` is None or a list of
+    supported filters.
+    """
+    batch_export_filters.validate_batch_export_filters(filters)
+
+
 def create_workflows_backfill_export(
     team_id: int,
     *,
@@ -476,6 +500,25 @@ def backfill_batch_export(
 def list_supported_intervals() -> tuple[str, ...]:
     """Return the intervals a batch export may be scheduled on."""
     return tuple(interval for interval, _ in BATCH_EXPORT_INTERVALS)
+
+
+def validate_destination_config(destination_type: str, config: Mapping[str, Any], *, partial: bool) -> dict[str, Any]:
+    """Check a destination config against the workflow inputs of its destination type.
+
+    With ``partial``, a required field may be missing, as in a patch. Returns a copy of the
+    config with values converted to the declared types. Raises
+    ``contracts.InvalidDestinationConfigError`` when a field is unknown, missing or of the
+    wrong type.
+    """
+    return _import_destination_config().validate_destination_config(destination_type, config, partial=partial)
+
+
+def coerce_destination_config(destination_type: str, config: dict[str, Any]) -> dict[str, Any]:
+    """Return a stored destination config with its values restored to their declared types.
+
+    The stored config reads back with stringified scalars, so ``"False"`` becomes ``False``.
+    """
+    return _service().coerce_config_to_declared_types(destination_type, config)
 
 
 def describe_destination_test(destination_type: str) -> contracts.DestinationTest:

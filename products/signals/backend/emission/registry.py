@@ -160,17 +160,25 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.aha_ideas import AHA_CONFIG
     from products.signals.backend.emission.appfigures_reviews import APPFIGURES_CONFIG
     from products.signals.backend.emission.appfollow_reviews import APPFOLLOW_CONFIG
+    from products.signals.backend.emission.appsignal_exception_incidents import APPSIGNAL_CONFIG
     from products.signals.backend.emission.asana_tasks import ASANA_CONFIG
     from products.signals.backend.emission.asknicely_responses import ASKNICELY_CONFIG
+    from products.signals.backend.emission.aws_guardduty_findings import AWS_GUARDDUTY_CONFIG
+    from products.signals.backend.emission.aws_inspector_findings import AWS_INSPECTOR_CONFIG
+    from products.signals.backend.emission.aws_security_hub_findings import AWS_SECURITY_HUB_CONFIG
+    from products.signals.backend.emission.azure_application_insights_exceptions import AZURE_EXCEPTIONS_CONFIG
     from products.signals.backend.emission.azure_devops_work_item_revisions import AZURE_DEVOPS_CONFIG
     from products.signals.backend.emission.bettermode_posts import BETTERMODE_CONFIG
     from products.signals.backend.emission.betterstack_incidents import BETTERSTACK_CONFIG
     from products.signals.backend.emission.bigeye_issues import BIGEYE_CONFIG
+    from products.signals.backend.emission.bugherd_tasks import BUGHERD_CONFIG
     from products.signals.backend.emission.bugsnag_errors import BUGSNAG_CONFIG
     from products.signals.backend.emission.canny_posts import CANNY_CONFIG
     from products.signals.backend.emission.checkly_error_groups import CHECKLY_CONFIG
+    from products.signals.backend.emission.clickup_tasks import CLICKUP_CONFIG
     from products.signals.backend.emission.conversations_tickets import CONVERSATIONS_TICKETS_CONFIG
     from products.signals.backend.emission.cronitor_issues import CRONITOR_CONFIG
+    from products.signals.backend.emission.cursor_bugbot_reviews import CURSOR_CONFIG
     from products.signals.backend.emission.datadog_error_issues import DATADOG_ERROR_ISSUES_CONFIG
     from products.signals.backend.emission.datadog_error_logs import DATADOG_ERROR_LOGS_CONFIG
     from products.signals.backend.emission.datadog_error_spans import DATADOG_ERROR_SPANS_CONFIG
@@ -192,6 +200,9 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.gitea_issues import GITEA_CONFIG
     from products.signals.backend.emission.github_issues import GITHUB_ISSUES_CONFIG
     from products.signals.backend.emission.gitlab_issues import GITLAB_CONFIG
+    from products.signals.backend.emission.google_play_console_error_issues import (
+        GOOGLE_PLAY_CONSOLE_ERROR_ISSUES_CONFIG,
+    )
     from products.signals.backend.emission.google_search_console_opportunities import GOOGLE_SEARCH_CONSOLE_CONFIG
     from products.signals.backend.emission.gorgias_tickets import GORGIAS_CONFIG
     from products.signals.backend.emission.grafana_irm_incidents import GRAFANA_IRM_CONFIG
@@ -207,6 +218,9 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.lacework_alerts import LACEWORK_CONFIG
     from products.signals.backend.emission.langsmith_feedback import LANGSMITH_CONFIG
     from products.signals.backend.emission.linear_issues import LINEAR_ISSUES_CONFIG
+    from products.signals.backend.emission.microsoft_defender_cloud_apps_alerts import (
+        MICROSOFT_DEFENDER_CLOUD_APPS_CONFIG,
+    )
     from products.signals.backend.emission.mintlify_feedback import MINTLIFY_CONFIG
     from products.signals.backend.emission.monday_items import MONDAY_CONFIG
     from products.signals.backend.emission.monte_carlo_alerts import MONTE_CARLO_CONFIG
@@ -243,12 +257,14 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.tenable_vulnerability_management_vulnerabilities import (
         TENABLE_VULNERABILITY_MANAGEMENT_CONFIG,
     )
+    from products.signals.backend.emission.trello_cards import TRELLO_CONFIG
     from products.signals.backend.emission.trigger_dev_errors import TRIGGER_DEV_CONFIG
     from products.signals.backend.emission.trustpilot_service_reviews import TRUSTPILOT_CONFIG
     from products.signals.backend.emission.typeform_responses import TYPEFORM_CONFIG
     from products.signals.backend.emission.usersnap_feedbacks import USERSNAP_CONFIG
     from products.signals.backend.emission.uservoice_suggestions import USERVOICE_CONFIG
     from products.signals.backend.emission.vitally_conversations import VITALLY_CONFIG
+    from products.signals.backend.emission.wrike_tasks import WRIKE_CONFIG
     from products.signals.backend.emission.xmatters_incidents import XMATTERS_CONFIG
     from products.signals.backend.emission.zendesk_tickets import ZENDESK_TICKETS_CONFIG
     from products.signals.backend.emission.zoho_crm_cases import ZOHO_CRM_CONFIG
@@ -271,6 +287,10 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.GITLAB, "issues", GITLAB_CONFIG)
     register_signal_source(ExternalDataSourceType.GITEA, "issues", GITEA_CONFIG)
     register_signal_source(ExternalDataSourceType.SHORTCUT, "stories", SHORTCUT_CONFIG)
+    register_signal_source(ExternalDataSourceType.CLICKUP, "tasks", CLICKUP_CONFIG)
+    register_signal_source(ExternalDataSourceType.WRIKE, "tasks", WRIKE_CONFIG)
+    register_signal_source(ExternalDataSourceType.TRELLO, "cards", TRELLO_CONFIG)
+    register_signal_source(ExternalDataSourceType.BUGHERD, "Tasks", BUGHERD_CONFIG)
     # Tier-1 error tracking (record kind: issue)
     register_signal_source(ExternalDataSourceType.SENTRY, "issues", SENTRY_CONFIG)
     register_signal_source(ExternalDataSourceType.ROLLBAR, "items", ROLLBAR_CONFIG)
@@ -368,6 +388,20 @@ def _register_all_emitters() -> None:
     # Business and product reviews (record kind: review)
     register_signal_source(ExternalDataSourceType.TRUSTPILOT, "service_reviews", TRUSTPILOT_CONFIG)
     register_signal_source(ExternalDataSourceType.OKENDO, "reviews", OKENDO_CONFIG)
+    # Cloud security (record kind: scanner_finding)
+    register_signal_source(ExternalDataSourceType.AWSSECURITYHUB, "findings", AWS_SECURITY_HUB_CONFIG)
+    register_signal_source(ExternalDataSourceType.AWSGUARDDUTY, "findings", AWS_GUARDDUTY_CONFIG)
+    register_signal_source(ExternalDataSourceType.AWSINSPECTOR, "findings", AWS_INSPECTOR_CONFIG)
+    register_signal_source(
+        ExternalDataSourceType.MICROSOFTDEFENDERCLOUDAPPS, "alerts", MICROSOFT_DEFENDER_CLOUD_APPS_CONFIG
+    )
+    # Tier-2 errors and code review (record kind: issue)
+    register_signal_source(
+        ExternalDataSourceType.GOOGLEPLAYCONSOLE, "error_issues", GOOGLE_PLAY_CONSOLE_ERROR_ISSUES_CONFIG
+    )
+    register_signal_source(ExternalDataSourceType.AZUREAPPLICATIONINSIGHTS, "exceptions", AZURE_EXCEPTIONS_CONFIG)
+    register_signal_source(ExternalDataSourceType.APPSIGNAL, "exception_incidents", APPSIGNAL_CONFIG)
+    register_signal_source(ExternalDataSourceType.CURSOR, "bugbot_reviews", CURSOR_CONFIG)
 
 
 _register_all_emitters()

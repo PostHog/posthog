@@ -23,7 +23,7 @@ from .event.event import Event
 from .event_buffer import EventBuffer
 
 # TODO: remove noqa once the event filters API imports from posthog.models
-from .event_filter_config import EventFilterConfig  # noqa: F401
+from .event_filter_config import EventFilterConfig, EventFilterPipelineOverride  # noqa: F401
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
 from .file_system.file_system import FileSystem

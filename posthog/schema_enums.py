@@ -572,7 +572,6 @@ class AssistantTool(StrEnum):
     ESTIMATE_REPLAY_VISION_SCANNER = "estimate_replay_vision_scanner"
     LABEL_REPLAY_VISION_OBSERVATION = "label_replay_vision_observation"
     ANALYZE_REPLAY_VISION_IMPACT = "analyze_replay_vision_impact"
-    SUGGEST_REPLAY_VISION_TAGS = "suggest_replay_vision_tags"
     UPSERT_ACCOUNT = "upsert_account"
     UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
     OPEN_ACCOUNT = "open_account"
@@ -2376,6 +2375,7 @@ class NodeKind(StrEnum):
     ERROR_TRACKING_BREAKDOWNS_QUERY = "ErrorTrackingBreakdownsQuery"
     ERROR_TRACKING_RELEASES_QUERY = "ErrorTrackingReleasesQuery"
     ERROR_TRACKING_ISSUE_CORRELATION_QUERY = "ErrorTrackingIssueCorrelationQuery"
+    ERROR_TRACKING_ISSUE_EVENTS_QUERY = "ErrorTrackingIssueEventsQuery"
     LOGS_QUERY = "LogsQuery"
     LOG_ATTRIBUTES_QUERY = "LogAttributesQuery"
     LOG_VALUES_QUERY = "LogValuesQuery"
@@ -2408,6 +2408,7 @@ class NodeKind(StrEnum):
     WEB_EXTERNAL_CLICKS_TABLE_QUERY = "WebExternalClicksTableQuery"
     WEB_BOTS_TABLE_QUERY = "WebBotsTableQuery"
     WEB_AGENT_ANALYTICS_QUERY = "WebAgentAnalyticsQuery"
+    WEB_PAGE_DIRECTORY_QUERY = "WebPageDirectoryQuery"
     WEB_GOALS_QUERY = "WebGoalsQuery"
     WEB_VITALS_QUERY = "WebVitalsQuery"
     WEB_VITALS_PATH_BREAKDOWN_QUERY = "WebVitalsPathBreakdownQuery"
@@ -3293,6 +3294,32 @@ class WebAnalyticsPreComputeStrategy(StrEnum):
 class WebBotsBreakdown(StrEnum):
     CRAWLER = "Crawler"
     PATH = "Path"
+
+
+class WebPageDirectoryMetric(StrEnum):
+    VISITORS = "visitors"
+    GOOGLE_SEARCH = "google_search"
+    AI_REFERRALS = "ai_referrals"
+    AI_CRAWLS = "ai_crawls"
+    CONVERSIONS = "conversions"
+    TIME_ON_PAGE = "time_on_page"
+    BOUNCE_RATE = "bounce_rate"
+
+
+class SortDirection(StrEnum):
+    ASC = "ASC"
+    DESC = "DESC"
+
+
+class WebPageDirectorySortBy(StrEnum):
+    PAGE = "page"
+    VISITORS = "visitors"
+    GOOGLE_SEARCH = "google_search"
+    AI_REFERRALS = "ai_referrals"
+    AI_CRAWLS = "ai_crawls"
+    CONVERSIONS = "conversions"
+    TIME_ON_PAGE = "time_on_page"
+    BOUNCE_RATE = "bounce_rate"
 
 
 class WebStatsBreakdown(StrEnum):

@@ -13,16 +13,14 @@ from products.experiments.backend.facade.api import get_experiment_health
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthCheckKey,
     ExperimentHealthCheckStatus,
+    ExperimentHealthFinding,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthReaderAccess,
 )
-from products.experiments.backend.health.checks.early_significance import (
-    BELOW_DETECTABLE_EFFECT,
-    early_significance,
-    early_significance_skip,
-)
+from products.experiments.backend.health.checks.early_significance import BELOW_DETECTABLE_EFFECT, early_significance
 from products.experiments.backend.health.context import HealthContext, PrimaryMetric
+from products.experiments.backend.health.skips import CheckSkip
 from products.experiments.backend.health.test.factories import ENDED, RUNNING_CONTEXT
 from products.experiments.backend.logic.result_stats import BaselineStats, Interval, MetricResultStats, VariantStats
 from products.experiments.backend.metric_calculation.config import build_primary_calculation_configs
@@ -107,12 +105,14 @@ class TestEarlySignificance(TestCase):
     ) -> None:
         finding = early_significance(ctx)
 
-        self.assertEqual(finding.evidence["variant"] if finding else None, expected_variant)
+        self.assertEqual(
+            finding.evidence["variant"] if isinstance(finding, ExperimentHealthFinding) else finding, expected_variant
+        )
 
     def test_states_the_analysis_difference_and_the_planned_sizes(self) -> None:
         finding = early_significance(SMALL_SIGNIFICANT_LIFT)
 
-        assert finding is not None
+        assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual(
             (finding.code, finding.subcode, finding.severity),
             (
@@ -165,10 +165,9 @@ class TestEarlySignificance(TestCase):
         ]
     )
     def test_says_why_it_did_not_look(self, _name: str, ctx: HealthContext, expected: Status) -> None:
-        skip = early_significance_skip(ctx)
+        outcome = early_significance(ctx)
 
-        self.assertEqual(skip.status if skip else None, expected)
-        self.assertIsNone(early_significance(ctx))
+        self.assertEqual(outcome.status if isinstance(outcome, CheckSkip) else outcome, expected)
 
 
 class TestEarlySignificanceFromStoredResults(BaseTest):
@@ -266,7 +265,9 @@ class TestEarlySignificanceFromStoredResults(BaseTest):
             },
         )
 
-        health = get_experiment_health(team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES)
+        health = get_experiment_health(
+            team_id=self.team.id, experiment_id=experiment.id, reader_access=NO_QUERIES, user=self.user
+        )
 
         check = next(check for check in health.checks if check.key == ExperimentHealthCheckKey.EARLY_SIGNIFICANCE)
         finding = next(

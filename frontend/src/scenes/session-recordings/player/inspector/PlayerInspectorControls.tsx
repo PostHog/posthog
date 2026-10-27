@@ -100,6 +100,7 @@ function FilterSettingsButton({
     type,
     icon,
     disabledReason,
+    loading,
     upsellSideAction,
     label,
     'data-attr': dataAttr,
@@ -107,6 +108,7 @@ function FilterSettingsButton({
     type: FilterableInspectorListItemTypes
     icon: JSX.Element
     disabledReason?: string | undefined
+    loading?: boolean
     upsellSideAction?: SideAction
     label?: string
     'data-attr'?: string
@@ -141,6 +143,7 @@ function FilterSettingsButton({
                 setMiniFilters(filterKeys, !isEnabled)
             }}
             disabledReason={disabledReason}
+            loading={loading}
             active={isEnabled}
         />
     )
@@ -330,6 +333,7 @@ function LogsFilterSettingsButton(): JSX.Element {
             type="logs"
             icon={<IconLive />}
             disabledReason={disabledReason}
+            loading={logsLoading}
             label="Logs"
         />
     )

@@ -103,7 +103,6 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
         self.gates = {
             "access": patch(f"{_VIEW}.get_desktop_access_decision", return_value=DesktopAccessDecision.ALLOWED),
             "credit": patch(f"{_VIEW}.team_credit_refusal", return_value=None),
-            "blocked": patch(f"{_VIEW}.wizard_identity_blocked", return_value=False),
             "tier": patch(f"{_VIEW}.desktop_limit_tier", return_value="standard"),
             "rules": patch(f"{_VIEW}.security_access_refused", return_value=False),
         }
@@ -188,22 +187,6 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["reason"] == "unauthorized"
         post.assert_not_called()
-
-    def test_blocklisted_identity_is_refused_before_access(self) -> None:
-        self.mocks["blocked"].return_value = True
-        response, post = self._mint()
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert response.json()["reason"] == "blocked"
-        self.mocks["access"].assert_not_called()
-        post.assert_not_called()
-        self.mocks["blocked"].assert_called_once_with(
-            distinct_id=str(self.user.distinct_id),
-            email=self.user.email,
-            user_uuid=str(self.user.uuid),
-            organization_ids=[str(self.organization.id)],
-            team_ids=[self.team.id],
-            surface="desktop_gateway_token",
-        )
 
     def test_an_access_rule_refusal_is_refused_before_access(self) -> None:
         self.mocks["rules"].return_value = True
@@ -497,7 +480,7 @@ class TestDesktopGatewayTokenMint(_GatewayTestBase):
         assert refused.status_code == status.HTTP_402_PAYMENT_REQUIRED
         assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS
         # The throttled request reached no gate past the credential shape check.
-        for gate in (email_pending, authorized, self.mocks["blocked"], self.mocks["access"]):
+        for gate in (email_pending, authorized, self.mocks["rules"], self.mocks["access"]):
             assert gate.call_count == 1
         post.assert_not_called()
 

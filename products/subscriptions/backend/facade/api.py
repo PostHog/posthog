@@ -115,6 +115,7 @@ __all__ = [
     "subscription_ids_in_team",
     "unsubscribe",
     "update_subscription",
+    "user_has_slack_subscription",
     "validate_re_enable",
     "viewable_live_insight_id",
 ]
@@ -153,6 +154,11 @@ def failed_delivery_counts(*, team_id: int, since: datetime, limit: int) -> list
 def subscription_ids_in_team(*, team_id: int, subscription_ids: Collection[int]) -> set[int]:
     """Which of the given subscription ids belong to the team."""
     return queries.subscription_ids_in_team(team_id=team_id, subscription_ids=subscription_ids)
+
+
+def user_has_slack_subscription(*, team_id: int, user_id: int) -> bool:
+    """Whether the user created a subscription that delivers to Slack in this team. A disabled one counts."""
+    return queries.user_has_slack_subscription(team_id=team_id, user_id=user_id)
 
 
 def delete_insight_subscriptions(*, project_id: int, insight_ids: Collection[int]) -> None:

@@ -1,1 +1,1 @@
-0004_prompt_topic_and_rotation
+0006_backfill_prompt_versions

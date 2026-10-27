@@ -103,6 +103,8 @@ export function ReviewerSearchList({
       updateReviewers(
         {
           content: toSuggestedReviewerWriteContent(next),
+          action: "remove",
+          targets: toSuggestedReviewerWriteContent([existing]),
           optimisticReviewers: next,
         },
         {
@@ -146,6 +148,8 @@ export function ReviewerSearchList({
           ...toSuggestedReviewerWriteContent(reviewers),
           { user_uuid: option.uuid },
         ],
+        action: "add",
+        targets: [{ user_uuid: option.uuid }],
         optimisticReviewers: [...reviewers, optimisticEntry],
       },
       {

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { redactCredentials, redactCredentialsInText } from '@/lib/credential-redaction'
+import redactFailureLogsHooks from '@/tools/engineeringAnalytics/redactFailureLogsHooks'
+import { GENERATED_TOOLS as ENGINEERING_ANALYTICS_TOOLS } from '@/tools/generated/engineering_analytics'
 import { GENERATED_TOOLS } from '@/tools/generated/logs'
 import redactCredentialsHooks from '@/tools/logs/redactCredentialsHooks'
 import type { Context } from '@/tools/types'
@@ -8,6 +10,7 @@ import type { Context } from '@/tools/types'
 // Invented values. None of them is a real credential.
 const PERSONAL_KEY = 'phx_INVENTEDpersonalKEY0000000000000000'
 const OTHER_SECRET = 'INVENTEDsecret1111'
+const GITHUB_TOKEN = 'ghp_INVENTEDgithubTOKEN000000000000000000'
 
 describe('credential redaction', () => {
     it.each([
@@ -123,6 +126,27 @@ describe('credential redaction', () => {
             expected: 'Authorization: [REDACTED]\n/?password=[REDACTED]&safe=1',
         },
         {
+            name: 'a private key block in one string',
+            input: '{"key":"x","pem":"-----BEGIN RSA PRIVATE KEY-----\\nINVENTEDkeyBODY\\n-----END RSA PRIVATE KEY-----"}',
+            expected:
+                '{"key":"[REDACTED]","pem":"-----BEGIN RSA PRIVATE KEY-----[REDACTED]-----END RSA PRIVATE KEY-----"}',
+        },
+        {
+            name: 'a GitHub token outside a parameter',
+            input: `git clone https://${GITHUB_TOKEN}@github.com/example/repo`,
+            expected: 'git clone https://ghp_[REDACTED]@github.com/example/repo',
+        },
+        {
+            name: 'credential command-line flags with a separate value',
+            input: `+ mysql --password ${OTHER_SECRET} --user root && deploy --api-key "${OTHER_SECRET}"`,
+            expected: '+ mysql --password [REDACTED] --user root && deploy --api-key [REDACTED]',
+        },
+        {
+            name: 'a user and password flag',
+            input: `+ curl -u deploy:${OTHER_SECRET} https://example.com --user='ci:${OTHER_SECRET}'`,
+            expected: "+ curl -u deploy:[REDACTED] https://example.com --user='ci:[REDACTED]'",
+        },
+        {
             name: 'excessively nested encoding',
             input: Array.from({ length: 10 }).reduce<string>((value) => encodeURIComponent(value), '/?token=secret'),
             expected: '[REDACTED]',
@@ -133,12 +157,123 @@ describe('credential redaction', () => {
             expected: String.raw`{"message":"keyword=shoes monkey=1","url":"https://example.com/a%2Fb?next=hello%20world&limit=10","safe":"a\"b"}`,
         },
         {
+            name: 'a Docker user id and a password read from stdin',
+            input: 'docker run -u 1000:1000 app && docker login --password-stdin ghcr.io',
+            expected: 'docker run -u 1000:1000 app && docker login --password-stdin ghcr.io',
+        },
+        {
             name: 'safe parameters and a public project token',
             input: '/e?ip=1&ver=1.2&keyword=shoes&monkey=1&api_host=phc_INVENTEDprojectTOKEN00000',
             expected: '/e?ip=1&ver=1.2&keyword=shoes&monkey=1&api_host=phc_INVENTEDprojectTOKEN00000',
         },
     ])('masks $name', ({ input, expected }) => {
         expect(redactCredentialsInText(input)).toBe(expected)
+    })
+
+    it('parses an unclosed private key label in linear time', () => {
+        // A backtracking header pattern takes tens of seconds on this input, far past the test timeout.
+        const input = `-----BEGIN ${'PRIVATE KEY '.repeat(100_000)}`
+
+        expect(redactCredentialsInText(input)).toBe(input)
+    })
+
+    it.each([
+        { name: 'a dictionary key', input: "assert {'key': 'beta-feature'} == {'key': 'beta-feature-2'}" },
+        { name: 'an HTTP status code', input: 'Request failed with status code: 500' },
+        { name: 'a Node error code', input: "Error: Cannot find module { code: 'ERR_MODULE_NOT_FOUND' }" },
+        { name: 'an npm error code', input: 'npm error code: E404' },
+        { name: 'a token count', input: '{"input_tokens": 1200, "session": "warm"}' },
+    ])('keeps $name in CI output', ({ input }) => {
+        expect(redactFailureLogsHooks.afterResponse({} as Context, {}, input)).toBe(input)
+    })
+
+    it.each([
+        { input: `+ export DATABASE_PASSWORD=${OTHER_SECRET}`, expected: '+ export DATABASE_PASSWORD=[REDACTED]' },
+        { input: `  GITHUB_TOKEN: ${OTHER_SECRET}`, expected: '  GITHUB_TOKEN: [REDACTED]' },
+        { input: `/cb?access_token=${OTHER_SECRET}&a=1`, expected: '/cb?access_token=[REDACTED]&a=1' },
+        { input: `{"api_key": "${OTHER_SECRET}"}`, expected: '{"api_key": "[REDACTED]"}' },
+        { input: `client_secret: ${OTHER_SECRET}`, expected: 'client_secret: [REDACTED]' },
+        { input: `private_key: ${OTHER_SECRET}`, expected: 'private_key: [REDACTED]' },
+        { input: `AWS_SECRET_ACCESS_KEY: ${OTHER_SECRET}`, expected: 'AWS_SECRET_ACCESS_KEY: [REDACTED]' },
+        { input: `X-Hub-Signature: ${OTHER_SECRET}`, expected: 'X-Hub-Signature: [REDACTED]' },
+        { input: `?sig=${OTHER_SECRET}&a=1`, expected: '?sig=[REDACTED]&a=1' },
+        { input: `sessionid=${OTHER_SECRET}`, expected: 'sessionid=[REDACTED]' },
+    ])('masks $expected in CI output', ({ input, expected }) => {
+        expect(redactFailureLogsHooks.afterResponse({} as Context, {}, input)).toBe(expected)
+    })
+
+    it.each([
+        {
+            name: 'a header inside an assertion does not mask the lines after it',
+            lines: [
+                [1, "assert pem.startswith('-----BEGIN PRIVATE KEY-----')"],
+                [2, 'FAILED tests/test_pem.py::test_header'],
+                [3, '##[error]Process completed with exit code 1.'],
+            ],
+            expected: [
+                "assert pem.startswith('-----BEGIN PRIVATE KEY-----[REDACTED]",
+                'FAILED tests/test_pem.py::test_header',
+                '##[error]Process completed with exit code 1.',
+            ],
+        },
+        {
+            name: 'an omitted gap that hides the footer ends the key',
+            lines: [
+                [1, '-----BEGIN PRIVATE KEY-----'],
+                [2, 'INVENTEDkeyLINEone'],
+                [null, '... 30 lines omitted ...'],
+                [33, 'FAILED tests/test_deploy.py::test_key'],
+            ],
+            expected: [
+                '-----BEGIN PRIVATE KEY-----',
+                '[REDACTED]',
+                '... 30 lines omitted ...',
+                'FAILED tests/test_deploy.py::test_key',
+            ],
+        },
+        {
+            name: 'a byte-truncation marker counts as a gap before a footer',
+            lines: [
+                [1, 'INVENTEDnotAkey'],
+                [2, '... [log truncated] ...'],
+                [3, 'INVENTEDshortLINE'],
+                [4, '-----END PRIVATE KEY-----'],
+            ],
+            expected: [
+                'INVENTEDnotAkey',
+                '... [log truncated] ...',
+                '[REDACTED]',
+                '[REDACTED]-----END PRIVATE KEY-----',
+            ],
+        },
+        {
+            name: 'an escaped header opens the key',
+            lines: [
+                [1, String.raw`\u002D\u002D\u002D\u002D\u002DBEGIN EC PRIVATE KEY\u002D\u002D\u002D\u002D\u002D`],
+                [2, 'INVENTEDshortLINE'],
+            ],
+            expected: [
+                String.raw`\u002D\u002D\u002D\u002D\u002DBEGIN EC PRIVATE KEY\u002D\u002D\u002D\u002D\u002D`,
+                '[REDACTED]',
+            ],
+        },
+        {
+            name: 'a short last body line next to a long body line',
+            lines: [
+                [null, '... 9 lines omitted ...'],
+                [10, 'Zx8Yw7Vu6Ts5Rq4Po3Nm2Lk1Ji0Hg9Fe8Dc7Ba6Zx8Yw7Vu6Ts5Rq4Po3Nm2Lk1J'],
+                [11, 'INVENTEDtail=='],
+                [null, '... 2 lines omitted ...'],
+                [14, 'Done'],
+            ],
+            expected: ['... 9 lines omitted ...', '[REDACTED]', '[REDACTED]', '... 2 lines omitted ...', 'Done'],
+        },
+    ])('$name', ({ lines, expected }) => {
+        const response = { jobs: [{ lines: lines.map(([original_line, text]) => ({ original_line, text })) }] }
+
+        const redacted = redactFailureLogsHooks.afterResponse({} as Context, {}, response) as typeof response
+
+        expect(redacted.jobs[0]!.lines.map((line) => line.text)).toEqual(expected)
     })
 
     it('masks structured credential fields without mutating the response', () => {
@@ -210,5 +345,97 @@ describe('credential redaction', () => {
         } as unknown as Context
 
         expect(await GENERATED_TOOLS[tool]!().handler(context, {})).toEqual(expected)
+    })
+
+    it.each([
+        'engineering-analytics-ci-failure-logs',
+        'engineering-analytics-run-failure-logs',
+        'engineering-analytics-broken-tests',
+    ])('redacts environment values and multiline private keys through the generated %s handler', async (tool) => {
+        const line = (original_line: number | null, text: string): Record<string, unknown> => ({
+            original_line,
+            text,
+        })
+        const response = {
+            logs_available: true,
+            jobs: [
+                {
+                    job_id: 1,
+                    lines: [
+                        line(10, `  AWS_SECRET_ACCESS_KEY: ${OTHER_SECRET}`),
+                        line(11, '  GITHUB_TOKEN: ***'),
+                        line(12, `+ export DATABASE_PASSWORD=${OTHER_SECRET}`),
+                        line(13, '  NODE_ENV: production'),
+                        line(14, '-----BEGIN OPENSSH PRIVATE KEY-----'),
+                        line(15, 'INVENTEDkeyLINEone'),
+                        line(null, '... 3 lines omitted ...'),
+                        line(19, 'INVENTEDkeyLINEtwo-----END OPENSSH PRIVATE KEY-----'),
+                        line(20, 'FAILED tests/test_deploy.py::test_key'),
+                    ],
+                },
+                {
+                    job_id: 2,
+                    lines: [
+                        line(1, 'INVENTEDnotAkey'),
+                        line(null, '... 40 lines omitted ...'),
+                        line(42, 'aB3dE5fG7hJ9kL1mN3pQ5rS7tU9vW1xY3zA5bC7dE9fG1hJ3kL5mN7pQ9rS1tU3v'),
+                        line(43, 'short'),
+                        line(44, '-----END PRIVATE KEY-----'),
+                        line(45, 'sha256 0123456789abcdef0123456789abcdef0123456789abcdef'),
+                    ],
+                },
+                {
+                    job_id: 3,
+                    lines: [
+                        line(null, '... 9 lines omitted ...'),
+                        line(10, 'Zx8Yw7Vu6Ts5Rq4Po3Nm2Lk1Ji0Hg9Fe8Dc7Ba6Zx8Yw7Vu6Ts5Rq4Po3Nm2Lk1J'),
+                        line(11, '##[error]Process completed with exit code 1.'),
+                    ],
+                },
+            ],
+        }
+        const context = {
+            stateManager: { getProjectId: vi.fn().mockResolvedValue(1) },
+            api: { request: vi.fn().mockResolvedValue(response) },
+        } as unknown as Context
+
+        expect(await ENGINEERING_ANALYTICS_TOOLS[tool]!().handler(context, {})).toEqual({
+            logs_available: true,
+            jobs: [
+                {
+                    job_id: 1,
+                    lines: [
+                        line(10, '  AWS_SECRET_ACCESS_KEY: [REDACTED]'),
+                        line(11, '  GITHUB_TOKEN: [REDACTED]'),
+                        line(12, '+ export DATABASE_PASSWORD=[REDACTED]'),
+                        line(13, '  NODE_ENV: production'),
+                        line(14, '-----BEGIN OPENSSH PRIVATE KEY-----'),
+                        line(15, '[REDACTED]'),
+                        line(null, '... 3 lines omitted ...'),
+                        line(19, '[REDACTED]-----END OPENSSH PRIVATE KEY-----'),
+                        line(20, 'FAILED tests/test_deploy.py::test_key'),
+                    ],
+                },
+                {
+                    job_id: 2,
+                    lines: [
+                        line(1, 'INVENTEDnotAkey'),
+                        line(null, '... 40 lines omitted ...'),
+                        line(42, '[REDACTED]'),
+                        line(43, '[REDACTED]'),
+                        line(44, '[REDACTED]-----END PRIVATE KEY-----'),
+                        line(45, 'sha256 0123456789abcdef0123456789abcdef0123456789abcdef'),
+                    ],
+                },
+                {
+                    job_id: 3,
+                    lines: [
+                        line(null, '... 9 lines omitted ...'),
+                        line(10, '[REDACTED]'),
+                        line(11, '##[error]Process completed with exit code 1.'),
+                    ],
+                },
+            ],
+        })
     })
 })

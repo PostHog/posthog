@@ -35,6 +35,15 @@ def subscription_ids_in_team(*, team_id: int, subscription_ids: Collection[int])
     return set(Subscription.objects.filter(team_id=team_id, id__in=subscription_ids).values_list("id", flat=True))
 
 
+def user_has_slack_subscription(*, team_id: int, user_id: int) -> bool:
+    return Subscription.objects.filter(
+        team_id=team_id,
+        created_by_id=user_id,
+        target_type=Subscription.SubscriptionTarget.SLACK,
+        deleted=False,
+    ).exists()
+
+
 def _active_subscriptions() -> QuerySet[Subscription]:
     # Callers pass the id of an artifact they already scoped to their team, and ids are unique, so
     # the lookup needs no team filter.
