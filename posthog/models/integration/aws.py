@@ -344,7 +344,7 @@ class AWSS3RoleBasedIntegration(AWSRoleBasedIntegration):
 
     @staticmethod
     def our_aws_role_arn() -> str:
-        return settings.BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN
+        return get_or_settings("BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN", CredentialsCaller.INTEGRATIONS)
 
 
 class AWSKinesisRoleBasedIntegration(AWSRoleBasedIntegration):
@@ -438,7 +438,7 @@ class AWSRedshiftRoleBasedIntegration(AWSRoleBasedIntegration):
 
     @staticmethod
     def our_aws_role_arn() -> str:
-        return settings.BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN
+        return get_or_settings("BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN", CredentialsCaller.INTEGRATIONS)
 
 
 class AWSCredentialsIntegration:
