@@ -2877,7 +2877,9 @@ class TestAlertDestinations(APIBaseTest):
         ]
         # The Slack snooze handler finds its alert through these two ids.
         attachment_blocks = [
-            block for attachment in (hog_function.inputs or {})["attachments"]["value"] for block in attachment["blocks"]
+            block
+            for attachment in (hog_function.inputs or {})["attachments"]["value"]
+            for block in attachment["blocks"]
         ]
         actions = next(block for block in attachment_blocks if _is_actions_block(block))
         assert actions["block_id"] == "insight_alert_snooze:{event.properties.alert_id}"
