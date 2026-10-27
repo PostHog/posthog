@@ -97,7 +97,9 @@ export function loadPostHogJS(): void {
             opt_out_useragent_filter: window.location.hostname === 'localhost', // we ARE a bot when running in localhost, so we need to enable this opt-out
             api_host: window.JS_POSTHOG_HOST,
             ui_host: window.JS_POSTHOG_UI_HOST,
-            defaults: SDK_DEFAULTS_DATE,
+            defaults: 'latest',
+            // Cookie reconciliation breaks the anonymous flag handoff and group persistence in this startup flow.
+            cookieWinsOnConflict: false,
             // Hobby static files use /static/<asset>.js, without a version directory.
             ...(isHobbyDeployment() && window.JS_POSTHOG_SELF_CAPTURE
                 ? { strict_script_versioning: false as const }
