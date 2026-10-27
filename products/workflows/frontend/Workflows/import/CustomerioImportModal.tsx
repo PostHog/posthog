@@ -1,11 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCopy } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonModal, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonTable, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import { WorkflowImportResultApi } from 'products/workflows/frontend/generated/api.schemas'
@@ -20,10 +18,7 @@ const AGENT_PROMPT =
 const CLI_EXAMPLE = `cio api /v1/environments/$ENV_ID/campaigns/$CAMPAIGN_ID > automation.json
 cio api /v1/environments/$ENV_ID/templates/$TEMPLATE_ID > template.json`
 
-const STATUS_TAGS: Record<
-    WorkflowImportResultApi['status'],
-    { label: string; type: 'success' | 'warning' | 'danger' | 'default' }
-> = {
+const STATUS_TAGS: Record<WorkflowImportResultApi['status'], { label: string; type: LemonTagType }> = {
     preview: { label: 'Ready to import', type: 'default' },
     created: { label: 'Draft created', type: 'success' },
     updated: { label: 'Draft updated', type: 'success' },
@@ -94,16 +89,9 @@ export function CustomerioImportModal(): JSX.Element {
                         With the Customer.io and PostHog MCP servers connected, paste this into your agent. It reads
                         your automations and imports them for you.
                     </p>
-                    <div className="flex items-start gap-2 rounded border bg-surface-secondary p-2">
-                        <span className="grow text-sm">{AGENT_PROMPT}</span>
-                        <LemonButton
-                            size="small"
-                            icon={<IconCopy />}
-                            onClick={() => void copyToClipboard(AGENT_PROMPT, 'prompt')}
-                            tooltip="Copy prompt"
-                            data-attr="customerio-import-copy-prompt"
-                        />
-                    </div>
+                    <CodeSnippet language={Language.Text} wrap thing="prompt">
+                        {AGENT_PROMPT}
+                    </CodeSnippet>
                 </section>
                 <section className="flex flex-col gap-2">
                     <h4 className="mb-0">Or upload files from the Customer.io CLI</h4>
@@ -129,7 +117,7 @@ export function CustomerioImportModal(): JSX.Element {
                         </span>
                     ) : null}
                 </section>
-                {results?.contentFetched && (
+                {results?.content_fetched && (
                     <span className="text-secondary" data-attr="customerio-import-content-fetched">
                         PostHog read the message content from Customer.io with your stored API key.
                     </span>

@@ -46,7 +46,7 @@ export function TileHoverCard({
     action: HogFlowAction
     tile: TileStep
     count: number | undefined
-    workflowId?: string
+    workflowId: string
 }): JSX.Element {
     const face = { width: TILE_SIZE, height: TILE_SIZE }
     const width = Math.max(MIN_WIDTH, face.width + 12 + CAPTION_WIDTH + PADDING * 2 + KIND_LABEL_ROOM)
@@ -101,7 +101,7 @@ export function TileHoverCard({
                     {(!showPreview || !PREVIEWS_THAT_SHOW_SETTINGS.has(kind)) && <StepFieldList facts={tile.facts} />}
                     <StepCountLine count={count} />
                 </div>
-                {workflowId && workflowId !== 'new' && (
+                {workflowId && (
                     <div className="border-t py-3 empty:hidden">
                         <StepImportNotesList workflowId={workflowId} stepId={action.id} />
                     </div>

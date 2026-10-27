@@ -2,7 +2,6 @@ import { useValues } from 'kea'
 
 import { workflowImportNotesLogic } from './workflowImportNotesLogic'
 
-/** What the Customer.io import changed or left out of one step, or nothing when it carried over as is. */
 export function StepImportNotesList({
     workflowId,
     stepId,

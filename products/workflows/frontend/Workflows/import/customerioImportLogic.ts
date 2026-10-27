@@ -6,8 +6,9 @@ import { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { workflowImportsCreate } from 'products/workflows/frontend/generated/api'
-import { WorkflowImportResultApi } from 'products/workflows/frontend/generated/api.schemas'
+import { WorkflowImportResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import type { WorkflowImportResultApi } from '../../generated/api.schemas'
 import { workflowsLogic } from '../workflowsLogic'
 import { ParsedCustomerioFile, parseCustomerioFiles } from './customerioImportFile'
 
@@ -17,11 +18,11 @@ export interface customerioImportLogicValues {
     isImportModalOpen: boolean
     parseError: string | null
     parsed: ParsedCustomerioFile | null
-    results: {
-        contentFetched: boolean
-        dryRun: boolean
-        results: WorkflowImportResultApi[]
-    } | null
+    results:
+        | (WorkflowImportResponseApi & {
+              dryRun: boolean
+          })
+        | null
     resultsLoading: boolean
 }
 
@@ -60,7 +61,7 @@ export interface customerioImportLogicActions {
     }
     runImportSuccess: (
         results: {
-            contentFetched: boolean
+            content_fetched: boolean
             dryRun: boolean
             results: WorkflowImportResultApi[]
         } | null,
@@ -69,7 +70,7 @@ export interface customerioImportLogicActions {
         }
     ) => {
         results: {
-            contentFetched: boolean
+            content_fetched: boolean
             dryRun: boolean
             results: WorkflowImportResultApi[]
         } | null
@@ -136,7 +137,7 @@ export const customerioImportLogic = kea<customerioImportLogicType>([
     }),
     loaders(({ values }) => ({
         results: [
-            null as { dryRun: boolean; contentFetched: boolean; results: WorkflowImportResultApi[] } | null,
+            null as (WorkflowImportResponseApi & { dryRun: boolean }) | null,
             {
                 runImport: async ({ dryRun }: { dryRun: boolean }) => {
                     const parsed = values.parsed
@@ -153,7 +154,7 @@ export const customerioImportLogic = kea<customerioImportLogicType>([
                         // The files changed while the preview ran, so it describes files that are gone.
                         return null
                     }
-                    return { dryRun, contentFetched: response.content_fetched, results: response.results }
+                    return { ...response, dryRun }
                 },
                 resetResults: () => null,
             },

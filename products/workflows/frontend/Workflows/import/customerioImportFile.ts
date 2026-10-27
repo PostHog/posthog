@@ -11,7 +11,6 @@ function isObject(value: unknown): value is JsonObject {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** Templates as a list, from a list or from an object keyed by template id. */
 function templateList(value: unknown): JsonObject[] {
     if (Array.isArray(value)) {
         return value.filter(isObject)
@@ -36,7 +35,6 @@ function toCampaign(value: unknown): CustomerioCampaignApi | null {
     }
 }
 
-/** Whether a loose template belongs to one of the automation's steps, by template id or by step id. */
 function isReferenced(template: JsonObject, actions: JsonObject[]): boolean {
     return actions.some(
         (action) =>

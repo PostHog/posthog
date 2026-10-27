@@ -246,9 +246,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     </div>
                 )}
             </div>
-            {logicProps.id && logicProps.id !== 'new' ? (
-                <StepImportNotesTooltipBadge workflowId={logicProps.id} stepId={action.id} />
-            ) : null}
+            {logicProps.id ? <StepImportNotesTooltipBadge workflowId={logicProps.id} stepId={action.id} /> : null}
             {hasValidationError || hasValidationWarning ? (
                 <div className="absolute top-0 right-0 scale-75">
                     <LemonBadge status="warning" size="small" content="!" position="top-right" />
