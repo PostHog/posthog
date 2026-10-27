@@ -1,11 +1,7 @@
-// Reproduction for MCP UI apps not rendering on Claude surfaces.
-// Slack: https://posthog.slack.com/archives/C0368RPHLQH/p1793114647178269
-//
-// Drives the real Hono app with the exact headers the claude.ai connector sends,
-// in the stateless 2026-07-28 dialect every Claude surface speaks today. Every
-// assertion below encodes the CURRENT (defective) behavior, so this file passes
-// on master and documents the two mechanisms. It is a repro, not a regression
-// test: do not commit it as-is.
+// Reproduction for MCP UI apps not rendering on Claude surfaces:
+// https://posthog.slack.com/archives/C0368RPHLQH/p1793114647178269
+// Every assertion locks in the current defective behavior, so this passes on
+// master and must not land as a regression test.
 import { http, HttpResponse } from 'msw'
 import { setupServer } from 'msw/node'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -21,9 +17,6 @@ import { insightResults } from '../fixtures/insight-fixtures'
 import { contextMillHandler, handlers } from '../workers/fixtures/handlers'
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
 
-// The shared fixtures mock auth, user, org and project. `query-trends` also POSTs
-// to `/query/`, so answer that with a real captured trends payload plus the
-// formatted table the backend renders for CLI clients.
 const queryHandler = http.post('*/query/', () =>
     HttpResponse.json({
         results: insightResults.trendsLine,
@@ -85,11 +78,8 @@ interface ToolCallResult {
     _meta?: Record<string, unknown>
 }
 
-/**
- * One request as Anthropic's connector sends it: pooled `clientInfo.name`
- * `Anthropic/ClaudeAI`, `User-Agent: Claude-User`, and the live product only in
- * `x-anthropic-client` (absent on the connector's own list fetch).
- */
+// The connector reports the pooled `Anthropic/ClaudeAI` client and names the live
+// product only in `x-anthropic-client`, which its own list fetch omits.
 async function connectorRequest<T>(
     method: 'tools/list' | 'tools/call',
     params: Record<string, unknown>,
@@ -148,7 +138,6 @@ describe('render-ui on the claude.ai connector', () => {
         expect(headerless).toEqual(['exec', 'render-ui'])
         expect(chat).toEqual(['exec', 'render-ui'])
         expect(cowork).toEqual(['exec', 'render-ui'])
-        // The Code tab's refresh drops render-ui, and chat inherits that roster.
         expect(codeTab).toEqual(['exec'])
     })
 
@@ -163,7 +152,6 @@ describe('render-ui on the claude.ai connector', () => {
         expect(refused.isError).toBe(true)
         expect(refused.content[0]?.text).toBe('Tool render-ui not found')
 
-        // The identical call from chat returns the render directive the widget mounts.
         const rendered = await connectorRequest<ToolCallResult>(
             'tools/call',
             { name: 'render-ui', arguments: { tool_name: 'query-trends', tool_input: trendsInput } },
@@ -185,13 +173,10 @@ describe('render-ui on the claude.ai connector', () => {
         console.info(`[repro] exec call query-trends as ClaudeCode → text ends with: "${text.slice(-120)}"`)
 
         expect(codeTab.isError).toBeFalsy()
-        // The widget rides on `_meta`, which only an MCP Apps host reads…
         expect((codeTab._meta as { ui?: { resourceUri?: string } })?.ui?.resourceUri).toBe(QUERY_RESULTS_RESOURCE_URI)
         expect(codeTab._meta?.[APP_DATA_META_KEY]).not.toBeUndefined()
-        // …and the model is told the user is already looking at it.
         expect(text).toContain(UI_APP_RENDER_NOTE)
 
-        // Chat gets the same data with no widget on exec and no such claim.
         const chat = await connectorRequest<ToolCallResult>(
             'tools/call',
             { name: 'exec', arguments: { command } },
