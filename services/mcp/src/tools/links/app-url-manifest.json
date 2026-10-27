@@ -324,6 +324,11 @@
         "params": [],
         "scope": "project"
     },
+    "broadcastsTemplate": {
+        "template": "/broadcasts/library/templates/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "businessIntelligence": {
         "template": "/bi",
         "params": [],
@@ -1837,6 +1842,16 @@
     "tracingRetentionNew": {
         "template": "/tracing/retention-rules/new",
         "params": [],
+        "scope": "project"
+    },
+    "transactional": {
+        "template": "/transactional",
+        "params": [],
+        "scope": "project"
+    },
+    "transactionalTemplate": {
+        "template": "/transactional/library/templates/{id}",
+        "params": ["id"],
         "scope": "project"
     },
     "transformations": {

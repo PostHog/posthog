@@ -5684,6 +5684,7 @@ export type FileSystemIconType =
     | 'uptime_monitoring'
     | 'workflows'
     | 'broadcasts'
+    | 'transactional'
     | 'notebook'
     | 'action'
     | 'activity'

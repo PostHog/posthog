@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -10,6 +11,7 @@ import type { ResourceEditedEvent } from '~/types'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
+import { NEW_TEMPLATE } from './constants'
 import { messageTemplateLogic } from './messageTemplateLogic'
 
 jest.mock('lib/lemon-ui/LemonToast', () => ({
@@ -462,6 +464,29 @@ describe('messageTemplateLogic', () => {
             if (editWhileConverting) {
                 expect(logic.values.template.name).toEqual('Renamed while converting')
             }
+        })
+
+        test.each([
+            ['from the Transactional section converts it and opens it', { transactional: 'true' }, 1, '/created-id'],
+            ['as a plain template leaves it alone', {}, 0, '/workflows/library'],
+        ])('first save of a new template started %s', async (_name, search, expectedConversions, expectedPath) => {
+            const makeTransactional = jest.fn(() => [200, { id: 'created-id', transactional_hog_flow_id: 'flow-id' }])
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/messaging_templates/': { ...NEW_TEMPLATE, id: 'created-id' },
+                    '/api/projects/:team_id/messaging_templates/:id/make_transactional/': makeTransactional,
+                },
+            })
+            router.actions.push('/workflows/library/templates/new', search)
+            logic = messageTemplateLogic({ id: 'new' })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.saveTemplate(logic.values.template)
+            }).toFinishAllListeners()
+
+            expect(makeTransactional).toHaveBeenCalledTimes(expectedConversions)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toMatch(new RegExp(`${expectedPath}$`))
         })
     })
 })
