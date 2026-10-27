@@ -6,6 +6,7 @@ import {
     ActivityLogUserName,
     Describer,
     Description,
+    defaultDescriber,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
@@ -54,9 +55,15 @@ describe('humanizeActivity', () => {
             changes: [
                 { field: 'session_recording_opt_in', after: true },
                 { field: 'effective_membership_level', after: 1 },
+                {
+                    field: 'feature_flag_policy_config',
+                    before: { require_tags: false, blocked_hosts: ['old.example.com'], blocked_ips: [] },
+                    after: { require_tags: true, blocked_hosts: ['new.example.com'], blocked_ips: [] },
+                },
             ],
-            action: 'enabled session recording',
-            description: 'A user enabled session recording on Example',
+            action: 'enabled session recording, enabled required tags on feature flags, added new.example.com to the blocked domains for feature flag requests, and removed old.example.com from the blocked domains for feature flag requests',
+            description:
+                'A user enabled session recording, enabled required tags on feature flags, added new.example.com to the blocked domains for feature flag requests, and removed old.example.com from the blocked domains for feature flag requests on Example',
         },
         {
             scope: ActivityScope.EVENT_DEFINITION,
@@ -159,6 +166,24 @@ describe('humanizeActivity', () => {
 
             expect(render(<>{describer(logItem).summary?.action}</>).container.textContent).toBe(expected)
         }
+    })
+
+    it.each([
+        ['minted', 'A user created Developer mode token for a@posthog.com'],
+        ['revoked', 'A user revoked Developer mode token for a@posthog.com'],
+    ])('describes a %s DevGatewayToken row with the default describer', (activity, expected) => {
+        const logItem = makeLogItem({
+            scope: ActivityScope.DEV_GATEWAY_TOKEN,
+            activity,
+            detail: { merge: null, trigger: null, changes: null, name: 'Developer mode token for a@posthog.com' },
+        })
+        const { description } = defaultDescriber(logItem)
+
+        expect(
+            render(<>{description}</>)
+                .container.textContent?.replace(/\s+/g, ' ')
+                .trim()
+        ).toBe(expected)
     })
 
     describe('userNameForLogItem', () => {

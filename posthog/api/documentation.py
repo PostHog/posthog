@@ -26,6 +26,7 @@ from rest_framework_dataclasses.fields import EnumField as DataclassEnumField
 from posthog.enums import LabeledEnumType
 from posthog.models.entity import MathType
 from posthog.models.property import OperatorType, PropertyType
+from posthog.models.property.property import SemverOperator
 from posthog.permissions import APIScopePermission
 from posthog.products import is_product_module
 
@@ -465,17 +466,7 @@ class FeatureFlagFilterPropertyDateSchemaSerializer(_FeatureFlagFilterPropertyBa
 
 class FeatureFlagFilterPropertySemverSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
     operator = serializers.ChoiceField(
-        choices=[
-            "semver_gt",
-            "semver_gte",
-            "semver_lt",
-            "semver_lte",
-            "semver_eq",
-            "semver_neq",
-            "semver_tilde",
-            "semver_caret",
-            "semver_wildcard",
-        ],
+        choices=SemverOperator.choices,
         required=True,
         help_text="Semantic version comparison operator.",
     )
@@ -512,6 +503,16 @@ class FeatureFlagFilterPropertyCohortInSchemaSerializer(_FeatureFlagFilterProper
     value = serializers.JSONField(
         required=True,
         help_text="Cohort comparison value (single or list, depending on usage).",
+    )
+    cohort_deleted = serializers.BooleanField(
+        required=False,
+        help_text="Set to true in responses when the cohort is deleted or does not exist. "
+        "The flag cannot evaluate this condition. Ignored on write.",
+    )
+    cohort_missing = serializers.BooleanField(
+        required=False,
+        help_text="Set to true in responses when no cohort with this id exists in the project, so it cannot be "
+        "restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.",
     )
 
 

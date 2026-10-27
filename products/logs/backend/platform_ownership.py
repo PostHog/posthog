@@ -20,8 +20,10 @@ from products.alerts_platform.backend.facade.contracts import (
     GroupingMode,
     InvalidPlatformAlertEdit,
     PlatformAlertConfigurationEdit,
+    PlatformAlertCreateRefused,
     PlatformAlertNotEditable,
 )
+from products.logs.backend.alert_creation import AlertLimitReached, claim_alert_slot, first_check_at
 from products.logs.backend.alert_group_columns import grouping_problem
 from products.logs.backend.alert_state_machine import apply_enabled
 from products.logs.backend.facade.api import close_incident_before_delete
@@ -57,6 +59,31 @@ def on_created(alert: LogsAlertConfiguration, at: datetime, *, grouping: Groupin
         return True
     _refuse_grouping_on_logs(grouping)
     return False
+
+
+def create_platform_owned(*, team_id: int, edit: PlatformAlertConfigurationEdit, created_by_id: int | None) -> UUID:
+    """Creates a logs alert through the platform API: the logs row and the platform's copy, both owned
+    by the platform, as a create through the logs API does in a team that has begun the cutover.
+
+    The team counts as begun from then on, because the platform owns one of its logs alerts.
+    """
+    try:
+        claim_alert_slot(team_id)
+    except AlertLimitReached as error:
+        raise PlatformAlertCreateRefused(str(error)) from error
+    now = timezone.now()
+    alert = LogsAlertConfiguration(
+        team_id=team_id,
+        created_by_id=created_by_id,
+        enabled=edit.enabled,
+        first_enabled_at=now if edit.enabled else None,
+        next_check_at=first_check_at(team_id, edit.schedule_restriction) if edit.schedule_restriction else None,
+    )
+    _set_settings(alert, edit)
+    alert.save()
+    if not hand_over(alert, now, grouping=edit.grouping):
+        raise RuntimeError(f"Logs alert {alert.id} was created with a platform copy already firing")
+    return alert.id
 
 
 def on_updated(alert: LogsAlertConfiguration, *, snooze_changed: bool, grouping: Grouping | None = None) -> None:
@@ -110,17 +137,21 @@ def mirror_platform_edit(
     return lambda edit: _write_logs_row(alert, edit)
 
 
-def _write_logs_row(alert: LogsAlertConfiguration, edit: PlatformAlertConfigurationEdit) -> None:
+def _set_settings(alert: LogsAlertConfiguration, edit: PlatformAlertConfigurationEdit) -> None:
     # The inverse of `platform_upsert_of`, over the same field lists.
     condition = edit.source_config[SOURCE_CONDITION_KEY]
-    # The shadow evaluation still runs this row, so an on or off moves its state the way the logs API does.
-    enabled_fields = apply_enabled(alert, edit.enabled, now=timezone.now())
     alert.filters = filters_of(edit.source_config)
     for field in CONDITION_FIELDS:
         setattr(alert, field, condition[field])
     for field in SETTINGS_FIELDS:
         if field != "source_config":
             setattr(alert, field, getattr(edit, field))
+
+
+def _write_logs_row(alert: LogsAlertConfiguration, edit: PlatformAlertConfigurationEdit) -> None:
+    # The shadow evaluation still runs this row, so an on or off moves its state the way the logs API does.
+    enabled_fields = apply_enabled(alert, edit.enabled, now=timezone.now())
+    _set_settings(alert, edit)
     alert.save(
         update_fields=[
             *enabled_fields,

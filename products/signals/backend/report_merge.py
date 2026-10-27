@@ -10,7 +10,8 @@ The caller names the survivor and the sources. Nothing here guesses which report
 nothing here rewrites content: titles, summaries, charts and metrics are left exactly as they
 were, so the survivor's embeddings are untouched and the outcome of a merge is predictable
 without reading an LLM's mind. A caller that wants a combined summary edits the survivor
-afterwards, where the safety judge runs.
+afterwards, where the safety judge runs. Tags are metadata, not content: the survivor takes the
+union of its own tags and the sources' tags.
 """
 
 from __future__ import annotations
@@ -33,14 +34,16 @@ from products.signals.backend.artefact_schemas import (
     NoteArtefact,
     ReportLink,
 )
-from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
     SignalReportCheck,
     SignalReportGithubComment,
+    SignalScoutRun,
 )
 from products.signals.backend.recurrence import latest_recurrence_report
+from products.signals.backend.report_tags import set_report_tags, union_report_tags
 from products.signals.backend.signal_metadata import REASSIGN_SIGNAL_ROW_CAP
 
 logger = structlog.get_logger(__name__)
@@ -114,6 +117,8 @@ class MergedSource:
 class MergeResult:
     survivor_id: str
     sources: tuple[MergedSource, ...]
+    # The skill of the scout run that asked for the merge, None for every other caller.
+    scout_skill_name: str | None = None
 
 
 def was_merged_away(report: SignalReport) -> bool:
@@ -285,6 +290,7 @@ def _merge_source_into(
         report_id=str(source.id),
         content=ReportLink(kind=ReportLinkKind.DUPLICATE_OF, report_id=str(survivor.id), reason=reason),
         attribution=attribution,
+        write_path=ReportLinkWritePath.MERGE,
     )
 
     _dismiss_as_merged(source, survivor=survivor, attribution=attribution, reason=reason)
@@ -322,6 +328,7 @@ def _dismiss_as_merged(
         team_id=source.team_id,
         report_id=str(source.id),
         content=Dismissal(
+            state="suppressed",
             reason=MERGE_DISMISSAL_REASON,
             note=f"{note} {reason}" if reason else note,
             user_id=attribution.user_id,
@@ -336,6 +343,24 @@ def _survivor_note(sources: list[SignalReport], reason: str | None) -> str:
     if reason:
         body = f"{body}\n\n{reason}"
     return f"{body}\n\nTitles and summaries are not combined by a merge."
+
+
+def _acting_scout_skill_name(team_id: int, attribution: ArtefactAttribution) -> str | None:
+    """The scout whose run asked for the merge, so its merges can be told apart from other tasks'.
+
+    A task attribution reads the same for a scout, a research run and an implementation run. A task
+    can hold several runs (a retried dispatch), and they all share the skill.
+    """
+    if attribution.task_id is None:
+        return None
+    skill_name = (
+        SignalScoutRun.objects.for_team(team_id)
+        .filter(task_run__task_id=attribution.task_id)
+        .order_by("-created_at")
+        .values_list("skill_name", flat=True)
+        .first()
+    )
+    return skill_name or None
 
 
 def _requested_source_ids(source_ids: list[str], *, survivor_id: str) -> list[str]:
@@ -389,6 +414,7 @@ def merge_reports(
     reason about a half-merged pair.
     """
     ordered_ids = _requested_source_ids(source_ids, survivor_id=str(survivor.id))
+    scout_skill_name = _acting_scout_skill_name(team.id, attribution)
 
     with transaction.atomic():
         # Locked in id order, survivor included, so overlapping merges queue instead of deadlocking.
@@ -419,10 +445,12 @@ def merge_reports(
             # duplicate_of cycle is a merge the caller cannot have, not a server fault.
             raise ReportMergeError(str(e))
 
+        set_report_tags(survivor, union_report_tags(survivor.tags, *(source.tags for source in sources)))
+
         SignalReportArtefact.add_log(
             team_id=team.id,
             report_id=str(survivor.id),
-            content=NoteArtefact(note=_survivor_note(sources, reason)),
+            content=NoteArtefact(note=_survivor_note(sources, reason), author=scout_skill_name),
             attribution=attribution,
         )
 
@@ -439,8 +467,9 @@ def merge_reports(
         team_id=team.id,
         survivor_report_id=str(survivor.id),
         source_report_ids=[item.report_id for item in merged],
+        scout_skill_name=scout_skill_name,
     )
-    return MergeResult(survivor_id=str(survivor.id), sources=tuple(merged))
+    return MergeResult(survivor_id=str(survivor.id), sources=tuple(merged), scout_skill_name=scout_skill_name)
 
 
 def _schedule_signal_move(*, team_id: int, survivor_id: str, source_ids: list[str]) -> None:

@@ -1,4 +1,3 @@
-use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,10 +7,9 @@ use common_database::{get_pool_with_config, PoolConfig};
 use common_metrics::{setup_metrics_routes_with_overrides, Matcher};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
-use personhog_coordination::changelog::{
-    load_changelog_config, watch_changelog_config_loop, CHANGELOG_BOOT_POLL_INTERVAL,
-    CHANGELOG_RECONCILE_INTERVAL,
-};
+use metrics::counter;
+use personhog_coordination::changelog::{load_changelog_config, CHANGELOG_BOOT_POLL_INTERVAL};
+use personhog_coordination::follow::{follow_changelog, Follower, Reporter};
 use personhog_coordination::store::PersonhogStore;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -23,7 +21,6 @@ use tracing_subscriber::EnvFilter;
 
 use personhog_writer::config::Config;
 use personhog_writer::consumer::ConsumerTask;
-use personhog_writer::follow::Follower;
 use personhog_writer::kafka::{base_client_config, PersonConsumer};
 use personhog_writer::pg::PgStore;
 use personhog_writer::store::PersonWriteStore;
@@ -246,42 +243,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tokio::spawn(async move {
             let _guard = handle.process_scope();
             let cancel = CancellationToken::new();
-            let (config_tx, mut config_rx) = tokio::sync::watch::channel(loaded.clone());
-            let watch = watch_changelog_config_loop(
+            let follow = follow_changelog(
                 store,
-                loaded.clone(),
-                CHANGELOG_RECONCILE_INTERVAL,
+                loaded,
+                follower,
+                consumer,
+                |topic: String| drained(&config, topic),
+                Reporter::for_group(&config.kafka_consumer_group),
+                |_, _| counter!("personhog_writer_resubscriptions_total").increment(1),
                 cancel.clone(),
-                move |next| {
-                    drop(config_tx.send(next.clone()));
-                    ControlFlow::Continue(())
-                },
             );
-            let probe = |topic: String| drained(&config, topic);
-            let follow = async {
-                loop {
-                    let current = config_rx.borrow().clone();
-                    if let Err(e) = follower.follow_once(&consumer, &current, &probe).await {
-                        tracing::warn!(error = %e, "could not follow the changelog config; keeping the subscription");
-                    }
-                    let poll = if consumer.is_draining() {
-                        DRAIN_POLL_INTERVAL
-                    } else {
-                        CHANGELOG_RECONCILE_INTERVAL
-                    };
-                    tokio::select! {
-                        changed = config_rx.changed() => {
-                            if changed.is_err() {
-                                return;
-                            }
-                        }
-                        _ = tokio::time::sleep(poll) => {}
-                    }
-                }
-            };
             tokio::select! {
                 _ = handle.shutdown_signal() => cancel.cancel(),
-                _ = watch => {}
                 _ = follow => {}
             }
         });
@@ -290,10 +263,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     monitor_guard.wait().await?;
     Ok(())
 }
-
-/// How often a writer on a sealed generation re-checks the group's drain.
-/// Each check reads every partition of the generation under a probe group.
-const DRAIN_POLL_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Whether the writer group has read every partition of `topic` to its end.
 async fn drained(config: &Config, topic: String) -> Result<bool, String> {

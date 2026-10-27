@@ -332,7 +332,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                         {scannerTypeLabel(scanner.scanner_type)}
                     </LemonTag>
                     <div className="text-sm whitespace-pre-wrap">{scanner.scanner_config.prompt}</div>
-                    <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1 text-sm border-t pt-3">
+                    <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1 text-sm border-t pt-3">
                         <StatRow label="Model">
                             <span className="inline-flex items-center gap-2">
                                 <LemonTag type="muted">{modelName(scanner.model)}</LemonTag>
@@ -350,12 +350,14 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
 
             <OverviewSection label="Eligible recordings" editStep="triggers" scannerId={scannerId}>
                 {filterGroups.length > 0 ? (
-                    <div className="grid grid-cols-[auto_1fr] items-start gap-x-3 gap-y-1 text-sm">
+                    <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1 text-sm">
                         {filterGroups.map((group) => (
                             <StatRow key={group.label} label={group.label}>
                                 <span className="flex flex-wrap gap-1">
                                     {group.values.map((value) => (
-                                        <LemonSnack key={value}>{value}</LemonSnack>
+                                        <LemonSnack key={value} wrap>
+                                            {value}
+                                        </LemonSnack>
                                     ))}
                                 </span>
                             </StatRow>
@@ -388,7 +390,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 editStep="budget"
                 scannerId={scannerId}
             >
-                <div className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-2 text-sm">
+                <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 text-sm">
                     <StatRow label="Recordings">
                         {monthlyObservations != null ? (
                             <span className="font-medium">

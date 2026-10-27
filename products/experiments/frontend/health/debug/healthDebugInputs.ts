@@ -55,6 +55,22 @@ function yesNoUnknown(value: boolean | null): string {
     return value === null ? 'Unknown' : formatYesNo(value)
 }
 
+function describeExposureEvents({ exposure_events, events_received }: ExperimentHealthInputsApi): string {
+    if (!exposure_events) {
+        return "The stored exposure criteria don't parse"
+    }
+    if (exposure_events.custom_event) {
+        const received = events_received[exposure_events.custom_event]
+        const receivedText = received === undefined ? 'no record' : received ? 'received' : 'never received'
+        return `The event "${exposure_events.custom_event}" (${receivedText}), with the variant in ${exposure_events.variant_property}`
+    }
+    if (exposure_events.required_flag_key) {
+        const calls = `Calls of the flag "${exposure_events.required_flag_key}"`
+        return exposure_events.activation ? `${calls}, then the activation "${exposure_events.activation}"` : calls
+    }
+    return `An action, with the variant in ${exposure_events.variant_property}`
+}
+
 function describeState(inputs: ExperimentHealthInputsApi): string {
     if (!inputs.is_launched) {
         return 'not launched'
@@ -123,6 +139,18 @@ export function buildFlagFacts(experiment: Experiment, state: HealthInputsState)
         {
             label: 'Variants',
             value: serverValue(state, ({ flag }) => (flag ? flag.split_text : 'No flag')),
+        },
+        {
+            label: 'Latest recorded call',
+            value: serverValue(state, ({ flag_last_called_at }) =>
+                flag_last_called_at ? formatTimestamp(flag_last_called_at) : 'None'
+            ),
+            help: 'A sync of the flag call events sets it every 30 minutes, so it can trail a call by up to an hour.',
+        },
+        {
+            label: 'Called during the run',
+            value: serverValue(state, ({ flag_called_during_run }) => yesNoUnknown(flag_called_during_run)),
+            help: "The zero-exposures finding says the flag has no recorded calls when this is No. Unknown before launch, when the latest call came after the end, or when the organization's flag calls skip the events table.",
         },
     ]
 }
@@ -311,6 +339,11 @@ export function buildExposureFacts(state: HealthInputsState): SetupFact[] {
             label: 'Status',
             value: serverValue(state, (inputs) => exposureStatusLabel(inputs.exposures)),
             help: 'The server reads the cached answer and never waits for the query.',
+        },
+        {
+            label: 'Counted on',
+            value: serverValue(state, describeExposureEvents),
+            help: "The zero-exposures finding reads the flag's calls only when the exposures are counted on them. A custom event or an action carries the variant in its own property.",
         },
     ]
     const totals = exposures?.totals

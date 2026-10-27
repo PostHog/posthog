@@ -13,6 +13,7 @@ import type {
     PatchedPlatformAlertConfigurationEditApi,
     PlatformAlertApi,
     PlatformAlertConfigurationApi,
+    PlatformAlertConfigurationCreateApi,
     PlatformAlertConfigurationEditApi,
     PlatformAlertGroupSnoozeApi,
     PlatformAlertsListParams,
@@ -42,6 +43,23 @@ export const platformAlertsList = async (
     return apiMutator<PaginatedPlatformAlertConfigurationListApi>(getPlatformAlertsListUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getPlatformAlertsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/platform_alerts/`
+}
+
+export const platformAlertsCreate = async (
+    projectId: string,
+    platformAlertConfigurationCreateApi?: PlatformAlertConfigurationCreateApi,
+    options?: RequestInit
+): Promise<PlatformAlertConfigurationApi> => {
+    return apiMutator<PlatformAlertConfigurationApi>(getPlatformAlertsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(platformAlertConfigurationCreateApi),
     })
 }
 
@@ -93,6 +111,17 @@ export const platformAlertsPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedPlatformAlertConfigurationEditApi),
+    })
+}
+
+export const getPlatformAlertsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/platform_alerts/${id}/`
+}
+
+export const platformAlertsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getPlatformAlertsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
     })
 }
 

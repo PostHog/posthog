@@ -617,9 +617,10 @@ class TestMediaLibraryAPI(APIBaseTest):
         assert media_location is not None
         return media_id, media_location
 
-    def test_complete_upload_verifies_and_activates_the_pending_upload(self) -> None:
+    @parameterized.expand([("email",), ("experiment",)])
+    def test_complete_upload_verifies_and_activates_the_pending_upload(self, purpose: str) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER=TEST_BUCKET):
-            media_id, media_location = self._start_upload()
+            media_id, media_location = self._start_upload(purpose=purpose)
             with open(get_path_to("a-small-but-valid.gif"), "rb") as image:
                 gif_bytes = image.read()
             object_storage.write(media_location, gif_bytes)
@@ -635,7 +636,7 @@ class TestMediaLibraryAPI(APIBaseTest):
             media = UploadedMedia.objects.get(id=media_id)
             assert media.pending is False
 
-            list_response = self.client.get(f"/api/projects/{self.team.id}/uploaded_media/?purpose=email")
+            list_response = self.client.get(f"/api/projects/{self.team.id}/uploaded_media/?purpose={purpose}")
             assert [item["id"] for item in list_response.json()["results"]] == [media_id]
 
             self.client.logout()

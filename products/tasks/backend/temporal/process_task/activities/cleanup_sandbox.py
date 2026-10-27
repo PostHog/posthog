@@ -20,6 +20,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
 )
 from products.tasks.backend.models import SandboxSession, TaskRun
 from products.tasks.backend.redis import run_uses_dedicated_stream
+from products.tasks.backend.temporal.metrics import increment_sandbox_exit_status, sandbox_runtime_label
 from products.tasks.backend.temporal.observability import log_activity_execution
 
 logger = logging.getLogger(__name__)
@@ -92,6 +93,17 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
                     extra={"sandbox_id": input.sandbox_id},
                     exc_info=True,
                 )
+
+        try:
+            exit_status = sandbox.exit_status()
+            if exit_status is not None:
+                session = (
+                    SandboxSession.objects.unscoped().filter(sandbox_id=input.sandbox_id).only("vm_runtime").first()
+                )
+                runtime = sandbox_runtime_label(session.vm_runtime) if session is not None else "unknown"
+                increment_sandbox_exit_status(exit_status, runtime)
+        except Exception:
+            logger.warning("cleanup_sandbox_exit_status_failed", extra={"sandbox_id": input.sandbox_id}, exc_info=True)
 
         cpu_usage_usec, cpu_usage_measured_at = measure_sandbox_cpu_usage(sandbox)
         billed_cpu_usage_usec = measure_sandbox_billed_cpu_usage(sandbox)

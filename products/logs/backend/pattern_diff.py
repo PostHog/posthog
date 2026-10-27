@@ -1,5 +1,6 @@
 import datetime as dt
 from collections.abc import Callable
+from time import monotonic
 from typing import TYPE_CHECKING
 
 from posthog.schema import DateRange, LogsQuery
@@ -192,6 +193,7 @@ def run_patterns_diff(
     *,
     user: "User | None" = None,
     limit: int | None = None,
+    deadline: float | None = None,
 ) -> dict:
     """Mine the query's window and a baseline window, and return classified diff entries.
 
@@ -213,6 +215,9 @@ def run_patterns_diff(
     baseline_runner = PatternsQueryRunner(team=team, query=baseline_query, user=user)
     baseline_from = baseline_runner.query_date_range.date_from()
     baseline_to = baseline_runner.query_date_range.date_to()
+    # Both windows and the first-seen lookup share one deadline, so the whole comparison stays inside the
+    # caller's time budget.
+    current_runner.request_deadline = baseline_runner.request_deadline = deadline
 
     versions = {runner.stored_version() for runner in (current_runner, baseline_runner)}
     version = versions.pop() if len(versions) == 1 else None
@@ -234,7 +239,7 @@ def run_patterns_diff(
     )
     truncated = limit is not None and len(entries) > limit
     entries = entries[:limit]
-    first_seen = _first_seen_ever(team, query, entries, version, current_to) if version else {}
+    first_seen = _first_seen_ever(team, query, entries, version, current_to, deadline) if version else {}
     history_failed = first_seen is None
     first_seen = first_seen or {}
     for entry in entries:
@@ -276,8 +281,19 @@ def run_patterns_diff(
 
 
 def _first_seen_ever(
-    team: "Team", query: LogsQuery, entries: list[dict], version: int, current_to: dt.datetime
+    team: "Team",
+    query: LogsQuery,
+    entries: list[dict],
+    version: int,
+    current_to: dt.datetime,
+    deadline: float | None = None,
 ) -> dict[str, dt.datetime] | None:
+    settings = fail_fast_aggregate_settings()
+    if deadline is not None:
+        remaining = int(deadline - monotonic())
+        if remaining < 1:
+            return None
+        settings.max_execution_time = min(remaining, settings.max_execution_time or remaining)
     members = list(dict.fromkeys(member for entry in entries for member in entry["pattern"]["match_patterns"]))
     members = members[:_FIRST_SEEN_MAX_MEMBERS] or [""]
     where = "pattern_version = {version} AND pattern IN {members} AND time_bucket >= {date_from} AND time_bucket < {date_to}"
@@ -303,7 +319,7 @@ def _first_seen_ever(
             query=select,
             team=team,
             workload=Workload.LOGS,
-            settings=fail_fast_aggregate_settings(),
+            settings=settings,
         )
     except (CHQueryErrorTooManyBytes, ClickHouseQueryTimeOut):
         return None

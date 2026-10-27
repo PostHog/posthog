@@ -78,8 +78,8 @@ export interface PieChartProps<Meta = unknown> {
      *  Receives the raw slice magnitude; the chart handles percent conversion when
      *  `isPercent` is on. */
     valueFormatter?: (value: number) => string
-    /** Optional content rendered at the center of the chart — typically the aggregation
-     *  total for a donut. Receives the layout so consumers can position custom content. */
+    /** Content rendered in the center of the chart, typically the total of a donut
+     *  (`config.innerRadiusRatio` above 0). A top-level prop, not a `config` key. */
     centerLabel?: React.ReactNode
     /** React children passed through to the radial overlay layer (custom decorations). */
     children?: React.ReactNode

@@ -39,6 +39,8 @@ class PosthogJwtAudience(Enum):
     WORKFLOW_SCOUT_RUN = "posthog:workflows:scout_run"
     WORKFLOW_CLASSIFY = "posthog:workflows:classify"
     WORKFLOW_VISION_REQUEST = "posthog:workflows:vision_request"
+    WORKFLOW_ADD_TO_STATIC_COHORT = "posthog:workflows:add_to_static_cohort"
+    WORKFLOW_MESSAGE_OPT_OUT = "posthog:workflows:message_opt_out"
     CONVERSATIONS_TICKETS = "posthog:conversations:tickets"
     CUSTOMER_ANALYTICS_ACCOUNTS = "posthog:customer_analytics:accounts"
     SECURITY_HUB_RULES = "posthog:security_hub:rules"

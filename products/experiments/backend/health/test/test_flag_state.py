@@ -6,9 +6,18 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
-from products.experiments.backend.facade.contracts import ExperimentHealthFindingCode, ExperimentHealthFindingSeverity
+from products.experiments.backend.facade.contracts import (
+    ExperimentHealthFinding,
+    ExperimentHealthFindingCode,
+    ExperimentHealthFindingSeverity,
+)
 from products.experiments.backend.health.checks.flag_state import flag_state
-from products.experiments.backend.health.context import ConditionSetTraffic, HealthContext, parse_flag_state
+from products.experiments.backend.health.context import (
+    ConditionSetTraffic,
+    HealthContext,
+    PauseHistory,
+    parse_flag_state,
+)
 from products.experiments.backend.health.test.factories import DRAFT, ENDED, RUNNING, RUNNING_CONTEXT, Status
 
 # The flag documents and cases of the `experimentWarning` test in
@@ -55,6 +64,15 @@ def _traffic(people_assigned_outside: int) -> ConditionSetTraffic:
     )
 
 
+def _pause_history(*, launched_at: datetime, paused_at: datetime | None) -> PauseHistory:
+    return PauseHistory(launched_at=launched_at, team_timezone="Europe/Berlin", paused_at=paused_at)
+
+
+LAUNCHED_BEFORE_PAUSE_ENTRIES = datetime(2026, 8, 1, 9, 0, tzinfo=UTC)
+LAUNCHED_AFTER_PAUSE_ENTRIES = datetime(2026, 9, 1, 9, 0, tzinfo=UTC)
+PAUSED_AT = datetime(2026, 10, 12, 13, 4, tzinfo=UTC)
+
+
 def _context(
     status: Status,
     *,
@@ -63,6 +81,7 @@ def _context(
     deleted: bool = False,
     archived: bool = False,
     traffic: ConditionSetTraffic | None = None,
+    pause_history: PauseHistory | None = None,
 ) -> HealthContext:
     return replace(
         RUNNING_CONTEXT,
@@ -76,6 +95,7 @@ def _context(
             variants=(filters.get("multivariate") or {}).get("variants"),
         ),
         condition_set_traffic=traffic,
+        pause_history=pause_history,
     )
 
 
@@ -184,15 +204,97 @@ class TestFlagState(TestCase):
         if expected is None:
             self.assertIsNone(finding)
             return
-        assert finding is not None
+        assert isinstance(finding, ExperimentHealthFinding)
         code, subcode, variant_key = expected
         self.assertEqual((finding.code, finding.subcode), (code, subcode))
         self.assertEqual(finding.evidence.get("variant_key"), variant_key)
 
+    @parameterized.expand(
+        [
+            (
+                "paused_from_the_experiment",
+                _context(
+                    RUNNING,
+                    active=False,
+                    filters=MULTIVARIANT,
+                    pause_history=_pause_history(launched_at=LAUNCHED_BEFORE_PAUSE_ENTRIES, paused_at=PAUSED_AT),
+                ),
+                ("paused_from_experiment", ExperimentHealthFindingSeverity.INFO, "The experiment is paused"),
+            ),
+            (
+                "disabled_outside_the_experiment",
+                _context(
+                    RUNNING,
+                    active=False,
+                    filters=MULTIVARIANT,
+                    pause_history=_pause_history(launched_at=LAUNCHED_AFTER_PAUSE_ENTRIES, paused_at=None),
+                ),
+                (
+                    "running_but_flag_disabled",
+                    ExperimentHealthFindingSeverity.WARNING,
+                    "The experiment is running, but its feature flag is disabled",
+                ),
+            ),
+            (
+                "launched_before_pauses_wrote_entries",
+                _context(
+                    RUNNING,
+                    active=False,
+                    filters=MULTIVARIANT,
+                    pause_history=_pause_history(launched_at=LAUNCHED_BEFORE_PAUSE_ENTRIES, paused_at=None),
+                ),
+                ("running_but_flag_disabled", ExperimentHealthFindingSeverity.WARNING, "The experiment is paused"),
+            ),
+            (
+                "pause_history_unknown",
+                _context(RUNNING, active=False, filters=MULTIVARIANT),
+                ("running_but_flag_disabled", ExperimentHealthFindingSeverity.WARNING, "The experiment is paused"),
+            ),
+            (
+                "draft_flag_distributing_variants",
+                _context(DRAFT, active=True, filters=MULTIVARIANT),
+                (
+                    "not_started_but_multiple_variants_rolled_out",
+                    ExperimentHealthFindingSeverity.INFO,
+                    "The feature flag is active before launch",
+                ),
+            ),
+        ]
+    )
+    def test_severity_follows_whether_the_state_needs_action(
+        self, _name: str, ctx: HealthContext, expected: tuple[str, ExperimentHealthFindingSeverity, str]
+    ) -> None:
+        finding = flag_state(ctx)
+
+        assert isinstance(finding, ExperimentHealthFinding)
+        self.assertEqual((finding.subcode, finding.severity, finding.title), expected)
+
+    def test_a_pause_from_the_experiment_names_its_date(self) -> None:
+        finding = flag_state(
+            _context(
+                RUNNING,
+                active=False,
+                filters=MULTIVARIANT,
+                pause_history=_pause_history(launched_at=LAUNCHED_AFTER_PAUSE_ENTRIES, paused_at=PAUSED_AT),
+            )
+        )
+
+        assert isinstance(finding, ExperimentHealthFinding)
+        self.assertEqual(
+            (finding.detail, dict(finding.evidence)),
+            (
+                "The experiment was paused on October 12, 2026 at 3:04 PM CEST, so the linked feature flag serves no "
+                "variants. Users exposed before the pause stay in the results. Their events during the pause can "
+                "still count toward their variant, although the flag doesn't serve it to them then. Resume the "
+                "experiment when you want to expose users again.",
+                {"paused_at": "2026-10-12T13:04:00+00:00"},
+            ),
+        )
+
     def test_variants_assigned_outside_the_flag_service_are_info(self) -> None:
         finding = flag_state(_context(RUNNING, active=True, filters=ZERO_ROLLOUT, traffic=_traffic(1234)))
 
-        assert finding is not None
+        assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual(
             (finding.severity, finding.title, finding.detail, dict(finding.evidence)),
             (

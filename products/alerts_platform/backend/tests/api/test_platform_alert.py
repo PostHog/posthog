@@ -13,7 +13,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership, User
+from posthog.models import ActivityLog, OrganizationMembership, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
@@ -74,6 +74,10 @@ class TestPlatformAlertAPI(APIBaseTest):
                 state=PlatformAlert.State.FIRING,
                 firing_started_at=firing_started_at,
                 last_notified_at=firing_started_at,
+                labels={"service_name": "checkout"},
+            )
+            PlatformAlertConfiguration.objects.filter(id=configuration.id).update(
+                overflowed_groups=2, overflow_is_lower_bound=True
             )
         list_response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/")
 
@@ -81,6 +85,7 @@ class TestPlatformAlertAPI(APIBaseTest):
         results = list_response.json()["results"]
         assert [r["id"] for r in results] == [str(configuration.id)]
         assert results[0]["legacy_configuration_id"] == str(legacy_configuration_id)
+        assert (results[0]["overflowed_groups"], results[0]["overflow_is_lower_bound"]) == (2, True)
         assert results[0]["alerts"] == [
             {
                 "id": str(alert.id),
@@ -89,6 +94,7 @@ class TestPlatformAlertAPI(APIBaseTest):
                 "firing_started_at": "2026-09-16T10:00:00Z",
                 "last_notified_at": "2026-09-16T10:00:00Z",
                 "snooze_until": None,
+                "labels": {"service_name": "checkout"},
             }
         ]
 
@@ -212,10 +218,11 @@ class TestPlatformAlertAPI(APIBaseTest):
         assert [r["id"] for r in list_response.json()["results"]] == []
         assert retrieve_response.status_code == status.HTTP_404_NOT_FOUND, retrieve_response.json()
 
-    def test_a_malformed_id_is_refused_rather_than_raising(self) -> None:
+    @parameterized.expand([("retrieve", "not-a-uuid/"), ("legacy_id_filter", "?legacy_configuration_id=not-a-uuid")])
+    def test_a_malformed_id_is_refused_rather_than_raising(self, _name: str, path: str) -> None:
         self._set_flag(True)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/not-a-uuid/")
+        response = self.client.get(f"/api/projects/{self.team.id}/platform_alerts/{path}")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
@@ -236,6 +243,19 @@ class TestPlatformAlertAPI(APIBaseTest):
         assert len(second_ids) == 1
         assert set(first_ids).isdisjoint(second_ids)
         assert set(first_ids) | set(second_ids) == created
+
+    def test_the_legacy_id_filter_finds_the_copy_of_one_source_alert(self) -> None:
+        self._set_flag(True)
+        legacy_configuration_id = uuid4()
+        wanted = self._create_configuration(self.team, "Copied", legacy_configuration_id=legacy_configuration_id)
+        self._create_configuration(self.team, "Another copy", legacy_configuration_id=uuid4())
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/platform_alerts/?legacy_configuration_id={legacy_configuration_id}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [(row["id"], response.json()["count"]) for row in response.json()["results"]] == [(str(wanted.id), 1)]
 
     def test_a_page_costs_the_same_queries_however_many_rows_it_holds(self) -> None:
         # A filter added to the prefetched relation would bypass the cache and cost a query per
@@ -262,6 +282,9 @@ class TestPlatformAlertAPI(APIBaseTest):
         configuration = self._create_configuration(self.team, "API errors", owner="platform")
         with team_scope(self.team.id):
             PlatformAlert.objects.create(team=self.team, configuration=configuration, state=PlatformAlert.State.FIRING)
+            PlatformAlertConfiguration.objects.filter(id=configuration.id).update(
+                overflowed_groups=4, overflow_is_lower_bound=True
+            )
             PlatformAlertThread.objects.create(
                 team=self.team,
                 configuration=configuration,
@@ -285,16 +308,21 @@ class TestPlatformAlertAPI(APIBaseTest):
             "on_overflow": "degrade_visible",
         }
         assert (body["name"], body["alerts"]) == ("API errors", [])
+        assert (body["overflowed_groups"], body["overflow_is_lower_bound"]) == (0, False)
         with team_scope(self.team.id):
             assert not PlatformAlertThread.objects.filter(configuration=configuration).exists()
 
-    def test_an_alert_its_source_owns_is_not_edited_here(self) -> None:
+    @parameterized.expand([("edit",), ("delete",)])
+    def test_an_alert_its_source_owns_is_not_written_here(self, write: str) -> None:
         self._set_flag(True)
         configuration = self._create_configuration(self.team, "API errors")
 
-        response = self.client.patch(
-            self._edit_url(configuration), {"name": "Renamed", "evaluation_periods": 0}, format="json"
-        )
+        if write == "edit":
+            response = self.client.patch(
+                self._edit_url(configuration), {"name": "Renamed", "evaluation_periods": 0}, format="json"
+            )
+        else:
+            response = self.client.delete(self._edit_url(configuration))
 
         assert response.status_code == status.HTTP_409_CONFLICT, response.json()
         configuration.refresh_from_db()
@@ -391,6 +419,29 @@ class TestPlatformAlertAPI(APIBaseTest):
             configuration.refresh_from_db()
         assert (configuration.check_status, configuration.consecutive_failures) == ("ok", 0)
         assert configuration.next_check_at is not None
+
+    def test_an_edit_logs_the_settings_it_changed_and_runtime_writes_log_nothing(self) -> None:
+        self._set_flag(True)
+        self._create_configuration(self.team, "Seed copy")
+        configuration = self._create_configuration(self.team, "API errors", owner="platform")
+        with team_scope(self.team.id):
+            configuration.next_check_at = datetime(2026, 10, 1, tzinfo=UTC)
+            configuration.consecutive_failures = 3
+            configuration.save(update_fields=["next_check_at", "consecutive_failures"])
+
+        response = self.client.patch(self._edit_url(configuration), {"name": "Renamed"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        logged = ActivityLog.objects.filter(team_id=self.team.id, scope="PlatformAlertConfiguration")
+        assert [(row.item_id, row.activity) for row in logged.order_by("created_at")] == [
+            (str(configuration.id), "created"),
+            (str(configuration.id), "updated"),
+        ]
+        edit = logged.get(activity="updated")
+        assert edit.user == self.user and edit.detail is not None
+        assert [(change["field"], change["before"], change["after"]) for change in edit.detail["changes"]] == [
+            ("name", "API errors", "Renamed")
+        ]
 
     def _grouped_configuration(self, owner: str = "platform") -> PlatformAlertConfiguration:
         configuration = self._create_configuration(self.team, "API errors", owner=owner)

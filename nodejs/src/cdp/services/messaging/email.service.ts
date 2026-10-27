@@ -21,7 +21,7 @@ import { RecipientManagerRecipient, RecipientsManagerService } from '../managers
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
-import { EmailSuppressionService } from './email-suppression.service'
+import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
 import {
     addTrackingToEmail,
     resolveEmailEngagementDistinctId,
@@ -29,6 +29,7 @@ import {
 } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
+import { SES_SENSITIVE_TAG } from './helpers/ses'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
@@ -412,12 +413,12 @@ export class EmailService {
             // gating here turns wasted invocations into one clear skip.
             const suspensionCause = await this.teamWorkflowsConfigService.getEmailSendingSuspension(invocation.teamId)
             if (suspensionCause) {
-                addLog(
-                    'warn',
+                const skipReason =
                     suspensionCause === 'staff'
                         ? 'Skipping send: email sending is suspended for this project. Contact support to get sending re-enabled.'
                         : 'Skipping send: our email provider paused sending for this project. Check the Reputation tab to see what to fix.'
-                )
+                addLog('warn', skipReason)
+                result.emailSendResult = { status: 'skipped', reason: skipReason }
                 logger.warn('Skipping email send for a suspended team', {
                     teamId: invocation.teamId,
                     cause: suspensionCause,
@@ -449,12 +450,11 @@ export class EmailService {
                 // Error rather than warn: the email did not go out, and warn-level lines get skimmed
                 // past in the run logs. The run itself still continues; a pause is policy, not a
                 // fault, so it must not enter retry or abort handling.
-                addLog(
-                    'error',
-                    workflowPause.byStaff
-                        ? `Skipping send: PostHog staff paused email sending for this workflow.${pauseDetail} Contact support to get sending re-enabled.`
-                        : `Skipping send: email sending is paused for this workflow.${pauseDetail} Resume it from the workflow page once the audience is cleaned up.`
-                )
+                const skipReason = workflowPause.byStaff
+                    ? `Skipping send: PostHog staff paused email sending for this workflow.${pauseDetail} Contact support to get sending re-enabled.`
+                    : `Skipping send: email sending is paused for this workflow.${pauseDetail} Resume it from the workflow page once the audience is cleaned up.`
+                addLog('error', skipReason)
+                result.emailSendResult = { status: 'skipped', reason: skipReason }
                 if (!isTest) {
                     result.metrics.push({
                         team_id: invocation.teamId,
@@ -515,9 +515,12 @@ export class EmailService {
             // of whether the invocation came from a workflow action or an email destination hog
             // function. Checking here means callers can't bypass it by taking a different upstream
             // route. Covers `to`, `cc`, and `bcc`; a suppressed address anywhere blocks the send.
-            const skipReason = await this.buildSuppressionSkipReason(invocation.teamId, params)
+            const skipReason = await this.buildSuppressionSkipReason(invocation.teamId, params, {
+                transactional: invocation.hogFunction?.metadata?.message_category_type === 'transactional',
+            })
             if (skipReason) {
                 addLog('info', skipReason)
+                result.emailSendResult = { status: 'skipped', reason: skipReason }
                 if (!isTest) {
                     result.metrics.push({
                         team_id: invocation.teamId,
@@ -658,6 +661,7 @@ export class EmailService {
             const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
             addLog('info', `Email sent to ${params.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
             success = true
+            result.emailSendResult = { status: 'accepted' }
         } catch (error) {
             if (error instanceof SESThrottleError) {
                 // Treat as a transient delivery delay — reschedule rather than fail
@@ -671,6 +675,7 @@ export class EmailService {
             } else {
                 addLog('error', error.message)
                 result.error = error.message
+                result.emailSendResult = { status: 'failed', reason: error.message }
                 result.finished = true
             }
         }
@@ -733,7 +738,8 @@ export class EmailService {
                     $workflow_id: invocation.functionId,
                     $workflow_action_id: invocation.state.actionId,
                     $email_to: params.to.email,
-                    $email_subject: params.subject,
+                    // A sensitive template's subject can carry a login code, so its events leave it out.
+                    ...(invocation.hogFunction?.metadata?.sensitive === true ? {} : { $email_subject: params.subject }),
                     // Always set, never conditional: an untracked send can never produce a
                     // `$workflows_email_opened` or `$workflows_email_link_clicked`, so without this
                     // dimension on the send there is no way to build an open rate in an insight that
@@ -862,7 +868,8 @@ export class EmailService {
     // matching against the normalized suppression identifier.
     private async buildSuppressionSkipReason(
         teamId: number,
-        params: CyclotronInvocationQueueParametersEmailType
+        params: CyclotronInvocationQueueParametersEmailType,
+        options: SuppressionCheckOptions
     ): Promise<string | null> {
         const recipients: string[] = []
         if (params.to?.email && params.to.email.trim()) {
@@ -877,7 +884,7 @@ export class EmailService {
         const results = await Promise.all(
             recipients.map(async (email) => ({
                 email,
-                suppressed: await this.emailSuppressionService.isSuppressed(teamId, email),
+                suppressed: await this.emailSuppressionService.isSuppressed(teamId, email, options),
             }))
         )
         const suppressed = results.filter((r) => r.suppressed).map((r) => r.email)
@@ -1057,12 +1064,16 @@ export class EmailService {
 
         const ccAddresses = parseAddressList(params.cc)
         const bccAddresses = parseAddressList(params.bcc)
+        const replyToAddresses = parseAddressList(params.replyTo)
 
         if (ccAddresses) {
             mailOptions.cc = ccAddresses
         }
         if (bccAddresses) {
             mailOptions.bcc = bccAddresses
+        }
+        if (replyToAddresses) {
+            mailOptions.replyTo = replyToAddresses
         }
 
         const response = await mailDevTransport!.sendMail(mailOptions)
@@ -1135,7 +1146,12 @@ export class EmailService {
             ConfigurationSetName: this.resolveConfigurationSetName(trackingEnabled, result.invocation),
             // Short unsigned tag kept as a backwards-compat carrier for in-flight messages and
             // environments where the configuration set isn't yet emitting original headers.
-            EmailTags: [{ Name: 'ph_id', Value: shortTrackingCode }],
+            EmailTags: [
+                { Name: 'ph_id', Value: shortTrackingCode },
+                ...(result.invocation.hogFunction?.metadata?.sensitive === true
+                    ? [{ Name: SES_SENSITIVE_TAG, Value: 'true' }]
+                    : []),
+            ],
             FeedbackForwardingEmailAddress: from.email,
         }
 

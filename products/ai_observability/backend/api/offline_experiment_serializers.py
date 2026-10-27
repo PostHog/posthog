@@ -247,6 +247,9 @@ class ExperimentSubmissionSerializer(_StrictDataclassSerializer[ExperimentSubmis
 
 class ItemSubmissionSerializer(_StrictDataclassSerializer[ItemSubmission]):
     id = _UUIDField(help_text="Caller-generated UUID for one input/output execution. Reuse for exact retries.")
+    model_version = _identifier_field(
+        "Model used for this item. Omitted or null values inherit the experiment's model."
+    )
     case_key = _identifier_field("Stable case identifier for matching inputs across experiments.")
     trial = _identifier_field("Identifier for a repeated execution of the same case.")
     dataset_item_identifier = _identifier_field("Stable item identifier in an external dataset.")

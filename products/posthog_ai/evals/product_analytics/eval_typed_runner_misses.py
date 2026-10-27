@@ -30,11 +30,12 @@ from __future__ import annotations
 
 from typing import Unpack
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import AnswerToolCallNot, NoToolCall
 from products.posthog_ai.evals.cli_mcp.scorers import FirstRelevantTool
+from products.posthog_ai.evals.offline_config import offline_suite
 from products.posthog_ai.evals.product_analytics.scorers import (
     INSIGHT_WRITE_TOOLS,
     TYPED_QUERY_TOOLS,
@@ -162,8 +163,17 @@ async def eval_typed_runner_misses(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-typed-runner-misses-cli",
+        offline_suite=offline_suite(
+            "product_analytics/eval_typed_runner_misses::eval_typed_runner_misses",
+            metrics=[
+                "no_persistent_insight_save",
+                "answer_from_typed_query",
+                "answer_tool_call_not_forbidden",
+                "insight_shape",
+            ],
+        ),
         cases=cases,
         scorers=[
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),
@@ -195,8 +205,12 @@ async def eval_justified_sql_controls(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-justified-sql-controls-cli",
+        offline_suite=offline_suite(
+            "product_analytics/eval_typed_runner_misses::eval_justified_sql_controls",
+            metrics=["no_persistent_insight_save", "first_relevant_tool"],
+        ),
         cases=cases,
         scorers=[
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),

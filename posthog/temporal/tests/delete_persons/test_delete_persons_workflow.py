@@ -64,6 +64,7 @@ class TestDeletePersonsActivity:
             patch("posthog.models.person.bulk_delete.TOMBSTONE_DISTINCT_ID_PREFETCH_LIMIT", 3),
             patch("posthog.models.person.bulk_delete.QUEUED_DELETION_DISTINCT_ID_PAGE_SIZE", 2),
             patch("posthog.models.person.bulk_delete.QUEUED_DELETION_DISTINCT_IDS_PER_BATCH", 3),
+            patch("posthog.models.person.bulk_delete.TOMBSTONE_DISTINCT_IDS_PER_RPC", 3),
             patch.object(bulk_delete, "tombstone_and_publish_persons", side_effect=record_batch),
         ):
             fake.add_person(team_id=1, person_id=10, uuid=str(uuid_lib.uuid4()), distinct_ids=["10-a", "10-b"])

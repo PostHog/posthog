@@ -278,18 +278,22 @@ class SandboxConfig(BaseModel):
             return self.dev_stack_present
         return self.custom_image_name == DEV_STACK_IMAGE_NAME
 
+    @property
+    def applies_dev_stack_floors(self) -> bool:
+        return self.is_dev_stack_image and self.workload == SandboxWorkload.DEFAULT
+
     @model_validator(mode="after")
     def _enforce_dev_stack_memory_floor(self) -> Self:
-        if self.is_dev_stack_image:
+        if self.applies_dev_stack_floors:
             self.memory_gb = max(self.memory_gb, DEV_STACK_MEMORY_GB)
         return self
 
     @property
     def effective_cpu_request_cores(self) -> float:
         """CPU floor the provider actually reserves when burstable: the configured request,
-        raised to the dev-stack image floor, clamped to the limit."""
+        raised to the dev-stack floor on default-workload boxes, clamped to the limit."""
         floor = float(self.cpu_request_cores)
-        if self.is_dev_stack_image:
+        if self.applies_dev_stack_floors:
             floor = max(floor, DEV_STACK_CPU_REQUEST_CORES)
         return min(floor, float(self.cpu_cores))
 
@@ -727,6 +731,9 @@ class SandboxBase(ABC):
     def is_running(self) -> bool: ...
 
     def exit_reason(self) -> str | None:
+        return None
+
+    def exit_status(self) -> str | None:
         return None
 
     def read_agent_server_session_init_ms(self) -> int | None:

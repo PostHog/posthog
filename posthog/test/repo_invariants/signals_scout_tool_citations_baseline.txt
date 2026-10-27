@@ -10,6 +10,7 @@ dashboard-insights-run
 data-catalog-metric-run
 engineering-analytics-sources
 execute-sql
+experiment-migrate
 experiment-stats
 experiment-timeseries-results
 external-data-sync-logs

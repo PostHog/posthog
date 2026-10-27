@@ -21,6 +21,11 @@ class TestAppfiguresSource:
         # get_schemas is a static catalog with no I/O, so the public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
 
+    def test_retryable_errors_match_transient_status_raise(self):
+        observed_error = "Appfigures API error (retryable): status=503, url=https://api.appfigures.com/v2/products/mine"
+        retryable_errors = self.source.get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)
+
     @pytest.mark.parametrize(
         "status,schema_name,expected_ok",
         [
