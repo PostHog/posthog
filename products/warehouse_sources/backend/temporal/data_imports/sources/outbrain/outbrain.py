@@ -36,10 +36,12 @@ class OutbrainRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class OutbrainResumeConfig:
     # Index of the next fan-out parent (marketer or campaign) to process.
     next_index: int
+    # Report offset to resume at within that marketer (paginated breakdown reports only).
+    next_offset: int = 0
 
 
 def _get_session(password: str, token: Optional[str] = None) -> requests.Session:
@@ -209,11 +211,12 @@ def get_rows(
                 # Conversions restate for ~30 days — re-pull the lookback window.
                 window_start = watermark - timedelta(days=REPORT_LOOKBACK_DAYS)
 
+    start_offset = resume_config.next_offset if resume_config is not None and config.paginated else 0
     marketer_ids = list_marketer_ids()
     for index in range(start_index, len(marketer_ids)):
         marketer_id = marketer_ids[index]
         path = config.path.format(marketer_id=quote(marketer_id))
-        offset = 0
+        offset = start_offset if index == start_index else 0
         while True:
             params: dict[str, Any] = {"from": window_start.isoformat(), "to": today.isoformat()}
             if config.kind == "periodic_report":
@@ -234,15 +237,23 @@ def get_rows(
                         continue
                     enriched["_date"] = row_date
                 out.append(enriched)
+
+            has_more = config.paginated and len(rows) >= REPORT_ROW_LIMIT
+            next_state = (
+                OutbrainResumeConfig(next_index=index, next_offset=offset + len(rows))
+                if has_more
+                else OutbrainResumeConfig(next_index=index + 1)
+            )
+            # Stage before the yield so a resumed full refresh never re-appends a written page.
+            resumable_source_manager.save_state(next_state)
             if out:
                 yield out
+            else:
+                resumable_source_manager.safe_point()
 
-            if not config.paginated or len(rows) < REPORT_ROW_LIMIT:
+            if not has_more:
                 break
             offset += len(rows)
-
-        # Save state AFTER yielding so a crash re-yields the in-flight marketer.
-        resumable_source_manager.save_state(OutbrainResumeConfig(next_index=index + 1))
 
 
 def _to_date(value: Any) -> Optional[date]:

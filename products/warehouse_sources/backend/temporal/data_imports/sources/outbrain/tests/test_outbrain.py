@@ -206,7 +206,26 @@ class TestReportStreams:
         assert all(row["_marketer_id"] == "m1" for row in result.rows)
         assert result.paths[1:] == [f"/amplify/v0.1/reports/marketers/m1/{report_path}"] * 2
         assert [request.param("offset") for request in result.requests[1:]] == ["0", str(REPORT_ROW_LIMIT)]
-        assert result.saved_states == [OutbrainResumeConfig(next_index=1)]
+        assert result.saved_states == [
+            OutbrainResumeConfig(next_index=0, next_offset=REPORT_ROW_LIMIT),
+            OutbrainResumeConfig(next_index=1),
+        ]
+
+    def test_breakdown_report_resumes_at_saved_offset(self, mock_cache: mock.MagicMock) -> None:
+        mock_cache.get.return_value = "tok"
+        result = _driver().run(
+            "publisher_performance",
+            [
+                ScriptedResponse(json={"marketers": [{"id": "m1"}, {"id": "m2"}]}),
+                ScriptedResponse(json={"results": [{"metadata": {"id": "m1-last"}, "metrics": {}}]}),
+                ScriptedResponse(json={"results": [{"metadata": {"id": "m2-first"}, "metrics": {}}]}),
+            ],
+            resume_state=OutbrainResumeConfig(next_index=0, next_offset=REPORT_ROW_LIMIT),
+        )
+
+        assert result.raised is None
+        assert [request.param("offset") for request in result.requests[1:]] == [str(REPORT_ROW_LIMIT), "0"]
+        assert [row["_marketer_id"] for row in result.rows] == ["m1", "m2"]
 
 
 class TestOutbrainSourceResponse:
