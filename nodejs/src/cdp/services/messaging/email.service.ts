@@ -1,6 +1,7 @@
 import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { SendMailOptions } from 'nodemailer'
+import * as mimeFuncs from 'nodemailer/lib/mime-funcs'
 import { Counter, Histogram } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
@@ -381,45 +382,20 @@ export function extractEmailsFromAddressList(value: string | undefined): string[
 const FROM_OVERRIDE_EMAIL_REGEX = /^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$/
 
 const PRINTABLE_ASCII = /^[\x20-\x7E]*$/
-const ENCODED_WORD_PREFIX = '=?UTF-8?B?'
-const ENCODED_WORD_SUFFIX = '?='
 const RFC_2047_MAX_ENCODED_WORD_LENGTH = 75
-const BASE64_CHARACTERS_PER_3_BYTES = 4
-const MAX_BYTES_PER_ENCODED_WORD =
-    Math.floor(
-        (RFC_2047_MAX_ENCODED_WORD_LENGTH - ENCODED_WORD_PREFIX.length - ENCODED_WORD_SUFFIX.length) /
-            BASE64_CHARACTERS_PER_3_BYTES
-    ) * 3
 
 function cleanDisplayName(name: string | undefined): string {
     return (name ?? '').replace(/[\x00-\x1F\x7F]/g, '').trim()
 }
 
 function encodeDisplayName(name: string): string {
-    return PRINTABLE_ASCII.test(name) ? quoteDisplayName(name) : toEncodedWords(name)
+    return PRINTABLE_ASCII.test(name)
+        ? quoteDisplayName(name)
+        : mimeFuncs.encodeWord(name, 'Q', RFC_2047_MAX_ENCODED_WORD_LENGTH)
 }
 
 function quoteDisplayName(name: string): string {
     return `"${name.replace(/[\\"]/g, '\\$&')}"`
-}
-
-function toEncodedWords(name: string): string {
-    return splitOnCodePoints(name, MAX_BYTES_PER_ENCODED_WORD)
-        .map((chunk) => `${ENCODED_WORD_PREFIX}${Buffer.from(chunk).toString('base64')}${ENCODED_WORD_SUFFIX}`)
-        .join(' ')
-}
-
-function splitOnCodePoints(text: string, maxBytes: number): string[] {
-    const chunks: string[] = []
-    let chunk = ''
-    for (const codePoint of text) {
-        if (chunk && Buffer.byteLength(chunk + codePoint) > maxBytes) {
-            chunks.push(chunk)
-            chunk = ''
-        }
-        chunk += codePoint
-    }
-    return [...chunks, chunk]
 }
 
 export function formatMailbox(name: string | undefined, email: string): string {
