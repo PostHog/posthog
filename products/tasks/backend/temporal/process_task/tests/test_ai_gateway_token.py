@@ -316,6 +316,7 @@ class TestMintScopedToken:
                 "deepseek-ai/deepseek-v4.1-flash-1017-fast",
                 "zai-org/glm-5.3",
                 "zai-org/glm-5.3-flash",
+                "gpt-6.1-terra",
             }
         assert set(pin) == expected
 
@@ -1314,6 +1315,7 @@ class TestSlackAppMint:
             "deepseek-ai/deepseek-v4.1-flash-1017-fast",
             "zai-org/glm-5.3",
             "zai-org/glm-5.3-flash",
+            "gpt-6.1-terra",
         }
         assert reserved <= set(_PRODUCT_ALLOWED_MODELS["review_hog"])
         missing = routed - reserved - {"zai-org/glm-5.2"} - set(_PRODUCT_ALLOWED_MODELS["slack_app"])
@@ -1602,7 +1604,9 @@ class TestPosthogCodeSandboxMint:
         assert pin == DESKTOP_AGENT_MODELS
         assert len(pin) == len(set(pin))
         assert len(gateway_pin(pin)) <= MAX_GATEWAY_PIN_LENGTH
-        assert {entry.id for entry in model_catalog.MODELS} <= set(pin)
+        # A model reserved for ReviewHog alone would push the desktop pin past the gateway limit.
+        assert {entry.id for entry in model_catalog.MODELS} - {"gpt-6.1-terra"} <= set(pin)
+        assert "gpt-6.1-terra" not in pin
         assert set(SDK_IMPLICIT_MODELS) <= set(pin)
         assert {"gpt-5.4", "gpt-5.3-codex", "gpt-5.2", "gpt-5-mini"} <= set(pin)
 

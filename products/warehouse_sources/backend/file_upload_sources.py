@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.file_uploads import (
     UploadLocation,
     parse_hosted_upload,
 )
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_destination import (
     ExternalDataSourceDestination,
     get_or_create_warehouse_destination,
@@ -192,7 +193,7 @@ def create_source_for_upload(
     job_inputs: dict[str, Any],
     connection_metadata: dict[str, Any] | None = None,
 ) -> ExternalDataSource:
-    source = ExternalDataSource.objects.create(
+    source = SourceInputsStore.create(
         source_id=str(uuid.uuid4()),
         connection_id=str(uuid.uuid4()),
         destination_id=str(uuid.uuid4()),
@@ -200,7 +201,7 @@ def create_source_for_upload(
         status=ExternalDataSource.Status.RUNNING,
         source_type=file_upload_source().source_type,
         api_version=file_upload_source().default_version,
-        job_inputs=job_inputs,
+        inputs=job_inputs,
         description=f"Uploaded file for {table.name}"[:400],
         access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
         created_by=table.created_by,
@@ -331,10 +332,11 @@ def replace_file_upload(schema: ExternalDataSchema, upload: UploadedFile, read_s
         if latest_job is not None and latest_job.status == ExternalDataJobStatus.RUNNING:
             raise FileUploadSourceError("A sync of this table is running. Replace the file once it finishes.")
         try:
-            current: HostedUpload | None = upload_from_job_inputs(source.team_id, source.job_inputs)
+            current: HostedUpload | None = upload_from_job_inputs(
+                source.team_id, SourceInputsStore.load_settings(source)
+            )
         except InvalidUploadError:
             current = None
-        source.job_inputs = {**(source.job_inputs or {}), **upload_job_inputs(upload, schema.name)}
         now = timezone.now()
         recorded = {entry.upload for entry in superseded_uploads(source)}
         replaced: list[HostedUpload] = [old for old in (current, _file_read_in_place(schema)) if old is not None]
@@ -343,7 +345,9 @@ def replace_file_upload(schema: ExternalDataSchema, upload: UploadedFile, read_s
                 source.connection_metadata = connection_metadata_with_superseded(
                     source, SupersededUpload(upload=old, superseded_at=now)
                 )
-        source.save(update_fields=["job_inputs", "connection_metadata", "updated_at"])
+        SourceInputsStore.update_runtime(
+            source, upload_job_inputs(upload, schema.name), extra_update_fields=("connection_metadata", "updated_at")
+        )
 
         previous = TableDefinition.from_schema_metadata(schema.name, schema.schema_metadata)
         # Keep the column naming the table already has, so queries written against it keep working.

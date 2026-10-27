@@ -6,6 +6,7 @@ from collections.abc import Generator, Iterable, Iterator
 from contextlib import ExitStack, contextmanager
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -98,6 +99,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     UNFILTERED_COUNT_CLIENT_DEADLINE_SECONDS,
     XMIN_PROJECTED_COLUMN,
     JsonAsStringLoader,
+    LenientTextLoader,
     NetworkAsStringLoader,
     PostgresDiscoveredSchema,
     PostgresImplementation,
@@ -8624,6 +8626,27 @@ class TestNetworkAsStringLoader:
 
     def test_none_returns_none(self, loader):
         assert loader.load(None) is None
+
+
+class TestLenientTextLoader:
+    @pytest.mark.parametrize(
+        "encoding,data,expected",
+        [
+            (None, b"plain text", "plain text"),
+            (None, "café 日本".encode(), "café 日本"),
+            (None, b"\xff\xd8\xffbinary", "\ufffd\ufffd\ufffdbinary"),
+            (None, memoryview(b"ok\xfe"), "ok\ufffd"),
+            (None, None, None),
+            ("utf-8", b"ok\xff", "ok\ufffd"),
+            ("iso8859-1", "café".encode("latin-1"), "café"),
+            ("ascii", b"caf\xc3\xa9\xff", "café\ufffd"),
+        ],
+    )
+    def test_load(self, encoding, data, expected):
+        context = (
+            SimpleNamespace(connection=SimpleNamespace(info=SimpleNamespace(encoding=encoding))) if encoding else None
+        )
+        assert LenientTextLoader(oid=25, context=context).load(data) == expected
 
 
 class TestSSLRequiredAfterDate:
