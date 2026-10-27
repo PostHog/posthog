@@ -865,6 +865,7 @@ export const todayLogic = kea<todayLogicType>([
             },
             setUseSampleData: () => {
                 actions.loadTopReports()
+                actions.loadFrequentObjects()
             },
             exploreOpened: ({ product, position }) => {
                 posthog.capture('today explore opened', { product, position })

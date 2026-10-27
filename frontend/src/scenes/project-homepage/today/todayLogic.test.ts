@@ -93,6 +93,28 @@ describe('todayLogic', () => {
         jest.useRealTimers()
     })
 
+    it.each(['toggle', 'url'])('reloads frequent items when sample mode is disabled by %s', async (source) => {
+        const entry = { id: 'daily', path: 'Daily dashboard', type: 'dashboard', ref: 'daily' }
+        frequentResponse = [200, [entry]]
+        const logic = todayLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => logic.actions.setUseSampleData(true))
+            .toFinishAllListeners()
+            .toMatchValues({ frequentObjects: [] })
+
+        await expectLogic(logic, () => {
+            if (source === 'url') {
+                router.actions.push('/home', { sample: '0' })
+            } else {
+                logic.actions.setUseSampleData(false)
+            }
+        })
+            .toFinishAllListeners()
+            .toMatchValues({ useSampleData: false, frequentObjects: [entry] })
+    })
+
     it.each([
         {
             shown: 'the report list',
