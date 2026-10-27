@@ -16,7 +16,7 @@ import asyncio
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
-from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
+from products.posthog_ai.eval_harness.one_shot import OneShotEval
 from products.slack_app.backend.logic import interview_recruitment
 from products.slack_app.evals.offline_config import offline_suite
 from products.slack_app.evals.scorers import INTERVIEW_SENTIMENT_KEY, InterviewSentimentMatch, NoUnaskedInvite
@@ -75,7 +75,7 @@ async def eval_interview_sentiment(ctx: EvalContext) -> None:
             "last_message": f"unhappy={unhappy}",
         }
 
-    await OneShotPublicEval(
+    await OneShotEval(
         experiment_name="slack-app-interview-sentiment",
         offline_suite=offline_suite(
             "slack_app/eval_interview_sentiment::eval_interview_sentiment",
