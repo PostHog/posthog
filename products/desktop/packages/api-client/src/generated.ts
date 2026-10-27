@@ -6395,6 +6395,25 @@ export namespace Schemas {
         > | null;
     }>;
     /**
+     * * `second` - second
+     * * `minute` - minute
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * * `month` - month
+     * * `quarter` - quarter
+     * * `year` - year
+     */
+    export type IntervalTypeEnum =
+        | "second"
+        | "minute"
+        | "hour"
+        | "day"
+        | "week"
+        | "month"
+        | "quarter"
+        | "year";
+    /**
      * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
      *
      * Documents the dashboard-level filters that act as the single source of truth for the
@@ -6405,6 +6424,10 @@ export namespace Schemas {
         date_from: string | null;
         date_to: string | null;
         properties: unknown;
+        breakdown_filter: BreakdownFilter | null;
+        interval: IntervalTypeEnum | NullEnum;
+        compareFilter: CompareFilter | null;
+        filterTestAccounts: boolean | null;
     }>;
     export type _DashboardPatchTileLayoutBoxOpenApi = {
         /**
