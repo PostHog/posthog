@@ -1332,6 +1332,28 @@ def task_owned_by_user(task_id: str | UUID, team_id: int, user_id: int) -> bool:
     return Task.objects.filter(id=task_id, team_id=team_id, created_by_id=user_id).exists()
 
 
+def filter_task_ids_created_by(task_ids: Iterable[str | UUID], team_id: int, user_id: int) -> frozenset[UUID]:
+    """The ids among `task_ids` of the team's tasks that the user started."""
+    ids = [str(t) for t in task_ids]
+    if not ids:
+        return frozenset()
+    return frozenset(
+        Task.objects.filter(id__in=ids, team_id=team_id, created_by_id=user_id).values_list("id", flat=True)
+    )
+
+
+def get_task_creator_ids(task_ids: Iterable[str | UUID], team_ids: Iterable[int]) -> dict[str, int]:
+    """The id of the user who started each task, without loading the full task."""
+    ids = [str(t) for t in task_ids]
+    teams = list(team_ids)
+    if not ids or not teams:
+        return {}
+    rows = Task.objects.filter(id__in=ids, team_id__in=teams, created_by_id__isnull=False).values_list(
+        "id", "created_by_id"
+    )
+    return {str(task_id): created_by_id for task_id, created_by_id in rows}
+
+
 def task_exempt_from_code_access(task_id: str | UUID, team_id: int) -> bool:
     """Whether this task's cloud runs are entitled outside PostHog Desktop.
 
@@ -2285,6 +2307,21 @@ def update_task_run_state(
 ) -> dict:
     """Atomically merge state updates into a run's ``state`` and return the new state."""
     return TaskRun.update_state_atomic(run_id, updates=updates, remove_keys=remove_keys)
+
+
+def activate_warm_task_run(run_id: str | UUID) -> None:
+    warm_runs = TaskRun.objects.filter(id=run_id, state__await_user_message=True)
+    task_id = warm_runs.values_list("task_id", flat=True).first()
+    if task_id is None:
+        return
+    with transaction.atomic():
+        task = Task.objects.select_for_update().get(id=task_id)
+        run = warm_runs.select_for_update(of=("self",)).select_related("task").first()
+        if run is None:
+            return
+        run.state.pop("await_user_message", None)
+        run.save(update_fields=["state", "updated_at"])
+        task.observe_run_started_beside_live_runs(run)
 
 
 def record_run_failure_cause(run_id: str | UUID, error_type: str) -> None:
@@ -6760,6 +6797,7 @@ def resume_task_run_in_cloud(
         prior_queued_at = run.queued_at
         prior_state = dict(run.state or {})
         run.prepare_for_cloud_resume()
+        task.observe_run_started_beside_live_runs(run)
 
         if restart_dispatch_enabled:
             snapshot = RestartSnapshot(
@@ -8840,12 +8878,14 @@ def _deliver_warm_run_message(
             raise WarmRunActivationUnavailable("delivery_failed")
 
         with transaction.atomic():
+            task = Task.objects.select_for_update().get(id=run.task_id)
             activated_run = eligible_runs.select_for_update(of=("self",)).first()
             if activated_run is None or activated_run.workflow_id != workflow_id:
                 raise WarmRunActivationUnavailable("target_unavailable")
             activated_run.state.pop("await_user_message", None)
             activated_run.state["warm_activated"] = True
             activated_run.save(update_fields=["state", "updated_at"])
+            task.observe_run_started_beside_live_runs(activated_run)
     except WarmRunActivationUnavailable as error:
         log = logger.info if error.retry_token else logger.warning
         log(

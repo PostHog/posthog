@@ -1604,10 +1604,7 @@ describe('dashboardLogic', () => {
         it('previews tile spacing immediately and persists only the final choice', async () => {
             await expectLogic(logic).toFinishAllListeners()
             ;(api.update as jest.Mock).mockClear()
-            const reportTileDensityConfigured = jest.spyOn(
-                eventUsageLogic.actions,
-                'reportDashboardTileDensityConfigured'
-            )
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
             jest.useFakeTimers()
 
             try {
@@ -1627,7 +1624,7 @@ describe('dashboardLogic', () => {
                     layout_compaction: DashboardGridCompaction.Vertical,
                     grid_spacing: 'relaxed',
                 })
-                expect(reportTileDensityConfigured).toHaveBeenCalledWith('relaxed')
+                expect(capture).toHaveBeenCalledWith('dashboard tile density configured', { tile_density: 'relaxed' })
             } finally {
                 jest.useRealTimers()
             }
@@ -1635,10 +1632,7 @@ describe('dashboardLogic', () => {
 
         it('reports the tile density when reset to standard', async () => {
             await expectLogic(logic).toFinishAllListeners()
-            const reportTileDensityConfigured = jest.spyOn(
-                eventUsageLogic.actions,
-                'reportDashboardTileDensityConfigured'
-            )
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
             jest.useFakeTimers()
 
             try {
@@ -1647,7 +1641,7 @@ describe('dashboardLogic', () => {
                 await jest.advanceTimersByTimeAsync(750)
                 await expectLogic(logic).toFinishAllListeners()
 
-                expect(reportTileDensityConfigured).toHaveBeenCalledWith('standard')
+                expect(capture).toHaveBeenCalledWith('dashboard tile density configured', { tile_density: 'standard' })
             } finally {
                 jest.useRealTimers()
             }
@@ -2992,12 +2986,8 @@ describe('dashboardLogic', () => {
             })
 
             it('reports filter changes separately from layout edit mode entry', async () => {
-                const reportFiltersChanged = jest.spyOn(eventUsageLogic.actions, 'reportDashboardFiltersChanged')
-                const reportLayoutEditEntered = jest.spyOn(
-                    eventUsageLogic.actions,
-                    'reportDashboardLayoutEditModeEntered'
-                )
-                const reportModeToggled = jest.spyOn(eventUsageLogic.actions, 'reportDashboardModeToggled')
+                const capture = jest.spyOn(posthog, 'capture').mockClear()
+                const capturedEvents = (): string[] => capture.mock.calls.map(([event]) => event)
 
                 await expectLogic(logic).toFinishAllListeners()
 
@@ -3008,22 +2998,19 @@ describe('dashboardLogic', () => {
                     )
                 }).toFinishAllListeners()
 
-                expect(reportLayoutEditEntered).not.toHaveBeenCalled()
-                expect(reportModeToggled).not.toHaveBeenCalled()
+                expect(capturedEvents()).not.toContain('dashboard layout edit mode entered')
+                expect(capturedEvents()).not.toContain('dashboard mode toggled')
 
                 await expectLogic(logic, () => {
                     logic.actions.setDates('-7d', null)
                 }).toFinishAllListeners()
 
-                expect(reportFiltersChanged).toHaveBeenCalledWith(
-                    expect.objectContaining({ id: 5 }),
-                    'date',
-                    expect.objectContaining({ date_from: '-7d', date_to: null })
+                expect(capture).toHaveBeenCalledWith(
+                    'dashboard filters changed',
+                    expect.objectContaining({ dashboard_id: 5, change_type: 'date', date_from: '-7d', date_to: null })
                 )
 
-                reportFiltersChanged.mockClear()
-                reportLayoutEditEntered.mockClear()
-                reportModeToggled.mockClear()
+                capture.mockClear()
 
                 await expectLogic(logic, () => {
                     logic.actions.setDashboardEditing(
@@ -3032,17 +3019,18 @@ describe('dashboardLogic', () => {
                     )
                 }).toFinishAllListeners()
 
-                expect(reportLayoutEditEntered).toHaveBeenCalledWith(
-                    expect.objectContaining({ id: 5 }),
-                    DashboardEventSource.SceneCommonButtons,
-                    1
+                expect(capture).toHaveBeenCalledWith(
+                    'dashboard layout edit mode entered',
+                    expect.objectContaining({
+                        dashboard_id: 5,
+                        source: DashboardEventSource.SceneCommonButtons,
+                        layout_zoom: 1,
+                    })
                 )
-                expect(reportModeToggled).not.toHaveBeenCalled()
-                expect(reportFiltersChanged).not.toHaveBeenCalled()
+                expect(capturedEvents()).not.toContain('dashboard mode toggled')
+                expect(capturedEvents()).not.toContain('dashboard filters changed')
 
-                reportFiltersChanged.mockRestore()
-                reportLayoutEditEntered.mockRestore()
-                reportModeToggled.mockRestore()
+                capture.mockRestore()
             })
 
             it('filter edits preserve layout editing', async () => {
@@ -5936,10 +5924,7 @@ describe('dashboardLogic', () => {
 
         it('offers to delete a removed insight and explains its other dashboard usage', async () => {
             const { fireEvent, render } = await import('@testing-library/react')
-            const reportDeleteClicked = jest.spyOn(
-                eventUsageLogic.actions,
-                'reportDashboardInsightDeleteAfterRemovalClicked'
-            )
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
             const insightTile = logic.values.insightTiles[0]
             const insight = insightTile.insight!
 
@@ -5959,7 +5944,9 @@ describe('dashboardLogic', () => {
             const toastContent = lemonToastInfoSpy.mock.calls.at(-1)?.[0]
             const { getByText } = render(toastContent)
             fireEvent.click(getByText('Delete insight everywhere'))
-            expect(reportDeleteClicked).toHaveBeenCalledWith(1)
+            expect(capture).toHaveBeenCalledWith('dashboard insight delete after removal clicked', {
+                other_dashboard_count: 1,
+            })
             expect(lemonToastDismissSpy).not.toHaveBeenCalled()
 
             const dialogProps = lemonDialogOpenSpy.mock.calls.at(-1)?.[0]
@@ -5977,7 +5964,7 @@ describe('dashboardLogic', () => {
                 getDialogText('This deletes the insight and removes it from every dashboard. You can undo this action.')
             ).not.toBeNull()
 
-            reportDeleteClicked.mockRestore()
+            capture.mockRestore()
         })
     })
 
