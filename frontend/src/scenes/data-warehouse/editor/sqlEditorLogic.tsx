@@ -82,7 +82,9 @@ import {
     HogQLQuery,
     HogQLQueryModifiers,
     NodeKind,
+    PredicateIndexVerdict,
     PredicateQuickfix,
+    ScanEstimateSource,
 } from '~/queries/schema/schema-general'
 import {
     AccessControlResourceType,
@@ -147,6 +149,7 @@ import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { Response } from './fixSQLErrorsLogic'
 import { IncrementalConfigFields } from './IncrementalConfigFields'
 import { findInnermostSelectAtOffset } from './multiQueryUtils'
+import { LARGE_SCAN_ROWS, sizedTables } from './output-pane-tabs/queryScanSummary'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { findSelectionProblem } from './saveCandidateProblems'
 import {
@@ -1985,6 +1988,33 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 : undefined
 
         return {
+            setMetadata: ({ metadata }) => {
+                const estimate = metadata?.scan_estimate
+                if (!estimate) {
+                    return
+                }
+                // Metadata refreshes on every debounced edit, so the same estimate arrives many times while a
+                // person types. Only a changed number is a new sighting.
+                const estimateKey = `${estimate.rows}:${estimate.upper_bound}:${estimate.tables.map((table) => table.name).join(',')}`
+                if (cache.lastScanEstimateKey === estimateKey) {
+                    return
+                }
+                cache.lastScanEstimateKey = estimateKey
+                const eventsScan = estimate.tables.find((table) => table.source === ScanEstimateSource.Events)
+                // pinned: analytics event name, the cost planner's adoption insight reads it
+                posthog.capture('sql editor scan estimate shown', {
+                    estimated_rows: estimate.rows,
+                    estimated_days: eventsScan?.days,
+                    time_range: eventsScan?.time_range,
+                    upper_bound: estimate.upper_bound,
+                    tables: estimate.tables.length,
+                    tables_not_sized: estimate.tables.length - sizedTables(estimate).length,
+                    large_scan: estimate.rows >= LARGE_SCAN_ROWS,
+                    filters_reading_every_row: (metadata?.index_usage ?? []).filter(
+                        (predicate) => predicate.verdict !== PredicateIndexVerdict.Indexed
+                    ).length,
+                })
+            },
             fixErrorsSuccess: ({ response }) => {
                 actions.setSuggestedQueryInput(response.query, 'hogql_fixer')
 

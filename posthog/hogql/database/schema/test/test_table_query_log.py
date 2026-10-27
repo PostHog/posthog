@@ -1,3 +1,6 @@
+from datetime import UTC, datetime
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
@@ -107,7 +110,42 @@ LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_t
         )
         assert response.results is not None
 
-    def test_cost_estimate_accuracy_query_runs_against_the_archive(self):
+    def test_cost_estimate_accuracy_query_runs_against_the_archive(self) -> None:
+        now = datetime.now(UTC)
+        # The archive keeps rows across tests, including the ones query execution logs for this team, so the
+        # fingerprints are unique to this run and the result is read for them only.
+        marker = uuid4().hex
+        # The archive stores 0 for a byte estimate that was never recorded.
+        rows = [
+            ("rows-only", 0, 0, "QueryFinish", 1),
+            ("mixed", 0, 500, "QueryFinish", 1),
+            ("mixed", 2000, 500, "QueryFinish", 1),
+            ("mixed", 2000, 0, "QueryFinish", 1),
+            ("mixed", 0, 500, "QueryFinish", 1),
+            ("excluded", 2000, 500, "ExceptionWhileProcessing", 1),
+            ("excluded", 2000, 500, "QueryFinish", 0),
+        ]
+        sync_execute(
+            """INSERT INTO sharded_query_log_archive_v3
+            (initial_query_start_time, team_id, initial_query_id, is_initial_query, type, event_time_microseconds,
+             read_rows, read_bytes, lc_plan_fingerprint, lc_estimated_rows, lc_estimated_bytes) VALUES""",
+            [
+                (
+                    now,
+                    self.team.pk,
+                    f"{marker}-{i}",
+                    initial,
+                    status,
+                    now,
+                    50,
+                    read_bytes,
+                    f"{marker}-{fingerprint}",
+                    100,
+                    estimated,
+                )
+                for i, (fingerprint, estimated, read_bytes, status, initial) in enumerate(rows)
+            ],
+        )
         response = execute_hogql_query(cost_estimate_accuracy_hogql(days=7), self.team)
 
         assert response.results is not None
@@ -119,3 +157,7 @@ LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_t
             "median_bytes_q_error",
             "p90_bytes_q_error",
         ]
+        assert {row[0]: row[1:] for row in response.results if row[0].startswith(marker)} == {
+            f"{marker}-rows-only": (1, 2.0, 2.0, None, None),
+            f"{marker}-mixed": (4, 2.0, 2.0, 4.0, 4.0),
+        }

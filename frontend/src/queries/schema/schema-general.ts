@@ -959,6 +959,85 @@ export interface PredicateIndexUsage {
     end?: integer
 }
 
+export enum ScanEstimateTimeRange {
+    /** Both ends of the timestamp range were understood. */
+    Bounded = 'bounded',
+    /** At least one end was missing or unreadable, so a default range was assumed. */
+    Open = 'open',
+}
+
+export enum ScanEstimateSource {
+    Events = 'events',
+    /** Any other ClickHouse table: persons, sessions, groups, logs. */
+    Clickhouse = 'clickhouse',
+    /** A synced or self-managed warehouse table, or a materialized view, read from object storage. */
+    Warehouse = 'warehouse',
+    /** A table queried on an external database directly. */
+    Direct = 'direct',
+    /** A table function such as numbers() or a system table. */
+    Static = 'static',
+}
+
+export enum ScanEstimatePrecision {
+    /** A model of what the query reads, compared against rows read in the query log. */
+    Measured = 'measured',
+    /** The table's size is known. How much of it the query reads is not. */
+    SizeOnly = 'size_only',
+    /** Nothing is known about the table. */
+    Unknown = 'unknown',
+}
+
+/** What is known about one table scan in the query's FROM tree. */
+export interface TableScanEstimate {
+    /** The table as the query names it. */
+    name: string
+    source: ScanEstimateSource
+    precision: ScanEstimatePrecision
+    /** Absent when the precision is unknown, or when only the size is known. */
+    rows?: integer
+    /** Absent when the source does not record a size in bytes. */
+    bytes?: integer
+    /** Events only: length of the timestamp range the rows were scaled to, in days. */
+    days?: number
+    /** Events only: event names the estimate was narrowed to. Empty when the scan reads every event. */
+    events?: string[]
+    /** Events only. */
+    time_range?: ScanEstimateTimeRange
+}
+
+export enum CostPlanStepKind {
+    Scan = 'scan',
+    Filter = 'filter',
+    Join = 'join',
+}
+
+/** One line of the plan that explains the scan estimate: a table scan, a filter on it, or the join. */
+export interface CostPlanStep {
+    kind: CostPlanStepKind
+    /** One line, the way an EXPLAIN prints it. */
+    message: string
+    /** The rest of the story for a reader who expands the line. */
+    detail?: string
+    /** The table the step reads or filters, as the query names it. */
+    table?: string
+    rows?: integer
+    /** Prose advice for a reader. Not replacement text. */
+    fix?: string
+    /** Instruction for the editor's "Fix with AI" action, set only where rewriting the query helps. */
+    ai_fix_prompt?: string
+}
+
+/** How much a query is expected to read, estimated before it runs, one entry per table it scans. */
+export interface ScanEstimate {
+    /** Sum of the rows of every table entry that has one. */
+    rows: integer
+    /** True when the query reads at most `rows` of the tables that have a number: an indexed filter went unmodeled, or a table is known only by its size. False when every table that has a number is measured. A table with no number is not in `rows` at all; its `precision` says so. */
+    upper_bound: boolean
+    /** False when the query reads a table somewhere the estimate does not follow, such as a subquery in WHERE or in the select list, so `rows` leaves that read out. */
+    complete: boolean
+    tables: TableScanEstimate[]
+}
+
 export interface HogQLMetadataColumn {
     /** Output column name, in the same order as the SELECT list. */
     name: string
@@ -972,6 +1051,10 @@ export interface HogQLMetadataResponse {
     isUsingIndices?: QueryIndexUsage
     /** One entry per property filter, in query order. */
     index_usage?: PredicateIndexUsage[]
+    /** Present when the estimator walked the query; `tables` is empty for a query that reads no table. Absent when the FROM tree cannot be walked or the estimator failed. */
+    scan_estimate?: ScanEstimate
+    /** The estimate and the index verdicts as one readable plan: scans in FROM order, each with its filters, then the join. Present whenever `scan_estimate` is. */
+    cost_plan?: CostPlanStep[]
     errors: HogQLNotice[]
     warnings: HogQLNotice[]
     notices: HogQLNotice[]

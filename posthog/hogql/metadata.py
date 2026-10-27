@@ -10,6 +10,7 @@ from posthoganalytics import FeatureFlagResult
 from pydantic import BaseModel
 
 from posthog.schema import (
+    CostPlanStep,
     HogLanguage,
     HogQLMetadata,
     HogQLMetadataColumn,
@@ -20,6 +21,8 @@ from posthog.schema import (
     PredicateIndexVerdict,
     PredicateQuickfix,
     PredicateScope,
+    ScanEstimate,
+    TableScanEstimate,
 )
 
 from posthog.hogql import ast
@@ -27,6 +30,12 @@ from posthog.hogql.base import AST
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.cost.estimate import (
+    ScanEstimate as ScanEstimateResult,
+    estimate_scan,
+)
+from posthog.hogql.cost.explain import build_cost_plan
+from posthog.hogql.cost.statistics import ClickHouseStatisticsProvider, StatisticsProvider
 from posthog.hogql.database.database import Database
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.direct_sql import get_adapter_for_source
@@ -57,7 +66,13 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.ph_client import feature_enabled_or_false
-from posthog.schema_enums import PersonsOnEventsMode
+from posthog.schema_enums import (
+    CostPlanStepKind,
+    PersonsOnEventsMode,
+    ScanEstimatePrecision,
+    ScanEstimateSource,
+    ScanEstimateTimeRange,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -95,6 +110,7 @@ def get_hogql_metadata(
     hogql_ast: Optional[Union[ast.SelectQuery, ast.SelectSetQuery]] = None,
     prepared_ast: Optional[ast.AST] = None,  # precached
     printed_sql: Optional[str] = None,  # precached
+    statistics_provider: Optional[StatisticsProvider] = None,
 ) -> HogQLMetadataResponse:
     response = HogQLMetadataResponse(
         isValid=True,
@@ -219,8 +235,13 @@ def get_hogql_metadata(
             if source is None and FLAG_CALLED_EVENT in query.query:
                 heuristic_warnings.extend(_flag_called_on_events_warnings(hogql_ast, context, team))
 
+            report: IndexEligibilityReport | None = None
             if source is None and query.indexUsage and _index_usage_enabled(team):
-                _attach_index_usage(response, hogql_ast, context)
+                report = _attach_index_usage(response, hogql_ast, context)
+            # The estimate covers a direct connection too: its tables carry the remote catalog's size.
+            if query.indexUsage and _scan_estimate_enabled(team):
+                estimate = _attach_scan_estimate(response, hogql_ast, context, statistics_provider)
+                _attach_cost_plan(response, estimate, report, context)
         else:
             raise ValueError(f"Unsupported language: {query.language}")
     except Exception as e:
@@ -306,6 +327,24 @@ def _flag_called_move_notices(team: Team) -> FeatureFlagResult | None:
     )
 
 
+def _scan_estimate_enabled(team: Team) -> bool:
+    """The scan estimate is a first, coarse model and is being calibrated against read_rows in query_log.
+
+    Gated by an organization-group flag so the number is only shown where its accuracy is being watched.
+    Target the flag at the organization group: person conditions never match here, because the distinct
+    id passed is the team uuid.
+    """
+    return feature_enabled_or_false(
+        "hogql-events-scan-estimate",
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            "project": {"id": str(team.id)},
+        },
+    )
+
+
 def _flag_called_announcement_url(payload: object) -> str | None:
     """The announcement URL from a flag payload of the shape `{"url": ...}`.
 
@@ -344,11 +383,83 @@ def _flag_called_on_events_warnings(
         return []
 
 
+def _attach_scan_estimate(
+    response: HogQLMetadataResponse,
+    hogql_ast: Union[ast.SelectQuery, ast.SelectSetQuery],
+    context: HogQLContext,
+    statistics_provider: StatisticsProvider | None = None,
+) -> ScanEstimateResult | None:
+    """Estimate how much the query reads, per table, for the editor to show before the user runs it."""
+    # Deferred like build_index_eligibility_report: the resolver must stay off this module's import path.
+    from posthog.hogql.resolver import resolve_types  # noqa: PLC0415
+
+    if context.database is None:
+        return None
+    try:
+        with context.timings.measure("scan_estimate"):
+            resolved = resolve_types(clone_expr(hogql_ast), context, dialect="clickhouse")
+            provider = statistics_provider if statistics_provider is not None else ClickHouseStatisticsProvider()
+            estimate = estimate_scan(resolved, context, provider)
+    except Exception:
+        # Advisory only. A query that compiles must not be reported as invalid because estimating it failed.
+        logger.exception("hogql_scan_estimate_failed", team_id=context.team_id)
+        return None
+    if estimate is None:
+        return None
+    response.scan_estimate = ScanEstimate(
+        rows=estimate.rows,
+        upper_bound=estimate.upper_bound,
+        complete=estimate.complete,
+        tables=[
+            TableScanEstimate(
+                name=table.name,
+                source=ScanEstimateSource(table.source),
+                precision=ScanEstimatePrecision(table.precision),
+                rows=table.rows,
+                bytes=table.bytes,
+                days=table.days,
+                events=list(table.events) if table.events is not None else None,
+                time_range=ScanEstimateTimeRange(table.time_range) if table.time_range is not None else None,
+            )
+            for table in estimate.tables
+        ],
+    )
+    return estimate
+
+
+def _attach_cost_plan(
+    response: HogQLMetadataResponse,
+    estimate: ScanEstimateResult | None,
+    report: IndexEligibilityReport | None,
+    context: HogQLContext,
+) -> None:
+    try:
+        steps = build_cost_plan(estimate, report)
+    except Exception:
+        # Advisory like the estimate: a plan that fails to render must not mark a compiling query invalid.
+        logger.exception("hogql_cost_plan_failed", team_id=context.team_id)
+        return
+    if not steps:
+        return
+    response.cost_plan = [
+        CostPlanStep(
+            kind=CostPlanStepKind(step.kind),
+            message=step.message,
+            detail=step.detail,
+            table=step.table,
+            rows=step.rows,
+            fix=step.fix,
+            ai_fix_prompt=step.ai_fix_prompt,
+        )
+        for step in steps
+    ]
+
+
 def _attach_index_usage(
     response: HogQLMetadataResponse,
     hogql_ast: Union[ast.SelectQuery, ast.SelectSetQuery],
     context: HogQLContext,
-) -> None:
+) -> IndexEligibilityReport | None:
     """Report which property filters will prune data, and warn about the ones a fix would unblock.
 
     Every predicate reaches the response; only the ones a query edit can unblock become warnings.
@@ -360,6 +471,7 @@ def _attach_index_usage(
         with INDEX_ELIGIBILITY_DURATION_SECONDS.time():
             report = build_index_eligibility_report(hogql_ast, context)
         _record_index_usage(response, report, context)
+        return report
     except Exception:
         # Index eligibility is advisory. A query that compiles must not be reported as invalid
         # because the analysis over it failed, so the whole of it is swallowed rather than only the
@@ -368,6 +480,7 @@ def _attach_index_usage(
         # user-visible trace: the response just comes back without a report.
         INDEX_ELIGIBILITY_TOTAL.labels(result="failed").inc()
         logger.exception("hogql_index_eligibility_failed", team_id=context.team_id)
+        return None
 
 
 def _record_index_usage(
