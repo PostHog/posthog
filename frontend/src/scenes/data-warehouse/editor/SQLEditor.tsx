@@ -510,8 +510,15 @@ function AccessControlModal(): JSX.Element | null {
 }
 
 function SQLEditorSceneTitle(): JSX.Element | null {
-    const { titleSectionProps, updateInsightButtonEnabled, saveAsMenuItems, notebooksLoading, isSaveAsModalOpen } =
-        useValues(editorSceneLogic)
+    const {
+        titleSectionProps,
+        updateInsightButtonEnabled,
+        saveAsMenuItems,
+        notebooksLoading,
+        isSaveAsModalOpen,
+        editorSource,
+        dashboardId,
+    } = useValues(editorSceneLogic)
     const {
         queryInput,
         editingView,
@@ -617,15 +624,16 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             return saveAsDisabledReason ?? saveAsViewAccessDisabledReason
         }
         if (target === 'endpoint') {
-            return saveAsDisabledReason ?? saveAsEndpointDisabledReason
+            return !queryInput?.trim() ? 'Write a SQL query before saving' : saveAsEndpointDisabledReason
         }
         return saveAsDisabledReason
     }
 
+    const hasContextualRecommendation = editorSource !== 'insight' || !!editingInsight || dashboardId !== null
     const saveAsTargets: SaveAsTarget[] = [saveAsMenuItems.primary, ...saveAsMenuItems.secondary].map((item) => ({
         id: item.action,
         ...SAVE_AS_TARGETS[item.action],
-        recommended: item.action === saveAsMenuItems.primary.action,
+        recommended: hasContextualRecommendation && item.action === saveAsMenuItems.primary.action,
         disabledReason: disabledReasonForSaveAsTarget(item.action),
         dataAttr: item.dataAttr ?? `sql-editor-save-as-${item.action}`,
     }))

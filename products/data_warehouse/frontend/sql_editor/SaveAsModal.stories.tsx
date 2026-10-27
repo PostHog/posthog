@@ -10,7 +10,6 @@ const targets: SaveAsTarget[] = (Object.entries(SAVE_AS_TARGETS) as [SaveAsTarge
         ...target,
         id,
         recommended: index === 0,
-        disabledReason: id === 'endpoint' ? 'Run the latest query changes before saving' : undefined,
         dataAttr: `save-as-${id}`,
     })
 )

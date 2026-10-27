@@ -466,6 +466,9 @@ export const EditedInsight: Story = {
         await expect(
             canvasElement.ownerDocument.querySelector('[data-attr="sql-editor-save-view-button"]')
         ).toHaveAttribute('aria-disabled', 'true')
+        await expect(
+            canvasElement.ownerDocument.querySelector('[data-attr="sql-editor-save-as-endpoint"]')
+        ).toHaveAttribute('aria-disabled', 'false')
         await userEvent.keyboard('{Escape}')
         await expect(canvas.queryByRole('button', { name: /^close$/ })).not.toBeInTheDocument()
         await userEvent.click(canvasElement.querySelector('[data-attr="sql-editor-save-options-button"]')!)
