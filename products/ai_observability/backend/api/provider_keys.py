@@ -219,7 +219,9 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(str(error)) from error
         # TypeSafe is not a subprocessor. Only a team's own System One connection may send data there.
         if _is_typesafe_host(value):
-            raise serializers.ValidationError("TypeSafe endpoints are only available for System One connections.")
+            raise serializers.ValidationError(
+                "TypeSafe is not an approved subprocessor. Use a System One connection to send data to it."
+            )
         # `base_url_display` is readable by any project member while the API key is masked, and the
         # URL also reaches exception messages and log lines. A credential typed into this field
         # would leak through all three, so drop it before anything stores or echoes the value.
