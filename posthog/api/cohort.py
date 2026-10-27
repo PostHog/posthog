@@ -85,7 +85,7 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.filters.utils import earliest_timestamp_func
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
-from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS, Property
+from posthog.models.property.property import SEMVER_OPERATORS, STRING_PREFIX_SUFFIX_OPERATORS, Property
 from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 from posthog.models.team.team import DEPRECATED_ATTRS, Team
 from posthog.models.utils import UUIDT
@@ -435,6 +435,7 @@ SINGLE_VALUE_OPERATORS = (
     "not_icontains",
     *STRING_PREFIX_SUFFIX_OPERATORS,
     *DATE_OPERATORS,
+    *SEMVER_OPERATORS,
 )
 
 # Filter variants that inherit PersonValueValidationMixin, and so store an unwrapped value.
@@ -642,11 +643,35 @@ API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
 logger = structlog.get_logger(__name__)
 
 
+class LengthFirstListField(serializers.ListField):
+    # DRF checks max_length only after it validates every item, so an oversized list of bad items
+    # builds one error per item before it fails. Check the length first to reject it in constant time.
+    def to_internal_value(self, data: Any) -> list[Any]:
+        if self.max_length is not None and isinstance(data, list) and len(data) > self.max_length:
+            self.fail("max_length", max_length=self.max_length)
+        return super().to_internal_value(data)
+
+
 class AddPersonsToStaticCohortRequestSerializer(serializers.Serializer):
-    person_ids = serializers.ListField(
-        child=serializers.UUIDField(),
+    person_ids = LengthFirstListField(
+        child=serializers.UUIDField(
+            error_messages={
+                "invalid": "Must be a person UUID (the `id` column of the persons table), not a distinct ID or an email."
+            }
+        ),
         required=True,
-        help_text="List of person UUIDs to add to the cohort",
+        allow_empty=False,
+        max_length=DEFAULT_COHORT_INSERT_BATCH_SIZE,
+        error_messages={
+            "max_length": (
+                "Too many person_ids. Send at most {max_length} per request. To add a larger set, set a `query` "
+                "on the static cohort instead, and the server adds every matching person."
+            )
+        },
+        help_text=(
+            "Person UUIDs to add to the cohort (the `id` column of the persons table, not distinct IDs). "
+            f"At most {DEFAULT_COHORT_INSERT_BATCH_SIZE} per request."
+        ),
     )
 
 
@@ -2609,17 +2634,22 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
     def add_persons_to_static_cohort(self, request: request.Request, **kwargs):
         cohort: Cohort = self.get_object()
         if not cohort.is_static:
-            raise ValidationError("Can only add users to static cohorts")
-        person_ids = request.data.get("person_ids", None)
-        if not isinstance(person_ids, list):
-            raise ValidationError("person_ids must be a list")
-        if len(person_ids) == 0:
-            raise ValidationError("person_ids cannot be empty")
-        if len(person_ids) > DEFAULT_COHORT_INSERT_BATCH_SIZE:
-            raise ValidationError("List size exceeds limit")
+            raise ValidationError(
+                "Can only add users to static cohorts. This cohort is dynamic, so its filters decide who is in it. "
+                "Change the filters, or create a static cohort (`is_static: true`) and add the persons to that one.",
+                code="cohort_not_static",
+            )
+        serializer = AddPersonsToStaticCohortRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        person_ids = [str(person_id) for person_id in serializer.validated_data["person_ids"]]
         uuids = validate_person_uuids_exist(self.team_id, person_ids)
         if len(uuids) == 0:
-            raise ValidationError("No valid users to add to cohort")
+            raise ValidationError(
+                "No valid users to add to cohort. None of the person_ids match a person in this project. "
+                "Use person UUIDs from the persons table (for example `SELECT id FROM persons WHERE ...`). "
+                "Distinct IDs do not match, even when they look like UUIDs.",
+                code="no_matching_persons",
+            )
         cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id)
         log_activity(
             organization_id=cast(UUIDT, self.organization_id),

@@ -791,6 +791,13 @@ class ReplayVisionWatchFeedSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "600/hour"
 
 
+# Impression reports arrive while a reader scrolls, so they get their own per-user bucket and never use up the
+# team's feed bucket.
+class ReplayVisionWatchFeedImpressionsRateThrottle(_UserBucketRateThrottle):
+    scope = "replay_vision_watch_feed_impressions"
+    rate = "120/minute"
+
+
 # Each observation search makes a synchronous embedding request and a brute-force cosine scan over
 # the team's embedding rows, and its primary caller is the session-authenticated Search tab, which
 # the default Burst/Sustained throttles bypass. The burst bucket is per credential so one user

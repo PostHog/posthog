@@ -455,7 +455,7 @@ def sync_execute(
             workload = Workload.OFFLINE if is_api_key_auth else Workload.ONLINE
         ch_user = ClickHouseUser.API if is_api_key_auth else ClickHouseUser.APP
 
-    if tags.workload == Workload.ENDPOINTS and workload not in (Workload.LOGS, Workload.NEW_EVENTS_CLUSTER):
+    if tags.workload == Workload.ENDPOINTS and workload != Workload.LOGS:
         workload = Workload.ENDPOINTS
 
     if workload == Workload.DEFAULT:
