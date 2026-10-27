@@ -58,11 +58,16 @@
         }
 
         .SessionRecordingPlayerWrapper__player {
+            position: sticky;
+            top: 0;
+            z-index: 2;
             display: flex;
             flex: none;
             height: clamp(24rem, 60vh, 48rem);
+            background: var(--color-bg-surface-primary);
 
             &--fullscreen {
+                position: static;
                 flex: 1;
                 height: auto;
             }

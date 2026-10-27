@@ -1,6 +1,6 @@
 import { deepEqual as equal } from 'fast-equals'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { ReactNode, useState } from 'react'
 
 import { IconFilter, IconRefresh } from '@posthog/icons'
 import { LemonBadge, LemonButton } from '@posthog/lemon-ui'
@@ -25,19 +25,20 @@ export function ReplayFilterBar({
     totalFiltersCount,
     currentSessionRecordingId,
     onReload,
+    savedFilterChips,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     totalFiltersCount?: number
     currentSessionRecordingId?: string
     onReload: () => void
+    savedFilterChips?: ReactNode
 }): JSX.Element {
     const { sessionRecordingsResponseLoading } = useValues(sessionRecordingsPlaylistLogic)
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
     const { setIsFiltersExpanded } = useActions(playlistFiltersLogic)
     const { appliedSavedFilter, appliedSavedFilterFilters } = useValues(sessionRecordingSavedFiltersLogic)
     const { applyFilters } = useRecordingFiltersAssist({ filters, setFilters, currentSessionRecordingId })
-    // registers the filter tool so the PostHog AI side panel can drive this list
     useMaxTool({
         identifier: 'filter_session_recordings',
         context: { current_filters: filters, current_session_id: currentSessionRecordingId },
@@ -71,6 +72,7 @@ export function ReplayFilterBar({
                         {totalFiltersCount ? <LemonBadge.Number count={totalFiltersCount} size="small" /> : null}
                     </LemonButton>
                     <SavedFilterSelect edited={edited} onSaveCurrent={() => setSaveModalOpen(true)} />
+                    {savedFilterChips}
                     <FilterChips filters={filters} setFilters={setFilters} />
                 </div>
                 <LemonButton

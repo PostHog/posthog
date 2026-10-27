@@ -1435,6 +1435,24 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
+    describe('filtering by a person', () => {
+        beforeEach(() => {
+            logic = sessionRecordingsPlaylistLogic({ logicKey: 'person_filter', updateSearchParams: true })
+            logic.mount()
+        })
+
+        it.each([
+            { name: 'a second person replaces the first', calls: ['a', 'b'], expected: 'b' },
+            { name: 'null drops the key', calls: ['a', null], expected: undefined },
+        ])('$name', ({ calls, expected }) => {
+            for (const personUUID of calls) {
+                logic.actions.filterByPerson(personUUID)
+            }
+            expect(logic.values.filters.person_uuid).toBe(expected)
+            expect('person_uuid' in logic.values.filters).toBe(expected !== undefined)
+        })
+    })
+
     describe('rehydrating persisted filters', () => {
         const props = { logicKey: 'persist_regression', personUUID: 'persist_regression', updateSearchParams: false }
 
