@@ -34,7 +34,12 @@ from posthog.api.webauthn import (
 from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.email_utils import EmailValidationHelper, reject_plus_addressed_email, validate_display_name
+from posthog.helpers.email_utils import (
+    EmailLookupHandler,
+    EmailValidationHelper,
+    reject_plus_addressed_email,
+    validate_display_name,
+)
 from posthog.helpers.oauth_pending_connection import (
     apply_connector_signup_onboarding_skip,
     read_pending_oauth_connection,
@@ -452,9 +457,13 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
             # Mirror SignupSerializer.validate_email. Without this the form clears the email step,
             # the user fills in the rest, and only then hits the rejection on submit.
             reject_plus_addressed_email(email)
-            email_exists = EmailValidationHelper.user_exists_with_stripped_alias(
-                email
-            ) or EmailValidationHelper.user_exists_with_gmail_canonical(email)
+            email_exists = (
+                EmailValidationHelper.user_exists_with_stripped_alias(email)
+                or EmailValidationHelper.user_exists_with_gmail_canonical(email)
+                # The alias checks only see active accounts, but the email column is unique across
+                # all of them, so a deactivated account would otherwise fail signup at the last step
+                or EmailLookupHandler.get_user_by_email(email, is_active=None) is not None
+            )
         if email_exists:
             return response.Response(
                 {

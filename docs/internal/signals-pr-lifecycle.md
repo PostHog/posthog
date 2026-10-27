@@ -179,10 +179,24 @@ New metric checks validate numeric goals and baselines against their metric kind
 
 ## Repository selection
 
-The shared repository selection prompt asks the agent to check the sources in the supplied context before choosing a repository.
+For reports built from GitHub issues, the issue repository is a default when it is an eligible candidate.
+With multiple permitted candidates, selection can choose another repository based on code ownership, applicable routing rules, or past wrong-repository corrections.
+Matching paths can be vendored, generated, or mirrored copies; ownership evidence takes precedence over the source default.
+If the evidence otherwise leaves candidates equally plausible, selection prefers the issue repository.
+Selection sandboxes use read-only GitHub credentials and read-only PostHog scopes to inspect repositories and query the cache.
+
+The selector checks cached source visibility before the single-candidate shortcut or the agent runs, including when the source is not eligible.
+If the source is not confirmed public, the permitted destinations are the eligible source itself and eligible repositories confirmed private.
+Missing or non-boolean visibility metadata is unconfirmed.
+If no permitted destination remains, selection returns no repository.
+A confirmed public source does not restrict destination visibility, so an unavailable public source can still route to another eligible repository.
+The restricted candidate list governs both the prompt and validation of the agent's result.
+A single permitted repository is selected without running the agent, and re-research reuses a stored non-null repository selection.
+
+The shared repository selection prompt also asks the agent to check other sources in the supplied context before choosing a repository.
 For information from a private repository or another explicitly private source, it prefers a relevant private candidate and returns no repository if none is suitable or its visibility cannot be confirmed.
 Each candidate carries a private, public, or unknown label from the cached GitHub repository list, so the agent does not query GitHub for visibility.
-This is prompt guidance, not an enforced access control, and it does not validate repositories selected outside the agent.
+These broader context checks remain prompt guidance; the source-repository restriction does not validate selections made outside the shared selector.
 
 ## Reviewer notifications
 

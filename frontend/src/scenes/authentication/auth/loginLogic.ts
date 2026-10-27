@@ -38,6 +38,12 @@ export interface AuthenticateResponseType {
 }
 
 export interface PrecheckResponseType {
+    /**
+     * Whether an account, active or deactivated, uses this email. Absent (from an older server or a failed precheck)
+     * means unknown, and the auth page then shows the login step, so an existing account is never
+     * sent into signup.
+     */
+    account_exists?: boolean
     sso_enforcement?: SSOProvider | null
     saml_available: boolean
     oidc_available?: boolean
@@ -220,7 +226,6 @@ export interface loginLogicValues {
     restrictToProviders: SSOProvider[] | null
     showCodeVerificationErrors: boolean
     showLoginErrors: boolean
-    signupUrl: string
     wasSignedOutForSessionRisk: boolean
 }
 
@@ -387,7 +392,6 @@ export interface loginLogicMeta {
             precheckResponse: PrecheckResponseType,
             isPasswordLoginUnavailable: boolean
         ) => SSOProvider[] | null
-        signupUrl: (searchParams: Record<string, any>) => string
         wasSignedOutForSessionRisk: (searchParams: Record<string, any>) => boolean
     }
 }
@@ -397,7 +401,7 @@ export type loginLogicType = MakeLogicType<loginLogicValues, loginLogicActions, 
 const PRECHECK_IDLE_DELAY_MS = 3000
 
 export const loginLogic = kea<loginLogicType>([
-    path(['scenes', 'authentication', 'login', 'loginLogic']),
+    path(['scenes', 'authentication', 'auth', 'loginLogic']),
     connect(() => ({
         values: [
             preflightLogic,
@@ -466,7 +470,7 @@ export const loginLogic = kea<loginLogicType>([
             },
         ],
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         precheckResponse: [
             { status: 'pending' } as PrecheckResponseType,
             {
@@ -495,14 +499,30 @@ export const loginLogic = kea<loginLogicType>([
                         return values.precheckResponse
                     }
 
+                    // Autofill, the typing pause and Continue can all ask for the same email while
+                    // its request is still running, so they share that request instead of restarting it.
+                    if (cache.inflightPrecheck?.email === email) {
+                        return await cache.inflightPrecheck.request
+                    }
+
                     breakpoint()
+                    const request = (async (): Promise<PrecheckResponseType> => {
+                        try {
+                            // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
+                            const response = await api.create<any>('api/login/precheck', { email })
+                            return { status: 'completed', ...response, email }
+                        } catch {
+                            // Never let a failed precheck lock the user out of password login.
+                            return precheckFallback(email)
+                        }
+                    })()
+                    cache.inflightPrecheck = { email, request }
                     try {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                        const response = await api.create<any>('api/login/precheck', { email })
-                        return { status: 'completed', ...response, email }
-                    } catch {
-                        // Never let a failed precheck lock the user out of password login.
-                        return precheckFallback(email)
+                        return await request
+                    } finally {
+                        if (cache.inflightPrecheck?.request === request) {
+                            cache.inflightPrecheck = null
+                        }
                     }
                 },
             },
@@ -584,13 +604,6 @@ export const loginLogic = kea<loginLogicType>([
             (s) => [s.precheckResponse, s.isPasswordLoginUnavailable],
             (precheckResponse: PrecheckResponseType, isPasswordLoginUnavailable: boolean): SSOProvider[] | null =>
                 isPasswordLoginUnavailable ? (precheckResponse.social_providers ?? []) : null,
-        ],
-        signupUrl: [
-            () => [router.selectors.searchParams],
-            (searchParams: Record<string, string>) => {
-                const nextParam = getRelativeNextPath(searchParams['next'], location)
-                return nextParam ? `/signup?next=${encodeURIComponent(nextParam)}` : '/signup'
-            },
         ],
         wasSignedOutForSessionRisk: [
             () => [router.selectors.searchParams],
@@ -756,7 +769,7 @@ export const loginLogic = kea<loginLogicType>([
         },
     })),
     urlToAction(({ actions }) => ({
-        '/login': (_, { error_code, error_detail, email, message }) => {
+        '/login': (_, { error_code, error_detail, message }) => {
             if (error_code) {
                 actions.setGeneralError(error_code, error_detail)
                 router.actions.replace('/login', {})
@@ -766,12 +779,6 @@ export const loginLogic = kea<loginLogicType>([
                 lemonToast.info(message)
                 const { message: _, ...otherParams } = router.values.searchParams
                 router.actions.replace('/login', otherParams)
-            }
-
-            // This allows us to give a quick login link in the `generate_demo_data` command
-            if (email) {
-                actions.setLoginValue('email', email)
-                actions.precheck({ email })
             }
         },
     })),
