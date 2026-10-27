@@ -10,9 +10,12 @@ from products.knowledge_writer.backend.facade.contracts import DocsCommandReques
 from products.knowledge_writer.backend.facade.enums import DocsRequestSource
 from products.knowledge_writer.backend.logic import intake
 from products.knowledge_writer.backend.logic.launch import REQUEST_STATE_KEY
+from products.knowledge_writer.backend.logic.publish import LINK_BACK_START, PULL_REQUEST_STATE_KEY
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.models import TaskRun
 
 FLAG_CHECK = "products.knowledge_writer.backend.feature_flags.posthoganalytics.feature_enabled"
+CREATE_PULL_REQUEST = "posthog.models.integration.GitHubIntegration.create_pull_request"
 START_WORKFLOW = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
 
 COMMAND = DocsCommandRequest(
@@ -27,7 +30,9 @@ COMMAND = DocsCommandRequest(
 
 @pytest.fixture
 def writer_env(team, user):
-    Integration.objects.create(team=team, kind="github", integration_id="31337", config={})
+    Integration.objects.create(
+        team=team, kind="github", integration_id="31337", config={"account": {"name": "PostHog"}}
+    )
     with patch.dict(
         os.environ,
         {
@@ -80,3 +85,29 @@ def test_a_request_starts_one_internal_writer_task_and_a_repeat_is_a_duplicate(t
     stored_request = tasks_facade.read_task_state_entry(task.id, team.id, REQUEST_STATE_KEY)
     assert isinstance(stored_request, dict)
     assert stored_request["dedupe_id"] == verdict.request.dedupe_id
+
+
+@pytest.mark.django_db
+def test_a_finished_writer_run_opens_one_linked_docs_pull_request(
+    team, writer_env, django_capture_on_commit_callbacks
+) -> None:
+    with patch(FLAG_CHECK, return_value=True), patch(START_WORKFLOW):
+        started = intake.submit(_verdict(), team_id=team.id)
+    assert started.task_id is not None
+    run = TaskRun.objects.get(task_id=started.task_id)
+    opened = {"success": True, "pr_url": "https://github.com/PostHog/posthog.com/pull/9", "pr_number": 9}
+
+    with patch(CREATE_PULL_REQUEST, return_value=opened) as create_pull_request:
+        with django_capture_on_commit_callbacks(execute=True):
+            run.status = TaskRun.Status.COMPLETED
+            run.output = {"head_branches": [{"repository": "PostHog/posthog.com", "branch": "docs/retention"}]}
+            run.save(update_fields=["status", "output"])
+        with django_capture_on_commit_callbacks(execute=True):
+            run.save(update_fields=["output"])
+
+    create_pull_request.assert_called_once()
+    assert create_pull_request.call_args.args == ("posthog.com",)
+    assert create_pull_request.call_args.kwargs["head_branch"] == "docs/retention"
+    assert LINK_BACK_START in create_pull_request.call_args.kwargs["body"]
+    assert COMMAND.pull_request_url in create_pull_request.call_args.kwargs["body"]
+    assert tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_STATE_KEY) == opened["pr_url"]
