@@ -11,7 +11,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from parameterized import parameterized
 from temporalio.converter import JSONPlainPayloadConverter
 
-from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
+from posthog.models import OAuthAccessToken, OAuthApplication, Organization, OrganizationMembership, Team, User
 from posthog.scopes import MCP_BUILT_IN_AGENT_SCOPE, SLACK_RUN_SCOPE
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
@@ -391,6 +391,33 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
         access_token = OAuthAccessToken.objects.get(token=token)
         assert access_token.application_id == app.id
         assert access_token.scoped_teams == [team.id]
+
+    @parameterized.expand(["allowed", "wrong_parent", "revoked", "inactive"])
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_additional_environment_requires_parentage_and_user_access(self, case: str) -> None:
+        self._create_oauth_app(ARRAY_APP_CLIENT_ID_DEV, "Array Dev App")
+        user, team = self._create_user_and_team()
+        membership = OrganizationMembership.objects.create(organization=team.organization, user=user)
+        parent = (
+            Team.objects.create(organization=team.organization, name="Other project")
+            if case == "wrong_parent"
+            else team
+        )
+        environment = Team.objects.create(
+            organization=team.organization, parent_team=parent, name="Verification environment"
+        )
+        if case == "revoked":
+            membership.delete()
+        elif case == "inactive":
+            user.is_active = False
+            user.save(update_fields=["is_active"])
+        if case != "allowed":
+            with self.assertRaises(ValueError):
+                create_oauth_access_token_for_user(user, team.id, environment_id=environment.id)
+            assert not OAuthAccessToken.objects.filter(user=user).exists()
+            return
+        token = create_oauth_access_token_for_user(user, team.id, environment_id=environment.id)
+        assert OAuthAccessToken.objects.get(token=token).scoped_teams == [team.id, environment.id]
 
     @override_settings(CLOUD_DEPLOYMENT="DEV")
     def test_task_binding_is_persisted_only_when_supplied(self) -> None:

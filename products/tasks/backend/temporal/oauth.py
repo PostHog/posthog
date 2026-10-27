@@ -185,8 +185,9 @@ def create_oauth_access_token(
     user: User | None = None,
     allow_task_creator_fallback: bool = True,
     run_state: dict[str, Any] | None = None,
+    run_id: UUID | str | None = None,
 ) -> str:
-    """Create an OAuth access token for the task's sandbox app, scoped to the task's team.
+    """Create sandbox OAuth credentials for the task's project and any verified Monitoring environment.
 
     OAuth tokens auto-expire after 6 hours, so no cleanup is needed.
     Pass `run_state` so the Signals budget is picked from the run's own provenance
@@ -225,6 +226,14 @@ def create_oauth_access_token(
         token_options["include_slack_run_scope"] = True
     if run_uses_own_subscription(run_state):
         token_options["withhold_scopes"] = sorted(SUBSCRIPTION_RUN_WITHHELD_SCOPES)
+    if task.origin_product == Task.OriginProduct.SIGNALS_SCOUT and run_id is not None:
+        from products.signals.backend.facade.monitoring import (  # noqa: PLC0415 -- avoids loading Signals on every Tasks import
+            monitoring_environment_for_task_run,
+        )
+
+        environment_id = monitoring_environment_for_task_run(team_id=task.team_id, task_id=task.id, run_id=run_id)
+        if environment_id is not None:
+            token_options["environment_id"] = environment_id
     return create_oauth_access_token_for_user(actor, task.team_id, **token_options)
 
 
@@ -307,6 +316,7 @@ def create_oauth_access_token_for_run(
             user=actor_user,
             allow_task_creator_fallback=not is_slack_interaction_state(state),
             run_state=state,
+            run_id=run_id,
         )
         if run_id is not None:
             run = TaskRun.objects.select_for_update().get(
@@ -355,6 +365,7 @@ def create_oauth_access_token_for_user(
     include_slack_run_scope: bool = False,
     sandbox_task_id: UUID | None = None,
     withhold_scopes: Collection[str] = (),
+    environment_id: int | None = None,
 ) -> str:
     """Create an OAuth access token for a sandbox app, scoped to a specific team."""
     try:
@@ -371,6 +382,8 @@ def create_oauth_access_token_for_user(
             token_options["include_slack_run_scope"] = True
         if withhold_scopes:
             token_options["withhold_scopes"] = list(withhold_scopes)
+        if environment_id is not None:
+            token_options["environment_id"] = environment_id
         return _create_oauth_access_token_for_user(user, team_id, **token_options)
     except RuntimeError as err:
         raise OAuthTokenError(str(err), {"team_id": team_id}, cause=err) from err

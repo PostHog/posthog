@@ -448,7 +448,7 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
 
 @temporalio.activity.defn
 @close_db_connections
-def deliver_monitoring_scout_result(input: RunSignalsScoutInput, run_id: str | None) -> None:
+def deliver_monitoring_scout_result(input: RunSignalsScoutInput, run_id: str | None, failed: bool = False) -> None:
     if input.monitoring_check is not None and input.run_note is not None:
         save_monitoring_scout_result(
             input.monitoring_check,
@@ -456,6 +456,7 @@ def deliver_monitoring_scout_result(input: RunSignalsScoutInput, run_id: str | N
             skill_name=input.skill_name,
             run_note=input.run_note,
             run_id=run_id,
+            failed=failed,
         )
 
 
@@ -513,7 +514,7 @@ class RunSignalsScoutWorkflow:
             )
         except (ActivityError, asyncio.CancelledError) as error:
             if input.monitoring_check is not None:
-                await asyncio.shield(self._deliver_monitoring_result(input, None))
+                await asyncio.shield(self._deliver_monitoring_result(input, None, failed=True))
 
             if input.trial_launch_id is not None and temporalio.workflow.patched("cancel-failed-scout-trial"):
                 try:
@@ -543,16 +544,20 @@ class RunSignalsScoutWorkflow:
                 )
                 await asyncio.shield(self._resume_step(input, output))
             raise
-        if input.monitoring_check is not None and output.run_id is not None:
-            await self._deliver_monitoring_result(input, output.run_id)
+        if input.monitoring_check is not None and (
+            output.run_id is not None or output.status in {"failed", "cancelled"}
+        ):
+            await self._deliver_monitoring_result(input, output.run_id, failed=output.status in {"failed", "cancelled"})
         if managed_resume:
             await self._resume_step(input, output)
         return output
 
-    async def _deliver_monitoring_result(self, input: RunSignalsScoutInput, run_id: str | None) -> None:
+    async def _deliver_monitoring_result(
+        self, input: RunSignalsScoutInput, run_id: str | None, *, failed: bool = False
+    ) -> None:
         await temporalio.workflow.execute_activity(
             deliver_monitoring_scout_result,
-            args=[input, run_id],
+            args=[input, run_id, failed],
             start_to_close_timeout=timedelta(seconds=30),
             schedule_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=5),

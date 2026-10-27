@@ -2,14 +2,18 @@ from __future__ import annotations
 
 import json
 import time
+import hashlib
 from dataclasses import replace
 from datetime import datetime, timedelta
 from uuid import UUID
 
+from django.db import transaction
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import MD5
 from django.utils import timezone
 
 import structlog
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, TypeAdapter, field_validator
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.dataclasses import frozen
@@ -20,7 +24,12 @@ from products.signals.backend.models import (
     SignalReportMonitoringResult,
     SignalScoutRun,
 )
-from products.signals.backend.report_check_agent import _refuse_dispatch, resolve_check_skill_name
+from products.signals.backend.report_charts import _unstorable_text
+from products.signals.backend.report_check_agent import (
+    CHECK_DISPATCH_DEFER_AFTER,
+    _refuse_dispatch,
+    resolve_check_skill_name,
+)
 from products.signals.backend.report_check_evidence import EvidenceStatus
 from products.signals.backend.report_check_final_candidates import DueFinalCheck, collect_due_final_checks
 from products.signals.backend.report_checks import AgentCheckConfig, parse_check_config
@@ -36,6 +45,8 @@ from products.signals.backend.report_monitoring_results import (
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, TRIGGERED_BY_MONITORING
 
 logger = structlog.get_logger(__name__)
+
+MONITORING_AGENT_DISPATCH_BACKOFF = CHECK_DISPATCH_DEFER_AFTER
 
 
 @frozen
@@ -83,6 +94,13 @@ class MonitoringScoutResult(BaseModel):
     expectation_matches: StrictBool | None
     explanation: str = Field(min_length=1, max_length=16000)
     evidence_refs: list[str] = Field(max_length=50)
+
+    @field_validator("evidence_reason", "explanation", "evidence_refs")
+    @classmethod
+    def content_must_be_storable(cls, value: str | list[str]) -> str | list[str]:
+        if reason := _unstorable_text(value):
+            raise ValueError(f"Monitoring results must not contain {reason}.")
+        return value
 
 
 def monitoring_scout_check(due: DueFinalCheck) -> MonitoringScoutCheck:
@@ -154,17 +172,67 @@ def build_monitoring_run_note(binding: MonitoringScoutCheck, check: SignalReport
 
 
 def bound_monitoring_scout_run(canonical_team_id: int, run_note: str) -> SignalScoutRun | None:
+    # Briefs can exceed btree key limits; the digest locates candidates and full equality binds the run.
     return (
         SignalScoutRun.objects.for_team(canonical_team_id)
         .select_related("task_run")
-        .filter(metadata__triggered_by=TRIGGERED_BY_MONITORING, metadata__run_note=run_note)
+        .alias(_run_note_digest=MD5(KeyTextTransform("run_note", "metadata")))
+        .filter(
+            _run_note_digest=hashlib.md5(run_note.encode(), usedforsecurity=False).hexdigest(),
+            metadata__triggered_by=TRIGGERED_BY_MONITORING,
+            metadata__run_note=run_note,
+        )
         .order_by("created_at", "id")
         .first()
     )
 
 
+def monitoring_environment_for_task_run(*, team_id: int, task_id: UUID, run_id: UUID | str) -> int | None:
+    try:
+        task_run_id = UUID(str(run_id))
+    except ValueError:
+        return None
+    run = (
+        SignalScoutRun.objects.for_team(team_id)
+        .filter(task_run_id=task_run_id, task_run__task_id=task_id, metadata__triggered_by=TRIGGERED_BY_MONITORING)
+        .first()
+    )
+    if run is None or not isinstance(run.metadata, dict):
+        return None
+    note = run.metadata.get("run_note")
+    if not isinstance(note, str):
+        return None
+    try:
+        data = json.loads(note)
+        binding = TypeAdapter(MonitoringScoutCheck).validate_python(
+            {**data, "window_start_iso": data["window_start"], "window_end_iso": data["window_end"]}
+        )
+        check = ready_monitoring_scout_check(binding)
+        if (check.report.team.parent_team_id or check.team_id) != team_id:
+            return None
+        if note != build_monitoring_run_note(binding, check):
+            return None
+        return binding.team_id if binding.team_id != team_id else None
+    except (KeyError, TypeError, ValueError, SignalReportCheck.DoesNotExist):
+        return None
+
+
+def _save_scout_evaluation(evaluation: MonitoringEvaluation) -> None:
+    with transaction.atomic():
+        save_monitoring_result(evaluation)
+        SignalReportCheck.objects.for_team(evaluation.team_id).filter(id=evaluation.check_id).update(
+            monitoring_dispatch_after=None
+        )
+
+
 def save_monitoring_scout_result(
-    binding: MonitoringScoutCheck, *, canonical_team_id: int, skill_name: str, run_note: str, run_id: str | None
+    binding: MonitoringScoutCheck,
+    *,
+    canonical_team_id: int,
+    skill_name: str,
+    run_note: str,
+    run_id: str | None,
+    failed: bool = False,
 ) -> None:
     previous = (
         SignalReportMonitoringResult.objects.for_team(binding.team_id)
@@ -186,6 +254,8 @@ def save_monitoring_scout_result(
             raise InvalidMonitoringResult("The scout brief does not match the authored check.")
         run = bound_monitoring_scout_run(canonical_team_id, run_note)
         if run is None:
+            if failed:
+                _save_scout_evaluation(binding.incomplete_evaluation(max(timezone.now(), binding.window_end)))
             return
         if (run_id is not None and str(run.id) != run_id) or run.skill_name != skill_name:
             raise InvalidMonitoringResult("The result must come from the dispatched scout run.")
@@ -210,7 +280,7 @@ def save_monitoring_scout_result(
             )
         except ValueError:
             pass
-        save_monitoring_result(evaluation)
+        _save_scout_evaluation(evaluation)
     except (InvalidMonitoringResult, MonitoringResultConflict, SignalReportCheck.DoesNotExist):
         return
 
@@ -234,6 +304,11 @@ def run_due_final_agents(*, now: datetime, deadline: float, limit: int) -> Final
     for due in collect_due_final_checks(now, kind=SignalReportCheck.Kind.AGENT, limit=limit, deadline=deadline):
         if time.monotonic() >= deadline:
             break
+        SignalReportCheck.objects.for_team(due.member.check.team_id).filter(
+            id=due.member.check.id,
+            report__monitoring_started_at=due.member.window_start,
+            report__status=SignalReport.Status.MONITORING,
+        ).update(monitoring_dispatch_after=now + MONITORING_AGENT_DISPATCH_BACKOFF)
         try:
             binding = monitoring_scout_check(due)
             check = ready_monitoring_scout_check(binding)

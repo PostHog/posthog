@@ -15,6 +15,7 @@ from django.db.models import (
     F,
     Func,
     OuterRef,
+    Q,
     Subquery,
     TextField,
     Value,
@@ -78,6 +79,10 @@ def collect_due_final_checks(
         )
         .filter(_member_version__isnull=False, _window_end__lte=now)
     )
+    if kind == SignalReportCheck.Kind.AGENT:
+        candidates = candidates.filter(
+            Q(monitoring_dispatch_after__isnull=True) | Q(monitoring_dispatch_after__lte=now)
+        )
     results = SignalReportMonitoringResult.objects.unscoped().filter(
         team_id=OuterRef("team_id"), attempt_id=OuterRef("_attempt_id"), report_check_id=OuterRef("id")
     )
@@ -86,6 +91,11 @@ def collect_due_final_checks(
     candidates = (
         candidates.exclude(report__team__organization_id__in=disabled)
         .annotate(
+            _candidate_at=(
+                Coalesce("monitoring_dispatch_after", "_window_end")
+                if kind == SignalReportCheck.Kind.AGENT
+                else F("_window_end")
+            ),
             _settled=Exists(results.exclude(evidence_status="errored")),
             _error_count=Coalesce(
                 Subquery(errors.order_by().values("report_check_id").annotate(total=Count("id")).values("total")[:1]),
@@ -109,11 +119,11 @@ def collect_due_final_checks(
             _team_rank=Window(
                 expression=RowNumber(),
                 partition_by=[F("team_id")],
-                order_by=[F("_window_end").asc(), F("id").asc()],
+                order_by=[F("_candidate_at").asc(), F("id").asc()],
             )
         )
         .select_related("report", "report__team")
-        .order_by("_team_rank", "_window_end", "id")
+        .order_by("_team_rank", "_candidate_at", "id")
     )
     due: list[DueFinalCheck] = []
     per_team: dict[int, int] = {}
