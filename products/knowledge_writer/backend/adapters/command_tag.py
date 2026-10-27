@@ -1,3 +1,4 @@
+import hashlib
 from typing import ClassVar
 
 from ..facade.contracts import AdapterVerdict, DocsCommandRequest, DocsRequest
@@ -12,7 +13,7 @@ class CommandTagAdapter:
     )
 
     def assess(self, event: DocsCommandRequest) -> AdapterVerdict:
-        owner, name = event.repository.split("/", 1)
+        owner, name = event.repository.lower().split("/", 1)
         subject_id = f"{owner}.{name}#{event.pull_request_number}"
         return AdapterVerdict(
             source=self.source,
@@ -26,7 +27,7 @@ class CommandTagAdapter:
                 change_kind=DocsChangeKind.UPDATE,
                 suggested_page_urls=(),
                 trigger_instructions=event.note,
-                dedupe_id=f"knowledge_writer:{self.source}:{subject_id}",
+                dedupe_id=f"knowledge_writer:{self.source}:{hashlib.sha256(subject_id.encode()).hexdigest()}",
                 requested_by=event.requested_by,
                 skip_judge=True,
             ),

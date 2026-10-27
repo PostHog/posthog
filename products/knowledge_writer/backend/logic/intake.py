@@ -3,10 +3,10 @@ import uuid
 from django.db import IntegrityError
 
 import structlog
-import posthoganalytics
 from pydantic import TypeAdapter, ValidationError
 
 from posthog.models.team import Team
+from posthog.ph_client import ph_scoped_capture
 
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -78,19 +78,20 @@ def submit(payload: object, *, team_id: int) -> IntakeOutcome:
 def capture_verdict(verdict: AdapterVerdict, *, team_id: int) -> None:
     request = verdict.request
     try:
-        posthoganalytics.capture(
-            VERDICT_EVENT,
-            distinct_id=f"knowledge_writer:{team_id}",
-            uuid=uuid.uuid5(uuid.NAMESPACE_URL, f"knowledge_writer:{verdict.source}:{verdict.subject_id}"),
-            properties={
-                "source": verdict.source,
-                "subject_id": verdict.subject_id,
-                "needs_docs": verdict.needs_docs,
-                "reason": verdict.reason,
-                "change_kind": request.change_kind if request else None,
-                "dedupe_id": request.dedupe_id if request else None,
-                "team_id": team_id,
-            },
-        )
+        with ph_scoped_capture() as capture:
+            capture(
+                VERDICT_EVENT,
+                distinct_id=f"knowledge_writer:{team_id}",
+                uuid=uuid.uuid5(uuid.NAMESPACE_URL, f"knowledge_writer:{verdict.source}:{verdict.subject_id}"),
+                properties={
+                    "source": verdict.source,
+                    "subject_id": verdict.subject_id,
+                    "needs_docs": verdict.needs_docs,
+                    "reason": verdict.reason,
+                    "change_kind": request.change_kind if request else None,
+                    "dedupe_id": request.dedupe_id if request else None,
+                    "team_id": team_id,
+                },
+            )
     except Exception:
         logger.warning("knowledge_writer_verdict_capture_failed", team_id=team_id, exc_info=True)
