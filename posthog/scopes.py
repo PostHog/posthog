@@ -264,6 +264,12 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # Read-only export of experiment definitions (list/retrieve), so services syncing
     # experiments into a warehouse don't need a credential tied to one person's account.
     ("experiment", "read"),
+    # Running a query through POST `/query/` only, so a scheduled service can execute HogQL or a
+    # saved query without a credential tied to one person's account. Product query kinds still
+    # need their own product scope, which PSAKs cannot hold. Read access to `query` covers every
+    # table no other scope names, session replay metadata included, and it does so for personal
+    # keys too: there is no per-table gate below the scope.
+    ("query", "read"),
     ("offline_evaluation_ingestion", "write"),
     # A project's own usage and share of spend, for a service that watches one project's billing.
     # Only someone with full billing access may grant it (see the key serializer).

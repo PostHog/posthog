@@ -54,9 +54,10 @@ from posthog.api.services.query import process_query_model
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action, is_async_query, is_insight_actors_options_query, is_insight_actors_query
 from posthog.api_queries_budget import get_request_query_cost, reset_request_query_cost
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, cancel_query, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, is_api_key_access_method, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import (
     GENERIC_INTERNAL_CH_ERROR_MESSAGE,
@@ -81,11 +82,15 @@ from posthog.rate_limit import (
     AISustainedRateThrottle,
     APIQueriesBurstThrottle,
     APIQueriesSustainedThrottle,
-    ClickHouseBurstRateThrottle,
-    ClickHouseSustainedRateThrottle,
     ErrorTrackingFingerprintProjectionBurstRateThrottle,
     ErrorTrackingFingerprintProjectionSustainedRateThrottle,
-    HogQLQueryThrottle,
+    QueryBurstThrottle,
+    QueryClickHouseBurstThrottle,
+    QueryClickHouseSustainedThrottle,
+    QueryHogQLThrottle,
+    QueryProjectSecretApiKeyTeamBurstThrottle,
+    QueryProjectSecretApiKeyTeamSustainedThrottle,
+    QuerySustainedThrottle,
 )
 from posthog.schema_migrations.upgrade import upgrade
 
@@ -246,6 +251,10 @@ def required_scopes_for_query_payload(query: object) -> list[str] | None:
 
 
 class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    # Running a query is the only thing a service key may do here: status polling, deletion and the
+    # AI SQL assistant all assume a person, and a service key holds no person.
+    psak_allowed_actions = ["create"]
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "query"
     serializer_class = _FallbackSerializer
@@ -271,15 +280,22 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 ErrorTrackingFingerprintProjectionBurstRateThrottle(),
                 ErrorTrackingFingerprintProjectionSustainedRateThrottle(),
             ]
+        return [
+            *self._query_throttles(query),
+            QueryProjectSecretApiKeyTeamBurstThrottle(),
+            QueryProjectSecretApiKeyTeamSustainedThrottle(),
+        ]
+
+    def _query_throttles(self, query) -> list:
         if (
             self.team_id in settings.API_QUERIES_PER_TEAM
             or (settings.API_QUERIES_ENABLED and self.check_team_api_queries_concurrency())
             or (settings.API_QUERIES_LEGACY_TEAM_LIST and self.team_id not in settings.API_QUERIES_LEGACY_TEAM_LIST)
         ):
-            return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
+            return [QueryBurstThrottle(), QuerySustainedThrottle()]
         if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
-            return [HogQLQueryThrottle()]
-        return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
+            return [QueryHogQLThrottle()]
+        return [QueryClickHouseBurstThrottle(), QueryClickHouseSustainedThrottle()]
 
     def check_team_api_queries_concurrency(self):
         cache_key = f"team/{self.team_id}/feature/{AvailableFeature.API_QUERIES_CONCURRENCY}"
@@ -325,6 +341,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             analytics_props = get_request_analytics_properties(request)
             query_dict = query.model_dump()
 
+            # Personal API keys and project secret API keys are both programmatic callers, so both
+            # spend the API query budget instead of taking the web-UI path.
+            is_api_key_access = is_api_key_access_method(get_query_tag_value("access_method"))
+
             if data.limit_context == SchemaLimitContext.POSTHOG_AI:
                 limit_context: LimitContext | None = LimitContext.POSTHOG_AI
                 # Max's insight tiles run in the browser, so the request looks like a session
@@ -335,14 +355,14 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 is_async_query(query_dict)
                 or is_insight_actors_query(query_dict)
                 or is_insight_actors_options_query(query_dict)
-            ) and get_query_tag_value("access_method") != "personal_api_key":
+            ) and not is_api_key_access:
                 # QUERY_ASYNC provides extended max execution time for insight queries
                 limit_context = LimitContext.QUERY_ASYNC
             else:
                 limit_context = None
 
             reset_request_query_cost()
-            is_query_service = get_query_tag_value("access_method") == "personal_api_key"
+            is_query_service = is_api_key_access
             if is_query_service:
                 tag_queries(api_queries_budgeted=True)
             with tracer.start_as_current_span("posthog.query.process_query_model") as process_span:
@@ -403,7 +423,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
             response = Response(result, status=response_status)
             cost = get_request_query_cost()
-            if cost is not None and get_query_tag_value("access_method") == "personal_api_key":
+            if cost is not None and is_query_service:
                 _add_query_cost_headers(
                     response,
                     cost.bytes_read,

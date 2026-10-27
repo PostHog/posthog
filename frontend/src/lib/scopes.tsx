@@ -376,6 +376,7 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'support_ticket:read',
     'loop:write',
     'experiment:read',
+    'query:read',
     'offline_evaluation_ingestion:write',
     'billing:read',
     'replay_scanner:write',

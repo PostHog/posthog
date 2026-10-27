@@ -934,6 +934,40 @@ class APIQueriesSustainedThrottle(PersonalApiKeyRateThrottle):
     rate = "2400/hour"
 
 
+# Query API throttles that also meter project secret API keys. The plain PersonalApiKeyRateThrottle
+# classes skip a PSAK request, because it carries no personal key, so each branch of the query view
+# gets a PSAK-aware version at the same rate. The team pair caps the sum across a project's keys at
+# one key's budget, so minting more keys never multiplies its capacity.
+class QueryBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle, APIQueriesBurstThrottle):
+    pass
+
+
+class QuerySustainedThrottle(PersonalOrProjectSecretApiKeyRateThrottle, APIQueriesSustainedThrottle):
+    pass
+
+
+class QueryHogQLThrottle(PersonalOrProjectSecretApiKeyRateThrottle, HogQLQueryThrottle):
+    pass
+
+
+class QueryClickHouseBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle, ClickHouseBurstRateThrottle):
+    pass
+
+
+class QueryClickHouseSustainedThrottle(PersonalOrProjectSecretApiKeyRateThrottle, ClickHouseSustainedRateThrottle):
+    pass
+
+
+class QueryProjectSecretApiKeyTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "query_psak_team_burst"
+    rate = APIQueriesBurstThrottle.rate
+
+
+class QueryProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "query_psak_team_sustained"
+    rate = APIQueriesSustainedThrottle.rate
+
+
 class AIObservabilityTextReprBurstThrottle(PersonalApiKeyRateThrottle):
     scope = "llm_analytics_text_repr_burst"
     rate = "120/minute"
