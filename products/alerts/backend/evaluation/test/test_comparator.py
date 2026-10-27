@@ -215,6 +215,8 @@ def test_framed_message_includes_series_and_interval():
     result = evaluate_threshold(_result(series, interval_type=IntervalType.DAY), ABSOLUTE, _threshold(lower=10))
     assert result.breaches is not None
     assert result.breaches[0] == "The insight value (US) for previous day (5.0) is less than lower threshold (10.0)"
+    assert result.triggered_metadata is not None
+    assert result.triggered_metadata["breach_details"][0]["group"] == "US"
 
 
 def test_unframed_message_uses_subject_without_interval_framing():

@@ -122,7 +122,7 @@ def _breach_detail(
     current = series.points[series.current_index]
     previous = series.points[series.current_index - 1] if series.current_index > 0 else None
     detail = {"observed": format_value(current.value if current.value is not None else calculated)}
-    if result.is_breakdown or result.include_series_label:
+    if result.framed or result.is_breakdown or result.include_series_label:
         detail["group"] = series.label[:400]
     if current.date:
         detail["date"] = current.date

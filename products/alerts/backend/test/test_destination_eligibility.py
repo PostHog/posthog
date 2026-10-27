@@ -357,7 +357,14 @@ class TestDestinationEligibility(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("stock_blocks", {}, None, ()),
+            ("stock_message", {}, None, ()),
+            ("custom_attachments", {"attachments": [{"text": "Custom message"}]}, None, (DestinationHoldBack.MESSAGE,)),
+            (
+                "legacy_stock_blocks",
+                {"blocks": STOCK_INPUT_VALUES["template-slack"]["blocks"][0]},
+                None,
+                (),
+            ),
             ("text_edited_before_the_first_save", {"text": "Look at this"}, {}, (DestinationHoldBack.MESSAGE,)),
             ("text_edited_with_no_revision", {"text": "Look at this"}, None, (DestinationHoldBack.MESSAGE,)),
             ("an_emptied_text", {"text": ""}, None, ()),
@@ -400,7 +407,6 @@ class TestDestinationEligibility(APIBaseTest):
             alert_name="API errors",
             data=INSIGHT_SLACK_DATA,
         ).payload
-        stock["inputs"]["blocks"]["value"] = STOCK_INPUT_VALUES["template-slack"]["blocks"][0]
         function = self._function(
             "template-slack",
             {
