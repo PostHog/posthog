@@ -1,1 +1,0 @@
-When security behavior changes, update the [Self-Driving](../../docs/published/docs/self-driving/security.mdx) and [Cloud Tasks](../../docs/published/docs/tasks/security.mdx) security docs in the same PR.
