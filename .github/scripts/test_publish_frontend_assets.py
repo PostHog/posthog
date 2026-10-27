@@ -1,5 +1,4 @@
 import json
-import hashlib
 from pathlib import Path
 
 import pytest
@@ -13,7 +12,7 @@ class FakeStore:
         self.puts: list[str] = []
 
     def etag(self, key: str) -> str | None:
-        return hashlib.md5(self.objects[key][0]).hexdigest() if key in self.objects else None
+        return publish.content_md5(self.objects[key][0]) if key in self.objects else None
 
     def put(self, key: str, body: bytes, content_type: str, cache_control: str) -> None:
         self.puts.append(key)

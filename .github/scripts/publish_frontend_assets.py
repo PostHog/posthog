@@ -84,14 +84,18 @@ def scan_build(dist_dir: Path) -> dict[str, Path]:
     }
 
 
+def content_md5(body: bytes) -> str:
+    """What S3 returns as the ETag of a single-part put_object on a bucket without KMS encryption."""
+    return hashlib.md5(body, usedforsecurity=False).hexdigest()
+
+
 def publish(store: ObjectStore, files: dict[str, Path], build_sha: str, workers: int = 32) -> PublishReport:
     hashed = {key: path for key, path in files.items() if HASHED_FILE.match(path.name)}
     fixed = {key: path for key, path in files.items() if key not in hashed}
 
     def sync(key: str, path: Path, cache_control: str) -> bool:
         body = path.read_bytes()
-        # A single-part put_object ETag is the MD5 of the body on a bucket without KMS encryption.
-        if store.etag(key) == hashlib.md5(body, usedforsecurity=False).hexdigest():
+        if store.etag(key) == content_md5(body):
             return False
         store.put(key, body, mimetypes.guess_type(path.name)[0] or "application/octet-stream", cache_control)
         return True
