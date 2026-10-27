@@ -55,9 +55,15 @@ describe('humanizeActivity', () => {
             changes: [
                 { field: 'session_recording_opt_in', after: true },
                 { field: 'effective_membership_level', after: 1 },
+                {
+                    field: 'feature_flag_policy_config',
+                    before: { require_tags: false, blocked_hosts: ['old.example.com'], blocked_ips: [] },
+                    after: { require_tags: true, blocked_hosts: ['new.example.com'], blocked_ips: [] },
+                },
             ],
-            action: 'enabled session recording',
-            description: 'A user enabled session recording on Example',
+            action: 'enabled session recording, enabled required tags on feature flags, added new.example.com to the blocked domains for feature flag requests, and removed old.example.com from the blocked domains for feature flag requests',
+            description:
+                'A user enabled session recording, enabled required tags on feature flags, added new.example.com to the blocked domains for feature flag requests, and removed old.example.com from the blocked domains for feature flag requests on Example',
         },
         {
             scope: ActivityScope.EVENT_DEFINITION,

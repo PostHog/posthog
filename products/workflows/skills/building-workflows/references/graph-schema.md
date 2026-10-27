@@ -218,7 +218,7 @@ A `function` node with `template_id: "template-posthog-opt-out-of-messages"` add
 }
 ```
 
-- **`category_id` is a literal, not a template.** Use a marketing message category's `id` (UUID), listed by `GET /api/projects/:project_id/messaging_categories/`, or `"$all"` for all marketing messages. If the user names a category you can't look up, ask them for it rather than guess. Never put `{...}` expressions in it. A save with a category the project doesn't have fails.
+- **`category_id` is a literal, not a template.** Use a marketing message category's `id` (UUID), listed by `message-categories-list`, or `"$all"` for all marketing messages. If the category doesn't exist yet and the user's request covers creating it, for example an import that brings its own categories, create it with `message-categories-create`. Otherwise ask the user for it rather than guess. Never put `{...}` expressions in it. A save with a category the project doesn't have fails.
 - `identifier` is who to opt out. It defaults to `{person.properties.email}`. Use the same value as the recipient of the email step it should suppress, because opt-outs match the recipient exactly.
 - Only marketing categories work, because transactional messages ignore opt-outs. A save with a transactional category fails.
 - The step fails, and the workflow log says why, when `identifier` is empty or the category was deleted. It never passes silently.

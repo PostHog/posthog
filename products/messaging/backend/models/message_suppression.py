@@ -32,6 +32,8 @@ class MessageSuppression(TeamScopedRootMixin, UUIDModel):
     The pre-send path consults this list (see the Node `EmailSuppressionService`) and skips
     matching recipients. Unlike opt-outs, a suppression is a deliverability signal, not a
     messaging preference, so it applies regardless of message category (including transactional).
+    The one exception is a COMPLAINT entry: the recipient objected to our mail, but the address
+    still works, so transactional messages still go out to it.
     """
 
     # db_constraint=False on these hot-table FKs so CreateModel takes no lock on

@@ -101,6 +101,12 @@ function captureTracingResults(count: number, queryType: 'spans' | 'aggregation'
         posthog.capture('tracing no results returned', { query_type: queryType })
     } else {
         posthog.capture('tracing results returned', { count, query_type: queryType })
+        // $set_once keeps the first value, so one send per browser is enough for survey targeting.
+        const stampKey = `ph_first_used_tracing_stamp_${posthog.get_distinct_id()}`
+        if (!localStorage.getItem(stampKey)) {
+            posthog.setPersonProperties(undefined, { first_used_tracing_at: new Date().toISOString() })
+            localStorage.setItem(stampKey, Date.now().toString())
+        }
     }
 }
 
