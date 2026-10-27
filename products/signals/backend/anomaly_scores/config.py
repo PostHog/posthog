@@ -93,6 +93,20 @@ class ScoringRun(StrEnum):
 # Retrain hourly insights once a day, daily once a week, weekly once a month, and monthly once a quarter.
 DEFAULT_TRAIN_EVERY_BUCKETS = {IntervalType.HOUR: 24, IntervalType.DAY: 7, IntervalType.WEEK: 4, IntervalType.MONTH: 3}
 MAX_TRAIN_EVERY_BUCKETS = {IntervalType.HOUR: 168, IntervalType.DAY: 30, IntervalType.WEEK: 13, IntervalType.MONTH: 12}
+# Past `train_every_buckets`, a model keeps scoring until a train step has budget for it. Past this age it stops
+# scoring, and its insight waits for a train step. A value at or below `train_every_buckets` turns off stale scores.
+DEFAULT_MAX_MODEL_AGE_BUCKETS = {
+    IntervalType.HOUR: 96,
+    IntervalType.DAY: 28,
+    IntervalType.WEEK: 16,
+    IntervalType.MONTH: 12,
+}
+MAX_MODEL_AGE_BUCKETS_LIMIT = {
+    IntervalType.HOUR: 672,
+    IntervalType.DAY: 120,
+    IntervalType.WEEK: 52,
+    IntervalType.MONTH: 48,
+}
 
 
 # Hourly insights are left out by default: with many eligible insights, the time between two visits of
@@ -120,6 +134,9 @@ class AnomalyScoringConfig:
     train_score_split: bool = False
     train_every_buckets: dict[IntervalType, int] = dataclasses.field(
         default_factory=lambda: dict(DEFAULT_TRAIN_EVERY_BUCKETS)
+    )
+    max_model_age_buckets: dict[IntervalType, int] = dataclasses.field(
+        default_factory=lambda: dict(DEFAULT_MAX_MODEL_AGE_BUCKETS)
     )
     # Score step queries per clock hour. Train steps use the budgets above, so a cheap score step never waits for them.
     max_score_queries_per_hour: int = 600
@@ -227,6 +244,9 @@ def parse_config(payload: Any) -> AnomalyScoringConfig:
         train_score_split=payload.get("train_score_split") is True,
         train_every_buckets=_buckets_per_interval(
             payload.get("train_every_buckets"), DEFAULT_TRAIN_EVERY_BUCKETS, MAX_TRAIN_EVERY_BUCKETS
+        ),
+        max_model_age_buckets=_buckets_per_interval(
+            payload.get("max_model_age_buckets"), DEFAULT_MAX_MODEL_AGE_BUCKETS, MAX_MODEL_AGE_BUCKETS_LIMIT
         ),
         max_score_queries_per_hour=min(
             _positive_int(payload.get("max_score_queries_per_hour"), defaults.max_score_queries_per_hour),

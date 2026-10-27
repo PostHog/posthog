@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from posthog.models.activity_logging.activity_log import ActivityLog, common_field_exclusions, field_exclusions
 
+from products.feature_flags.backend.facade.config import is_v1_config
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -165,11 +166,12 @@ def reconstruct_flag_at_version(
 
     # Historical activity log entries may store filters in legacy shapes
     # (None, {}, or missing "groups"). Normalize so the response shape is
-    # predictable for API consumers.
+    # predictable for API consumers. Other config formats stay as stored: the v2 schema allows
+    # no extra keys, so adding "groups" would make the document invalid.
     raw_filters = fields.get("filters")
     if not raw_filters:
         fields["filters"] = {"groups": []}
-    elif "groups" not in raw_filters:
+    elif is_v1_config(raw_filters) and "groups" not in raw_filters:
         fields["filters"] = {**raw_filters, "groups": []}
 
     return _build_response(

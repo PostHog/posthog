@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import reach_safe_point
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.northflank.settings import (
+    FAN_OUT_PARENTS,
     NORTHFLANK_ENDPOINTS,
     NorthflankEndpointConfig,
 )
@@ -38,9 +39,11 @@ MAX_RATE_LIMIT_SLEEP_SECONDS = 120
 class NorthflankResumeConfig:
     # Next page of the list in progress. None means that list is done.
     cursor: str | None = None
-    # Fan-out position. `parent_id` is set only for endpoints that fan out over a second level.
+    # Fan-out position. `parent_id` is set only for endpoints that fan out over a second level, and
+    # `stage` only for endpoints queried once per pipeline stage.
     project_id: str | None = None
     parent_id: str | None = None
+    stage: str | None = None
 
 
 class NorthflankRetryableError(Exception):
@@ -169,7 +172,8 @@ def _make_fetch_page(api_token: str, logger: FilteringBoundLogger) -> FetchPageF
             )
 
         if not response.ok:
-            logger.error(f"Northflank API error: status={response.status_code}, body={response.text}, url={url}")
+            if response.status_code != 404:
+                logger.error(f"Northflank API error: status={response.status_code}, body={response.text}, url={url}")
             response.raise_for_status()
 
         return response.json()
@@ -189,6 +193,7 @@ def _iter_pages(
     paginated: bool = True,
     start_cursor: str | None = None,
     checkpoint: Callable[[str | None], None] | None = None,
+    not_found_is_empty: bool = False,
 ) -> Iterator[list[dict[str, Any]]]:
     """Yield each page's rows for a cursor-paginated list endpoint.
 
@@ -202,7 +207,12 @@ def _iter_pages(
         page_params = dict(params or {})
         if paginated:
             page_params.update({page_size_param: PAGE_SIZE, "cursor": cursor})
-        body = fetch_page(_build_url(path, page_params))
+        try:
+            body = fetch_page(_build_url(path, page_params))
+        except requests.HTTPError as e:
+            if not (not_found_is_empty and e.response is not None and e.response.status_code == 404):
+                raise
+            body = {}
         pages_fetched += 1
 
         rows = _extract_rows(body, data_key)
@@ -269,11 +279,13 @@ def get_rows(
     manager = resumable_source_manager
     resume = manager.load_state() if manager is not None and manager.can_resume() else None
 
-    def checkpoint_at(project_id: str | None = None, parent_id: str | None = None) -> Callable[[str | None], None]:
+    def checkpoint_at(
+        project_id: str | None = None, parent_id: str | None = None, stage: str | None = None
+    ) -> Callable[[str | None], None]:
         def checkpoint(next_cursor: str | None) -> None:
             if manager is not None:
                 manager.save_state(
-                    NorthflankResumeConfig(cursor=next_cursor, project_id=project_id, parent_id=parent_id)
+                    NorthflankResumeConfig(cursor=next_cursor, project_id=project_id, parent_id=parent_id, stage=stage)
                 )
 
         return checkpoint
@@ -339,11 +351,11 @@ def _iter_parent_children(
     project_id: str,
     logger: FilteringBoundLogger,
     resume: NorthflankResumeConfig | None,
-    checkpoint_at: Callable[[str | None, str | None], Callable[[str | None], None]],
+    checkpoint_at: Callable[[str | None, str | None, str | None], Callable[[str | None], None]],
 ) -> Iterator[list[dict[str, Any]]]:
     if not config.parent or not config.parent_id_key:
         raise ValueError(f"Northflank endpoint {config.name} has no parent to fan out over")
-    parent_config = NORTHFLANK_ENDPOINTS[config.parent]
+    parent_config = FAN_OUT_PARENTS[config.parent]
     parent_id_key = config.parent_id_key
 
     parents = _iter_ids(
@@ -358,25 +370,33 @@ def _iter_parent_children(
         config.parent,
     )
     resume_parent_id = resume.parent_id if resume else None
+    all_stages: tuple[str | None, ...] = config.stages or (None,)
     for parent_id, parent in _skip_to(parents, resume_parent_id, logger, config.parent):
         if config.include_parent and not config.include_parent(parent):
             continue
-        start_cursor: str | None = None
-        if resume is not None and parent_id == resume_parent_id:
-            if resume.cursor is None:
-                continue
-            start_cursor = resume.cursor
-        for rows in _iter_pages(
-            fetch_page,
-            config.path.format(project_id=project_id, parent_id=parent_id),
-            logger,
-            max_pages=MAX_CHILD_PAGES_PER_PROJECT,
-            resource=f"{config.name} of {config.parent} {parent_id} in project {project_id}",
-            data_key=config.data_key,
-            start_cursor=start_cursor,
-            checkpoint=checkpoint_at(project_id, parent_id),
-        ):
-            yield [{**row, "projectId": project_id, parent_id_key: parent_id} for row in rows]
+        resume_in_parent = resume if resume is not None and parent_id == resume_parent_id else None
+        stages = all_stages
+        if resume_in_parent is not None and resume_in_parent.stage in all_stages:
+            stages = all_stages[all_stages.index(resume_in_parent.stage) :]
+        for stage in stages:
+            start_cursor: str | None = None
+            if resume_in_parent is not None and stage == resume_in_parent.stage:
+                if resume_in_parent.cursor is None:
+                    continue
+                start_cursor = resume_in_parent.cursor
+            stage_column = {"stage": stage} if stage is not None else {}
+            for rows in _iter_pages(
+                fetch_page,
+                config.path.format(project_id=project_id, parent_id=parent_id, stage=stage),
+                logger,
+                max_pages=MAX_CHILD_PAGES_PER_PROJECT,
+                resource=f"{config.name} of {config.parent} {parent_id} in project {project_id}",
+                data_key=config.data_key,
+                start_cursor=start_cursor,
+                checkpoint=checkpoint_at(project_id, parent_id, stage),
+                not_found_is_empty=config.not_found_is_empty,
+            ):
+                yield [{**row, "projectId": project_id, parent_id_key: parent_id, **stage_column} for row in rows]
 
 
 def northflank_source(

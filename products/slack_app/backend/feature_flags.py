@@ -46,10 +46,7 @@ logger = structlog.get_logger(__name__)
 
 
 SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
-SLACK_APP_CHART_LINKS_FLAG = "slack-app-chart-links"
-SLACK_APP_FEATURE_TIPS_FLAG = "slack-app-feature-tips"
 SLACK_APP_FORKING_FLAG = "slack-app-forking"
-SLACK_APP_MULTIPLAYER_APPROVALS_FLAG = "slack-app-multiplayer-approvals"
 SLACK_APP_BYOS_FLAG = "slack-app-byos"
 SLACK_APP_UNPROMPTED_ANSWERS_FLAG = "slack-app-unprompted-answers"
 SLACK_APP_INTERVIEW_RECRUITMENT_FLAG = "slack-app-interview-recruitment"
@@ -127,46 +124,6 @@ def is_slack_app_agent_design_enabled(integration: Integration, distinct_id: str
         SLACK_APP_AGENT_DESIGN_FLAG,
         integration,
         failure_log_key="slack_app_agent_design_feature_flag_check_failed",
-        distinct_id=distinct_id,
-    )
-
-
-def is_slack_app_chart_links_enabled(integration: Integration) -> bool:
-    """Gate for charts as insight links: a Slack task run shares a PostHog insight link
-    instead of rendering a chart image, and the link unfurl draws the chart. Resolved once,
-    when the run starts, and stored on the run for the unfurl webhook to read."""
-    return _workspace_flag_enabled(
-        SLACK_APP_CHART_LINKS_FLAG,
-        integration,
-        failure_log_key="slack_app_chart_links_feature_flag_check_failed",
-    )
-
-
-def is_slack_app_feature_tips_enabled(integration: Integration, distinct_id: str) -> bool:
-    """Gate for the one-line feature tip under an answer.
-
-    ``distinct_id`` is the reader's PostHog distinct id, or their Slack-derived id when no
-    PostHog user is linked. A tip is a per-person decision, so a percentage rollout splits
-    people and a holdout group can measure what tips change.
-    """
-    return _workspace_flag_enabled(
-        SLACK_APP_FEATURE_TIPS_FLAG,
-        integration,
-        failure_log_key="slack_app_feature_tips_feature_flag_check_failed",
-        distinct_id=distinct_id,
-    )
-
-
-def is_slack_app_multiplayer_approvals_enabled(integration: Integration, distinct_id: str | None) -> bool:
-    """Gate for the thread creator's choice of who may join their threads.
-
-    ``distinct_id`` is the thread creator's PostHog user. With the gate closed, anyone with
-    project access can join, and the Home tab hides the setting.
-    """
-    return _workspace_flag_enabled(
-        SLACK_APP_MULTIPLAYER_APPROVALS_FLAG,
-        integration,
-        failure_log_key="slack_app_multiplayer_approvals_feature_flag_check_failed",
         distinct_id=distinct_id,
     )
 
