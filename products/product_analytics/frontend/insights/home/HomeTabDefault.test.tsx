@@ -9,6 +9,7 @@ import { act, cleanup, render, screen, waitFor, within } from '@testing-library/
 import { ensureJsdom } from '@posthog/quill-charts/testing'
 
 import { promiseResolveReject } from 'lib/utils/async'
+import { sampleDataStateLogic } from 'scenes/insights/EmptyStates/sampleDataStateLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -166,6 +167,8 @@ describe('HomeTabDefault query reuse', () => {
     it('replaces sample metrics and charts with live queries when the project starts receiving events', async () => {
         ensureJsdom()
         teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, ingested_event: false, is_demo: false })
+        sampleDataStateLogic.mount()
+        await waitFor(() => expect(sampleDataStateLogic.values.shouldShowSampleData).toBe(true))
         const { container } = render(<HomeTabDefault />)
 
         await waitFor(() =>
