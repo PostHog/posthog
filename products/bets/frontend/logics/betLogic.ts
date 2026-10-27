@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
@@ -506,6 +507,11 @@ export const betLogic = kea<betLogicType>([
             }
         }
         return {
+            openBuild: ({ workId }) => {
+                if (workId) {
+                    posthog.capture('bet build dialog opened', { bet_id: props.id, work_id: workId })
+                }
+            },
             loadBetSuccess: ({ bet }) => {
                 const entry = values.overview?.bets.find((item) => item.id === bet.id)
                 if (entry && sidebarFields(entry) !== sidebarFields(bet)) {

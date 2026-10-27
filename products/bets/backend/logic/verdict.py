@@ -45,6 +45,7 @@ def verdict(
     direction: str,
     guardrails: list[dict],
     run_days: int,
+    exposed_at: datetime | None = None,
     now: datetime | None = None,
 ) -> Verdict:
     results = evidence.get("results") or {}
@@ -92,7 +93,7 @@ def verdict(
         )
     if harmed:
         return decided(IdeaOutcome.HARMED, "control", f"{', '.join(sorted(set(harmed)))} got worse.", facts)
-    elapsed = (now or timezone.now()) - datetime.fromisoformat(started)
+    elapsed = (now or timezone.now()) - (exposed_at or datetime.fromisoformat(started))
     left = timedelta(days=run_days) - elapsed
     if left > timedelta(0):
         days_left = math.ceil(left.total_seconds() / 86400)

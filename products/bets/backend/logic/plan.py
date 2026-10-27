@@ -11,6 +11,7 @@ DRIFT = 1.5
 WEEKLY_SPREAD = 0.3
 Z_FACTOR = 16
 GROUPS = 2
+EXPOSURE_GRACE = datetime.timedelta(hours=48)
 
 
 @frozen

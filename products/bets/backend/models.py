@@ -54,6 +54,7 @@ class Bet(ModelActivityMixin, BetsModel):
     closed_at = models.DateTimeField(null=True, blank=True)
     scout_config_id = models.UUIDField(null=True, blank=True)
     note = models.TextField(blank=True, default="")
+    notified_actions = models.JSONField(default=list, blank=True)
     reconcile_after = models.DateTimeField(null=True, blank=True)
     lease = models.UUIDField(null=True, blank=True)
     lease_until = models.DateTimeField(null=True, blank=True)

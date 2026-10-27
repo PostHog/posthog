@@ -128,7 +128,8 @@ def change_status(team: Team, user: User, bet_id: UUID, status: str) -> Bet:
             if (available := totals(team_id, bet).available_cents) > 0:
                 append(settings, bet, LedgerKind.DEALLOCATE, available, f"close:{bet.id}", user.id)
         bet.status = status
-        bet.save(using=WRITER_DB, update_fields=["status", "closed_at", "updated_at"])
+        bet.note = ""
+        bet.save(using=WRITER_DB, update_fields=["status", "closed_at", "note", "updated_at"])
         if status == BetStatus.CLOSED:
             transaction.on_commit(partial(finish, bet), using=WRITER_DB)
         return bet

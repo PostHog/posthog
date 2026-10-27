@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
 
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -20,7 +21,7 @@ from products.bets.backend.facade.contracts import Metric
 from products.bets.backend.facade.enums import IdeaOutcome, LedgerKind
 from products.bets.backend.logic.ledger import append, totals
 from products.bets.backend.logic.loop import reconcile
-from products.bets.backend.logic.scout import scout_context, scout_job
+from products.bets.backend.logic.scout import DISMISS_LIMIT, scout_context, scout_job
 from products.bets.backend.logic.spend import reconcile_spend, spend_pending
 from products.bets.backend.logic.verdict import MIN_SAMPLES_PER_VARIANT, verdict
 from products.bets.backend.logic.workspace import get_settings
@@ -71,11 +72,15 @@ class TestVerdict(SimpleTestCase):
                 "increase",
                 IdeaOutcome.HARMED,
             ),
+            ("the_clock_starts_at_the_first_exposure", evidence([0.05, 0.2]), "increase", None, 1),
         ]
     )
-    def test_outcome(self, _name: str, data: dict, direction: str, expected: IdeaOutcome | None) -> None:
+    def test_outcome(
+        self, _name: str, data: dict, direction: str, expected: IdeaOutcome | None, exposed_days: int | None = None
+    ) -> None:
         guardrails = [{"name": "Uploads", "direction": "increase", "max_regression": 0.05}]
-        outcome = verdict(data, direction=direction, guardrails=guardrails, run_days=2).outcome
+        exposed_at = timezone.now() - timedelta(days=exposed_days) if exposed_days else None
+        outcome = verdict(data, direction=direction, guardrails=guardrails, run_days=2, exposed_at=exposed_at).outcome
         assert outcome == expected
 
     def test_small_samples_never_decide(self) -> None:
@@ -297,6 +302,8 @@ class TestBetLoop(APIBaseTest):
         self.world.results = results
         self.tick(bet)
         self.tick(bet)
+        with time_machine.travel(timezone.now() + timedelta(days=3)):
+            self.tick(bet)
         idea.refresh_from_db(using=WRITER_DB)
         return idea
 
@@ -336,8 +343,10 @@ class TestBetLoop(APIBaseTest):
             "[Replay 0:42](http://localhost/project/1/replay/xyz?t=42) shows a disabled button.",
         )
         self.new_report("Bet idea: add more files after a share")
-        self.tick(bet)
-        self.tick(bet)
+        with patch("products.bets.backend.logic.notify.create_notification") as notify:
+            self.tick(bet)
+            self.tick(bet)
+        assert [call.args[0].title for call in notify.call_args_list] == [f"{bet.title}: Choose an idea to build"]
         ideas = list(WorkItem.objects.for_team(self.team.id).using(WRITER_DB).filter(bet=bet, kind="idea"))
         assert {idea.stage for idea in ideas} == {"proposed"} and all(idea.task_id is None for idea in ideas)
         first = next(idea for idea in ideas if idea.title == "Instant uploads")
@@ -389,6 +398,22 @@ class TestBetLoop(APIBaseTest):
         assert self.work(bet, idea, "dismiss").status_code == 400
         assert self.work(bet, idea, "dismiss", "Too risky for checkout").status_code == 200
         assert "Reason: Too risky for checkout" in scout_context(self.team.id, f"{bet.id}:v{bet.goal_version}")
+        for number in range(DISMISS_LIMIT - 1):
+            assert scout_job(bet)[0] == "find"
+            self.new_report(f"Idea {number}")
+            self.tick(bet)
+            proposed = WorkItem.objects.for_team(self.team.id).using(WRITER_DB).get(bet=bet, stage="proposed")
+            assert self.work(bet, proposed, "dismiss", "Not for now").status_code == 200
+        assert scout_job(bet)[0] == ""
+        assert (
+            self.client.post(
+                f"/api/projects/{self.team.id}/bets/{bet.id}/ideas/",
+                {"title": "Copy the link after upload"},
+                format="json",
+            ).status_code
+            == 200
+        )
+        assert scout_job(bet)[0] == "find"
 
     def test_used_budget_stops_the_bet_and_more_budget_resumes_it(self) -> None:
         bet = self.running()

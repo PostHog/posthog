@@ -1,6 +1,6 @@
 import re
 import math
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from datetime import datetime, timedelta
 from statistics import fmean
 from uuid import UUID, uuid4
@@ -26,6 +26,7 @@ from products.experiments.backend.facade.coordination import (
 from products.signals.backend.facade import api as signals
 from products.tasks.backend.facade import api as tasks
 from products.tasks.backend.facade.cancellation import cancel_task_run
+from products.tasks.backend.facade.contracts import TaskRunDTO
 from products.tasks.backend.facade.usage import task_run_usage_limited
 
 from ..db import WRITER_DB
@@ -45,8 +46,10 @@ from . import access
 from .baseline import baseline
 from .ledger import append, totals
 from .metrics import metric, proposed_plan, refresh_metrics
+from .notify import notify_owner
 from .plan import (
     DRIFT,
+    EXPOSURE_GRACE,
     MIN_DAYS,
     MIN_OBSERVATIONS,
     control_spread,
@@ -56,7 +59,8 @@ from .prompts import instructions
 from .scout import scout_body, scout_failure, scout_job
 from .spend import reconcile_spend, spend_pending
 from .step_models import run_settings
-from .verdict import verdict
+from .usage import track_from_task
+from .verdict import Verdict, verdict
 from .workspace import get_settings
 
 logger = structlog.get_logger(__name__)
@@ -67,7 +71,7 @@ MAX_ATTEMPTS = 3
 MAX_EVIDENCE = 8
 IDEA_REPORT_STATUSES = ("ready", "pending_input")
 LEASE = timedelta(minutes=10)
-EXPOSURE_GRACE = timedelta(hours=48)
+HARM_CONFIRM = timedelta(hours=12)
 GOAL_POINTS = 3
 OPEN = (WorkStage.WORKING, WorkStage.REVIEW, WorkStage.LIVE)
 OWNER_TITLE = re.compile(r"^\s*(?:bet idea:\s*)?owner idea (\d+)\s*[:.\-]\s*", re.IGNORECASE)
@@ -226,7 +230,15 @@ def observe(team: Team, user: User, bet: Bet, work: WorkItem) -> None:
             move(work, WorkStage.STUCK, "The experiment is gone or the owner cannot edit it.")
             return
         planned = replan(team, user, bet, work, data)
-        result = verdict(data, direction=bet.direction, guardrails=bet.secondary_metrics, run_days=planned["days"])
+        exposed_at = planned.get("exposed_at")
+        result = verdict(
+            data,
+            direction=bet.direction,
+            guardrails=bet.secondary_metrics,
+            run_days=planned["days"],
+            exposed_at=datetime.fromisoformat(exposed_at) if exposed_at else None,
+        )
+        result = confirm_harm(work, result)
         note = result.note
         if not result.facts.get("exposures") and work.merged_at and timezone.now() - work.merged_at > EXPOSURE_GRACE:
             note = "No exposures since the merge. Check that the change is deployed."
@@ -265,8 +277,38 @@ def observe(team: Team, user: User, bet: Bet, work: WorkItem) -> None:
             WorkStage.DONE,
             result.note,
             result={**result.facts, "outcome": result.outcome, "variant": result.variant, "verdict": result.note},
+            plan=planned,
+        )
+        track_from_task(
+            team,
+            user,
+            "bet idea concluded",
+            {
+                "bet_id": str(bet.id),
+                "work_id": str(work.id),
+                "outcome": result.outcome,
+                "planned_days": planned.get("days"),
+                "replanned": bool(planned.get("replanned")),
+                "owner_idea": work.source == IdeaSource.OWNER,
+            },
         )
         follow_cleanup(team, user, bet, work)
+
+
+def confirm_harm(work: WorkItem, result: Verdict) -> Verdict:
+    seen = work.result.get("harm_seen_at")
+    if result.outcome != IdeaOutcome.HARMED:
+        return replace(result, facts={**result.facts, "harm_seen_at": None}) if seen else result
+    if seen and timezone.now() - datetime.fromisoformat(seen) >= HARM_CONFIRM:
+        return result
+    first = seen or timezone.now().isoformat()
+    hours = int(HARM_CONFIRM.total_seconds() // 3600)
+    return Verdict(
+        outcome=None,
+        variant="",
+        note=f"{result.note} Bets checks again within {hours} hours before it stops the experiment.",
+        facts={**result.facts, "harm_seen_at": first},
+    )
 
 
 def end_experiment(bet: Bet, work: WorkItem) -> None:
@@ -307,15 +349,16 @@ def replan(team: Team, user: User, bet: Bet, work: WorkItem, data: dict) -> dict
             **planned,
             **(asdict(proposal[0]) if proposal and proposal[0] else {"days": MIN_DAYS, "mde": settings.mde_percent}),
         }
-    started = data.get("start_date")
     results = data.get("results") or {}
+    exposed = sum((results.get("exposures") or {}).values())
+    if exposed > 0 and not planned.get("exposed_at"):
+        planned["exposed_at"] = timezone.now().isoformat()
     baselines = results.get("metric_baselines") or []
     spread = control_spread(baselines[0]) if baselines else None
-    if planned.get("replanned") or not started or spread is None:
+    if planned.get("replanned") or not planned.get("exposed_at") or spread is None:
         return planned
-    elapsed = (timezone.now() - datetime.fromisoformat(started)).total_seconds() / 86400
-    exposed = sum((results.get("exposures") or {}).values())
-    if elapsed < MIN_DAYS or baselines[0].get("number_of_samples", 0) < MIN_OBSERVATIONS or exposed <= 0:
+    elapsed = (timezone.now() - datetime.fromisoformat(planned["exposed_at"])).total_seconds() / 86400
+    if elapsed < MIN_DAYS or baselines[0].get("number_of_samples", 0) < MIN_OBSERVATIONS:
         return planned
     audience = round(exposed / elapsed)
     fresh = make_plan(
@@ -330,7 +373,7 @@ def replan(team: Team, user: User, bet: Bet, work: WorkItem, data: dict) -> dict
     if fresh.days > planned["days"] * DRIFT:
         planned["proposed_days"] = fresh.days
     else:
-        planned["days"] = fresh.days
+        planned["days"] = max(planned["days"], fresh.days)
     return planned
 
 
@@ -367,7 +410,7 @@ def goal_reached(team: Team, user: User, bet: Bet) -> bool:
 
 
 def goal_check(team: Team, user: User, bet: Bet, idea_open: bool) -> tuple[bool, str]:
-    met = not idea_open and goal_reached(team, user, bet)
+    met = goal_reached(team, user, bet)
     since = (bet.goal_met_since or timezone.now()) if met else None
     if since != bet.goal_met_since:
         bet.goal_met_since = since
@@ -375,9 +418,12 @@ def goal_check(team: Team, user: User, bet: Bet, idea_open: bool) -> tuple[bool,
     if since is None:
         return (False, "")
     confirm = timedelta(hours=get_settings(bet.team_id).goal_confirm_hours)
-    if timezone.now() - since >= confirm:
-        return (True, "")
-    return (False, f"The goal is at the target. Bets confirms it for {int(confirm.total_seconds() // 3600)} hours.")
+    if timezone.now() - since < confirm:
+        hours = int(confirm.total_seconds() // 3600)
+        return (False, f"The goal is at the target. Bets confirms it for {hours} hours.")
+    if idea_open:
+        return (False, "The goal is at the target. The bet ends when the current idea has a result.")
+    return (True, "")
 
 
 def clean_title(title: str) -> str:
@@ -607,34 +653,51 @@ def dispatch_lane(bet: Bet, user: User, kinds: list[WorkKind]) -> str:
 
 def guard_runs(bet: Bet) -> None:
     now = timezone.now()
-    for work in WorkItem.objects.for_team(bet.team_id).using(WRITER_DB).filter(bet=bet, task_run_id__isnull=False):
-        run = tasks.get_task_run(work.task_run_id, team_id=bet.team_id) if work.task_run_id else None
-        if run is None:
-            continue
-        building = work.stage == WorkStage.WORKING and not work.pr_url
-        stop = (
-            bet.status not in (BetStatus.SETTING_UP, BetStatus.RUNNING)
-            or work.goal_version != bet.goal_version
-            or work.stage in (WorkStage.DROPPED, WorkStage.STUCK)
-            or building
-            and now - (run.created_at or now) > timedelta(minutes=BUILD_MINUTES)
-            or totals(bet.team_id, work=work).spent_cents >= RUN_BUDGET_CENTS * MAX_ATTEMPTS
-        )
-        if run.status in ACTIVE_RUN and stop:
-            cancel_task_run(
-                run.id,
-                run.task_id,
-                bet.team_id,
-                reason="Bets stopped this run.",
-                source="bets",
-                requested_by_user_id=bet.owner_id,
-            )
-        elif run.is_terminal and not spend_pending(bet, work):
+    held_by = (
+        LedgerEntry.objects.for_team(bet.team_id)
+        .using(WRITER_DB)
+        .filter(bet=bet, kind=LedgerKind.RESERVE)
+        .values_list("work_item_id", flat=True)
+    )
+    for work in (
+        WorkItem.objects.for_team(bet.team_id)
+        .using(WRITER_DB)
+        .filter(Q(task_run_id__isnull=False) | Q(id__in=held_by), bet=bet)
+    ):
+        if work.task_run_id:
+            run = tasks.get_task_run(work.task_run_id, team_id=bet.team_id)
+        else:
+            run = tasks.get_latest_run_by_task([str(work.task_id)]).get(str(work.task_id)) if work.task_id else None
+        if run is not None and run.status in ACTIVE_RUN:
+            if stop_run(bet, work, run, now):
+                cancel_task_run(
+                    run.id,
+                    run.task_id,
+                    bet.team_id,
+                    reason="Bets stopped this run.",
+                    source="bets",
+                    requested_by_user_id=bet.owner_id,
+                )
+        elif (run is None or run.is_terminal) and not spend_pending(bet, work):
             if held := totals(bet.team_id, work=work).reserved_cents:
-                settings = get_settings(bet.team_id)
-                append(settings, bet, LedgerKind.RELEASE, held, f"settled:{work.id}:{run.id}", work=work)
-                if bet.status == BetStatus.CLOSED:
-                    append(settings, bet, LedgerKind.DEALLOCATE, held, f"settled:{work.id}:{run.id}:return")
+                reservations = held_by.filter(work_item=work).count()
+                key = f"settled:{work.id}:{run.id if run else 'none'}:{reservations}"
+                append(get_settings(bet.team_id), bet, LedgerKind.RELEASE, held, key, work=work)
+
+
+def stop_run(bet: Bet, work: WorkItem, run: TaskRunDTO, now: datetime) -> bool:
+    if totals(bet.team_id, work=work).spent_cents >= RUN_BUDGET_CENTS * MAX_ATTEMPTS:
+        return True
+    if work.kind == WorkKind.CLEANUP:
+        return False
+    building = work.stage == WorkStage.WORKING and not work.pr_url
+    return (
+        bet.status not in (BetStatus.SETTING_UP, BetStatus.RUNNING)
+        or work.goal_version != bet.goal_version
+        or work.stage in (WorkStage.DROPPED, WorkStage.STUCK)
+        or building
+        and now - (run.created_at or now) > timedelta(minutes=BUILD_MINUTES)
+    )
 
 
 def step(team: Team, user: User, bet: Bet) -> str:
@@ -665,6 +728,7 @@ def step(team: Team, user: User, bet: Bet) -> str:
             kind=WorkKind.TRACKING,
             key=f"tracking:v{bet.goal_version}",
             title="Check how the goal is measured",
+            note="Checking the tracking code.",
         )
         if tracking.stage == WorkStage.DONE:
             facts = baseline(team, user, bet, since=tracking.merged_at)
@@ -680,9 +744,9 @@ def step(team: Team, user: User, bet: Bet) -> str:
         money = totals(bet.team_id, bet)
         confirmed, goal_note = goal_check(team, user, bet, idea_open)
         if confirmed:
-            return stop(bet, BetStatus.REACHED)
+            return stop(bet, BetStatus.REACHED, team, user)
         if not idea_open and money.available_cents <= 0 and money.reserved_cents <= 0:
-            return stop(bet, BetStatus.SPENT)
+            return stop(bet, BetStatus.SPENT, team, user)
         job, reason = scout_job(bet)
         failure = scout_failure(bet) if job else None
         if failure and failure.paused:
@@ -733,9 +797,14 @@ def finish(bet: Bet) -> None:
     return_unused(bet)
 
 
-def stop(bet: Bet, status: BetStatus) -> str:
+def stop(bet: Bet, status: BetStatus, team: Team | None = None, user: User | None = None) -> str:
     bet.status = status
     bet.save(using=WRITER_DB, update_fields=["status", "updated_at"])
+    if team and user:
+        money = totals(bet.team_id, bet)
+        track_from_task(
+            team, user, "bet ended", {"bet_id": str(bet.id), "status": status, "spent_cents": money.spent_cents}
+        )
     set_scout(bet, False)
     finish(bet)
     return ""
@@ -766,6 +835,7 @@ def reconcile(team_id: int, bet_id: UUID) -> None:
             note = str(error.detail)
         else:
             note = step(team, user, bet)
+            notify_owner(bet)
         Bet.objects.for_team(team_id).using(WRITER_DB).filter(id=bet_id, lease=token).update(note=note[:2000])
     except Exception as error:
         logger.exception("bets.reconcile_failed", team_id=team_id, bet_id=str(bet_id))

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
+from datetime import timedelta
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
@@ -17,6 +18,7 @@ from products.product_analytics.backend.facade.measurement import insight_delive
 from ..facade.contracts import Metric
 from .plan import Plan, Spread, estimated_spread, plan, weekly_pattern
 
+WINDOW_EDGE = timedelta(hours=1)
 DELIVERY_CACHE_SECONDS = 300
 PERCENT_FORMATS = {"percentage", "percentage_scaled"}
 MISSING = object()
@@ -155,6 +157,13 @@ def observed(team: Team, user: User, short_id: str) -> tuple[int, float]:
     start = max(delivery.first_event_at, delivery.window_start)
     end = min(delivery.last_event_at or delivery.window_end, delivery.window_end)
     return (delivery.participants, max((end - start).total_seconds() / 86400, 0.0))
+
+
+def tracked_before_window(team: Team, user: User, short_id: str) -> bool:
+    delivery = _delivery(team, user, short_id)
+    if delivery is None or delivery.first_event_at is None:
+        return False
+    return delivery.first_event_at - delivery.window_start <= WINDOW_EDGE
 
 
 def proposed_plan(

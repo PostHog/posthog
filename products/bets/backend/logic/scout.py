@@ -1,6 +1,8 @@
+import math
 from datetime import datetime, timedelta
 from uuid import UUID
 
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -39,11 +41,12 @@ RUN_RULES = """## Rules for this run
 The owner chooses which idea to build. Nothing is built before that. Give the owner real choices with real evidence.
 
 1. Start from the saved primary insight. Find where people drop off or slow down. Use funnels, paths, events, errors and session replays.
-2. Read the code for that part of the product.
-3. If the owner has ideas without a check, check each one first. File one report per owner idea. The title starts with "Owner idea N:" (N is the number below) and then the idea. The summary starts with the word "Supported." or "Not supported." Then give the evidence.
-4. Then file up to 3 reports with your own ideas, the strongest first. Each report is one change that can move the primary metric and that we did not try or dismiss yet.
-5. Each report has: the problem, the evidence, the proposed change, the files to touch, the expected effect, and the guardrail it could hurt. Add one line "Metric: <name>" with the metric this change moves first. When that is not the bet's primary metric, say how it leads to the primary metric. Add one line "Audience: <number> people a day" with how many people a day reach the place this change touches, measured in PostHog, and link the insight you used.
-6. Evidence must be links to PostHog data in markdown link form: session replays you watched (with the time), insights or queries with the numbers, error groups, experiments. Never invent evidence. An idea without evidence is not an idea.
+2. Use at least the last 30 days of data. Compare the newest week with the weeks before. Look for changes in how events are tracked, outages, and weekday patterns. Use a short time range only to confirm a problem you found.
+3. Read the code for that part of the product.
+4. If the owner has ideas without a check, check each one first. File one report per owner idea. The title starts with "Owner idea N:" (N is the number below) and then the idea. The summary starts with the word "Supported." or "Not supported." Then give the evidence.
+5. Then file up to 3 reports with your own ideas, the strongest first. Each report is one change that can move the primary metric and that we did not try or dismiss yet.
+6. Each report has: the problem, the evidence, the proposed change, the files to touch, the expected effect, and the guardrail it could hurt. Add one line "Metric: <name>" with the metric this change moves first. When that is not the bet's primary metric, say how it leads to the primary metric. Add one line "Audience: <number> people a day" with how many people a day reach the place this change touches, measured in PostHog, and link the insight you used.
+7. Evidence must be links to PostHog data in markdown link form: session replays you watched (with the time), insights or queries with the numbers, error groups, experiments. Never invent evidence. An idea without evidence is not an idea.
 
 File nothing when you find no idea with evidence. Never write code, open pull requests, change flags or start experiments."""
 
@@ -59,6 +62,10 @@ def source_bet(team_id: int, source_id: str) -> Bet | None:
 FIND = "find"
 CHECK = "check"
 TESTING = (WorkStage.WORKING, WorkStage.REVIEW, WorkStage.LIVE)
+DISMISS_LIMIT = 10
+EMPTY_LOOKBACK = 8
+EMPTY_PAUSE = timedelta(minutes=30)
+EMPTY_PAUSE_MAX = timedelta(hours=24)
 
 
 def scout_job(bet: Bet) -> tuple[str, str]:
@@ -74,7 +81,33 @@ def scout_job(bet: Bet) -> tuple[str, str]:
         return ("", "The bet is already testing an idea.")
     if ideas.filter(stage=WorkStage.PROPOSED).exists() and not unchecked:
         return ("", "Choose an idea to build.")
+    latest = list(
+        ideas.filter(kind=WorkKind.IDEA).order_by("-created_at").values_list("stage", flat=True)[:DISMISS_LIMIT]
+    )
+    if len(latest) == DISMISS_LIMIT and all(stage == WorkStage.DISMISSED for stage in latest):
+        return ("", f"You dismissed the last {DISMISS_LIMIT} ideas. Add your own idea to restart the Scout.")
+    if wait := empty_runs_wait(bet, ideas):
+        return ("", wait)
     return (FIND, "Looking for ideas.")
+
+
+def empty_runs_wait(bet: Bet, ideas: QuerySet[WorkItem]) -> str:
+    newest = ideas.filter(kind=WorkKind.IDEA).order_by("-created_at").values_list("created_at", flat=True).first()
+    empty = [
+        run
+        for run in recent_scout_runs(bet, limit=EMPTY_LOOKBACK)
+        if run.status == "completed" and run.created_at and (newest is None or run.created_at > newest)
+    ]
+    ended = (empty[0].updated_at or empty[0].created_at) if empty else None
+    if ended is None:
+        return ""
+    left = min(EMPTY_PAUSE * 2 ** (len(empty) - 1), EMPTY_PAUSE_MAX) - (timezone.now() - ended)
+    if left <= timedelta(0):
+        return ""
+    hours = math.ceil(left.total_seconds() / 3600)
+    found = "The last Scout run" if len(empty) == 1 else f"The last {len(empty)} Scout runs"
+    unit = "hour" if hours == 1 else "hours"
+    return f"{found} found no new ideas. The Scout looks again in about {hours} {unit}."
 
 
 def scout_refusal(team_id: int, source_id: str) -> str | None:

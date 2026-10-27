@@ -15,6 +15,7 @@ from ..logic import access, bets, loop, read
 from ..logic.activity import ActivityEntry, recent_activity
 from ..logic.metrics import metric, refresh_metrics, validate_goal
 from ..logic.spend import bet_for_run
+from ..logic.usage import track
 from ..logic.workspace import get_settings, project_id
 from ..models import Bet
 
@@ -60,6 +61,12 @@ def activity(team: Team, user: User, bet_id: str | UUID) -> list[ActivityEntry]:
 
 def create(team: Team, user: User, data: dict) -> dict:
     bet = bets.create_bet(team, user, data)
+    track(
+        team,
+        user,
+        "bet created",
+        {"bet_id": str(bet.id), "guardrails": len(bet.secondary_metrics), "has_insight": bool(bet.goal_insight)},
+    )
     wake(bet)
     return read.detail(team, user, bet)
 
@@ -68,6 +75,12 @@ def update(team: Team, user: User, bet_id: str | UUID, data: dict) -> dict:
     bet = _bet(team, bet_id)
     access.require_owner(team, user, bet.owner_id)
     updated = bets.update_bet(team, user, bet.id, data)
+    track(
+        team,
+        user,
+        "bet updated",
+        {"bet_id": str(bet.id), "fields": sorted(data), "goal_changed": updated.goal_version != bet.goal_version},
+    )
     wake(updated)
     return read.detail(team, user, updated)
 
@@ -76,6 +89,7 @@ def change_status(team: Team, user: User, bet_id: str | UUID, status: str) -> di
     bet = _bet(team, bet_id)
     access.require_owner(team, user, bet.owner_id)
     changed = bets.change_status(team, user, bet.id, status)
+    track(team, user, "bet status changed", {"bet_id": str(bet.id), "from": bet.status, "to": changed.status})
     if changed.status not in LIVE:
         loop.set_scout(changed, False)
     wake(changed)
@@ -88,6 +102,18 @@ def work(
     bet = _bet(team, bet_id)
     access.require_owner(team, user, bet.owner_id)
     loop.act(bet, work_id, action, user=user, reason=reason, plan=plan)
+    track(
+        team,
+        user,
+        "bet work action",
+        {
+            "bet_id": str(bet.id),
+            "work_id": str(work_id),
+            "action": action,
+            "plan_days": plan.get("days") if plan else None,
+            "plan_mde": plan.get("mde") if plan else None,
+        },
+    )
     wake(bet)
     return read.detail(team, user, _bet(team, bet_id))
 
@@ -98,6 +124,7 @@ def add_idea(team: Team, user: User, bet_id: str | UUID, title: str) -> dict:
     if bet.status in (BetStatus.CLOSED, BetStatus.REACHED):
         raise ValidationError("This bet does not take new ideas.")
     loop.add_owner_idea(bet, title)
+    track(team, user, "bet owner idea added", {"bet_id": str(bet.id)})
     wake(bet)
     return read.detail(team, user, _bet(team, bet_id))
 
@@ -110,7 +137,9 @@ def update_settings(team: Team, user: User, data: dict) -> dict:
     access.require_manager(team, user)
     if data.get("north_star_insight"):
         validate_goal(team, user, data["north_star_insight"])
-    return read.settings_entry(bets.update_settings(team, data), user)
+    updated = bets.update_settings(team, data)
+    track(team, user, "bets settings updated", {"fields": sorted(data)})
+    return read.settings_entry(updated, user)
 
 
 def accept_github_delivery(delivery: WebhookDelivery) -> None:
