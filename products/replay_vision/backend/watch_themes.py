@@ -233,22 +233,22 @@ _PER_SCANNER_SUGGESTIONS = 2
 
 
 def theme_suggestions(team_id: int, scanner_ids: list[str], now: datetime) -> list[str]:
-    """The labels of the largest active themes among the given scanners, as example searches."""
+    """The names of the largest active themes among the given scanners, as example searches."""
     themes = (
         ReplayScannerSearchTheme.objects.for_team(team_id)
         .filter(scanner_id__in=scanner_ids, last_member_at__gte=now - THEME_ACTIVE_WINDOW)
-        .exclude(label="")
+        .exclude(name="")
         .order_by("-member_count", "id")
-        .values_list("scanner_id", "label")[:50]
+        .values_list("scanner_id", "name")[:50]
     )
     per_scanner_cap = MAX_SUGGESTED_QUERIES if len(scanner_ids) == 1 else _PER_SCANNER_SUGGESTIONS
     taken: dict[Any, int] = {}
     queries: list[str] = []
-    for scanner_id, label in themes:
-        if label in queries or taken.get(scanner_id, 0) >= per_scanner_cap:
+    for scanner_id, name in themes:
+        if name in queries or taken.get(scanner_id, 0) >= per_scanner_cap:
             continue
         taken[scanner_id] = taken.get(scanner_id, 0) + 1
-        queries.append(label)
+        queries.append(name)
         if len(queries) == MAX_SUGGESTED_QUERIES:
             break
     return queries

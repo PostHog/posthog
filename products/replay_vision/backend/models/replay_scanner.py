@@ -285,7 +285,6 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
     )
 
     # Retired with the scheduled search suggestion refresher; the columns stay until a later drop.
-    # Retired with the scheduled search suggestion refresher; the columns stay until a later drop.
     search_suggestions = deprecate_field(
         models.JSONField(
             default=list,
