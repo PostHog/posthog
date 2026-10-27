@@ -24,12 +24,13 @@ export function storesFlagCallsOutsideEvents(team: TeamPublicType | TeamType | n
 }
 
 /**
- * How long a row stays in flag_evaluations. The events table keeps $feature_flag_called forever.
- * Keep it equal to FLAG_EVALUATIONS_TTL_DAYS in posthog/models/flag_evaluations/sql.py.
+ * How long PostHog tells customers that flag_evaluations keeps a row. The events table keeps $feature_flag_called
+ * forever. FLAG_EVALUATIONS_TTL_DAYS in posthog/models/flag_evaluations/sql.py is longer, so the table holds all of a
+ * range that starts this many days back. That file says why.
  */
 export const FLAG_EVALUATIONS_RETENTION_DAYS = 90
 
-// Start of the oldest day the table still holds. dateStringToDayJs resolves the ranges this is
+// Start of the oldest day that FLAG_EVALUATIONS_RETENTION_DAYS covers. dateStringToDayJs resolves the ranges this is
 // compared to against UTC, so the boundary is UTC too: a browser-local midnight sits hours off it,
 // which drops the 90-day preset in a timezone ahead of UTC.
 export function flagEvaluationsRetentionStart(): dayjs.Dayjs {
