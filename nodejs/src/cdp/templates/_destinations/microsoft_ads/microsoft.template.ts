@@ -162,7 +162,7 @@ fn hashPhone(value) {
     if (startsWith(phone, '00')) {
         phone := concat('+', substring(phone, 3))
     }
-    if (not match(phone, '^[+][1-9][0-9]{7,14}$')) {
+    if (not match(phone, '^[+][1-9][0-9]{6,14}$')) {
         return null
     }
     return sha256Hex(phone)
@@ -219,8 +219,8 @@ if (not empty(inputs.eventId)) {
     conversion.eventId := inputs.eventId
 }
 // Microsoft rejects the whole conversion when eventSourceUrl is not a valid URL, so app URLs such as
-// file:// or capacitor:// are left out instead of being sent
-if (match(toString(inputs.eventSourceUrl ?? ''), '^https?://')) {
+// file:// or capacitor://, and URLs with no host or with spaces, are left out instead of being sent
+if (match(toString(inputs.eventSourceUrl ?? ''), '^https?://[^ /?#]+[^ ]*$')) {
     conversion.eventSourceUrl := inputs.eventSourceUrl
 }
 

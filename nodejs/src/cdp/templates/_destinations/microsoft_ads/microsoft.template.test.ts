@@ -94,11 +94,15 @@ describe('microsoft template', () => {
             `"Error from capi.uet.microsoft.com (status 401): {'error': {'code': 'Unauthorized', 'message': 'You are not authorized to access this resource.'}}"`
         )
     })
-    it('leaves out a source URL that is not an http(s) URL', async () => {
+    it.each([
+        ['an app URL', 'capacitor://localhost/checkout'],
+        ['a URL without a host', 'https://'],
+        ['a URL with a space', 'https://exa mple.com/checkout'],
+    ])('leaves out a source URL that is %s', async (_, sourceUrl) => {
         const response = await tester.invokeMapping(
             'Conversion',
             { tagId: '12345678', apiToken: 'api-token', eventName: 'purchase' },
-            createAdDestinationPayload({ event: { properties: { $current_url: 'capacitor://localhost/checkout' } } })
+            createAdDestinationPayload({ event: { properties: { $current_url: sourceUrl } } })
         )
         expect(response.error).toBeUndefined()
         const body = parseJSON((response.invocation.queueParameters as { body: string }).body)
@@ -185,6 +189,11 @@ describe('microsoft template', () => {
             { ph: '543f9cda443b9c55ebcf8ab34b586f9dc34948776b73de02393c41d5f8edc356' },
         ],
         ['phone without a country code', { phone: '425 555 1234' }, {}],
+        [
+            'short international phone',
+            { phone: '+683 4000' },
+            { ph: '97cf993effd481837703ec72779942c914609c669536e74c8febced81ab6cd18' },
+        ],
         [
             'msclkid with hyphens',
             { msclkid: 'dd4afccc-b1c9-4a4c-ad95-44dd7e5006ab' },
