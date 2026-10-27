@@ -2,12 +2,16 @@ import uuid
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from posthog.models.comment import Comment
 
 from products.conversations.backend.models import Ticket
+from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport
-from products.signals.backend.support_writeback import post_report_findings_to_tickets
+from products.signals.backend.pull_requests import PullRequestStateSource, link_pull_request
+from products.signals.backend.report_assignments import PullRequestDetails
+from products.signals.backend.support_writeback import post_pull_request_to_tickets, post_report_findings_to_tickets
 
 WRITEBACK_MODULE_PATH = "products.signals.backend.support_writeback"
 
@@ -66,6 +70,40 @@ class TestPostReportFindingsToTickets(BaseTest):
 
         assert (first, second) == (1, 0)
         assert _ticket_notes(self.team, self.ticket).count() == 1
+
+    def test_pull_request_note_is_private_and_idempotent(self):
+        pr_url = "https://github.com/PostHog/posthog/pull/123"
+
+        first = post_pull_request_to_tickets(self.team, str(self.report.id), pr_url, [self.signal])
+        second = post_pull_request_to_tickets(self.team, str(self.report.id), pr_url, [self.signal])
+
+        assert (first, second) == (1, 0)
+        note = _ticket_notes(self.team, self.ticket).get()
+        assert note.item_context["is_private"] is True
+        assert note.item_context["author_type"] == "AI"
+        assert pr_url in note.content
+        assert f"/project/{self.team.pk}/inbox/reports/{self.report.id}?link_source=support" in note.content
+        assert self.report.summary not in note.content
+
+    def test_linking_pull_request_queues_ticket_note_once(self):
+        pr_url = "https://github.com/PostHog/posthog/pull/123"
+        details = PullRequestDetails(
+            url=pr_url, repository="PostHog/posthog", number=123, state="unknown", merged=False
+        )
+
+        with patch("products.signals.backend.tasks.write_pull_request_to_support_tickets.delay") as send_note:
+            with self.captureOnCommitCallbacks(execute=True):
+                for _ in range(2):
+                    link_pull_request(
+                        report=self.report,
+                        details=details,
+                        actor=ArtefactAttribution.system(),
+                        claim_id=None,
+                        state_source=PullRequestStateSource.TASK_OUTPUT,
+                        notify_reviewers=False,
+                    )
+
+        send_note.assert_called_once_with(self.team.pk, str(self.report.id), pr_url)
 
     def test_ignores_signals_from_other_products(self):
         error_signal = {"source_product": "error_tracking", "source_id": "issue-1"}

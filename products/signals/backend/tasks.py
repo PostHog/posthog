@@ -14,6 +14,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.celery_queues import CeleryQueue
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.workload import Workload
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
@@ -79,12 +80,24 @@ from products.signals.backend.scout_harness.slack_delivery import (
     post_scout_report_to_slack,
     slack_api_error_code,
 )
+from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
 from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
 from products.signals.backend.slack_report_threads import record_scout_report_slack_replies, scout_report_slack_message
+from products.signals.backend.support_writeback import post_pull_request_to_tickets
 from products.signals.backend.tracker_issues import close_tracker_issue_for_report, link_pull_request_to_tracker_issue
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
+
+
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@with_team_scope()
+def write_pull_request_to_support_tickets(team_id: int, report_id: str, pr_url: str) -> None:
+    team = Team.objects.filter(id=team_id).first()
+    if team is None:
+        return
+    signals = fetch_signals_for_report_sync(team, report_id, ch_user=ClickHouseUser.SIGNALS, workload=Workload.OFFLINE)
+    post_pull_request_to_tickets(team, report_id, pr_url, signals)
 
 
 @shared_task(

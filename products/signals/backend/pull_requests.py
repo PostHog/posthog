@@ -138,6 +138,13 @@ def link_pull_request(
         )
         link.pull_request = pr
         link.save(update_fields=["pull_request"])
+        if state_source != PullRequestStateSource.LEGACY_ASSIGNMENT:
+            from products.signals.backend.tasks import write_pull_request_to_support_tickets
+
+            transaction.on_commit(
+                partial(write_pull_request_to_support_tickets.delay, report.team_id, str(report.id), pr.url),
+                robust=True,
+            )
         if (
             state_source != PullRequestStateSource.LEGACY_ASSIGNMENT
             and report.status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}
