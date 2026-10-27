@@ -16,13 +16,15 @@ from parameterized import parameterized
 
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.frontend_views import app_context
-from posthog.models import Team, UserHomeSettings
+from posthog.models import Team, User, UserHomeSettings
 from posthog.stable_chunks import StableChunks
 from posthog.templatetags.posthog_filters import TolerantJSONEncoder
 from posthog.utils import (
+    DEFERRED_APP_CONTEXT_FLAG,
     flags_for_app_evaluation_context,
     get_context_for_template,
     get_persisted_feature_flags_for_app_context,
+    should_defer_app_context,
 )
 
 from products.conversations.backend.services.identity import IDENTITY_CLAIM_MAX_AGE_SECONDS
@@ -125,6 +127,36 @@ class TestFlagsForAppEvaluationContext(SimpleTestCase):
         definitions = [{"key": "the-flag", "evaluation_contexts": ["posthog-website"]}]
 
         assert flags_for_app_evaluation_context(None, definitions) is None
+
+
+class TestShouldDeferAppContext(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("test variant defers and reports", "", "test", True, True),
+            ("control variant renders inline and reports", "", "control", False, True),
+            ("outside the experiment renders inline silently", "", None, False, False),
+            ("param on beats control", "?deferred_app_context=1", "control", True, False),
+            ("param off beats test", "?deferred_app_context=0", "test", False, False),
+        ]
+    )
+    def test_only_the_test_variant_defers(self, _name, query, variant, expect_deferred, expect_exposure):
+        request = RequestFactory().get(f"/{query}")
+        user = User(distinct_id="user-1", email="someone@example.com")
+
+        with (
+            mock.patch("posthog.utils.posthoganalytics.get_feature_flag", return_value=variant),
+            mock.patch("posthog.utils.posthoganalytics.capture") as capture,
+        ):
+            assert should_defer_app_context(request, user) is expect_deferred
+
+        if expect_exposure:
+            capture.assert_called_once_with(
+                "$feature_flag_called",
+                distinct_id="user-1",
+                properties={"$feature_flag": DEFERRED_APP_CONTEXT_FLAG, "$feature_flag_response": variant},
+            )
+        else:
+            capture.assert_not_called()
 
 
 class TestGetContextForTemplate(APIBaseTest):

@@ -816,22 +816,27 @@ DEFERRED_APP_CONTEXT_PARAM = "deferred_app_context"
 def should_defer_app_context(request: HttpRequest, user: "User") -> bool:
     """
     Whether the app page leaves out the user's data and fetches it from `app_context` instead.
-    The query param wins over the flag, so a lab run can pick a side and a failed fetch can reload without it.
+    The query param wins over the experiment, so a lab run can pick a side and a failed fetch can reload without it.
     """
     param = request.GET.get(DEFERRED_APP_CONTEXT_PARAM)
     if param is not None:
         return param == "1"
     try:
-        return (
-            posthoganalytics.feature_enabled(
-                DEFERRED_APP_CONTEXT_FLAG,
-                str(user.distinct_id),
-                person_properties={"email": user.email},
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-            is True
+        variant = posthoganalytics.get_feature_flag(
+            DEFERRED_APP_CONTEXT_FLAG,
+            str(user.distinct_id),
+            person_properties={"email": user.email},
+            only_evaluate_locally=True,
+            # The SDK would report every signed-in user, so only the experiment's users are reported below.
+            send_feature_flag_events=False,
         )
+        if isinstance(variant, str):
+            posthoganalytics.capture(
+                "$feature_flag_called",
+                distinct_id=str(user.distinct_id),
+                properties={"$feature_flag": DEFERRED_APP_CONTEXT_FLAG, "$feature_flag_response": variant},
+            )
+        return variant == "test"
     except Exception as e:
         capture_exception(e)
         return False
