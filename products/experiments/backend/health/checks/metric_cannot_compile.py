@@ -116,8 +116,14 @@ def _evidence(worded: list[tuple[MetricCompileFailure, _Wording]]) -> dict[str, 
 
 
 def _word(failure: MetricCompileFailure) -> _Wording:
-    message = failure.message
-    match failure.kind:
+    return word_compile_error(failure.kind, failure.message, failure.definition)
+
+
+def word_compile_error(
+    kind: ExperimentHealthMetricCompileErrorKind, message: str | None, definition: Mapping[str, Any]
+) -> _Wording:
+    """The words for an error that building the query of a metric with `definition` raised."""
+    match kind:
         case ExperimentHealthMetricCompileErrorKind.DEFINITION if message is not None:
             return _Wording(
                 error=MetricCompileError.INVALID_DEFINITION,
@@ -144,7 +150,7 @@ def _word(failure: MetricCompileFailure) -> _Wording:
         case ExperimentHealthMetricCompileErrorKind.QUERY if message is not None:
             for pattern, subject, word in _QUERY_RULES:
                 found = pattern.search(message)
-                if found and (subject is None or _mentions(failure.definition, found.group(subject))):
+                if found and (subject is None or _mentions(definition, found.group(subject))):
                     return word(found, message)
     return _Wording(
         error=MetricCompileError.OTHER,

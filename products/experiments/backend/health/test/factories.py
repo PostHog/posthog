@@ -44,6 +44,7 @@ RUNNING_CONTEXT = HealthContext(
     primary_metric=None,
     excluded_variant_keys=frozenset(),
     metric_compiles=None,
+    latest_calculation=None,
 )
 
 

@@ -120,6 +120,7 @@ def _load_metric_compiles(experiment: Experiment, user: User | None) -> MetricCo
             case _Failure(kind=kind, message=message):
                 failures.append(
                     MetricCompileFailure(
+                        metric_id=calculation_config.metric_id,
                         name=calculation_metric_name(experiment, calculation_config),
                         role=calculation_config.role,
                         kind=kind,

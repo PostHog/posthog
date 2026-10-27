@@ -240,6 +240,13 @@ function metricCompileNote({ evidence }: ExperimentHealthFindingApi): string {
     return `Doesn't compile: ${errors.join(', ')}.`
 }
 
+function metricCalculationNote({ evidence }: ExperimentHealthFindingApi): string {
+    const failures = Object.entries(evidence)
+        .filter(([key]) => /^metric_\d+_failure$/.test(key))
+        .map(([, value]) => value)
+    return `Failed: ${failures.join(', ')}. Calculated at ${evidence.calculated_at}.`
+}
+
 function exposureCriteriaNote({ subcode, evidence }: ExperimentHealthFindingApi): string {
     return subcode === 'filter_on_another_flag'
         ? `The query requires ${evidence.flag_key}, a filter requires ${evidence.filter_flag_keys}.`
@@ -344,6 +351,7 @@ export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugChec
         noMetricCheck(input),
         serverOnlyCheck(input, 'metric_event_not_ingested', metricEventNote, ['metrics', 'project']),
         serverOnlyCheck(input, 'metric_cannot_compile', metricCompileNote, ['metrics', 'experiment']),
+        serverOnlyCheck(input, 'metric_calculation_failed', metricCalculationNote, ['metrics']),
         serverOnlyCheck(input, 'exposure_criteria_cannot_match', exposureCriteriaNote, ['experiment', 'project']),
         serverOnlyCheck(input, 'early_significance', null, ['experiment', 'metrics']),
         ...exposureChecks(input),

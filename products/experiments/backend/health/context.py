@@ -249,6 +249,7 @@ class MetricEvents:
 class MetricCompileFailure:
     """A metric whose query doesn't compile, so every calculation of the metric fails."""
 
+    metric_id: str
     name: str
     role: MetricRole
     kind: ExperimentHealthMetricCompileErrorKind
@@ -271,6 +272,37 @@ class MetricCompiles:
     # Whether the exposure query alone doesn't compile. A failure then says nothing about the metric, so `failures`
     # is empty.
     exposure_query_fails: bool
+
+
+@frozen
+class MetricCalculationFailure:
+    """A metric whose latest calculation failed, with the error that the calculation stored for it."""
+
+    metric_id: str
+    name: str
+    role: MetricRole
+    # The class that `classify_experiment_query_error` gave the error, or the class of a rejected calculation. None
+    # for a failure that stores no class, such as one stored before calculations stored it.
+    error_type: str | None
+    step: str | None
+    # The message as the results page shows it. It can be the raw text of a ClickHouse or Python exception.
+    message: str
+    # Whether the results page shows a "Try again" button for the failure, which it does only for an error stored as
+    # retriable.
+    retriable: bool
+    # The effective definition now, in which the wording looks for the names that the message gives.
+    definition: Mapping[str, Any]
+
+
+@frozen
+class LatestCalculation:
+    """The latest finished calculation of the experiment's metrics, whose results and errors the results page
+    shows."""
+
+    # None when no calculation has finished, so the page shows no stored error.
+    finished_at: datetime | None
+    # The metrics of the experiment now whose latest calculation failed, in calculation order.
+    failures: tuple[MetricCalculationFailure, ...]
 
 
 @frozen
@@ -355,6 +387,8 @@ class HealthContext:
     excluded_variant_keys: frozenset[str]
     # None when not loaded or unknown. Only the health endpoint loads it, as the reader.
     metric_compiles: MetricCompiles | None
+    # None when not loaded or unknown. Only the health endpoint loads it, and only for a launched experiment.
+    latest_calculation: LatestCalculation | None
 
 
 def parse_flag_state(
@@ -657,4 +691,5 @@ def load_health_context(
         primary_metric=None,
         excluded_variant_keys=frozenset(experiment.excluded_variants or []),
         metric_compiles=None,
+        latest_calculation=None,
     )
