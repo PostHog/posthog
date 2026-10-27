@@ -520,16 +520,21 @@ class TestAccountsTableQueryRunner(BaseTest):
 
     @parameterized.expand(
         [
-            ("name", "acme", False),
-            ("partial email", "member@acme", False),
-            ("partial domain", "acme.e", False),
-            ("mailbox provider domain", "gmail.com", False),
-            ("domain", "acme.example", True),
-            ("domain with a leading @", "@acme.example", True),
-            ("complete email", "member@acme.example", True),
+            ("name", "acme", True, False),
+            ("partial email", "member@acme", True, False),
+            ("partial domain", "acme.e", True, False),
+            ("mailbox provider domain", "gmail.com", True, False),
+            ("domain", "acme.example", True, True),
+            ("domain with a leading @", "@acme.example", True, True),
+            ("complete email", "member@acme.example", True, True),
+            ("domain without staff", "acme.example", False, False),
+            ("complete email without staff", "member@acme.example", False, False),
         ]
     )
-    def test_only_member_search_requires_fresh_calculation(self, _name: str, query: str, expected: bool) -> None:
+    def test_only_staff_member_search_requires_fresh_calculation(
+        self, _name: str, query: str, is_staff: bool, expected: bool
+    ) -> None:
+        self.user.is_staff = is_staff
         runner = AccountsTableQueryRunner(
             query=AccountsTableQuery(columns=[], filters=[AccountsTableSearchFilter(query=query)]),
             team=self.team,

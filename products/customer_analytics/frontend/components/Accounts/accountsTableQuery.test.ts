@@ -413,6 +413,8 @@ describe('accountsTableQuery', () => {
         ['Member@Acme.example', 'email'],
         ['acme.example', 'domain'],
         ['@acme.example', 'domain'],
+        ['https://www.acme.example/pricing', 'domain'],
+        ['https://user@acme.example', 'text'],
         ['acme', 'text'],
         ['acme.e', 'text'],
         ['1.5', 'text'],

@@ -368,15 +368,31 @@ function queryFilters(
 
 export type AccountSearchQueryKind = 'email' | 'domain' | 'text'
 
-const EMAIL_SEARCH_PATTERN = /^[^\s@]+@(?:[^\s@.]+\.)+[^\s@.]+$/
-const DOMAIN_SEARCH_PATTERN = /^@?(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*[a-z0-9]$/
+const EMAIL_SEARCH_PATTERN = /^[^\s@:/]+@(?:[^\s@.:/]+\.)+[^\s@.:/]+$/
+const DOMAIN_SEARCH_PATTERN = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z][a-z0-9-]*[a-z0-9]$/
 
+function searchHostname(search: string): string | null {
+    const value = search.replace(/^@/, '')
+    if (value.includes('@')) {
+        return null
+    }
+    try {
+        const url = new URL(value.includes('://') ? value : `https://${value}`)
+        return url.hostname.replace(/\.$/, '').replace(/^www\./, '')
+    } catch {
+        return null
+    }
+}
+
+// Follows the input shapes that the backend `parse_email_search` and `parse_domain_search` accept, so
+// `domain` counts the searches that run a member lookup. Mailbox provider domains still count as `domain`.
 export function accountSearchQueryKind(query: string): AccountSearchQueryKind {
     const normalized = query.trim().toLowerCase()
     if (EMAIL_SEARCH_PATTERN.test(normalized)) {
         return 'email'
     }
-    return DOMAIN_SEARCH_PATTERN.test(normalized) ? 'domain' : 'text'
+    const hostname = searchHostname(normalized)
+    return hostname !== null && DOMAIN_SEARCH_PATTERN.test(hostname) ? 'domain' : 'text'
 }
 
 export function accountsTableDatasetKey(input: AccountsTableDatasetInput): string {

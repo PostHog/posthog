@@ -65,6 +65,9 @@ class AccountsTableQueryRunner(AnalyticsQueryRunner[AccountsTableQueryResponse])
     cached_response: CachedAccountsTableQueryResponse
 
     def _has_member_search(self) -> bool:
+        # Only staff get member results, so other callers keep normal caching for email and domain searches.
+        if not isinstance(self.user, User) or not self.user.is_staff:
+            return False
         return any(
             isinstance(filter_, AccountsTableSearchFilter) and is_member_search(filter_.query)
             for filter_ in self.query.filters or []
