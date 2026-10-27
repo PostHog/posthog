@@ -18,7 +18,12 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { StatusTagSetting } from 'products/data_warehouse/frontend/utils'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
-import { SCHEMA_STATUS_ORDER, sourceManagementLogic, totalRowsSynced } from '../logics/sourceManagementLogic'
+import {
+    sourceLabel,
+    sourceManagementLogic,
+    syncingSchemasByStatus,
+    totalRowsSynced,
+} from '../logics/sourceManagementLogic'
 import { FreeHistoricalSyncsBanner } from './FreeHistoricalSyncsBanner'
 import { DATA_WAREHOUSE_APP_SOURCE } from './metrics/DataWarehouseMetrics'
 // eslint-disable-next-line import/no-cycle
@@ -108,7 +113,7 @@ export function ManagedSourcesTable(): JSX.Element {
                         render: (_, source) => (
                             <LemonTableLink
                                 to={urls.dataWarehouseSource(`managed-${source.id}`)}
-                                title={availableSources?.[source.source_type]?.label ?? source.source_type}
+                                title={sourceLabel(source, availableSources)}
                                 description={source.description}
                             />
                         ),
@@ -173,11 +178,7 @@ export function ManagedSourcesTable(): JSX.Element {
                             if (!source.status) {
                                 return null
                             }
-                            const syncingSchemas = source.schemas.filter((s) => s.should_sync)
-                            const counts = SCHEMA_STATUS_ORDER.map((status) => ({
-                                status,
-                                schemas: syncingSchemas.filter((s) => s.status === status),
-                            })).filter(({ schemas }) => schemas.length > 0)
+                            const counts = syncingSchemasByStatus(source)
 
                             if (counts.length === 0) {
                                 // Source has schemas but none are enabled — source.status can be stale

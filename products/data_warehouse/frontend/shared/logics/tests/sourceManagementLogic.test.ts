@@ -21,6 +21,9 @@ const SORTABLE_SOURCES = [
     { id: 'never-run', source_type: 'Stripe', prefix: 'a' },
 ].map((source) => ({ ...source, access_method: 'warehouse', schemas: [] }) as unknown as ExternalDataSource)
 
+const sortableSource = (id: string): ExternalDataSource =>
+    SORTABLE_SOURCES.find((source) => source.id === id) as ExternalDataSource
+
 describe('sourceManagementLogic', () => {
     let logic: ReturnType<typeof sourceManagementLogic.build>
     let databaseLogic: ReturnType<typeof databaseTableListLogic.build>
@@ -87,17 +90,15 @@ describe('sourceManagementLogic', () => {
         const deleteShortcut = jest.spyOn(api.fileSystemShortcuts, 'delete').mockResolvedValue()
         await mountWithSortableSources([])
 
-        await expectLogic(logic, () => logic.actions.toggleSourceStarred(SORTABLE_SOURCES[2])).toDispatchActions(
-            projectTreeDataLogic,
-            ['addShortcutItemSuccess']
-        )
+        await expectLogic(logic, () =>
+            logic.actions.toggleSourceStarred(sortableSource('never-run'))
+        ).toDispatchActions(projectTreeDataLogic, ['addShortcutItemSuccess'])
         expect(createShortcut).toHaveBeenCalledTimes(1)
         expect(logic.values.sortedManagedSources[0].id).toEqual('never-run')
 
-        await expectLogic(logic, () => logic.actions.toggleSourceStarred(SORTABLE_SOURCES[2])).toDispatchActions(
-            projectTreeDataLogic,
-            ['deleteShortcutSuccess']
-        )
+        await expectLogic(logic, () =>
+            logic.actions.toggleSourceStarred(sortableSource('never-run'))
+        ).toDispatchActions(projectTreeDataLogic, ['deleteShortcutSuccess'])
         expect(deleteShortcut).toHaveBeenCalledWith('shortcut-1')
         expect(logic.values.sortedManagedSources[0].id).toEqual('recent')
     })
@@ -229,7 +230,7 @@ describe('sourceManagementLogic', () => {
         const deleteShortcut = jest.spyOn(api.fileSystemShortcuts, 'delete').mockResolvedValue()
         await mountWithSortableSources(['starred'])
 
-        logic.actions.deleteSource(SORTABLE_SOURCES[1])
+        logic.actions.deleteSource(sortableSource('starred'))
         await expectLogic(projectTreeDataLogic).toDispatchActions(['deleteShortcutSuccess'])
 
         expect(deleteShortcut).toHaveBeenCalledWith('shortcut-starred')
