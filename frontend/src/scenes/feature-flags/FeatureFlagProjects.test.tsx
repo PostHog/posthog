@@ -56,9 +56,10 @@ describe('<FeatureFlagProjects />', () => {
         renderWithState({ teams: 2 })
 
         expect(screen.getByText('Feature flag copy')).toBeInTheDocument()
-        const link = screen.getByRole('link', { name: BULK_COPY_LINK_TEXT })
+        const link = screen.getByText(BULK_COPY_LINK_TEXT).closest('a')
+        expect(link).not.toBeNull()
         // Link prefixes the current project path, so assert on the target itself
-        expect(link.getAttribute('href')).toMatch(/\/feature-flags\?tab=projects$/)
+        expect(link?.getAttribute('href')).toMatch(/\/feature-flags\?tab=projects$/)
     })
 
     it('does not render the bulk copy link in a single-project organization', () => {
