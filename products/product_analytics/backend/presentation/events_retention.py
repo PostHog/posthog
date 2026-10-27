@@ -10,7 +10,11 @@ from rest_framework.response import Response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models.team.event_retention import events_retention_floor_date, events_retention_months_for_team
+from posthog.models.team.event_retention import (
+    events_retention_floor_date,
+    events_retention_months_for_team,
+    should_enforce_events_retention,
+)
 from posthog.models.user import User
 from posthog.permissions import OrganizationAdminWritePermissions, TeamMemberStrictManagementPermission
 
@@ -22,6 +26,7 @@ from products.product_analytics.backend.events_retention import (
 )
 
 EVENTS_RETENTION_DOCS_URL = "https://posthog.com/docs/data/events-retention"
+RETENTION_NOT_AVAILABLE = "Events retention settings aren't available yet."
 
 
 @extend_schema_serializer(many=False)
@@ -127,10 +132,15 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={
             200: OpenApiResponse(response=EventsRetentionSerializer, description="The project's new window."),
             400: OpenApiResponse(description="The window is outside the range an admin can set."),
-            403: OpenApiResponse(description="The user isn't a project admin."),
+            403: OpenApiResponse(
+                description="The user isn't a project admin, or events retention doesn't apply to the project yet."
+            ),
         },
     )
     def create(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        # The monthly cleanup deletes by these values whatever the rollout flag says, so writes wait for the flag.
+        if not should_enforce_events_retention(self.team_id):
+            raise exceptions.PermissionDenied(RETENTION_NOT_AVAILABLE)
         try:
             set_project_events_retention(
                 self.team,
@@ -187,10 +197,15 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
                 response=OrganizationEventsRetentionSerializer, description="The organization's new window."
             ),
             400: OpenApiResponse(description="The window is outside the range an admin can set."),
-            403: OpenApiResponse(description="The user isn't an organization admin."),
+            403: OpenApiResponse(
+                description="The user isn't an organization admin, or events retention doesn't apply to any of its projects yet."
+            ),
         },
     )
     def create(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        team_ids = self.organization.teams.values_list("id", flat=True)
+        if not any(should_enforce_events_retention(team_id) for team_id in team_ids):
+            raise exceptions.PermissionDenied(RETENTION_NOT_AVAILABLE)
         try:
             set_organization_events_retention(
                 self.organization,

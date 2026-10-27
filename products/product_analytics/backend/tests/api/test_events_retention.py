@@ -163,6 +163,17 @@ class TestEventsRetentionAPI(APIBaseTest):
             is None
         )
 
+    @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
+    def test_rejects_windows_until_retention_is_enforced(self) -> None:
+        self._set_membership("organization_admin")
+
+        for url in (self.url(), self.organization_url()):
+            response = self.client.post(url, {"retention_months": 12}, format="json")
+
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert not OrganizationEventsRetentionConfig.objects.filter(organization=self.organization).exists()
+        assert not TeamEventsRetentionConfig.objects.filter(team=self.team).exists()
+
     @parameterized.expand([("patch",), ("put",), ("delete",)])
     def test_rejects_other_writes(self, method: str) -> None:
         self._set_membership("organization_admin")
