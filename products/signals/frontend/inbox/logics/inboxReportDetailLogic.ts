@@ -111,6 +111,26 @@ function prChecksErrorFrom(error: unknown): PrChecksError {
     return { message: "Couldn't load the PR checks from GitHub.", remediationUrl: null }
 }
 
+type FreshClaimAttempt = { fresh: SignalReport | null; updated: SignalReportApi | null }
+
+/** Claims again from the server's current record. The page can still show the list's copy, whose claim may be out of date. */
+async function claimFromFreshReport(teamId: string, reportId: string): Promise<FreshClaimAttempt> {
+    let fresh: SignalReport
+    try {
+        fresh = await api.signalReports.get(reportId)
+    } catch {
+        return { fresh: null, updated: null }
+    }
+    if (!isReportClaimable(fresh)) {
+        return { fresh, updated: null }
+    }
+    try {
+        return { fresh, updated: await signalsReportsClaim(teamId, reportId, reportClaimRequest(fresh, true)) }
+    } catch {
+        return { fresh, updated: null }
+    }
+}
+
 // The task↔report association is the `task_run` artefact log now (the legacy `/tasks/` endpoint is
 // gone), and the activity timeline renders the whole log. Pull a generous page so early entries
 // (the first task runs, repo selection) stay visible on reports with many findings — matching the
@@ -1613,7 +1633,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 surface: 'detail_pane',
             })
             const scene = inboxSceneLogic.findMounted()
-            let updated: SignalReportApi
+            let updated: SignalReportApi | null = null
             try {
                 updated = await signalsReportsClaim(
                     String(teamId),
@@ -1621,17 +1641,26 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     reportClaimRequest(currentReport, claimed)
                 )
             } catch (error) {
-                if (inboxReportDetailLogic.isMounted(props)) {
-                    actions.setClaimSaving(false)
-                    if (error instanceof ApiError && error.status === 409) {
-                        lemonToast.error('Someone else is already working on this report.')
-                        // Reload so the page shows who holds the claim now.
-                        scene?.actions.loadSelectedReport({ id: props.reportId })
-                    } else {
-                        lemonToast.error("Couldn't update who's working on this report. Try again.")
+                const conflict = error instanceof ApiError && error.status === 409
+                const retry = conflict && claimed ? await claimFromFreshReport(String(teamId), props.reportId) : null
+                updated = retry?.updated ?? null
+                if (!updated) {
+                    if (inboxReportDetailLogic.isMounted(props)) {
+                        actions.setClaimSaving(false)
+                        if (!conflict) {
+                            lemonToast.error("Couldn't update who's working on this report. Try again.")
+                        } else if (!retry || (retry.fresh && reportClaimant(retry.fresh))) {
+                            lemonToast.error('Someone else is already working on this report.')
+                        } else {
+                            lemonToast.error('This report changed. Check it and try again.')
+                        }
+                        if (conflict) {
+                            // Reload so the page shows who holds the claim now.
+                            scene?.actions.loadSelectedReport({ id: props.reportId })
+                        }
                     }
+                    return
                 }
-                return
             }
             if (!inboxReportDetailLogic.isMounted(props)) {
                 return
