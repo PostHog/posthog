@@ -695,7 +695,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/k6_cloud/k6_cloud.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kandji/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/katana/katana.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/katana/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kernel/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/klaus/klaus.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/klaus/settings.py
