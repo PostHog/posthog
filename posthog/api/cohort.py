@@ -6,7 +6,6 @@ import uuid
 import hashlib
 from collections import defaultdict
 from collections.abc import Iterable, Iterator, Sequence
-from copy import deepcopy
 from typing import Annotated, Any, ClassVar, Literal, NoReturn, Optional, Union, cast
 
 from django.conf import settings
@@ -118,6 +117,7 @@ from products.cohorts.backend.models.util import (
     cohort_filters_have_values,
     get_all_cohort_dependencies,
     get_friendly_error_message,
+    legacy_groups_to_filters,
     validate_actors_query_for_cohort,
 )
 from products.cohorts.backend.models.validation import CohortTypeValidationSerializer
@@ -1537,12 +1537,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         if not groups:
             return None
 
-        effective_team = team or (instance.team if instance else None)
-        if effective_team is None:
-            return None
-
-        cohort = Cohort(team=effective_team, filters=None, groups=deepcopy(groups))
-        return {"properties": cohort.properties.to_dict()}
+        return legacy_groups_to_filters(groups)
 
     def validate_filters(self, raw: dict):
         """
@@ -1692,19 +1687,14 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
 
         cohort_will_be_static = self._cohort_will_be_static()
         if not attrs.get("filters") and attrs.get("groups") and not cohort_will_be_static:
-            derived_filters = None
-            try:
-                team = self.context.get("get_team", lambda: None)() or _team_from_serializer_context(self.context)
-                dummy_cohort = Cohort(team=team, filters=None, groups=deepcopy(attrs["groups"]))
-                prop_group = dummy_cohort.properties
-                if prop_group and prop_group.values:
-                    derived_filters = {"properties": prop_group.to_dict()}
-            except Exception:
-                logger.warning("cohort_legacy_groups_conversion_failed", exc_info=True)
+            derived_filters = legacy_groups_to_filters(attrs["groups"])
+            if not derived_filters:
+                raise ValidationError(
+                    {"groups": "The provided legacy groups could not be converted to cohort filters."}
+                )
 
-            if derived_filters:
-                attrs["filters"] = derived_filters
-                self._validate_feature_flag_constraints(derived_filters, cohort_will_be_static=False)
+            attrs["filters"] = derived_filters
+            self._validate_feature_flag_constraints(derived_filters, cohort_will_be_static=False)
 
         parsed_csv = self._parse_csv_upload(attrs)
         if parsed_csv is not None:

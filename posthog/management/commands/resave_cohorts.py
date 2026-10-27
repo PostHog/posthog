@@ -16,7 +16,11 @@ from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, CohortType
-from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
+from products.cohorts.backend.models.util import (
+    get_all_cohort_dependencies,
+    legacy_groups_to_filters,
+    sort_cohorts_topologically,
+)
 from products.cohorts.backend.realtime_teams import is_realtime_cohort_team, realtime_allowlist_matches_every_team
 from products.feature_flags.backend.flags_cache import coalesced_cohort_flags_cache_rebuilds
 
@@ -464,12 +468,7 @@ class Command(BaseCommand):
         unreadable_ids: set[int] = set()
         for cohort in all_cohorts:
             if not cohort.filters and cohort.groups:
-                try:
-                    prop_group = cohort.properties
-                    if prop_group and prop_group.values:
-                        cohort.filters = {"properties": prop_group.to_dict()}
-                except Exception:
-                    logger.warning("cohort_legacy_groups_conversion_failed", cohort_id=cohort.id, exc_info=True)
+                cohort.filters = legacy_groups_to_filters(cohort.groups)
             if not cohort.filters:
                 continue
             try:
@@ -499,14 +498,7 @@ class Command(BaseCommand):
         This only mutates the cohort in memory and returns the outcome; the caller persists the
         change and counts it.
         """
-        filters = cohort.filters
-        if not filters and cohort.groups:
-            try:
-                prop_group = cohort.properties
-                if prop_group and prop_group.values:
-                    filters = {"properties": prop_group.to_dict()}
-            except Exception:
-                logger.warning("cohort_legacy_groups_conversion_failed", cohort_id=cohort.id, exc_info=True)
+        filters = cohort.filters or legacy_groups_to_filters(cohort.groups)
 
         # Nothing to recompute without filters.
         if not filters:

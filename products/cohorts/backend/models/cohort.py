@@ -357,7 +357,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         # update_fields can arrive positionally (4th positional, after force_insert/force_update/using)
         # or as a keyword. Intercept it so _maintain_filter_shape_hashes can extend the frozen set.
         update_fields = args[3] if len(args) > 3 else kwargs.get("update_fields")
-
         if update_fields is None or "filters" in update_fields:
             self.condition_type = Cohort.compute_condition_type(self.filters)
             if update_fields is not None and "condition_type" not in update_fields:

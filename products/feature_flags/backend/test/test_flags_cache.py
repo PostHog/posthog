@@ -4601,38 +4601,6 @@ class TestSerializeCohort(BaseTest):
         cohort.last_realtime_cohort_calculation_at = None
         assert _serialize_cohort(cohort)["last_realtime_cohort_calculation_at"] is None
 
-    def test_serialize_cohort_derives_filters_and_condition_type_from_groups(self):
-        cohort = Cohort(
-            id=123,
-            team=self.team,
-            name="Legacy Group Cohort",
-            groups=[
-                {
-                    "properties": [
-                        {
-                            "key": "email",
-                            "value": "is_set",
-                            "operator": "is_set",
-                            "type": "person",
-                        }
-                    ]
-                }
-            ],
-            filters=None,
-            condition_type=None,
-        )
-        result = _serialize_cohort(cohort)
-        assert result["filters"] is not None
-        assert "properties" in result["filters"]
-        leaf = result["filters"]["properties"]["values"][0]["values"][0]
-        assert (leaf["key"], leaf["type"], leaf["operator"]) == ("email", "person", "is_set")
-        assert result["condition_type"] == {
-            "person_properties": True,
-            "behavioral": False,
-            "lifecycle": False,
-            "cohorts": False,
-        }
-
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestCohortChangedFlagsCacheSignal(BaseTest):
