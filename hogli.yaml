@@ -1141,7 +1141,7 @@ devex:
         description: Send feedback about the dev experience to the devex team (humans and agents)
     agent:usage:
         click: hogli_commands.agent_usage:cmd_agent_usage
-        description: Show local Claude Code token usage in this repo, grouped by pull request
+        description: Show agent LLM token spend per pull request, from engineering analytics
 utilities:
     nuke:
         steps:

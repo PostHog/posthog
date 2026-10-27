@@ -756,6 +756,8 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
         cost: float,
         input_tokens: int = 0,
         output_tokens: int = 0,
+        cache_read_tokens: int = 0,
+        cache_creation_tokens: int = 0,
         repo: str | None = None,
         session: str | None = None,
         trace: str | None = None,
@@ -767,6 +769,8 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
             "$ai_total_cost_usd": cost,
             "$ai_input_tokens": input_tokens,
             "$ai_output_tokens": output_tokens,
+            "$ai_cache_read_input_tokens": cache_read_tokens,
+            "$ai_cache_creation_input_tokens": cache_creation_tokens,
         }
         if branch is not None:
             props["$ai_git_branch"] = branch
@@ -815,9 +819,24 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
         self._seed_pr(80, branch)
         # Matches: on-branch, in-window; one with no repo stamped, one with the repo stamped in clone-URL
         # casing (the repo compare is case-insensitive, like GitHub repo names).
-        self._generation(branch=branch, days_ago=4, cost=1.0, input_tokens=100, output_tokens=50)
         self._generation(
-            branch=branch, days_ago=10, cost=2.0, input_tokens=200, output_tokens=80, repo="posthog/POSTHOG"
+            branch=branch,
+            days_ago=4,
+            cost=1.0,
+            input_tokens=100,
+            output_tokens=50,
+            cache_read_tokens=5000,
+            cache_creation_tokens=700,
+        )
+        self._generation(
+            branch=branch,
+            days_ago=10,
+            cost=2.0,
+            input_tokens=200,
+            output_tokens=80,
+            cache_read_tokens=3000,
+            cache_creation_tokens=2000,
+            repo="posthog/POSTHOG",
         )
         # Excluded: wrong repo, wrong branch, before the lead window, after merge, wrong event type.
         self._generation(branch=branch, days_ago=4, cost=99.0, repo="other/repo")
@@ -833,6 +852,71 @@ class TestPRLLMSpendWarehouse(_WarehouseMixin, BaseTest):
         assert cost.llm_spend.cost_usd == pytest.approx(3.0)
         assert cost.llm_spend.input_tokens == 300
         assert cost.llm_spend.output_tokens == 130
+        assert cost.llm_spend.cache_read_input_tokens == 8000
+        assert cost.llm_spend.cache_creation_input_tokens == 2700
+        assert cost.llm_spend.peak_context_tokens == 5800
+
+    def _seed_stacked_prs(self) -> None:
+        self._create_table(
+            "github_pull_requests",
+            PULL_REQUESTS_COLUMNS,
+            [
+                _pr_row(
+                    91,
+                    "alice",
+                    "closed",
+                    0,
+                    _ago(5),
+                    merged_at=_ago(1),
+                    head_sha="sha91",
+                    head_ref="feat/a",
+                    base_ref="master",
+                ),
+                _pr_row(92, "alice", "open", 0, _ago(4), head_sha="sha92", head_ref="feat/b", base_ref="feat/a"),
+                _pr_row(93, "bob", "open", 0, _ago(3), head_sha="sha93", head_ref="feat/c", base_ref="master"),
+            ],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9100, "CI", "sha91", "completed", "success", _ago(4), _ago(4), pr_number=91)],
+        )
+        repo = "PostHog/posthog"
+        # One session builds feat/a off master, then stacks feat/b on it. For #92 the base is feat/a, so its
+        # first feature stamp is the master one and it takes no prefix; for #91 the prefix is the master stamp.
+        self._generation(branch="master", days_ago=10, cost=1.0, session="s1", repo=repo)
+        self._generation(branch="feat/a", days_ago=9, cost=2.0, session="s1", repo=repo)
+        self._generation(branch=None, days_ago=8.5, cost=4.0, session="s1", repo=repo)
+        self._generation(branch="feat/b", days_ago=8, cost=8.0, session="s1", repo=repo)
+        self._generation(branch=None, days_ago=7, cost=16.0, session="s1", repo=repo)
+        self._generation(branch="feat/c", days_ago=2, cost=32.0, session="s2", repo=repo)
+        self._generation(branch="scratch", days_ago=2, cost=64.0, repo=repo)
+        # No repo stamp: the repo guard still credits it to #91, but coverage cannot place it in a repo.
+        self._generation(branch="feat/a", days_ago=6, cost=128.0)
+        flush_persons_and_events()
+
+    def test_author_llm_spend_matches_per_pr_attribution_across_stacked_bases(self) -> None:
+        self._seed_stacked_prs()
+
+        result = api.list_author_llm_spend(team=self.team, author="alice", repo="PostHog/posthog")
+
+        assert [(item.number, item.head_branch) for item in result.items] == [(92, "feat/b"), (91, "feat/a")]
+        spend = {item.number: item.llm_spend for item in result.items}
+        assert {number: (s.cost_usd, s.generations) for number, s in spend.items() if s} == {
+            91: (pytest.approx(135.0), 4),
+            92: (pytest.approx(24.0), 2),
+        }
+        for number in (91, 92):
+            assert spend[number] == api.get_pr_cost(team=self.team, pr_number=number, repo="PostHog/posthog").llm_spend
+
+    def test_llm_spend_coverage_counts_repo_stamped_generations_once(self) -> None:
+        self._seed_stacked_prs()
+
+        coverage = api.get_llm_spend_coverage(team=self.team, repo="PostHog/posthog")
+
+        assert (coverage.generations, coverage.attributed_generations) == (7, 6)
+        assert coverage.cost_usd == pytest.approx(127.0)
+        assert coverage.attributed_cost_usd == pytest.approx(63.0)
 
     def test_llm_spend_none_when_head_is_base(self) -> None:
         self._seed_pr(84, "master", base_ref="master")
