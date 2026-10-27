@@ -1042,7 +1042,7 @@ class ErrorTrackingQueryBuilder:
     def _issue_first_seen_range(
         self, field: ast.Expr, range_operator: ast.CompareOperationOp, bound: ast.Expr
     ) -> ast.Expr:
-        # A merged issue has one first_seen per fingerprint. Compare the earliest, which is what the issue shows.
+        # A merged issue has one first_seen per fingerprint. Compare the earliest, so a new fingerprint does not make an old issue look new.
         issue_first_seen_in_range = ast.CompareOperation(
             op=ast.CompareOperationOp.In,
             left=self._legacy_issue_state_expr("issue_id"),

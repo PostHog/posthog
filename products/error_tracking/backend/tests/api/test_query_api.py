@@ -474,42 +474,41 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert detail_response.json()["severity"] == "high"
 
     @parameterized.expand(
-        [({"key": "1 = 1", "type": "hogql", "value": "1"}, "HogQL property filters are not supported here")]
-        + [
-            (
-                {"key": "first_seen", "type": "error_tracking_issue", "operator": operator, "value": "-24h"},
-                "firstSeenAfter",
-            )
-            for operator in ("gt", "gte", "lt", "lte", "is_date_after", "is_date_before")
-        ]
-        + [
-            (
-                {"key": "first_seen", "type": "error_tracking_issue", "operator": "gt", "value": value},
-                "firstSeenAfter",
-            )
-            for value in ("-24H", "yesterday")
+        [
+            ({"filterGroup": [{"key": "1 = 1", "type": "hogql", "value": "1"}]}, "HogQL property filters"),
+            *(
+                (
+                    {
+                        "filterGroup": [
+                            {"key": "first_seen", "type": "error_tracking_issue", "operator": op, "value": v}
+                        ]
+                    },
+                    "firstSeenAfter",
+                )
+                for op, v in [
+                    ("gt", "-24h"),
+                    ("gte", "-24h"),
+                    ("lt", "-24h"),
+                    ("lte", "-24h"),
+                    ("is_date_after", "-24h"),
+                    ("is_date_before", "-24h"),
+                    ("gt", "-24H"),
+                    ("gt", "yesterday"),
+                ]
+            ),
+            ({"firstSeenAfter": "yesterday"}, "firstSeenAfter"),
+            ({"firstSeenAfter": "-100000y"}, "firstSeenAfter"),
         ]
     )
-    def test_rejects_unsupported_property_filters(self, item: dict[str, object], message: str) -> None:
+    def test_rejects_unsupported_filters(self, request_fields: dict[str, object], message: str) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issues",
-            data={"filterGroup": [item]},
+            data=request_fields,
             format="json",
         )
 
         assert response.status_code == 400
         assert message in str(response.json())
-
-    @parameterized.expand([("not_a_date", "yesterday"), ("out_of_range", "-100000y")])
-    def test_rejects_invalid_first_seen_after(self, _name: str, value: str) -> None:
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/query/issues",
-            data={"firstSeenAfter": value},
-            format="json",
-        )
-
-        assert response.status_code == 400
-        assert "firstSeenAfter" in str(response.json())
 
     def test_rejects_invalid_person_id(self) -> None:
         response = self.client.post(
