@@ -1,5 +1,7 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { mockScoutConfigs, mockScoutSuggestionSet } from '../__mocks__/scoutConfigs'
-import type { AgentRosterSource } from '../components/config/agentRosterMeta'
+import { AGENT_ROSTER_GROUPS, type AgentRosterSource } from '../components/config/agentRosterMeta'
 import type { SourceProductStatus } from '../signalSourcesLogic'
 import { newInboxSetupDraft, reconcileInboxSetupDraft, setupSources } from './inboxSetup'
 import { inboxSetupDefaultScouts, inboxSetupScoutChoices } from './inboxSetupScouts'
@@ -49,15 +51,15 @@ describe('Inbox setup defaults', () => {
         expect(draft.implementation_priority).toBe('P1')
     })
 
-    it('leaves data warehouse sources out of setup even when their tables are connected', () => {
-        const sources = setupSources([], {}, 0, {}, false, [
+    it('offers only first-party PostHog products, even when external tables are connected', () => {
+        const sources = setupSources([], {}, 0, { [FEATURE_FLAGS.ENGINEERING_ANALYTICS]: true }, false, [
             { id: 'linear-source', source_type: 'Linear', schemas: [{ name: 'issues' }] },
-            { id: 'github-source', source_type: 'Github', schemas: [{ name: 'issues' }] },
+            { id: 'github-source', source_type: 'Github', schemas: [{ name: 'workflow_runs' }] },
         ])
-        for (const excluded of ['linear', 'pganalyze', 'github', 'engineering_analytics']) {
-            expect(sources.some((source) => source.definition.source === excluded)).toBe(false)
-        }
-        expect(sources.some((source) => source.warehouseSource)).toBe(false)
+        const posthogSources = AGENT_ROSTER_GROUPS.find((group) => group.id === 'posthog')!.agents.map(
+            (agent) => agent.source
+        )
+        expect(sources.map((source) => source.definition.source)).toEqual(posthogSources)
         expect(newInboxSetupDraft(sources, []).sources).toEqual([])
     })
 

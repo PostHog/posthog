@@ -44,14 +44,10 @@ export function setupSources(
     hasEvents: boolean,
     warehouseSources: readonly InboxSetupWarehouseSource[] | null = null
 ): InboxSetupSource[] {
-    return AGENT_ROSTER_GROUPS.flatMap((group) => group.agents)
-        .filter(
-            (definition) =>
-                !definition.legacy &&
-                // Turning on old warehouse tables can fail activation, so these sources stay in the sources settings page.
-                !Object.hasOwn(WAREHOUSE_SOURCE_SETUP, definition.source) &&
-                (!definition.flag || flags[definition.flag])
-        )
+    // Onboarding offers only first-party PostHog products. External sources stay in the sources settings page.
+    return AGENT_ROSTER_GROUPS.filter((group) => group.id === 'posthog')
+        .flatMap((group) => group.agents)
+        .filter((definition) => !definition.legacy && (!definition.flag || flags[definition.flag]))
         .map((definition) => {
             const existing = configs.filter((config) => config.source_product === definition.sourceProduct)
             const status = statuses[definition.source]
