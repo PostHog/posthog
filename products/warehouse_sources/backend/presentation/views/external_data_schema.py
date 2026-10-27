@@ -1781,7 +1781,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         into webhook sync."""
         unsupported = f"{schema.name} doesn't support webhook sync. Pick another sync method."
         source = schema.source
-        if not source.job_inputs:
+        try:
+            source_inputs = SourceInputsStore.load(source)
+        except UnreadableSourceInputsError:
+            return f"Couldn't check whether {schema.name} supports webhook sync. {UNREADABLE_SOURCE_CONFIG_ERROR}"
+        if not source_inputs:
             return unsupported
         try:
             source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
@@ -1790,7 +1794,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if not isinstance(source_impl, WebhookSource):
             return unsupported
         try:
-            config = source_impl.parse_config(source.job_inputs)
+            config = source_impl.parse_config(source_inputs)
             source_schemas = source_impl.get_schemas(
                 config,
                 schema.team_id,
