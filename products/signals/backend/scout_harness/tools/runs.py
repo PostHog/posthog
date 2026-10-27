@@ -242,13 +242,10 @@ def search_recent_runs(
     are capped at `MAX_RUN_SEARCH_LIMIT`.
     """
     clamped_limit = _clamp_limit(limit)
-    qs = (
-        SignalScoutRun.objects.filter(team_id=team_id)
-        .exclude(metadata__has_key="scout_trial")
-        .select_related("task_run")
-        .only(*RUN_SUMMARY_FIELDS)
-        .order_by("-created_at")
-    )
+    # Filter without the task run join, then hydrate only the matches by primary key. With a
+    # selective filter the joined form walked and joined the team's whole run history before it
+    # filled the limit.
+    qs = SignalScoutRun.objects.filter(team_id=team_id).exclude(metadata__has_key="scout_trial").order_by("-created_at")
     if date_from is not None:
         qs = qs.filter(created_at__gte=date_from)
     if exclude_skill_name is not None:
@@ -269,8 +266,8 @@ def search_recent_runs(
         qs = qs.filter(skill_name=skill_name)
     if skill_version is not None:
         qs = qs.filter(skill_version=skill_version)
-    qs = qs[:clamped_limit]
-    return _without_deleted_reports([_to_summary(row, team_id=team_id) for row in qs], team_id=team_id)
+    run_ids = list(qs.values_list("id", flat=True)[:clamped_limit])
+    return runs_by_id(team_id=team_id, run_ids=run_ids)
 
 
 def _schedule_gap_minutes(config: SignalScoutConfig) -> int:
