@@ -29,6 +29,9 @@ if TYPE_CHECKING:
 class SourceKind(StrEnum):
     LOGS = "logs"
     INSIGHT = "insight"
+    BILLING = "billing"
+    WAREHOUSE_SOURCE = "warehouse_source"
+    WAREHOUSE_DESTINATION = "warehouse_destination"
 
 
 @frozen
@@ -268,6 +271,12 @@ class PlatformAlertCheckInput:
     # The calendar half of the schedule, so a source can tell when its own cadence has moved.
     recurrence_unit: str | None = None
     anchor_time: str | None = None
+
+    @property
+    def destination_alert_id(self) -> UUID:
+        """The id the alert's destinations are matched on: the source row's for a copy, and the
+        configuration's own for an alert whose source keeps no row."""
+        return self.legacy_configuration_id or self.id
 
     def admit(self, grouping_keys: Sequence[str], *, now: datetime) -> GroupAdmission:
         """The groups a check may report, from keys in the source's priority order.
@@ -954,6 +963,12 @@ class PlatformAlertConfigurationView:
     created_at: datetime
     updated_at: datetime
     alerts: tuple[PlatformAlertSnapshot, ...]
+
+    @property
+    def destination_alert_id(self) -> UUID:
+        """The id the alert's destinations are matched on: the source row's for a copy, and the
+        configuration's own for an alert whose source keeps no row."""
+        return self.legacy_configuration_id or self.id
 
 
 @frozen
