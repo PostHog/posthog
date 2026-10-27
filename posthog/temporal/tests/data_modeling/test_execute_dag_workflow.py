@@ -1243,7 +1243,7 @@ class TestRunAfterUpstreamReloads:
         self,
         inputs: ExecuteDAGInputs,
         *,
-        waiting_checks: list[list[str] | Exception] | None = None,
+        waiting_checks: list[bool | Exception] | None = None,
     ):
         plan = DAGPlan(nodes=["a", "b"], executable_nodes=["a", "b"], edges=[("a", "b")])
         checks = iter(waiting_checks or [])
@@ -1271,7 +1271,7 @@ class TestRunAfterUpstreamReloads:
                 return plan
             if fn == check_team_managed_warehouse_shadow_eligibility_activity:
                 return False
-            if getattr(fn, "__name__", None) == "nodes_waiting_on_upstream_reloads_activity":
+            if getattr(fn, "__name__", None) == "any_node_waiting_on_upstream_reloads_activity":
                 check = next(checks)
                 if isinstance(check, Exception):
                     raise check
@@ -1321,13 +1321,13 @@ class TestRunAfterUpstreamReloads:
     @pytest.mark.parametrize(
         "waiting_checks,expected_sleeps",
         [
-            ([["a"], []], 1),
-            ([["a"]] * 100, int(MAX_UPSTREAM_RELOAD_WAIT / UPSTREAM_RELOAD_RECHECK_INTERVAL)),
+            ([True, False], 1),
+            ([True] * 100, int(MAX_UPSTREAM_RELOAD_WAIT / UPSTREAM_RELOAD_RECHECK_INTERVAL)),
             ([RuntimeError("check failed")], 0),
         ],
     )
     async def test_a_follow_up_waits_for_the_reload_then_runs_its_nodes_without_deferring(
-        self, waiting_checks: list[list[str] | Exception], expected_sleeps: int
+        self, waiting_checks: list[bool | Exception], expected_sleeps: int
     ) -> None:
         inputs = ExecuteDAGInputs(team_id=1, dag_id="dag", node_ids=["a", "b"], wait_for_upstream_reloads=True)
 

@@ -9,8 +9,8 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.activities.check_upstream_reloads import (
     CheckUpstreamReloadsInputs,
     NodesWaitingOnUpstreamReloadsInputs,
+    any_node_waiting_on_upstream_reloads_activity,
     check_upstream_reloads_activity,
-    nodes_waiting_on_upstream_reloads_activity,
 )
 from posthog.temporal.data_modeling.activities.create_data_modeling_job import (
     RecordSkippedDataModelingJobsInputs,
@@ -217,26 +217,30 @@ class TestCheckUpstreamReloads:
             assert jobs == []
 
     @pytest.mark.parametrize(
-        "other_run_status,busy",
-        [(None, False), (DataModelingJobStatus.RUNNING, True), (DataModelingJobStatus.FAILED, False)],
+        "node_name,other_run_status,waiting",
+        [
+            ("reloading", None, True),
+            ("idle", None, False),
+            ("idle", DataModelingJobStatus.RUNNING, True),
+            ("idle", DataModelingJobStatus.FAILED, False),
+        ],
     )
-    async def test_lists_the_nodes_waiting_on_a_reload_or_on_another_run(
-        self, ateam, adag_local, other_run_status, busy
+    async def test_a_node_waits_on_a_reload_or_on_another_run_of_it(
+        self, ateam, adag_local, node_name, other_run_status, waiting
     ):
-        reloading, reloading_query = await _make_node(ateam, adag_local, "revenue_daily")
-        other, other_query = await _make_node(ateam, adag_local, "orders_daily")
+        reloading, reloading_query = await _make_node(ateam, adag_local, "reloading")
+        idle, idle_query = await _make_node(ateam, adag_local, "idle")
         await database_sync_to_async(_start_full_refresh_upstream_of)(ateam, adag_local, reloading)
         if other_run_status is not None:
             await database_sync_to_async(DataModelingJob.objects.create)(
-                team=ateam, saved_query=other_query, status=other_run_status, engine=DataModelingJobEngine.CLICKHOUSE
+                team=ateam, saved_query=idle_query, status=other_run_status, engine=DataModelingJobEngine.CLICKHOUSE
             )
+        node = reloading if node_name == "reloading" else idle
 
         result = await ActivityEnvironment().run(
-            nodes_waiting_on_upstream_reloads_activity,
-            NodesWaitingOnUpstreamReloadsInputs(
-                team_id=ateam.pk, dag_id=str(adag_local.id), node_ids=[str(reloading.id), str(other.id)]
-            ),
+            any_node_waiting_on_upstream_reloads_activity,
+            NodesWaitingOnUpstreamReloadsInputs(team_id=ateam.pk, dag_id=str(adag_local.id), node_ids=[str(node.id)]),
         )
 
-        assert result == sorted([str(reloading.id)] + ([str(other.id)] if busy else []))
+        assert result is waiting
         assert await database_sync_to_async(_status_and_error)(reloading_query) == []

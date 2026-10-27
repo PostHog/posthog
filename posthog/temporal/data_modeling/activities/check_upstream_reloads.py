@@ -1,6 +1,7 @@
 import datetime as dt
 import dataclasses
 
+from django.db.models import QuerySet
 from django.utils import timezone
 
 from structlog import get_logger
@@ -65,19 +66,21 @@ def _reason(table_names: list[str]) -> str:
     )
 
 
-def _tables_being_reloaded(node: Node, engine: str) -> list[str]:
-    if node.saved_query is None:
-        return []
+def _jobs(team_id: int, nodes: list[Node], engine: str) -> QuerySet[DataModelingJob]:
+    saved_query_ids = [node.saved_query_id for node in nodes if node.saved_query_id is not None]
+    return DataModelingJob.objects.filter(team_id=team_id, saved_query_id__in=saved_query_ids, engine=engine)
+
+
+def _built_saved_query_ids(team_id: int, nodes: list[Node], engine: str) -> set:
+    jobs = _jobs(team_id, nodes, engine).filter(status=DataModelingJobStatus.COMPLETED)
+    return set(jobs.values_list("saved_query_id", flat=True).distinct())
+
+
+def _tables_being_reloaded(node: Node, engine: str, built_saved_query_ids: set) -> list[str]:
     # With no complete data to keep serving, waiting gains nothing over a partial first build.
-    if engine == DataModelingJobEngine.CLICKHOUSE and node.saved_query.table_id is None:
+    if node.saved_query is None or node.saved_query_id not in built_saved_query_ids:
         return []
-    built = DataModelingJob.objects.filter(
-        team_id=node.team_id,
-        saved_query_id=node.saved_query_id,
-        engine=engine,
-        status=DataModelingJobStatus.COMPLETED,
-    ).exists()
-    if not built:
+    if engine == DataModelingJobEngine.CLICKHOUSE and node.saved_query.table_id is None:
         return []
     return upstream_tables_being_replaced(
         node.team_id, node.saved_query_id, started_after=timezone.now() - STALE_RELOAD_AGE
@@ -91,7 +94,9 @@ def _skip_if_reloading(
     node = Node.objects.select_related("saved_query").get(
         id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
     )
-    table_names = _tables_being_reloaded(node, inputs.engine)
+    table_names = _tables_being_reloaded(
+        node, inputs.engine, _built_saved_query_ids(inputs.team_id, [node], inputs.engine)
+    )
     if not table_names:
         return CheckUpstreamReloadsResult()
     reason = _reason(table_names)
@@ -142,30 +147,22 @@ async def check_upstream_reloads_activity(inputs: CheckUpstreamReloadsInputs) ->
 
 
 @database_sync_to_async_pool
-def _nodes_waiting(inputs: NodesWaitingOnUpstreamReloadsInputs) -> list[str]:
+def _any_node_waiting(inputs: NodesWaitingOnUpstreamReloadsInputs) -> bool:
     nodes = list(
         Node.objects.filter(team_id=inputs.team_id, dag_id=inputs.dag_id, id__in=inputs.node_ids).select_related(
             "saved_query"
         )
     )
     # A node that another run is materializing waits too, so the follow-up never preempts that run.
-    running_saved_query_ids = set(
-        DataModelingJob.objects.filter(
-            team_id=inputs.team_id,
-            saved_query_id__in=[node.saved_query_id for node in nodes if node.saved_query_id is not None],
-            engine=inputs.engine,
-            status=DataModelingJobStatus.RUNNING,
-        ).values_list("saved_query_id", flat=True)
-    )
-    return sorted(
-        str(node.id)
-        for node in nodes
-        if node.saved_query_id in running_saved_query_ids or _tables_being_reloaded(node, inputs.engine)
-    )
+    if _jobs(inputs.team_id, nodes, inputs.engine).filter(status=DataModelingJobStatus.RUNNING).exists():
+        return True
+    built_saved_query_ids = _built_saved_query_ids(inputs.team_id, nodes, inputs.engine)
+    # Stops at the first node still waiting, so a poll during a long reload reads little.
+    return any(_tables_being_reloaded(node, inputs.engine, built_saved_query_ids) for node in nodes)
 
 
 @activity.defn
-async def nodes_waiting_on_upstream_reloads_activity(inputs: NodesWaitingOnUpstreamReloadsInputs) -> list[str]:
-    """The nodes of these that wait on an upstream reload or on another run of them. Writes nothing."""
+async def any_node_waiting_on_upstream_reloads_activity(inputs: NodesWaitingOnUpstreamReloadsInputs) -> bool:
+    """Whether any of these nodes waits on an upstream reload or on another run of it. Writes nothing."""
     bind_contextvars(team_id=inputs.team_id)
-    return await _nodes_waiting(inputs)
+    return await _any_node_waiting(inputs)

@@ -20,9 +20,9 @@ from posthog.temporal.data_modeling.activities import (
     PreemptDAGRunInputs,
     RecordSkippedDataModelingJobsInputs,
     SkippedDataModelingNode,
+    any_node_waiting_on_upstream_reloads_activity,
     check_team_managed_warehouse_shadow_eligibility_activity,
     get_dag_structure_activity,
-    nodes_waiting_on_upstream_reloads_activity,
     notify_dag_materialization_failures_activity,
     preempt_dag_run_activity,
     record_skipped_data_modeling_jobs_activity,
@@ -674,7 +674,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
         while temporalio.workflow.now() - wait_started < MAX_UPSTREAM_RELOAD_WAIT:
             try:
                 waiting = await temporalio.workflow.execute_activity(
-                    nodes_waiting_on_upstream_reloads_activity,
+                    any_node_waiting_on_upstream_reloads_activity,
                     NodesWaitingOnUpstreamReloadsInputs(
                         team_id=inputs.team_id,
                         dag_id=inputs.dag_id,
