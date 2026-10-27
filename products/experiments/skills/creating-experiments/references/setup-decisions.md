@@ -9,7 +9,7 @@ Use this file after `experiment-setup-context` returned. Each section maps the t
 Every section has the shape `{status, data}`. The field paths below are inside `data`: `target_surface.anonymous_share` means `target_surface.data.anonymous_share`.
 A `[]` in a path means a list: `previous_experiments.experiments[].primary_metric_types` is a field on each row.
 Write every dotted path from its section name, never from below it: `previous_experiments.summary.using_custom_exposure`, not `summary.using_custom_exposure`. A test resolves the full paths against the response and cannot check a shorthand. A bare field name is fine in a sentence whose section is already named.
-A section whose `status` is not `ok` gives no facts. Choices that depend on it drop to "best guess" at most, and the summary says which section was missing.
+A section whose `status` is not `ok` gives no facts. Choices that depend on it drop to "best guess" at most, and the summary says what would settle them, not which section was missing.
 
 ## Bucketing and persistence
 
