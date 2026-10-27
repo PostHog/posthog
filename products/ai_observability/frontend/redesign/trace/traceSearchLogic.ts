@@ -105,12 +105,25 @@ export const traceSearchLogic = kea<traceSearchLogicType>([
                         return null
                     }
                     await breakpoint(SEARCH_DEBOUNCE_MS)
+                    // Each search scans the whole trace in ClickHouse, and a request the user moved past keeps running
+                    // on the server, so the box sends the latest query only after the previous request answers.
+                    await cache.searchInFlight
+                    breakpoint()
                     cache.searchRequestedAt = performance.now()
-                    const results = await aiObservabilityTracesSearchRetrieve(
+                    const request = aiObservabilityTracesSearchRetrieve(
                         String(ApiConfig.getCurrentProjectId()),
                         encodeTraceIdSegment(props.traceId),
                         { q: query, timestamp_hint: createdAt }
                     )
+                    cache.searchInFlight = request.then(
+                        () => undefined,
+                        () => undefined
+                    )
+                    const results = await request.catch((error: unknown) => {
+                        // A superseded request must not show its failure on the newer query.
+                        breakpoint()
+                        throw error
+                    })
                     breakpoint()
                     return results
                 },

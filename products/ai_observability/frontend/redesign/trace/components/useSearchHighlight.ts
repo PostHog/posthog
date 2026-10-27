@@ -5,27 +5,52 @@ import { RefCallback, useEffect, useState } from 'react'
 // pinned: the stylesheet styles `::highlight(trace-view-search)`
 const HIGHLIGHT_NAME = 'trace-view-search'
 
-function occurrences(container: HTMLElement, query: string): Range[] {
+// A query for a common character in a long message would otherwise create a range per character on every render.
+export const MAX_HIGHLIGHTS = 500
+
+interface TextRun {
+    node: Node
+    start: number
+}
+
+function boundary(runs: TextRun[], offset: number, side: 'start' | 'end'): [Node, number] {
+    let low = 0
+    let high = runs.length - 1
+    while (low < high) {
+        const middle = Math.ceil((low + high) / 2)
+        const runStart = runs[middle].start
+        if (side === 'start' ? runStart <= offset : runStart < offset) {
+            low = middle
+        } else {
+            high = middle - 1
+        }
+    }
+    return [runs[low].node, offset - runs[low].start]
+}
+
+/** Matches run across text nodes, because syntax highlighting splits a code line into one node per token. */
+export function highlightRanges(container: HTMLElement, query: string): Range[] {
     const needle = query.toLowerCase()
-    const ranges: Range[] = []
+    const runs: TextRun[] = []
+    let haystack = ''
     const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT)
     for (let node = walker.nextNode(); node; node = walker.nextNode()) {
         const text = node.textContent ?? ''
-        const haystack = text.toLowerCase()
+        const lowered = text.toLowerCase()
+        runs.push({ node, start: haystack.length })
         // Lowercasing can change the length of some characters, which would misplace every offset after them.
-        if (haystack.length !== text.length) {
-            continue
-        }
-        for (
-            let index = haystack.indexOf(needle);
-            index !== -1;
-            index = haystack.indexOf(needle, index + needle.length)
-        ) {
-            const range = new Range()
-            range.setStart(node, index)
-            range.setEnd(node, index + needle.length)
-            ranges.push(range)
-        }
+        haystack += lowered.length === text.length ? lowered : text
+    }
+    const ranges: Range[] = []
+    for (
+        let index = haystack.indexOf(needle);
+        index !== -1 && ranges.length < MAX_HIGHLIGHTS;
+        index = haystack.indexOf(needle, index + needle.length)
+    ) {
+        const range = new Range()
+        range.setStart(...boundary(runs, index, 'start'))
+        range.setEnd(...boundary(runs, index + needle.length, 'end'))
+        ranges.push(range)
     }
     return ranges
 }
@@ -46,7 +71,7 @@ export function useSearchHighlight(query: string | null): RefCallback<HTMLElemen
         let ranges: Range[] = []
         const mark = (): void => {
             ranges.forEach((range) => highlight.delete(range))
-            ranges = occurrences(element, query)
+            ranges = highlightRanges(element, query)
             ranges.forEach((range) => highlight.add(range))
         }
         mark()

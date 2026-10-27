@@ -34,12 +34,14 @@ describe('traceSearchLogic', () => {
     let logic: ReturnType<typeof traceSearchLogic.build>
     let searches: { q: string | null; hint: string | null }[]
     let searchStatus: number
+    let searchStatuses: Record<string, number>
     let searchGates: Record<string, Promise<void>>
     let traceGate: Promise<void>
 
     beforeEach(() => {
         searches = []
         searchStatus = 200
+        searchStatuses = {}
         searchGates = {}
         traceGate = Promise.resolve()
         useMocks({
@@ -54,7 +56,8 @@ describe('traceSearchLogic', () => {
                     const q = params.get('q')
                     searches.push({ q, hint: params.get('timestamp_hint') })
                     await (searchGates[q ?? ''] ?? Promise.resolve())
-                    return searchStatus === 200 ? [200, resultsFor(q ?? '')] : [searchStatus, { detail: 'nope' }]
+                    const status = searchStatuses[q ?? ''] ?? searchStatus
+                    return status === 200 ? [200, resultsFor(q ?? '')] : [status, { detail: 'nope' }]
                 },
             },
         })
@@ -93,20 +96,26 @@ describe('traceSearchLogic', () => {
         expect(logic.values).toMatchObject({ searchResults: resultsFor('invoice'), searchStatus: 'ready' })
     })
 
-    it('keeps the newer result when an older request answers last', async () => {
+    it.each([
+        ['answers', 200],
+        ['fails', 500],
+    ])('sends only the latest query once the request in flight %s', async (_name, firstStatus) => {
+        silenceKeaLoadersErrors()
         await mountWithTrace()
         const firstAnswer = deferred()
         searchGates.first = firstAnswer.promise
+        searchStatuses.first = firstStatus
 
         typeAndWait('first')
         await waitFor(() => expect(searches).toHaveLength(1))
         typeAndWait('second')
-        await expectLogic(logic).toDispatchActions(['loadSearchResultsSuccess'])
+        typeAndWait('third')
+        expect(searches).toHaveLength(1)
         firstAnswer.resolve()
-        await expectLogic(logic).toFinishAllListeners()
+        await waitFor(() => expect(logic.values.searchResults).toEqual(resultsFor('third')))
 
-        expect(searches.map(({ q }) => q)).toEqual(['first', 'second'])
-        expect(logic.values.searchResults).toEqual(resultsFor('second'))
+        expect(searches.map(({ q }) => q)).toEqual(['first', 'third'])
+        expect(logic.values).toMatchObject({ searchFailure: null, searchStatus: 'ready' })
     })
 
     it('clears the results without a request when the query is blank', async () => {

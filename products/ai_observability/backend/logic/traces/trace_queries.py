@@ -430,6 +430,8 @@ def load_trace_root(team: Team, user: User | None, trace_id: str, timestamp_hint
 _SEARCH_TIMEOUT_SECONDS = 10
 _JSON_SEARCHED = (*(ast.Field(chain=[column]) for column in _HEAVY_COLUMNS), _raw_property("$ai_error"))
 _TEXT_SEARCHED = tuple(ast.Field(chain=[column]) for column in ("span_name", "trace_name", "model", "provider"))
+_ESCAPED_BACKSLASH = "\\\\"
+_ESCAPED_BACKSLASH_MARK = "\x01"
 
 
 @frozen
@@ -464,9 +466,21 @@ def _occurrences(haystack: ast.Expr, needle: str) -> ast.Expr:
     )
 
 
+def _json_occurrences(column: ast.Expr, needle: str) -> ast.Expr:
+    if not needle.startswith("\\"):
+        return _occurrences(column, needle)
+    # A needle that starts with a backslash can match the second half of an escaped backslash, as `\"` matches the
+    # end of `"C:\\"`. Raw JSON never holds a raw control byte, so each escaped backslash becomes one such byte first.
+    marked = ast.Call(
+        name="replaceAll",
+        args=[column, ast.Constant(value=_ESCAPED_BACKSLASH), ast.Constant(value=_ESCAPED_BACKSLASH_MARK)],
+    )
+    return _occurrences(marked, needle.replace(_ESCAPED_BACKSLASH, _ESCAPED_BACKSLASH_MARK))
+
+
 def _trace_search_query(needles: SearchNeedles) -> ast.SelectQuery:
     counts = [
-        *(_occurrences(column, needles.json) for column in _JSON_SEARCHED),
+        *(_json_occurrences(column, needles.json) for column in _JSON_SEARCHED),
         *(_occurrences(column, needles.text) for column in _TEXT_SEARCHED),
     ]
     match_count = reduce(lambda left, right: ast.Call(name="plus", args=[left, right]), counts)

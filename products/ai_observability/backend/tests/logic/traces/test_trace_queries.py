@@ -306,14 +306,18 @@ class TestLoadTraceSearch(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("a quoted phrase", '"late"', {"$ai_input": [{"content": 'It said "late" twice'}]}),
-            ("a backslash", "C:\\tmp", {"$ai_output": "saved to C:\\tmp"}),
-            ("a percent sign", "50%", {"$ai_output": "50% done, 500 left"}),
-            ("an underscore", "a_b", {"$ai_output": "a_b and axb"}),
-            ("an error object", "quota", {"$ai_error": {"message": "Quota exceeded"}}),
+            ("a quoted phrase", '"late"', {"$ai_input": [{"content": 'It said "late" twice'}]}, 1),
+            ("a backslash", "C:\\tmp", {"$ai_output": "saved to C:\\tmp"}, 1),
+            ("a percent sign", "50%", {"$ai_output": "50% done, 500 left"}, 1),
+            ("an underscore", "a_b", {"$ai_output": "a_b and axb"}, 1),
+            ("an error object", "quota", {"$ai_error": {"message": "Quota exceeded"}}, 1),
+            ("a quote after a trailing backslash", '"', {"$ai_output": "saved to C:\\"}, 0),
+            ("backslashes before a quote", '\\"', {"$ai_output": 'C:\\\\"x" and \\\\'}, 1),
         ]
     )
-    def test_matches_text_as_stored_in_json(self, _name: str, query: str, properties: dict[str, object]) -> None:
+    def test_matches_text_as_stored_in_json(
+        self, _name: str, query: str, properties: dict[str, object], expected: int
+    ) -> None:
         self._ingest(NODE, properties, event="$ai_generation")
 
-        assert load_trace_search(self.team, None, "trace-1", query, None).counts == {NODE: 1}
+        assert load_trace_search(self.team, None, "trace-1", query, None).counts.get(NODE, 0) == expected
