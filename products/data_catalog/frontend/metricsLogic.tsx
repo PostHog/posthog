@@ -25,12 +25,16 @@ import {
 } from './generated/api'
 import type { DataCatalogMetricApi, DataCatalogMetricBulkSkipApi } from './generated/api.schemas'
 import { openOverwriteMetricDialog } from './openOverwriteMetricDialog'
+import { compareReviewQueue, needsReview } from './reviewQueue'
 
 export type MetricStage = 'proposed' | 'approved' | 'drifted'
 
 export type MetricStatusFilter = 'all' | MetricStage
 
 export type MetricStageCounts = Record<MetricStage, number>
+
+/** 'unknown' until the first load answers, so an empty list is never read as an empty catalog. */
+export type MetricsLoadState = 'unknown' | 'loaded' | 'failed'
 
 export type BulkMetricAction = 'approve' | 'delete' | 'change_owner'
 
@@ -86,13 +90,16 @@ export interface metricsLogicValues {
     actionsInFlight: Record<string, boolean>
     allMetrics: DataCatalogMetricApi[]
     allMetricsLoading: boolean
+    approvedMetrics: DataCatalogMetricApi[]
     bulkActionInFlight: BulkMetricAction | null
     creatingMetricAs: MetricSaveAction | null
     filters: MetricsFilters
     metricFromInsightModalOpen: boolean
     metrics: DataCatalogMetricApi[]
+    metricsLoadState: MetricsLoadState
     ownerFilterOptions: string[]
     proposedCount: number
+    reviewQueue: DataCatalogMetricApi[]
     stageCounts: MetricStageCounts
 }
 
@@ -192,6 +199,8 @@ export interface metricsLogicActions {
 export interface metricsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         metrics: (allMetrics: DataCatalogMetricApi[], filters: MetricsFilters) => DataCatalogMetricApi[]
+        reviewQueue: (metrics: DataCatalogMetricApi[], user: UserType | null) => DataCatalogMetricApi[]
+        approvedMetrics: (metrics: DataCatalogMetricApi[]) => DataCatalogMetricApi[]
         ownerFilterOptions: (allMetrics: DataCatalogMetricApi[]) => string[]
         proposedCount: (allMetrics: DataCatalogMetricApi[]) => number
         stageCounts: (allMetrics: DataCatalogMetricApi[]) => MetricStageCounts
@@ -258,6 +267,13 @@ export const metricsLogic = kea<metricsLogicType>([
         ],
     })),
     reducers({
+        metricsLoadState: [
+            'unknown' as MetricsLoadState,
+            {
+                loadMetricsSuccess: () => 'loaded',
+                loadMetricsFailure: () => 'failed',
+            },
+        ],
         filters: [
             DEFAULT_METRICS_FILTERS as MetricsFilters,
             {
@@ -319,6 +335,16 @@ export const metricsLogic = kea<metricsLogicType>([
                 }
                 return results
             },
+        ],
+        reviewQueue: [
+            (s) => [s.metrics, s.user],
+            (metrics: DataCatalogMetricApi[], user: UserType | null): DataCatalogMetricApi[] =>
+                metrics.filter(needsReview).sort(compareReviewQueue(user)),
+        ],
+        approvedMetrics: [
+            (s) => [s.metrics],
+            (metrics: DataCatalogMetricApi[]): DataCatalogMetricApi[] =>
+                metrics.filter((metric) => !needsReview(metric)),
         ],
         ownerFilterOptions: [
             (s) => [s.allMetrics],
