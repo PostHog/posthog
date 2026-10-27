@@ -13,7 +13,9 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
 from products.alerts_platform.backend.facade.contracts import (
+    AlertDeliveryRequest,
     DeliveryPath,
     PlatformAlertSnapshot,
     PlatformConfigurationSnapshot,
@@ -68,6 +70,11 @@ def set_due_at(configuration_id: UUID, due_at: datetime) -> None:
     """Move a configuration's due time, so a test can run two checks against one schedule."""
     # nosemgrep: idor-lookup-without-team — fail-closed model; the caller holds the team scope
     PlatformAlertConfiguration.objects.filter(id=configuration_id).update(next_check_at=due_at)
+
+
+def deliver(request: AlertDeliveryRequest) -> int:
+    """Send a recorded evaluation's delivery as the delivery activity does. Returns how many destinations took it."""
+    return deliver_evaluation(request).sent
 
 
 def count_still_due(configuration_ids: Iterable[UUID], *, at: datetime) -> int:
