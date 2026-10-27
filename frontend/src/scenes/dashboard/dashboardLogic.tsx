@@ -54,6 +54,7 @@ import {
     sanitizeDashboard,
     filtersForAnalytics,
     sanitizeQuery,
+    tileGroupProperties,
 } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
@@ -198,6 +199,14 @@ import { tileLogic } from './tileLogic'
 
 function dashboardSettingsMatch(first: DashboardSettings, second: DashboardSettings): boolean {
     return dashboardFiltersEqual(first.filters, second.filters) && equal(first.variables, second.variables)
+}
+
+function tileGroupLoadProperties(
+    groupDisplay: TileGroupDisplay,
+    tiles: DashboardTile[],
+    collapsedTileGroupKeys: string[]
+): Record<string, any> {
+    return { ...tileGroupProperties(groupDisplay, tiles), collapsed_group_count: collapsedTileGroupKeys.length }
 }
 
 function reportDashboardTileRefreshed(
@@ -4691,6 +4700,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 action,
                 primary_interaction_id: dashboardQueryId,
                 time_to_see_data_ms: Math.floor(performance.now() - startTime),
+                ...tileGroupLoadProperties(values.tileGroupDisplay, values.tiles, values.collapsedTileGroupKeys),
             })
             if (cache.onlineRecoveryPending || (cache.connectionRecoveryPending && !values.internetConnectionIssue)) {
                 cache.onlineRecoveryPending = false
@@ -5319,6 +5329,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             const dashboardId: number = props.id
             const { collapsedTileIds } = values
+            const tileGroupProps = tileGroupLoadProperties(
+                values.tileGroupDisplay,
+                values.tiles,
+                values.collapsedTileGroupKeys
+            )
             const allInsightTiles = values.insightTiles || []
             const totalTileCount = allInsightTiles.length
             if (filterChange) {
@@ -5457,6 +5472,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         api_response_bytes: responseBytes,
                         insights_fetched: sortedTilesToRefresh.length,
                         insights_fetched_cached: tilesRefreshedCachedCount,
+                        ...tileGroupProps,
                         ...getJSHeapMemory(),
                     })
                 }
@@ -5484,6 +5500,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     tiles_refreshed_count: tilesRefreshedCount,
                     tiles_errored_count: tilesErroredCount,
                     tiles_aborted_count: tilesAbortedCount,
+                    ...tileGroupProps,
                     ...(filterChangeIsCurrent
                         ? {
                               filter_change_id: filterChange.id,
@@ -5540,6 +5557,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (!section) {
                 return
             }
+            posthog.capture('dashboard tile group tab selected', {
+                dashboard_id: props.id,
+                tile_count: section.tiles.length,
+            })
             // This listener runs before the URL changes, so the active tab is still the one the viewer leaves.
             const leftTab = values.activeTileGroupTab
             const leftTiles =
