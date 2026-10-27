@@ -6,17 +6,17 @@ description: >
   "playwright snapshot", "quarantine", asks why a PR is blocked or what changed visually, wants to triage the VR backlog,
   decide whether a snapshot diff is real vs flaky, quarantine or lift a flaky story, or check whether a story has been changing across runs.
   Also invoke when a PR has a failing `visual-review` status check, when a PR comment mentions "Visual review",
-  when a PR from a fork fails `Visual regression tests pass`, or when the user is on a branch with an open VR run.
+  when a PR from a fork fails a screenshot check, or when the user is on a branch with an open VR run.
 ---
 
 # Triaging visual review runs
 
 Visual Review is PostHog's screenshot-regression product: CI captures storybook + playwright screenshots,
 diffs them against committed baseline hashes, and gates the PR until every changed snapshot is resolved.
-A PR with visual changes carries a `visual-review` GitHub status check and a required "Visual regression tests pass" job check.
+A PR with visual changes carries a `visual-review` GitHub status check, and usually a required CI job that reports the same verdict.
 Both stay red until each diffed snapshot is approved and finalized, tolerated, or quarantined, and the job re-runs:
-finalize does that for approvals, `recompute-create` for tolerations and quarantines. The [VR UI](https://us.posthog.com/project/2/visual-review) offers the same actions.
-A PR from a fork is the exception: it gets no Visual Review run at all.
+finalize does that for approvals, `recompute-create` for tolerations and quarantines. The run's `_posthogUrl` opens the VR UI, which offers the same actions.
+A PR from a fork is usually the exception: it gets no Visual Review run at all.
 See [Fork PRs have no Visual Review run](#fork-prs-have-no-visual-review-run).
 
 This skill teaches an agent how to answer the questions a human reviewer would actually ask, by chaining
@@ -52,7 +52,7 @@ A story that renders differently from run to run and meets the quarantine row ab
 ### Quarantined stories in your run
 
 A quarantine hides a story's diff from the gate and from the PR comment, so a green check does not show that your change left a quarantined story alone.
-The story still renders and is diffed on every run that selects it. A PR run renders only the stories its diff affects.
+The story still renders and is diffed on every run that selects it. When the repo's CI selects stories by diff, a PR run renders only the stories its diff affects.
 Check every run of a change that touches UI.
 List the changed quarantined snapshots with
 `posthog:visual-review-runs-snapshots-list { id: <run_id>, include_quarantined: true, exclude_unchanged: true }`.
@@ -70,7 +70,7 @@ The list is paginated and does not put quarantined rows first, so follow `next` 
   Until then it stays, unless its expiry date passes first, and `posthog:visual-review-runs-quarantine-lifts-list { id: <run_id> }` shows each request's `state` and `detail`.
 - A change that deletes a quarantined story leaves its baseline entry behind.
   Only a full run classifies the story `removed`, and only finalize prunes the entry.
-  The `run-ci-frontend` label takes effect on the next push or ready-for-review, not when it is added, so push after labeling and check that the new run is full.
+  Start a full run the way the repo's CI provides one, and check that the new run is full.
   Finalize that run before the merge, or every full run reports the story `removed` once the quarantine ends.
 - Requesting a lift never approves a picture. For a `changed` or `new` quarantined snapshot, approve it by identifier first, or the request returns 400. Finalize the run too, so the baseline entry the lift checks lands with the merge.
 - One clean render does not prove a rare flake is gone, and neither does `variant_count: 0`, which counts only absorbed variants.
@@ -84,10 +84,9 @@ Trigger this skill on any of:
 - Questions about why a PR is blocked, what visually changed, or whether a diff is real.
 - "Is my run done?" / "What's left to review?" / "Has this story flaked recently?"
 - A failing `visual-review` GitHub check or a PR comment from the `posthog-bot` mentioning visual review.
-- A failing `Visual regression tests pass` check on a PR from a fork, which is the offline fallback and not a VR run.
+- A failing screenshot check on a PR from a fork, which comes from the repo's own offline fallback, not from a VR run.
 
-When the user asks for the rendered diff image itself, the [VR web UI](https://us.posthog.com/project/2/visual-review)
-is faster — direct them there. This skill is for everything around the diff: status, scope, history, triage.
+When the user asks for the rendered diff image itself, the VR web UI is faster. Give them the run's `_posthogUrl`. This skill is for everything around the diff: status, scope, history, triage.
 
 **First, check whether the PR comes from a fork.**
 A fork PR has no Visual Review run, so every run-scoped VR tool below returns nothing for it.
@@ -103,15 +102,15 @@ Go to [Fork PRs have no Visual Review run](#fork-prs-have-no-visual-review-run).
 
 ## Fork PRs have no Visual Review run
 
-Visual Review needs a secret, and CI does not give a secret to a fork.
-The Visual Review upload is therefore skipped.
+The Visual Review upload needs a secret, and GitHub does not give secrets to a workflow run from a fork.
+The upload is therefore skipped.
 No run, no snapshot row and no `visual-review` check exists for the PR.
 That is the designed behavior, not a fault.
 
-Each Storybook shard instead compares its own screenshots with the committed baseline file `frontend/snapshots.yml`, offline, in the `Verify snapshots against the baseline offline` step.
-A mismatch fails the `Visual regression tests pass` check.
+A repo can add its own fallback: a CI step that compares the screenshots with the committed baseline file offline.
+`posthog:visual-review-repos-retrieve` names the baseline file. The repo's CI docs name the check that fails on a mismatch.
 
-The offline fallback is weaker than Visual Review in ways that change the triage:
+An offline fallback is weaker than Visual Review in ways that change the triage:
 
 | Visual Review                             | Offline fallback on a fork                                     |
 | ----------------------------------------- | -------------------------------------------------------------- |
@@ -125,8 +124,7 @@ So a flaky story can fail a fork PR that changes nothing visible.
 
 How to triage a fork PR failure:
 
-1. Read the failing `Visual regression tests pass` job.
-   The step summary and the `Baseline mismatch` error name each snapshot that differs.
+1. Read the failing job. Its log names each snapshot that differs.
    `gh run view <run_id> --log-failed` gets the log.
 2. Run the scope check from [Is the diff real or unrelated?](#is-the-diff-real-or-unrelated) against the named identifiers.
    It needs only `git diff`, so it works without a run.
@@ -135,10 +133,10 @@ How to triage a fork PR failure:
    This is the one VR tool that still helps, because it reports repo-level history and does not need a run.
 4. Report the verdict and stop.
    You cannot approve, tolerate or finalize anything, because there is no run to act on.
-   A snapshot that must change needs a maintainer to update `frontend/snapshots.yml` on the PR branch, with a Visual Review run on an in-repo branch.
+   A snapshot that must change needs a maintainer to update the baseline file on the PR branch, with a Visual Review run on an in-repo branch.
 
 Never push a fork's head to an in-repo branch to get it a Visual Review run.
-See [Pull requests from forks](../../../../docs/published/handbook/engineering/fork-pull-requests.md).
+An in-repo branch runs every secret-gated step, with the fork's code in control of the job.
 
 ## Tools
 
@@ -171,7 +169,7 @@ Triage tools (they do NOT change the baseline; the gate changes only after `reco
 | `posthog:visual-review-runs-quarantine-lifts-cancel-create` | Withdraw a pending lift on merge. The quarantine stays. Takes `{ id: <run_id>, request_id }`.                                                                                                |
 | `posthog:visual-review-runs-recompute-create`               | Recount a completed, unfinalized run, post the `visual-review` status, and re-run the CI job recorded on the run, so the required check reads the new verdict.                               |
 
-Branch protection requires the `Visual regression tests pass` and `Playwright tests pass` job checks, not the `visual-review` status.
+Branch protection usually requires the CI job checks, not the `visual-review` status.
 So a quarantine or toleration unblocks the PR only after `recompute-create` re-runs the CI job recorded on the run.
 Approved changes keep the gate red until finalize commits them, so recompute never ships an approval.
 
@@ -259,10 +257,10 @@ user can click straight to the diff viewer.
 The most useful judgment a code-aware agent can add. Combine three signals: **scope match**, **flake history**,
 and **the actual rendered images**. The agent should look at the screenshots — not just describe metadata.
 
-1. **Scope check** — `git diff master...HEAD --stat` (or against the PR's base branch) → list of touched paths.
+1. **Scope check** — `git diff <base>...HEAD --stat` against the PR's base branch → list of touched paths.
    Cross-reference with `posthog:visual-review-runs-snapshots-list { id, exclude_unchanged: true }` filtered to `result: changed` → story identifiers.
-   Stories are namespaced like `<area>-<scene>--<story>--<theme>`; e.g. `scenes-app-settings-user--settings-user-profile--dark`
-   maps to `frontend/src/scenes/settings/user/...`. Use this to translate story id → likely source path.
+   A Storybook identifier is the kebab-case story title, `--`, the kebab-case export name, and the theme, for example `scenes-app-settings-user--settings-user-profile--dark`.
+   Search the repo's story files for the title (`Scenes-App/Settings/User`) to find the source path.
 
 2. **Visual inspection** — for each `changed` snapshot, the tool result contains `current_artifact.download_url`
    and `baseline_artifact.download_url`. These are pre-signed S3 URLs to PNG files; pull them and look:
@@ -351,7 +349,7 @@ When the user is doing housekeeping rather than asking about a specific PR:
    The `broken` state alone does not decide it. The state covers 7 days, so it stays `broken` for days after a fix lands.
    When the story is still in that list, check that recent default-branch runs render the same changed picture before you re-baseline it.
    One changed render of a flaky story is a flake, and re-baselining it only swaps which variant fails. Keep the quarantine then.
-   For the same picture on run after run, re-baseline it first (the README's quarantine section has the procedure), then lift.
+   For the same picture on run after run, re-baseline it first, then lift: open a PR that renders the story, approve the snapshot on that run by identifier, finalize the run, and merge the PR.
    Report a quarantine in that condition before its expiry date, because the expiry fails runs the same way.
 
 ## Output expectations
