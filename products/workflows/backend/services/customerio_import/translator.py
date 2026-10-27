@@ -522,8 +522,8 @@ class _Builder:
             self.note(
                 NoteLevel.NEEDS_INPUT,
                 f"Customer.io sends this email under subscription topic {topic_id}, which has no PostHog message "
-                "category. Import your Customer.io topics on the opt-outs page, then import again, or pick a "
-                "category.",
+                "category. Import your Customer.io topics with Import from Customer.io on the Opt-outs tab, then "
+                "import again, or pick a category.",
                 action,
             )
         if source.get("send_to_unsubscribed"):
