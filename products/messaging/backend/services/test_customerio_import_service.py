@@ -340,6 +340,27 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
             "removed@example.com": (SuppressionSource.BOUNCE, False, True),
         }
 
+    @patch("products.messaging.backend.services.customerio_import_service.SUPPRESSION_PAGE_DELAY_SECONDS", 0)
+    @patch("products.messaging.backend.services.customerio_import_service.CustomerIOClient")
+    def test_api_import_saves_suppressions_before_a_killed_unsubscribe_step(self, mock_client_class: MagicMock) -> None:
+        class RequestKilled(BaseException):
+            pass
+
+        mock_client = mock_client_class.return_value
+        mock_client.validate_credentials.return_value = True
+        mock_client.get_subscription_topics.return_value = []
+        mock_client.get_suppressions.side_effect = lambda suppression_type, limit, offset: (
+            [{"email": "bounced@example.com"}] if (suppression_type, offset) == ("bounces", 0) else []
+        )
+        mock_client.get_globally_unsubscribed_customers.side_effect = RequestKilled()
+
+        with self.assertRaises(RequestKilled):
+            CustomerIOImportService(self.team.id, self.api_key, self.user.id).import_api_data()
+
+        assert list(MessageSuppression.objects.for_team(self.team.id).values_list("identifier", flat=True)) == [
+            "bounced@example.com"
+        ]
+
     def test_process_csv_without_categories(self):
         """Test CSV processing when no categories exist"""
         csv_content = """email,id,cio_subscription_preferences

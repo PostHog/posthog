@@ -343,16 +343,19 @@ Older versions read "Complete".
 On an ended experiment "Complete" is the status tag: every ended experiment carries it, and the duration display is hidden.
 Read `status` first when the user says "complete".
 
-- The target is the sample needed to detect the **minimum detectable effect** with about 80% power at 95% confidence.
-- The estimate uses the **first primary metric** only.
+- The target is the sample needed to detect the **minimum detectable effect** with about 80% power, at the confidence level of the experiment's analysis (95% by default).
+- The estimate uses the **first primary metric** only, with the variance that the analysis computes from its results (after CUPED, when the experiment uses it).
+- The target is sized so that the comparison of the control with the smallest variant can detect the effect, so an uneven split needs a larger total than an even one.
 - The minimum detectable effect is the project's default, and 30% where none is set.
-  A 30% effect needs a small sample, so the target is reached within days on a busy surface.
+  A 30% effect on a conversion rate needs a small sample, so the target is reached within days on a busy surface.
+  A summed value such as revenue varies much more from person to person, so its target can be many times larger.
+- In manual mode the target comes from the baseline the user typed, not from the results.
 - "Target reached" says that an effect of that size would probably have shown.
   It says nothing about significance, and it does not end the experiment.
 
 <!-- Source for maintainers (may rot): ExperimentRemainingTime.tsx in
 products/experiments/frontend/components/ExperimentMetaBar; runningTimeLogic.ts in
-frontend/src/scenes/experiments/RunningTimeCalculator. -->
+frontend/src/scenes/experiments/RunningTimeCalculator; running_time_target.py in products/experiments/backend. -->
 
 **Evidence to gather.** `running_time_calculation` in `experiment-get`:
 
