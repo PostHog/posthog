@@ -196,8 +196,8 @@ class Repository:
 class RunOptions:
     """Per-call settings for one task, checked against its TaskProfile.
 
-    A public API caller can only set the fields in TaskProfile.public_options. None or an empty
-    tuple means the profile's default.
+    A public API caller can only set the fields in TaskProfile.public_options. A field left at its
+    default falls back to the profile's value.
     """
 
     # "acp" or "pi". It must be one of TaskProfile.runtimes and cannot change after create.
@@ -222,9 +222,9 @@ class RunOptions:
     github_access: GithubAccess | None = None
     # It can narrow TaskProfile.mcp_scopes but never widen it.
     mcp_scopes: PosthogMcpScopes | None = None
-    # The MCP servers to install, by ID. Only server callers can set it. The profile must have an
-    # mcp_agent.
-    mcp_server_ids: tuple[str, ...] = ()
+    # The MCP servers to install, by ID. An empty tuple allows no servers. Only server callers can set
+    # it. The profile must have an mcp_agent.
+    mcp_server_ids: tuple[str, ...] | None = None
     # Context window size for models that support the 1M window.
     context_window: str | None = None
     # Fast mode for models that support it.
@@ -249,7 +249,7 @@ class TaskProfileError(ValueError):
     pass
 
 
-class RunOptionsConflictError(ValueError):
+class RunOptionsError(ValueError):
     pass
 
 
