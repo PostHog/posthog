@@ -3524,16 +3524,20 @@ jobs:
                   # Unsupported pytest-split flags abort collection, so probe the installed plugin.
                   SPLITTING_ALGORITHM=duration_based_chunks
                   SPLIT_GRANULARITY=()
-                  SPLIT_PLAN=()
                   if python -c "from pytest_split.algorithms import Algorithms; from pytest_split.plugin import PytestSplitFilePlugin; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
                       SPLITTING_ALGORITHM=optimal_chunks
                       SPLIT_GRANULARITY=(--split-granularity=file)
                       # Scope the file-mode plan to Core's clean per-segment durations when the
                       # pinned pytest-split supports it; only persons-on-events-off, non-compat Core
                       # matches the .core run-set (the events_json rows do not), and a missing
-                      # file falls back to the union.
-                      if [ -f .test_durations.core ] && [[ "${{ matrix.person-on-events }}" != "true" ]] && [[ "${{ matrix.compat }}" != "true" ]] && [[ "$JSON_TARGETS" != "true" ]] && python -c "from pytest_split.plugin import SUPPORTS_SPLIT_PLAN_PATH" 2>/dev/null; then
-                          SPLIT_PLAN=(--split-plan-path .test_durations.core)
+                      # file falls back to the union. A selected run needs a plugin that scopes
+                      # the plan file to its targets.
+                      PLAN_CAPABILITY=SUPPORTS_SPLIT_PLAN_PATH
+                      if [[ "$MODE" == "selected" ]]; then
+                          PLAN_CAPABILITY=SCOPES_SPLIT_PLAN_PATH
+                      fi
+                      if [ -f .test_durations.core ] && [[ "${{ matrix.person-on-events }}" != "true" ]] && [[ "${{ matrix.compat }}" != "true" ]] && [[ "$JSON_TARGETS" != "true" ]] && python -c "from pytest_split.plugin import $PLAN_CAPABILITY" 2>/dev/null; then
+                          SPLIT_GRANULARITY+=(--split-plan-path .test_durations.core)
                       fi
                   fi
                   if [[ "$JSON_TARGETS" == "true" ]]; then
@@ -3599,7 +3603,6 @@ jobs:
                       else
                           targets="$CORE_FILES"
                       fi
-                      # No SPLIT_PLAN: the plan file is not scoped to the selected targets.
                       SELECTED_SPLIT=()
                       if [[ "${{ matrix.concurrency }}" -gt 1 ]]; then
                           SELECTED_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
@@ -3632,7 +3635,7 @@ jobs:
                         --durations=1000 --durations-min=1.0 --store-durations \
                         --pytest-durations=100 \
                         --splitting-algorithm="$SPLITTING_ALGORITHM" \
-                        "${SPLIT_GRANULARITY[@]}" "${SPLIT_PLAN[@]}" \
+                        "${SPLIT_GRANULARITY[@]}" \
                         "${RETRY_ARGS[@]}" -r fEsxXR \
                         --junitxml=junit-core.xml \
                         $COV_ARGS \
