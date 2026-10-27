@@ -29,20 +29,28 @@ TASK_MARKER = re.compile(r"^\[[ xX]\](?=\s|$)")
 class ProseWordCounter(HTMLParser):
     def __init__(self) -> None:
         super().__init__()
-        self.non_prose_depth = 0
+        self.open_non_prose_tags: list[str] = []
         self.words = 0
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in NON_PROSE_TAGS:
-            self.non_prose_depth += 1
+            self.open_non_prose_tags.append(tag)
 
     def handle_endtag(self, tag: str) -> None:
-        if tag in NON_PROSE_TAGS and self.non_prose_depth:
-            self.non_prose_depth -= 1
+        if tag in self.open_non_prose_tags:
+            while self.open_non_prose_tags.pop() != tag:
+                pass
 
     def handle_data(self, data: str) -> None:
-        if not self.non_prose_depth:
+        if not self.open_non_prose_tags:
             self.words += sum(1 for word in data.split() if any(char.isalnum() for char in word))
+
+    def close(self) -> None:
+        super().close()
+        if self.open_non_prose_tags:
+            raise ValueError(
+                f"<{self.open_non_prose_tags[0]}> is never closed, so GitHub hides everything after it. Close it and run again."
+            )
 
 
 def render_task_markers_as_checkboxes(state: StateCore) -> None:
@@ -67,9 +75,9 @@ def main() -> None:
     args = parser.parse_args()
     try:
         markdown = sys.stdin.read() if args.body == "-" else Path(args.body).read_text()
-    except OSError as error:
+        print(count_prose_words(markdown))
+    except (OSError, ValueError) as error:
         parser.error(str(error))
-    print(count_prose_words(markdown))
 
 
 if __name__ == "__main__":

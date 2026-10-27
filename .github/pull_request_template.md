@@ -35,7 +35,7 @@
 <!-- Keep exactly one line and delete the other two. Agents must inspect the changed code for feature flag checks before choosing. -->
 <!-- Plain bullets, not checkboxes: GitHub counts every checkbox in the body as an open task. The changelog bot reads the hidden markers. -->
 
-- None. <!-- release-status: no-feature-flag -->
+- No feature flag controls this change <!-- release-status: no-feature-flag -->
 - This change is behind a feature flag and is not available to users <!-- release-status: behind-feature-flag -->
 - This change makes a previously flagged feature available to everyone <!-- release-status: fully-available -->
 
@@ -68,7 +68,7 @@
 <summary>More context for AI agents</summary>
 
 <!-- Agents: this block is collapsed by default and does not count toward the 150 words.
-     Keep it current: on every push, rewrite it to describe the PR at that commit and update "Current as of". Replace stale bullets, never append a log.
+     Keep it current: on every push, rewrite it to describe the PR at that commit. Replace stale bullets, never append a log.
      Keep the fields below in this order. One line per bullet, under 25 words, 10 bullets at most. Delete a field you have nothing for.
      - Skills: every repo-provided or public skill invoked (e.g. /django-migrations, /improving-drf-endpoints), so reviewers can see where an agent shaped the code.
      - Decisions: what changed across the session. The reason the shipped design beats the obvious alternative goes in Changes, where a reviewer will see it.
@@ -76,7 +76,6 @@
      Paraphrase the intent of user prompts, never paste them. Link the session, name the tools, but leave out tool call results.
      DO NOT INCLUDE sensitive data that may have been shared in an agent session — that applies to every part of this PR, not just this block. -->
 
-- **Current as of:** `<short sha>`
 - **Session:** link, tools used
 - **Skills:** `/skill`
 - **Decisions:** one bullet per decision
