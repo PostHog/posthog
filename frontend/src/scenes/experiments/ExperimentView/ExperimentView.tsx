@@ -114,7 +114,7 @@ const CodeTab = (): JSX.Element => {
             {experiment.type === 'web' ? (
                 <WebExperimentImplementationDetails experiment={experiment} />
             ) : (
-                <ExperimentImplementationDetails experiment={experiment} />
+                <ExperimentImplementationDetails experiment={experiment} placement="code_tab" />
             )}
         </>
     )
