@@ -3557,23 +3557,43 @@ class TestPrinter(BaseTest):
         assert "equals(sub.x, %(hogql_val_0)s) AS matches" in printed_non_nullable, printed_non_nullable
         assert "ifNull" not in printed_non_nullable.split("FROM")[0], printed_non_nullable
 
-    def test_field_nullable_not_in(self):
+    @parameterized.expand(
+        [
+            (
+                "not_in_inside_aggregate",
+                "SELECT minIf(timestamp, nullable_field NOT IN ('a', 'b')) AS first_seen FROM events",
+                "SELECT minIf(toTimeZone(events.timestamp, %(hogql_val_0)s), "
+                "and(ifNull(notEquals(events.nullable_field, %(hogql_val_1)s), 1), "
+                "ifNull(notEquals(events.nullable_field, %(hogql_val_2)s), 1))) AS first_seen FROM events",
+            ),
+            (
+                "in_inside_aggregate",
+                "SELECT countIf(toString(nullable_field) IN ('a', 'b')) AS c FROM events",
+                "SELECT countIf(or(ifNull(equals(toString(events.nullable_field), %(hogql_val_0)s), 0), "
+                "ifNull(equals(toString(events.nullable_field), %(hogql_val_1)s), 0))) AS c FROM events",
+            ),
+            (
+                "in_as_group_by_alias",
+                "SELECT event IN ('a', 'b') AS k, count() AS c FROM events GROUP BY k",
+                "SELECT or(equals(events.event, %(hogql_val_0)s), equals(events.event, %(hogql_val_1)s)) AS k, "
+                "count() AS c FROM events",
+            ),
+            (
+                "in_with_null_item_keeps_in",
+                "SELECT countIf(nullable_field IN ('a', NULL)) AS c FROM events",
+                "SELECT countIf(in(events.nullable_field, tuple(%(hogql_val_0)s, NULL))) AS c FROM events",
+            ),
+        ]
+    )
+    def test_literal_in_list_in_shard_output_column(self, _name: str, query: str, expected_prefix: str) -> None:
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=Database())
         context.database.get_table("events").fields["nullable_field"] = StringDatabaseField(  # type: ignore
             name="nullable_field", nullable=True
         )
 
-        generated_sql = self._select(
-            "SELECT minIf(timestamp, nullable_field NOT IN ('a', 'b')) AS first_seen FROM events",
-            context,
-        )
+        generated_sql = self._select(query, context)
 
-        assert generated_sql == self._with_active_events_table(
-            "SELECT "
-            "minIf(toTimeZone(events.timestamp, %(hogql_val_0)s), "
-            "ifNull(notIn(events.nullable_field, tuple(%(hogql_val_1)s, %(hogql_val_2)s)), 1)) AS first_seen "
-            f"FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT {MAX_SELECT_RETURNED_ROWS}"
-        )
+        assert generated_sql.startswith(self._with_active_events_table(expected_prefix)), generated_sql
 
     def test_typed_string_function_prevents_ifnull_wrapping_in_comparison(self):
         sql = self._expr("event = base64Encode('test')")

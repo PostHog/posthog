@@ -33,7 +33,7 @@ from posthog.hogql.escape_sql import (
     quote_clickhouse_identifier,
     safe_identifier,
 )
-from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
+from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS, find_hogql_aggregation
 from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.prompt_jev import is_decision_call
@@ -143,6 +143,14 @@ ZONED_DATETIME_COERCIBLE_COMPARE_OPS = frozenset(
         ast.CompareOperationOp.LtEq,
     }
 )
+
+
+# ClickHouse names the set of a literal IN list by a hash of the query tree, and that hash changes between server
+# versions. When the IN is part of a column that shards send back to the initiator (an aggregate argument, a GROUP BY
+# or ORDER BY key), a cluster that runs mixed versions during an upgrade fails with NOT_FOUND_COLUMN_IN_BLOCK, because
+# the initiator expects a different column name. An equality chain builds no set. Longer lists keep IN, because each
+# extra value adds one comparison per row.
+MAX_LITERAL_IN_VALUES_TO_EXPAND = 50
 
 
 # ClickHouse JSON functions whose arguments after the document are all keys into it.
@@ -891,6 +899,46 @@ class ClickHousePrinter(BasePrinter):
             return False
         return isinstance(constant_type, ast.DateTimeType)
 
+    def _literal_in_as_equality_chain(self, node: ast.CompareOperation) -> ast.Expr | None:
+        if node.op not in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
+            return None
+        values = node.right.exprs if isinstance(node.right, ast.Tuple | ast.Array) else [node.right]
+        if not 0 < len(values) <= MAX_LITERAL_IN_VALUES_TO_EXPAND:
+            return None
+        # NULL list items keep IN: transform_null_in makes NULL match NULL there, and equals() does not.
+        if not all(
+            isinstance(value, ast.Constant)
+            and isinstance(value.value, str | int | float)
+            and not isinstance(value.value, bool)
+            for value in values
+        ):
+            return None
+        if not self._is_in_shard_output_column():
+            return None
+        if node.op == ast.CompareOperationOp.In:
+            return ast.Or(
+                exprs=[ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=node.left, right=v) for v in values]
+            )
+        return ast.And(
+            exprs=[ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=node.left, right=v) for v in values]
+        )
+
+    def _is_in_shard_output_column(self) -> bool:
+        for index in range(len(self.stack) - 1, -1, -1):
+            item = self.stack[index]
+            if isinstance(item, ast.Call) and find_hogql_aggregation(item.name):
+                return True
+            if isinstance(item, ast.SelectQuery):
+                if index + 1 >= len(self.stack):
+                    return False
+                clause = self.stack[index + 1]
+                keys = [*(item.group_by or []), *(item.order_by or [])]
+                # A GROUP BY or ORDER BY key can name a select alias, so in a grouped query a select column can be a key.
+                if item.group_by:
+                    keys.extend(item.select)
+                return any(clause is key for key in keys)
+        return False
+
     def _is_events_table_timestamp_field(self, node: ast.Expr) -> bool:
         traverser = GetFieldsTraverser(node)
 
@@ -930,6 +978,9 @@ class ClickHousePrinter(BasePrinter):
         # resolution, which emits the optimized form as AST before printing (see clickhouse_property_resolution.py).
         if optimized_session_id := self._get_optimized_session_id_compare_operation(node):
             return optimized_session_id
+
+        if (equality_chain := self._literal_in_as_equality_chain(node)) is not None:
+            return self.visit(equality_chain)
 
         in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
         # indexHint() is purely an optimizer directive — its result is always true,
