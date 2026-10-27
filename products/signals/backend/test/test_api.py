@@ -20,7 +20,8 @@ from products.signals.backend.temporal.emitter import SignalEmitterWorkflow
 
 
 @pytest.fixture
-def team_stub() -> MagicMock:
+def team_stub(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
+    monkeypatch.setattr("products.signals.backend.facade.api.finalized_signal_ids", MagicMock(return_value=set()))
     org = MagicMock()
     org.is_ai_data_processing_approved = True
     team = MagicMock()
@@ -105,7 +106,7 @@ class TestEmitSignalValidation:
                 signal_id=signal_id,
             )
         if signal_id:
-            complete.assert_called_once_with(team_id=team_stub.id, signal_id=signal_id)
+            complete.assert_called_once_with(team_id=team_stub.id, signal_id=signal_id, billing_exempt=False)
         else:
             complete.assert_not_called()
         connect.assert_not_called()
