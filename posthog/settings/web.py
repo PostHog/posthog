@@ -693,6 +693,9 @@ SPECTACULAR_SETTINGS = {
             "ScopeObjectEnum": "products.access_control.backend.facade.enums.SCOPE_OBJECT_CHOICES",
             "AIEventPropertyEnum": "products.access_control.backend.facade.enums.AI_EVENT_PROPERTY_CHOICES",
             "TaskArtifactStatusEnum": ["active", "failed"],
+            # Integration.IntegrationKind minus the hidden warehouse-source kind. The public API
+            # serializes this subset, so it keeps the name the full class would otherwise derive.
+            "IntegrationKindEnum": "posthog.models.integration.model.PUBLIC_INTEGRATION_KIND_CHOICES",
             # signals maps a warehouse import's status down to these three. Same values as the
             # warehouse's own SyncStatus, but that class carries different labels, so the two are
             # distinct choice sets and this one needs its own name.
