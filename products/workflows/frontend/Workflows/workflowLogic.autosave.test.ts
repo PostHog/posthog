@@ -1,6 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -767,6 +769,57 @@ describe('workflowLogic auto-save', () => {
             await new Promise((resolve) => setTimeout(resolve, 200))
 
             expect(logic.values.isWorkflowSubmitting).toBe(false)
+        })
+    })
+
+    describe('manual trigger on an active workflow', () => {
+        const activeWorkflow = (draft?: Record<string, any>): HogFlow =>
+            makeWorkflow({
+                status: 'active',
+                trigger: { type: 'schedule' } as HogFlow['trigger'],
+                ...(draft ? { draft, draft_updated_at: '2026-05-01T00:01:00.000Z' } : {}),
+            })
+
+        const mountLoaded = async (): Promise<void> => {
+            initKeaTests()
+            logic = workflowLogic({ id: WORKFLOW_ID })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        }
+
+        it('blocks the trigger while only the draft carries the new trigger type', async () => {
+            const staged = activeWorkflow({ trigger: { type: 'manual', filters: {} }, actions: [], edges: [] })
+            useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': staged } })
+            await mountLoaded()
+
+            expect(logic.values.manualTriggerDisabledReason).toBe(
+                'Publish your draft first. The live workflow still uses its published trigger.'
+            )
+        })
+
+        it('allows the trigger when the draft leaves the trigger alone', async () => {
+            const staged = activeWorkflow({ name: 'Renamed', actions: [], edges: [] })
+            useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': staged } })
+            await mountLoaded()
+
+            expect(logic.values.manualTriggerDisabledReason).toBeUndefined()
+        })
+
+        it('reports a refused trigger instead of claiming the workflow ran', async () => {
+            useMocks({
+                get: { '/api/environments/:team_id/hog_flows/:id/': activeWorkflow() },
+                post: { '/public/webhooks/:id': () => [404, {}] },
+            })
+            await mountLoaded()
+            const errorToast = jest.spyOn(lemonToast, 'error')
+            const successToast = jest.spyOn(lemonToast, 'success')
+
+            await expectLogic(logic, () => {
+                logic.actions.triggerManualWorkflow({})
+            }).toFinishAllListeners()
+
+            expect(successToast).not.toHaveBeenCalled()
+            expect(errorToast).toHaveBeenCalled()
         })
     })
 

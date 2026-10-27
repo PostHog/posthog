@@ -305,6 +305,7 @@ export interface workflowLogicValues {
     isWorkflowValid: boolean
     lastSavedAt: string | null
     logicProps: WorkflowLogicProps
+    manualTriggerDisabledReason: string | undefined
     originalWorkflow: HogFlow | null
     originalWorkflowLoading: boolean
     pendingSchedule:
@@ -3207,6 +3208,11 @@ export interface workflowLogicMeta {
             draftActionPending: 'discard' | 'publish' | null
         ) => string | undefined
         statusToggleDisabledReason: (workflow: HogFlow, hasUnsavedChanges: boolean) => string | undefined
+        manualTriggerDisabledReason: (
+            workflow: HogFlow,
+            originalWorkflow: HogFlow | null,
+            hasUnsavedChanges: boolean
+        ) => string | undefined
     }
 }
 
@@ -4215,6 +4221,24 @@ export const workflowLogic = kea<workflowLogicType>([
                 return undefined
             },
         ],
+
+        manualTriggerDisabledReason: [
+            (s) => [s.workflow, s.originalWorkflow, s.hasUnsavedChanges],
+            (workflow: HogFlow, originalWorkflow: HogFlow | null, hasUnsavedChanges: boolean): string | undefined => {
+                if (workflow?.status !== 'active') {
+                    return 'Must enable workflow to use trigger'
+                }
+                if (hasUnsavedChanges) {
+                    return 'Save changes first'
+                }
+                // A run uses the published trigger, so a trigger that lives only in the draft
+                // starts nothing.
+                if (originalWorkflow?.draft && originalWorkflow.trigger?.type !== workflow?.trigger?.type) {
+                    return 'Publish your draft first. The live workflow still uses its published trigger.'
+                }
+                return undefined
+            },
+        ],
     }),
     listeners(({ actions, values, props, cache }) => ({
         setScheduleStartsAtFromPicker: ({ pickerDate }) => {
@@ -4769,7 +4793,7 @@ export const workflowLogic = kea<workflowLogicType>([
             lemonToast.info('Triggering workflow...')
 
             try {
-                await fetch(webhookUrl, {
+                const response = await fetch(webhookUrl, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -4780,6 +4804,11 @@ export const workflowLogic = kea<workflowLogicType>([
                     }),
                     credentials: 'omit',
                 })
+
+                // fetch rejects only on a network failure, so a refused webhook resolves here too.
+                if (!response.ok) {
+                    throw new Error(`the webhook returned ${response.status}`)
+                }
 
                 lemonToast.success('Workflow triggered', {
                     button: {
