@@ -238,7 +238,7 @@ from products.signals.backend.report_task_actions import (
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
 from products.signals.backend.reviewer_rules import ReviewerRules, ReviewerWriteError, StaleReviewerProposal
-from products.signals.backend.scout_authorship import inbox_hidden_report_exists
+from products.signals.backend.scout_authorship import inbox_hidden_report_filter
 from products.signals.backend.scout_harness.trial_access import trial_state_errors, trial_store_for_request
 from products.signals.backend.scout_report.trial_inbox import TrialInboxReads, private_report_artefacts
 from products.signals.backend.serializers import (
@@ -1606,7 +1606,7 @@ class SignalReportViewSet(
         # List-only: a report a scout kept out of the inbox stays reachable by id and by its other actions.
         if self.action != "list" or self._bool_query_param("include_unlisted") is True:
             return queryset
-        return queryset.exclude(inbox_hidden_report_exists(self.team_id))
+        return queryset.filter(inbox_hidden_report_filter(self.team_id))
 
     def _apply_signal_report_search_filter(self, queryset):
         search = self.request.query_params.get("search")
