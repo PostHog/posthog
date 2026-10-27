@@ -9,6 +9,14 @@ const UNIT_NOUNS: Record<EvaluationTarget, string> = {
     session: 'sessions',
 }
 
+const RETURN_LABELS = {
+    boolean: 'true or false',
+    numeric: 'a score',
+    categorical: 'one category',
+    categorical_multiple: 'several categories',
+    sentiment: 'a sentiment',
+} as const
+
 /** What one run covers, such as "each trace". */
 export function targetText(evaluation: EvaluationConfig): string {
     return `each ${evaluationTarget(evaluation)}`
@@ -53,6 +61,14 @@ export function methodText(evaluation: EvaluationConfig, usesDecisionModel: bool
         case 'sentiment':
             return 'a sentiment classifier'
     }
+}
+
+/** What each run returns, as the "Return" line reads it. */
+export function returnText(evaluation: EvaluationConfig): string {
+    if (evaluation.output_type === 'categorical' && evaluation.output_config.selection_mode === 'multiple') {
+        return RETURN_LABELS.categorical_multiple
+    }
+    return RETURN_LABELS[evaluation.output_type]
 }
 
 /** Why reports cannot be turned on yet, or null when they can. Reports read pass rates. */

@@ -8,18 +8,18 @@ import * as officeWorkerPng from '@posthog/brand/hoggies/png/office-worker'
 import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
 import * as stampApprovedPng from '@posthog/brand/hoggies/png/stamp-approved'
 import { IconCheck } from '@posthog/icons'
-import { LemonButton, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { cn } from 'lib/utils/css-classes'
 
-import { PROVIDER_SETTINGS_URL } from '../../ModelPicker'
 import { EvaluationCodeEditor } from '../components/EvaluationCodeEditor'
 import { EvaluationPromptEditor } from '../components/EvaluationPromptEditor'
 import { EvaluationTriggersPanel } from '../components/EvaluationTriggersPanel'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import type { ChecklistItem, ChecklistKey } from './creationChecklist'
 import { EvaluationCreateButton } from './EvaluationCreateButton'
+import { EvaluationCreateReview } from './EvaluationCreateReview'
 import { EvaluationMethodPanel } from './EvaluationMethodPanel'
 import { EvaluationModelPanel } from './EvaluationModelPanel'
 import { EvaluationNameFields } from './EvaluationNameFields'
@@ -35,7 +35,8 @@ interface Step {
     key: 'name' | 'check' | 'traffic' | 'reports' | 'create'
     title: string
     heading: string
-    description: string
+    /** One paragraph per entry. */
+    description: string[]
     hoggie: ReturnType<typeof pngHoggie>
     /** The parts of the sentence this step edits. */
     parts: SentencePart[]
@@ -48,7 +49,7 @@ const STEPS: Step[] = [
         key: 'name',
         title: 'Name',
         heading: 'Name your evaluation',
-        description: 'People see this name on results and reports.',
+        description: ['People see this name on results and reports.'],
         hoggie: pngHoggie(officeWorkerPng),
         parts: [],
         checks: ['name'],
@@ -57,7 +58,7 @@ const STEPS: Step[] = [
         key: 'check',
         title: 'Check',
         heading: 'What it checks',
-        description: 'Choose how each run gets checked, then write the instructions and pick what it returns.',
+        description: ['Choose how each run gets checked, then write the instructions and pick what it returns.'],
         hoggie: pngHoggie(judgePng),
         parts: ['method', 'model'],
         checks: ['criteria', 'result', 'model'],
@@ -66,7 +67,7 @@ const STEPS: Step[] = [
         key: 'traffic',
         title: 'Traffic',
         heading: 'What it runs on',
-        description: 'Pick the live traffic it checks, and how much of it.',
+        description: ['Pick the live traffic it checks, and how much of it.'],
         hoggie: pngHoggie(magnifyingGlassPng),
         parts: ['target', 'triggers'],
         checks: ['sampling'],
@@ -75,8 +76,10 @@ const STEPS: Step[] = [
         key: 'reports',
         title: 'Reports',
         heading: 'Reports',
-        description:
-            'An agent reads the results and writes up what changed, with examples. Choose how often a report arrives and where it goes.',
+        description: [
+            'An agent reads the results and writes up what changed, with examples.',
+            'Choose how often a report arrives and where it goes.',
+        ],
         hoggie: pngHoggie(reporterPng),
         parts: ['reports'],
         checks: [],
@@ -84,8 +87,8 @@ const STEPS: Step[] = [
     {
         key: 'create',
         title: 'Create',
-        heading: 'Ready to create',
-        description: 'Check the sentence above. It is what the evaluation will do.',
+        heading: 'Review and create',
+        description: ['Check each part, then create it.'],
         hoggie: pngHoggie(stampApprovedPng),
         parts: [],
         checks: [],
@@ -163,8 +166,7 @@ export function EvaluationFormSteps({
     onCancel?: () => void
 }): JSX.Element | null {
     const [index, setIndex] = useState(0)
-    const { evaluation, canEnable, canEnableReason } = useValues(llmEvaluationLogic)
-    const { setEvaluationEnabled } = useActions(llmEvaluationLogic)
+    const { evaluation } = useValues(llmEvaluationLogic)
 
     if (!evaluation) {
         return null
@@ -242,9 +244,16 @@ export function EvaluationFormSteps({
                     <Hoggie className="w-16 shrink-0" />
                     <div className="flex flex-col gap-1 min-w-0 flex-1">
                         <h2 className="mb-0 text-lg font-semibold">
-                            {isCreateStep && todo.length > 0 ? 'Before you create' : step.heading}
+                            {isCreateStep && todo.length > 0 ? 'Almost there' : step.heading}
                         </h2>
-                        <p className="mb-0 text-sm text-secondary">{step.description}</p>
+                        {(isCreateStep && todo.length > 0
+                            ? ['Fix the parts marked below, then create it.']
+                            : step.description
+                        ).map((line) => (
+                            <p key={line} className="mb-0 text-sm text-secondary">
+                                {line}
+                            </p>
+                        ))}
                     </div>
                     {step.key === 'reports' && <EvaluationReportsSwitch />}
                 </div>
@@ -254,44 +263,17 @@ export function EvaluationFormSteps({
                     </div>
                 )}
                 {isCreateStep && (
-                    <div className="flex flex-col gap-3">
-                        {todo.length === 0 && <p className="mb-0 text-sm text-success">Everything it needs is set.</p>}
-                        {todo.length > 0 && (
-                            <ul
-                                className="flex flex-col gap-1 m-0 p-0 list-none text-sm"
-                                data-attr="llma-evaluation-create-checklist"
-                            >
-                                {todo.map((item) => {
-                                    const owner = steps.findIndex((candidate) => candidate.checks.includes(item.key))
-                                    return (
-                                        <li key={item.key}>
-                                            <span className="font-semibold">{item.label}: </span>
-                                            {item.fixInSettings ? (
-                                                <Link
-                                                    to={PROVIDER_SETTINGS_URL}
-                                                    target="_blank"
-                                                    data-attr="llma-evaluation-create-add-key"
-                                                >
-                                                    {item.todo}
-                                                </Link>
-                                            ) : (
-                                                <Link onClick={() => goTo(owner, 'stepper')}>{item.todo}</Link>
-                                            )}
-                                        </li>
-                                    )
-                                })}
-                            </ul>
-                        )}
-                        <LemonSwitch
-                            checked={evaluation.enabled}
-                            onChange={setEvaluationEnabled}
-                            disabledReason={
-                                !canEnable && !evaluation.enabled ? (canEnableReason ?? undefined) : undefined
-                            }
-                            label="Start running when created"
-                            data-attr="llma-evaluation-create-enabled"
-                        />
-                    </div>
+                    <EvaluationCreateReview
+                        checklist={checklist}
+                        rows={steps
+                            .filter((candidate) => candidate.key !== 'create')
+                            .map((candidate) => ({
+                                key: candidate.key,
+                                title: candidate.title,
+                                checks: candidate.checks,
+                                onEdit: () => goTo(steps.indexOf(candidate), 'stepper'),
+                            }))}
+                    />
                 )}
                 <div className="flex items-center justify-between gap-2">
                     {index > 0 ? (
