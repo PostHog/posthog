@@ -18,7 +18,7 @@ def previous_import(team: Team, source_id: str) -> PreviousImport:
         .first()
     )
     flow = (
-        HogFlow.objects.filter(team_id=team.id, pk=record.hog_flow_id).only("id", "status").first()
+        HogFlow.objects.filter(team_id=team.id, pk=record.hog_flow_id).only("id", "status", "created_by_id").first()
         if record is not None and record.hog_flow_id
         else None
     )
@@ -26,6 +26,7 @@ def previous_import(team: Team, source_id: str) -> PreviousImport:
         record_id=record.id if record else None,
         hog_flow_id=flow.id if flow else None,
         hog_flow_is_draft=flow is not None and flow.status == HogFlowState.DRAFT.value,
+        hog_flow_created_by_id=flow.created_by_id if flow else None,
     )
 
 
@@ -62,6 +63,7 @@ def import_for_workflow(team: Team, hog_flow_id: UUID) -> WorkflowImportRecord |
     record = WorkflowImport.objects.for_team(team.id).filter(hog_flow_id=hog_flow_id).order_by("-updated_at").first()
     if record is None:
         return None
+    flow = HogFlow.objects.filter(team_id=team.id, pk=hog_flow_id).only("id", "created_by_id").first()
     return WorkflowImportRecord(
         id=record.id,
         source=record.source,
@@ -70,4 +72,5 @@ def import_for_workflow(team: Team, hog_flow_id: UUID) -> WorkflowImportRecord |
         hog_flow_id=record.hog_flow_id,
         notes=tuple(record.notes or []),
         updated_at=record.updated_at,
+        hog_flow_created_by_id=flow.created_by_id if flow else None,
     )

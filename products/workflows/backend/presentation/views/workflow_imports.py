@@ -15,12 +15,14 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models import User
 
-from products.workflows.backend.facade.contracts import ImportOptions
+from products.access_control.backend.facade.contracts import ObjectAccessRef
+from products.workflows.backend.facade.contracts import ImportOptions, WorkflowImportRecord
 from products.workflows.backend.facade.enums import WorkflowImportNoteLevel, WorkflowImportSource, WorkflowImportStatus
 from products.workflows.backend.facade.workflow_imports import import_for_workflow
 from products.workflows.backend.presentation.views.workflow_import_drafts import import_campaigns
 
 MAX_CAMPAIGNS_PER_IMPORT = 50
+MAX_SOURCE_ID_LENGTH = 200
 
 
 class CustomerioCampaignSerializer(serializers.Serializer):
@@ -46,8 +48,17 @@ class CustomerioCampaignSerializer(serializers.Serializer):
     )
 
     def validate_campaign(self, value: dict[str, Any]) -> dict[str, Any]:
-        if value.get("id") is None:
+        campaign_id = value.get("id")
+        if campaign_id is None or isinstance(campaign_id, bool) or not isinstance(campaign_id, str | int):
             raise serializers.ValidationError("The campaign needs its Customer.io `id`.")
+        if len(str(campaign_id)) > MAX_SOURCE_ID_LENGTH:
+            raise serializers.ValidationError(f"The campaign `id` can be at most {MAX_SOURCE_ID_LENGTH} characters.")
+        return value
+
+    def validate_templates(self, value: Any) -> Any:
+        templates = list(value.values()) if isinstance(value, dict) else value
+        if not isinstance(templates, list) or not all(isinstance(template, dict) for template in templates):
+            raise serializers.ValidationError("Pass a list of template objects, or an object keyed by template id.")
         return value
 
 
@@ -245,6 +256,15 @@ class WorkflowImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         except ValueError:
             raise ValidationError({"hog_flow_id": "Pass the workflow's id."})
         record = import_for_workflow(self.team, hog_flow_id)
-        if record is None:
+        if record is None or not self._can_view(record):
             raise NotFound("This workflow was not imported.")
         return Response(WorkflowImportRecordSerializer(record).data)
+
+    def _can_view(self, record: WorkflowImportRecord) -> bool:
+        ref = ObjectAccessRef(
+            resource="hog_flow",
+            id=str(record.hog_flow_id),
+            team_id=self.team.id,
+            created_by_id=record.hog_flow_created_by_id,
+        )
+        return self.user_access_control.check_access_level_for_ref(ref, "viewer")
