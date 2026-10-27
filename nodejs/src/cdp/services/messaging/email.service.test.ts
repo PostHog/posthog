@@ -97,6 +97,11 @@ describe('formatMailbox', () => {
             'Dry\r\nBcc: x@example.com',
             '"DryBcc: x@example.com" <a@example.com>',
         ],
+        [
+            'a non-ASCII name as an RFC 2047 encoded word',
+            'Café Müller',
+            '=?UTF-8?B?Q2Fmw6kgTcO8bGxlcg==?= <a@example.com>',
+        ],
     ])('formats %s', (_name, name, expected) => {
         expect(formatMailbox(name, 'a@example.com')).toEqual(expected)
     })
@@ -374,9 +379,15 @@ describe('EmailService', () => {
                     'test@posthog.com',
                 ],
                 [
-                    'name with header-breaking characters is sanitized',
-                    { name: '"Evil" <fake@evil.com>,\r\n Bcc:' },
-                    '"Evil fake@evil.com, Bcc:" <test@posthog.com>',
+                    'name with quotes, angle brackets and a line break kept inside the quoted name',
+                    { name: '"Evil" <fake@evil.com>,\r\n Bcc:\\' },
+                    '"\\"Evil\\" <fake@evil.com>, Bcc:\\\\" <test@posthog.com>',
+                    'test@posthog.com',
+                ],
+                [
+                    'non-ASCII name with quotes as an RFC 2047 encoded word',
+                    { name: 'Café "Müller"' },
+                    '=?UTF-8?B?Q2Fmw6kgIk3DvGxsZXIi?= <test@posthog.com>',
                     'test@posthog.com',
                 ],
             ])('applies the %s', async (_desc, fromOverride, expectedFrom, expectedFeedback) => {
@@ -1064,7 +1075,13 @@ describe('EmailService', () => {
             invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
             await mailDevAPI.clearEmails()
         })
-        it('should send an email', async () => {
+        it.each([
+            ['a plain recipient name', 'Test User'],
+            ['a non-ASCII recipient name', 'Café "Müller"'],
+        ])('should send an email to %s', async (_desc, recipientName) => {
+            invocation.queueParameters = createEmailParams({
+                to: { email: 'test@example.com', name: recipientName },
+            })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
@@ -1075,7 +1092,7 @@ describe('EmailService', () => {
                 html: 'Test HTML',
                 subject: 'Test Subject',
                 text: 'Test Text',
-                to: [{ address: 'test@example.com', name: 'Test User' }],
+                to: [{ address: 'test@example.com', name: recipientName }],
             })
         })
         it('should include tracking code in the email with distinct_id', async () => {
