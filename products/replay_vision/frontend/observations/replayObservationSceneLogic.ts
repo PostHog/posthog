@@ -101,7 +101,7 @@ export const replayObservationSceneLogic = kea<replayObservationSceneLogicType>(
         observationStatus: [
             null as ObservationStatusEnumApi | null,
             {
-                setObservationStatus: (_, { observationStatus }) => observationStatus,
+                setObservationStatus: (_, { observationStatus }) => observationStatus ?? null,
                 setObservationId: () => null,
             },
         ],

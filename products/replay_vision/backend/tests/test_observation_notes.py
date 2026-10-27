@@ -10,6 +10,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
+from posthog.models.comment.utils import OBSERVATION_NOTE_PLACEHOLDER
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.replay_vision.backend.models.replay_observation import (
@@ -125,3 +126,29 @@ class TestObservationNotesAccess(APIBaseTest):
         for entry in entries:
             assert entry.detail is not None
             assert entry.detail["changes"][0]["after"] == "masked"
+
+    @mock.patch("posthog.tasks.email.send_discussions_mentioned.delay")
+    @mock.patch("posthog.models.comment.utils.produce_internal_event")
+    @mock.patch("products.notifications.backend.facade.api.create_notification")
+    def test_mention_fanout_carries_no_note_text(
+        self, create_notification: mock.Mock, produce_event: mock.Mock, send_email: mock.Mock
+    ) -> None:
+        # Notifications and CDP mention events are read later without an observation access check.
+        self._set_member_scanner_access("viewer")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/comments",
+            {
+                "content": "checkout secret",
+                "scope": SCOPE,
+                "item_id": str(self.observation.id),
+                "mentions": [self.member.id],
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        notification = create_notification.call_args.args[0]
+        event = produce_event.call_args.kwargs["event"]
+        assert notification.body == OBSERVATION_NOTE_PLACEHOLDER[:200]
+        assert event.properties["comment_content"] == OBSERVATION_NOTE_PLACEHOLDER
+        assert "checkout secret" not in f"{notification} {event.properties}"

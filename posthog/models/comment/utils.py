@@ -7,7 +7,7 @@ import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
-from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
+from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES, OBSERVATION_COMMENT_SCOPES
 
 from products.cdp.backend.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 
@@ -118,6 +118,17 @@ def extract_plain_text_from_rich_content(rich_content: Optional[dict]) -> str:
     return "".join(text_parts)
 
 
+# Mention notifications and events outlive the access check made when they are sent, and the notifications
+# API and CDP destinations do not recheck the observation. So they carry this text instead of the note.
+OBSERVATION_NOTE_PLACEHOLDER = "A note on a Replay Vision observation. Open it in PostHog to read it."
+
+
+def _mention_fanout_content(comment: "Comment") -> str:
+    if comment.scope in OBSERVATION_COMMENT_SCOPES:
+        return OBSERVATION_NOTE_PLACEHOLDER
+    return extract_plain_text_from_rich_content(comment.rich_content) or comment.content
+
+
 def produce_discussion_mention_events(
     comment: "Comment",
     mentioned_user_ids: list[int],
@@ -133,7 +144,7 @@ def produce_discussion_mention_events(
             return
 
         item_url = build_comment_item_url(comment.scope, comment.item_id, slug)
-        comment_content = extract_plain_text_from_rich_content(comment.rich_content) or comment.content
+        comment_content = _mention_fanout_content(comment)
 
         commenter_data = {
             "id": str(commenter.id),
@@ -193,7 +204,7 @@ def send_mention_notifications(
         if not commenter:
             return
 
-        comment_content = extract_plain_text_from_rich_content(comment.rich_content) or comment.content
+        comment_content = _mention_fanout_content(comment)
         body = comment_content[:200] if comment_content else ""
 
         for user_id in mentioned_user_ids:

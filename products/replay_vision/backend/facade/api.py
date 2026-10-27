@@ -307,12 +307,39 @@ def can_view_observation(access: UserAccessControl, team_id: int, observation_id
     Those are session recording access, the scanner's RBAC, the scanner's current experiment and the
     experiment in the observation's own snapshot. A malformed or unknown id reads as not viewable.
     """
-    if not is_uuid(observation_id):
-        return False
-    if not access.check_access_level_for_resource("session_recording", required_level="viewer"):
-        return False
-    observation = ReplayObservation.objects.filter(team_id=team_id, id=observation_id).select_related("scanner").first()
+    observation = _observation_for_access_check(team_id, observation_id)
+    return observation is not None and _can_view_loaded_observation(access, team_id, observation)
+
+
+def observation_viewer_user_ids(*, team_id: int, observation_id: str, user_ids: Iterable[int]) -> set[int]:
+    """The users among `user_ids` who may read the observation, so a note's mentions reach only them.
+
+    The observation and the memberships load once for all users. Each user still needs their own access
+    resolution, because access control is per member.
+    """
+    observation = _observation_for_access_check(team_id, observation_id)
     if observation is None:
+        return set()
+    team = TeamModel.objects.get(id=team_id)
+    member_ids = OrganizationMembership.objects.filter(
+        organization_id=team.organization_id, user_id__in=list(user_ids), user__is_active=True
+    ).values_list("user_id", flat=True)
+    viewer_ids: set[int] = set()
+    for user in User.objects.filter(id__in=list(member_ids)):
+        access = UserAccessControl(user=user, team=team, organization_id=str(team.organization_id))
+        if access.has_project_access and _can_view_loaded_observation(access, team_id, observation):
+            viewer_ids.add(user.id)
+    return viewer_ids
+
+
+def _observation_for_access_check(team_id: int, observation_id: str) -> ReplayObservation | None:
+    if not is_uuid(observation_id):
+        return None
+    return ReplayObservation.objects.filter(team_id=team_id, id=observation_id).select_related("scanner").first()
+
+
+def _can_view_loaded_observation(access: UserAccessControl, team_id: int, observation: ReplayObservation) -> bool:
+    if not access.check_access_level_for_resource("session_recording", required_level="viewer"):
         return False
     scanner = observation.scanner
     return (
@@ -320,20 +347,6 @@ def can_view_observation(access: UserAccessControl, team_id: int, observation_id
         and can_read_targeted_experiment(access, team_id, scanner)
         and can_read_observation(access, team_id, observation)
     )
-
-
-def observation_viewer_user_ids(*, team_id: int, observation_id: str, user_ids: Iterable[int]) -> set[int]:
-    """The users among `user_ids` who may read the observation, so a note's mentions reach only them."""
-    # Deferred: reach the temporal package, whose activities import this facade while it loads.
-    from products.replay_vision.backend.observation_requests import recording_viewer_access  # noqa: PLC0415
-
-    team = TeamModel.objects.get(id=team_id)
-    return {
-        user.id
-        for user in User.objects.filter(id__in=list(user_ids))
-        if (access := recording_viewer_access(user, team)) is not None
-        and can_view_observation(access, team_id, observation_id)
-    }
 
 
 def _can_scan_with(access: UserAccessControl, team_id: int, scanner: ReplayScanner) -> bool:
