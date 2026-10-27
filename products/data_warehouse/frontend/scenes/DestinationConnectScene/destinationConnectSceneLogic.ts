@@ -122,9 +122,13 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
             })
         },
     })),
-    urlToAction(({ actions }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.warehouseDestinationConnect()]: (_, searchParams) => {
-            actions.setKind(searchParams.kind ?? null)
+            // A hash change (the side panel opening) runs this again, and a reset would hide the saved id.
+            const kind = searchParams.kind ?? null
+            if (kind !== values.kind) {
+                actions.setKind(kind)
+            }
         },
     })),
 ])

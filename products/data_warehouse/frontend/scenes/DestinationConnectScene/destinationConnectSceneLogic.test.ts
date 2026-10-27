@@ -33,4 +33,17 @@ describe('destinationConnectSceneLogic', () => {
         )
         expect(viewed).toHaveLength(expectedType ? 1 : 0)
     })
+
+    it('keeps the saved connection when only the hash changes', () => {
+        router.actions.push('/data-warehouse/connect-destination?kind=snowflake')
+        destinationConnectSceneLogic.actions.setIntegrationId(42)
+
+        router.actions.replace('/data-warehouse/connect-destination', { kind: 'snowflake' }, { panel: 'max' })
+
+        expect(destinationConnectSceneLogic.values.integrationId).toEqual(42)
+        const viewed = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === 'warehouse destination connect page viewed'
+        )
+        expect(viewed).toHaveLength(1)
+    })
 })
