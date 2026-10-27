@@ -95,6 +95,12 @@ class PlannedStep(BaseModel):
     email_paragraphs: list[str] | None = Field(
         description="For an email step without a saved template: 1 to 3 short paragraphs of body copy."
     )
+    push_title: str | None = Field(
+        description="For a push step: the notification title, at most 50 characters, else null."
+    )
+    push_body: str | None = Field(
+        description="For a push step: one short sentence under the title, at most 120 characters, else null."
+    )
     slack_message: str | None = Field(description="For a slack step: the message to post, else null.")
 
 
@@ -109,6 +115,7 @@ class IdeaContext:
     stages: dict[str, LifecycleStage]
     channels: frozenset[Channel]
     has_slack: bool
+    mobile_first: bool = False
 
 
 @frozen
@@ -121,6 +128,7 @@ class StepsContext:
     has_slack: bool
     # The trigger event's own properties, like a product name or an amount, that an email can show.
     event_properties: tuple[str, ...] = ()
+    mobile_first: bool = False
 
 
 _SIMPLE_RULE = (
@@ -152,7 +160,7 @@ Rules:
 - {_REVENUE_RULE}
 - Each idea must use a different trigger_event.
 - List the ideas best first. Within one lifecycle stage only the first idea is shown.
-- Email is the main way to reach people. {{channel_rule}} {{slack_rule}}
+- {{channel_rule}} {{slack_rule}}
 - Use the steps the workflow needs, including waits for an event and branches. {_SIMPLE_RULE}
 - Put a delay between two emails.
 - {_COPY_RULES}
@@ -162,8 +170,9 @@ _STEPS_PROMPT = f"""You plan the steps of one PostHog workflow. The workflow and
 Follow the outline unless a step cannot work. Use at most {{max_steps}} steps, as many as the workflow needs.
 
 Step types:
-- email: a message to the person, and the main channel. Write the copy.
-- sms, push: a message to the person, only when the team has that provider connected.
+- email: a message to the person. Write the copy.
+- push: a notification on the person's phone. Write push_title and push_body.
+- sms: a text message to the person. The team adds the message.
 - slack: a message to the team's Slack channel. Write the message.
 - function: any step from the step catalog, such as a webhook, a CRM update or a PostHog action. Set template_id.
 - delay: wait a fixed time.
@@ -209,7 +218,9 @@ def suggest_ideas(*, team: Team, user: User, context: IdeaContext, analytics_cli
         effort="low",
         feature="data_suggestion_ideas",
         schema=WorkflowIdeas,
-        system=_IDEAS_PROMPT.format(channel_rule=_channel_rule(context.channels), slack_rule=slack_rule),
+        system=_IDEAS_PROMPT.format(
+            channel_rule=_channel_rule(context.channels, context.mobile_first), slack_rule=slack_rule
+        ),
         excluded_values=_missing_channels(context.channels),
         # The prompt escapes `<` and `>` in event names, so the schema carries the exact names the model must return.
         allowed_values={"trigger_event": [name for name, _ in context.events]},
@@ -223,10 +234,18 @@ def _missing_channels(channels: frozenset[Channel]) -> frozenset[str]:
     return frozenset({"sms", "push"} - channels)
 
 
-def _channel_rule(channels: frozenset[Channel]) -> str:
+def _channel_rule(channels: frozenset[Channel], mobile_first: bool) -> str:
+    if mobile_first and "push" in channels:
+        return (
+            "Most of this project's people use its mobile app, so push is the main way to reach them. Use email "
+            "only where a longer message helps, like a receipt or a guide."
+        )
     if not channels:
-        return "The team has no SMS or push provider, so use email to reach people."
-    return f"The team can also send {' and '.join(sorted(channels))}. Use them only when they suit the message better than email."
+        return "Email is the main way to reach people. The team has no SMS or push provider, so use email."
+    return (
+        f"Email is the main way to reach people. The team can also send {' and '.join(sorted(channels))}. "
+        "Use them only when they suit the message better than email."
+    )
 
 
 def plan_steps(
@@ -299,7 +318,7 @@ def plan_steps(
         schema=PlannedWorkflow,
         system=_STEPS_PROMPT.format(
             email_rule=email_rule,
-            channel_rule=_channel_rule(context.channels),
+            channel_rule=_channel_rule(context.channels, context.mobile_first),
             slack_rule=slack_rule,
             personalization_rule=personalization_rule,
             max_steps=MAX_PLANNED_STEPS,

@@ -41,14 +41,13 @@ _INFERENCE_KEY_REQUIRED = (
     "and a management key isn't tied to a workspace."
 )
 
-# The organization members and workspaces endpoints (and the workspace members fan-out, which lists
-# workspaces first) resolve only when the management key's account
-# belongs to an OpenRouter organization; an account without one gets a 404. Retrying can't create an
+# The organization members, workspaces and end users endpoints (and the workspace members fan-out,
+# which lists workspaces first) resolve only when the management key's account belongs to an
+# OpenRouter organization; an account without one gets a 404. Retrying can't create an
 # organization, so we stop and tell the customer.
 _NO_ORGANIZATION = (
-    "Your OpenRouter account isn't part of an organization, so the organization members, workspaces, and "
-    "workspace members tables can't be synced. Disable these tables, or reconnect with a management key that "
-    "belongs to an organization."
+    "Your OpenRouter account isn't part of an organization, so this table can't sync. To sync it, "
+    "reconnect with a management key that belongs to an organization."
 )
 
 
@@ -116,6 +115,9 @@ A management key can't read batches. To sync them, connect a second OpenRouter s
             # dropped as the volatile part.
             "404 Client Error: Not Found for url: https://openrouter.ai/api/v1/organization/members": _NO_ORGANIZATION,
             "404 Client Error: Not Found for url: https://openrouter.ai/api/v1/workspaces": _NO_ORGANIZATION,
+            # OpenRouter forwards `/end-users` to `/external-users`, which lists the organization's
+            # registrations, so the same missing organization 404s here.
+            "404 Client Error: Not Found for url: https://openrouter.ai/api/v1/end-users": _NO_ORGANIZATION,
         }
 
     def get_schemas(

@@ -68,7 +68,7 @@ describe('focused Inbox setup', () => {
         scanners = []
         useMocks({
             get: {
-                '/api/projects/@current': () => [200, { ...MOCK_DEFAULT_TEAM, ingested_event: hasEvents }],
+                '/api/projects/:id': () => [200, { ...MOCK_DEFAULT_TEAM, ingested_event: hasEvents }],
                 '/api/projects/:id/signals/reports/available_reviewers/': {},
                 '/api/projects/:id/wizard/sessions/latest/': () => [204, null],
                 '/api/environments/:id/external_data_sources/': () => ({
