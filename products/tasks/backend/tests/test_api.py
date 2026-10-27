@@ -15118,6 +15118,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
         client = self._sandbox_oauth_client(task.id)
+        run.refresh_from_db()
         body = {"kind": "awaiting_input", "agent_active": False, "turn_completed": True, "sequence": 5}
 
         with patch.object(TaskRun, "signal_agent_turn_completed", return_value=True) as turn_completed:

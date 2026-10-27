@@ -295,8 +295,7 @@ describe("AgentCallbackReporter", () => {
     },
     {
       name: "does not retry a heartbeat",
-      report: (reporter: AgentCallbackReporter) =>
-        reporter.agentActivity(true),
+      report: (reporter: AgentCallbackReporter) => reporter.agentActivity(true),
       failure: Object.assign(new Error("unavailable"), { status: 503 }),
       attempts: 1,
     },
