@@ -45,6 +45,7 @@ from ..models import Metric
 from .analytics import METRIC_RUN_EVENT, METRIC_RUN_FAILED_EVENT, capture_metric_event
 from .drift import compute_drift
 from .exceptions import MetricHasNoDefinition
+from .run_counts import record_metric_run
 
 if TYPE_CHECKING:
     from rest_framework.request import Request
@@ -150,6 +151,7 @@ def run_metric(
             run.observe_duration(elapsed_seconds)
 
         _touch_last_run(team, metric)
+        record_metric_run(team, metric, request)
         capture_run(METRIC_RUN_EVENT)
         return _envelope(metric, payload, team, query, is_drifted)
 

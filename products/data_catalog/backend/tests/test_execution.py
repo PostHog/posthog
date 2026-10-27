@@ -21,7 +21,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.data_catalog.backend.logic.execution import prepare_execution_query, run_metric
 from products.data_catalog.backend.logic.metrics import upsert_metric
-from products.data_catalog.backend.models import Metric
+from products.data_catalog.backend.models import Metric, MetricRunCount
 
 _HOGQL = {"kind": "HogQLQuery", "query": "select count() as c from events"}
 _EVENTS_NODE = {"kind": "EventsNode", "event": "purchase"}
@@ -259,6 +259,65 @@ class TestMetricRunAttribution(APIBaseTest):
         self.client.post(self.run_url)
         metric.refresh_from_db()
         assert metric.last_run_at == first_run  # within the 30-minute throttle window
+
+
+class TestMetricRunCounts(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL)
+        self.run_url = f"/api/projects/{self.team.id}/data_catalog/metrics/mrr/run/"
+
+    def _counts(self) -> dict[str, int]:
+        rows = MetricRunCount.objects.for_team(self.team.id).filter(metric=self.metric)
+        return {row.source: row.count for row in rows}
+
+    @parameterized.expand(
+        [
+            ("web", {}, "web"),
+            ("mcp", {"HTTP_X_POSTHOG_CLIENT": "mcp"}, "mcp"),
+        ]
+    )
+    def test_runs_increment_one_daily_row_per_source(self, _name: str, headers: dict, expected_source: str) -> None:
+        with patch(_PROCESS_QUERY, return_value=dict(_OK_PAYLOAD)):
+            for _ in range(2):
+                assert self.client.post(self.run_url, **headers).status_code == status.HTTP_200_OK
+
+        assert self._counts() == {expected_source: 2}
+
+    def test_run_without_a_request_counts_as_internal(self) -> None:
+        with patch(_PROCESS_QUERY, return_value=dict(_OK_PAYLOAD)):
+            run_metric(team=self.team, metric=self.metric, user=self.user)
+
+        assert self._counts() == {"internal": 1}
+
+    def test_failed_run_is_not_counted(self) -> None:
+        with patch(_PROCESS_QUERY, return_value={"error": "bad query"}):
+            assert self.client.post(self.run_url).status_code == status.HTTP_400_BAD_REQUEST
+
+        assert self._counts() == {}
+
+    def test_markdown_run_is_not_counted(self) -> None:
+        upsert_metric(
+            team=self.team,
+            user=self.user,
+            name="playbook",
+            description="d",
+            definition={"kind": "MarkdownDefinition", "markdown": "1. Sum the invoices."},
+        )
+
+        run_url = f"/api/projects/{self.team.id}/data_catalog/metrics/playbook/run/"
+        assert self.client.post(run_url).status_code == status.HTTP_200_OK
+        assert not MetricRunCount.objects.for_team(self.team.id).exists()
+
+    def test_counter_failure_does_not_fail_the_run(self) -> None:
+        with (
+            patch(_PROCESS_QUERY, return_value=dict(_OK_PAYLOAD)),
+            patch("products.data_catalog.backend.logic.run_counts._increment", side_effect=RuntimeError("db is down")),
+        ):
+            response = self.client.post(self.run_url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["results"] == [[1]]
 
 
 class TestMetricRunTagging(APIBaseTest):

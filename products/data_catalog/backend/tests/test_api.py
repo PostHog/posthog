@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -5,6 +7,7 @@ from django.core.cache import cache
 from django.db import connection
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -31,7 +34,7 @@ from products.data_catalog.backend.logic.metrics import (
     soft_delete_metric,
     upsert_metric,
 )
-from products.data_catalog.backend.models import Metric
+from products.data_catalog.backend.models import Metric, MetricRunCount
 from products.data_catalog.backend.presentation.serializers import (
     MetricBulkNamesRequestSerializer,
     MetricRunQuerySerializer,
@@ -317,6 +320,31 @@ class TestMetricLifecycleAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         insight_queries = [q for q in ctx.captured_queries if "posthog_dashboarditem" in q["sql"]]
         assert len(insight_queries) == 1, insight_queries
+
+    def test_run_counts_cover_the_last_30_days_in_one_query(self) -> None:
+        ran = Metric.objects.for_team(self.team.id).create(team=self.team, name="ran", definition=_HOGQL)
+        Metric.objects.for_team(self.team.id).create(team=self.team, name="idle", definition=_HOGQL)
+        today = timezone.now().date()
+        for days_ago, source, count in [
+            (0, "web", 3),
+            (0, "mcp", 2),
+            (1, "posthog_ai", 1),
+            (30, "mcp", 50),
+        ]:
+            MetricRunCount.objects.for_team(self.team.id).create(
+                team=self.team, metric=ran, date=today - timedelta(days=days_ago), source=source, count=count
+            )
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK
+        counts = {row["name"]: (row["runs_30d"], row["ai_runs_30d"]) for row in response.json()["results"]}
+        assert counts == {"ran": (6, 3), "idle": (0, 0)}
+        counter_queries = [q for q in ctx.captured_queries if "data_catalog_metricruncount" in q["sql"]]
+        assert len(counter_queries) == 1, counter_queries
+
+        detail = self.client.get(f"{self.url}ran/").json()
+        assert (detail["runs_30d"], detail["ai_runs_30d"]) == (6, 3)
 
     def test_approve_returns_409_while_drifted(self) -> None:
         insight = self._insight()

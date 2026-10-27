@@ -18,6 +18,8 @@ from ..facade.api import DESCRIPTION_TOO_LONG_MESSAGE, MAX_DESCRIPTION_LENGTH, M
 from ..facade.enums import CreatedSource
 from ..facade.models import Metric, RelationshipProposal, TableCertification
 
+_NO_RUNS = api.MetricRunCounts(runs=0, ai_runs=0)
+
 
 @extend_schema_field(OpenApiTypes.OBJECT)
 class MetricDefinitionField(serializers.JSONField):
@@ -138,6 +140,13 @@ class MetricSerializer(serializers.ModelSerializer):
     is_drifted = serializers.SerializerMethodField(
         help_text="True when the definition has drifted from its linked source insight (or the insight is gone).",
     )
+    runs_30d = serializers.SerializerMethodField(
+        help_text="Runs of this metric in the last 30 days that executed its query, from any surface. A "
+        "failed run is not counted, and a markdown metric always reads 0.",
+    )
+    ai_runs_30d = serializers.SerializerMethodField(
+        help_text="The part of runs_30d that agents sent: PostHog AI, MCP clients, and other agent surfaces.",
+    )
     created_source = serializers.ChoiceField(
         choices=[(s.value, s.value) for s in CreatedSource],
         required=False,
@@ -173,6 +182,8 @@ class MetricSerializer(serializers.ModelSerializer):
             "approved_by",
             "source_insight_short_id",
             "last_run_at",
+            "runs_30d",
+            "ai_runs_30d",
             "created_source",
             "ai_model",
             "confidence",
@@ -235,6 +246,22 @@ class MetricSerializer(serializers.ModelSerializer):
         if drift_map is not None and obj.id in drift_map:
             return drift_map[obj.id]
         return api.compute_drift([obj])[obj.id]
+
+    @extend_schema_field(OpenApiTypes.INT)
+    def get_runs_30d(self, obj: Metric) -> int:
+        return self._run_counts(obj).runs
+
+    @extend_schema_field(OpenApiTypes.INT)
+    def get_ai_runs_30d(self, obj: Metric) -> int:
+        return self._run_counts(obj).ai_runs
+
+    def _run_counts(self, obj: Metric) -> api.MetricRunCounts:
+        # Same shape as drift: the list view precomputes ``run_counts`` for the whole page, and
+        # single-object paths fall back to one query for this metric.
+        run_counts = self.context.get("run_counts")
+        if run_counts is None:
+            run_counts = api.run_counts_for_metrics(obj.team_id, [obj.id])
+        return run_counts.get(obj.id, _NO_RUNS)
 
 
 @extend_schema_serializer(component_name="DataCatalogMetricCreate")

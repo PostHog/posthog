@@ -30,3 +30,11 @@ class MetricRead:
 class MetricBulkOwnerChange:
     updated_ids: list[UUID]
     skipped_ids: list[UUID]
+
+
+@dataclass(frozen=True)
+class MetricRunCounts:
+    """Runs of one metric in the last 30 days. ``ai_runs`` counts the runs agents sent."""
+
+    runs: int
+    ai_runs: int

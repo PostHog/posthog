@@ -172,7 +172,11 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
         metrics = page if page is not None else list(queryset)
-        context = {**self.get_serializer_context(), "drift_map": api.compute_drift(metrics)}
+        context = {
+            **self.get_serializer_context(),
+            "drift_map": api.compute_drift(metrics),
+            "run_counts": api.run_counts_for_metrics(self.team_id, [metric.id for metric in metrics]),
+        }
         serializer = self.get_serializer(metrics, many=True, context=context)
         if page is not None:
             return self.get_paginated_response(serializer.data)
@@ -272,7 +276,11 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         approved, skipped = api.bulk_approve_metrics(metrics, cast(User, request.user), request=request)
         # Approval is gated on a drift check over the same locked rows, so every metric in
         # `approved` is in lockstep with its insight; recomputing would be a second bulk query.
-        context = {**self.get_serializer_context(), "drift_map": {metric.id: False for metric in approved}}
+        context = {
+            **self.get_serializer_context(),
+            "drift_map": {metric.id: False for metric in approved},
+            "run_counts": api.run_counts_for_metrics(self.team_id, [metric.id for metric in approved]),
+        }
         payload = MetricBulkApproveResponseSerializer(
             {"approved": approved, "skipped": [*unresolved, *skipped]}, context=context
         )
@@ -325,7 +333,11 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             api.MetricBulkSkip(name=names_by_id[metric_id], reason=api.BULK_SKIP_NOT_FOUND)
             for metric_id in change.skipped_ids
         ]
-        context = {**self.get_serializer_context(), "drift_map": api.compute_drift(updated)}
+        context = {
+            **self.get_serializer_context(),
+            "drift_map": api.compute_drift(updated),
+            "run_counts": api.run_counts_for_metrics(self.team_id, [metric.id for metric in updated]),
+        }
         payload = MetricBulkChangeOwnerResponseSerializer(
             {"updated": updated, "skipped": [*unresolved, *skipped]}, context=context
         )
