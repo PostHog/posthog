@@ -40,7 +40,7 @@ export function ReplayVisionListUpsellCard(): JSX.Element | null {
                     <span>Save time: Replay vision can watch these for you</span>
                 </span>
                 <span className="text-secondary">
-                    It scans every recording in this filter and shows the ones that matter.
+                    A scanner can watch every recording with these filters and answer whatever question you give it.
                 </span>
                 <div className="flex pt-1">
                     <LemonButton
