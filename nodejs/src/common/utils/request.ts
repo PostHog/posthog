@@ -678,7 +678,8 @@ export async function _fetch(
                           if (overLimit) {
                               throw new ResponseTooLargeError(maxBytes)
                           }
-                          return bytes.toString('utf8')
+                          const text = bytes.toString('utf8')
+                          return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text
                       })
             bodyPromise = read.finally(() => lifecycle?.onBodyDone())
         }
