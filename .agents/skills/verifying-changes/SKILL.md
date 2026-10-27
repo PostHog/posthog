@@ -7,7 +7,8 @@ description: >
   Maps each kind of change, such as pure logic, DRF serializer or viewset, migration, kea logic, React component,
   CSS, Django template, CI workflow, SQL or HogQL, or docs and skills, to the layer that is enough and the layer that is wasted.
   `hogli verify --changed` runs the cheap layers for the current diff and names the slower ones left to run yourself.
-  Trigger terms: verify, how do I test this, is this enough testing, start the stack, render it, run e2e.
+  Trigger terms: verify, how do I test this, is this enough testing, start the stack, render it, run e2e,
+  run Storybook for a few stories, STORYBOOK_STORIES.
 ---
 
 # Verifying changes
@@ -20,7 +21,7 @@ Start with the cheapest, and move up only when the current layer cannot see what
 | 1     | Lint, format, typecheck      | `hogli verify --changed`, or `ruff check` and `pnpm --filter=@posthog/frontend typescript:check` |
 | 2     | The nearest unit test        | `hogli test <file>`, `hogli test --changed`                                                      |
 | 3     | Serializer and OpenAPI regen | `hogli up -d`, `hogli build:openapi`, then commit the generated diff                             |
-| 4     | Storybook render             | `pnpm storybook`, open the affected story, compare before and after                              |
+| 4     | Storybook render             | `STORYBOOK_STORIES=<dir> pnpm storybook`, open the affected story, compare before and after      |
 | 5     | The running stack            | `hogli up -d`, `hogli wait`, then exercise the flow                                              |
 | 6     | Playwright or a recorded run | `hogli test playwright/<spec>.spec.ts` against a running stack                                   |
 
@@ -28,6 +29,9 @@ Start with the cheapest, and move up only when the current layer cannot see what
 It does not report the diff as verified when a check was skipped, when a check only printed advice, or when no test covers the changed files.
 mypy is one of those advice-only checks. It runs repo-wide, so `hogli verify` prints its command instead of running it.
 Use `--plan` to see the classification without running anything.
+
+For layer 4, set `STORYBOOK_STORIES` to the directories or story files you need instead of editing the `stories` list in `main.ts`.
+[references/running-storybook.md](references/running-storybook.md) covers the variable, story URLs and screenshots.
 
 ## Decision table
 

@@ -9,7 +9,8 @@
             "dependsOn": ["@posthog/frontend#prepare"]
         },
         "start": {
-            "dependsOn": ["@posthog/frontend#prepare"]
+            "dependsOn": ["@posthog/frontend#prepare"],
+            "passThroughEnv": ["$TURBO_EXTENDS$", "STORYBOOK_STORIES"]
         }
     }
 }

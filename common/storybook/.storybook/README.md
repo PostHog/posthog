@@ -26,6 +26,12 @@ in one terminal
 hogli storybook
 ```
 
+To index only some stories, set `STORYBOOK_STORIES` to directories or story files, comma-separated and relative to the repo root:
+
+```bash
+STORYBOOK_STORIES=frontend/src/toolbar hogli storybook
+```
+
 in another
 
 ```bash
