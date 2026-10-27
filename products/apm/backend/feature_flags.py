@@ -10,7 +10,9 @@ The gate always sends the ``project`` group keyed on team ID, so it needs no
 expected to run per team on a schedule, where a fetch per team per tick would be
 pure overhead. A request made by a user also passes that user's distinct ID and
 email, so the flag can target people (for example an internal cohort) as well as
-projects. Scheduled work has no user and matches only project conditions.
+projects. A user who anonymizes their data passes an explicit null email, as the
+frontend does, so a stored email cannot match. Scheduled work has no user and
+matches only project conditions.
 """
 
 from __future__ import annotations
@@ -30,7 +32,7 @@ def is_apm_enabled(team_id: int, *, distinct_id: str | None = None, email: str |
             UNIFIED_APM_PRODUCT_FLAG,
             distinct_id or str(team_id),
             groups={"project": str(team_id)},
-            person_properties={"email": email} if email else None,
+            person_properties={"email": email} if distinct_id else None,
             group_properties={"project": {"id": str(team_id)}},
             only_evaluate_locally=False,
             # Work here is scheduled per team, so leaving this on would emit a

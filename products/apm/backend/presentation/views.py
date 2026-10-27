@@ -45,7 +45,8 @@ class ServicesHealthViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def _check_flag(self) -> None:
         user = cast(User, self.request.user)
-        if not is_apm_enabled(self.team.pk, distinct_id=str(user.distinct_id), email=user.email):
+        email = None if user.anonymize_data else user.email
+        if not is_apm_enabled(self.team.pk, distinct_id=str(user.distinct_id), email=email):
             raise PermissionDenied("Application observability is not enabled for this project.")
 
     @extend_schema(parameters=[ServicesHealthRequestSerializer], responses={200: ServicesHealthResponseSerializer})

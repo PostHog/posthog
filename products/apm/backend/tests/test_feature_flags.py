@@ -31,6 +31,13 @@ class TestApmFeatureFlag(TestCase):
         assert kwargs["person_properties"] == {"email": "hog@example.com"}
         assert kwargs["groups"] == {"project": "7"}
 
+    def test_gate_sends_an_explicit_null_email_for_an_anonymized_user(self) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=True) as feature_enabled:
+            is_apm_enabled(team_id=7, distinct_id="user-distinct-id", email=None)
+
+        _, kwargs = feature_enabled.call_args
+        assert kwargs["person_properties"] == {"email": None}
+
     def test_gate_evaluates_for_the_team_when_no_user_is_given(self) -> None:
         with patch("posthoganalytics.feature_enabled", return_value=True) as feature_enabled:
             is_apm_enabled(team_id=7)
