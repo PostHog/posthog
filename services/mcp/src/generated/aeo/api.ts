@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 10 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -221,6 +221,30 @@ export const AeoPromptsBulkImportBody = () => zod.object({
         .min(1)
         .max(aeoPromptsBulkImportBodyPromptsMax)
         .describe('Prompts to add or update, at most 2000 per request.'),
+})
+
+/**
+ * Gets an overview of the project's whole AEO prompt set for the last 'days' days (default 30) in the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the brand-mention rate, the same counts for the window before it, the current window split per answer engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most.
+ * @summary Get the AEO prompt set overview
+ */
+export const AeoPromptsOverviewParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aeoPromptsOverviewQueryDaysDefault = 30
+export const aeoPromptsOverviewQueryDaysMax = 90
+
+export const AeoPromptsOverviewQueryParams = () => zod.object({
+    days: zod
+        .number()
+        .min(1)
+        .max(aeoPromptsOverviewQueryDaysMax)
+        .default(aeoPromptsOverviewQueryDaysDefault)
+        .describe("Length of the window in days, ending today in the project's timezone. Default 30, at most 90."),
 })
 
 /**

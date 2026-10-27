@@ -54,6 +54,7 @@ class TestAEOPromptAPI(APIBaseTest):
                 prompt_text=prompt.prompt,
                 prompt_source=prompt.prompt_source,
                 prompt_hash=prompt.prompt_hash,
+                prompt_topic=prompt.topic,
                 prompt_version=prompt.current_version,
                 engine=engine,
                 model=engine,
@@ -71,6 +72,11 @@ class TestAEOPromptAPI(APIBaseTest):
     def _import_one_prompt(self) -> str:
         self.client.post(f"{self.url}bulk_import/", {"prompts": [{"prompt": "tracked?"}]}, format="json")
         return self.client.get(self.url).json()["results"][0]["id"]
+
+    def _import_prompts(self, prompts: list[dict]) -> dict[str, str]:
+        self.client.post(f"{self.url}bulk_import/", {"prompts": prompts}, format="json")
+        listed = self.client.get(f"{self.url}?limit=100").json()["results"]
+        return {row["prompt"]: row["id"] for row in listed}
 
     def test_requires_the_rollout_flag(self) -> None:
         self.feature_enabled.return_value = False
@@ -570,6 +576,91 @@ class TestAEOPromptAPI(APIBaseTest):
             ("source", 1),
             ("startups", 1),
         ]
+
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_overview_counts_the_set_per_window_engine_and_topic(self) -> None:
+        ids = self._import_prompts(
+            [
+                {"prompt": "funnels?", "topic": "Analytics"},
+                {"prompt": "retention?", "topic": "Analytics"},
+                {"prompt": "replay?", "topic": ""},
+                {"prompt": "flags?", "topic": "Flags"},
+                {"prompt": "surveys?", "topic": "Surveys"},
+            ]
+        )
+        self.client.patch(f"{self.url}{ids['retention?']}/", {"active": False}, format="json")
+        self.client.delete(f"{self.url}{ids['flags?']}/")
+        day = 24 * 60
+        ours = "https://docs.example.com/funnels"
+        rival = "https://rival.example.org/funnels"
+        self._record_check(ids["funnels?"], "claude-web-search", minutes_ago=10, cited=True, cited_urls=[ours, rival])
+        self._record_check(ids["funnels?"], "openai-web-search", minutes_ago=10, check_failed=True)
+        self._record_check(ids["retention?"], "exa-answer", minutes_ago=day, answer_text="Example has retention.")
+        self._record_check(ids["replay?"], "claude-web-search", minutes_ago=2 * day, cited_urls=[rival, rival])
+        self._record_check(ids["flags?"], "exa-answer", minutes_ago=3 * day, cited=True, cited_urls=[ours])
+        self._record_check(ids["funnels?"], "claude-web-search", minutes_ago=35 * day)
+        self._record_check(ids["replay?"], "exa-answer", minutes_ago=40 * day, cited=True)
+        self._record_check(ids["funnels?"], "claude-web-search", minutes_ago=70 * day, cited=True)
+
+        with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
+            response = self.client.get(f"{self.url}overview/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        overview = response.json()
+        assert (overview["days"], overview["window_from"], overview["window_to"]) == (30, "2026-09-21", "2026-10-20")
+        assert overview["prompts_tracked"] == 3
+        assert (overview["target_domains"], overview["brand_names"]) == (["example.com"], ["example"])
+        assert overview["current"] == {
+            "checks": 5,
+            "failed": 1,
+            "cited": 2,
+            "mentioned": 3,
+            "prompts": 4,
+            "prompts_cited": 2,
+            "citation_rate": 0.5,
+            "mention_rate": 0.75,
+        }
+        assert overview["previous"] == {
+            "checks": 2,
+            "failed": 0,
+            "cited": 1,
+            "mentioned": 1,
+            "prompts": 2,
+            "prompts_cited": 1,
+            "citation_rate": 0.5,
+            "mention_rate": 0.5,
+        }
+        assert [
+            (row["engine"], row["checks"], row["failed"], row["cited"], row["mentioned"], row["prompts"])
+            for row in overview["engines"]
+        ] == [("claude-web-search", 2, 0, 1, 1, 2), ("exa-answer", 2, 0, 1, 2, 2), ("openai-web-search", 1, 1, 0, 0, 1)]
+        assert [
+            (
+                row["topic"],
+                row["active_prompts"],
+                row["checks"],
+                row["failed"],
+                row["cited"],
+                row["mentioned"],
+                row["mention_rate"],
+            )
+            for row in overview["topics"]
+        ] == [
+            ("", 1, 1, 0, 0, 0, 0.0),
+            ("Analytics", 1, 3, 1, 1, 2, 1.0),
+            ("Flags", 0, 1, 0, 1, 1, 1.0),
+            ("Surveys", 1, 0, 0, 0, 0, None),
+        ]
+        assert [
+            (row["domain"], row["answers"], row["share_of_answers"], row["is_target"])
+            for row in overview["top_domains"]
+        ] == [
+            ("docs.example.com", 2, 0.5, True),
+            ("rival.example.org", 2, 0.5, False),
+        ]
+
+    def test_overview_rejects_a_window_outside_the_bounds(self) -> None:
+        assert self.client.get(f"{self.url}overview/?days=0").status_code == status.HTTP_400_BAD_REQUEST
 
     @parameterized.expand([("above_range", 140), ("not_a_number", "NaN"), ("infinite", "Infinity")])
     def test_bulk_import_rejects_invalid_visibility(self, _name: str, visibility: object) -> None:

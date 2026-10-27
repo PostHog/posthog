@@ -240,6 +240,123 @@ export namespace Schemas {
       count: number;
     }
 
+    export interface AEOPromptSetCounts {
+      /**
+         * Share of answered checks that cited a target domain. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly citation_rate: number | null;
+      /**
+         * Share of answered checks whose answer names the brand. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly mention_rate: number | null;
+      /** Checks in the window, failed ones included. */
+      checks: number;
+      /** Checks in the window where the engine did not answer. */
+      failed: number;
+      /** Checks in the window whose answer cited a target domain. */
+      cited: number;
+      /** Checks in the window whose answer names the brand. Checks whose answer names the brand (the registrable name of a target domain, case ignored). A cited check always counts as mentioned. */
+      mentioned: number;
+      /** Distinct prompts that ran at least once in the window. */
+      prompts: number;
+      /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
+      prompts_cited: number;
+    }
+
+    export interface AEOPromptSetDomain {
+      /** Host of the cited URLs, for example 'docs.example.com'. */
+      domain: string;
+      /** Answers in the window that cited at least one URL on this domain. */
+      answers: number;
+      /** Share (0-1) of all answered checks in the window that cited the domain. */
+      share_of_answers: number;
+      /** Whether the domain is one of the project's target domains (the project's own site). */
+      is_target: boolean;
+    }
+
+    export interface AEOPromptSetEngineCounts {
+      /**
+         * Share of answered checks that cited a target domain. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly citation_rate: number | null;
+      /**
+         * Share of answered checks whose answer names the brand. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly mention_rate: number | null;
+      /** Checks in the window, failed ones included. */
+      checks: number;
+      /** Checks in the window where the engine did not answer. */
+      failed: number;
+      /** Checks in the window whose answer cited a target domain. */
+      cited: number;
+      /** Checks in the window whose answer names the brand. Checks whose answer names the brand (the registrable name of a target domain, case ignored). A cited check always counts as mentioned. */
+      mentioned: number;
+      /** Distinct prompts that ran at least once in the window. */
+      prompts: number;
+      /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
+      prompts_cited: number;
+      /** Answer engine that ran the prompt, for example 'claude-web-search', 'openai-web-search' or 'exa-answer'. */
+      engine: string;
+    }
+
+    export interface AEOPromptSetTopicCounts {
+      /**
+         * Share of answered checks that cited a target domain. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly citation_rate: number | null;
+      /**
+         * Share of answered checks whose answer names the brand. Share (0-1) of answered checks in the window. Failed checks are left out. Null when no check was answered.
+         * @nullable
+         */
+      readonly mention_rate: number | null;
+      /** Checks in the window, failed ones included. */
+      checks: number;
+      /** Checks in the window where the engine did not answer. */
+      failed: number;
+      /** Checks in the window whose answer cited a target domain. */
+      cited: number;
+      /** Checks in the window whose answer names the brand. Checks whose answer names the brand (the registrable name of a target domain, case ignored). A cited check always counts as mentioned. */
+      mentioned: number;
+      /** Distinct prompts that ran at least once in the window. */
+      prompts: number;
+      /** Distinct prompts cited at least once in the window. 'prompts' minus this is how many prompts were never cited. */
+      prompts_cited: number;
+      /** Topic the checks ran with. Empty for prompts that have no topic. A prompt moved to another topic keeps its past checks under the old one. */
+      topic: string;
+      /** Prompts that are on, not archived, and have this topic now. */
+      active_prompts: number;
+    }
+
+    export interface AEOPromptSetOverview {
+      /** Checks across the prompt set in the last 'days' days. */
+      current: AEOPromptSetCounts;
+      /** The same counts for the 'days' days before 'window_from'. */
+      previous: AEOPromptSetCounts;
+      /** The current window split per answer engine, ordered by engine. Engines that did not run are left out. */
+      engines: AEOPromptSetEngineCounts[];
+      /** The current window split per topic, ordered by topic. A topic with active prompts but no check in the window has zero checks. */
+      topics: AEOPromptSetTopicCounts[];
+      /** The 20 domains the engines cited most across all answers in the current window, most cited first, with the project's own domains flagged. */
+      top_domains: AEOPromptSetDomain[];
+      /** Length of each window in days. */
+      days: number;
+      /** First day of the current window, in the project's timezone. */
+      window_from: string;
+      /** Last day of the current window (today), in the project's timezone. */
+      window_to: string;
+      /** Prompts that are on and not archived: the ones the next daily run takes. */
+      prompts_tracked: number;
+      /** Domains that count as the project's own site in citations. */
+      target_domains: string[];
+      /** Lower-cased brand names, derived from the target domains. An answer that contains one of them as a word counts as a mention. */
+      brand_names: string[];
+    }
+
     export interface AEOPromptStats {
       /** Totals per answer engine over the prompt's whole history. */
       engines: AEOPromptEngineStats[];
@@ -128529,6 +128646,15 @@ export namespace Schemas {
      * @minimum 1
      */
     version?: number;
+    };
+
+    export type AeoPromptsOverviewParams = {
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
     };
 
     export type AiObservabilityInstrumentationChecklistRetrieveParams = {

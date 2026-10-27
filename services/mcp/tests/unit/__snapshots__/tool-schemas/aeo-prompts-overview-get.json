@@ -1,0 +1,13 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "days": {
+            "default": 30,
+            "description": "Length of the window in days, ending today in the project's timezone. Default 30, at most 90.",
+            "maximum": 90,
+            "minimum": 1,
+            "type": "number"
+        }
+    },
+    "type": "object"
+}
