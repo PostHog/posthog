@@ -87,8 +87,6 @@ async fn main() {
         .expect("server failed");
 }
 
-/// Keeps a copy of `config/changelog` in the configured bucket and lets the
-/// API restore from it.
 async fn start_changelog_backups(state: &mut AppState) {
     let bucket = state.config.changelog_backup_bucket.clone();
     if bucket.is_empty() {

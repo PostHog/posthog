@@ -16,7 +16,6 @@ use crate::etcd::EtcdHandle;
 const RETRY_INITIAL: Duration = Duration::from_secs(1);
 const RETRY_MAX: Duration = Duration::from_secs(60);
 
-/// One stored copy of the changelog config.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct BackupVersion {
     pub version_id: String,
@@ -25,14 +24,12 @@ pub struct BackupVersion {
     pub size: i64,
 }
 
-/// An object as stored, with the ETag a conditional upload names.
 #[derive(Debug, Clone, PartialEq)]
 pub struct StoredObject {
     pub body: Vec<u8>,
     pub etag: String,
 }
 
-/// What must hold for an upload to replace the current object.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Precondition {
     Absent,
@@ -42,11 +39,9 @@ pub enum Precondition {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PutOutcome {
     Written,
-    /// The precondition no longer held; nothing was written.
     Conflict,
 }
 
-/// A versioned object store holding one key per backed-up config.
 #[async_trait]
 pub trait BackupStore: Send + Sync {
     /// The current version, or the named one; `None` when it does not exist.
@@ -204,7 +199,6 @@ fn wrap_config(config: &[u8]) -> anyhow::Result<Vec<u8>> {
     Ok(serde_json::to_vec(&envelope)?)
 }
 
-/// The config bytes a backup holds, exactly as etcd stored them.
 pub fn unwrap_config(body: &[u8]) -> anyhow::Result<Vec<u8>> {
     let envelope: Envelope =
         serde_json::from_slice(body).context("the backup is not a backup envelope")?;
@@ -219,17 +213,12 @@ fn record(outcome: &str) {
     );
 }
 
-/// The object key holding the config for `prefix`: `/personhog/` becomes
-/// `personhog/config-changelog.json`.
 pub fn object_key(prefix: &str) -> String {
     format!("{}/config-changelog.json", prefix.trim_matches('/'))
 }
 
-/// Copies etcd's current config into the backup unless the backup already
-/// holds it, and never copies an absent config. The backup is read before
-/// etcd, and the upload requires that backup to still be current, so every
-/// upload carries a config at least as new as the one it replaces. A refused
-/// upload is an error: `run` backs off and starts again from a fresh read.
+/// The backup is read before etcd, and the upload requires that backup to
+/// still be current, so an upload never replaces a newer config.
 async fn sync(store: &PersonhogStore, backups: &dyn BackupStore, key: &str) -> anyhow::Result<()> {
     let backup = backups.get(key, None).await?;
     let (config, _) = store.get_changelog_config_raw_with_revision().await?;
@@ -260,8 +249,8 @@ async fn sync(store: &PersonhogStore, backups: &dyn BackupStore, key: &str) -> a
     }
 }
 
-/// Backs up the current config, then again after every change. A deletion is
-/// never backed up: the last good copy is what a rebuild restores.
+/// A deletion is never backed up, because the last good copy is what a
+/// rebuild restores.
 async fn watch_once(
     store: &PersonhogStore,
     backups: &dyn BackupStore,
@@ -290,8 +279,6 @@ async fn watch_once(
     anyhow::bail!("config/changelog watch ended")
 }
 
-/// Keeps the backup of `prefix`'s `config/changelog` in step with etcd for
-/// the process lifetime, starting over from a fresh read after any failure.
 pub async fn run(etcd: Arc<EtcdHandle>, prefix: String, backups: Arc<dyn BackupStore>) {
     let key = object_key(&prefix);
     let mut delay = RETRY_INITIAL;
@@ -340,7 +327,6 @@ pub(crate) mod tests {
     }
 
     impl MemoryBackups {
-        /// The config each version holds, oldest first.
         fn configs(&self) -> Vec<Vec<u8>> {
             let versions = self.versions.lock().unwrap();
             versions.iter().map(|v| unwrap_config(v).unwrap()).collect()
@@ -404,7 +390,6 @@ pub(crate) mod tests {
         BeforeUpload,
     }
 
-    /// Stalls the first call of one kind until the test releases it.
     struct Stalled {
         inner: Arc<MemoryBackups>,
         at: Stall,
@@ -458,7 +443,6 @@ pub(crate) mod tests {
         }
     }
 
-    /// A handle on the local etcd and a prefix no other test shares.
     pub(crate) async fn test_etcd(name: &str) -> (Arc<EtcdHandle>, String) {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -473,7 +457,6 @@ pub(crate) mod tests {
         (etcd, format!("/test-control-plane-{name}-{nanos}/"))
     }
 
-    /// The local S3 the dev stack and CI run (SeaweedFS), with versioning on.
     async fn local_s3() -> S3BackupStore {
         use aws_sdk_s3::config::{Credentials, Region};
         use aws_sdk_s3::types::{BucketVersioningStatus, VersioningConfiguration};
@@ -628,7 +611,6 @@ pub(crate) mod tests {
                 .unwrap();
             sync(&store, backups.as_ref(), &key).await.unwrap();
 
-            // Pod A starts syncing the added group and stalls.
             inner.put_raw(&etcd_key, with_group.clone()).await.unwrap();
             let stalled = Stalled::new(backups.clone(), at);
             let pod_a = spawn_sync(&client, &prefix, stalled.clone());
@@ -671,7 +653,6 @@ pub(crate) mod tests {
             .await
             .unwrap();
 
-        // Pod W reads epoch 2 and pod A reads epoch 3; both stall before uploading.
         inner.put_raw(&etcd_key, config(2)).await.unwrap();
         let w = Stalled::new(backups.clone(), Stall::BeforeUpload);
         let pod_w = spawn_sync(&client, &prefix, w.clone());
@@ -688,7 +669,6 @@ pub(crate) mod tests {
         assert!(pod_a.await.unwrap().is_err(), "the refusal is reported");
         assert_eq!(backups.configs().last(), Some(&config(2)));
 
-        // The next attempt, as `run` makes it, starts from a fresh read.
         sync(&store, backups.as_ref(), &object_key(&prefix))
             .await
             .unwrap();

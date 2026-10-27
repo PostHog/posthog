@@ -471,7 +471,6 @@ async fn personhog_seed_changelog(
     Ok(Json(seeded))
 }
 
-/// The configured backup store, or 503 when `CHANGELOG_BACKUP_BUCKET` is unset.
 fn backup_store(state: &AppState) -> Result<Arc<dyn crate::backup::BackupStore>, ApiError> {
     state.backups.clone().ok_or_else(|| {
         ApiError::unavailable("changelog backups are disabled (CHANGELOG_BACKUP_BUCKET not set)")
@@ -490,7 +489,6 @@ async fn personhog_changelog_backups(
 
 #[derive(Deserialize)]
 struct RestoreChangelogRequest {
-    /// A version from the backup list; the current backup when absent.
     version_id: Option<String>,
 }
 

@@ -29,7 +29,6 @@ pub struct AppState {
     pub browse_permits: Arc<Semaphore>,
     /// `None` when `ETCD_ENDPOINTS` is unset; the etcd tools then 503.
     pub etcd: Option<Arc<EtcdHandle>>,
-    /// `None` until `main` connects a configured backup bucket.
     pub backups: Option<Arc<dyn BackupStore>>,
 }
 

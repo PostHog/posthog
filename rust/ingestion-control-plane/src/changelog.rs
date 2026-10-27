@@ -73,7 +73,6 @@ pub async fn seed(
     })
 }
 
-/// Versions of the backed-up config for `prefix`, newest first.
 pub async fn backups(
     backups: &dyn BackupStore,
     prefix: &str,
@@ -81,14 +80,10 @@ pub async fn backups(
     backups.versions(&backup::object_key(prefix)).await
 }
 
-/// Why a restore did not happen.
 #[derive(Debug)]
 pub enum RestoreError {
-    /// There is no backup, or no such version of it.
     NotFound(String),
-    /// The backup cannot be restored into this etcd.
     Refused(String),
-    /// S3, Kafka or etcd failed.
     Upstream(anyhow::Error),
 }
 
@@ -98,8 +93,6 @@ impl From<anyhow::Error> for RestoreError {
     }
 }
 
-/// Writes a backed-up config back into an empty etcd: the current backup, or
-/// the named version.
 pub async fn restore(
     config: &Config,
     client: &Client,
