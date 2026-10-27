@@ -52,6 +52,16 @@ describe('feature-flag-rules-update', () => {
         expect(getToolDefinition('update-feature-flag').feature_flag).toBeUndefined()
     })
 
+    it('is destructive and requires write scope', () => {
+        const definition = getToolDefinition(TOOL)
+        expect(definition.required_scopes).toEqual(['feature_flag:write'])
+        expect(definition.annotations).toMatchObject({
+            readOnlyHint: false,
+            destructiveHint: true,
+            idempotentHint: false,
+        })
+    })
+
     it('requires the flag id, the row version and a version 2 document', () => {
         const schema = z.toJSONSchema(GENERATED_TOOL_MAP[TOOL]!().schema, { io: 'input', reused: 'inline' }) as {
             required?: string[]
@@ -68,9 +78,16 @@ describe('feature-flag-rules-update', () => {
         const request = vi.fn().mockResolvedValue({ id: 42, key: 'checkout', version: 4, filters: FILTERS })
         const filters = { ...FILTERS, aggregation_group_type_index: 0 }
 
-        await GENERATED_TOOL_MAP[TOOL]!().handler(mockContext(request), { id: 42, version: 3, filters })
+        const result = await GENERATED_TOOL_MAP[TOOL]!().handler(mockContext(request), { id: 42, version: 3, filters })
 
-        expect(request).toHaveBeenCalledWith({
+        expect(result).toMatchObject({
+            id: 42,
+            key: 'checkout',
+            version: 4,
+            filters: FILTERS,
+            _posthogUrl: 'https://app.posthog.com/project/17/feature-flags/42',
+        })
+        expect(request).toHaveBeenCalledExactlyOnceWith({
             method: 'PATCH',
             path: '/api/projects/17/feature_flags/42/',
             body: { version: 3, filters },

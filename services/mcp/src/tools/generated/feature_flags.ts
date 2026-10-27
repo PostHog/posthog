@@ -381,7 +381,7 @@ const featureFlagRulesUpdate = (): ToolBase<ReturnType<typeof FeatureFlagRulesUp
             body,
         })
         const filtered = pickResponseFields(result, ['id', 'key', 'active', 'version', 'filters']) as typeof result
-        return filtered
+        return await withPostHogUrl(context, filtered, `/feature-flags/${filtered.id}`)
     },
 })
 
