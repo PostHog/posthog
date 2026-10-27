@@ -348,9 +348,9 @@ personhog-proto = { workspace = true }
 infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "fa20b806e32cf748dfee3545d8926b9c36aff789" }
 # pytest-split: pinned to PostHog's fork (immutable tag) for the order-preserving
 # optimal_chunks split. Fork: PostHog/pytest-split (of jerry-git/pytest-split).
-# To pull upstream fixes: rebase the fork's feat branch onto upstream, cut the next
-# v0.11.0-posthog.N tag, and bump this pin.
-pytest-split = { git = "https://github.com/PostHog/pytest-split", tag = "v0.11.0-posthog.8" }
+# Base future upstream rebases on the pinned tag so local fixes survive.
+# Cut the next v0.11.0-posthog.N tag and bump this pin.
+pytest-split = { git = "https://github.com/PostHog/pytest-split", tag = "v0.11.0-posthog.10" }
 torch = [{ index = "pytorch-cpu", group = "inbox-ranking" }]
 
 # xgboost's Linux wheel declares nvidia-nccl-cu12 (322 MB) for multi-GPU training. We use xgboost on

@@ -3598,23 +3598,12 @@ jobs:
                       else
                           targets="$CORE_FILES"
                       fi
-                      # A selection wide enough to need more than one shard is split by file.
-                      # pytest imports every file named on its command line, so the script
-                      # passes each shard only its own files. It also writes the plan that
-                      # every shard reads, so the shards split a file they share the same way.
+                      # File mode plans from the full selection before pruning explicit
+                      # file arguments, so each shard imports only the files it needs.
                       SELECTED_SPLIT=()
                       if [[ "${{ matrix.concurrency }}" -gt 1 ]]; then
-                          plan="${RUNNER_TEMP:-/tmp}/selected-split-plan.json"
-                          # Under set +e a planner failure would read as an empty shard and pass.
-                          # shellcheck disable=SC2086
-                          targets=$(python .github/scripts/plan_selected_shard.py --durations .test_durations \
-                              --splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}" --plan-out "$plan" $targets) || exit 1
-                          if [[ -z "$targets" ]]; then
-                              echo "No selected files for this shard"
-                              exit 0
-                          fi
                           SELECTED_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
-                                          --split-granularity=file --split-plan-path "$plan")
+                                          --split-granularity=file)
                       fi
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
