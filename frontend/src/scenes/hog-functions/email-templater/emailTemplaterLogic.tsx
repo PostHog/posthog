@@ -190,6 +190,46 @@ export function buildPersonPropertyMergeValue(name: string): string {
     return `{{person.properties['${escaped}']}}`
 }
 
+/** The merge tags the visual editor offers. A transactional email gets its own variables instead of person properties. */
+export function buildMergeTags(
+    personPropertyDefinitions: PropertyDefinition[],
+    type: EmailTemplaterType,
+    variables: Record<string, any> | undefined
+): UnlayerMergeTags {
+    const tags: UnlayerMergeTags = {
+        unsubscribe_url: {
+            name: 'Unsubscribe URL',
+            value: '{{unsubscribe_url}}',
+            sample: 'https://example.com/unsubscribe/12345',
+        },
+        unsubscribe_url_one_click: {
+            name: 'One-Click Unsubscribe URL',
+            value: '{{unsubscribe_url_one_click}}',
+            sample: 'https://example.com/unsubscribe/12345?one_click_unsubscribe=1',
+        },
+    }
+
+    // A transactional email can't read person properties. It reads what the API call passes in
+    // `message_data`, which the caller lists under `variables.variables`.
+    if (type === 'native_email_transactional_template') {
+        Object.keys(variables?.variables ?? {}).forEach((name) => {
+            tags[`variables.${name}`] = { name, value: `{{ variables.${name} }}`, sample: name }
+        })
+        return tags
+    }
+
+    // Add person properties as merge tags
+    personPropertyDefinitions.forEach((property: PropertyDefinition) => {
+        tags[property.name] = {
+            name: property.name,
+            value: buildPersonPropertyMergeValue(property.name),
+            sample: property.example || `Sample ${property.name}`,
+        }
+    })
+
+    return tags
+}
+
 export interface EmailTemplaterLogicProps {
     value: EmailTemplate | null
     onChange: (value: EmailTemplate) => void
@@ -396,7 +436,11 @@ export interface emailTemplaterLogicActions {
 export interface emailTemplaterLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         logicProps: (arg: any) => EmailTemplaterLogicProps
-        mergeTags: (personPropertyDefinitions: PropertyDefinition[]) => UnlayerMergeTags
+        mergeTags: (
+            personPropertyDefinitions: PropertyDefinition[],
+            arg: EmailTemplaterType,
+            arg2: Record<string, any> | undefined
+        ) => UnlayerMergeTags
         unlayerEditorProjectId: (preflight: PreflightStatus | null) => 275430 | undefined
         emailMediaLibraryEnabled: (
             arg: EmailTemplaterType,
@@ -540,32 +584,16 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     selectors({
         logicProps: [() => [(_, props) => props], (props: EmailTemplaterLogicProps) => props],
         mergeTags: [
-            (s) => [s.personPropertyDefinitions],
-            (personPropertyDefinitions: PropertyDefinition[]): UnlayerMergeTags => {
-                const tags: UnlayerMergeTags = {
-                    unsubscribe_url: {
-                        name: 'Unsubscribe URL',
-                        value: '{{unsubscribe_url}}',
-                        sample: 'https://example.com/unsubscribe/12345',
-                    },
-                    unsubscribe_url_one_click: {
-                        name: 'One-Click Unsubscribe URL',
-                        value: '{{unsubscribe_url_one_click}}',
-                        sample: 'https://example.com/unsubscribe/12345?one_click_unsubscribe=1',
-                    },
-                }
-
-                // Add person properties as merge tags
-                personPropertyDefinitions.forEach((property: PropertyDefinition) => {
-                    tags[property.name] = {
-                        name: property.name,
-                        value: buildPersonPropertyMergeValue(property.name),
-                        sample: property.example || `Sample ${property.name}`,
-                    }
-                })
-
-                return tags
-            },
+            (s) => [
+                s.personPropertyDefinitions,
+                (_, props: EmailTemplaterLogicProps) => props.type,
+                (_, props: EmailTemplaterLogicProps) => props.variables,
+            ],
+            (
+                personPropertyDefinitions: PropertyDefinition[],
+                type: EmailTemplaterType,
+                variables: Record<string, any> | undefined
+            ): UnlayerMergeTags => buildMergeTags(personPropertyDefinitions, type, variables),
         ],
         unlayerEditorProjectId: [
             (s) => [s.preflight],
@@ -658,6 +686,14 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     })),
 
     listeners(({ props, values, actions, cache }) => ({
+        // Person properties load after the editor starts, and the editor only reads its options once.
+        loadPersonPropertyDefinitionsSuccess: () => {
+            const mergeTags = buildMergeTags(values.personPropertyDefinitions, props.type, props.variables)
+            if (values.isEmailEditorReady && !objectsEqual(mergeTags, cache.lastMergeTags)) {
+                cache.lastMergeTags = mergeTags
+                values.emailEditorRef?.editor?.setMergeTags?.(mergeTags)
+            }
+        },
         onEmailEditorReady: () => {
             const editor = values.emailEditorRef?.editor
             if (editor && values.emailMediaLibraryEnabled) {
@@ -671,6 +707,9 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             // Both layouts rebaseline on load: the modal submit compares its export against the
             // baseline to tell a no-op save from a real edit.
             values.emailEditorRef?.editor?.addEventListener('design:loaded', () => actions.designLoaded())
+            // The editor read its merge tags when it started, so any added since then are pushed in.
+            cache.lastMergeTags = buildMergeTags(values.personPropertyDefinitions, props.type, props.variables)
+            values.emailEditorRef?.editor?.setMergeTags?.(cache.lastMergeTags)
             if (props.value?.design) {
                 cache.lastEditorDesign = props.value.design
                 values.emailEditorRef?.editor?.loadDesign(props.value.design)
@@ -925,6 +964,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     })),
 
     propsChanged(({ actions, props, values, cache }, oldProps) => {
+        // A transactional email's merge tags follow the variables it uses, so the open editor gets new ones.
+        // Built from the new props here: a selector would still return its cached value until the store changes.
+        const mergeTags = buildMergeTags(values.personPropertyDefinitions, props.type, props.variables)
+        if (values.isEmailEditorReady && !objectsEqual(mergeTags, cache.lastMergeTags)) {
+            cache.lastMergeTags = mergeTags
+            values.emailEditorRef?.editor?.setMergeTags?.(mergeTags)
+        }
         if (props.value && !objectsEqual(props.value, oldProps.value)) {
             actions.resetEmailTemplate(props.value)
             autoRevealAdvancedFields(actions, props)

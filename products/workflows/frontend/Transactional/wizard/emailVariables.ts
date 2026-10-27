@@ -21,6 +21,15 @@ export function variablesInEmail(
     ]
 }
 
-export function variablePlaceholder(name: string): string {
-    return `{{ variables.${name} }}`
+/** Editor globals for a transactional email: its variables feed the merge tags and Liquid autocomplete. */
+export function transactionalEditorGlobals(names: string[]): { variables: Record<string, string> } {
+    return { variables: Object.fromEntries(names.map((name) => [name, ''])) }
+}
+
+/** A name a person typed, made safe to use after `variables.`. */
+export function cleanVariableName(name: string): string {
+    return name
+        .trim()
+        .replace(/[^A-Za-z0-9_]/g, '_')
+        .replace(/^(\d)/, '_$1')
 }
