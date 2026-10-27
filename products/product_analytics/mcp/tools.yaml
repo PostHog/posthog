@@ -147,7 +147,7 @@ tools:
                     existing dashboard IDs when adding a new one.
             description:
                 description: |
-                    Shown to viewers on the insight page and dashboard tiles when enabled. Max 400 characters.
+                    One sentence, about 15 words, on what the insight shows. No change notes. Max 400 characters.
         response:
             exclude:
                 - result
@@ -269,7 +269,7 @@ tools:
                     existing dashboard IDs when adding a new one.
             description:
                 description: |
-                    Shown to viewers on the insight page and dashboard tiles when enabled. Max 400 characters.
+                    One sentence, about 15 words, on what the insight shows. No change notes. Max 400 characters.
         response:
             exclude:
                 - result

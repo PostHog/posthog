@@ -1375,8 +1375,8 @@ class DashboardBasicSerializer(
             "name": {"help_text": "Name of the dashboard."},
             "description": {
                 "help_text": (
-                    "All dashboard viewers see this description at the top of the dashboard. "
-                    "Keep it to 1–2 plain sentences; leave out change history, tile IDs, and metric definitions."
+                    "Short note for people who open the dashboard. Say what it shows in one or two sentences, "
+                    "about 30 words. Shorter is better. Do not write how it was built or changed."
                 )
             },
             "pinned": {"help_text": "Whether the dashboard is pinned to the top of the list."},
