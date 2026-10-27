@@ -1,7 +1,7 @@
 from datetime import UTC, date, datetime, time
 from uuid import UUID
 
-from django.db.models import Q, QuerySet, Sum
+from django.db.models import Q, Sum
 from django.db.models.functions import TruncDate
 
 import structlog
@@ -80,13 +80,6 @@ def usage_billing_cutoff(organization_id: UUID) -> datetime | None:
     except Exception:
         logger.exception("signals.spend.billing_flag_unavailable", organization_id=str(organization_id))
         return None
-
-
-def usage_billed_reports(cutoffs: dict[UUID, datetime]) -> QuerySet[SignalReport]:
-    eligible = Q(pk__in=[])
-    for organization_id, cutoff in cutoffs.items():
-        eligible |= Q(team__organization_id=organization_id, created_at__gte=cutoff)
-    return SignalReport.objects.filter(eligible)
 
 
 def task_run_uses_usage_billing(team: Team, run_id: UUID) -> bool:

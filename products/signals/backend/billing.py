@@ -26,11 +26,7 @@ from products.signals.backend.models import (
     SignalSpend,
 )
 from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_is_proven_canonical
-from products.signals.backend.spend_billing import (
-    spend_billing_credits_by_team,
-    usage_billed_reports,
-    usage_billing_cutoff,
-)
+from products.signals.backend.spend_billing import spend_billing_credits_by_team, usage_billing_cutoff
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.api import GITHUB_PR_URL_PREFIX
 
@@ -165,7 +161,7 @@ def _legacy_pr_bridges(
     reports: QuerySet[SignalReport], *, organization_id: uuid.UUID | None
 ) -> QuerySet[SignalReportTask]:
     if organization_id is not None and (cutoff := usage_billing_cutoff(organization_id)) is not None:
-        reports = reports.exclude(id__in=usage_billed_reports({organization_id: cutoff}).values("id"))
+        reports = reports.exclude(team__organization_id=organization_id, created_at__gte=cutoff)
     return _bridges_with_pr_run().filter(report_id__in=reports.values("id"))
 
 
@@ -352,7 +348,9 @@ def _report_billing_credits_by_team(
     bridges = _bridges_with_pr_run(
         task__runs__created_at__gte=begin,
         task__runs__created_at__lt=end,
-    ).exclude(report_id__in=usage_billed_reports(cutoffs).values("id"))
+    )
+    for org_id, cutoff in cutoffs.items():
+        bridges = bridges.exclude(team__organization_id=org_id, report__created_at__gte=cutoff)
     if organization_id is not None:
         bridges = bridges.filter(team__organization_id=organization_id)
     if organization_ids is not None:
