@@ -1,11 +1,19 @@
+import { GeoIPService } from '~/common/utils/geoip'
+
+import shippedSources from '../../../tests/fixtures/geoip-template-sources.json'
 import { createHogFunction } from '../_tests/fixtures'
+import { HogExecutorService } from '../services/hog-executor.service'
+import { HogInputsService } from '../services/hog-inputs.service'
 import { template as geoipTemplate } from '../templates/_transformations/geoip/geoip.template'
 import { compileHog } from '../templates/compiler'
-import { HogFunctionType } from '../types'
+import { CyclotronJobInvocationResult, HogFunctionType } from '../types'
 import { createInvocation } from '../utils/invocation-utils'
 import { geoipNoopResult, hogTransformationGeoipNoopSkips } from './geoip-noop'
+import { RustVmExecutor } from './rust-vm-executor'
+import { getTransformationFunctions } from './transformation-functions'
 
-const VALID_IP = '203.0.113.7'
+const VALID_IP = '89.160.20.129'
+const NOOP_LOG = 'geoip disabled or no ip.'
 
 const createGeoipInvocation = (overrides: Partial<HogFunctionType>, properties: Record<string, unknown>) =>
     createInvocation(
@@ -27,45 +35,58 @@ const createGeoipInvocation = (overrides: Partial<HogFunctionType>, properties: 
 
 const skipCount = async (): Promise<number> => (await hogTransformationGeoipNoopSkips.get()).values[0]?.value ?? 0
 
+const tookEarlyReturn = (result: CyclotronJobInvocationResult): boolean =>
+    !result.error && result.logs.some(({ level, message }) => level === 'info' && message === NOOP_LOG)
+
 describe('geoipNoopResult', () => {
-    let shippedBytecode: any[]
-    let modifiedBytecode: any[]
+    const currentSource = geoipTemplate.code
+    const eligibleSources = shippedSources.filter(({ eligible }) => eligible)
+    const bytecodeBySource = new Map<string, any[]>()
+    let nodeVm: HogExecutorService
+    let rustVm: RustVmExecutor
+    let transformationFunctions: ReturnType<typeof getTransformationFunctions>
 
     beforeAll(async () => {
-        shippedBytecode = await compileHog(geoipTemplate.code)
-        modifiedBytecode = await compileHog(geoipTemplate.code.replace('geoip disabled or no ip.', 'geoip skipped.'))
+        for (const { source } of eligibleSources) {
+            bytecodeBySource.set(source, await compileHog(source))
+        }
+        const mmdbPath = process.env.MMDB_FILE_LOCATION!
+        nodeVm = new HogExecutorService({ executionTimeoutMs: 1000 }, {} as HogInputsService)
+        rustVm = new RustVmExecutor({ mmdbPath })
+        transformationFunctions = getTransformationFunctions(await new GeoIPService(mmdbPath).get())
     })
 
     it.each([
+        ...shippedSources.map(({ shipped, eligible, source }) => ({
+            name: `the template shipped ${shipped} as saved, trimmed`,
+            fn: { hog: source.trim() },
+            eligible,
+        })),
+        { name: 'the current template code', fn: { hog: currentSource }, eligible: true },
         {
-            name: 'the geoip template id with the shipped bytecode',
-            templateId: 'template-geoip',
-            shipped: true,
-            eligible: true,
-        },
-        {
-            name: 'the geoip template id with modified bytecode',
-            templateId: 'template-geoip',
-            shipped: false,
+            name: 'the current template code with whitespace changed inside a string',
+            fn: { hog: currentSource.replace(NOOP_LOG, 'geoip  disabled or no ip.') },
             eligible: false,
         },
         {
-            name: 'another template id with the shipped bytecode',
-            templateId: 'template-ip-anonymization',
-            shipped: true,
+            name: 'the current template code with an edited statement',
+            fn: { hog: currentSource.replace("print('geoip disabled or no ip.')", "print('skipped')") },
             eligible: false,
         },
-        { name: 'no template id with the shipped bytecode', templateId: undefined, shipped: true, eligible: false },
-    ])('eligible is $eligible for $name', ({ templateId, shipped, eligible }) => {
-        const invocation = createGeoipInvocation(
-            { template_id: templateId, bytecode: shipped ? shippedBytecode : modifiedBytecode },
-            { $geoip_disable: true, $ip: VALID_IP }
-        )
+        { name: 'no stored source', fn: { hog: null as unknown as string }, eligible: false },
+        {
+            name: 'another template id',
+            fn: { hog: currentSource, template_id: 'template-ip-anonymization' },
+            eligible: false,
+        },
+        { name: 'no template id', fn: { hog: currentSource, template_id: undefined }, eligible: false },
+    ])('eligible is $eligible for $name', ({ fn, eligible }) => {
+        const invocation = createGeoipInvocation(fn, { $geoip_disable: true, $ip: VALID_IP })
 
         expect(geoipNoopResult(invocation) !== null).toBe(eligible)
     })
 
-    it.each([
+    const conditionCases = [
         { name: '$geoip_disable is true', properties: { $geoip_disable: true, $ip: VALID_IP }, skipped: true },
         {
             name: '$geoip_disable is a truthy string',
@@ -93,14 +114,46 @@ describe('geoipNoopResult', () => {
         { name: '$ip is zero', properties: { $ip: 0 }, skipped: false },
         { name: '$ip is a non-zero number', properties: { $ip: 42 }, skipped: false },
         { name: '$ip is false', properties: { $ip: false }, skipped: false },
-    ])('skipped is $skipped when $name', ({ properties, skipped }) => {
-        const invocation = createGeoipInvocation({ bytecode: shippedBytecode }, properties)
+    ]
 
-        expect(geoipNoopResult(invocation) !== null).toBe(skipped)
-    })
+    it.each(
+        eligibleSources.flatMap(({ shipped, source }) =>
+            conditionCases.map((condition) => ({ ...condition, shipped, source }))
+        )
+    )(
+        'skipped is $skipped when $name, as both vms decide (template shipped $shipped)',
+        async ({ source, properties, skipped }) => {
+            const fn = { hog: source, bytecode: bytecodeBySource.get(source) }
+            const onNode = await nodeVm.execute(createGeoipInvocation(fn, properties), {
+                functions: transformationFunctions,
+            })
+            const onRust = rustVm.execute(createGeoipInvocation(fn, properties), [])
+            const shortcut = geoipNoopResult(createGeoipInvocation(fn, properties))
+
+            expect(onRust).not.toBeNull()
+            expect({ error: onRust!.error, execResult: onRust!.execResult }).toEqual({
+                error: onNode.error,
+                execResult: onNode.execResult,
+            })
+            expect(tookEarlyReturn(onNode)).toBe(skipped)
+            expect(tookEarlyReturn(onRust!)).toBe(skipped)
+            expect(shortcut !== null).toBe(skipped)
+            if (shortcut) {
+                for (const onVm of [onNode, onRust!]) {
+                    expect(onVm.execResult).toEqual(shortcut.execResult)
+                    expect(shortcut.logs.map(({ level, message }) => ({ level, message }))).toEqual(
+                        onVm.logs.map(({ level, message }) => ({
+                            level,
+                            message: level === 'debug' ? expect.stringMatching(/^Function completed in /) : message,
+                        }))
+                    )
+                }
+            }
+        }
+    )
 
     it('returns the input event as a finished result with the template logs', async () => {
-        const invocation = createGeoipInvocation({ bytecode: shippedBytecode }, { $geoip_disable: true, $ip: VALID_IP })
+        const invocation = createGeoipInvocation({ hog: currentSource }, { $geoip_disable: true, $ip: VALID_IP })
         const skipsBefore = await skipCount()
 
         const result = geoipNoopResult(invocation)
@@ -109,7 +162,7 @@ describe('geoipNoopResult', () => {
         expect(result?.error).toBeUndefined()
         expect(result?.execResult).toBe(invocation.state.globals.event)
         expect(result?.logs.map(({ level, message }) => ({ level, message }))).toEqual([
-            { level: 'info', message: 'geoip disabled or no ip.' },
+            { level: 'info', message: NOOP_LOG },
             { level: 'debug', message: expect.stringMatching(/^Function completed in [\d.]+ms\.$/) },
         ])
         expect((await skipCount()) - skipsBefore).toBe(1)

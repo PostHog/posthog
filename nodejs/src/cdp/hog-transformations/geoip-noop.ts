@@ -1,21 +1,41 @@
+import { createHash } from 'crypto'
 import { Counter } from 'prom-client'
 
-import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
+import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '../types'
 import { createAddLogFunction } from '../utils'
 import { createInvocationResult } from '../utils/invocation-utils'
-import { programKey } from './rust-vm'
 
 const GEOIP_TEMPLATE_ID = 'template-geoip'
 
-// programKey of the shipped template code compiled by bin/hoge. Any other bytecode, such as an edited
-// copy, runs on the VM. Change this key only after checking that geoipNoopResult still mirrors the
-// template's early return.
-const GEOIP_TEMPLATE_PROGRAM_KEY = 'D04pD8PYRIxwn7H63+foEYQyRfWkXjmsrPDwuPIdhM4='
+// sha256 of the trimmed source of each shipped GeoIP template version whose early return is the one
+// geoipNoopResult mirrors. Saving a function trims its source, so the stored text is trimmed too.
+// A function keeps the source it was saved with, so add every new version and never remove one.
+const NOOP_SOURCE_HASHES = new Set([
+    'c60a2c9cf0d2f82812392c3c682f4223e17082f109e02fbf5467fbb0069d0770', // shipped 2025-01-30
+    '936b06d7d65914d43e5b9f45d8eecda36450e0c128bbfb522020fc0600261175', // shipped 2026-01-08
+])
 
 export const hogTransformationGeoipNoopSkips = new Counter({
     name: 'hog_transformation_geoip_noop_skips_total',
     help: 'GeoIP transformation invocations answered without the VM because the template returns the event unchanged',
 })
+
+const noopSourceByFunction = new WeakMap<HogFunctionType, boolean>()
+
+function hasNoopSource(hogFunction: HogFunctionType): boolean {
+    let matches = noopSourceByFunction.get(hogFunction)
+    if (matches === undefined) {
+        matches =
+            typeof hogFunction.hog === 'string' &&
+            NOOP_SOURCE_HASHES.has(
+                createHash('sha256')
+                    .update(hogFunction.hog.replace(/^[ \t\r\n]+|[ \t\r\n]+$/g, ''))
+                    .digest('hex')
+            )
+        noopSourceByFunction.set(hogFunction, matches)
+    }
+    return matches
+}
 
 // Hog's empty(), identical in the Node and Rust VMs.
 function isHogEmpty(value: unknown): boolean {
@@ -40,10 +60,7 @@ export function geoipNoopResult(
 ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | null {
     const startedAt = performance.now()
     const { hogFunction } = invocation
-    if (
-        hogFunction.template_id !== GEOIP_TEMPLATE_ID ||
-        programKey(hogFunction.bytecode) !== GEOIP_TEMPLATE_PROGRAM_KEY
-    ) {
+    if (hogFunction.template_id !== GEOIP_TEMPLATE_ID || !hasNoopSource(hogFunction)) {
         return null
     }
 

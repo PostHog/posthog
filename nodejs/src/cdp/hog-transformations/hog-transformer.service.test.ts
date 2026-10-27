@@ -3,6 +3,7 @@ import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/produc
 import { DateTime } from 'luxon'
 
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { parseJSON } from '~/common/utils/json-parse'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
@@ -1606,14 +1607,15 @@ describe('HogTransformer', () => {
                 name: geoipTemplate.name,
                 team_id: teamId,
                 template_id: 'template-geoip',
+                hog: geoipTemplate.code,
                 bytecode: await compileHog(geoipTemplate.code),
                 ...overrides,
             })
 
-        const transform = async (hogFunction: HogFunctionType, properties: Record<string, any>) => {
+        const transform = async (hogFunctions: HogFunctionType[], properties: Record<string, any>) => {
             const executeSpy = jest.spyOn(hogTransformer['hogExecutor'], 'execute')
             const queueAppMetricSpy = jest.spyOn(hogTransformer['hogFunctionMonitoringService'], 'queueAppMetric')
-            const result = await hogTransformer.transformEvent(createPluginEvent({ properties }, teamId), [hogFunction])
+            const result = await hogTransformer.transformEvent(createPluginEvent({ properties }, teamId), hogFunctions)
             hogTransformer['hogFunctionMonitoringService'].queueInvocationResults(result.invocationResults)
             const outcome = {
                 vmCalls: executeSpy.mock.calls.length,
@@ -1636,8 +1638,8 @@ describe('HogTransformer', () => {
             { name: '$ip is empty', properties: { $ip: '', $geoip_disable: false } },
             { name: '$ip is an empty object', properties: { $ip: {} } },
         ])('answers without the vm and matches its output when $name', async ({ properties }) => {
-            const onVm = await transform(await geoipFunction({ template_id: undefined }), properties)
-            const skipped = await transform(await geoipFunction(), properties)
+            const onVm = await transform([await geoipFunction({ template_id: undefined })], properties)
+            const skipped = await transform([await geoipFunction()], properties)
 
             expect(onVm.vmCalls).toBe(1)
             expect(skipped.vmCalls).toBe(0)
@@ -1660,9 +1662,35 @@ describe('HogTransformer', () => {
                 properties: { $ip: '216.160.83.56', $geoip_disable: true },
             },
         ])('runs the vm when $name', async ({ code, properties }) => {
-            const outcome = await transform(await geoipFunction({ bytecode: await compileHog(code) }), properties)
+            const outcome = await transform(
+                [await geoipFunction({ hog: code, bytecode: await compileHog(code) })],
+                properties
+            )
 
             expect(outcome.vmCalls).toBe(1)
+        })
+
+        it('decides on the event as changed by an earlier transformation', async () => {
+            const disableGeoipCode = `
+                let returnEvent := event
+                returnEvent.properties.$geoip_disable := true
+                return returnEvent
+            `
+            const disableGeoip = createHogFunction({
+                type: 'transformation',
+                team_id: teamId,
+                hog: disableGeoipCode,
+                bytecode: await compileHog(disableGeoipCode),
+            })
+            const properties = { $ip: '216.160.83.56' }
+
+            const onVm = await transform([disableGeoip, await geoipFunction({ template_id: undefined })], properties)
+            const skipped = await transform([disableGeoip, await geoipFunction()], properties)
+
+            expect(onVm.vmCalls).toBe(2)
+            expect(skipped.vmCalls).toBe(1)
+            expect(skipped.event).toBe(onVm.event)
+            expect(parseJSON(skipped.event).properties).toEqual({ $ip: '216.160.83.56', $geoip_disable: true })
         })
     })
 
@@ -1781,6 +1809,7 @@ describe('HogTransformer', () => {
                 type: 'transformation',
                 team_id: teamId,
                 template_id: 'template-geoip',
+                hog: geoipTemplate.code,
                 bytecode: await compileHog(geoipTemplate.code),
             })
             const properties = { $ip: '216.160.83.56', $geoip_disable: true }
