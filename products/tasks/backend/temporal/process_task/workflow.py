@@ -347,7 +347,8 @@ _ORIGIN_PRODUCT_SIGNAL_REPORT = "signal_report"
 
 # Gates the forward of the agent_final_text signal to the Slack relay. A worker without the
 # handler records that signal in history and sends nothing, so a replay that forwards it emits a
-# command the history does not have (TMPRL1100).
+# command the history does not have (TMPRL1100). Every worker now has the handler, so the patch is
+# deprecated; delete it once histories that carry the marker drain.
 _PATCH_ID_SLACK_AGENT_FINAL_TEXT = "tasks-slack-agent-final-text"
 
 # Progress steps of sandbox setup. The Slack plan shows them until the first turn starts.
@@ -1196,7 +1197,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             self._sandbox_url = sandbox_url
             self._sandbox_connect_token = sandbox_connect_token
             if self._is_agent_design_enabled:
-                self._forwards_agent_final_text = workflow.patched(_PATCH_ID_SLACK_AGENT_FINAL_TEXT)
+                workflow.deprecate_patch(_PATCH_ID_SLACK_AGENT_FINAL_TEXT)
+                self._forwards_agent_final_text = True
 
             relay_task: asyncio.Task[None] | None = self._spawn_event_relay(
                 sandbox_url, sandbox_connect_token, sandbox_id
