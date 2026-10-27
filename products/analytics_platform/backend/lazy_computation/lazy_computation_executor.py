@@ -1170,10 +1170,10 @@ class LazyComputationExecutor:
       within the last N seconds — complete-but-stale data, returned immediately with
       `stale=True`. Must stay well under EXPIRY_BUFFER_SECONDS (48h) so the underlying
       ClickHouse rows are guaranteed to still exist.
-    - events_retention_months: The team's enforced events retention, or None. When set, the
-      executor neither builds nor requires windows before `retention_build_floor`, and caps
-      each new job's expires_at with `retention_expires_at_cap`, so no precomputed row
-      outlives the events it was built from.
+    - events_retention_months: The team's enforced events retention, or None. When set, a
+      range that starts before `retention_build_floor` is a miss, and each new job's
+      expires_at is capped with `retention_expires_at_cap`, so no precomputed row outlives
+      the events it was built from.
     """
 
     def __init__(
@@ -1263,18 +1263,16 @@ class LazyComputationExecutor:
         end_utc = end if end.tzinfo is not None else end.replace(tzinfo=UTC)
         historical_end = end_utc if end_is_data_horizon and end_utc < today_start_utc else None
 
-        before_retention_floor = False
+        reaches_retention_floor = False
         if self.events_retention_months is not None:
-            # Daily windows take the calendar date of `start` as given, so a non-UTC start would
-            # select a UTC window for its local date, which can sit before the floor.
+            # Compare in UTC: daily windows take the calendar date of `start` as given, so a non-UTC
+            # start would select a UTC window for its local date, which can sit before the floor.
             start_utc = start.astimezone(UTC) if start.tzinfo is not None else start.replace(tzinfo=UTC)
-            start = max(start_utc, retention_build_floor(self.events_retention_months, now_utc))
-            end = end_utc
-            before_retention_floor = start >= end_utc
+            reaches_retention_floor = start_utc < retention_build_floor(self.events_retention_months, now_utc)
 
         def _log_execution(outcome: str, result: LazyComputationResult) -> None:
-            if outcome == "check_miss":
-                # Check-only misses return before any job is created or waited on,
+            if outcome in ("check_miss", "retention_floor_miss", "retention_cap_expired"):
+                # These misses return before any job is created or waited on,
                 # which the branch below would misread as a cache hit.
                 cache_state = "partial_hit" if had_ready_at_start else "miss"
             elif jobs_created == 0 and not waited_job_ids:
@@ -1302,11 +1300,12 @@ class LazyComputationExecutor:
                 time_range_days=(end - start).days,
             )
 
-        if before_retention_floor:
-            # The whole range is before the retention floor, so there is nothing to build or serve.
-            # An empty job list makes readers fall back to the live query.
-            result = LazyComputationResult(ready=True, job_ids=[])
-            _log_execution("before_retention_floor", result)
+        if reaches_retention_floor:
+            # Windows before the floor cannot be built, and clipping the range would report partial
+            # coverage as ready. Readers that checked the floor earlier can still land here when the
+            # floor advanced in between, so a miss sends every such range to the live query.
+            result = LazyComputationResult(ready=False, job_ids=[])
+            _log_execution("retention_floor_miss", result)
             return result
 
         try:
@@ -1407,6 +1406,25 @@ class LazyComputationExecutor:
                             _log_execution("timeout", result)
                             return result
 
+                        expires_at_cap = (
+                            retention_expires_at_cap(build_range.start, self.events_retention_months)
+                            if self.events_retention_months is not None
+                            else None
+                        )
+                        if expires_at_cap is not None and expires_at_cap <= django_timezone.now():
+                            # The floor advanced while this call ran. A job created now would expire at
+                            # once, and `find_existing_jobs` would drop it on the next pass, so the loop
+                            # would rebuild the same window until the wait budget runs out.
+                            result = LazyComputationResult(
+                                ready=False,
+                                job_ids=[],
+                                errors=errors,
+                                memory_exceeded=memory_exceeded,
+                                capacity_rejected=capacity_rejected,
+                            )
+                            _log_execution("retention_cap_expired", result)
+                            return result
+
                         # `ttl_seconds` is the band TTL used for merging; the job's real expiry adds the jitter
                         new_job = create_lazy_computation_job(
                             team,
@@ -1414,11 +1432,7 @@ class LazyComputationExecutor:
                             build_range.start,
                             build_range.end,
                             self.ttl_schedule.get_ttl(build_range.start, jittered=True),
-                            expires_at_cap=(
-                                retention_expires_at_cap(build_range.start, self.events_retention_months)
-                                if self.events_retention_months is not None
-                                else None
-                            ),
+                            expires_at_cap=expires_at_cap,
                         )
                         if new_job is None:
                             # Another executor created a PENDING job for this range; the

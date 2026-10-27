@@ -1294,11 +1294,12 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("not_enforced", False, (2, 23), (2, 27), [((2, 23), (2, 27), "band")]),
+            ("not_enforced", False, (2, 23), (2, 27), True, [((2, 23), (2, 27), "band")]),
             # Floor = ceil_day(Feb 20 12:00 + 48h + 2d) = Feb 25; its cap is Mar 25 - 4d = Mar 21.
-            ("clips_pre_floor_days_and_caps_expiry", True, (2, 23), (2, 27), [((2, 25), (2, 27), (3, 21))]),
-            ("recent_window_keeps_band_ttl", True, (3, 10), (3, 12), [((3, 10), (3, 12), "band")]),
-            ("whole_range_before_floor", True, (2, 1), (2, 20), []),
+            ("starts_before_the_floor_misses", True, (2, 23), (2, 27), False, []),
+            ("starts_on_the_floor_caps_expiry", True, (2, 25), (2, 27), True, [((2, 25), (2, 27), (3, 21))]),
+            ("recent_window_keeps_band_ttl", True, (3, 10), (3, 12), True, [((3, 10), (3, 12), "band")]),
+            ("whole_range_before_floor_misses", True, (2, 1), (2, 20), False, []),
         ]
     )
     def test_events_retention_bounds_job_ranges_and_expiry(
@@ -1307,6 +1308,7 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
         enforced: bool,
         start: tuple[int, int],
         end: tuple[int, int],
+        expected_ready: bool,
         expected: list[tuple[tuple[int, int], tuple[int, int], tuple[int, int] | str]],
     ) -> None:
         now = datetime(2026, 3, 20, 12, tzinfo=UTC)
@@ -1326,7 +1328,7 @@ class TestEnsurePrecomputed(ClickhouseTestMixin, BaseTest):
                 ttl_seconds=band_ttl,
             )
 
-        assert result.ready is True
+        assert result.ready is expected_ready
         jobs = PreaggregationJob.objects.filter(id__in=result.job_ids).order_by("time_range_start")
         assert [(j.time_range_start, j.time_range_end, j.expires_at) for j in jobs] == [
             (day(s), day(e), day(x) if isinstance(x, tuple) else now + timedelta(seconds=band_ttl))
@@ -1992,6 +1994,34 @@ class TestComputationExecutorExecute(BaseTest):
         assert isinstance(s, ast.SelectQuery)
         qi = LazyComputationQuery(query=s, table=LazyComputationTable.PREAGGREGATION_RESULTS, timezone="UTC")
         return qi, compute_query_hash(qi)
+
+    def test_retention_cap_expiring_mid_build_returns_a_miss(self) -> None:
+        # Floor = ceil_day(Feb 20 23:59:30 + 48h + 2d) = Feb 25, whose cap (Mar 21 00:00) is 30s ahead of now.
+        now = datetime(2026, 3, 20, 23, 59, 30, tzinfo=UTC)
+        query_info, _ = self._make_query_info()
+        inserts = 0
+
+        with time_machine.travel(now, tick=False) as traveller:
+
+            def insert_crossing_the_cap(_team: object, _job: object) -> int:
+                nonlocal inserts
+                inserts += 1
+                traveller.shift(60)
+                return 1
+
+            result = LazyComputationExecutor(
+                events_retention_months=1, wait_timeout_seconds=5.0, poll_interval_seconds=0.05
+            ).execute(
+                team=self.team,
+                query_info=query_info,
+                start=datetime(2026, 2, 25, tzinfo=UTC),
+                end=datetime(2026, 2, 26, tzinfo=UTC),
+                run_insert=insert_crossing_the_cap,
+            )
+
+        assert result.ready is False
+        assert inserts == 1
+        assert PreaggregationJob.objects.filter(team=self.team).count() == 1
 
     # --- Happy path ---
 

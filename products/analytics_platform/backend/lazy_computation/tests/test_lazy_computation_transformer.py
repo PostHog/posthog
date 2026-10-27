@@ -1,7 +1,10 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import uuid4
 
+import time_machine
 from posthog.test.base import BaseTest, QueryMatchingTest, _create_event
+
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -475,6 +478,26 @@ class TestQueryTransformation(BaseTest, QueryMatchingTest):
         transformed = self._parse_and_transform(original_query)
 
         # Should not be transformed
+        assert PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME not in transformed
+        assert transformed == self._normalize(original_query)
+
+    def test_no_transformation_when_the_range_starts_before_the_retention_floor(self):
+        self.team.event_retention_months = 1
+        self.team.save()
+        original_query = """
+            SELECT uniqExact(person_id)
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= '2026-02-01'
+              AND timestamp < '2026-03-01'
+            GROUP BY toStartOfDay(timestamp)
+        """
+        with (
+            override_settings(EVENTS_DATA_RETENTION_ENFORCED=True),
+            time_machine.travel(datetime(2026, 3, 20, 12, tzinfo=UTC), tick=False),
+        ):
+            transformed = self._parse_and_transform(original_query)
+
         assert PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME not in transformed
         assert transformed == self._normalize(original_query)
 
