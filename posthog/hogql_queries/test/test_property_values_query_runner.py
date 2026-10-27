@@ -26,6 +26,16 @@ from posthog.hogql_queries.property_values_query_runner import (
     PropertyValuesQueryRunner,
 )
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.models import Organization, Team
+
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+MULTIVARIATE_FILTERS = {
+    "groups": [{"rollout_percentage": 100}],
+    "multivariate": {
+        "variants": [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
+    },
+}
 
 
 class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -142,6 +152,43 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"))
         assert results[0].count is None
+
+    @parameterized.expand(
+        [
+            ("boolean_flag", {"groups": [{"rollout_percentage": 100}]}, None, ["true", "false"]),
+            ("multivariate_flag", MULTIVARIATE_FILTERS, None, ["control", "test", "false"]),
+            ("search_is_case_insensitive", MULTIVARIATE_FILTERS, "TES", ["test"]),
+        ]
+    )
+    def test_feature_flag_property_values_come_from_the_flag(self, _name, filters, search_value, expected_names):
+        FeatureFlag.objects.create(team=self.team, key="beta", created_by=self.user, filters=filters)
+        _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"$feature/beta": "retired"})
+        flush_persons_and_events()
+
+        results = self._run(
+            PropertyValuesQuery(
+                property_type=PropertyType.EVENT, property_key="$feature/beta", search_value=search_value
+            )
+        )
+        assert [r.name for r in results] == expected_names
+
+    def test_feature_flag_property_without_a_flag_in_the_project_uses_events_scan(self):
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Other"))
+        FeatureFlag.objects.create(team=other_team, key="beta", filters=MULTIVARIATE_FILTERS)
+        _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"$feature/beta": "retired"})
+
+        results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="$feature/beta"))
+        assert [r.name for r in results] == ["retired"]
+
+    def test_restricted_feature_flag_property_is_not_served(self):
+        FeatureFlag.objects.create(team=self.team, key="beta", created_by=self.user, filters=MULTIVARIATE_FILTERS)
+
+        with patch(
+            "posthog.hogql_queries.property_values_query_runner.get_restricted_property_names",
+            return_value={"$feature/beta"},
+        ):
+            results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="$feature/beta"))
+        assert results == []
 
     @snapshot_clickhouse_queries
     def test_person_property_values_basic(self):

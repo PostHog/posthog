@@ -17,6 +17,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import FEATURE_FLAG_PROPERTY_PREFIX
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -31,6 +32,7 @@ from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.utils import convert_property_value, flatten, get_instance_region, relative_date_parse
 
 from products.access_control.backend.property_access_control import get_restricted_property_names
+from products.feature_flags.backend.facade.flags import get_flag_property_values
 
 PROPERTY_VALUES_TABLE_FLAG = "property-values-table"
 
@@ -67,6 +69,8 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
                 timings=self.timings.to_list(),
                 modifiers=self.modifiers,
             )
+        if self._feature_flag_property_values is not None:
+            return self._calculate_event_from_flag(self._feature_flag_property_values)
         if self._use_property_values_table:
             return self._calculate_event_from_table()
         result = execute_hogql_query(
@@ -99,6 +103,22 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
     def _restricted_event_property_names(self) -> set[str]:
         return get_restricted_property_names(
             team_id=self.team.pk, user=self.user, property_type=PropertyDefinition.Type.EVENT
+        )
+
+    @cached_property
+    def _feature_flag_property_values(self) -> list[bool | str] | None:
+        key = self.query.property_key
+        if self.query.is_column or not key.startswith(FEATURE_FLAG_PROPERTY_PREFIX):
+            return None
+        return get_flag_property_values(self.team, key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX))
+
+    def _calculate_event_from_flag(self, values: list[bool | str]) -> PropertyValuesQueryResponse:
+        search = (self.query.search_value or "").lower()
+        names = [convert_property_value(value) for value in values]
+        return PropertyValuesQueryResponse(
+            results=[PropertyValueItem(name=name) for name in names if search in name.lower()],
+            timings=self.timings.to_list(),
+            modifiers=self.modifiers,
         )
 
     @cached_property

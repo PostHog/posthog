@@ -1,6 +1,6 @@
-"""The read of an organization's flag_evaluations mode, the gates built on it, and whether a team has an active
-flag. The module stays light so core code can import it without pulling the facade's heavier logic surface onto
-its import path.
+"""The read of an organization's flag_evaluations mode, the gates built on it, whether a team has an active flag,
+and the values a flag's event property can hold. The module stays light so core code can import it without
+pulling the facade's heavier logic surface onto its import path.
 """
 
 from typing import TYPE_CHECKING
@@ -10,6 +10,7 @@ from django.conf import settings
 
 from posthog.models.instance_setting import get_instance_setting
 
+from products.feature_flags.backend.facade.config import served_string_values
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
@@ -25,6 +26,17 @@ def has_active_flags(team: "Team") -> bool:
     # `team=`, not `team_id=`: the flag manager rewrites `team_id=` to the project's root team, which changes the
     # answer for an environment team and costs a join.
     return FeatureFlag.objects.filter(team=team, active=True).exists()
+
+
+def get_flag_property_values(team: "Team", key: str) -> list[bool | str] | None:
+    """The values the `$feature/<key>` event property can hold, read from the project's flag with that key: each
+    string the flag serves and false, or true and false for a flag that serves only booleans. None when the
+    project has no such flag."""
+    flag = FeatureFlag.objects.filter(team__project_id=team.project_id, key=key).only("filters").first()
+    if flag is None:
+        return None
+    strings = served_string_values(flag.filters)
+    return [*strings, False] if strings else [True, False]
 
 
 def get_organization_flag_evaluations_mode(organization_id: UUID) -> int:
