@@ -28924,6 +28924,54 @@ export namespace Schemas {
       readonly results: readonly CustomerTaskActivity[];
     }
 
+    export interface CustomerTaskBulkPatch {
+      /**
+         * UUID of a visible account, or null to remove the account link.
+         * @nullable
+         */
+      account_id?: string | null;
+      /**
+         * Replacement assignee ID, or null to unassign.
+         * @nullable
+         */
+      assigned_to_id?: number | null;
+      /**
+         * Replacement ISO 8601 deadline, or null to clear it.
+         * @nullable
+         */
+      due_at?: string | null;
+      /** Replacement task status.
+       *
+       * * `open` - Open
+       * * `in_progress` - In progress
+       * * `completed` - Completed
+       * * `canceled` - Canceled */
+      status?: CustomerTaskStatusEnum;
+      /** Archive tasks when true, or restore them when false. */
+      archived?: boolean;
+    }
+
+    export interface CustomerTaskBulkUpdate {
+      /**
+         * UUIDs of up to 100 tasks to update together.
+         * @minItems 1
+         * @maxItems 100
+         */
+      task_ids: string[];
+      /** Changes to apply to every selected task. */
+      updates: CustomerTaskBulkPatch;
+    }
+
+    export interface CustomerTaskBulkUpdateError {
+      /** Reason the batch could not be updated. */
+      readonly detail: string;
+    }
+
+    export interface CustomerTaskBulkUpdateResult {
+      /** Number of tasks changed by this batch. */
+      readonly updated_count: number;
+    }
+
     export interface CustomerTaskCreate {
       /**
          * UUID of a visible account, or null for an accountless task.
@@ -28983,16 +29031,6 @@ export namespace Schemas {
          */
       account_id?: string | null;
       /**
-         * Replacement task name.
-         * @maxLength 400
-         */
-      name: string;
-      /**
-         * Replacement description, or null to clear it.
-         * @nullable
-         */
-      description?: string | null;
-      /**
          * Replacement assignee ID, or null to unassign.
          * @nullable
          */
@@ -29009,6 +29047,16 @@ export namespace Schemas {
        * * `completed` - Completed
        * * `canceled` - Canceled */
       status?: CustomerTaskStatusEnum;
+      /**
+         * Replacement task name.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Replacement description, or null to clear it.
+         * @nullable
+         */
+      description?: string | null;
     }
 
     export type DashboardFilters = { [key: string]: unknown };
@@ -79661,6 +79709,8 @@ export namespace Schemas {
       agent: string | null;
       /** @nullable */
       claimed_at: string | null;
+      /** The person who answers for the claim: the user for a user claim, the user an MCP agent acts for, or the user who started an internal task. Null when no person stands behind the claim. */
+      responsible_user: _User | null;
     }
 
     /**
@@ -85227,16 +85277,6 @@ export namespace Schemas {
          */
       account_id?: string | null;
       /**
-         * Replacement task name.
-         * @maxLength 400
-         */
-      name?: string;
-      /**
-         * Replacement description, or null to clear it.
-         * @nullable
-         */
-      description?: string | null;
-      /**
          * Replacement assignee ID, or null to unassign.
          * @nullable
          */
@@ -85253,6 +85293,16 @@ export namespace Schemas {
        * * `completed` - Completed
        * * `canceled` - Canceled */
       status?: CustomerTaskStatusEnum;
+      /**
+         * Replacement task name.
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * Replacement description, or null to clear it.
+         * @nullable
+         */
+      description?: string | null;
     }
 
     export interface PatchedDashboardTemplate {
@@ -108773,7 +108823,7 @@ export namespace Schemas {
     /**
      * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
      */
-    export type SendTransactionalEmailMessageData = {[key: string]: unknown};
+    export type SendEmailMessageData = {[key: string]: unknown};
 
     export interface TransactionalEmailIdentifiers {
       /**
@@ -108783,6 +108833,27 @@ export namespace Schemas {
          */
       distinct_id?: string | null;
     }
+
+    export interface SendEmailTemplate {
+      /** ID of the email template to send. The template must be made transactional first. */
+      id: string;
+    }
+
+    export interface SendEmail {
+      /** Email address of the recipient. */
+      to: string;
+      /** Who the email is for, used to attribute engagement events. */
+      identifiers?: TransactionalEmailIdentifiers;
+      /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
+      message_data?: SendEmailMessageData;
+      /** The transactional email template to send. */
+      template: SendEmailTemplate;
+    }
+
+    /**
+     * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
+     */
+    export type SendTransactionalEmailMessageData = {[key: string]: unknown};
 
     export interface SendTransactionalEmail {
       /** Email address of the recipient. */
@@ -139013,7 +139084,7 @@ export namespace Schemas {
      */
     already_addressed?: boolean;
     /**
-     * Use 'me' to return reports claimed by the current user, task, or MCP agent.
+     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, claims by MCP agents acting for them, and claims by internal tasks they started.
      */
     assignee?: SignalsReportsListAssignee;
     /**
@@ -139140,6 +139211,7 @@ export namespace Schemas {
 
     export const SignalsReportsListAssignee = {
       Me: 'me',
+      Mine: 'mine',
     } as const;
 
     export type SignalsReportPrChecksParams = {
