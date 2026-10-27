@@ -2563,6 +2563,13 @@ class TestCommentHelperFunctions(SimpleTestCase):
             ("without_slug_dashboard", "Dashboard", "789", "", "/dashboard/789#panel=discussion"),
             ("without_slug_replay", "Replay", "rec_123", "", "/replay/rec_123#panel=discussion"),
             ("without_slug_feature_flag", "FeatureFlag", "10", "", "/feature-flags/10#panel=discussion"),
+            (
+                "without_slug_replay_observation",
+                "ReplayObservation",
+                "0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+                "",
+                "/replay-vision/observations/0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b#panel=discussion",
+            ),
             ("unknown_scope_fallback", "UnknownScope", "123", "", "#panel=discussion"),
             # item_id is client-supplied free text — mrkdwn/URL control chars must be encoded.
             (
