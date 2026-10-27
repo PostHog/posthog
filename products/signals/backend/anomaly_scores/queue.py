@@ -150,6 +150,16 @@ class Selection:
 
 
 @frozen
+class ScorePassOrder:
+    # Due insights with a current model, longest overdue first.
+    order: list[int]
+    # Due insights with a model past a soft retrain trigger, longest overdue first.
+    stale_order: list[int]
+    # Every watched insight with a current model, due or not.
+    ready: set[int]
+
+
+@frozen
 class QueryBudget:
     """Scoring queries left in this clock hour, for the fleet and for each project."""
 
@@ -467,7 +477,8 @@ def select_insights(
     score_skipped = 0
     score_cap = config.max_score_insights_per_tick if limit is None else limit
     if config.train_score_split:
-        score_order_ids, stale_order_ids, score_ready = _score_order(watched_by_id, teams, config, now)
+        score_pass = _score_order(watched_by_id, teams, config, now)
+        score_order_ids, stale_order_ids, score_ready = score_pass.order, score_pass.stale_order, score_pass.ready
         score_picked, score_skipped = walk(score_order_ids, ScoringRun.SCORE, score_cap)
         # A spent score budget makes the walk load no plan. Plan the head of the order anyway, so that an
         # edited insight there still reaches the train pass while the train budget has room.
@@ -574,11 +585,10 @@ def _score_order(
     teams: dict[int, Team],
     config: AnomalyScoringConfig,
     now: datetime.datetime,
-) -> tuple[list[int], list[int], set[int]]:
-    """The score pass order, the order of the due stale models, and every watched insight with a current state.
+) -> ScorePassOrder:
+    """The score pass orders, longest overdue first in each project.
 
-    The orders hold the insights with a due bucket after their state, longest overdue first in each project.
-    A stale model is in the second order only, because the train pass gets it first. The set leaves out the
+    A stale model is in `stale_order` only, because the train pass gets it first. `ready` leaves out the
     stale models, so they reach the train pass.
     """
     team_orders: list[list[int]] = []
@@ -610,4 +620,4 @@ def _score_order(
                     max_staleness=config.limits.max_backfill_buckets,
                 )
             )
-    return _take_turns(team_orders), _take_turns(stale_orders), ready
+    return ScorePassOrder(order=_take_turns(team_orders), stale_order=_take_turns(stale_orders), ready=ready)
