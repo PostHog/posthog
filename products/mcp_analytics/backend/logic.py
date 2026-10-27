@@ -11,12 +11,16 @@ from django.utils import timezone
 from posthog.schema import AnyPropertyFilterDiscriminated, DateRange, EventPropertyFilter
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.utils.caller_context import map_in_caller_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.person import Person
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team.team import Team
@@ -653,12 +657,30 @@ def _extract_error_message(raw: Any) -> str | None:
 
 
 def _run_activity_query(
-    team: Team, sql: str, name: str, placeholders: dict[str, ast.Expr], user: User | None
+    team: Team,
+    sql: str,
+    name: str,
+    placeholders: dict[str, ast.Expr],
+    user: User | None,
+    database: Database | None,
 ) -> list[Any]:
     query = parse_select(sql, placeholders={**placeholders})
+    # Each thread needs its own context, because the executor writes to it while it runs.
+    context = HogQLContext(team_id=team.pk, user=user, database=database)
     with tags_context(product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.id, name=name):
-        response = execute_hogql_query(query=query, team=team, user=user)
+        response = execute_hogql_query(query=query, team=team, user=user, context=context)
     return response.results or []
+
+
+def _shared_activity_database(team: Team, user: User | None) -> Database | None:
+    if not get_instance_setting("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED"):
+        return None
+    return Database.create_for(
+        team=team,
+        user=user,
+        modifiers=create_default_modifiers_for_team(team),
+        trigger="mcp_activity_overview",
+    )
 
 
 def get_activity_overview(
@@ -698,9 +720,15 @@ def get_activity_overview(
         filter_test_accounts,
     )
 
+    # Building the database costs more Python time than most of these queries spend in
+    # ClickHouse, and the threads share the GIL, so build it once for all five.
+    database = _shared_activity_database(team, user)
+
     def run_query(spec: tuple[str, str, object]) -> list[Any]:
         assert isinstance(spec[2], dict)
-        return _run_activity_query(team, spec[0], spec[1], {**spec[2], "shared_filters": shared_filters}, user)
+        return _run_activity_query(
+            team, spec[0], spec[1], {**spec[2], "shared_filters": shared_filters}, user, database
+        )
 
     stats_rows, missing_capability_rows, top_tools_rows, clients_rows, recent_calls_rows = map_in_caller_context(
         run_query,

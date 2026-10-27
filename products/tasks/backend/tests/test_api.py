@@ -15239,21 +15239,22 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         task.refresh_from_db()
         self.assertNotIn("mobile_push_user_ids", task.state or {})
 
+    @parameterized.expand([("ai_gateway_product", "slack_app"), ("billing_product", "posthog_ai")])
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
-    def test_patch_cannot_forge_the_gateway_pin_stamp(self, _mock_publish):
+    def test_patch_cannot_forge_billing_or_gateway_product(self, key, original, _mock_publish):
         task = self.create_task()
         run = TaskRun.objects.create(
-            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={"ai_gateway_product": "slack_app"}
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={key: original}
         )
         url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
 
-        response = self.client.patch(url, {"state": {}, "state_remove_keys": ["ai_gateway_product"]}, format="json")
+        response = self.client.patch(url, {"state": {}, "state_remove_keys": [key]}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response = self.client.patch(url, {"state": {"ai_gateway_product": "review_hog"}}, format="json")
+        response = self.client.patch(url, {"state": {key: "review_hog"}}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         run.refresh_from_db()
-        assert run.state["ai_gateway_product"] == "slack_app"
+        assert run.state[key] == original
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
