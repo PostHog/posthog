@@ -2,7 +2,6 @@ from .check_upstream_reloads import (
     CheckUpstreamReloadsInputs,
     CheckUpstreamReloadsResult,
     NodesWaitingOnUpstreamReloadsInputs,
-    NodesWaitingOnUpstreamReloadsResult,
     check_upstream_reloads_activity,
     nodes_waiting_on_upstream_reloads_activity,
 )
@@ -59,7 +58,6 @@ __all__ = [
     "CheckUpstreamReloadsInputs",
     "CheckUpstreamReloadsResult",
     "NodesWaitingOnUpstreamReloadsInputs",
-    "NodesWaitingOnUpstreamReloadsResult",
     "ClearCDPStagingInputs",
     "CreateDataModelingJobInputs",
     "RecordSkippedDataModelingJobsInputs",

@@ -2,8 +2,6 @@ import dataclasses
 
 import pytest
 
-from django.utils import timezone
-
 import pytest_asyncio
 from temporalio.testing import ActivityEnvironment
 
@@ -219,33 +217,26 @@ class TestCheckUpstreamReloads:
             assert jobs == []
 
     @pytest.mark.parametrize(
-        "later_status,taken",
+        "other_run_status,busy",
         [(None, False), (DataModelingJobStatus.RUNNING, True), (DataModelingJobStatus.FAILED, False)],
     )
-    async def test_lists_the_nodes_still_waiting_and_the_ones_another_run_took(
-        self, ateam, adag_local, later_status, taken
+    async def test_lists_the_nodes_waiting_on_a_reload_or_on_another_run(
+        self, ateam, adag_local, other_run_status, busy
     ):
-        waiting, waiting_query = await _make_node(ateam, adag_local, "revenue_daily")
-        unaffected, _ = await _make_node(ateam, adag_local, "orders_daily")
-        await database_sync_to_async(_start_full_refresh_upstream_of)(ateam, adag_local, waiting)
-        wait_started = timezone.now()
-        if later_status is not None:
+        reloading, reloading_query = await _make_node(ateam, adag_local, "revenue_daily")
+        other, other_query = await _make_node(ateam, adag_local, "orders_daily")
+        await database_sync_to_async(_start_full_refresh_upstream_of)(ateam, adag_local, reloading)
+        if other_run_status is not None:
             await database_sync_to_async(DataModelingJob.objects.create)(
-                team=ateam, saved_query=waiting_query, status=later_status, engine=DataModelingJobEngine.CLICKHOUSE
+                team=ateam, saved_query=other_query, status=other_run_status, engine=DataModelingJobEngine.CLICKHOUSE
             )
 
         result = await ActivityEnvironment().run(
             nodes_waiting_on_upstream_reloads_activity,
             NodesWaitingOnUpstreamReloadsInputs(
-                team_id=ateam.pk,
-                dag_id=str(adag_local.id),
-                node_ids=[str(waiting.id), str(unaffected.id)],
-                taken_after=wait_started,
+                team_id=ateam.pk, dag_id=str(adag_local.id), node_ids=[str(reloading.id), str(other.id)]
             ),
         )
 
-        assert result.taken == ([str(waiting.id)] if taken else [])
-        assert result.waiting == ([] if taken else [str(waiting.id)])
-        assert await database_sync_to_async(_status_and_error)(waiting_query) == (
-            [(later_status, None)] if later_status else []
-        )
+        assert result == sorted([str(reloading.id)] + ([str(other.id)] if busy else []))
+        assert await database_sync_to_async(_status_and_error)(reloading_query) == []

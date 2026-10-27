@@ -20,7 +20,6 @@ from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.activities import (
     GetDAGStructureInputs,
-    NodesWaitingOnUpstreamReloadsResult,
     NotifyDAGMaterializationFailuresInputs,
     PreemptDAGRunInputs,
     RecordSkippedDataModelingJobsInputs,
@@ -1239,16 +1238,12 @@ class TestTrinoShadowRun:
         assert preempt_inputs.engine == engine.value
 
 
-def _waiting(waiting: list[str], taken: list[str] | None = None) -> NodesWaitingOnUpstreamReloadsResult:
-    return NodesWaitingOnUpstreamReloadsResult(waiting=waiting, taken=taken or [])
-
-
 class TestRunAfterUpstreamReloads:
     async def _run(
         self,
         inputs: ExecuteDAGInputs,
         *,
-        waiting_checks: list[NodesWaitingOnUpstreamReloadsResult | Exception] | None = None,
+        waiting_checks: list[list[str] | Exception] | None = None,
     ):
         plan = DAGPlan(nodes=["a", "b"], executable_nodes=["a", "b"], edges=[("a", "b")])
         checks = iter(waiting_checks or [])
@@ -1324,30 +1319,21 @@ class TestRunAfterUpstreamReloads:
         assert follow_up.kwargs["parent_close_policy"] == ParentClosePolicy.ABANDON
 
     @pytest.mark.parametrize(
-        "waiting_checks,expected_sleeps,expected_children",
+        "waiting_checks,expected_sleeps",
         [
-            ([_waiting(["a"]), _waiting([])], 1, {"a": False, "b": False}),
-            (
-                [_waiting(["a"])] * 100,
-                int(MAX_UPSTREAM_RELOAD_WAIT / UPSTREAM_RELOAD_RECHECK_INTERVAL),
-                {"a": False, "b": False},
-            ),
-            ([RuntimeError("check failed")], 0, {"a": False, "b": False}),
-            ([_waiting(["a"], taken=["b"]), _waiting([])], 1, {"a": False}),
-            ([_waiting([], taken=["a", "b"])], 0, {}),
+            ([["a"], []], 1),
+            ([["a"]] * 100, int(MAX_UPSTREAM_RELOAD_WAIT / UPSTREAM_RELOAD_RECHECK_INTERVAL)),
+            ([RuntimeError("check failed")], 0),
         ],
     )
-    async def test_a_follow_up_waits_for_the_reload_then_runs_the_nodes_no_other_run_took(
-        self,
-        waiting_checks: list[NodesWaitingOnUpstreamReloadsResult | Exception],
-        expected_sleeps: int,
-        expected_children: dict[str, bool],
+    async def test_a_follow_up_waits_for_the_reload_then_runs_its_nodes_without_deferring(
+        self, waiting_checks: list[list[str] | Exception], expected_sleeps: int
     ) -> None:
         inputs = ExecuteDAGInputs(team_id=1, dag_id="dag", node_ids=["a", "b"], wait_for_upstream_reloads=True)
 
         result, children, follow_ups, sleep_mock = await self._run(inputs, waiting_checks=waiting_checks)
 
         assert sleep_mock.await_count == expected_sleeps
-        assert children == expected_children
-        assert result.successful_nodes == len(expected_children)
+        assert children == {"a": False, "b": False}
+        assert result.successful_nodes == 2
         assert follow_ups == []
