@@ -47,6 +47,7 @@ export function DashboardTileGroupTabs({
                             'Overview'
                         ),
                 }))}
+                rightSlotClassName="pr-0"
                 rightSlot={
                     onChangeGroupDisplay && (
                         <DashboardTileGroupMenu

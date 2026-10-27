@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/react'
 
 import type { DashboardBasicType } from '~/types'
 
@@ -43,6 +44,34 @@ export const LongTitleInNarrowScene: StoryObj = {
             </DashboardTileGroup>
         </div>
     ),
+}
+
+export const MenuOpen: StoryObj = {
+    render: () => (
+        <div className="h-60 w-[640px] bg-primary p-4">
+            <DashboardTileGroup
+                group={{ title: 'Activation', color: 'blue' }}
+                tileCount={2}
+                collapsed={false}
+                onToggle={() => {}}
+                copyToDestinations={[{ dashboard: { id: 42, name: 'Example dashboard' } as DashboardBasicType }]}
+                onCopyToDashboard={() => {}}
+                onChangeGroupDisplay={() => {}}
+            >
+                <FakeTile />
+            </DashboardTileGroup>
+        </div>
+    ),
+    play: async () => {
+        const trigger = await waitFor(() => {
+            const element = document.querySelector<HTMLElement>('[data-attr="dashboard-tile-group-menu"]')
+            if (!element) {
+                throw new Error('Group menu trigger not found')
+            }
+            return element
+        })
+        trigger.click()
+    },
 }
 
 export const Styles: StoryObj = {
