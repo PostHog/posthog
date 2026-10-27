@@ -2,7 +2,11 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
+import { recentItemsModel } from '~/models/recentItemsModel'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -18,6 +22,7 @@ import { makeHighlightItem, makeHighlights } from './todayTestFixtures'
 import { todayVerdictLogic } from './todayVerdictLogic'
 
 describe('todayLogic', () => {
+    let frequentResponse: [number, unknown]
     let listResponse: [number, any]
     let listParams: URLSearchParams | null
     let reportResponse: [number, any] | null
@@ -25,6 +30,7 @@ describe('todayLogic', () => {
     let highlightCalls: number
 
     beforeEach(() => {
+        frequentResponse = [200, []]
         highlightResponses = [[200, makeHighlights()]]
         listResponse = [200, { results: [], count: 0 }]
         highlightCalls = 0
@@ -32,6 +38,7 @@ describe('todayLogic', () => {
         reportResponse = null
         useMocks({
             get: {
+                '/api/projects/:team_id/file_system/frequent/': () => frequentResponse,
                 '/api/projects/:team_id/signals/reports/': ({ request }) => {
                     listParams = new URL(request.url).searchParams
                     return listResponse
@@ -49,8 +56,63 @@ describe('todayLogic', () => {
         initKeaTests()
     })
 
+    it.each([
+        { status: 200, variant: 'test' },
+        { status: 500, variant: 'test' },
+        { status: 200, variant: 'control' },
+        { status: 200, variant: false },
+    ])('selects $variant ranking when the request returns $status', async ({ status, variant }) => {
+        const entry = (id: string): { id: string; path: string; type: string; ref: string } => ({
+            id,
+            path: `Dashboards/${id}`,
+            type: 'dashboard',
+            ref: id,
+        })
+        frequentResponse = [status, status === 200 ? [entry('daily'), entry('weekly')] : {}]
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_JUMP_BACK_RANKING]: variant })
+        const logic = todayLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        recentItemsModel.actions.loadRecentsSuccess(['a', 'b', 'c', 'd'].map(entry))
+        const mixed = status === 200 && variant === 'test'
+        expect(logic.values.recentObjects.map((item) => item.id)).toEqual(
+            mixed ? ['a', 'b', 'daily', 'weekly', 'c', 'd'] : ['a', 'b', 'c', 'd']
+        )
+        logic.actions.jumpBackOpened(logic.values.recentObjects[2], 3, mixed)
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'today jump back opened',
+            expect.objectContaining({
+                position: 3,
+                reason: mixed ? 'frequent' : 'recent',
+                ranking_variant: variant === 'test' ? 'test' : 'control',
+            })
+        )
+    })
+
     afterEach(() => {
         jest.useRealTimers()
+    })
+
+    it.each(['toggle', 'url'])('reloads frequent items when sample mode is disabled by %s', async (source) => {
+        const entry = { id: 'daily', path: 'Daily dashboard', type: 'dashboard', ref: 'daily' }
+        frequentResponse = [200, [entry]]
+        const logic = todayLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => logic.actions.setUseSampleData(true))
+            .toFinishAllListeners()
+            .toMatchValues({ frequentObjects: [] })
+
+        await expectLogic(logic, () => {
+            if (source === 'url') {
+                router.actions.push('/home', { sample: '0' })
+            } else {
+                logic.actions.setUseSampleData(false)
+            }
+        })
+            .toFinishAllListeners()
+            .toMatchValues({ useSampleData: false, frequentObjects: [entry] })
     })
 
     it.each([

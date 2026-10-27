@@ -8,6 +8,8 @@ import re
 import json
 import time
 import hashlib
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from enum import StrEnum
 from uuid import UUID, uuid4
@@ -19,7 +21,7 @@ import structlog
 from openai import OpenAI
 from openai.types.chat import ChatCompletionMessageParam
 from openai.types.shared_params import ResponseFormatJSONSchema
-from prometheus_client import Counter
+from prometheus_client import Counter, Histogram
 from pydantic import ValidationError
 from redis import Redis
 from redis.exceptions import RedisError
@@ -37,8 +39,10 @@ from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import build_openai_client, resolve_ai_gateway_config, team_distinct_id
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models import Team, User
+from posthog.ph_client import ph_background_capture
 from posthog.redis import get_client
 from posthog.token_bucket import BucketDecision, BucketUnavailable, consume, peek, refund
+from posthog.utils import get_instance_region
 
 from products.access_control.backend.facade.api import (
     get_restricted_properties_with_group_type_index_for_team,
@@ -104,6 +108,7 @@ logger = structlog.get_logger(__name__)
 ISSUE_SUMMARY_BUDGET_KEY_PREFIX = "error_tracking_issue_summary"
 ISSUE_SUMMARY_LOCK_KEY_PREFIX = "error_tracking_issue_summary_lock"
 ISSUE_SUMMARY_AI_PRODUCT = "error_tracking"
+ISSUE_SUMMARY_TASK_EVENT = "error_tracking_issue_summary_generation"
 # The Go gateway keeps the prompt and the reply out of the AI observability project when this is set.
 PRIVACY_MODE_HEADER = "X-PostHog-Privacy-Mode"
 
@@ -176,6 +181,36 @@ ISSUE_SUMMARY_OUTCOMES = Counter(
     "Issue summary requests by outcome",
     labelnames=("outcome",),
 )
+
+ISSUE_SUMMARY_STAGE_SECONDS = Histogram(
+    "error_tracking_issue_summary_stage_seconds",
+    "Time spent in each issue summary generation stage",
+    labelnames=("stage",),
+    buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 4, 6, 8, 12, 20, 30, 60, 120),
+)
+
+
+class IssueSummaryTimings:
+    """Milliseconds per generation stage, keyed `<stage>_ms`. A stage that did not run has no entry.
+
+    Stages nest, so do not add them up: `total` contains every stage except `queue`, and `inputs` contains
+    `latest_event`, `first_event` and `aggregates`.
+    """
+
+    def __init__(self) -> None:
+        self.ms: dict[str, int] = {}
+
+    @contextmanager
+    def stage(self, name: str) -> Iterator[None]:
+        started = time.monotonic()
+        try:
+            yield
+        finally:
+            self.record(name, time.monotonic() - started)
+
+    def record(self, name: str, seconds: float) -> None:
+        self.ms[f"{name}_ms"] = round(seconds * 1000)
+        ISSUE_SUMMARY_STAGE_SECONDS.labels(stage=name).observe(seconds)
 
 
 @frozen
@@ -289,7 +324,7 @@ def _publish_generation(team_id: int, issue_id: UUID | str) -> None:
         transport_options={"socket_timeout": timeout, "socket_connect_timeout": timeout},
     ) as connection:
         generate_error_tracking_issue_summary.apply_async(
-            args=(team_id, str(issue_id)), connection=connection, retry=False
+            args=(team_id, str(issue_id)), kwargs={"queued_at": time.time()}, connection=connection, retry=False
         )
 
 
@@ -312,13 +347,55 @@ def wait_for_issue_summary(
         time.sleep(min(WAIT_POLL_INTERVAL_SECONDS, remaining))
 
 
-def get_or_generate_issue_summary(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
+def run_issue_summary_task(team_id: int, issue_id: UUID | str, queued_at: float | None) -> None:
+    """Generate in the background task, then record how long each stage took.
+
+    `queued_at` is the publisher's wall clock, so the queue time includes any clock skew between the hosts.
+    """
+    timings = IssueSummaryTimings()
+    if queued_at is not None:
+        timings.record("queue", max(time.time() - queued_at, 0))
+    try:
+        result = get_or_generate_issue_summary(team_id, issue_id, timings)
+    except Exception:
+        _report_task(team_id, issue_id, IssueSummaryOutcome.UNEXPECTED_ERROR, has_summary=False, timings=timings)
+        raise
+    _report_task(team_id, issue_id, result.outcome, has_summary=result.summary is not None, timings=timings)
+
+
+def _report_task(
+    team_id: int, issue_id: UUID | str, outcome: IssueSummaryOutcome, *, has_summary: bool, timings: IssueSummaryTimings
+) -> None:
+    # The background client sends from its own thread, so the worker takes the next task without waiting for a flush.
+    try:
+        ph_background_capture()(
+            distinct_id=team_distinct_id(team_id),
+            event=ISSUE_SUMMARY_TASK_EVENT,
+            properties={
+                "team_id": team_id,
+                "issue_id": str(issue_id),
+                # The client's `region` super property names the destination project and overwrites an event `region`.
+                "instance_region": get_instance_region(),
+                "outcome": outcome.value,
+                "has_summary": has_summary,
+                **timings.ms,
+            },
+        )
+    except Exception:
+        logger.warning("error_tracking_issue_summary_capture_failed", team_id=team_id, exc_info=True)
+
+
+def get_or_generate_issue_summary(
+    team_id: int, issue_id: UUID | str, timings: IssueSummaryTimings | None = None
+) -> IssueSummaryResult:
     """Return a stored summary, or generate one when none is stored or a stale one is due.
 
     Generation runs at most once at a time per issue. A failure keeps the stored summary.
     """
+    timings = timings or IssueSummaryTimings()
     try:
-        result = _get_or_generate(team_id, issue_id)
+        with timings.stage("total"):
+            result = _get_or_generate(team_id, issue_id, timings)
     except Exception:
         ISSUE_SUMMARY_OUTCOMES.labels(outcome=IssueSummaryOutcome.UNEXPECTED_ERROR.value).inc()
         raise
@@ -329,11 +406,12 @@ def get_or_generate_issue_summary(team_id: int, issue_id: UUID | str) -> IssueSu
         issue_id=str(issue_id),
         outcome=result.outcome.value,
         has_summary=result.summary is not None,
+        **timings.ms,
     )
     return result
 
 
-def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
+def _get_or_generate(team_id: int, issue_id: UUID | str, timings: IssueSummaryTimings) -> IssueSummaryResult:
     stored = get_issue_summary(team_id, issue_id)
     if (blocked := generation_blocked(team_id, stored)) is not None:
         return IssueSummaryResult(outcome=blocked, summary=stored)
@@ -342,7 +420,7 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
         return IssueSummaryResult(outcome=held, summary=stored)
 
     try:
-        result = _generate_claimed(team_id, issue_id)
+        result = _generate_claimed(team_id, issue_id, timings)
     except Exception:
         _settle_claim(team_id, issue_id, claim, IssueSummaryOutcome.UNEXPECTED_ERROR)
         raise
@@ -350,7 +428,7 @@ def _get_or_generate(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
     return result
 
 
-def _generate_claimed(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
+def _generate_claimed(team_id: int, issue_id: UUID | str, timings: IssueSummaryTimings) -> IssueSummaryResult:
     # Another worker can finish between the first read and the claim.
     stored = get_issue_summary(team_id, issue_id)
     if not regeneration_due(stored, timezone.now()):
@@ -364,7 +442,8 @@ def _generate_claimed(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
 
     team = Team.objects.get(id=team_id)
     try:
-        inputs = build_issue_summary_inputs(team, issue_id)
+        with timings.stage("inputs"):
+            inputs = build_issue_summary_inputs(team, issue_id, timings)
     except Exception as error:
         capture_exception(error, {"team_id": team_id, "issue_id": str(issue_id)})
         logger.warning("error_tracking_issue_summary_inputs_failed", team_id=team_id, issue_id=str(issue_id))
@@ -390,7 +469,8 @@ def _generate_claimed(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
         return IssueSummaryResult(outcome=IssueSummaryOutcome.GATEWAY_UNCONFIGURED, summary=stored)
 
     try:
-        raw = _call_model(team_id, inputs.prompt)
+        with timings.stage("model"):
+            raw = _call_model(team_id, issue_id, inputs.prompt)
     except Exception as error:
         capture_exception(error, {"team_id": team_id, "issue_id": str(issue_id)})
         logger.warning("error_tracking_issue_summary_model_failed", team_id=team_id, issue_id=str(issue_id))
@@ -401,7 +481,8 @@ def _generate_claimed(team_id: int, issue_id: UUID | str) -> IssueSummaryResult:
         logger.warning("error_tracking_issue_summary_invalid_output", team_id=team_id, issue_id=str(issue_id))
         return IssueSummaryResult(outcome=IssueSummaryOutcome.INVALID_OUTPUT, summary=stored)
 
-    category = infer_issue_category(team_id, inputs.prompt)
+    with timings.stage("category"):
+        category = infer_issue_category(team_id, inputs.prompt)
     generated_at = timezone.now()
     try:
         summary, _ = ErrorTrackingIssueSummary.objects.for_team(team_id).update_or_create(
@@ -485,7 +566,9 @@ ISSUE_SUMMARY_SOURCE_PROPERTIES = frozenset(
 )
 
 
-def build_issue_summary_inputs(team: Team, issue_id: UUID | str) -> IssueSummaryInputs | IssueSummaryOutcome:
+def build_issue_summary_inputs(
+    team: Team, issue_id: UUID | str, timings: IssueSummaryTimings
+) -> IssueSummaryInputs | IssueSummaryOutcome:
     """Build the prompt and the input hash, or say why the issue cannot be summarised."""
     issue = ErrorTrackingIssue.objects.with_first_seen().filter(team_id=team.id, id=issue_id).first()
     if issue is None:
@@ -494,12 +577,13 @@ def build_issue_summary_inputs(team: Team, issue_id: UUID | str) -> IssueSummary
 
     now = timezone.now()
     event_properties: dict[str, object] = {}
-    for lookback_days in (ISSUE_SUMMARY_RECENT_EVENT_LOOKBACK_DAYS, ISSUE_SUMMARY_LATEST_EVENT_LOOKBACK_DAYS):
-        event_properties = _exception_event_properties(
-            team, issue_id, after=now - timedelta(days=lookback_days), before=now, latest=True
-        )
-        if event_properties:
-            break
+    with timings.stage("latest_event"):
+        for lookback_days in (ISSUE_SUMMARY_RECENT_EVENT_LOOKBACK_DAYS, ISSUE_SUMMARY_LATEST_EVENT_LOOKBACK_DAYS):
+            event_properties = _exception_event_properties(
+                team, issue_id, after=now - timedelta(days=lookback_days), before=now, latest=True
+            )
+            if event_properties:
+                break
     stack_trace = (
         render_stacktrace(mark_in_app_frames(event_properties), ISSUE_SUMMARY_STACKTRACE_MAX_TOKENS)
         if event_properties
@@ -510,15 +594,17 @@ def build_issue_summary_inputs(team: Team, issue_id: UUID | str) -> IssueSummary
 
     first_event_properties: dict[str, object] = {}
     if (window := first_event_window(first_seen)) is not None:
-        first_event_properties = _exception_event_properties(
-            team,
-            issue_id,
-            after=datetime.fromisoformat(window.after),
-            before=datetime.fromisoformat(window.before),
-            latest=False,
-        )
+        with timings.stage("first_event"):
+            first_event_properties = _exception_event_properties(
+                team,
+                issue_id,
+                after=datetime.fromisoformat(window.after),
+                before=datetime.fromisoformat(window.before),
+                latest=False,
+            )
 
-    aggregated_issue = _aggregated_issue(team, issue_id)
+    with timings.stage("aggregates"):
+        aggregated_issue = _aggregated_issue(team, issue_id)
     impact = build_impact(aggregated_issue)
     trend = build_trend(aggregated_issue, first_seen) or {}
     latest_release = extract_release(event_properties).get("version")
@@ -665,11 +751,11 @@ ISSUE_SUMMARY_RESPONSE_FORMAT: ResponseFormatJSONSchema = {
 }
 
 
-def _call_model(team_id: int, prompt: str) -> str:
+def _call_model(team_id: int, issue_id: UUID | str, prompt: str) -> str:
     client: OpenAI = build_openai_client(
         "django",
         ai_product=ISSUE_SUMMARY_AI_PRODUCT,
-        properties={"team_id": str(team_id)},
+        properties={"team_id": str(team_id), "issue_id": str(issue_id)},
         distinct_id=team_distinct_id(team_id),
     )
     messages: list[ChatCompletionMessageParam] = [
