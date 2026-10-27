@@ -99,7 +99,7 @@ from posthog.models.activity_logging.activity_page import (
     activity_page_response,
     parse_activity_page_params,
 )
-from posthog.models.file_system.file_system import create_or_update_file, delete_file
+from posthog.models.file_system.file_system import delete_file
 from posthog.models.organization import Organization
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import Team
@@ -2865,19 +2865,7 @@ When set, the specified dashboard's filters and date range override will be appl
                     id__in=insight_ids, team__project_id=self.team.project_id
                 ).update(deleted=False, last_modified_at=now(), last_modified_by=current_user)
                 for insight in Insight.objects.filter(id__in=insight_ids).select_related("team"):
-                    fs_data = insight.get_file_system_representation()
-                    create_or_update_file(
-                        team=insight.team,
-                        base_folder=fs_data.base_folder,
-                        name=fs_data.name,
-                        file_type=fs_data.type,
-                        ref=fs_data.ref,
-                        href=fs_data.href,
-                        meta=fs_data.meta,
-                        created_at=insight.created_at,
-                        created_by_id=insight.created_by_id,
-                        surface=fs_data.surface,
-                    )
+                    insight.sync_file_system()
                 restore_tiles_for_insights(insight_ids, user_access_control=self.user_access_control)
 
                 activity_log_entries: list[LogActivityEntry] = []
