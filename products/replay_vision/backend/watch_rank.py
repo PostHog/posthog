@@ -33,6 +33,7 @@ from posthog.utils import dict_from_cursor_fetchall
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.embeddings import OBSERVATION_EMBEDDING_MODEL
 from products.replay_vision.backend.models.replay_observation import (
+    ObservationStatus,
     ReplayObservation,
     jsonb_typeof,
     watch_group_root,
@@ -385,15 +386,20 @@ def select_embedding_picks(
     # below the cutoff still count, and a person who hit the problem twice counts once.
     person = Coalesce(NullIf("distinct_id", Value("")), "session_id", output_field=CharField())
     roots = {row["watch_group_root"] for row in window_values.values()}
+    # Postgres misjudges the JSON filters and would walk the whole window, so the members come from the group index
+    # alone. Group ids are random UUIDs, so no other team's row matches; the next query applies the team scope.
+    member_ids = list(
+        ReplayObservation.objects.filter(status=ObservationStatus.SUCCEEDED, watch_rank__isnull=False)
+        .alias(member_root=group_root)
+        .filter(member_root__in=list(roots))
+        .values_list("id", flat=True)
+    )
     group_reach = {
         row["watch_group_root"]: row
         for row in accessible_observations(
             access,
             team_id,
-            # Matches the picks' groups on the indexed group root first, so only their members reach the snapshot gate.
-            current_ranks.alias(member_root=group_root).filter(
-                member_root__in=list(roots), watch_category__in=ISSUE_CATEGORIES
-            ),
+            current_ranks.filter(id__in=member_ids, watch_category__in=ISSUE_CATEGORIES),
         )
         .annotate(watch_group_root=group_root)
         .values("watch_group_root")

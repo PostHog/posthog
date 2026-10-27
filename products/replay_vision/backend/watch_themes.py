@@ -139,18 +139,22 @@ def assign_theme(*, team_id: int, scanner_id: str, space: SemanticSpace, now: da
     return ThemeAssignment(theme_id=theme.id, name_due=theme.member_count >= theme.rename_at_member_count)
 
 
-def _claim_naming(team_id: int, theme_id: uuid.UUID) -> bool:
-    """Move the theme's next naming to double its size, and say whether this caller won the right to name it now."""
-    return bool(
-        ReplayScannerSearchTheme.objects.for_team(team_id)
-        .filter(id=theme_id, member_count__gte=F("rename_at_member_count"))
-        .update(rename_at_member_count=F("member_count") * 2)
-    )
+def _claim_naming(team_id: int, theme_id: uuid.UUID) -> int | None:
+    """Move the theme's next naming to double its size, and return that threshold when this caller won the right to
+    name it now."""
+    themes = ReplayScannerSearchTheme.objects.for_team(team_id).filter(id=theme_id)
+    current = themes.values_list("member_count", "rename_at_member_count").first()
+    if current is None or current[0] < current[1]:
+        return None
+    claimed = current[0] * 2
+    # Compare and swap, so of two callers that read the same threshold only one moves it.
+    won = themes.filter(rename_at_member_count=current[1]).update(rename_at_member_count=claimed)
+    return claimed if won else None
 
 
-def _release_naming(team_id: int, theme_id: uuid.UUID) -> None:
-    """Make a theme whose naming failed due again on its next member, instead of only once it doubles."""
-    ReplayScannerSearchTheme.objects.for_team(team_id).filter(id=theme_id).update(
+def _release_naming(team_id: int, theme_id: uuid.UUID, claimed: int) -> None:
+    """Make a theme whose naming failed due again on its next member, unless a later claim already moved it on."""
+    ReplayScannerSearchTheme.objects.for_team(team_id).filter(id=theme_id, rename_at_member_count=claimed).update(
         rename_at_member_count=F("member_count")
     )
 
@@ -215,7 +219,8 @@ async def name_theme(team_id: int, theme_id: uuid.UUID, now: datetime) -> str | 
         logger.info("replay_vision.watch_themes.naming_budget_spent", team_id=team_id)
         return None
     # A caller that loses the claim hands its reservation back, so two callers racing for one theme cost one call.
-    if not await sync_to_async(_claim_naming)(team_id, theme_id):
+    claimed = await sync_to_async(_claim_naming)(team_id, theme_id)
+    if claimed is None:
         await sync_to_async(_refund_naming_budget)(team_id, now)
         return None
     context = await sync_to_async(_naming_context)(team_id, theme_id)
@@ -244,9 +249,8 @@ async def name_theme(team_id: int, theme_id: uuid.UUID, now: datetime) -> str | 
         finally:
             await client.aclose()
     except Exception:
-        # A failed call names nothing, so it gives back its claim and its share of the budget.
-        await sync_to_async(_release_naming)(team_id, theme_id)
-        await sync_to_async(_refund_naming_budget)(team_id, now)
+        # A failed call gives back its claim but keeps its share of the budget, so an outage costs at most the cap.
+        await sync_to_async(_release_naming)(team_id, theme_id, claimed)
         raise
     label = finalize_label(_ThemeName.model_validate_json(response.text or "{}").query)
     if not label:

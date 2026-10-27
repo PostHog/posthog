@@ -8,7 +8,7 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 import numpy as np
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
@@ -267,3 +267,26 @@ class TestAssignSemantics(BaseTest):
         assert client.models.generate_content.await_count == 2
         theme = ReplayScannerSearchTheme.objects.for_team(self.team.id).get(id=theme_id)
         assert (theme.name, theme.rename_at_member_count) == ("valid card rejected at checkout", 10)
+
+    def test_a_failed_naming_leaves_a_newer_claim_in_place(self) -> None:
+        for _ in range(5):
+            assignment = self._assign(
+                self._observation(output={"scanner_type": "summarizer", "summary": "The card form rejected a card."}),
+                _vector(1.0),
+            )
+        themes = ReplayScannerSearchTheme.objects.for_team(self.team.id).filter(id=assignment.theme.theme_id)
+
+        async def doubled_then_failed(*_args: Any, **_kwargs: Any) -> None:
+            await sync_to_async(themes.update)(member_count=10, rename_at_member_count=20)
+            raise RuntimeError("model unavailable")
+
+        client = MagicMock(aclose=AsyncMock())
+        client.models.generate_content = AsyncMock(side_effect=doubled_then_failed)
+        with (
+            patch(f"{_THEMES}.replay_gemini_client", AsyncMock(return_value=client)),
+            patch(f"{_THEMES}.is_ai_data_processing_approved", return_value=True),
+            self.assertRaises(RuntimeError),
+        ):
+            async_to_sync(name_theme)(self.team.id, assignment.theme.theme_id, timezone.now())
+
+        assert themes.get().rename_at_member_count == 20
