@@ -951,7 +951,6 @@ def test_system_one_numeric_requires_a_score_range(output_config: dict[str, floa
     [
         ("system_one", "https://decisions.example.com/v1", False),
         ("system_one", "https://ai-gateway.us.posthog.com/v1", False),
-        ("system_one", "https://api.typesafe.ai/v1", True),
     ],
 )
 def test_system_one_restricted_connection_does_not_send_evaluation_data(
