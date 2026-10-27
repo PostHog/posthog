@@ -62,6 +62,7 @@ from products.warehouse_sources.backend.facade.models import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.pipelines import finish_row_tracking
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.facade.source_management import (
     BUFFER_LANE,
     CDC_RESET_PENDING_KEY,
@@ -1719,7 +1720,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
     def _is_webhook_only_schema(self, schema: ExternalDataSchema) -> bool:
         source = schema.source
-        if not source.job_inputs:
+        try:
+            source_inputs = SourceInputsStore.load(source)
+        except UnreadableSourceInputsError:
+            return False
+        if not source_inputs:
             return False
         try:
             source_type = ExternalDataSourceType(source.source_type)
@@ -1727,7 +1732,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         except Exception:
             return False
         try:
-            config = source_impl.parse_config(source.job_inputs)
+            config = source_impl.parse_config(source_inputs)
             source_schemas = source_impl.get_schemas(
                 config,
                 schema.team_id,
@@ -1743,12 +1748,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         materialized view, PG13+). Runs discovery so a raw PATCH can't enable xmin on a table that
         has no physical `xmin` (plain views, foreign tables, partitioned parents)."""
         source = schema.source
-        if not source.job_inputs:
+        try:
+            source_inputs = SourceInputsStore.load(source)
+        except UnreadableSourceInputsError:
+            return False
+        if not source_inputs:
             return False
         try:
             source_type = ExternalDataSourceType(source.source_type)
             source_impl = SourceRegistry.get_source(source_type)
-            config = source_impl.parse_config(source.job_inputs)
+            config = source_impl.parse_config(source_inputs)
             source_schemas = source_impl.get_schemas(
                 config,
                 schema.team_id,
@@ -1791,7 +1800,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
     def _maybe_create_webhook(self, schema: ExternalDataSchema) -> None:
         source = schema.source
-        if not source.job_inputs:
+        source_inputs = SourceInputsStore.load(source)
+        if not source_inputs:
             return
 
         try:
@@ -1805,7 +1815,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             return
 
         try:
-            config = source_impl.parse_config(source.job_inputs)
+            config = source_impl.parse_config(source_inputs)
         except (UndecryptedConfigError, ConfigValueError) as e:
             raise ValidationError(UNREADABLE_SOURCE_CONFIG_ERROR) from e
         # Source pin only: webhook-sync schemas cannot carry a schema-level override (validate()
@@ -1903,7 +1913,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         _, db_schema, source_table_name = get_postgres_source_location(
             schema_name=instance.name,
             schema_metadata=instance.schema_metadata,
-            default_schema=(source.job_inputs or {}).get("schema"),
+            default_schema=SourceInputsStore.load_settings(source).get("schema"),
         )
 
         newly_set_to_cdc = (
@@ -2152,7 +2162,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 _, db_schema, source_table_name = get_postgres_source_location(
                     schema_name=instance.name,
                     schema_metadata=instance.schema_metadata,
-                    default_schema=(source.job_inputs or {}).get("schema"),
+                    default_schema=SourceInputsStore.load_settings(source).get("schema"),
                 )
                 adapter.remove_table(source, db_schema, source_table_name)
             except Exception:
@@ -2462,7 +2472,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance: ExternalDataSchema = self.get_object()
         source: ExternalDataSource = instance.source
 
-        if not source.job_inputs:
+        source_inputs = SourceInputsStore.load(source)
+        if not source_inputs:
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Missing job inputs"})
 
         if not source.source_type:
@@ -2472,7 +2483,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         new_source = SourceRegistry.get_source(source_type_enum)
         try:
-            config = new_source.parse_config(source.job_inputs)
+            config = new_source.parse_config(source_inputs)
         except (UndecryptedConfigError, ConfigValueError):
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": UNREADABLE_SOURCE_CONFIG_ERROR})
 
@@ -2550,7 +2561,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # job_inputs is an EncryptedJSONField: booleans round-trip as "True"/"False"
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.
-        source_cdc_enabled = str_to_bool(source.job_inputs.get("cdc_enabled"))
+        source_cdc_enabled = str_to_bool(SourceInputsStore.load_settings(source).get("cdc_enabled"))
         source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
         cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
         # xmin is source-capability-gated, mirroring the database_schema endpoint.

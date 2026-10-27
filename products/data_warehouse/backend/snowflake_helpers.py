@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.facade.models import (
     snowflake_column_to_dwh_column,
     snowflake_columns_to_dwh_columns,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     extract_available_column_names,
@@ -46,14 +47,14 @@ type SnowflakeSourceLocation = tuple[str | None, str, str]  # (catalog, schema, 
 
 def get_default_snowflake_schema(source: ExternalDataSource) -> str | None:
     """Get the default schema for a Snowflake source, if any."""
-    job_inputs = source.job_inputs or {}
+    job_inputs = SourceInputsStore.load_settings(source)
     if "schema" in job_inputs:
         return normalize_namespace(job_inputs.get("schema"))
     return None
 
 
 def get_default_snowflake_catalog(source: ExternalDataSource) -> str | None:
-    database = (source.job_inputs or {}).get("database")
+    database = SourceInputsStore.load(source).get("database")
     return database if isinstance(database, str) and database.strip() else None
 
 
