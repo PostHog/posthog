@@ -2,7 +2,7 @@
 # /// script
 # requires-python = ">=3.12"
 # dependencies = [
-#     "markdown-it-py>=3.0.0",
+#     "markdown-it-py~=3.0.0",
 # ]
 # ///
 # ruff: noqa: T201 allow print statements
@@ -80,10 +80,8 @@ def main() -> None:
     parser.add_argument("body", help="PR body markdown file, or - to read stdin")
     args = parser.parse_args()
     try:
-        markdown = (
-            sys.stdin.buffer.read().decode("utf-8") if args.body == "-" else Path(args.body).read_text(encoding="utf-8")
-        )
-        print(count_words(markdown))
+        body = sys.stdin.buffer.read() if args.body == "-" else Path(args.body).read_bytes()
+        print(count_words(body.decode("utf-8-sig")))
     except (OSError, ValueError) as error:
         parser.error(str(error))
 

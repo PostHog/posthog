@@ -199,12 +199,10 @@ When the diff is six lines, the body has to read as the body of a six-line chang
 - Write `- None.` under every heading that does not apply. That is a complete answer, not a gap. It is a bullet, like the release status line the changelog bot reads, so empty sections look the same.
 - Keep numbers, file paths and identifiers when you cut. Cut adjectives and second explanations.
 
-Run the counter on the body before every `gh pr create` or `gh pr edit`. Pass the body on stdin, as you pass it to `gh`:
+Run the counter on the body as GitHub stores it, after every `gh pr create` or `gh pr edit`, so you never paste the body twice. A new PR is a draft, so fix an over-count with `gh pr edit`:
 
 ```sh
-uv run .agents/skills/writing-pr-descriptions/scripts/count_words.py - <<'EOF'
-<body>
-EOF
+gh pr view <number> --json body --jq .body | uv run .agents/skills/writing-pr-descriptions/scripts/count_words.py -
 ```
 
 `uv run` installs the script's one dependency in its own environment and leaves the repo's virtualenv alone.
@@ -321,7 +319,7 @@ A "no" anywhere means the body is ordered for the writer, not the reader. Go bac
 14. Does the PR change architecture or topology, as defined under Mermaid? Include branded before-and-after diagrams under one short sentence, also for a one-step change. Delete any diagram of a UI flow.
 15. Does prose compare several values across the same dimensions? Replace it with a table.
 16. Does every claim about what you ran, measured or saw link its evidence, or say it went unchecked? Descriptions of behavior need no link.
-17. Did a `<!-- -->` template comment or a placeholder such as `tool, model`, `/skill` or `link, tools used` survive anywhere, collapsed blocks included? That field is unfilled. Fill it or delete it.
+17. Did a `<!-- -->` template comment or any template placeholder text, such as `tool, model` or the bracketed test rationale, survive anywhere, collapsed blocks included? That field is unfilled. Fill it or delete it.
 18. Is the `## 🤖 Agent context` section filled, naming the exact model and listing the skills invoked? Does the collapsed block still describe the PR as pushed?
 19. Does the body claim manual testing that did not happen? Delete it.
 20. Does the body name an internal customer, incident, Slack quote, or operational metric? This repo is public. Delete it.
