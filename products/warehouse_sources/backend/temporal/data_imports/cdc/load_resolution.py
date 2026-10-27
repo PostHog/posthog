@@ -56,9 +56,9 @@ def _pk_tuples(table: pa.Table, primary_keys: list[str]) -> list[tuple]:
 def has_engine_seq(table: pa.Table) -> bool:
     """Whether the position column is ours.
 
-    A source table may have its own `_ph_cdc_seq`, which the batcher passes through untouched, so
-    the name proves nothing. Trusting a source value would let it poison the position and have its
-    own later rows dropped.
+    A snapshot load, or a table loaded before capture refused the name, can hold a source column
+    called `_ph_cdc_seq`, so the name proves nothing. Trusting a source value would let it poison the
+    position and have its own later rows dropped.
     """
     if CDC_SEQ_COLUMN not in table.column_names:
         return False

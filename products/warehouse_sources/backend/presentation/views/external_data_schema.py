@@ -488,8 +488,8 @@ def _refuse_reserved_columns(
         taken = [column for column in taken if column not in existing]
     if taken:
         raise ValidationError(
-            f"Change data capture can't sync the column {' or '.join(taken)}, because PostHog writes a column "
-            "with that name. Rename the column on your database, leave it out of the synced columns, or change "
+            f"Change data capture can't sync the column {' or '.join(taken)}, because it loads under a name "
+            "PostHog writes. Rename the column on your database, leave it out of the synced columns, or change "
             "this table's sync method or output tables."
         )
 

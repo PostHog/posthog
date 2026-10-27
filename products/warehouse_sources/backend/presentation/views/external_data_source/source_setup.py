@@ -1440,20 +1440,20 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             # Capture and the history table write their own columns next to the source's, so a synced
             # source column that loads under one of those names would fail the source's first sync.
             # Refuse before any replication state exists.
+            reserved_columns_by_table = {
+                schema["name"]: reserved_column_collisions(
+                    [column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])],
+                    reserved_column_names(history=is_history_table_mode(schema.get("cdc_table_mode"))),
+                    enabled_columns=_payload_enabled_columns(schema),
+                    primary_keys=pk_columns_by_table.get(schema["name"]),
+                )
+                for schema in payload_schemas
+                if schema.get("sync_type") == "cdc"
+                and schema.get("should_sync", False)
+                and isinstance(schema.get("name"), str)
+            }
             tables_with_reserved_column = sorted(
-                {
-                    schema["name"]
-                    for schema in payload_schemas
-                    if schema.get("sync_type") == "cdc"
-                    and schema.get("should_sync", False)
-                    and isinstance(schema.get("name"), str)
-                    and reserved_column_collisions(
-                        [column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])],
-                        reserved_column_names(history=is_history_table_mode(schema.get("cdc_table_mode"))),
-                        enabled_columns=_payload_enabled_columns(schema),
-                        primary_keys=pk_columns_by_table.get(schema["name"]),
-                    )
-                }
+                f"{table} ({', '.join(columns)})" for table, columns in reserved_columns_by_table.items() if columns
             )
             if tables_with_reserved_column:
                 new_source_model.delete()
@@ -1461,10 +1461,9 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={
                         "message": (
-                            "Change data capture can't sync a column that loads under a name PostHog writes, such as "
-                            "_ph_cdc_seq, or valid_from and valid_to on a table with a history table. Rename the "
-                            "column on your database, leave it out of the synced columns, or change the sync method "
-                            f"or output tables for these tables: {', '.join(tables_with_reserved_column)}."
+                            "Change data capture can't sync a column that loads under a name PostHog writes. Rename "
+                            "the column on your database, leave it out of the synced columns, or change the sync "
+                            f"method or output tables for these tables: {'; '.join(tables_with_reserved_column)}."
                         )
                     },
                 )

@@ -4608,6 +4608,54 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
             initial_enabled_columns if refused else request_body.get("enabled_columns", initial_enabled_columns)
         )
 
+    @parameterized.expand(
+        [
+            (
+                "adding_the_column_to_enabled_columns_is_refused",
+                ["id"],
+                {"enabled_columns": ["id", "_PH_DELETED"]},
+                True,
+            ),
+            ("editing_a_table_that_already_syncs_it_is_allowed", None, {"enabled_columns": None}, False),
+        ]
+    )
+    def test_patch_checks_the_capture_columns_of_a_cdc_table(
+        self,
+        _name: str,
+        initial_enabled_columns: list[str] | None,
+        request_body: dict,
+        refused: bool,
+    ):
+        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+            ExternalDataSchemaSerializer,
+        )
+
+        self.schema.sync_type_config["schema_metadata"] = {"columns": [{"name": "id"}, {"name": "_PH_DELETED"}]}
+        self.schema.enabled_columns = initial_enabled_columns
+        self.schema.save()
+
+        serializer = ExternalDataSchemaSerializer(
+            self.schema,
+            data=request_body,
+            partial=True,
+            context={"team_id": self.team.pk, "post_commit_actions": []},
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.is_any_external_data_schema_paused",
+            return_value=False,
+        ):
+            serializer.is_valid(raise_exception=True)
+            if refused:
+                with pytest.raises(ValidationError, match="_PH_DELETED"):
+                    serializer.save()
+            else:
+                serializer.save()
+
+        self.schema.refresh_from_db()
+        assert self.schema.enabled_columns == (
+            initial_enabled_columns if refused else request_body.get("enabled_columns", initial_enabled_columns)
+        )
+
     def test_patch_does_not_revert_a_concurrent_delete_data(self):
         from products.warehouse_sources.backend.presentation.views.external_data_schema import (
             ExternalDataSchemaSerializer,
