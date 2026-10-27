@@ -919,11 +919,56 @@ class CampaignSource:
 
 
 @frozen
+class ImportSender:
+    """A PostHog email sender that an imported email sends from."""
+
+    integration_id: int
+    email: str
+    name: str
+
+
+@frozen
+class ImportCategory:
+    """The PostHog message category that stands in for a Customer.io subscription topic."""
+
+    id: str
+    category_type: str
+
+
+@frozen
+class ImportSegment:
+    name: str
+    # Customer.io's segment type: `dynamic`, or `static`/`manual` for a list people are added to by hand.
+    type: str
+
+
+@frozen
 class ImportOptions:
     # Customer.io snippet name to its content, inlined wherever a message includes the snippet.
     snippets: dict[str, str]
     # Customer.io segment id to the PostHog cohort that stands in for it.
     segment_cohorts: dict[str, int]
+    # Customer.io layout id to its HTML, which wraps the email body at `{{ content }}`.
+    layouts: dict[str, str] = field(default_factory=dict)
+    # Customer.io sender identity id to its email address.
+    sender_addresses: dict[str, str] = field(default_factory=dict)
+    # Lower-cased email address to the team's PostHog sender for it.
+    senders: dict[str, ImportSender] = field(default_factory=dict)
+    # Customer.io subscription topic id to the PostHog category made from it.
+    topic_categories: dict[str, ImportCategory] = field(default_factory=dict)
+    # Customer.io segment id to its name and type.
+    segments: dict[str, ImportSegment] = field(default_factory=dict)
+
+
+@frozen
+class ImportContent:
+    """Automations with the content PostHog read for them, and the options to translate them with."""
+
+    sources: list[CampaignSource]
+    options: ImportOptions
+    # Per campaign id, what went wrong reading its content from Customer.io.
+    fetch_notes: dict[str, tuple[ImportNote, ...]]
+    fetched: bool
 
 
 @frozen

@@ -18,7 +18,7 @@ from posthog.models import User
 from products.workflows.backend.facade.contracts import ImportOptions
 from products.workflows.backend.facade.enums import WorkflowImportNoteLevel, WorkflowImportSource, WorkflowImportStatus
 from products.workflows.backend.facade.workflow_imports import import_for_workflow
-from products.workflows.backend.presentation.views.workflow_import_drafts import import_campaign
+from products.workflows.backend.presentation.views.workflow_import_drafts import import_campaigns
 
 MAX_CAMPAIGNS_PER_IMPORT = 50
 
@@ -39,8 +39,9 @@ class CustomerioCampaignSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "The message templates the actions point at, from `GET /v1/environments/{environment_id}/templates/"
-            "{template_id}`: a list of template objects, or an object keyed by template id. Without them, messages "
-            "import with empty content."
+            "{template_id}`: a list of template objects, or an object keyed by template id. Leave them out when "
+            "the project stored a Customer.io App API key: PostHog then reads the content from Customer.io itself. "
+            "Without either, messages import with empty content."
         ),
     )
 
@@ -48,6 +49,18 @@ class CustomerioCampaignSerializer(serializers.Serializer):
         if value.get("id") is None:
             raise serializers.ValidationError("The campaign needs its Customer.io `id`.")
         return value
+
+
+class CustomerioSenderIdentitySerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="The sender identity's id, which templates name in `from_identity_id`.")
+    email = serializers.EmailField(help_text="The address the sender sends from.")
+    name = serializers.CharField(required=False, allow_blank=True, default="", help_text="The sender's display name.")
+
+
+class CustomerioSegmentSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="The segment's id.")
+    name = serializers.CharField(allow_blank=True, help_text="The segment's name.")
+    type = serializers.CharField(help_text="The segment's type: `dynamic`, or `static` for a hand-made list.")
 
 
 class WorkflowImportRequestSerializer(serializers.Serializer):
@@ -82,6 +95,33 @@ class WorkflowImportRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError(f"Import at most {MAX_CAMPAIGNS_PER_IMPORT} automations at a time.")
         return value
 
+    layouts = serializers.DictField(
+        child=serializers.CharField(allow_blank=True),
+        required=False,
+        default=dict,
+        help_text=(
+            "Customer.io layout id to the layout's `body`, from `GET /v1/environments/{environment_id}/layouts/"
+            "{layout_id}`. An email whose template names a `layout_id` is wrapped in that layout at `{{ content }}`."
+        ),
+    )
+    sender_identities = CustomerioSenderIdentitySerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text=(
+            "Customer.io sender identities, from `GET /v1/environments/{environment_id}/identities?type=email`. "
+            "Each email gets the PostHog sender with the same address."
+        ),
+    )
+    segments = CustomerioSegmentSerializer(
+        many=True,
+        required=False,
+        default=list,
+        help_text=(
+            "Customer.io segment ids, names and types, without members, so the notes can name each segment and "
+            "flag static ones."
+        ),
+    )
     dry_run = serializers.BooleanField(
         default=False,
         help_text="When true, translate and check the automations but save nothing, to preview the import.",
@@ -120,6 +160,9 @@ class WorkflowImportResultSerializer(serializers.Serializer):
 
 class WorkflowImportResponseSerializer(serializers.Serializer):
     results = WorkflowImportResultSerializer(many=True, help_text="One result per automation, in request order.")
+    content_fetched = serializers.BooleanField(
+        help_text="True when PostHog read message content from Customer.io with the project's stored App API key."
+    )
 
 
 class WorkflowImportRecordSerializer(serializers.Serializer):
@@ -143,7 +186,8 @@ class WorkflowImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         summary="Import Customer.io automations as draft workflows",
         description=(
             "Turns Customer.io automations into draft workflows. Pass each automation as Customer.io's Journeys UI "
-            "API returns it, with the templates its messages use. Each result lists what the import changed or "
+            "API returns it. Pass the templates its messages use, or leave them out when the project stored a "
+            "Customer.io App API key, and PostHog reads them. Each result lists what the import changed or "
             "left out. Importing an automation again updates its draft, unless that workflow is no longer a draft. "
             "Set dry_run to preview without saving."
         ),
@@ -154,8 +198,18 @@ class WorkflowImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         options = ImportOptions(
             snippets=dict(data["snippets"]),
             segment_cohorts={str(key): int(value) for key, value in data["segment_cohorts"].items()},
+            layouts={str(key): value for key, value in data["layouts"].items()},
         )
-        results = [import_campaign(self.team, user, payload, options, data["dry_run"]) for payload in data["campaigns"]]
+        run = import_campaigns(
+            self.team,
+            user,
+            data["campaigns"],
+            options,
+            data["dry_run"],
+            sender_identities=list(data["sender_identities"]),
+            segments=list(data["segments"]),
+        )
+        results = run.results
         report_user_action(
             user,
             "workflows import run",
@@ -165,11 +219,14 @@ class WorkflowImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "campaign_count": len(results),
                 "statuses": [result["status"] for result in results],
                 "note_count": sum(len(result["notes"]) for result in results),
+                "content_fetched": run.content_fetched,
             },
             team=self.team,
             request=request,
         )
-        return Response(WorkflowImportResponseSerializer({"results": results}).data)
+        return Response(
+            WorkflowImportResponseSerializer({"results": results, "content_fetched": run.content_fetched}).data
+        )
 
     @extend_schema(
         parameters=[

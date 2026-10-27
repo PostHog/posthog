@@ -5,8 +5,10 @@ its message actions point at. Every setting that has no PostHog equivalent is le
 the team can review the draft before enabling it. Nothing about people is read.
 """
 
+import re
 import json
 from collections import deque
+from email.utils import parseaddr
 from typing import Any
 
 from posthog.dataclasses import frozen
@@ -31,6 +33,9 @@ _DAY_NAMES = {
 _WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday"]
 # Steps that pass people straight through to their only next step in PostHog.
 _PASS_THROUGH = {"filter_match_delay_action"}
+_LAYOUT_CONTENT = re.compile(r"\{\{-?\s*content\s*-?\}\}")
+_STATIC_SEGMENT_TYPES = {"static", "manual"}
+_SEGMENT_IDS = re.compile(r"\b(segments?) (\d+(?:, \d+)*)\b")
 _CHANNEL_NAMES = {
     "push_action": "push notification",
     "twilio_action": "SMS",
@@ -59,7 +64,7 @@ class _Builder:
         self.notes.append(
             ImportNote(
                 level=level,
-                message=message,
+                message=_SEGMENT_IDS.sub(self._name_segments, message),
                 step_id=action["id"] if action else None,
                 step_name=action.get("name") if action else None,
             )
@@ -114,6 +119,7 @@ class _Builder:
         if masking is not None:
             workflow["trigger_masking"] = masking
         self._campaign_notes()
+        self._static_segment_notes()
         # A step that no path reaches, like a language variant behind its default, is not in the draft.
         notes = tuple(note for note in self.notes if note.step_id is None or note.step_id in kept_ids)
         return TranslatedWorkflow(
@@ -288,6 +294,32 @@ class _Builder:
                 "Customer.io throttles this automation's sends. Set an email sending limit on the workflow.",
             )
 
+    def _name_segments(self, match: re.Match[str]) -> str:
+        labels = [self._segment_label(segment_id) for segment_id in match.group(2).split(", ")]
+        return f"{match.group(1)} {', '.join(labels)}"
+
+    def _segment_label(self, segment_id: str) -> str:
+        segment = self.options.segments.get(segment_id)
+        return f'"{segment.name}" ({segment_id})' if segment and segment.name else segment_id
+
+    def _static_segment_notes(self) -> None:
+        trees: list[Any] = [self.campaign.get("trigger"), self.campaign.get("global_exit_conditions")]
+        trees.append(conditions.decode(self.campaign.get("filters")))
+        for action in self.source_actions.values():
+            trees.append(conditions.decode(action.get("preconditions")))
+            trees.append(conditions.decode(action.get("conditions")))
+            trees.extend(conditions.decode(item) for item in action.get("multi_conditions") or [])
+        referenced = dict.fromkeys(segment for tree in trees for segment in _segment_references(tree))
+        for segment_id in referenced:
+            segment = self.options.segments.get(segment_id)
+            if segment is None or segment.type not in _STATIC_SEGMENT_TYPES:
+                continue
+            self.note(
+                NoteLevel.NEEDS_INPUT,
+                f"Customer.io segment {self._segment_label(segment_id)} is a static list. Workflows cannot check a "
+                "static cohort, so rebuild it as person property conditions or a realtime cohort.",
+            )
+
     # Actions
 
     def _action(self, source: dict[str, Any]) -> dict[str, Any] | None:
@@ -400,35 +432,26 @@ class _Builder:
     def _email(self, source: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
         template = self._template(source, action)
         recipient = template.get("recipient") or source.get("recipient") or "{{customer.email}}"
-        html = self._liquid(template.get("body"), action, "email body")
+        html = self._liquid(self._with_layout(template, action), action, "email body")
         email: dict[str, Any] = {
             "to": {"email": self._liquid(recipient, action, "recipient"), "name": ""},
-            "from": {"email": "", "name": ""},
-            "replyTo": "",
+            "from": self._sender(template, action),
+            "replyTo": self._address(template, "reply_to_identity_id", "reply_to_id", "reply_to")[0],
             "subject": self._liquid(template.get("subject") or source.get("subject") or "", action, "subject"),
             "preheader": self._liquid(template.get("preheader_text") or "", action, "preheader"),
             "html": html,
         }
         if template.get("body_plain"):
             email["text"] = self._liquid(template["body_plain"], action, "plain-text body")
-        if template:
-            self.note(
-                NoteLevel.NEEDS_INPUT,
-                "Choose the email sender. Customer.io sender identities are not imported.",
-                action,
-            )
+        if not template:
+            # A draft needs a subject and a body to save. The note about the missing content asks for the real ones.
+            email["subject"] = email["subject"] or action["name"]
+            email["html"] = "<p>This email's content was not imported from Customer.io.</p>"
         if template.get("editor") in ("bee", "parcel", "wysiwyg"):
             self.note(
                 NoteLevel.APPROXIMATED,
                 "The email is imported as HTML. The Customer.io visual design is not editable in PostHog's "
                 "visual editor, so edit it in the code editor.",
-                action,
-            )
-        if template.get("layout_id"):
-            self.note(
-                NoteLevel.APPROXIMATED,
-                "Customer.io wraps this email in a layout, which was not imported. Add the layout's header and "
-                "footer to the HTML.",
                 action,
             )
         if source.get("sending_state") == "draft":
@@ -441,11 +464,75 @@ class _Builder:
             "template_id": "template-email",
             "inputs": {"email": {"templating": "liquid", "value": email}},
         }
-        if source.get("send_to_unsubscribed"):
-            config["message_category_type"] = "transactional"
+        self._category(source, config, action)
         if source.get("tracked") is False:
             config["tracking_enabled"] = False
         return {"type": "function_email", "config": config}
+
+    def _with_layout(self, template: dict[str, Any], action: dict[str, Any]) -> str:
+        body = template.get("body") or ""
+        layout_id = template.get("layout_id")
+        layout = self.options.layouts.get(str(layout_id)) if layout_id else None
+        if layout is None and isinstance(template.get("layout"), str):
+            layout = template["layout"]
+        if layout and _LAYOUT_CONTENT.search(layout):
+            return _LAYOUT_CONTENT.sub(lambda _: body, layout, count=1)
+        if layout_id:
+            self.note(
+                NoteLevel.NEEDS_INPUT,
+                f"Customer.io wraps this email in layout {layout_id}, which was not part of the import. Import "
+                "again with the layout, or add its header and footer to the HTML.",
+                action,
+            )
+        return body
+
+    def _address(self, template: dict[str, Any], *keys: str) -> tuple[str, str]:
+        """The email address and display name a template names under any of `keys`: an identity id or an address."""
+        for key in keys:
+            value = template.get(key)
+            if value in (None, ""):
+                continue
+            address = self.options.sender_addresses.get(str(value))
+            name, email = parseaddr(address if address is not None else str(value))
+            if "@" in email:
+                return email, name
+        return "", ""
+
+    def _sender(self, template: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
+        if not template:
+            return {"email": "", "name": ""}
+        address, name = self._address(template, "from_identity_id", "from_id", "from")
+        sender = self.options.senders.get(address.lower()) if address else None
+        if sender is not None:
+            return {"integrationId": sender.integration_id, "email": sender.email, "name": name or sender.name}
+        if address:
+            self.note(
+                NoteLevel.NEEDS_INPUT,
+                f"Customer.io sends this email from {address}, which is not a PostHog email sender yet. Add it "
+                "as a sender, or choose another one.",
+                action,
+            )
+        else:
+            self.note(NoteLevel.NEEDS_INPUT, "Choose the email sender.", action)
+        return {"email": address, "name": name}
+
+    def _category(self, source: dict[str, Any], config: dict[str, Any], action: dict[str, Any]) -> None:
+        topic_id = source.get("subscription_topic_id")
+        if topic_id:
+            category = self.options.topic_categories.get(str(topic_id))
+            if category is not None:
+                config["message_category_id"] = category.id
+                config["message_category_type"] = category.category_type
+                return
+            self.note(
+                NoteLevel.NEEDS_INPUT,
+                f"Customer.io sends this email under subscription topic {topic_id}, which has no PostHog message "
+                "category. Import your Customer.io topics with Import from Customer.io on the Opt-outs tab, then "
+                "import again, or pick a category.",
+                action,
+            )
+        if source.get("send_to_unsubscribed"):
+            config["message_category_type"] = "transactional"
 
     def _webhook(self, source: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
         template = self._template(source, action)
@@ -484,10 +571,16 @@ class _Builder:
             )
             return None
         template = self._template(source, base)
-        try:
-            attributes = json.loads(template.get("body") or "[]")
-        except ValueError:
-            attributes = []
+        attributes: Any = []
+        for raw in (template.get("body"), template.get("body_json")):
+            if not raw:
+                continue
+            try:
+                attributes = json.loads(raw) if isinstance(raw, str) else raw
+            except ValueError:
+                continue
+            if attributes:
+                break
         properties: dict[str, str] = {}
         for attribute in attributes if isinstance(attributes, list) else []:
             if not isinstance(attribute, dict) or not attribute.get("name"):
@@ -783,6 +876,24 @@ def _foreign_event_leaves(tree: Any) -> list[dict[str, Any]]:
         for key in ("and", "or"):
             if key in tree:
                 found.extend(_foreign_event_leaves(tree[key]))
+    return found
+
+
+def _segment_references(tree: Any) -> list[str]:
+    """Every segment id a condition tree or a decoded condition list names."""
+    found: list[str] = []
+    if isinstance(tree, list):
+        for child in tree:
+            found.extend(_segment_references(child))
+    elif isinstance(tree, dict):
+        segment = tree.get("segment")
+        if isinstance(segment, dict) and segment.get("id") is not None:
+            found.append(str(segment["id"]))
+        if tree.get("type") in ("segments_negatable", "segments"):
+            found.extend(str(segment) for segment in tree.get("segments") or [])
+        for key in ("and", "or", "not"):
+            if key in tree:
+                found.extend(_segment_references(tree[key]))
     return found
 
 

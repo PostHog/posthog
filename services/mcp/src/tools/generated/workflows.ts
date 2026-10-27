@@ -388,6 +388,15 @@ const workflowsImportCustomerio = (): ToolBase<
         if (params.segment_cohorts !== undefined) {
             body['segment_cohorts'] = params.segment_cohorts
         }
+        if (params.layouts !== undefined) {
+            body['layouts'] = params.layouts
+        }
+        if (params.sender_identities !== undefined) {
+            body['sender_identities'] = params.sender_identities
+        }
+        if (params.segments !== undefined) {
+            body['segments'] = params.segments
+        }
         if (params.dry_run !== undefined) {
             body['dry_run'] = params.dry_run
         }
