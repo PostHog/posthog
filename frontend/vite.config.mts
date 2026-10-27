@@ -1,4 +1,5 @@
 import tailwindcss from '@tailwindcss/vite'
+import { redact } from '@tanstack/redact/vite'
 import react from '@vitejs/plugin-react'
 import { dirname, resolve } from 'node:path'
 import { URL, fileURLToPath } from 'node:url'
@@ -17,6 +18,7 @@ export default defineConfig(({ mode }) => {
     const isDev = mode === 'development'
     // Opt-in because the plugin's server listens on all interfaces with no auth. Set DEV_CODE_INSPECTOR=1 in .env.local.
     const codeInspectorEnabled = ['1', 'true'].includes(process.env.DEV_CODE_INSPECTOR?.toLowerCase() ?? '')
+    const redactEnabled = process.env.POSTHOG_REACT_RUNTIME === 'redact'
 
     return {
         plugins: [
@@ -32,6 +34,7 @@ export default defineConfig(({ mode }) => {
                     })
                 ),
             react(),
+            redactEnabled && redact(),
             tailwindcss(),
             // We delete and copy the HTML files for development
             htmlGenerationPlugin(),

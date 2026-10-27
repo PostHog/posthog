@@ -237,6 +237,7 @@ minimumReleaseAgeExclude:
     - bloommx@1.0.3
     - '@shadcn/react'
     - mermaid@11.15.0
+    - '@tanstack/redact@0.2.1'
     - kea-typegen
     - '@typescript/native-preview'
     - '@typescript/native-preview-darwin-arm64'
