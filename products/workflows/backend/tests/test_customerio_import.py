@@ -4,16 +4,25 @@ from typing import Any
 from urllib.parse import quote
 
 from posthog.test.base import APIBaseTest, BaseTest
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.event_usage import EventSource
+from posthog.models.integration import Integration
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
-from products.workflows.backend.facade.contracts import CampaignSource, ImportOptions
+from products.messaging.backend.models.message_category import MessageCategory
+from products.workflows.backend.facade.contracts import (
+    CampaignSource,
+    ImportCategory,
+    ImportOptions,
+    ImportSegment,
+    ImportSender,
+)
 from products.workflows.backend.facade.enums import WorkflowImportNoteLevel as NoteLevel
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.presentation.views.data_suggestion_drafts import validated_draft
@@ -152,6 +161,53 @@ class TestCustomerioCampaignTranslation(BaseTest):
         assert validated_draft(self.team, translated.workflow, EventSource.API) is not None
         assert any(note.level == NoteLevel.NEEDS_INPUT and "segment 7" in note.message for note in translated.notes)
 
+    def test_email_takes_its_layout_sender_and_category(self) -> None:
+        source = _onboarding_campaign()
+        campaign = {**source.campaign, "filters": _encode([{"type": "segments", "segments": [9]}])}
+        actions = [
+            {**action, "subscription_topic_id": 3} if action["id"] == "1" else action for action in source.actions
+        ]
+        templates = {
+            **source.templates,
+            "11": {**source.templates["11"], "layout_id": 5, "from_identity_id": "77", "reply_to": "help@example.com"},
+            "12": {**source.templates["12"], "from": "Ops <ops@example.com>", "layout_id": 6},
+        }
+        options = ImportOptions(
+            snippets={},
+            segment_cohorts={},
+            layouts={"5": "<html><body>{{ content }}<p>{{ customer.city }}</p></body></html>"},
+            sender_addresses={"77": "Team <team@example.com>"},
+            senders={"team@example.com": ImportSender(integration_id=12, email="team@example.com", name="PostHog")},
+            topic_categories={"3": ImportCategory(id="cat-1", category_type="marketing")},
+            segments={"9": ImportSegment(name="Beta list", type="static")},
+        )
+        translated = translate_campaign(
+            CampaignSource(campaign=campaign, actions=actions, templates=templates), options
+        )
+
+        actions_by_id = {action["id"]: action for action in translated.workflow["actions"]}
+        welcome = actions_by_id["cio_1"]["config"]
+        email = welcome["inputs"]["email"]["value"]
+        assert email["html"].startswith("<html><body><p>Hi {{ person.properties.first_name")
+        assert email["html"].endswith("<p>{{ person.properties.city }}</p></body></html>")
+        assert email["from"] == {"integrationId": 12, "email": "team@example.com", "name": "Team"}
+        assert email["replyTo"] == "help@example.com"
+        assert (welcome["message_category_id"], welcome["message_category_type"]) == ("cat-1", "marketing")
+        assert actions_by_id["cio_5"]["config"]["inputs"]["email"]["value"]["from"]["email"] == "ops@example.com"
+        messages = [(note.level, note.step_id, note.message) for note in translated.notes]
+        assert any(
+            level == NoteLevel.NEEDS_INPUT and step == "cio_5" and "ops@example.com" in text
+            for level, step, text in messages
+        )
+        assert any(
+            level == NoteLevel.NEEDS_INPUT and step == "cio_5" and "layout 6" in text for level, step, text in messages
+        )
+        assert any(
+            level == NoteLevel.NEEDS_INPUT and step is None and '"Beta list" (9) is a static list' in text
+            for level, step, text in messages
+        )
+        assert not any(step == "cio_1" and "sender" in text for _, step, text in messages)
+
     def test_language_split_keeps_only_the_default_message(self) -> None:
         campaign = {
             "id": "5",
@@ -246,6 +302,11 @@ class TestCustomerioLiquid(SimpleTestCase):
             ),
             ("text outside tags", "customer.first_name", "customer.first_name"),
             ("unsubscribe tag", '<a href="{% unsubscribe_url %}">', '<a href="{{ unsubscribe_url }}">'),
+            (
+                "captured html prints raw",
+                "{% capture cta %}<b>Go</b>{% endcapture %}{{ cta }}{{- cta | strip -}}{{ cta | raw }}{{ other }}",
+                "{% capture cta %}<b>Go</b>{% endcapture %}{{ cta | raw }}{{- cta | strip | raw -}}{{ cta | raw }}{{ other }}",
+            ),
         ]
     )
     def test_rewrites_globals(self, _name: str, source: str, expected: str) -> None:
@@ -302,6 +363,67 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert result["status"] == "preview"
         assert result["notes"]
         assert not HogFlow.objects.filter(team=self.team).exists()
+
+    @patch("products.workflows.backend.services.customerio_import.app_api.time.sleep")
+    @patch("products.workflows.backend.services.customerio_import.app_api.requests.Session.get")
+    def test_reads_message_content_with_the_stored_key(self, mock_get: MagicMock, _sleep: MagicMock) -> None:
+        Integration.objects.create(team=self.team, kind="customerio-app", sensitive_config={"app_api_key": "k"})
+        MessageCategory.objects.create(team=self.team, key="customerio_topic_3", name="Product news")
+        email_actions = [
+            {"id": 1, "type": "email", "subject": "Hi", "body": "<p>Fetched {{customer.first_name}}</p>", "from_id": 4},
+            {"id": 5, "type": "email", "subject": "Tips", "body": "<p>Tips</p>"},
+        ]
+
+        def respond(url: str, **kwargs: Any) -> MagicMock:
+            response = MagicMock(status_code=200, headers={})
+            if url.startswith("https://api.customer.io"):
+                response.status_code = 401
+            elif url.endswith("/campaigns/42/actions") and not kwargs["params"]:
+                response.json.return_value = {"actions": email_actions[:1], "next": "page2"}
+            elif url.endswith("/campaigns/42/actions"):
+                response.json.return_value = {"actions": email_actions[1:], "next": ""}
+            elif url.endswith("/sender_identities"):
+                response.json.return_value = {"sender_identities": [{"id": 4, "email": "team@example.com"}]}
+            else:
+                response.json.return_value = {}
+            return response
+
+        mock_get.side_effect = respond
+        source = _onboarding_campaign()
+        actions = [
+            {**action, "subscription_topic_id": 3} if action["id"] == "1" else action for action in source.actions
+        ]
+        body = {"source": "customerio", "campaigns": [{"campaign": source.campaign, "actions": actions}]}
+        response = self.client.post(f"/api/projects/{self.team.id}/workflow_imports/", body, format="json")
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["content_fetched"] is True
+        result = response.json()["results"][0]
+        flow = HogFlow.objects.get(pk=result["workflow_id"])
+        flow_actions = {action["id"]: action for action in flow.actions}
+        welcome = flow_actions["cio_1"]["config"]
+        assert welcome["inputs"]["email"]["value"]["html"] == "<p>Fetched {{person.properties.first_name}}</p>"
+        assert welcome["inputs"]["email"]["value"]["from"]["email"] == "team@example.com"
+        assert welcome["message_category_type"] == "marketing"
+        assert flow_actions["cio_5"]["config"]["inputs"]["email"]["value"]["subject"] == "Tips"
+        # Template 13 has no App API action with its step's id, so it still asks for content.
+        assert any(note["step_id"] == "cio_7" and "content" in note["message"] for note in result["notes"])
+        assert all(call.kwargs["headers"]["Authorization"] == "Bearer k" for call in mock_get.call_args_list)
+
+    @patch("products.workflows.backend.services.customerio_import.app_api.time.sleep")
+    @patch("products.workflows.backend.services.customerio_import.app_api.requests.Session.get")
+    def test_rejected_key_still_imports_and_says_why(self, mock_get: MagicMock, _sleep: MagicMock) -> None:
+        Integration.objects.create(team=self.team, kind="customerio-app", sensitive_config={"app_api_key": "k"})
+        mock_get.return_value = MagicMock(status_code=401, headers={})
+        source = _onboarding_campaign()
+        body = {"source": "customerio", "campaigns": [{"campaign": source.campaign, "actions": source.actions}]}
+        response = self.client.post(f"/api/projects/{self.team.id}/workflow_imports/", body, format="json")
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["content_fetched"] is False
+        result = response.json()["results"][0]
+        assert result["status"] == "created", result["validation_errors"]
+        assert any("could not read this automation's messages" in note["message"] for note in result["notes"])
 
     def test_notes_are_readable_by_workflow(self) -> None:
         result = self._import()

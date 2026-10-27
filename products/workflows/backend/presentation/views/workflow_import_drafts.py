@@ -7,13 +7,19 @@ from uuid import UUID
 import structlog
 from rest_framework.exceptions import ValidationError
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import EventSource
 from posthog.models import Team, User
 
 from products.workflows.backend.facade.activity import log_workflow_activity
 from products.workflows.backend.facade.contracts import CampaignSource, ImportNote, ImportOptions, WorkflowActor
 from products.workflows.backend.facade.enums import HogFlowState, WorkflowImportNoteLevel
-from products.workflows.backend.facade.workflow_imports import previous_import, record_import, translate_campaign
+from products.workflows.backend.facade.workflow_imports import (
+    import_content,
+    previous_import,
+    record_import,
+    translate_campaign,
+)
 from products.workflows.backend.facade.writes import create_workflow, update_workflow
 from products.workflows.backend.presentation.views.graph_validation import validate_graph
 from products.workflows.backend.presentation.views.hog_flow import HogFlowSerializer
@@ -21,24 +27,61 @@ from products.workflows.backend.presentation.views.hog_flow import HogFlowSerial
 logger = structlog.get_logger(__name__)
 
 
-def import_campaign(
-    team: Team, user: User, payload: dict[str, Any], options: ImportOptions, dry_run: bool
-) -> dict[str, Any]:
-    """Imports one Customer.io automation, or previews it, and returns its result in the response shape."""
+@frozen
+class ImportRun:
+    results: list[dict[str, Any]]
+    # Whether PostHog read message content from Customer.io with the team's stored App API key.
+    content_fetched: bool
+
+
+def import_campaigns(
+    team: Team,
+    user: User,
+    payloads: list[dict[str, Any]],
+    options: ImportOptions,
+    dry_run: bool,
+    sender_identities: list[dict[str, Any]],
+    segments: list[dict[str, Any]],
+) -> ImportRun:
+    content = import_content(
+        team.id, [_campaign_source(payload) for payload in payloads], options, sender_identities, segments
+    )
+    results = [
+        import_campaign(
+            team, user, source, content.options, dry_run, content.fetch_notes.get(str(source.campaign.get("id")), ())
+        )
+        for source in content.sources
+    ]
+    return ImportRun(results=results, content_fetched=content.fetched)
+
+
+def _campaign_source(payload: dict[str, Any]) -> CampaignSource:
     templates = payload.get("templates") or {}
     if isinstance(templates, list):
         templates = {str(template.get("id")): template for template in templates if isinstance(template, dict)}
-    source = CampaignSource(
+    return CampaignSource(
         campaign=payload["campaign"],
         actions=payload["actions"],
         templates={str(key): value for key, value in templates.items() if isinstance(value, dict)},
     )
+
+
+def import_campaign(
+    team: Team,
+    user: User,
+    source: CampaignSource,
+    options: ImportOptions,
+    dry_run: bool,
+    extra_notes: tuple[ImportNote, ...] = (),
+) -> dict[str, Any]:
+    """Imports one Customer.io automation, or previews it, and returns its result in the response shape."""
     translated = translate_campaign(source, options)
+    notes = (*extra_notes, *translated.notes)
     result: dict[str, Any] = {
         "source_id": translated.source_id,
         "name": translated.name,
         "workflow_id": None,
-        "notes": [asdict(note) for note in translated.notes],
+        "notes": [asdict(note) for note in notes],
         "validation_errors": [],
     }
     validated, errors = _validated_draft(team, translated.workflow)
@@ -88,7 +131,7 @@ def import_campaign(
         source_id=translated.source_id,
         name=translated.name,
         hog_flow_id=workflow_id,
-        notes=translated.notes,
+        notes=notes,
     )
     return {**result, "status": status, "workflow_id": str(workflow_id)}
 

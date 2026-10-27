@@ -7,6 +7,8 @@ from posthog.dataclasses import frozen
 _TAG = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.DOTALL)
 _UNSUBSCRIBE_TAG = re.compile(r"\{%-?\s*(?:unsubscribe_url|manage_subscription_preferences_url)\s*-?%\}")
 _SNIPPET_TAG = re.compile(r"\{%-?\s*snippet\s+[\"']([^\"']+)[\"']\s*-?%\}")
+_CAPTURE_TAG = re.compile(r"\{%-?\s*capture\s+(\w+)\s*-?%\}")
+_OUTPUT_TAG = re.compile(r"\{\{(-?)(\s*)(\w+)(.*?)(\s*)(-?)\}\}", re.DOTALL)
 # Customer.io's `customer.id` is the id the team identifies people with, which is the distinct id in PostHog.
 _RENAMES = (
     (re.compile(r"(?<![\w.])customer\.id\b"), "event.distinct_id"),
@@ -61,8 +63,24 @@ def rewrite(text: str | None, snippets: dict[str, str]) -> RewrittenLiquid:
         return tag
 
     text = _TAG.sub(rewrite_tag, text)
+    text = _print_captures_raw(text)
     return RewrittenLiquid(
         text=text,
         unsupported_globals=tuple(sorted(unsupported)),
         missing_snippets=tuple(dict.fromkeys(missing_snippets)),
     )
+
+
+def _print_captures_raw(text: str) -> str:
+    # PostHog escapes HTML in every output and Customer.io does not, so captured markup would print as text.
+    captured = set(_CAPTURE_TAG.findall(text))
+    if not captured:
+        return text
+
+    def add_raw(match: re.Match[str]) -> str:
+        open_trim, lead, name, rest, trail, close_trim = match.groups()
+        if name not in captured or re.search(r"\|\s*raw\s*$", rest):
+            return match.group(0)
+        return "{{" + open_trim + lead + name + rest + " | raw" + trail + close_trim + "}}"
+
+    return _OUTPUT_TAG.sub(add_raw, text)
