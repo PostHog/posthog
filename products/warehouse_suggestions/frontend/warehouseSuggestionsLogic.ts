@@ -56,6 +56,10 @@ import {
 
 export type StripState = 'loading' | 'error' | 'hidden' | 'warming_up' | 'not_eligible' | 'active' | 'all_done'
 export type SuggestionSurface = 'models' | 'catalog'
+export interface SuggestionGroup {
+    kind: string
+    suggestions: WarehouseSuggestionApi[]
+}
 
 export interface WarehouseSuggestionsLogicProps {
     surface: SuggestionSurface
@@ -112,6 +116,14 @@ function compareSuggestions(a: WarehouseSuggestionApi, b: WarehouseSuggestionApi
     const [groupA, valueA] = suggestionWorth(a)
     const [groupB, valueB] = suggestionWorth(b)
     return groupA - groupB || valueA - valueB
+}
+
+function groupedByKind(suggestions: WarehouseSuggestionApi[]): SuggestionGroup[] {
+    const kindsByBestSuggestion = [...new Set(suggestions.map((suggestion) => suggestion.kind))]
+    return kindsByBestSuggestion.map((kind) => ({
+        kind,
+        suggestions: suggestions.filter((suggestion) => suggestion.kind === kind),
+    }))
 }
 
 function proposedRefreshDraft(payload: WarehouseSuggestionMaterializePayloadApi): IncrementalConfigDraft {
@@ -197,6 +209,7 @@ export interface warehouseSuggestionsLogicValues {
     status: WarehouseSuggestionStatusApi | null
     statusLoading: boolean
     stripState: StripState
+    suggestionGroups: SuggestionGroup[]
     suggestions: WarehouseSuggestionApi[] | null
     suggestionsLoading: boolean
     surfaceSuggestions: WarehouseSuggestionApi[]
@@ -361,6 +374,7 @@ export interface warehouseSuggestionsLogicMeta {
             hiddenSuggestionIds: string[],
             surface: SuggestionSurface
         ) => WarehouseSuggestionApi[]
+        suggestionGroups: (listedSuggestions: WarehouseSuggestionApi[]) => SuggestionGroup[]
         surfaceSuggestions: (
             listedSuggestions: WarehouseSuggestionApi[],
             leavingSuggestionIds: string[]
@@ -570,15 +584,21 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     suggestions: WarehouseSuggestionApi[] | null,
                     hiddenIds: string[],
                     surface: SuggestionSurface
-                ): WarehouseSuggestionApi[] =>
-                    (suggestions ?? [])
+                ): WarehouseSuggestionApi[] => {
+                    const byWorth = (suggestions ?? [])
                         .filter(
                             (suggestion) =>
                                 suggestion.surfaced_at !== null &&
                                 !hiddenIds.includes(suggestion.id) &&
                                 SURFACE_KINDS[surface].includes(suggestion.kind)
                         )
-                        .sort(compareSuggestions),
+                        .sort(compareSuggestions)
+                    return groupedByKind(byWorth).flatMap((group) => group.suggestions)
+                },
+            ],
+            suggestionGroups: [
+                (s) => [s.listedSuggestions],
+                (listed: WarehouseSuggestionApi[]): SuggestionGroup[] => groupedByKind(listed),
             ],
             surfaceSuggestions: [
                 (s) => [s.listedSuggestions, s.leavingSuggestionIds],

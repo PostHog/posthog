@@ -1513,7 +1513,7 @@ class TestMidChunkLimitFallback:
                 self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager
             )
             assert next(gen) == [{"ad_id": "1"}]
-            with pytest.raises(Exception, match="Please re-authorize the integration"):
+            with pytest.raises(Exception, match="Reconnect with a Facebook account"):
                 list(gen)
 
         # Initial + failed cursor only — the limit ladder is not exercised for auth errors.

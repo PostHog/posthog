@@ -2,12 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
 
-import {
-    createDefaultTooltipAccessor,
-    ensureJsdom,
-    getHogChart,
-    hoverUntilTooltip,
-} from '@posthog/quill-charts/testing'
+import { createDefaultTooltipAccessor, ensureJsdom, getChart, hoverUntilTooltip } from '@posthog/quill-charts/testing'
 
 import type { MetricsDisplaySettings } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -40,7 +35,7 @@ describe('MetricsSeriesChart', () => {
 
     it('draws one line per series', () => {
         renderChart([seriesWith({ service: 'checkout' }, [1, 2, 3]), seriesWith({ service: 'billing' }, [4, 5, 6])])
-        expect(getHogChart().seriesCount).toBe(2)
+        expect(getChart().seriesCount).toBe(2)
     })
 
     it.each([
@@ -79,7 +74,7 @@ describe('MetricsSeriesChart', () => {
             type,
         })
 
-        expect(getHogChart().seriesCount).toBe(2)
+        expect(getChart().seriesCount).toBe(2)
         expect(screen.getByTestId(`hog-chart-timeseries-${expectedChart}-legend`)).toBeInTheDocument()
     })
 
@@ -105,14 +100,14 @@ describe('MetricsSeriesChart', () => {
     // dropping the point instead would silently shift every later value a bucket to the left.
     it('charts a null bucket as zero rather than dropping the point', async () => {
         renderChart([seriesWith({}, [1, null, 3])])
-        const chart = getHogChart()
+        const chart = getChart()
         const tooltip = createDefaultTooltipAccessor(await hoverUntilTooltip(chart.element, 1, BUCKETS.length))
         expect(tooltip.value('http.requests')).toBe('0')
     })
 
     it('formats the x-axis ticks and tooltip label as tz-aware dates', async () => {
         renderChart([seriesWith({}, [1, 2, 3])])
-        const chart = getHogChart()
+        const chart = getChart()
         expect(chart.xTicks()).toEqual(['10:00', '11:00', '12:00'])
         const tooltip = createDefaultTooltipAccessor(await hoverUntilTooltip(chart.element, 1, BUCKETS.length))
         expect(tooltip.label()).toBe('1 Aug 2026 11:00:00')

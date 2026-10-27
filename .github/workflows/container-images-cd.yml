@@ -32,6 +32,15 @@ on:
     # When GitHub Actions itself is down, build through Depot CI instead:
     # .depot/workflows/actions-outage-image-build.yml
     workflow_dispatch:
+        inputs:
+            shared-image-force:
+                description: 'Explicit image/channel keys to release, as a JSON array'
+                type: string
+                default: '[]'
+            shared-image-bootstrap:
+                description: 'One approved seed as JSON with channel, revision and digest'
+                type: string
+                default: ''
 
 # Serialize runs for the same commit so a push racing a manual re-run/dispatch can't both
 # preflight "absent" and both rebuild, moving an immutable sha-* tag to a new digest. Keyed
@@ -1642,3 +1651,79 @@ jobs:
               run: |
                   echo "::error title=Ordered image alias missing::Kargo only creates freight from the ordered alias, so Kargo-delivered apps stay on the previous image (outcome: ${OUTCOME})."
                   exit 1
+
+    shared_image_channels:
+        name: Publish eligible shared-image channels
+        needs: [posthog_build, ordered_image_alias]
+        if: ${{ !cancelled() && needs.posthog_build.result == 'success' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 18
+        continue-on-error: true
+        permissions:
+            id-token: write
+            contents: read
+        steps:
+            - name: Check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Inspect shared-image publication channels
+              id: shared-image-channels
+              uses: ./.github/actions/shared-image-releases
+              with:
+                  shared-image-operation: inspect
+                  shared-image-repository: ${{ env.ECR_REPOSITORY }}
+
+            - name: Compute shared-image ordered tag
+              id: ordered-release
+              if: ${{ steps.shared-image-channels.outputs.channels == 'true' }}
+              timeout-minutes: 2
+              run: bash .github/scripts/ordered-image-release.sh tag
+
+            - name: Fail when shared-image ordered tag is unavailable
+              if: ${{ steps.shared-image-channels.outputs.channels == 'true' && steps.ordered-release.outputs.tag == '' }}
+              shell: bash
+              run: |
+                  echo "::error title=Shared-image ordered tag unavailable::Channels could not be evaluated because no ordered tag was generated. Check the tag step and retry."
+                  exit 1
+
+            - name: Install shared-image copy client
+              if: ${{ steps.ordered-release.outputs.tag != '' }}
+              timeout-minutes: 1
+              run: bash .github/scripts/ordered-image-release.sh install "$RUNNER_TEMP/regctl"
+
+            - name: Configure AWS credentials for shared-image channels
+              id: shared-image-credentials
+              if: ${{ steps.ordered-release.outputs.tag != '' }}
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ vars.AWS_ECR_TEMPORAL_WORKERS_PUBLISH_IAM_ROLE }}
+                  aws-region: us-east-1
+                  unset-current-credentials: true
+
+            - name: Log in to Amazon ECR for shared-image channels
+              id: shared-image-ecr-login
+              if: ${{ !cancelled() && steps.shared-image-credentials.outcome == 'success' }}
+              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+
+            - name: Publish and read back eligible shared-image channels
+              if: ${{ !cancelled() && steps.shared-image-ecr-login.outcome == 'success' }}
+              timeout-minutes: 13
+              uses: ./.github/actions/shared-image-releases
+              with:
+                  shared-image-operation: publish
+                  shared-image-digest: ${{ needs.posthog_build.outputs.image-digest }}
+                  shared-image-alias: ${{ steps.ordered-release.outputs.tag }}
+                  shared-image-repository: ${{ env.ECR_REPOSITORY }}
+                  shared-image-registry: ${{ steps.shared-image-ecr-login.outputs.registry }}
+                  shared-image-force: ${{ inputs.shared-image-force || '[]' }}
+                  shared-image-bootstrap: ${{ inputs.shared-image-bootstrap }}
+                  shared-image-regctl: ${{ runner.temp }}/regctl
+                  shared-image-budgets: '{"fetchMs":60000,"comparisonMs":30000,"maxBuffer":67108864,"registryMs":15000,"copySeconds":120,"readbackSeconds":30,"maxChannels":4,"concurrency":2,"channelMs":300000,"totalMs":720000}'
+
+            - name: Retain shared-image publication evidence
+              if: ${{ !cancelled() && steps.shared-image-channels.outputs.channels == 'true' }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: shared-image-releases-${{ github.run_attempt }}
+                  path: shared-image-releases/
+                  if-no-files-found: warn

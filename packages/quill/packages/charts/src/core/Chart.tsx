@@ -458,6 +458,7 @@ export function Chart<Meta = unknown>({
                     }
                     crosshair={!!onDateRangeZoom || !!onAreaSelect}
                     ariaLabel={ariaLabel}
+                    labelCount={labels.length}
                     handlers={handlers}
                     showOverlay={!!(dimensions && scales)}
                 >

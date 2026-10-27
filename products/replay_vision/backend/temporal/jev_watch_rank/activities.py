@@ -392,7 +392,7 @@ async def _judge_watch_ranks(inputs: JevWatchRankSweepInputs) -> JevWatchRankSwe
                 continue
             mode = await asyncio.to_thread(watch_feed_ranker, team_id, team_uuid)
             teams_evaluated += 1
-            if mode == "weighted-score":
+            if mode not in ("jev", "jev-shadow"):
                 continue
             # The scan prose the sweep sends to the model derives from recordings, so a revoked consent
             # stops the judgments even while the flag stays on.

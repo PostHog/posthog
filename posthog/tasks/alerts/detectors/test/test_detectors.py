@@ -820,3 +820,64 @@ class TestRealisticScoreBehavior:
             f"Ensemble OR fired on stable data (score={result.score:.4f}, "
             f"sub_results={result.metadata.get('sub_results')})"
         )
+
+
+_PARITY_PREPROCESSING = [
+    ("raw", {}),
+    ("diffs", {"diffs_n": 1}),
+    ("lags", {"lags_n": 3}),
+    ("smooth", {"smooth_n": 3}),
+    ("diffs_lags_smooth", {"diffs_n": 1, "lags_n": 5, "smooth_n": 3}),
+]
+
+
+def _parity_config(detector_type: str, preprocessing: dict[str, Any], training_offset: int) -> dict[str, Any]:
+    shared = {"preprocessing": preprocessing, "training_offset_n": training_offset}
+    if detector_type == "ensemble":
+        return {
+            "type": "ensemble",
+            "operator": "or",
+            "detectors": [{"type": "zscore", "window": 30, **shared}, {"type": "knn", **shared}],
+        }
+    if detector_type == "threshold":
+        return {"type": "threshold", "upper_bound": 150, **shared}
+    return {"type": detector_type, "window": 30, **shared}
+
+
+class TestFitAndScore:
+    @parameterized.expand(
+        [
+            (f"{detector_type}_{name}_offset_{offset}", detector_type, preprocessing, offset)
+            for detector_type in get_available_detectors()
+            for name, preprocessing in _PARITY_PREPROCESSING
+            for offset in (1, 3)
+        ]
+    )
+    def test_scoring_a_fitted_artifact_matches_detect(
+        self, _name: str, detector_type: str, preprocessing: dict[str, Any], offset: int
+    ) -> None:
+        data = np.random.default_rng(0).normal(100, 10, size=80)
+        data[-1] = 200.0
+        detector = get_detector(_parity_config(detector_type, preprocessing, offset))
+
+        expected = detector.detect(data)
+        scored = detector.score(detector.fit(data[:-1]), data[-1 - detector.context_buckets() :])
+
+        assert len(scored.all_scores) == 1
+        assert scored.score == pytest.approx(expected.score)
+        assert scored.is_anomaly is expected.is_anomaly
+
+    def test_ensemble_scores_each_bucket_through_its_sub_artifacts(self) -> None:
+        detector = get_detector(_parity_config("ensemble", {"diffs_n": 1, "lags_n": 5, "smooth_n": 3}, 1))
+        data = np.random.default_rng(1).normal(100, 10, size=80)
+        data[-2] = 400.0
+
+        artifact = detector.fit(data[:60])
+        scored = detector.score(artifact, data[60 - detector.context_buckets() :])
+
+        assert [child.detector_type for child in artifact.children] == ["zscore", "knn"]
+        assert artifact.children[1].model_bytes
+        assert detector.context_buckets() == 8
+        assert len(scored.all_scores) == len(scored.all_metadata) == 20
+        assert 18 in scored.triggered_indices
+        assert [sub["type"] for sub in scored.all_metadata[18]["sub_results"]] == ["zscore", "knn"]
