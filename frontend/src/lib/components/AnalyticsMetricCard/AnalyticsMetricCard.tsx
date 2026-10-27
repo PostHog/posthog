@@ -12,6 +12,8 @@ export interface AnalyticsMetricCardProps extends MetricCardProps {
     onClick?: () => void
     selected?: boolean
     ariaLabel?: string
+    /** Rendered above the clickable area, so it can hold its own buttons. */
+    header?: ReactNode
     adornment?: ReactNode
 }
 
@@ -23,6 +25,7 @@ export function AnalyticsMetricCard({
     onClick,
     selected,
     ariaLabel,
+    header,
     adornment,
     className,
     dataAttr,
@@ -31,7 +34,10 @@ export function AnalyticsMetricCard({
 }: AnalyticsMetricCardProps): JSX.Element {
     const Content = onClick ? 'button' : 'div'
     const hasValue = metricProps.value != null || metricProps.data?.some(Number.isFinite)
-    const label = <span className={clsx('inline-flex items-center gap-1', selected && 'text-accent')}>{title}</span>
+    const label =
+        title != null ? (
+            <span className={clsx('inline-flex items-center gap-1', selected && 'text-accent')}>{title}</span>
+        ) : null
 
     return (
         <div
@@ -42,6 +48,7 @@ export function AnalyticsMetricCard({
                 className
             )}
         >
+            {header}
             <Content
                 type={onClick ? 'button' : undefined}
                 onClick={
@@ -70,13 +77,23 @@ export function AnalyticsMetricCard({
                     </span>
                 ) : error || !hasValue ? (
                     <>
-                        <span className="mb-2 text-sm font-medium">{label}</span>
+                        {label && <span className="mb-2 text-sm font-medium">{label}</span>}
                         <span className={clsx('text-sm', error ? 'text-danger' : 'text-secondary')}>
                             {error || emptyMessage}
                         </span>
                     </>
                 ) : (
-                    <MetricCard {...metricProps} title={label} className="h-full [&>div:first-child]:flex-1" />
+                    <MetricCard
+                        {...metricProps}
+                        title={label}
+                        className={clsx(
+                            'h-full',
+                            // The subtitle takes the spare height, so a wrapped inline pill does not move the headline.
+                            metricProps.changeInline
+                                ? '[&>[data-attr=metric-card-subtitle]]:flex-1'
+                                : '[&>div:first-child]:flex-1'
+                        )}
+                    />
                 )}
                 {onClick && selected === undefined && (
                     <IconChevronRight className="absolute bottom-3 right-3 size-3 text-secondary" aria-hidden />
