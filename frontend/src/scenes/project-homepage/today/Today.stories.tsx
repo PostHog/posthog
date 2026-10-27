@@ -912,6 +912,7 @@ const meta: Meta = {
                     const results = type ? LIBRARY.filter((entry) => entry.type === type) : LIBRARY
                     return [200, { results, count: results.length }]
                 },
+                '/api/projects/:team_id/file_system/frequent/': [],
                 '/api/environments/:team_id/file_system/unfiled/': { results: [], count: 0 },
                 '/api/projects/:team_id/canvases/canvas-building/': VIEW_CANVASES[1],
                 '/api/projects/:team_id/tasks/task-canvas-building/': {
@@ -971,6 +972,52 @@ export default meta
 type Story = StoryObj<{}>
 
 export const Home: Story = { decorators: [keepNumbers([])] }
+
+export const HomeWithFrequentItems: Story = {
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            [FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS]: true,
+            [FEATURE_FLAGS.TODAY_JUMP_BACK_RANKING]: 'test',
+        },
+    },
+    decorators: [
+        keepNumbers([]),
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/file_system/frequent/': [
+                    {
+                        id: 'fs-frequent-1',
+                        path: 'Dashboards/Daily operations',
+                        type: 'dashboard',
+                        ref: '81',
+                        href: '/dashboard/81',
+                        last_viewed_at: '2026-09-27T09:00:00Z',
+                    },
+                    {
+                        id: 'fs-frequent-2',
+                        path: 'Notebooks/Weekly review',
+                        type: 'notebook',
+                        ref: 'weekly-review',
+                        href: '/notebooks/weekly-review',
+                        last_viewed_at: '2026-09-21T09:00:00Z',
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
+export const HomeWithRecentRanking: Story = {
+    ...HomeWithFrequentItems,
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            [FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS]: true,
+            [FEATURE_FLAGS.TODAY_JUMP_BACK_RANKING]: 'control',
+        },
+    },
+}
 
 export const HomeWithKeptNumbers: Story = {
     decorators: [
