@@ -27,6 +27,7 @@ from rest_framework.views import APIView
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.full_text_search import build_search_vector
 from posthog.models import User
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, HogQLQueryThrottle
@@ -39,6 +40,8 @@ from .serializers import (
     CertificationSerializer,
     MetricApproveRequestSerializer,
     MetricBulkApproveResponseSerializer,
+    MetricBulkChangeOwnerRequestSerializer,
+    MetricBulkChangeOwnerResponseSerializer,
     MetricBulkDeleteResponseSerializer,
     MetricBulkNamesRequestSerializer,
     MetricCreateSerializer,
@@ -201,6 +204,7 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             for key in (
                 "display_name",
                 "unit",
+                "owner",
                 "definition",
                 "source_insight_short_id",
                 "created_source",
@@ -288,6 +292,42 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         deleted, skipped = api.bulk_soft_delete_metrics(metrics, cast(User, request.user), request=request)
         payload = MetricBulkDeleteResponseSerializer(
             {"deleted": [metric.name for metric in deleted], "skipped": [*unresolved, *skipped]}
+        )
+        return Response(payload.data)
+
+    @action(
+        detail=False,
+        methods=["POST"],
+        url_path="bulk/change_owner",
+        required_scopes=["data_catalog:write"],
+        request=MetricBulkChangeOwnerRequestSerializer,
+        responses={200: MetricBulkChangeOwnerResponseSerializer},
+    )
+    @validated_request(request_serializer=MetricBulkChangeOwnerRequestSerializer, include_serializer_context=True)
+    def bulk_change_owner(self, request: ValidatedRequest, **kwargs) -> Response:
+        """Give many metrics one owner, keeping their approvals. Unknown metrics are skipped."""
+        metrics, unresolved = _resolve_bulk_metrics(self.get_queryset(), request.validated_data["names"])
+        owner = request.validated_data["owner"]
+        names_by_id = {metric.id: metric.name for metric in metrics}
+        change = api.bulk_change_metric_owner(
+            team_id=self.team.id,
+            names_by_id=names_by_id,
+            owner_id=owner.id if owner else None,
+            user_id=cast(User, request.user).id,
+            analytics_props=get_request_analytics_properties(request),
+        )
+        position = {metric_id: index for index, metric_id in enumerate(change.updated_ids)}
+        updated = sorted(
+            self.get_queryset().filter(id__in=change.updated_ids).select_related("owner", "created_by", "approved_by"),
+            key=lambda metric: position[metric.id],
+        )
+        skipped = [
+            api.MetricBulkSkip(name=names_by_id[metric_id], reason=api.BULK_SKIP_NOT_FOUND)
+            for metric_id in change.skipped_ids
+        ]
+        context = {**self.get_serializer_context(), "drift_map": api.compute_drift(updated)}
+        payload = MetricBulkChangeOwnerResponseSerializer(
+            {"updated": updated, "skipped": [*unresolved, *skipped]}, context=context
         )
         return Response(payload.data)
 

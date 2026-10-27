@@ -906,8 +906,6 @@ tools:
                 - results.*.result.next_allowed_client_refresh
                 - results.*.result.calculation_trigger
                 - results.*.result.query_status
-                - results.*.result.stats_version
-                - results.*.result.insight
     experiment-metrics-recalculation-retrieve:
         operation: experiments_metrics_recalculation_retrieve
         enabled: true
@@ -957,8 +955,6 @@ tools:
                 - results.*.result.next_allowed_client_refresh
                 - results.*.result.calculation_trigger
                 - results.*.result.query_status
-                - results.*.result.stats_version
-                - results.*.result.insight
     experiment-migrate:
         operation: experiments_migrate_create
         enabled: true
@@ -1415,8 +1411,6 @@ tools:
                 - timeseries.*.next_allowed_client_refresh
                 - timeseries.*.calculation_trigger
                 - timeseries.*.query_status
-                - timeseries.*.stats_version
-                - timeseries.*.insight
     experiment-unarchive:
         operation: experiments_unarchive_create
         enabled: true

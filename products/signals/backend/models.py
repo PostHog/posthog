@@ -1535,6 +1535,11 @@ class SignalReportArtefact(UUIDModel):
         db_index=False,
         related_name="+",
     )
+    # The report a `report_link` row points at, copied out of `content` on every write, so finding
+    # the links that point at a report is an index seek instead of a text search of the team's link
+    # rows. Null on every other type. A plain id, not a foreign key, because the row is the source
+    # report's record of what it said, and `content` keeps naming the target after the target is gone.
+    link_target_id = models.UUIDField(null=True, blank=True)
 
     class Meta:
         indexes = [
@@ -1554,6 +1559,11 @@ class SignalReportArtefact(UUIDModel):
                 fields=["id"],
                 condition=models.Q(type="implementation_decision"),
                 name="signals_dispatch_sweep_idx",
+            ),
+            models.Index(
+                fields=["link_target_id"],
+                condition=models.Q(type="report_link"),
+                name="signals_link_target_idx",
             ),
         ]
 
@@ -1670,6 +1680,7 @@ class SignalReportArtefact(UUIDModel):
             task_id=attribution.task_id,
             claim_id=claim_id,
             channel_id=content.channel_id if isinstance(content, ChannelAssignment) else None,
+            link_target_id=content.report_id if isinstance(content, ReportLink) else None,
         )
 
     @classmethod
@@ -2198,6 +2209,9 @@ class SignalReportArtefact(UUIDModel):
             if isinstance(parsed, ChannelAssignment):
                 self.channel_id = parsed.channel_id
                 update_fields.append("channel_id")
+            if isinstance(parsed, ReportLink):
+                self.link_target_id = parsed.report_id
+                update_fields.append("link_target_id")
             self.save(update_fields=update_fields)
         if self.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
             self._schedule_autostart_reevaluation(team_id=self.team_id, report_id=str(self.report_id))
@@ -2614,6 +2628,45 @@ class SignalReportMonitoringAttempt(UUIDModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["report", "monitoring_started_at"], name="signals_attempt_period_uniq")
+        ]
+
+
+class SignalReportMonitoringResult(UUIDModel):
+    class EvidenceStatus(models.TextChoices):
+        SUFFICIENT = "sufficient"
+        INSUFFICIENT = "insufficient"
+        UNSUPPORTED = "unsupported"
+        ERRORED = "errored"
+
+    objects = EnvironmentScopedManager()
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    report = models.ForeignKey(SignalReport, on_delete=models.CASCADE, related_name="monitoring_results")
+    attempt = models.ForeignKey(SignalReportMonitoringAttempt, on_delete=models.CASCADE, related_name="results")
+    report_check = models.ForeignKey(SignalReportCheck, on_delete=models.CASCADE, related_name="monitoring_results")
+    submission_id = models.UUIDField()
+    definition_version = models.CharField(max_length=64)
+    window_start = models.DateTimeField()
+    window_end = models.DateTimeField()
+    evaluated_at = models.DateTimeField()
+    outcome = models.CharField(max_length=20, choices=SignalReportCheck.Outcome)
+    evidence_status = models.CharField(max_length=20, choices=EvidenceStatus)
+    evidence_reason = models.TextField()
+    expectation_matches = models.BooleanField(null=True)
+    explanation = models.TextField()
+    evidence_refs = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["attempt", "report_check", "submission_id"], name="signals_result_submission_uniq"
+            ),
+            models.UniqueConstraint(
+                fields=["attempt", "report_check"],
+                condition=models.Q(outcome__in=["passed", "failed"]),
+                name="signals_result_verdict_uniq",
+            ),
         ]
 
 

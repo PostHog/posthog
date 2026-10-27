@@ -6,7 +6,7 @@ import {
     aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax,
 } from '../generated/ai_observability/api'
 import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
-import { FeatureFlagsPartialUpdateBody } from '../generated/feature_flags/api'
+import { FeatureFlagsPartialUpdateBody, FeatureFlagsPartialUpdateParams } from '../generated/feature_flags/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
@@ -571,6 +571,108 @@ export const InsightQueryInputSchema = z.preprocess(
                 "Object (or pre-encoded JSON string) to override the insight's filters for this run only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepted keys: `date_from`, `date_to`, `explicitDate`, `interval`, `properties`, `filterTestAccounts`, `breakdown_filter`, `compareFilter`, `metricVariables`. Other keys (for example `display`, `dateRange`, `filter_test_accounts` or `compare`) are rejected. Ignored when accessed via a sharing token."
             ),
     })
+)
+
+const ExplainChartEvidenceSchema = z.object({
+    text: z
+        .string()
+        .min(1)
+        .max(400)
+        .describe(
+            'One finding in one sentence, with the numbers from the query that found it. Mark the name that matters with **double asterisks**.'
+        ),
+    query: z
+        .record(z.string(), z.unknown())
+        .optional()
+        .describe(
+            'The query that found this, as you ran it (for example a TrendsQuery with a breakdown). It becomes a link to that chart, and a TrendsQuery also draws as a chart in the walkthrough.'
+        ),
+    url: z
+        .string()
+        .url()
+        .startsWith('https://')
+        .optional()
+        .describe('A link to the source when it is not a query, for example a commit, a pull request or a deploy.'),
+})
+
+const ExplainChartChapterSchema = z.object({
+    title: z
+        .string()
+        .min(1)
+        .max(80)
+        .describe('A short title, for example "A spike on October 2" or "Lower since September 28".'),
+    start: z
+        .string()
+        .min(1)
+        .describe(
+            "The first point the chapter covers, copied from the chart's `days` (for example `2026-10-02`, or `2026-10-02 14:00:00` on an hourly chart)."
+        ),
+    end: z
+        .string()
+        .min(1)
+        .optional()
+        .describe('The last point the chapter covers, inclusive. Omit it when the chapter is about one point.'),
+    summary: z
+        .string()
+        .max(400)
+        .optional()
+        .describe(
+            "What happened, in one or two sentences. Do not repeat the chart's own numbers: the app works them out from the chart and shows them above this."
+        ),
+    cause: z
+        .string()
+        .max(600)
+        .optional()
+        .describe(
+            'The most likely cause, in one or two sentences. Say whether it is a real change in behavior or an artifact of the data. Wrap the name behind it, such as a referrer or a country, in **double asterisks**. Omit it when you found no cause.'
+        ),
+    confidence: z
+        .enum(['high', 'medium', 'low'])
+        .optional()
+        .describe(
+            'How sure you are of the cause. high: independent signals agree. medium: one signal, or a strong pattern without a cross-check. low: a guess.'
+        ),
+    confidence_reason: z.string().max(200).optional().describe('Why you gave that confidence, in one sentence.'),
+    evidence: z.array(ExplainChartEvidenceSchema).max(6).optional().describe('What you checked, at most 6 findings.'),
+})
+
+export const ExplainChartInputSchema = z.preprocess(
+    normalizeParamAliases({ insightId: ['id', 'insight_id', 'short_id', 'shortId'] }),
+    z
+        .object({
+            insightId: z
+                .union([z.string(), z.number()])
+                .optional()
+                .describe('The saved insight to explain: its numeric `id` or 8-character `short_id`.'),
+            query: z
+                .record(z.string(), z.unknown())
+                .optional()
+                .describe('A TrendsQuery to explain when the chart is not a saved insight. Pass this or `insightId`.'),
+            series: z
+                .number()
+                .int()
+                .min(0)
+                .optional()
+                .default(0)
+                .describe(
+                    "Index of the series in the chart's results that the story follows. Defaults to the first one."
+                ),
+            headline: z
+                .string()
+                .min(1)
+                .max(300)
+                .describe(
+                    'One sentence a person could read in place of the whole story. Name what stands out, with no numbers, and wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in **double asterisks**.'
+                ),
+            chapters: z
+                .array(ExplainChartChapterSchema)
+                .min(1)
+                .max(8)
+                .describe('The moments that stand out, in the order to read them. At most 8.'),
+        })
+        .refine((params) => (params.insightId === undefined) !== (params.query === undefined), {
+            message: 'Pass exactly one of `insightId` or `query`.',
+        })
 )
 
 export const AIObservabilityGetCostsSchema = z.object({
@@ -1349,4 +1451,36 @@ export const UpdateFeatureFlagFiltersSchema = FeatureFlagUpdateFilters.extend({
 }).describe(
     'Full release-condition object. It replaces the stored filters, so read the flag first and send every ' +
         'condition you want to keep. The tool description covers condition_id and group targeting.'
+)
+
+// Rules stay opaque: the server's v2 validator is the only schema, and its field errors name the path to fix.
+// A loose object keeps every key the agent sends, so nothing it echoed from the read is dropped here.
+export const FlagRulesV2UpdateInputSchema = z.preprocess(
+    normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
+    z.object({
+        id: z.preprocess(castStringToInt, FeatureFlagsPartialUpdateParams().shape.id),
+        version: z
+            .number()
+            .int()
+            .min(0)
+            .describe(
+                "The flag's top-level `version` from your latest read. The write is refused with 409 when the flag " +
+                    'changed after it.'
+            ),
+        filters: z
+            .looseObject({
+                version: z.literal(2).describe('Config format. Always 2 here; unrelated to the top-level `version`.'),
+                return_type: z.string().describe('Copy it from the flag you read. It cannot change.'),
+                default_value: z
+                    .union([z.boolean(), z.string(), z.number(), z.record(z.string(), z.unknown()), z.null()])
+                    .describe('Value served when no rule returns one. Must match `return_type`, or null.'),
+                rules: z
+                    .array(z.record(z.string(), z.unknown()))
+                    .describe(
+                        'The complete ordered rule list, in the shape the flag read returns. Keep `id` and `seed` on ' +
+                            'every rule you keep; omit both on a new rule.'
+                    ),
+            })
+            .describe('The complete new configuration. It replaces the stored `filters`.'),
+    })
 )

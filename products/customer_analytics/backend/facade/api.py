@@ -1014,7 +1014,10 @@ def _set_tags(
     for tagged_item in account.tagged_items.exclude(tag__name__in=deduped_tags).select_related("tag"):
         removed_tags.append(tagged_item.tag)
         tagged_item.delete()
-    Tag.objects.filter(Q(team_id=account.team_id) & Q(tagged_items__isnull=True)).delete()
+    if removed_tags:
+        Tag.objects.filter(
+            Q(team_id=account.team_id) & Q(id__in=[tag.id for tag in removed_tags]) & Q(tagged_items__isnull=True)
+        ).delete()
     account.prefetched_tags = tagged_item_objects  # type: ignore[attr-defined]
     _schedule_account_tags_added(account, added_tags, actor, workflow_id=workflow_id)
     _schedule_account_tags_removed(account, removed_tags, actor, workflow_id=workflow_id)
