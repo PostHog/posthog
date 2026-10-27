@@ -37,15 +37,15 @@ def _teams_in_range(connection, lo, hi, found):
 
 def _clean_team(connection, team_id, timeout):
     def work(cur):
-        cur.execute(
-            "SELECT short_id FROM posthog_dashboarditem WHERE team_id = %s AND deleted = true",
-            [team_id],
-        )
-        short_ids = [row[0] for row in cur.fetchall()]
+        # The subquery runs inside the DELETE, so an insight restored after team discovery keeps its entry.
         for table in ("posthog_filesystem", "posthog_filesystemshortcut"):
             cur.execute(
-                f"DELETE FROM {table} WHERE team_id = %s AND type = 'insight' AND ref = ANY(%s)",
-                [team_id, short_ids],
+                f"""
+                DELETE FROM {table}
+                WHERE team_id = %s AND type = 'insight'
+                  AND ref IN (SELECT short_id FROM posthog_dashboarditem WHERE team_id = %s AND deleted = true)
+                """,
+                [team_id, team_id],
             )
 
     _run(connection, timeout, work)
