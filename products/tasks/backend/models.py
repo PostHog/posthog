@@ -856,6 +856,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         scheduled_at: datetime | None = None,
         startup_requested_at: datetime | None = None,
         subscription_owner_id: int | None = None,
+        spend_signal_id: str | None = None,
+        implementation_spend_kind: str | None = None,
     ) -> "TaskRun":
         startup_requested_at = startup_requested_at or django_timezone.now()
         if scheduled_at is not None and django_timezone.is_naive(scheduled_at):
@@ -953,6 +955,30 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 if task.origin_product != Task.OriginProduct.SIGNAL_REPORT or task.signal_report_id:
                     state["ai_stage"] = interactive_stage
 
+            # A manual resume can share an internal Task with an automated run. Freeze billing
+            # on this run so historical PR charges and pipeline attribution do not change.
+            if (
+                task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+                and state.get("ai_stage")
+                not in {
+                    "research",
+                    "implementation",
+                    "repo_selection",
+                    "custom_agent",
+                }
+            ) or (task.origin_product == Task.OriginProduct.SIGNALS_SCOUT and not state.get("ai_stage")):
+                state["billing_product"] = "posthog_ai"
+
+            if (
+                environment == TaskRun.Environment.CLOUD
+                and task.origin_product in (Task.OriginProduct.SIGNAL_REPORT, Task.OriginProduct.SIGNALS_SCOUT)
+                and state.get("billing_product") != "posthog_ai"
+            ):
+                # A new automated run has no usage yet, including when provisioning fails.
+                # Gateway fallback marks coverage incomplete before any agent can start.
+                state.setdefault("unprocessed_request_ids", [])
+                state.setdefault("token_cost", {})
+
             resume_from_run_id = (extra_state or {}).get("resume_from_run_id")
             if resume_from_run_id is not None:
                 resume_source = TaskRun.objects.filter(id=resume_from_run_id, task_id=task.id).only("state").first()
@@ -989,6 +1015,20 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             )
             if effective_environment == TaskRun.Environment.CLOUD and scheduled_at is None:
                 task.observe_run_started_beside_live_runs(task_run)
+
+            if task.origin_product == Task.OriginProduct.SIGNAL_REPORT and task.signal_report_id:
+                from products.signals.backend.facade.spend import (  # noqa: PLC0415 — avoids the task-model import cycle
+                    register_report_task_spend,
+                )
+
+                register_report_task_spend(
+                    team_id=task.team_id,
+                    run_id=str(task_run.id),
+                    report_id=str(task.signal_report_id),
+                    stage=state.get("ai_stage"),
+                    signal_id=spend_signal_id,
+                    implementation_kind=implementation_spend_kind,
+                )
 
             def emit_created_events() -> None:
                 task_run.publish_stream_state_event()
@@ -1569,6 +1609,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         posthog_mcp_scopes: PosthogMcpScopes = "full",
         branch: str | None = None,
         signal_report_id: str | None = None,
+        spend_signal_id: str | None = None,
+        implementation_spend_kind: str | None = None,
         hog_flow_id: uuid.UUID | None = None,
         origin_key: str | None = None,
         extra_run_state: dict[str, Any] | None = None,
@@ -1699,6 +1741,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 acting_user_id=user_id,
                 scheduled_at=scheduled_at,
                 startup_requested_at=startup_requested_at,
+                spend_signal_id=spend_signal_id,
+                implementation_spend_kind=implementation_spend_kind,
             )
             if before_task_dispatch is not None:
                 initial_state = before_task_dispatch(task_run.id)

@@ -132,11 +132,6 @@ from products.signals.backend.dismissal_notes import forward_dismissal_note
 from products.signals.backend.enums import ReportPriority, ReportTaskActionKind
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
-from products.signals.backend.free_trial import (
-    FREE_TRIAL_PR_MESSAGE,
-    FreeTrialPullRequestRefused,
-    capture_signal_report_free_trial_paused,
-)
 from products.signals.backend.implementation_pr import (
     ImplementationPr,
     fetch_implementation_prs_for_reports,
@@ -2921,7 +2916,7 @@ class SignalReportViewSet(
         # One grouped query for the whole page, in place of the per-row annotation the other
         # actions carry, for the serializer's refund_ineligibility_reason field.
         with tracer.start_as_current_span("signals.reports.list.fetch_billable_pr_runs"):
-            first_billable_pr_run_at_map = first_billable_pr_run_at_by_report(report_ids)
+            first_billable_pr_run_at_map = first_billable_pr_run_at_by_report(report_ids, team_id=self.team_id)
 
         # Same trade for the two artefact-derived fields the row renders: one query each over the
         # page, rather than a correlated subquery the sort makes Postgres run for every report in
@@ -3432,9 +3427,6 @@ class SignalReportViewSet(
 
         if report_action.disabled_reason is not None:
             capture("blocked")
-            if report_action.disabled_reason == FREE_TRIAL_PR_MESSAGE:
-                capture_signal_report_free_trial_paused(self.team, report_id=str(report.id), stage="report_action")
-                raise FreeTrialPullRequestRefused()
             error_status: int = (
                 status.HTTP_403_FORBIDDEN
                 if report_action.disabled_reason == AI_CONSENT_DISABLED_REASON
@@ -4278,7 +4270,7 @@ class SignalReportViewSet(
 
             # Same decision the serializer's `refund_ineligibility_reason` field renders from,
             # so the UI's button state and this endpoint's 400s can never disagree.
-            billable_run = first_billable_pr_run(report.id)
+            billable_run = first_billable_pr_run(report.id, team_id=report.team_id)
             # Computed once and frozen onto the refund row below: the credited-path sync must
             # report the period the refund was accepted in, not whatever period is current when
             # the Celery task eventually reaches billing.
