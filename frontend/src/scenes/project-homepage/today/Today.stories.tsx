@@ -985,6 +985,7 @@ export const HomeWithFrequentItems: Story = {
                         type: 'dashboard',
                         ref: '81',
                         href: '/dashboard/81',
+                        last_viewed_at: '2026-09-27T09:00:00Z',
                     },
                     {
                         id: 'fs-frequent-2',
@@ -992,6 +993,7 @@ export const HomeWithFrequentItems: Story = {
                         type: 'notebook',
                         ref: 'weekly-review',
                         href: '/notebooks/weekly-review',
+                        last_viewed_at: '2026-09-21T09:00:00Z',
                     },
                 ],
             },

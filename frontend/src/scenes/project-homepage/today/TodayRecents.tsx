@@ -4,8 +4,8 @@ import { useId, useMemo } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
-import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { todayObjectGlanceLogic } from '~/layout/today/todayObjectGlanceLogic'
 import { TodayObjectIcon } from '~/layout/today/TodayObjectIcon'
@@ -41,9 +41,16 @@ function RecentObjectRow({
                 >
                     {preview.name}
                 </LinkPrimitive>
-                {preview.typeLabel && (
-                    <span className="TodayJumpRow__meta">{capitalizeFirstLetter(preview.typeLabel)}</span>
-                )}
+                <span className="TodayJumpRow__meta">
+                    {entry.last_viewed_at ? (
+                        <time dateTime={entry.last_viewed_at} title={`Last opened: ${entry.last_viewed_at}`}>
+                            <span className="sr-only">Last opened </span>
+                            <TZLabel time={entry.last_viewed_at} showPopover={false} noStyles />
+                        </time>
+                    ) : (
+                        <span title="Last-opened time is not available">Time unknown</span>
+                    )}
+                </span>
             </TodayPreviewTrigger>
         </li>
     )
