@@ -8,10 +8,17 @@ from requests import Response
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
-    rest_api_resource,
+    rest_api_resources,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    rename_parent_fields,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BaseNextUrlPaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    Endpoint,
+    EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -22,11 +29,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kustomer.s
 PAGE_SIZE = 100
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class KustomerResumeConfig:
     # Kustomer paginates via a JSON:API `links.next` URL (absolutized against
     # the org host), so the URL is all we persist.
-    next_url: str
+    next_url: str = ""
+    # Fan-out (kobjects): the framework's dependent-resource resume state
+    # (`{"completed": [...], "current": ..., "child_state": ...}`).
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _clean_org_name(org_name: str) -> str:
@@ -111,7 +121,44 @@ def kustomer_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = KUSTOMER_ENDPOINTS[endpoint]
+    fanout = config.fanout
     base_url = _base_url(org_name)
+
+    resources: list[str | EndpointResource] = []
+    if fanout is not None:
+        parent_config = KUSTOMER_ENDPOINTS[fanout.parent_name]
+        resources.append(
+            {
+                "name": fanout.parent_name,
+                "endpoint": {
+                    "path": parent_config.path,
+                    "params": {"page[size]": PAGE_SIZE, **parent_config.params},
+                    "data_selector": "data",
+                },
+            }
+        )
+    child_params: dict[str, Any] = {"page[size]": PAGE_SIZE, **config.params}
+    if fanout is not None:
+        child_params[fanout.resolve_param] = {
+            "type": "resolve",
+            "resource": fanout.parent_name,
+            "field": fanout.resolve_field,
+        }
+    child_endpoint: Endpoint = {
+        "path": config.path,
+        "params": child_params,
+        # JSON:API rows live under `data`. A missing key is a legit
+        # zero-row page (the hand-rolled loop used `.get("data", [])`),
+        # so this is NOT required — it stops rather than failing loud.
+        "data_selector": "data",
+    }
+    child_resource: EndpointResource = {"name": endpoint, "endpoint": child_endpoint}
+    if fanout is not None:
+        # `/v1/klasses/{name}` reads as a single-entity path, which the framework gives a
+        # single-page paginator unless the endpoint names one.
+        child_endpoint["paginator"] = KustomerLinksNextPaginator(base_url)
+        child_resource["include_from_parent"] = fanout.include_from_parent
+    resources.append(child_resource)
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -120,32 +167,25 @@ def kustomer_source(
             "paginator": KustomerLinksNextPaginator(base_url),
         },
         "resource_defaults": {},
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": {"page[size]": PAGE_SIZE, **config.params},
-                    # JSON:API rows live under `data`. A missing key is a legit
-                    # zero-row page (the hand-rolled loop used `.get("data", [])`),
-                    # so this is NOT required — it stops rather than failing loud.
-                    "data_selector": "data",
-                },
-            }
-        ],
+        "resources": resources,
     }
 
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None:
+    if resume is not None:
+        if fanout is not None:
+            initial_paginator_state = resume.fanout_state
+        elif resume.next_url:
             initial_paginator_state = {"next_url": resume.next_url}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        if state and state.get("next_url"):
+        if fanout is not None:
+            if state is not None:
+                resumable_source_manager.save_state(KustomerResumeConfig(fanout_state=state))
+        elif state and state.get("next_url"):
             resumable_source_manager.save_state(KustomerResumeConfig(next_url=str(state["next_url"])))
 
-    resource = rest_api_resource(
+    built = rest_api_resources(
         rest_config,
         team_id,
         job_id,
@@ -153,11 +193,14 @@ def kustomer_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
+    resource = next(r for r in built if r.name == endpoint)
+    if fanout is not None:
+        resource.add_map(rename_parent_fields(fanout.parent_name, fanout.parent_field_renames))
 
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=[config.primary_key],
+        primary_keys=list(config.primary_keys),
         partition_count=1,
         partition_size=1,
         sort_mode="asc",
