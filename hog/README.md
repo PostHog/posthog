@@ -10,8 +10,37 @@ It is not published yet.
 
 `hog` has no `exp` namespace.
 The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tasks`, `schema`) are top-level commands in `hog`.
-Every command fails until it is implemented.
-It exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.
+
+| Command                   | Status                                                                                                          |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `hog query run <query>`   | Runs a HogQL query. `-` reads the query from stdin.                                                             |
+| `hog query check <query>` | Checks a query without running it. Exits with code 1 when the query has errors.                                 |
+| `hog commands`            | Lists every command, its arguments and its options.                                                             |
+| Everything else           | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments. |
+
+## Agents, people and pipes
+
+`hog` detects an agent from the env vars agents set for the commands they run, such as `CLAUDECODE`, `CODEX_SANDBOX`, `CURSOR_AGENT`, `GEMINI_CLI` and the generic `AI_AGENT`.
+`HOG_AGENT=1` forces agent mode, and `HOG_AGENT=0` turns detection off.
+
+| Caller                 | Default output                            | Errors                                                           |
+| ---------------------- | ----------------------------------------- | ---------------------------------------------------------------- |
+| A person at a terminal | Text, with color unless `NO_COLOR` is set | Text on stderr                                                   |
+| An agent               | JSON                                      | One JSON object on stderr: `{"error":{"code","message","hint"}}` |
+| A pipe or a script     | JSON                                      | Same as an agent                                                 |
+
+`-o text` or `-o json` overrides the default.
+Exit codes: 0 on success, 1 when a command fails, 2 for a usage error.
+
+## Credentials
+
+`hog` reads the same credentials as `posthog-cli`, in the same order:
+
+1. `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID` in the environment, plus an optional `POSTHOG_CLI_HOST`
+2. The same variables in the file `--dotenv-file` names
+3. `~/.posthog/credentials.json`, which `posthog-cli login` writes (`POSTHOG_HOME` moves the folder)
+
+`--host` overrides the host from any of these.
 
 ## Develop
 
