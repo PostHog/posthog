@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { decodedMessageValue } from '~/common/kafka/decoded-message-value'
+import { takeDecodedMessageValue } from '~/common/kafka/decoded-message-value'
 import { sanitizeEvent } from '~/common/utils/event'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -48,7 +48,10 @@ export function createParseKafkaMessageStep<T extends { message: Message }>(): P
                 data: dataStr,
                 token: _token,
                 ...rawEvent
-            } = requireObject(parseJSON(requireString(decodedMessageValue(message), 'message value')), 'outer message')
+            } = requireObject(
+                parseJSON(requireString(takeDecodedMessageValue(message), 'message value')),
+                'outer message'
+            )
             const data = requireObject(parseJSON(requireString(dataStr, 'data')), 'data field')
             const combinedEvent: Record<string, unknown> = { ...data, ...rawEvent }
 

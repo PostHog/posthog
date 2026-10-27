@@ -6,6 +6,11 @@ export function recordDecodedValue(message: Message, value: string): void {
     decodedValues.set(message, value)
 }
 
-export function decodedMessageValue(message: Message): string | undefined {
-    return decodedValues.get(message) ?? message.value?.toString()
+export function takeDecodedMessageValue(message: Message): string | undefined {
+    const decoded = decodedValues.get(message)
+    if (decoded === undefined) {
+        return message.value?.toString()
+    }
+    decodedValues.delete(message)
+    return decoded
 }
