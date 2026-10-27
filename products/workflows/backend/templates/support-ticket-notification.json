@@ -1,7 +1,7 @@
 {
     "id": "019ce1f1-5d12-0000-e318-4b3ebd4b2aea",
     "name": "New support ticket notification",
-    "description": "Notify your support team in Slack as soon as a new ticket comes in.",
+    "description": "Notify your support team in Slack or by email as soon as a new ticket comes in.",
     "version": 1,
     "created_at": "2026-03-12T12:06:57.554838Z",
     "created_by": {
@@ -15,7 +15,7 @@
         "hedgehog_config": null,
         "role_at_organization": null
     },
-    "updated_at": "2026-03-12T12:07:27.301356Z",
+    "updated_at": "2026-10-27T00:00:00Z",
     "trigger": {
         "type": "event",
         "filters": {
@@ -44,8 +44,13 @@
             "type": "continue"
         },
         {
-            "to": "exit_node",
+            "to": "action_function_email_826ffd05-91e4-4647-a7b2-d8ce81376b87",
             "from": "action_function_431166ee-1322-4d35-8186-958120346fc2",
+            "type": "continue"
+        },
+        {
+            "to": "exit_node",
+            "from": "action_function_email_826ffd05-91e4-4647-a7b2-d8ce81376b87",
             "type": "continue"
         }
     ],
@@ -78,7 +83,7 @@
         {
             "id": "action_function_431166ee-1322-4d35-8186-958120346fc2",
             "name": "Message in Slack channel",
-            "description": "Connect the right Slack channel and notify your support team.",
+            "description": "Connect the right Slack channel and notify your support team. Delete this step if you only want email.",
             "on_error": null,
             "created_at": 1773317149872,
             "updated_at": 1773317149872,
@@ -104,7 +109,7 @@
                         "value": [
                             {
                                 "text": {
-                                    "text": "🎫 *New support ticket created*\n\n*User:* {person.name}\n*Email:* {person.email}\n\nA user has submitted a new support request.",
+                                    "text": "🎫 *New support ticket #{event.properties.ticket_number}*\n\n*Customer:* {event.properties.customer_name}\n*Email:* {event.properties.customer_email}\n*Channel:* {event.properties.channel_source}\n\nA user has submitted a new support request.",
                                     "type": "mrkdwn"
                                 },
                                 "type": "section"
@@ -121,7 +126,7 @@
                                         "type": "button"
                                     },
                                     {
-                                        "url": "{source.url}",
+                                        "url": "{project.url}/support/tickets/{event.properties.ticket_number}",
                                         "text": {
                                             "text": "Open ticket",
                                             "type": "plain_text"
@@ -134,13 +139,177 @@
                         "templating": "hog"
                     },
                     "text": {
-                        "value": "*{person.name}* created a ticket: '{event.event}'",
+                        "value": "New support ticket #{event.properties.ticket_number} from {event.properties.customer_name}",
                         "templating": "hog"
                     }
                 },
                 "template_id": "template-slack"
             },
             "output_variable": null
+        },
+        {
+            "id": "action_function_email_826ffd05-91e4-4647-a7b2-d8ce81376b87",
+            "name": "Email your support team",
+            "description": "Add your support inbox as the recipient. Delete this step if you only want Slack.",
+            "on_error": null,
+            "created_at": 1793059200000,
+            "updated_at": 1793059200000,
+            "filters": null,
+            "type": "function_email",
+            "output_variable": null,
+            "config": {
+                "template_id": "template-email",
+                "inputs": {
+                    "email": {
+                        "value": {
+                            "to": {
+                                "name": "",
+                                "email": ""
+                            },
+                            "from": {
+                                "name": "",
+                                "email": ""
+                            },
+                            "html": "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional //EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\n<head>\n  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title></title>\n  <style type=\"text/css\">body{margin:0;padding:0}table,td,tr{border-collapse:collapse;vertical-align:top}p{margin:0}</style>\n</head>\n<body class=\"clean-body u_body\" style=\"margin: 0;padding: 0;-webkit-text-size-adjust: 100%;background-color: #F7F8F9;color: #000000\">\n  <table role=\"presentation\" style=\"border-collapse: collapse;table-layout: fixed;border-spacing: 0;vertical-align: top;min-width: 320px;Margin: 0 auto;background-color: #F7F8F9;width:100%\" cellpadding=\"0\" cellspacing=\"0\">\n  <tbody>\n  <tr style=\"vertical-align: top\">\n    <td style=\"word-break: break-word;border-collapse: collapse !important;vertical-align: top\">\n      <div style=\"margin: 0 auto;min-width: 320px;max-width: 500px;\">\n        <table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n          <tbody>\n            <tr>\n              <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n                <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n                  <p style=\"line-height: 140%;\">A new support ticket just came in.<br><br><strong>Ticket:</strong> #{{ event.properties.ticket_number }}<br><strong>Customer:</strong> {{ event.properties.customer_name }}<br><strong>Email:</strong> {{ event.properties.customer_email }}<br><strong>Channel:</strong> {{ event.properties.channel_source }}<br><br><a href=\"{{ project.url }}/support/tickets/{{ event.properties.ticket_number }}\" target=\"_blank\">Open the ticket in PostHog</a></p>\n                </div>\n              </td>\n            </tr>\n          </tbody>\n        </table>\n      </div>\n    </td>\n  </tr>\n  </tbody>\n  </table>\n</body>\n</html>\n",
+                            "text": "A new support ticket just came in.\n\nTicket: #{{ event.properties.ticket_number }}\nCustomer: {{ event.properties.customer_name }}\nEmail: {{ event.properties.customer_email }}\nChannel: {{ event.properties.channel_source }}\n\nOpen the ticket in PostHog: {{ project.url }}/support/tickets/{{ event.properties.ticket_number }}",
+                            "design": {
+                                "body": {
+                                    "id": "URm0NvJQHB",
+                                    "rows": [
+                                        {
+                                            "id": "Bl8ZJpyRQR",
+                                            "cells": [1],
+                                            "values": {
+                                                "_meta": {
+                                                    "htmlID": "u_row_1",
+                                                    "htmlClassNames": "u_row"
+                                                },
+                                                "anchor": "",
+                                                "locked": false,
+                                                "columns": false,
+                                                "padding": "0px",
+                                                "hideable": true,
+                                                "deletable": true,
+                                                "draggable": true,
+                                                "selectable": true,
+                                                "_styleGuide": null,
+                                                "hideDesktop": false,
+                                                "duplicatable": true,
+                                                "backgroundColor": "",
+                                                "backgroundImage": {
+                                                    "url": "",
+                                                    "size": "custom",
+                                                    "repeat": "no-repeat",
+                                                    "position": "center",
+                                                    "fullWidth": true,
+                                                    "customPosition": ["50%", "50%"]
+                                                },
+                                                "displayCondition": null,
+                                                "columnsBackgroundColor": ""
+                                            },
+                                            "columns": [
+                                                {
+                                                    "id": "FA4-hRI7VN",
+                                                    "values": {
+                                                        "_meta": {
+                                                            "htmlID": "u_column_1",
+                                                            "htmlClassNames": "u_column"
+                                                        },
+                                                        "border": {},
+                                                        "locked": false,
+                                                        "padding": "0px",
+                                                        "deletable": true,
+                                                        "borderRadius": "0px",
+                                                        "backgroundColor": ""
+                                                    },
+                                                    "contents": [
+                                                        {
+                                                            "id": "-KDAT9u9Y5",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "text": "<p style=\"line-height: 140%;\">A new support ticket just came in.<br><br><strong>Ticket:</strong> #{{ event.properties.ticket_number }}<br><strong>Customer:</strong> {{ event.properties.customer_name }}<br><strong>Email:</strong> {{ event.properties.customer_email }}<br><strong>Channel:</strong> {{ event.properties.channel_source }}<br><br><a href=\"{{ project.url }}/support/tickets/{{ event.properties.ticket_number }}\" target=\"_blank\">Open the ticket in PostHog</a></p>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_text_1",
+                                                                    "htmlClassNames": "u_content_text"
+                                                                },
+                                                                "anchor": "",
+                                                                "locked": false,
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "linkStyle": {
+                                                                    "inherit": true,
+                                                                    "linkColor": "#0000ee",
+                                                                    "linkUnderline": true,
+                                                                    "linkHoverColor": "#0000ee",
+                                                                    "linkHoverUnderline": true
+                                                                },
+                                                                "textAlign": "left",
+                                                                "_languages": {},
+                                                                "lineHeight": "140%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "duplicatable": true,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ],
+                                    "values": {
+                                        "_meta": {
+                                            "htmlID": "u_body",
+                                            "htmlClassNames": "u_body"
+                                        },
+                                        "language": {},
+                                        "linkStyle": {
+                                            "body": true,
+                                            "linkColor": "#0000ee",
+                                            "linkUnderline": true,
+                                            "linkHoverColor": "#0000ee",
+                                            "linkHoverUnderline": true
+                                        },
+                                        "textColor": "#000000",
+                                        "fontFamily": {
+                                            "label": "Arial",
+                                            "value": "arial,helvetica,sans-serif"
+                                        },
+                                        "_styleGuide": null,
+                                        "contentAlign": "center",
+                                        "contentWidth": "500px",
+                                        "preheaderText": "",
+                                        "backgroundColor": "#F7F8F9",
+                                        "backgroundImage": {
+                                            "url": "",
+                                            "size": "custom",
+                                            "repeat": "no-repeat",
+                                            "position": "center",
+                                            "fullWidth": true
+                                        },
+                                        "contentVerticalAlign": "center"
+                                    },
+                                    "footers": [],
+                                    "headers": []
+                                },
+                                "counters": {
+                                    "u_row": 1,
+                                    "u_column": 1,
+                                    "u_content_text": 1
+                                },
+                                "schemaVersion": 21
+                            },
+                            "replyTo": "",
+                            "subject": "New support ticket #{{ event.properties.ticket_number }}",
+                            "preheader": ""
+                        }
+                    }
+                },
+                "message_category_type": "transactional"
+            }
         },
         {
             "id": "exit_node",
@@ -159,8 +328,8 @@
     ],
     "abort_action": null,
     "variables": [],
-    "billable_action_types": ["function"],
+    "billable_action_types": ["function", "function_email"],
     "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Template_cover_9_cc52152691.jpg",
-    "tags": ["slack", "support ticket", "support"],
+    "tags": ["slack", "email", "support ticket", "support"],
     "scope": "global"
 }

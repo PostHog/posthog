@@ -1,0 +1,279 @@
+{
+    "id": "a638999a-bf53-4fde-af36-c85ad9827076",
+    "name": "Email customers when your team replies",
+    "description": "Email the customer when a teammate replies to their ticket, so they see the answer even after they leave your site.",
+    "version": 1,
+    "created_at": "2026-10-27T00:00:00Z",
+    "created_by": null,
+    "updated_at": "2026-10-27T00:00:00Z",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "source": "events",
+            "events": [
+                {
+                    "id": "$conversation_message_sent",
+                    "name": "Ticket message sent",
+                    "type": "events"
+                }
+            ],
+            "properties": [
+                {
+                    "key": "channel_source",
+                    "value": ["widget"],
+                    "operator": "exact",
+                    "type": "event"
+                },
+                {
+                    "key": "customer_email",
+                    "value": "is_set",
+                    "operator": "is_set",
+                    "type": "event"
+                }
+            ]
+        }
+    },
+    "trigger_masking": null,
+    "conversion": {
+        "filters": [],
+        "bytecode": [],
+        "window_minutes": null
+    },
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "to": "action_function_email_6254cf7c-c5de-42ba-b54e-3782bd102208",
+            "from": "trigger_node",
+            "type": "continue"
+        },
+        {
+            "to": "exit_node",
+            "from": "action_function_email_6254cf7c-c5de-42ba-b54e-3782bd102208",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Teammate replies on a ticket",
+            "description": "Runs for widget tickets that have a customer email. Email tickets already get replies by email.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "source": "events",
+                    "events": [
+                        {
+                            "id": "$conversation_message_sent",
+                            "name": "Ticket message sent",
+                            "type": "events"
+                        }
+                    ],
+                    "properties": [
+                        {
+                            "key": "channel_source",
+                            "value": ["widget"],
+                            "operator": "exact",
+                            "type": "event"
+                        },
+                        {
+                            "key": "customer_email",
+                            "value": "is_set",
+                            "operator": "is_set",
+                            "type": "event"
+                        }
+                    ]
+                }
+            },
+            "output_variable": null
+        },
+        {
+            "id": "action_function_email_6254cf7c-c5de-42ba-b54e-3782bd102208",
+            "name": "Email the customer",
+            "description": "Let the customer know your team replied, with a copy of the reply.",
+            "on_error": null,
+            "created_at": 1793059200000,
+            "updated_at": 1793059200000,
+            "filters": null,
+            "type": "function_email",
+            "output_variable": null,
+            "config": {
+                "template_id": "template-email",
+                "inputs": {
+                    "email": {
+                        "value": {
+                            "to": {
+                                "name": "{{ event.properties.customer_name }}",
+                                "email": "{{ event.properties.customer_email }}"
+                            },
+                            "from": {
+                                "name": "",
+                                "email": ""
+                            },
+                            "html": "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional //EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\">\n<head>\n  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title></title>\n  <style type=\"text/css\">body{margin:0;padding:0}table,td,tr{border-collapse:collapse;vertical-align:top}p{margin:0}</style>\n</head>\n<body class=\"clean-body u_body\" style=\"margin: 0;padding: 0;-webkit-text-size-adjust: 100%;background-color: #F7F8F9;color: #000000\">\n  <table role=\"presentation\" style=\"border-collapse: collapse;table-layout: fixed;border-spacing: 0;vertical-align: top;min-width: 320px;Margin: 0 auto;background-color: #F7F8F9;width:100%\" cellpadding=\"0\" cellspacing=\"0\">\n  <tbody>\n  <tr style=\"vertical-align: top\">\n    <td style=\"word-break: break-word;border-collapse: collapse !important;vertical-align: top\">\n      <div style=\"margin: 0 auto;min-width: 320px;max-width: 500px;\">\n        <table style=\"font-family:arial,helvetica,sans-serif;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n          <tbody>\n            <tr>\n              <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:arial,helvetica,sans-serif;\" align=\"left\">\n                <div style=\"font-size: 14px; line-height: 140%; text-align: left; word-wrap: break-word;\">\n                  <p style=\"line-height: 140%;\">Hi {{ event.properties.customer_name | default: 'there' }},<br><br>Our team replied to your support request:<br><br>{{ event.properties.message_content }}<br><br>To continue the conversation, open the support chat on our site.</p>\n                </div>\n              </td>\n            </tr>\n          </tbody>\n        </table>\n      </div>\n    </td>\n  </tr>\n  </tbody>\n  </table>\n</body>\n</html>\n",
+                            "text": "Hi {{ event.properties.customer_name | default: 'there' }},\n\nOur team replied to your support request:\n\n{{ event.properties.message_content }}\n\nTo continue the conversation, open the support chat on our site.",
+                            "design": {
+                                "body": {
+                                    "id": "URm0NvJQHB",
+                                    "rows": [
+                                        {
+                                            "id": "Bl8ZJpyRQR",
+                                            "cells": [1],
+                                            "values": {
+                                                "_meta": {
+                                                    "htmlID": "u_row_1",
+                                                    "htmlClassNames": "u_row"
+                                                },
+                                                "anchor": "",
+                                                "locked": false,
+                                                "columns": false,
+                                                "padding": "0px",
+                                                "hideable": true,
+                                                "deletable": true,
+                                                "draggable": true,
+                                                "selectable": true,
+                                                "_styleGuide": null,
+                                                "hideDesktop": false,
+                                                "duplicatable": true,
+                                                "backgroundColor": "",
+                                                "backgroundImage": {
+                                                    "url": "",
+                                                    "size": "custom",
+                                                    "repeat": "no-repeat",
+                                                    "position": "center",
+                                                    "fullWidth": true,
+                                                    "customPosition": ["50%", "50%"]
+                                                },
+                                                "displayCondition": null,
+                                                "columnsBackgroundColor": ""
+                                            },
+                                            "columns": [
+                                                {
+                                                    "id": "FA4-hRI7VN",
+                                                    "values": {
+                                                        "_meta": {
+                                                            "htmlID": "u_column_1",
+                                                            "htmlClassNames": "u_column"
+                                                        },
+                                                        "border": {},
+                                                        "locked": false,
+                                                        "padding": "0px",
+                                                        "deletable": true,
+                                                        "borderRadius": "0px",
+                                                        "backgroundColor": ""
+                                                    },
+                                                    "contents": [
+                                                        {
+                                                            "id": "-KDAT9u9Y5",
+                                                            "type": "text",
+                                                            "values": {
+                                                                "text": "<p style=\"line-height: 140%;\">Hi {{ event.properties.customer_name | default: 'there' }},<br><br>Our team replied to your support request:<br><br>{{ event.properties.message_content }}<br><br>To continue the conversation, open the support chat on our site.</p>",
+                                                                "_meta": {
+                                                                    "htmlID": "u_content_text_1",
+                                                                    "htmlClassNames": "u_content_text"
+                                                                },
+                                                                "anchor": "",
+                                                                "locked": false,
+                                                                "fontSize": "14px",
+                                                                "hideable": true,
+                                                                "deletable": true,
+                                                                "draggable": true,
+                                                                "linkStyle": {
+                                                                    "inherit": true,
+                                                                    "linkColor": "#0000ee",
+                                                                    "linkUnderline": true,
+                                                                    "linkHoverColor": "#0000ee",
+                                                                    "linkHoverUnderline": true
+                                                                },
+                                                                "textAlign": "left",
+                                                                "_languages": {},
+                                                                "lineHeight": "140%",
+                                                                "selectable": true,
+                                                                "_styleGuide": null,
+                                                                "duplicatable": true,
+                                                                "containerPadding": "10px",
+                                                                "displayCondition": null
+                                                            }
+                                                        }
+                                                    ]
+                                                }
+                                            ]
+                                        }
+                                    ],
+                                    "values": {
+                                        "_meta": {
+                                            "htmlID": "u_body",
+                                            "htmlClassNames": "u_body"
+                                        },
+                                        "language": {},
+                                        "linkStyle": {
+                                            "body": true,
+                                            "linkColor": "#0000ee",
+                                            "linkUnderline": true,
+                                            "linkHoverColor": "#0000ee",
+                                            "linkHoverUnderline": true
+                                        },
+                                        "textColor": "#000000",
+                                        "fontFamily": {
+                                            "label": "Arial",
+                                            "value": "arial,helvetica,sans-serif"
+                                        },
+                                        "_styleGuide": null,
+                                        "contentAlign": "center",
+                                        "contentWidth": "500px",
+                                        "preheaderText": "",
+                                        "backgroundColor": "#F7F8F9",
+                                        "backgroundImage": {
+                                            "url": "",
+                                            "size": "custom",
+                                            "repeat": "no-repeat",
+                                            "position": "center",
+                                            "fullWidth": true
+                                        },
+                                        "contentVerticalAlign": "center"
+                                    },
+                                    "footers": [],
+                                    "headers": []
+                                },
+                                "counters": {
+                                    "u_row": 1,
+                                    "u_column": 1,
+                                    "u_content_text": 1
+                                },
+                                "schemaVersion": 21
+                            },
+                            "replyTo": "",
+                            "subject": "New reply on your support ticket #{{ event.properties.ticket_number }}",
+                            "preheader": ""
+                        }
+                    }
+                },
+                "message_category_type": "transactional"
+            }
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "User moved through the workflow without errors.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Default exit"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [],
+    "billable_action_types": ["function_email"],
+    "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Template_cover_9_cc52152691.jpg",
+    "tags": ["email", "support ticket", "support"],
+    "scope": "global"
+}
