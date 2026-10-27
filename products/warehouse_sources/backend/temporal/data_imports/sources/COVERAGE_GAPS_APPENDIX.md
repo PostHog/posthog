@@ -7039,7 +7039,7 @@ Note: All four PostHog tables come from just two paths (/model/allocation with t
 
 ## Kustomer — gaps
 
-Today (14): `brands`, `companies`, `conversations`, `customers`, `messages`, `notes`, `queues`, `satisfaction_forms`, `sub_statuses`, `tags`, `teams`, `users`, `work_items`, `work_sessions`
+Today (18): `audit_logs`, `brands`, `companies`, `conversations`, `customers`, `klasses`, `kobjects`, `messages`, `notes`, `queues`, `routing_statuses`, `satisfaction_forms`, `sub_statuses`, `tags`, `teams`, `users`, `work_items`, `work_sessions`
 
 Diffed against: <https://developer.kustomer.com/sitemap.xml>
 
@@ -7051,10 +7051,10 @@ Diffed against: <https://developer.kustomer.com/sitemap.xml>
 - [x] `GET /v1/queues (getqueues) and queue metrics (queuemetrics)` — lookup for routing queues plus the queue-depth metric behind SLA reporting (medium) → `queues` (the real path is `GET /v1/routing/queues`). `queuemetrics` skipped: it is a point-in-time wait-time snapshot read per queue id from `GET /v1/chat/queues/metrics/{ids}`, with no history to sync.
 - [x] `GET /v1/notes (getnotesfororg)` — internal agent notes attached to conversations and customers (medium) → `notes`
 - [x] `GET /v1/work-items (getworkitems) and work sessions (getworksessions)` — agent handling time and routing assignment history (medium) → `work_items` and `work_sessions` (the real paths are `GET /v1/routing/work-items` and `GET /v1/routing/work-sessions`)
-- [ ] `conversation time metrics (getconversationtimesbyconversationid, getv2conversationtimesbyconversationid)` — first-response and resolution durations per conversation (medium)
-- [ ] `GET /v1/kobjects and /v1/klasses (getkobjects, getklasses)` — custom objects and their schema, where Kustomer tenants put order/subscription data (medium)
-- [ ] `GET /v1/routing/user-statuses (getroutinguserstatuses)` — agent availability state over time for staffing analysis (medium)
-- [ ] `GET /v1/audit-logs (getauditlogs)` — configuration and permission change history (low)
+- [ ] `conversation time metrics (getconversationtimesbyconversationid, getv2conversationtimesbyconversationid)` — first-response and resolution durations per conversation (medium). Not added: both read the handle-time records of one conversation at a time (`GET /v1|v2/conversations/{id}/times`) and there is no org-wide list, so every full-refresh sync would make one or more requests per conversation against the org's shared rate limit. The first response is already on `conversations` rows (`firstResponse`).
+- [x] `GET /v1/kobjects and /v1/klasses (getkobjects, getklasses)` — custom objects and their schema, where Kustomer tenants put order/subscription data (medium) → `klasses` and `kobjects` (the real paths are `GET /v1/klasses` and `GET /v1/klasses/{name}`, so `kobjects` fans out over enabled klasses)
+- [x] `GET /v1/routing/user-statuses (getroutinguserstatuses)` — agent availability state over time for staffing analysis (medium) → `routing_statuses` (the real path is `GET /v1/routing/statuses`, and it lists status definitions, not a history of agent states; time per status is on `work_sessions`)
+- [x] `GET /v1/audit-logs (getauditlogs)` — configuration and permission change history (low) → `audit_logs`
 
 Note: Kustomer's ReadMe-hosted reference blocks machine-readable spec fetches (ssr-props ships an empty sidebar); the resource list was taken from the site sitemap, which enumerates one page per operation.
 
@@ -10826,10 +10826,10 @@ Today (5): `project_keywords`, `project_positions`, `project_regions`, `project_
 
 Diffed against: <https://raw.githubusercontent.com/SerpstatGlobal/serpstat-mcp-server-java/main/doc/openapi_spec/Serpstat-Domain-Analysis-API.json>
 
-- [ ] `getDomainKeywords (POST /v4/, JSON-RPC SerpstatDomainProcedure.getDomainKeywords)` — analyze organic keywords, ranking URLs, search volumes, and traffic beyond the manually tracked project keywords (high)
-- [ ] `getDomainsInfo (POST /v4/, JSON-RPC SerpstatDomainProcedure.getDomainsInfo)` — compare headline domain visibility, estimated traffic, and organic keyword counts (high)
-- [ ] `getNewBacklinks (POST /v4/, JSON-RPC SerpstatBacklinksProcedure.getNewBacklinks)` — analyze active backlinks, source pages, and link acquisition (high)
-- [ ] `getDomainsHistory (POST /v4/, JSON-RPC SerpstatDomainProcedure.getDomainsHistory)` — track historical visibility, keyword counts, and traffic changes (medium)
+- [x] `getDomainKeywords (POST /v4/, JSON-RPC SerpstatDomainProcedure.getDomainKeywords)` — analyze organic keywords, ranking URLs, search volumes, and traffic beyond the manually tracked project keywords (high)
+- [x] `getDomainsInfo (POST /v4/, JSON-RPC SerpstatDomainProcedure.getDomainsInfo)` — compare headline domain visibility, estimated traffic, and organic keyword counts (high)
+- [x] `getNewBacklinks (POST /v4/, JSON-RPC SerpstatBacklinksProcedure.getNewBacklinks)` — analyze active backlinks, source pages, and link acquisition (high)
+- [x] `getDomainsHistory (POST /v4/, JSON-RPC SerpstatDomainProcedure.getDomainsHistory)` — track historical visibility, keyword counts, and traffic changes (medium)
 - [ ] `getRefDomains (POST /v4/, JSON-RPC SerpstatBacklinksProcedure.getRefDomains)` — compare referring domains and the strength of the domain link profile (medium)
 - [ ] `getLostBacklinks (POST /v4/, JSON-RPC SerpstatBacklinksProcedure.getLostBacklinks)` — identify lost links and measure changes in link retention (medium)
 - [ ] `getCompetitors (POST /v4/, JSON-RPC SerpstatDomainProcedure.getCompetitors)` — compare competing domains and shared organic keywords (medium)
