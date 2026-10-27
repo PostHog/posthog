@@ -54,8 +54,10 @@ from products.review_hog.backend.reviewer.artefact_content import (
 from products.review_hog.backend.reviewer.constants import (
     HUMAN_TRIGGER_SOURCES,
     REVIEW_ARMS_BY_TIER,
+    SINGLE_AGENT_FLASH_ARM,
     ReviewArm,
     ReviewTier,
+    SingleAgentArms,
     is_below_human_tier,
     is_single_agent_pass,
     resolve_review_arm,
@@ -437,6 +439,33 @@ def load_perspective_results(
             continue
         out[(content.pass_number, content.chunk_id)] = content.review
     return out
+
+
+def load_single_agent_results(
+    *, team_id: int, report_id: str, head_sha: str, arms: SingleAgentArms
+) -> dict[  # nosemgrep: tuple-return-prefer-dataclass -- Shared (pass, chunk) cache keys.
+    tuple[int, int], IssuesReview
+]:
+    """The single-agent results at this head, each from its session's arm (latest wins per key).
+
+    A session on another arm that fails reruns on the control arm, so a control-arm result counts when the
+    session's own arm has none.
+    """
+    own: dict[tuple[int, int], IssuesReview] = {}
+    control: dict[tuple[int, int], IssuesReview] = {}
+    control_config = json.dumps(asdict(SINGLE_AGENT_FLASH_ARM), sort_keys=True)
+    for content in _load_working_state(
+        team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, head_sha
+    ):
+        assert isinstance(content, PerspectiveResultArtefact)
+        if not is_single_agent_pass(content.pass_number):
+            continue
+        key = (content.pass_number, content.chunk_id)
+        if content.review_config == json.dumps(asdict(arms.for_pass(content.pass_number)), sort_keys=True):
+            own[key] = content.review
+        elif content.review_config == control_config:
+            control[key] = content.review
+    return {**control, **own}
 
 
 def reviewed_pipeline_chunk_ids(*, team_id: int, report_id: str, head_sha: str) -> set[int]:

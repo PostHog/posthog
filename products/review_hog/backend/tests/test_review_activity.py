@@ -24,8 +24,10 @@ from products.review_hog.backend.reviewer.constants import (
     REVIEW_HOG_FINDING_MARKER,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
+    SINGLE_AGENT_ARM_SETS,
+    SINGLE_AGENT_FLASH_ARM,
     ReviewArm,
-    review_arm_for_mode,
+    SingleAgentArms,
 )
 from products.review_hog.backend.reviewer.finding_budget import FINDING_BUDGET, FindingBudget
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
@@ -327,6 +329,13 @@ async def test_review_chunk_activity_runs_on_the_reports_persisted_arm() -> None
     assert kwargs["workflow_id_prefix"] == f"{env.info.workflow_id}:issues-review-p1-c3".lower()
 
 
+# Not a production arm set, so the tests keep working when the table's trial rows come and go.
+_TRIAL_ARMS = SingleAgentArms(
+    main=replace(SINGLE_AGENT_FLASH_ARM, model="gpt-6-luna", reasoning_effort=ReasoningEffort.HIGH),
+    lens=replace(SINGLE_AGENT_FLASH_ARM, model="gpt-6-luna"),
+)
+
+
 def _single_agent_stage(**extra: object) -> dict:
     return {
         "team_id": 1,
@@ -377,6 +386,7 @@ async def test_review_activity_fails_non_retryably_only_on_non_retryable_agent_c
         patch(f"{_MODULE}._prepare_single_agent_prompt", MagicMock(return_value="review-prompt")),
         patch(f"{_MODULE}.load_review_arm", return_value=DEFAULT_REVIEW_ARM),
         patch(f"{_MODULE}.load_perspective_results", return_value={}),
+        patch(f"{_MODULE}.load_single_agent_results", return_value={}),
         patch(f"{_MODULE}.persist_perspective_results"),
         patch(f"{_MODULE}.run_sandbox_review", AsyncMock(side_effect=failure)),
     ):
@@ -389,6 +399,63 @@ async def test_review_activity_fails_non_retryably_only_on_non_retryable_agent_c
         assert excinfo.value.__cause__ is failure
     else:
         assert excinfo.value is failure
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "activity_fn,stage_extra,trial_arm",
+    [
+        pytest.param(single_agent_review_activity, {}, _TRIAL_ARMS.main, id="main_session"),
+        pytest.param(
+            lens_review_activity, {"lens": "contracts-security", "chunk_id": 2}, _TRIAL_ARMS.lens, id="lens_session"
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "first_category,control_fails,falls_back",
+    [
+        ("upstream_request_rejected", False, True),
+        ("upstream_request_rejected", True, True),
+        ("task_spend_limit", False, False),
+    ],
+)
+async def test_single_agent_session_on_a_trial_arm_runs_again_on_the_control_arm_when_its_agent_fails(
+    activity_fn: Callable[..., Awaitable[bool | None]],
+    stage_extra: dict,
+    trial_arm: ReviewArm,
+    first_category: str,
+    control_fails: bool,
+    falls_back: bool,
+) -> None:
+    # A gateway that rejects the trial model fails non-retryably, so without the second run on the control
+    # arm a trial model outage would fail every main session of the trial's PRs.
+    first = AgentTurnFailed("trial failed", category=first_category, agent_message="trial failed")
+    rejected = AgentTurnFailed("model rejected", category="upstream_request_rejected", agent_message="rejected")
+    mock_review = AsyncMock(side_effect=[first, rejected if control_fails else SingleAgentReview(findings=[])])
+    mock_persist = MagicMock()
+    input_type = LensReviewInput if stage_extra else SandboxStageInput
+    with (
+        patch(f"{_MODULE}.ReviewActivityHeartbeater"),
+        patch(f"{_MODULE}.load_single_agent_results", return_value={}),
+        patch(f"{_MODULE}._prepare_single_agent_prompt", return_value="prompt"),
+        patch(f"{_MODULE}.persist_perspective_results", mock_persist),
+        patch(f"{_MODULE}.run_sandbox_review", mock_review),
+        patch.dict(SINGLE_AGENT_ARM_SETS, {"trial": _TRIAL_ARMS}),
+    ):
+        run = ActivityEnvironment().run(activity_fn, input_type(**_single_agent_stage(arm_set="trial", **stage_extra)))
+        if control_fails or not falls_back:
+            with pytest.raises(ApplicationError) as excinfo:
+                await run
+            assert excinfo.value.non_retryable is True
+        else:
+            assert await run is True
+
+    expected_models = [trial_arm.model, "gpt-6.1-sol"] if falls_back else [trial_arm.model]
+    assert [call.kwargs["model"] for call in mock_review.call_args_list] == expected_models
+    if control_fails or not falls_back:
+        mock_persist.assert_not_called()
+    else:
+        assert mock_persist.call_args.kwargs["review_arm"] == SINGLE_AGENT_FLASH_ARM
 
 
 @pytest.mark.asyncio
@@ -533,19 +600,14 @@ async def test_select_perspectives_activity_skips_the_llm_when_nothing_is_prunab
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("arm_set,arms", [("control", SINGLE_AGENT_ARM_SETS["control"]), ("trial", _TRIAL_ARMS)])
 @pytest.mark.parametrize(
-    "activity_fn,activity_input,expected_key,expected_source",
+    "activity_fn,stage_extra,expected_key,expected_source",
     [
-        pytest.param(
-            single_agent_review_activity,
-            SandboxStageInput(**_single_agent_stage()),
-            (2000, 1),
-            "flash-single-agent",
-            id="main_session",
-        ),
+        pytest.param(single_agent_review_activity, {}, (2000, 1), "flash-single-agent", id="main_session"),
         pytest.param(
             lens_review_activity,
-            LensReviewInput(**_single_agent_stage(lens="contracts-security", chunk_id=2)),
+            {"lens": "contracts-security", "chunk_id": 2},
             (2002, 2),
             "flash-lens-contracts-security",
             id="lens_session",
@@ -553,13 +615,17 @@ async def test_select_perspectives_activity_skips_the_llm_when_nothing_is_prunab
     ],
 )
 async def test_single_agent_session_persists_mapped_findings_under_the_arm_dedup_reads(
-    activity_fn: Callable[..., Awaitable[None]],
-    activity_input: SandboxStageInput,
+    activity_fn: Callable[..., Awaitable[bool | None]],
+    stage_extra: dict,
     expected_key: tuple[int, int],
     expected_source: str,
+    arm_set: str,
+    arms: SingleAgentArms,
 ) -> None:
-    # Dedup combines only the results stamped with the turn's arm, so a stamp that differs from what
-    # dedup asks for drops every finding of that session without an error.
+    # Dedup reads each session's result under that session's arm in the turn's arm set, so a stamp that
+    # differs from it drops every finding of that session without an error.
+    input_type = LensReviewInput if stage_extra else SandboxStageInput
+    activity_input = input_type(**_single_agent_stage(arm_set=arm_set, **stage_extra))
     review = SingleAgentReview(
         findings=[
             SingleAgentFinding(
@@ -584,18 +650,19 @@ async def test_single_agent_session_persists_mapped_findings_under_the_arm_dedup
     env = ActivityEnvironment()
     with (
         patch(f"{_MODULE}.ReviewActivityHeartbeater"),
-        patch(f"{_MODULE}.load_perspective_results", return_value={}),
+        patch(f"{_MODULE}.load_single_agent_results", return_value={}),
         patch(f"{_MODULE}._prepare_single_agent_prompt", return_value="prompt"),
         patch(f"{_MODULE}.persist_perspective_results", mock_persist),
         patch(f"{_MODULE}.run_sandbox_review", mock_review),
+        patch.dict(SINGLE_AGENT_ARM_SETS, {"trial": _TRIAL_ARMS}),
     ):
-        await env.run(activity_fn, activity_input)
+        assert await env.run(activity_fn, activity_input) is False
 
-    dedup_arm = review_arm_for_mode(REVIEW_MODE_FLASH, DEFAULT_REVIEW_ARM, review_design=REVIEW_DESIGN_SINGLE_AGENT)
-    assert mock_persist.call_args.kwargs["review_arm"] == dedup_arm
+    session_arm = arms.for_pass(expected_key[0])
+    assert mock_persist.call_args.kwargs["review_arm"] == session_arm
     assert (mock_review.call_args.kwargs["model"], mock_review.call_args.kwargs["reasoning_effort"]) == (
-        "gpt-6.1-sol",
-        ReasoningEffort.MEDIUM,
+        session_arm.model,
+        session_arm.reasoning_effort,
     )
     [(key, persisted)] = mock_persist.call_args.kwargs["results"].items()
     assert key == expected_key

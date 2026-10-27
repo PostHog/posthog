@@ -469,6 +469,19 @@
           ],
           "supports_1m_context": false,
           "supports_fast_mode": false
+        },
+        "gpt-6.1-terra": {
+          "cost_multiplier": "0.5× base",
+          "offered": true,
+          "reasoning_efforts": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
         }
       },
       "provider": "openai"
