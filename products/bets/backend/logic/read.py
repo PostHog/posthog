@@ -18,6 +18,7 @@ from ..models import Bet, BetsSettings, LedgerEntry, WorkItem
 from .ledger import totals
 from .metrics import metric, proposed_plan
 from .next_actions import NextAction, next_actions
+from .scout import recent_scout_runs
 from .step_models import choice, model_options, plan_available
 from .workspace import get_settings, project_id
 
@@ -148,11 +149,7 @@ def spend_history(bet: Bet) -> list[dict]:
 
 
 def scout_running(bet: Bet) -> bool:
-    for run_id in signals.scout_run_ids_for_source(bet.team_id, "bets", [f"{bet.id}:v{bet.goal_version}"])[:5]:
-        run = tasks.get_task_run(run_id, team_id=bet.team_id)
-        if run and run.status in ("queued", "in_progress"):
-            return True
-    return False
+    return any(run.status in ("queued", "in_progress") for run in recent_scout_runs(bet))
 
 
 def work_entries(bet: Bet, user: User) -> list[dict]:

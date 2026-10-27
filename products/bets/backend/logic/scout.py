@@ -1,4 +1,13 @@
+from datetime import datetime, timedelta
 from uuid import UUID
+
+from django.utils import timezone
+
+from posthog.dataclasses import frozen
+
+from products.signals.backend.facade import api as signals
+from products.tasks.backend.facade import api as tasks
+from products.tasks.backend.facade.contracts import TaskRunDTO
 
 from ..db import WRITER_DB
 from ..facade.enums import BetStatus, IdeaSource, WorkKind, WorkStage
@@ -119,3 +128,38 @@ def scout_context(team_id: int, source_id: str) -> str:
         f"\n\n## Owner ideas to check\n{owner_ideas(bet)}\n\n## Ideas already waiting for the owner\n{waiting_ideas(bet)}"
         f"\n\n{CHECK_RULES.format(flag=live_flag(bet)) if scout_job(bet)[0] == CHECK else RUN_RULES}"
     )[:24000]
+
+
+FAILURE_LIMIT = 3
+FAILURE_PAUSE = timedelta(hours=6)
+
+
+def recent_scout_runs(bet: Bet, limit: int = 5) -> list[TaskRunDTO]:
+    run_ids = signals.scout_run_ids_for_source(bet.team_id, "bets", [f"{bet.id}:v{bet.goal_version}"])
+    runs = [run for run_id in run_ids if (run := tasks.get_task_run(run_id, team_id=bet.team_id))]
+    epoch = timezone.make_aware(datetime.min.replace(year=1970))
+    return sorted(runs, key=lambda run: run.created_at or epoch, reverse=True)[:limit]
+
+
+@frozen
+class ScoutFailure:
+    paused: bool
+    note: str
+
+
+def scout_failure(bet: Bet) -> ScoutFailure:
+    failed = []
+    for run in recent_scout_runs(bet):
+        if run.status != "failed":
+            break
+        failed.append(run)
+    if not failed:
+        return ScoutFailure(paused=False, note="")
+    error = (failed[0].error_message or "no reason given")[:200]
+    last = failed[0].updated_at or failed[0].created_at
+    if len(failed) < FAILURE_LIMIT or (last and timezone.now() - last >= FAILURE_PAUSE):
+        return ScoutFailure(paused=False, note=f"The last Scout run failed ({error}). Bets tries again.")
+    return ScoutFailure(
+        paused=True,
+        note=f"The Scout failed {len(failed)} times in a row ({error}). Bets tries again in 6 hours. Check the Scout model in Settings.",
+    )

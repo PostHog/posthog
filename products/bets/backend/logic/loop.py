@@ -53,7 +53,7 @@ from .plan import (
     plan as make_plan,
 )
 from .prompts import instructions
-from .scout import scout_body, scout_job
+from .scout import scout_body, scout_failure, scout_job
 from .spend import reconcile_spend, spend_pending
 from .step_models import run_settings
 from .verdict import verdict
@@ -684,8 +684,13 @@ def step(team: Team, user: User, bet: Bet) -> str:
         if not idea_open and money.available_cents <= 0 and money.reserved_cents <= 0:
             return stop(bet, BetStatus.SPENT)
         job, reason = scout_job(bet)
-        if job:
-            note = run_scout(team, user, bet, reason)
+        failure = scout_failure(bet) if job else None
+        if failure and failure.paused:
+            set_scout(bet, False)
+            note = failure.note
+        elif job:
+            started = run_scout(team, user, bet, reason)
+            note = failure.note if failure and failure.note else started
         else:
             set_scout(bet, False)
             note = goal_note or reason
