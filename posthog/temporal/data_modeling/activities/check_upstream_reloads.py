@@ -10,7 +10,12 @@ from temporalio import activity
 from posthog.sync import database_sync_to_async_pool
 
 from products.data_modeling.backend.facade.api import upstream_tables_being_replaced
-from products.data_modeling.backend.facade.models import DataModelingJob, Node
+from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataModelingJobStatus,
+    Node,
+)
 
 from .create_data_modeling_job import UPSTREAM_NAMES_IN_SKIP_REASON
 
@@ -25,9 +30,12 @@ class CheckUpstreamReloadsInputs:
     team_id: int
     dag_id: str
     node_id: str
-    # When set, a run that has to wait writes a Skipped job on this engine, so the wait is visible.
-    skipped_job_engine: str | None = None
+    engine: str = DataModelingJobEngine.CLICKHOUSE
+    # A run that has to wait writes a Skipped job, so the wait is visible.
+    record_skipped_job: bool = False
     parent_workflow_id: str | None = None
+    # A follow-up run passes when it started waiting, to learn whether a later run took the node.
+    superseded_after: dt.datetime | None = None
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -36,6 +44,7 @@ class CheckUpstreamReloadsResult:
 
     reason: str | None = None
     skipped_job_id: str | None = None
+    superseded_by_job_id: str | None = None
 
 
 def _reason(table_names: list[str]) -> str:
@@ -62,19 +71,41 @@ def _check_upstream_reloads(
     )
     if node.saved_query_id is None:
         return CheckUpstreamReloadsResult()
+    if inputs.superseded_after is not None:
+        later_job_id = (
+            DataModelingJob.objects.filter(
+                team_id=inputs.team_id,
+                saved_query_id=node.saved_query_id,
+                engine=inputs.engine,
+                created_at__gt=inputs.superseded_after,
+            )
+            .exclude(status=DataModelingJobStatus.SKIPPED)
+            .values_list("id", flat=True)
+            .first()
+        )
+        if later_job_id is not None:
+            return CheckUpstreamReloadsResult(superseded_by_job_id=str(later_job_id))
+    jobs = DataModelingJob.objects.filter(
+        team_id=inputs.team_id, saved_query_id=node.saved_query_id, engine=inputs.engine
+    )
+    # With no complete data to keep serving, waiting gains nothing over a partial first build.
+    if not jobs.filter(status=DataModelingJobStatus.COMPLETED).exists():
+        return CheckUpstreamReloadsResult()
     table_names = upstream_tables_being_replaced(
         inputs.team_id, node.saved_query_id, started_after=timezone.now() - STALE_RELOAD_AGE
     )
     if not table_names:
         return CheckUpstreamReloadsResult()
     reason = _reason(table_names)
-    if inputs.skipped_job_engine is None:
+    if not inputs.record_skipped_job:
         return CheckUpstreamReloadsResult(reason=reason)
-    job = DataModelingJob.objects.create(
+    # An activity retry after the insert committed finds the row instead of writing a second one.
+    existing = jobs.filter(status=DataModelingJobStatus.SKIPPED, workflow_run_id=workflow_run_id).first()
+    job = existing or DataModelingJob.objects.create(
         team_id=inputs.team_id,
         saved_query_id=node.saved_query_id,
         status=DataModelingJob.Status.SKIPPED,
-        engine=inputs.skipped_job_engine,
+        engine=inputs.engine,
         rows_materialized=0,
         error=reason,
         workflow_id=workflow_id,

@@ -96,6 +96,8 @@ class ExecuteDAGInputs:
     # Old workflow payloads contain this field, so removing it would prevent replay after deployment.
     duckgres_only: bool = False
     shadow: bool = False
+    # The person who asked for this run. A run with one does not wait for upstream reloads.
+    manually_triggered_by_id: int | None = None
 
     @property
     def properties_to_log(self) -> dict:
@@ -425,6 +427,8 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                         managed_warehouse_only=managed_warehouse_only,
                         dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
                         skip_trino=bool(blocked_trino_upstreams),
+                        manually_triggered_by_id=inputs.manually_triggered_by_id,
+                        defer_for_upstream_reloads=inputs.manually_triggered_by_id is None,
                     )
                     trino_skip = (
                         SkippedDataModelingNode(
@@ -569,7 +573,9 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             },
         )
         # DAG-level metrics
-        if failed_nodes == 0 and skipped_nodes == 0:
+        # A node waiting on an upstream reload keeps its data and blocks nothing, so it is not a degradation.
+        blocking_skips = sum(1 for r in node_results if r.skipped and not r.success)
+        if failed_nodes == 0 and blocking_skips == 0:
             dag_status = "completed"
         elif successful_nodes == 0 and failed_nodes == 0:
             dag_status = "skipped"

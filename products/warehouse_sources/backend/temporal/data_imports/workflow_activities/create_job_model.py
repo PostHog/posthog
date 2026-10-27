@@ -241,6 +241,8 @@ class CreateExternalDataJobModelActivityInputs:
     is_v3: bool = True
     # Admin resyncs and non-billable resumes start the workflow directly and must not become a full refresh.
     started_by_schedule: bool = False
+    # The workflow's reset request, which overrides the schema's own `reset_pipeline` flag.
+    reset_pipeline: bool | None = None
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -406,6 +408,8 @@ def create_external_data_job_model_activity(
             and repartition_import_hold_reason(schema, logger) is None
         )
         schema_snapshot = _build_schema_snapshot(schema)
+        if inputs.reset_pipeline is not None:
+            schema_snapshot["reset_pipeline"] = inputs.reset_pipeline
         if scheduled_full_refresh:
             schema_snapshot["scheduled_full_refresh"] = True
             logger.info("This sync is a scheduled full refresh. It re-imports every row of the table.")

@@ -2898,6 +2898,7 @@ class TestSavedQueryRun(APIBaseTest):
             set(mock_client.start_workflow.call_args.args[1]["node_ids"]),
             {str(node.id), str(related_node.id)},
         )
+        self.assertEqual(mock_client.start_workflow.call_args.args[1]["manually_triggered_by_id"], self.user.pk)
 
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_with_dependencies_requires_edit_access_to_every_view(self, mock_sync_connect):

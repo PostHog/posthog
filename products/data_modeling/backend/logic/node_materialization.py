@@ -115,6 +115,7 @@ def run_related_node_materializations(
         team_id=node.team_id,
         dag_id=str(node.dag_id),
         node_ids=sorted(node_ids),
+        manually_triggered_by_id=user.pk,
     )
     temporal = sync_connect()
     asyncio.run(

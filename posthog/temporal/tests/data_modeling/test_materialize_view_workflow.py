@@ -255,10 +255,8 @@ class TestQualityGateBranching:
         assert finished.call_args.args == ("failed", "clickhouse")
         assert finished.call_args.kwargs["run_mode"] == expected
 
-    @pytest.mark.parametrize("manually_triggered", [False, True])
-    async def test_a_scheduled_run_skips_while_an_upstream_table_is_loaded_again(
-        self, manually_triggered: bool
-    ) -> None:
+    @pytest.mark.parametrize("scenario", ["skips", "run_that_does_not_defer", "check_fails"])
+    async def test_a_scheduled_run_skips_while_an_upstream_table_is_loaded_again(self, scenario: str) -> None:
         reason = "Skipped because a sync is loading the upstream table invoices again from the start."
         results = {
             "check_upstream_reloads_activity": CheckUpstreamReloadsResult(reason=reason, skipped_job_id="skipped-job"),
@@ -270,10 +268,12 @@ class TestQualityGateBranching:
         }
 
         async def execute_activity(activity, *args, **kwargs):
+            if scenario == "check_fails" and activity.__name__ == "check_upstream_reloads_activity":
+                raise RuntimeError("check failed")
             return results.get(activity.__name__)
 
         start_child = AsyncMock()
-        inputs = dataclasses.replace(_inputs(), manually_triggered_by_id=5 if manually_triggered else None)
+        inputs = dataclasses.replace(_inputs(), defer_for_upstream_reloads=scenario != "run_that_does_not_defer")
         result, executed = await self._run(
             [],
             {},
@@ -284,10 +284,11 @@ class TestQualityGateBranching:
         )
 
         started = [call.args[0].__name__ for call in executed.await_args_list]
-        if manually_triggered:
-            assert "check_upstream_reloads_activity" not in started
+        if scenario != "skips":
+            assert ("check_upstream_reloads_activity" in started) is (scenario == "check_fails")
             assert result.skip_reason is None
             assert result.rows_materialized == 10
+            start_child.assert_not_awaited()
             return
         assert result.skip_reason == reason
         assert result.job_id == "skipped-job"
@@ -295,25 +296,34 @@ class TestQualityGateBranching:
         follow_up = start_child.await_args
         assert follow_up is not None
         assert follow_up.args[1] == dataclasses.replace(_inputs(), wait_for_upstream_reloads=True)
-        assert follow_up.kwargs["id"] == "materialize-view-after-reload-clickhouse-node-1"
+        assert follow_up.kwargs["id"] == "materialize-view-dag-1-node-1-after-reload-clickhouse"
         assert follow_up.kwargs["parent_close_policy"] == temporalio.workflow.ParentClosePolicy.ABANDON
+        assert follow_up.kwargs["execution_timeout"] is not None
 
     @pytest.mark.parametrize(
-        "reload_checks,expected_sleeps",
+        "reload_checks,expected_sleeps,materializes",
         [
-            (["reloading", "reloading", None], 2),
-            (["reloading"] * 60, 48),
+            ([CheckUpstreamReloadsResult(reason="reloading")] * 2 + [CheckUpstreamReloadsResult()], 2, True),
+            ([CheckUpstreamReloadsResult(reason="reloading")] * 60, 48, True),
+            (
+                [
+                    CheckUpstreamReloadsResult(reason="reloading"),
+                    CheckUpstreamReloadsResult(superseded_by_job_id="later"),
+                ],
+                1,
+                False,
+            ),
         ],
     )
     async def test_a_follow_up_run_waits_for_the_reload_then_materializes(
-        self, reload_checks: list[str | None], expected_sleeps: int
+        self, reload_checks: list[CheckUpstreamReloadsResult], expected_sleeps: int, materializes: bool
     ) -> None:
         checks = iter(reload_checks)
         clock = [dt.datetime(2026, 8, 1)]
 
         async def execute_activity(activity, *args, **kwargs):
             if activity.__name__ == "check_upstream_reloads_activity":
-                return CheckUpstreamReloadsResult(reason=next(checks))
+                return next(checks)
             return {
                 "create_data_modeling_job_activity": "job-1",
                 "materialize_view_activity": _materialize_result("skip"),
@@ -340,7 +350,8 @@ class TestQualityGateBranching:
         assert slept.await_count == expected_sleeps
         assert all(call.args[0] == UPSTREAM_RELOAD_RECHECK_INTERVAL for call in slept.await_args_list)
         assert result.skip_reason is None
-        assert result.rows_materialized == 10
+        assert result.rows_materialized == (10 if materializes else 0)
+        assert result.job_id == ("job-1" if materializes else "later")
         start_child.assert_not_awaited()
 
     async def test_blocking_failures_stop_the_publish(self):

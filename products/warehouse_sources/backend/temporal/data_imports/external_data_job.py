@@ -1060,6 +1060,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 started_by_schedule=_started_by_own_schedule(
                     workflow.info().search_attributes, inputs.external_data_schema_id
                 ),
+                reset_pipeline=inputs.reset_pipeline,
             )
 
             create_job_result = await workflow.execute_activity(

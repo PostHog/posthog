@@ -137,9 +137,20 @@ def snapshot_replaces_table(schema_snapshot: dict | None) -> bool:
     sync_type = schema_snapshot.get("sync_type")
     if sync_type == ExternalDataSchemaSyncType.FULL_REFRESH or schema_snapshot.get("scheduled_full_refresh") is True:
         return True
-    reset_pipeline = (schema_snapshot.get("sync_type_config") or {}).get("reset_pipeline")
+    # A workflow's own reset request wins over the schema flag, as in `reset_pipeline_requested`.
+    reset_pipeline = schema_snapshot.get(
+        "reset_pipeline", (schema_snapshot.get("sync_type_config") or {}).get("reset_pipeline")
+    )
     resets = reset_pipeline is True or (isinstance(reset_pipeline, str) and reset_pipeline.lower() == "true")
-    return resets and sync_type != ExternalDataSchemaSyncType.WEBHOOK
+    if resets and sync_type != ExternalDataSchemaSyncType.WEBHOOK:
+        return True
+    # A reset clears this flag when it empties the table, and clears `reset_pipeline` too. A run that
+    # continues the reload, after a restart or a failed run, shows only the cleared flag. A webhook
+    # or CDC table can stay unflagged while its rows stream in, so the flag does not count for them.
+    return schema_snapshot.get("initial_sync_complete") is False and sync_type not in (
+        ExternalDataSchemaSyncType.WEBHOOK,
+        ExternalDataSchemaSyncType.CDC,
+    )
 
 
 def latest_completed_job_subquery(team_id: int, field: str) -> Subquery:

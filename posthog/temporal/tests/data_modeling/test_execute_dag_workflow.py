@@ -543,6 +543,7 @@ _mock_workflow_should_fail: set[str] = set()
 _mock_workflow_should_block_on_quality: set[str] = set()
 _mock_workflow_should_self_audit: set[str] = set()
 _mock_workflow_should_wait_for_reload: set[str] = set()
+_mock_workflow_triggered_by: list[tuple[int | None, bool]] = []
 _recorded_skipped_nodes: list[RecordSkippedDataModelingJobsInputs] = []
 _notified_dag_failures: list[NotifyDAGMaterializationFailuresInputs] = []
 
@@ -563,6 +564,7 @@ class MockMaterializeViewWorkflow:
     @temporal_workflow.run
     async def run(self, inputs: MaterializeViewWorkflowInputs) -> MaterializeViewWorkflowResult:
         _mock_workflow_calls.append(inputs.node_id)
+        _mock_workflow_triggered_by.append((inputs.manually_triggered_by_id, inputs.defer_for_upstream_reloads))
         if inputs.node_id in _mock_workflow_should_fail:
             raise temporalio.exceptions.ApplicationError(f"Node {inputs.node_id} failed")
         blocked = inputs.node_id in _mock_workflow_should_block_on_quality
@@ -586,6 +588,7 @@ class TestExecuteDAGWorkflowWithMocks:
         _mock_workflow_calls.clear()
         _mock_workflow_should_fail.clear()
         _mock_workflow_should_wait_for_reload.clear()
+        _mock_workflow_triggered_by.clear()
         _recorded_skipped_nodes.clear()
         _notified_dag_failures.clear()
         yield
@@ -911,7 +914,7 @@ class TestExecuteDAGWorkflowWithMocks:
             ):
                 result: ExecuteDAGResult = await env.client.execute_workflow(
                     ExecuteDAGWorkflow.run,
-                    ExecuteDAGInputs(team_id=1, dag_id=dag_id),
+                    ExecuteDAGInputs(team_id=1, dag_id=dag_id, manually_triggered_by_id=7),
                     id=f"test-parallel-{uuid.uuid4()}",
                     task_queue="test-queue",
                     execution_timeout=dt.timedelta(seconds=30),
@@ -928,6 +931,7 @@ class TestExecuteDAGWorkflowWithMocks:
         assert len(result.node_results) == 3
         assert all(r.success for r in result.node_results)
         assert _notified_dag_failures == []
+        assert _mock_workflow_triggered_by == [(7, False)] * 3
 
     async def test_a_node_skipped_for_an_upstream_reload_does_not_block_downstream(self):
         dag_id = "test-dag"
@@ -967,6 +971,7 @@ class TestExecuteDAGWorkflowWithMocks:
                 )
 
         assert _mock_workflow_calls == [node_a_id, node_b_id]
+        assert _mock_workflow_triggered_by == [(None, True)] * 2
         assert (result.successful_nodes, result.failed_nodes, result.skipped_nodes) == (1, 0, 1)
         node_a_result = next(r for r in result.node_results if r.node_id == node_a_id)
         assert node_a_result.skip_reason == "Skipped because a sync is loading the upstream table again."

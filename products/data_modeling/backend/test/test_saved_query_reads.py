@@ -236,20 +236,55 @@ class TestSavedQueryReads(BaseTest):
                 1,
                 False,
             ),
+            (
+                "workflow_reset",
+                {"sync_type": "incremental", "reset_pipeline": True},
+                ExternalDataJob.Status.RUNNING,
+                1,
+                True,
+            ),
+            (
+                "workflow_declined_reset",
+                {"sync_type": "incremental", "sync_type_config": {"reset_pipeline": True}, "reset_pipeline": False},
+                ExternalDataJob.Status.RUNNING,
+                1,
+                False,
+            ),
+            (
+                "continued_reset",
+                {"sync_type": "incremental", "initial_sync_complete": False},
+                ExternalDataJob.Status.RUNNING,
+                1,
+                True,
+            ),
+            (
+                "cdc_streaming_before_first_sync_completes",
+                {"sync_type": "cdc", "initial_sync_complete": False},
+                ExternalDataJob.Status.RUNNING,
+                1,
+                False,
+            ),
             ("incremental", {"sync_type": "incremental"}, ExternalDataJob.Status.RUNNING, 1, False),
             ("cdc", {"sync_type": "cdc"}, ExternalDataJob.Status.RUNNING, 1, False),
             ("finished_full_refresh", {"sync_type": "full_refresh"}, ExternalDataJob.Status.COMPLETED, 1, False),
             ("stale_full_refresh", {"sync_type": "full_refresh"}, ExternalDataJob.Status.RUNNING, 96, False),
         ]
     )
-    def test_upstream_tables_being_replaced_counts_only_running_syncs_that_empty_the_table(
+    def test_upstream_tables_being_replaced_counts_syncs_that_empty_a_table_the_view_reads(
         self, _name: str, schema_snapshot: dict, status: str, started_hours_ago: int, replaced: bool
     ) -> None:
         dag = DAG.objects.create(team=self.team, name="Default")
         invoices = warehouse_source_node(self.team, dag, sync_frequency_interval=timedelta(hours=24))
         reads_directly = saved_query_node(self.team, dag, "reads_directly", NodeType.MAT_VIEW)
+        plain_view = saved_query_node(self.team, dag, "plain_view", NodeType.VIEW)
         reads_through_view = saved_query_node(self.team, dag, "reads_through_view", NodeType.MAT_VIEW)
-        for source, dependent in [(invoices, reads_directly), (reads_directly, reads_through_view)]:
+        reads_materialized_view = saved_query_node(self.team, dag, "reads_materialized_view", NodeType.MAT_VIEW)
+        for source, dependent in [
+            (invoices, reads_directly),
+            (invoices, plain_view),
+            (plain_view, reads_through_view),
+            (reads_directly, reads_materialized_view),
+        ]:
             Edge.objects.create(team=self.team, dag=dag, source=source, target=dependent)
         schema = ExternalDataSchema.objects.get(team=self.team, table_id=invoices.properties["warehouse_table_id"])
         now = timezone.now()
@@ -259,8 +294,10 @@ class TestSavedQueryReads(BaseTest):
         ExternalDataJob.objects.filter(id=job.id).update(created_at=now - timedelta(hours=started_hours_ago))
 
         expected = ["stripe_charges"] if replaced else []
-        for saved_query_id in [reads_directly.saved_query_id, reads_through_view.saved_query_id]:
-            assert (
-                api.upstream_tables_being_replaced(self.team.id, saved_query_id, started_after=now - timedelta(days=3))
-                == expected
+        found = {
+            node.name: api.upstream_tables_being_replaced(
+                self.team.id, node.saved_query_id, started_after=now - timedelta(days=3)
             )
+            for node in [reads_directly, reads_through_view, reads_materialized_view]
+        }
+        assert found == {"reads_directly": expected, "reads_through_view": expected, "reads_materialized_view": []}
