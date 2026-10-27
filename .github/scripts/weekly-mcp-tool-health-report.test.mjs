@@ -48,13 +48,21 @@ export const TOOL_MAP = {
 
 const TEAM = { owner: 'team-surveys', channel: '#team-surveys', rows: [['row']] }
 
+// A slice's heading, a team post's digest link, or the index's header row.
+function lastNote(blocks) {
+    const notes = blocks
+        .filter((block) => block.type !== 'table')
+        .map((block) => (block.text ?? block.elements[0]).text)
+    return notes.length > 0 ? notes.at(-1).split(' · ')[0] : blocks[0].rows[0].map((c) => c.text).join(' | ')
+}
+
 function recordingSlack() {
     const posts = []
     return {
         posts,
         slack: {
             post: async (blocks, text, options) => {
-                posts.push(options)
+                posts.push({ ...options, note: lastNote(blocks) })
                 return { ts: '2.0', channel: options.channel || 'C_DIGEST' }
             },
             permalink: async ({ channel, ts }) => `https://slack.test/${channel}/${ts}`,
@@ -99,16 +107,25 @@ describe('weekly MCP tool health report', () => {
         assert.deepEqual(tools, [{ tool: 'survey-get', calls: 120, errors: 30, users: 7, topError: '' }])
     })
 
-    for (const { label, enabled, expected } of [
+    for (const { label, enabled, digestChannel = '#team-context-and-mcp', expected } of [
         {
             label: 'keeps every slice in the thread while team posts are off',
             enabled: false,
-            expected: [{ threadTs: '1.0' }],
+            expected: [{ threadTs: '1.0', note: '*surveys* _(shadow: would post to #team-surveys)_' }],
         },
         {
             label: 'posts a slice to its team channel and indexes it when team posts are on',
             enabled: true,
-            expected: [{ channel: '#team-surveys' }, { threadTs: '1.0' }],
+            expected: [
+                { channel: '#team-surveys', note: '<https://slack.test/C_DIGEST/1.0|Report for all teams>' },
+                { threadTs: '1.0', note: 'team | tools | post' },
+            ],
+        },
+        {
+            label: 'keeps the slice of the digest channel team in the thread',
+            enabled: true,
+            digestChannel: '#team-surveys',
+            expected: [{ threadTs: '1.0', note: '*surveys* _(report already in #team-surveys)_' }],
         },
     ]) {
         it(label, async () => {
@@ -117,6 +134,7 @@ describe('weekly MCP tool health report', () => {
                 digest: { ts: '1.0', channel: 'C_DIGEST' },
                 report: teamReport(new Date('2026-10-26T00:00:00Z')),
                 withheld: teamPostsWithheld(enabled),
+                digestChannel,
                 slack,
             })
             assert.deepEqual(posts, expected)

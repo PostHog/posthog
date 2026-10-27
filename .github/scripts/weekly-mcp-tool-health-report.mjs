@@ -306,15 +306,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 }
 
 export {
-    buildBlocks,
     definitionPathFor,
     fetchFailingTools,
     HANDWRITTEN_TOOL_PATH,
-    parseToolNames,
-    tableRows,
     teamPostsWithheld,
     teamReport,
-    TOOL_HEALTH_QUERY,
-    TOOL_HEALTH_VALUES,
     toolDefinitionIndex,
 }

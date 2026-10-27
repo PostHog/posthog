@@ -257,16 +257,22 @@ async function postToTeamChannel(team, { report, digestUrl, slack }) {
 
 // Sends each team its slice, then indexes those posts in the digest thread. A slice that cannot
 // go to its channel stays in the thread, so no team's rows are lost. `withheld` names a reason to
-// keep every slice in the thread. `report` supplies the report's `title`, the `rowLabel` for the
-// index, and its `teamBlocks(team, digestUrl)` and `threadSliceBlocks(team, reason)` builders.
-export async function deliverTeamDigests(teamDigests, { digest, report, withheld = null, slack = SLACK }) {
+// keep every slice in the thread. A team whose channel is `digestChannel` keeps its slice in the
+// thread too, so that channel does not get the digest twice. `report` supplies the report's
+// `title`, the `rowLabel` for the index, and its `teamBlocks(team, digestUrl)` and
+// `threadSliceBlocks(team, reason)` builders.
+export async function deliverTeamDigests(
+    teamDigests,
+    { digest, report, withheld = null, digestChannel = SLACK_CHANNEL, slack = SLACK }
+) {
     const digestUrl = withheld ? null : await slack.permalink(digest).catch(() => null)
     const posted = []
     for (const [index, team] of teamDigests.entries()) {
         if (index > 0) {
             await slack.pause()
         }
-        const sent = withheld ? null : await postToTeamChannel(team, { report, digestUrl, slack })
+        const kept = withheld || (team.channel === digestChannel ? 'report already in' : null)
+        const sent = kept ? null : await postToTeamChannel(team, { report, digestUrl, slack })
         if (sent) {
             posted.push(sent)
             continue
@@ -274,7 +280,7 @@ export async function deliverTeamDigests(teamDigests, { digest, report, withheld
         // A failed slice must not sink the slices behind it; the digest itself already landed.
         try {
             await slack.post(
-                report.threadSliceBlocks(team, withheld || 'not delivered to'),
+                report.threadSliceBlocks(team, kept || 'not delivered to'),
                 `${report.title}: ${teamLabel(team.owner)}`,
                 { threadTs: digest.ts }
             )
