@@ -361,7 +361,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         endpoints: config.etcd_endpoint_list(),
         prefix: config.etcd_prefix.clone(),
     };
-    let etcd_store = EtcdStore::connect(etcd_config)
+    let etcd_store = EtcdStore::connect_with_member_failover(etcd_config)
         .await
         .expect("Failed to connect to etcd");
     let store = Arc::new(PersonhogStore::new(etcd_store));

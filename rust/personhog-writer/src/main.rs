@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Upsert concurrency: {}", config.upsert_concurrency);
     tracing::info!("Metrics port: {}", config.metrics_port);
 
-    let store = EtcdStore::connect(StoreConfig {
+    let store = EtcdStore::connect_with_member_failover(StoreConfig {
         endpoints: config.etcd_endpoint_list(),
         prefix: config.etcd_prefix.clone(),
     })

@@ -148,7 +148,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The delete saga groups its fence calls by the leaders' partition
     // count, which lives in etcd; a service that cannot read it would
     // batch wrong, so refuse to start instead.
-    let etcd_store = EtcdStore::connect(StoreConfig {
+    let etcd_store = EtcdStore::connect_with_member_failover(StoreConfig {
         endpoints: config.etcd_endpoint_list(),
         prefix: config.etcd_prefix.clone(),
     })

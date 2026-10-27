@@ -148,15 +148,19 @@ pub async fn run_lease_keepalive(
             if left.is_zero() {
                 return Err(margin_exhausted());
             }
-            let attempt = tokio::time::timeout(left.min(interval), store.keep_alive(lease_id));
+            let wait = left.min(interval);
+            let attempt = tokio::time::timeout(wait, store.keep_alive(lease_id));
             let failure = tokio::select! {
                 _ = cancel.cancelled() => return Ok(()),
                 r = attempt => match r {
                     Ok(Ok(pair)) => break pair,
                     Ok(Err(e)) => e,
-                    Err(_) => Error::invalid_state(
-                        "keepalive stream establishment timed out".to_string(),
-                    ),
+                    Err(_) => {
+                        store.inner().observe_member_unanswered(wait);
+                        Error::invalid_state(
+                            "keepalive stream establishment timed out".to_string(),
+                        )
+                    }
                 },
             };
             counter!(
@@ -219,12 +223,24 @@ pub async fn run_lease_keepalive(
                 // catches those.
                 crate::store::count_call("keep_alive_renewal");
                 let _renewal = assignment_coordination::store::OpTimer::new("keep_alive_renewal");
-                match tokio::time::timeout(left.min(interval), round).await {
-                    Ok(r) => r,
-                    Err(_) => Err(Error::invalid_state(format!(
-                        "keepalive round unanswered within {:?}",
-                        left.min(interval)
-                    ))),
+                let wait = left.min(interval);
+                match tokio::time::timeout(wait, round).await {
+                    Ok(r) => {
+                        match &r {
+                            Ok(_) => store.inner().observe_member_outcome(Ok(())),
+                            Err(e) => match e.etcd_error() {
+                                Some(etcd) => store.inner().observe_member_outcome(Err(etcd)),
+                                None => store.inner().observe_member_failure(),
+                            },
+                        }
+                        r
+                    }
+                    Err(_) => {
+                        store.inner().observe_member_unanswered(wait);
+                        Err(Error::invalid_state(format!(
+                            "keepalive round unanswered within {wait:?}"
+                        )))
+                    }
                 }
             };
             match outcome {
