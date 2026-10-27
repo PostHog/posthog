@@ -27,13 +27,14 @@ from products.tasks.backend.facade.profiles import (
     PrAuthorship,
     Repository,
     RunOptions,
-    RunOptionsConflictError,
+    RunOptionsError,
     TaskProfileError,
     get_task_profile,
 )
 from products.tasks.backend.models import (
     MAX_PENDING_FOLLOWUP_CONTENT_CHARS,
     MAX_PENDING_FOLLOWUP_MESSAGES,
+    MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY,
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     SandboxEnvironment,
     SandboxSnapshot,
@@ -262,14 +263,20 @@ class TestTask(TestCase):
                 {"extra_run_state": {"sandbox_template": "default_base"}},
                 RunOptions(sandbox_template="autoresearch_base"),
             ),
+            (
+                "setting_in_run_state",
+                {"extra_run_state": {"model": "claude-opus-5"}},
+                RunOptions(model="claude-sonnet-5"),
+            ),
+            ("no_github_access", {}, RunOptions(github_access=GithubAccess.NONE)),
         ]
     )
-    def test_run_options_refuse_a_setting_also_passed_as_an_argument(
+    def test_run_options_refuse_a_setting_they_cannot_apply(
         self, name: str, legacy_kwargs: dict, options: RunOptions
     ) -> None:
         user = User.objects.create(email=f"{name}@test.com")
 
-        with self.assertRaises(RunOptionsConflictError):
+        with self.assertRaises(RunOptionsError):
             Task.create_and_run(
                 team=self.team,
                 title="t",
@@ -278,6 +285,83 @@ class TestTask(TestCase):
                 origin_product=Task.OriginProduct.USER_CREATED,
                 options=options,
                 **legacy_kwargs,
+            )
+
+        self.assertFalse(Task.objects.filter(team=self.team).exists())
+
+    @parameterized.expand([("empty", []), ("one_server", ["server-1"])])
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_options_keep_the_mcp_server_allowlist(
+        self, name: str, server_ids: list[str], _mock_execute_workflow
+    ) -> None:
+        user = User.objects.create(email=f"{name}@test.com")
+        create = partial(
+            Task.create_and_run,
+            team=self.team,
+            title="t",
+            description="d",
+            user_id=user.id,
+            origin_product=Task.OriginProduct.WORKFLOW,
+            mcp_builtin_agent_key="workflow",
+        )
+
+        legacy = create(mcp_gateway_server_ids=server_ids)
+        from_options = create(options=RunOptions(mcp_server_ids=tuple(server_ids)))
+
+        self.assertEqual(
+            (
+                legacy.state[MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY],
+                from_options.state[MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY],
+            ),
+            (server_ids, server_ids),
+        )
+
+    @parameterized.expand(
+        [
+            ("runtime", RunOptions(runtime="pi"), ("pi", [])),
+            (
+                "repositories",
+                RunOptions(repositories=(Repository(name="posthog/posthog"),)),
+                ("acp", ["posthog/posthog"]),
+            ),
+        ]
+    )
+    def test_create_without_run_applies_task_settings(
+        self, name: str, options: RunOptions, expected: tuple[str, list[str]]
+    ) -> None:
+        user = User.objects.create(email=f"{name}@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        task = Task.create_without_run(
+            team=self.team,
+            title="t",
+            description="d",
+            user_id=user.id,
+            origin_product=Task.OriginProduct.USER_CREATED,
+            options=options,
+        )
+
+        task.refresh_from_db()
+        self.assertEqual((task.runtime, task.repositories), expected)
+
+    @parameterized.expand(
+        [
+            ("model", RunOptions(model="claude-sonnet-5")),
+            ("read_only", RunOptions(github_access=GithubAccess.READ, mcp_scopes="read_only")),
+            ("initial_branch", RunOptions(repositories=(Repository(name="posthog/posthog", initial_branch="main"),))),
+        ]
+    )
+    def test_create_without_run_refuses_settings_that_need_a_run(self, name: str, options: RunOptions) -> None:
+        user = User.objects.create(email=f"{name}@test.com")
+
+        with self.assertRaises(RunOptionsError):
+            Task.create_without_run(
+                team=self.team,
+                title="t",
+                description="d",
+                user_id=user.id,
+                origin_product=Task.OriginProduct.USER_CREATED,
+                options=options,
             )
 
         self.assertFalse(Task.objects.filter(team=self.team).exists())

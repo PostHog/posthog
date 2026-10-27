@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from posthog.dataclasses import frozen
 
-from products.tasks.backend.facade.profiles import GithubAccess, RunOptions, RunOptionsConflictError
+from products.tasks.backend.facade.profiles import GithubAccess, RunOptions, RunOptionsError
 
 if TYPE_CHECKING:
     from posthog.temporal.oauth import PosthogMcpScopes
@@ -29,6 +29,29 @@ class RunSettings:
     initial_permission_mode: str | None = None
     mcp_gateway_server_ids: list[str] | None = None
     extra_run_state: dict[str, Any] | None = None
+
+
+TASK_SETTINGS = frozenset({"runtime", "repositories", "output_schema", "mcp_gateway_server_ids"})
+
+_SETTING_RUN_STATE_KEYS = {
+    "runtime_adapter": "runtime_adapter",
+    "model": "model",
+    "reasoning_effort": "reasoning_effort",
+    "repositories": "repositories",
+    "branch": "pr_base_branch",
+    "inactivity_timeout_seconds": "inactivity_timeout_seconds",
+    "github_read_access": "github_read_access",
+    "initial_permission_mode": "initial_permission_mode",
+}
+
+_OPTION_NAMES = {
+    "runtime_adapter": "adapter",
+    "branch": "initial_branch",
+    "inactivity_timeout_seconds": "idle_minutes",
+    "github_read_access": "github_access",
+    "posthog_mcp_scopes": "mcp_scopes",
+    "initial_permission_mode": "permission_mode",
+}
 
 
 def _settings_from(options: RunOptions) -> dict[str, Any]:
@@ -55,7 +78,7 @@ def _settings_from(options: RunOptions) -> dict[str, Any]:
         settings["github_read_access"] = True
     if options.mcp_scopes is not None:
         settings["posthog_mcp_scopes"] = options.mcp_scopes
-    if options.mcp_server_ids:
+    if options.mcp_server_ids is not None:
         settings["mcp_gateway_server_ids"] = list(options.mcp_server_ids)
     if options.permission_mode is not None:
         settings["initial_permission_mode"] = options.permission_mode
@@ -75,17 +98,27 @@ def _run_state_from(options: RunOptions) -> dict[str, Any]:
     return state
 
 
-def apply_run_options(options: RunOptions, given: RunSettings) -> RunSettings:
+def apply_run_options(options: RunOptions, given: RunSettings, *, creates_run: bool = True) -> RunSettings:
+    if options.github_access == GithubAccess.NONE:
+        raise RunOptionsError("github_access=none is not supported yet")
     settings = _settings_from(options)
     run_state = _run_state_from(options)
+    if not creates_run:
+        run_only = sorted(
+            {*(_OPTION_NAMES.get(name, name) for name in settings if name not in TASK_SETTINGS), *run_state}
+        )
+        if run_only:
+            raise RunOptionsError(f"{', '.join(run_only)} only apply to a run. Pass them when the run is created")
+    given_run_state = given.extra_run_state or {}
     defaults = RunSettings()
     conflicts = [name for name in settings if getattr(given, name) != getattr(defaults, name)]
     if "repositories" in settings and given.repository is not None:
         conflicts.append("repository")
-    conflicts.extend(key for key in run_state if key in (given.extra_run_state or {}))
+    conflicts.extend(name for name in settings if _SETTING_RUN_STATE_KEYS.get(name) in given_run_state)
+    conflicts.extend(key for key in run_state if key in given_run_state)
     if conflicts:
-        raise RunOptionsConflictError(f"Set {', '.join(sorted(conflicts))} in options or as arguments, not both")
-    extra_run_state = {**(given.extra_run_state or {}), **run_state} if run_state else given.extra_run_state
+        raise RunOptionsError(f"Set {', '.join(sorted(set(conflicts)))} in options or as arguments, not both")
+    extra_run_state = {**given_run_state, **run_state} if run_state else given.extra_run_state
     return replace(given, **settings, extra_run_state=extra_run_state)
 
 

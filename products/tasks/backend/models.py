@@ -1571,24 +1571,21 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         own state. The run `extra_state` assembled by `_build_task` is discarded here.
         """
         origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=internal)
+        runtime = Task.Runtime.ACP.value
         if options is not None:
             settings = apply_run_options(
                 options,
                 RunSettings(
-                    model=model,
                     repository=repository,
                     repositories=repositories,
-                    branch=branch,
                     output_schema=output_schema,
-                    initial_permission_mode=initial_permission_mode,
                     mcp_gateway_server_ids=mcp_gateway_server_ids,
                 ),
+                creates_run=False,
             )
-            model = settings.model
+            runtime = settings.runtime
             repositories = settings.repositories
-            branch = settings.branch
             output_schema = settings.output_schema
-            initial_permission_mode = settings.initial_permission_mode
             mcp_gateway_server_ids = settings.mcp_gateway_server_ids
         task, _ = Task._build_task(
             team=team,
@@ -1608,6 +1605,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             internal=origin.internal,
             output_schema=output_schema,
             interaction_origin=interaction_origin,
+            runtime=runtime,
             model=model,
             initial_permission_mode=initial_permission_mode,
             mcp_builtin_agent_key=mcp_builtin_agent_key,
