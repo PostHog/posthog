@@ -17,7 +17,7 @@ InsightContext = tuple[int, Optional[int]]
 
 
 def _key(team_id: int, insight_id: int, dashboard_id: Optional[int]) -> str:
-    return f"warming_cost:{team_id}:{insight_id}:{dashboard_id or ''}"
+    return f"warming_cost:{{{team_id}}}:{insight_id}:{dashboard_id or ''}"
 
 
 def record_warming_duration(*, team_id: int, insight_id: int, dashboard_id: Optional[int], seconds: float) -> None:

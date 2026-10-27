@@ -7,8 +7,10 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import caches
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from redis.crc import key_slot
 
 from posthog.hogql.errors import QueryError
 
@@ -430,3 +432,15 @@ class TestWarmInsightCacheTask(APIBaseTest):
         assert capture_ph_event.call_args.kwargs["event"] == "cache warming - insight query error"
         assert capture_ph_event.call_args.kwargs["properties"]["insight_id"] == insight.pk
         assert capture_ph_event.call_args.kwargs["properties"]["error_code"] == "hogql_query_error"
+
+
+class TestWarmingCost(SimpleTestCase):
+    def test_bulk_read_keys_for_a_team_share_one_redis_cluster_slot(self) -> None:
+        cluster_cache = MagicMock()
+        cluster_cache.get_many.return_value = {}
+
+        with patch("posthog.caching.warming_cost.caches", {QUERY_CACHE_ALIAS: cluster_cache}):
+            get_warming_durations(team_id=7, contexts=[(1, None), (2, 3), (40, 50)])
+
+        (keys,) = cluster_cache.get_many.call_args.args
+        assert len({key_slot(key.encode()) for key in keys}) == 1
