@@ -30,7 +30,7 @@ from products.signals.backend.anomaly_scores.scoring import bucket_end
 
 # The window before the requested range that `baseline_rate` covers.
 BASELINE_WINDOW = datetime.timedelta(days=30)
-# One row is one series. Far more than the series of every watched insight of one project.
+# One row is one series. Far more than the series of every active insight of one project.
 MAX_SERIES = 10_000
 MAX_BUCKETS = 2_000
 # Each rate shrinks toward its baseline by this many buckets, so 1 flagged of 1 scored does not top a ranking.

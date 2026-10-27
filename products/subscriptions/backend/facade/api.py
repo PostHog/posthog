@@ -202,6 +202,11 @@ def insight_has_active_subscription(insight_id: int) -> bool:
     return queries.insight_has_active_subscription(insight_id)
 
 
+def insight_ids_with_active_subscriptions(*, team_ids: Collection[int]) -> set[int]:
+    """Insights of these teams that an enabled subscription delivers, directly or as a live dashboard tile."""
+    return queries.insight_ids_with_active_subscriptions(team_ids=team_ids)
+
+
 def dashboard_has_active_full_subscription(dashboard_id: int) -> bool:
     """Whether an enabled subscription delivers every insight on this dashboard."""
     return queries.dashboard_has_active_full_subscription(dashboard_id)

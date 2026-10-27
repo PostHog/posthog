@@ -22,7 +22,7 @@ from products.dashboards.backend.facade.api import dashboards_by_insight, live_t
 from products.product_analytics.backend.facade.api import viewable_insights
 from products.product_analytics.backend.facade.contracts import ViewableInsight
 from products.signals.backend.anomaly_scores.config import MAX_LIMITS, covers_team, parse_config, read_payload
-from products.signals.backend.anomaly_scores.queue import watched_insights
+from products.signals.backend.anomaly_scores.queue import active_insights
 from products.signals.backend.anomaly_scores.read import (
     MAX_BUCKETS,
     FlaggedPoint,
@@ -201,7 +201,7 @@ def _empty_message(*, scoring_enabled: bool, watched: int, scored_in_range: int)
     if not scoring_enabled:
         return SCORING_DISABLED_MESSAGE
     if not scored_in_range:
-        return f"No insight was scored in this range. Scoring checks {watched} watched insights, a few at a time."
+        return f"No insight was scored in this range. Scoring checks {watched} active insights, a few at a time."
     return (
         f"Nothing was flagged in this range among the {scored_in_range} insights scored. "
         "Insights that were not scored in the range were not checked."
@@ -214,7 +214,7 @@ def search(team: Team, user: User, filters: AnomalySearchFilters, now: datetime.
     scoring_enabled = covers_team(config, team)
     requested = _requested_insight_ids(team, user, filters)
     intervals = (filters.interval,) if filters.interval is not None else config.intervals
-    watched = {insight.insight_id for insight in watched_insights([team.id], intervals, now)}
+    watched = {insight.insight_id for insight in active_insights([team.id], intervals, now, config.active_window_days)}
     if requested is not None:
         watched &= requested
 

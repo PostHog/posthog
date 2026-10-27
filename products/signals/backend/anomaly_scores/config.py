@@ -144,6 +144,8 @@ class AnomalyScoringConfig:
     # Per-tick picks of each pass when the split is on. Score steps are cheap, so the score pass gets most slots.
     max_score_insights_per_tick: int = 20
     max_train_insights_per_tick: int = 2
+    # An insight is scored only while one of its activity signals falls in this many days, see `queue.active_insights`.
+    active_window_days: int = 90
 
 
 DISABLED = AnomalyScoringConfig()
@@ -156,6 +158,7 @@ MAX_SCORE_QUERIES_PER_HOUR = 5000
 MAX_SCORE_QUERIES_PER_PROJECT_PER_HOUR = 1000
 MAX_SCORE_INSIGHTS_PER_TICK = 200
 MAX_TRAIN_INSIGHTS_PER_TICK = 50
+MAX_ACTIVE_WINDOW_DAYS = 365
 
 
 def _positive_int(value: Any, default: int) -> int:
@@ -269,6 +272,9 @@ def parse_config(payload: Any) -> AnomalyScoringConfig:
                 _positive_int(payload.get("max_insights_per_tick"), defaults.max_train_insights_per_tick),
             ),
             MAX_TRAIN_INSIGHTS_PER_TICK,
+        ),
+        active_window_days=min(
+            _positive_int(payload.get("active_window_days"), defaults.active_window_days), MAX_ACTIVE_WINDOW_DAYS
         ),
     )
 
