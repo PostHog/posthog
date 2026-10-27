@@ -52,6 +52,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import action
 from posthog.auth import (
     PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
     SessionAuthentication,
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
@@ -116,8 +117,8 @@ from posthog.rate_limit import (
     AIObservabilitySummarizationBurstThrottle,
     AIObservabilitySummarizationDailyThrottle,
     AIObservabilitySummarizationSustainedThrottle,
-    ClickHouseBurstRateThrottle,
-    ClickHouseSustainedRateThrottle,
+    PersonalOrProjectSecretApiKeyRateThrottle,
+    ProjectSecretApiKeyTeamRateThrottle,
 )
 from posthog.renderers import SafeJSONRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
@@ -1919,6 +1920,34 @@ def chart_display_filter(value: str) -> Q:
     ) | Q(query__kind=schema.NodeKind.DATA_VISUALIZATION_NODE, query__display__in=displays)
 
 
+class InsightBurstRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    # Same scope and rate as ClickHouseBurstRateThrottle so personal-key and session behavior is
+    # unchanged; the subclass only adds per-key throttling for PSAK requests, which the default
+    # throttles silently bypass (no personal key, no throttling).
+    scope = "clickhouse_burst"
+    rate = "240/minute"
+
+
+class InsightSustainedRateThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    scope = "clickhouse_sustained"
+    rate = "1200/hour"
+
+
+class InsightProjectSecretApiKeyTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    """Per-team aggregate burst budget across all of a project's PSAKs — same size as the
+    per-key budget, so minting extra keys never multiplies a project's total burst capacity."""
+
+    scope = "insight_psak_team_burst"
+    rate = "240/minute"
+
+
+class InsightProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    """Per-team aggregate sustained budget across all of a project's PSAKs."""
+
+    scope = "insight_psak_team_sustained"
+    rate = "1200/hour"
+
+
 @extend_schema(extensions={"x-product": ProductKey.PRODUCT_ANALYTICS})
 @extend_schema_view(
     list=extend_schema(
@@ -2065,12 +2094,20 @@ class InsightViewSet(
 ):
     scope_object = "insight"
     permission_classes = [CanEditInsightDashboards]
+    # Extends the default authenticators (TeamAndOrgViewSetMixin appends session/PAT/OAuth).
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    # A project secret API key with insight:read can export insight definitions (list/retrieve) —
+    # a service credential not tied to one person's account. Writes and every other action stay
+    # session/PAT/OAuth-only.
+    psak_allowed_actions = ["list", "retrieve"]
     # Record a tags change per insight when bulk_update_tags mutates it, matching the single-object path.
     bulk_tag_activity_scope = "Insight"
     serializer_class = InsightSerializer
     throttle_classes = [
-        ClickHouseBurstRateThrottle,
-        ClickHouseSustainedRateThrottle,
+        InsightBurstRateThrottle,
+        InsightSustainedRateThrottle,
+        InsightProjectSecretApiKeyTeamBurstThrottle,
+        InsightProjectSecretApiKeyTeamSustainedThrottle,
     ]
     renderer_classes = cast(
         tuple[type[BaseRenderer], ...],

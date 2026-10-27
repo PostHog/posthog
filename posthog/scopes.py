@@ -264,6 +264,9 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # Read-only export of experiment definitions (list/retrieve), so services syncing
     # experiments into a warehouse don't need a credential tied to one person's account.
     ("experiment", "read"),
+    # Read-only export of saved insight definitions (list/retrieve), so a service can sync
+    # insights into a warehouse without a credential tied to one person's account.
+    ("insight", "read"),
     ("offline_evaluation_ingestion", "write"),
     # A project's own usage and share of spend, for a service that watches one project's billing.
     # Only someone with full billing access may grant it (see the key serializer).
