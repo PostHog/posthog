@@ -2116,6 +2116,8 @@ export interface ReportPlanStepApi {
      * * `closed` - Closed
      * * `merged` - Merged */
     readonly implementation_pr_state: SignalReportAssignmentPrStateEnumApi | null
+    /** Who or what suppressed the step, with the same values as the report's `suppression_source`. Null unless the step is suppressed. */
+    readonly suppression_source: SignalReportSuppressionSourceEnumApi | null
 }
 
 export interface ReportPlanApi {
@@ -2270,7 +2272,7 @@ export interface SignalReportListApi {
     readonly channel_id: string | null
     /** The served ranking model's predictions from the latest ranking score artefact. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
     readonly ranking: ReportRankingApi
-    /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps scans the project's report links. */
+    /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps costs several queries per report. */
     readonly plan: ReportPlanApi | null
     /**
      * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's outcome (open, action or fix), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
@@ -2520,7 +2522,7 @@ export interface SignalReportApi {
     readonly channel_id: string | null
     /** The served ranking model's predictions from the latest ranking score artefact. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
     readonly ranking: ReportRankingApi
-    /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps scans the project's report links. */
+    /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps costs several queries per report. */
     readonly plan: ReportPlanApi | null
 }
 
@@ -2575,6 +2577,7 @@ export interface SignalReportDeletionStatusApi {
  * * `get_it_merged` - Get it merged
  * * `make_it_green` - Make it green
  * * `suggested_prompt` - Suggested prompt
+ * * `ask` - Ask
  */
 export type ReportTaskActionKindEnumApi = (typeof ReportTaskActionKindEnumApi)[keyof typeof ReportTaskActionKindEnumApi]
 
@@ -2582,6 +2585,7 @@ export const ReportTaskActionKindEnumApi = {
     GetItMerged: 'get_it_merged',
     MakeItGreen: 'make_it_green',
     SuggestedPrompt: 'suggested_prompt',
+    Ask: 'ask',
 } as const
 
 /**
@@ -2592,7 +2596,8 @@ export interface SignalReportTaskActionApi {
      *
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
-     * * `suggested_prompt` - Suggested prompt */
+     * * `suggested_prompt` - Suggested prompt
+     * * `ask` - Ask */
     action: ReportTaskActionKindEnumApi
     /** Whether a run of this action can start now. */
     available: boolean
@@ -2616,17 +2621,23 @@ export interface SignalReportTaskActionListResponseApi {
 }
 
 export interface SignalReportTaskActionRunRequestApi {
-    /** The action to run. Use a value from the actions list.
+    /** The action to run. Use a value from the actions list, or `ask` to send your own `message`.
      *
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
-     * * `suggested_prompt` - Suggested prompt */
+     * * `suggested_prompt` - Suggested prompt
+     * * `ask` - Ask */
     action: ReportTaskActionKindEnumApi
     /**
      * Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.
      * @minimum 0
      */
     suggested_prompt_index?: number
+    /**
+     * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged` and `make_it_green`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
+     * @maxLength 2000
+     */
+    message?: string
 }
 
 export interface SignalReportTaskActionRunResponseApi {
@@ -3970,6 +3981,36 @@ export interface ShortcutStorySignalExtraApi {
     created_at: string | null
 }
 
+export interface ClickupTaskSignalExtraApi {
+    status_name: string | null
+    status_type: string | null
+    url: string | null
+    date_created: string | null
+}
+
+export interface WrikeTaskSignalExtraApi {
+    status: string | null
+    importance: string | null
+    permalink: string | null
+    created_date: string | null
+}
+
+export interface TrelloCardSignalExtraApi {
+    url: string | null
+    id_board: string | null
+    id_list: string | null
+    created_at: string | null
+}
+
+export interface BugherdTaskSignalExtraApi {
+    status: string | null
+    priority: string | null
+    site: string | null
+    url: string | null
+    tag_names: unknown[]
+    created_at: string | null
+}
+
 export interface SentryIssueSignalExtraApi {
     level: string | null
     status: string | null
@@ -4629,6 +4670,10 @@ export type SignalExtraApi =
     | GitlabIssueSignalExtraApi
     | GiteaIssueSignalExtraApi
     | ShortcutStorySignalExtraApi
+    | ClickupTaskSignalExtraApi
+    | WrikeTaskSignalExtraApi
+    | TrelloCardSignalExtraApi
+    | BugherdTaskSignalExtraApi
     | SentryIssueSignalExtraApi
     | RollbarItemSignalExtraApi
     | BugsnagErrorSignalExtraApi

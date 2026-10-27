@@ -60,7 +60,7 @@ from products.signals.backend.report_generation.repo_activity import (
     rebuild_repository_activity,
     repository_activity_needs_rebuild,
 )
-from products.signals.backend.reviewer_pr_assignment import assign_reviewers_to_pull_request
+from products.signals.backend.reviewer_pr_assignment import deliver_pull_request_assignment
 from products.signals.backend.reviewer_pr_ready import open_pull_request_ready_for_review
 from products.signals.backend.scout_harness.background_bands import refresh_background_bands
 from products.signals.backend.scout_harness.inactivity import sweep_inactive_scouts
@@ -733,20 +733,43 @@ def send_reviewer_added_slack_notifications(
     )
 
 
+# Bounded recovery for a transient GitHub failure on the first shared assignment: 1m, 2m, 4m, 8m,
+# 15m, about half an hour in total. A later pull request event still queues a fresh attempt, so an
+# exhausted retry is final only for this attempt and never sweeps other reports.
+_FIRST_ASSIGNMENT_MAX_RETRIES = 5
+_FIRST_ASSIGNMENT_RETRY_BASE_SECONDS = 60
+_FIRST_ASSIGNMENT_RETRY_MAX_SECONDS = 900
+
+
 @shared_task(
     name="products.signals.backend.tasks.assign_reviewers_on_implementation_pr",
     ignore_result=True,
-    max_retries=0,
+    bind=True,
+    max_retries=_FIRST_ASSIGNMENT_MAX_RETRIES,
 )
 @with_team_scope()
-def assign_reviewers_on_implementation_pr(team_id: int, report_id: str, pr_url: str) -> None:
-    """Put a report's opted-in reviewers, or else one DRI, on its implementation PR as GitHub assignees.
+def assign_reviewers_on_implementation_pr(self, team_id: int, report_id: str, pr_url: str) -> None:
+    """Assign an owner to the implementation PR and request a review.
 
     Runs on a worker because the GitHub calls (integration probe, PR read, assign) must not hold up
-    the claim, sync, or reviewer edit that queued it. Best-effort end to end, so the assigner
-    reports its own failures and this never retries: the next pull request event queues it again.
+    the claim, sync, or reviewer edit that queued it. Every attempt re-reads the accepted list,
+    corrections, access, delivery flags, and GitHub state, so a retry respects anything that changed
+    in between and finds a write that did land as an existing assignment. A skipped attempt, such as
+    one a disabled flag suppressed, is a decision and is never retried or replayed.
     """
-    assign_reviewers_to_pull_request(team_id=team_id, report_id=report_id, pr_url=pr_url)
+    outcome = deliver_pull_request_assignment(team_id=team_id, report_id=report_id, pr_url=pr_url)
+    if not outcome.retryable:
+        return
+    log = logger.bind(team_id=team_id, report_id=report_id, status=outcome.status, reason=outcome.reason)
+    if self.request.retries >= self.max_retries:
+        log.warning("signals.reviewer_pr_assignment.recovery_exhausted", attempts=self.request.retries + 1)
+        return
+    countdown = min(
+        _FIRST_ASSIGNMENT_RETRY_BASE_SECONDS * (2**self.request.retries), _FIRST_ASSIGNMENT_RETRY_MAX_SECONDS
+    )
+    countdown = max(countdown, outcome.retry_after or 0)
+    log.info("signals.reviewer_pr_assignment.recovery_scheduled", attempt=self.request.retries + 1, countdown=countdown)
+    raise self.retry(countdown=countdown)
 
 
 @shared_task(

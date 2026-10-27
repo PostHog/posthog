@@ -7,10 +7,39 @@ export interface PlayerFrameLoadDiagnostics {
     frameResponseStatus: number | null
     browserOnline: boolean
     pageVisibility: DocumentVisibilityState
+    documentHasFocus: boolean
+    frameMountHasFocus: boolean | null
+    frameMountUserActivationActive: boolean | null
+    msSinceFrameMount: number | null
     msSincePageLoad: number
 }
 
+interface PlayerFrameMount {
+    hasFocus: boolean
+    userActivationActive: boolean | null
+    at: number
+}
+
 const MAX_TITLE_LENGTH = 100
+
+// A failure is reported up to 10s after its frame mounted, and a click's user activation expires sooner, so
+// the state that may decide whether the frame loads is read when the frame mounts.
+const frameMounts = new WeakMap<HTMLIFrameElement, PlayerFrameMount>()
+
+export function recordPlayerFrameMount(iframe: HTMLIFrameElement | null): void {
+    if (!iframe) {
+        return
+    }
+    try {
+        frameMounts.set(iframe, {
+            hasFocus: document.hasFocus(),
+            userActivationActive: navigator.userActivation?.isActive ?? null,
+            at: performance.now(),
+        })
+    } catch {
+        // A diagnostic must never stop the frame from loading.
+    }
+}
 
 // Resource Timing records the frame's navigation in the embedding document. A navigation that never finished has
 // no entry, and some browsers leave out `responseStatus`. jsdom has no `getEntriesByName`, and the retry runs after
@@ -25,6 +54,7 @@ function responseStatus(src: string): number | null {
 export function getPlayerFrameLoadDiagnostics(iframe: HTMLIFrameElement | null): Partial<PlayerFrameLoadDiagnostics> {
     // A browser error page or a redirect to another origin makes the frame cross-origin, which hides its document.
     const frameDocument = iframe?.contentDocument ?? null
+    const mount = iframe ? frameMounts.get(iframe) : undefined
     try {
         return {
             frameDocumentReadable: frameDocument !== null,
@@ -37,6 +67,12 @@ export function getPlayerFrameLoadDiagnostics(iframe: HTMLIFrameElement | null):
             frameResponseStatus: iframe ? responseStatus(iframe.src) : null,
             browserOnline: navigator.onLine,
             pageVisibility: document.visibilityState,
+            documentHasFocus: document.hasFocus(),
+            // A retry from the error card almost always loads, and the automatic retries almost never do.
+            // The click gives the page focus and user activation, so the report records both to test that.
+            frameMountHasFocus: mount?.hasFocus ?? null,
+            frameMountUserActivationActive: mount?.userActivationActive ?? null,
+            msSinceFrameMount: mount ? Math.round(performance.now() - mount.at) : null,
             msSincePageLoad: Math.round(performance.now()),
         }
     } catch {

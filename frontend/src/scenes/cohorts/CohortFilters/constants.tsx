@@ -218,6 +218,12 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
             [SingleFieldDateType.IsDateBefore]: {
                 label: 'before',
             },
+            [PropertyOperator.IsSet]: {
+                label: 'is set',
+            },
+            [PropertyOperator.IsNotSet]: {
+                label: 'is not set',
+            },
         },
     },
     [FieldOptionsType.MathOperators]: {
@@ -290,6 +296,18 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
             [PropertyOperator.NotIContains]: {
                 label: 'does not contain',
             },
+            [PropertyOperator.StartsWith]: {
+                label: 'starts with',
+            },
+            [PropertyOperator.NotStartsWith]: {
+                label: 'does not start with',
+            },
+            [PropertyOperator.EndsWith]: {
+                label: 'ends with',
+            },
+            [PropertyOperator.NotEndsWith]: {
+                label: 'does not end with',
+            },
             [PropertyOperator.IContainsMulti]: {
                 label: 'contains any of',
             },
@@ -331,6 +349,33 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
             },
             [PropertyOperator.Maximum]: {
                 label: 'maximum',
+            },
+            [PropertyOperator.SemverEq]: {
+                label: 'equals (semver)',
+            },
+            [PropertyOperator.SemverNeq]: {
+                label: 'does not equal (semver)',
+            },
+            [PropertyOperator.SemverGt]: {
+                label: 'greater than (semver)',
+            },
+            [PropertyOperator.SemverGte]: {
+                label: 'greater than or equal (semver)',
+            },
+            [PropertyOperator.SemverLt]: {
+                label: 'less than (semver)',
+            },
+            [PropertyOperator.SemverLte]: {
+                label: 'less than or equal (semver)',
+            },
+            [PropertyOperator.SemverTilde]: {
+                label: 'tilde range (semver)',
+            },
+            [PropertyOperator.SemverCaret]: {
+                label: 'caret range (semver)',
+            },
+            [PropertyOperator.SemverWildcard]: {
+                label: 'wildcard (semver)',
             },
         },
     },
