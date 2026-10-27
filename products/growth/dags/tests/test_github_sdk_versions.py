@@ -633,6 +633,19 @@ class TestLatestVersionSelection(TestFetchSdkDataBase):
 
 class TestFetchReleasesFailureHandling(TestFetchSdkDataBase):
     @patch("posthog.egress.transport.transport.requests.request")
+    def test_js_lite_archive_failure_returns_no_data(self, mock_get: MagicMock) -> None:
+        current_page = MagicMock(ok=True)
+        current_page.json.return_value = [_release("posthog-js-lite@4.13.1", "2026-08-01T00:00:00Z")]
+        empty_page = MagicMock(ok=True)
+        empty_page.json.return_value = []
+        failed_page = MagicMock(ok=False, status_code=403)
+        mock_get.side_effect = [current_page, empty_page, failed_page]
+
+        result = fetch_github_data_for_sdk("js")
+
+        assert result == {}
+
+    @patch("posthog.egress.transport.transport.requests.request")
     def test_mid_pagination_failure_returns_no_data(self, mock_get):
         # A partial page set can miss versions and produce a wrong "latest"; the fetch must
         # fail closed so the previously cached Redis data keeps serving

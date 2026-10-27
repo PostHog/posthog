@@ -260,7 +260,7 @@ def fetch_js_lite_sdk_data() -> dict[str, Any]:
     posthog_js = fetch_sdk_data_from_releases("PostHog/posthog-js", tag_prefixes=["posthog-js-lite@"])
     posthog_js_lite = fetch_sdk_data_from_releases("PostHog/posthog-js-lite", tag_prefixes=["posthog-web-v"])
 
-    if not posthog_js:
+    if not posthog_js or not posthog_js_lite:
         return {}
 
     return {
