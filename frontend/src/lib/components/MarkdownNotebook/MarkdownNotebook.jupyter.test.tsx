@@ -347,22 +347,27 @@ describe('MarkdownNotebook in Jupyter mode', () => {
         ['Sql', false],
         ['Py', true],
     ])('keeps one %s section visible and restores hidden sections (legacy collapse: %s)', async (tag, bothHidden) => {
+        const toggleVisibility = (cell: HTMLElement, label: string): void => {
+            const prompt = within(cell).getByLabelText(label)
+            act(() => prompt.focus())
+            fireEvent.click(prompt)
+            expect(document.activeElement).toBe(cell)
+        }
         const notebook = renderJupyterNotebook(
             `# Title\n\n<${tag} code="original source"${bothHidden ? ' hideInput hideResults' : ''} />`
         )
         if (bothHidden) {
             expect(notebook.editor(0).value).toBe('original source')
-            fireEvent.click(within(notebook.cell(0)).getByLabelText('Show output'))
+            toggleVisibility(notebook.cell(0), 'Show output')
             expect(notebook.editor(0).value).toBe('original source')
         }
-        fireEvent.click(within(notebook.cell(0)).getByLabelText('Hide input'))
+        toggleVisibility(notebook.cell(0), 'Hide input')
         expect(notebook.editor(0)).toBeNull()
         expect(within(notebook.cell(0)).getByText('output')).toBeTruthy()
         expect(within(notebook.cell(0)).getByLabelText('Show input').classList.contains('line-through')).toBe(true)
 
         fireEvent.click(within(notebook.cell(0)).getByLabelText('Hide output'))
-        act(() => notebook.cell(0).focus())
-        press(notebook.cell(0), 'o')
+        press(document.activeElement as HTMLElement, 'o')
         expect(within(notebook.cell(0)).getByText('output')).toBeTruthy()
         expect(notebook.editor(0)).toBeNull()
         const saved = notebook.latest()
@@ -371,19 +376,18 @@ describe('MarkdownNotebook in Jupyter mode', () => {
         const reopened = renderJupyterNotebook(saved)
         expect(reopened.editor(0)).toBeNull()
         expect(within(reopened.cell(0)).getByText('output')).toBeTruthy()
-        fireEvent.click(within(reopened.cell(0)).getByLabelText('Show input'))
+        toggleVisibility(reopened.cell(0), 'Show input')
         expect(reopened.editor(0).value).toBe('original source')
-        fireEvent.click(within(reopened.cell(0)).getByLabelText('Hide output'))
+        toggleVisibility(reopened.cell(0), 'Hide output')
         expect(within(reopened.cell(0)).queryByText('output')).toBeNull()
         expect(within(reopened.cell(0)).getByLabelText('Show output').classList.contains('line-through')).toBe(true)
         fireEvent.click(within(reopened.cell(0)).getByLabelText('Hide input'))
         expect(reopened.editor(0).value).toBe('original source')
         expect(within(reopened.cell(0)).queryByText('output')).toBeNull()
 
-        fireEvent.click(within(reopened.cell(0)).getByLabelText('Show output'))
-        fireEvent.click(within(reopened.cell(0)).getByLabelText('Hide input'))
-        act(() => reopened.cell(0).focus())
-        press(reopened.cell(0), 'Enter')
+        toggleVisibility(reopened.cell(0), 'Show output')
+        toggleVisibility(reopened.cell(0), 'Hide input')
+        press(document.activeElement as HTMLElement, 'Enter')
         await waitFor(() => expect(document.activeElement).toBe(reopened.editor(0)))
         expect(reopened.editor(0).value).toBe('original source')
     })
@@ -396,18 +400,29 @@ describe('MarkdownNotebook in Jupyter mode', () => {
         expect(notebook.latest()).toEqual(TWO_CELLS)
     })
 
-    it('runs with Shift+Enter, selects the next cell, and adds a cell after the last one', async () => {
-        const notebook = renderJupyterNotebook(TWO_CELLS)
-        press(notebook.editor(0), 'Enter', { shiftKey: true })
-        await flushFrames()
-        expect(runs).toEqual(['a = 1'])
-        expect(document.activeElement).toBe(notebook.cell(1))
+    it.each([null, 'Hide input', 'Hide output'])(
+        'runs with Shift+Enter, selects the next cell, and appends a cell (visibility action: %s)',
+        async (visibilityAction) => {
+            const notebook = renderJupyterNotebook(TWO_CELLS)
+            if (visibilityAction) {
+                const prompt = within(notebook.cell(0)).getByLabelText(visibilityAction)
+                act(() => prompt.focus())
+                fireEvent.click(prompt)
+            } else {
+                act(() => notebook.editor(0).focus())
+            }
+            const beforeAppend = notebook.latest()
+            press(document.activeElement as HTMLElement, 'Enter', { shiftKey: true })
+            await flushFrames()
+            expect(runs).toEqual(['a = 1'])
+            expect(document.activeElement).toBe(notebook.cell(1))
 
-        press(notebook.cell(1), 'Enter', { shiftKey: true })
-        await flushFrames()
-        expect(runs).toEqual(['a = 1', 'b = 2'])
-        expect(notebook.latest()).toEqual(`${TWO_CELLS}\n\n<Py code="" />`)
-    })
+            press(notebook.cell(1), 'Enter', { shiftKey: true })
+            await flushFrames()
+            expect(runs).toEqual(['a = 1', 'b = 2'])
+            expect(notebook.latest()).toEqual(`${beforeAppend}\n\n<Py code="" />`)
+        }
+    )
 
     it('selects a markdown cell in command mode, where letter keys act on it instead of typing', async () => {
         const notebook = renderJupyterNotebook(TWO_CELLS)

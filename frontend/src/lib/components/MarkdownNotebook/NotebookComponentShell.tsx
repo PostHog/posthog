@@ -637,6 +637,7 @@ export function NotebookComponentShell({
                 disabledReason={showInput && !showOutput ? 'Show output before hiding input' : undefined}
                 onClick={() => {
                     if (!showInput || showOutput) {
+                        shellRef.current?.focus({ preventScroll: true })
                         updateProps({ hideInput: showInput ? true : undefined })
                     }
                 }}
@@ -658,7 +659,10 @@ export function NotebookComponentShell({
                     data-attr={showOutput ? 'notebook-jupyter-hide-output' : 'notebook-jupyter-show-output'}
                     tooltip={showOutput ? 'click to hide' : 'click to show'}
                     disabledReason={showOutput && !showInput ? 'Show input before hiding output' : undefined}
-                    onClick={() => jupyter.executeCommand('toggle-output', node.id)}
+                    onClick={() => {
+                        shellRef.current?.focus({ preventScroll: true })
+                        jupyter.executeCommand('toggle-output', node.id)
+                    }}
                 >
                     {label}
                 </LemonButton>
