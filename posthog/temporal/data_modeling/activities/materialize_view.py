@@ -395,12 +395,6 @@ def get_aws_storage_options() -> dict[str, str]:
     }
 
 
-def _combine_batches(batches: list[pa.RecordBatch]) -> pa.RecordBatch:
-    # Always copy, even a single batch. A streamed batch is a zero-copy view of the IPC bytes, where
-    # buffers are only 8-byte aligned, and delta-rs panics on a decimal128 buffer off a 16-byte boundary.
-    return pa.concat_batches(batches)
-
-
 def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, str]]) -> pa.RecordBatch:
     """Transform date/datetimes from ClickHouse UInt representations back to proper types."""
     new_columns: list[pa.Array] = []
@@ -803,14 +797,14 @@ async def hogql_table(
                     await logger.adebug(
                         f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB"
                     )
-                    yield (_combine_batches(batches), ch_typings_pairs)
+                    yield (pa.concat_batches(batches), ch_typings_pairs)
                     yielded_results = True
                     batches_size = 0
                     batches = []
 
         if len(batches) > 0:
             await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
-            yield (_combine_batches(batches), ch_typings_pairs)
+            yield (pa.concat_batches(batches), ch_typings_pairs)
             yielded_results = True
 
         if not yielded_results:
