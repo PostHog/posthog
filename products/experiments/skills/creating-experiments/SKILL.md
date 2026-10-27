@@ -57,6 +57,22 @@ Read that before configuring anything.
 Ask the user only when a choice is "not decided" and the user is in the conversation.
 If the user said they are away, or asked for a draft without questions, decide with the defaults and list the open points in the report.
 
+### New to experiments?
+
+The user is new if they say so, or if none of the experiments they created in this project has ended.
+That includes a user who has created none.
+Unless they said so, check:
+
+1. `user-get` with the default `@me`. Take the numeric `id`, not the `uuid`: `experiment-list` ignores a `created_by_id` that isn't a number and lists everyone's experiments.
+2. `experiment-list` with `created_by_id` set to that `id` as a string, `status: "stopped"` and `limit: 1`. `count` is the number of their ended experiments.
+3. The list leaves out archived experiments, so if `count` is 0, repeat the call with `archived: true`. Both counts at 0 means the user is new.
+
+Don't use the setup context for this: `previous_experiments` covers the whole project, not this user.
+
+For a new user, give the definitions and best practices in [references/first-experiment.md](references/first-experiment.md) in a few short lines, before your first question, or before you create the draft if you ask none.
+Then carry on with the flow below. The intro adds no question and waits for no reply, so it doesn't hold up the draft.
+Everyone else gets the flow without it.
+
 ## The 3-step creation flow
 
 ### Step 1: What are we testing?
