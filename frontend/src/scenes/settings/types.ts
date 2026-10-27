@@ -197,6 +197,7 @@ export type SettingId =
     | 'feature-flag-default-release-conditions'
     | 'feature-flag-evaluation-context-suggestions'
     | 'feature-flag-require-tags'
+    | 'feature-flag-request-blocklist'
     | 'feature-flag-require-evaluation-contexts'
     | 'feature-flag-secure-api-key'
     | 'feature-flags-interface'

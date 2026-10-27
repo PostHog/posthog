@@ -1,21 +1,17 @@
-import { useActions } from 'kea'
-
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { RATE_LIMITED_MESSAGE } from './evaluationOverviewDisplay'
-import { type DetailsLoad, type EvaluationDetails, evaluationResultDrawerLogic } from './evaluationResultDrawerLogic'
+import type { DetailsLoad, EvaluationDetails } from './evaluationResultDrawerLogic'
 
 export function EvaluationResultDetails({
-    evaluationId,
     load,
+    onRetry,
     children,
 }: {
-    evaluationId: string
     load: DetailsLoad | null
+    onRetry: () => void
     children: (details: EvaluationDetails) => JSX.Element
 }): JSX.Element {
-    const { loadDetails } = useActions(evaluationResultDrawerLogic)
-
     if (load?.status === 'ready') {
         return children(load.details)
     }
@@ -28,7 +24,7 @@ export function EvaluationResultDetails({
                 <LemonButton
                     size="small"
                     type="secondary"
-                    onClick={() => loadDetails(evaluationId, 'open')}
+                    onClick={onRetry}
                     data-attr="evaluation-overview-drawer-retry"
                 >
                     Try again

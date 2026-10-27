@@ -1351,6 +1351,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             source_type=self.external_data_source.source_type if self.external_data_source else None,
             row_count=self.row_count,
             size_in_s3_mib=self.size_in_s3_mib,
+            is_history_table=self.is_history_table,
         )
 
         # Must resolve an unset option the same way _describe_settings does, by sending no setting.

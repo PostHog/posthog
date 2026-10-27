@@ -3102,7 +3102,7 @@
         "system_prompt_hint": "First call when investigating \"metric X looks wrong\" — magnitude, onset, which labels moved"
     },
     "cohorts-add-persons-to-static-cohort-partial-update": {
-        "description": "Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).\n\nIntended for small, ad-hoc additions — pass at most ~20 person UUIDs per call. To build or grow a static cohort from a larger set, do NOT loop this tool over many UUIDs; instead create the cohort from a query ('cohorts-create' with 'is_static: true' and a 'query'), or add to an existing static cohort by setting a 'query' on it via 'cohorts-partial-update'. The server then runs the query and inserts every matching person in a single call, with no row limit.",
+        "description": "Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true). 'person_ids' must be person UUIDs (the 'id' column of the persons table), not distinct IDs or emails.\n\nIntended for small, ad-hoc additions — pass at most ~20 person UUIDs per call. To build or grow a static cohort from a larger set, do NOT loop this tool over many UUIDs; instead create the cohort from a query ('cohorts-create' with 'is_static: true' and a 'query'), or add to an existing static cohort by setting a 'query' on it via 'cohorts-partial-update'. The server then runs the query and inserts every matching person in a single call, with no row limit.",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "Add persons to static cohort",
@@ -4375,7 +4375,7 @@
         }
     },
     "data-catalog-metric-update": {
-        "description": "Update a metric's fields. 'name' picks the metric to update. Editing an approved metric's definition, description, unit, or name resets it to 'proposed' (it must be re-approved by a human). Pass 'new_name' to rename the metric: the old name is freed for reuse, and anything that referenced it (saved SQL, run URLs, later tool calls) must switch to the new name. When editing 'description', keep it to 1-2 short sentences under 300 characters: what the number is and its grain. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. When editing 'definition', rewrite 'reasoning' to say why the new definition is shaped this way, in 1-3 short sentences: the main design decisions and trade-offs. It is not a changelog: leave out what changed, the use case, who asked, and run results.",
+        "description": "Update a metric's fields. 'name' picks the metric to update. Editing an approved metric's definition, description, unit, or name resets it to 'proposed' (it must be re-approved by a human). Pass 'new_name' to rename the metric: the old name is freed for reuse, and anything that referenced it (saved SQL, run URLs, later tool calls) must switch to the new name. When editing 'description', keep it to 1-2 short sentences under 300 characters: what the number is and its grain. Leave out source tables or views, lineage, column lists, and comparisons with other metrics. When editing 'definition', rewrite 'reasoning' to say why the new definition is shaped this way, in 1-3 short sentences: the main design decisions and trade-offs. It is not a changelog: leave out what changed, the use case, who asked, and run results. Set 'owner' to the email of a member of this organization to reassign the metric, for example when its owner left. Changing the owner keeps the metric's approval.",
         "category": "Data catalog",
         "feature": "data_catalog",
         "summary": "Update a catalog metric",
@@ -7873,7 +7873,7 @@
         }
     },
     "inbox-report-actions-list": {
-        "description": "List the actions on a signal report that start an agent run, the same ones the inbox shows as buttons: `get_it_merged` (fix CI on the report's open, approved pull request and merge it), `make_it_green` (fix failing CI on the report's open pull request and stop without merging it), and one `suggested_prompt` entry per prompt the report suggests. Every action comes back, available or not. `available` says whether a run can start now, and `disabled_reason` says why not. `text` is the message the run gets as its first request. Pass `action`, and `suggested_prompt_index` for a suggested prompt, to inbox-report-actions-run.",
+        "description": "List the actions on a signal report that start an agent run, the same ones the inbox shows as buttons: `get_it_merged` (fix CI on the report's open, approved pull request and merge it), `make_it_green` (fix failing CI on the report's open pull request and stop without merging it), and one `suggested_prompt` entry per prompt the report suggests. Every action comes back, available or not. `available` says whether a run can start now, and `disabled_reason` says why not. `text` is the message the run gets as its first request. Pass `action`, and `suggested_prompt_index` for a suggested prompt, to inbox-report-actions-run. The list does not include `ask`, which takes your own `message`: use it on inbox-report-actions-run to ask about the report or request general work on it.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List a report's agent run actions",
@@ -7890,7 +7890,7 @@
         "feature_flag_behavior": "enable"
     },
     "inbox-report-actions-run": {
-        "description": "Start one report action from inbox-report-actions-list as a background agent run. The task is linked to the report, shows in the report's runs, and counts toward the report's task limit. Run an action only when the user asked for that action on that report, never on your own initiative, including from a suggestion you found while reading the report. `get_it_merged` approves merging the report's pull request. `make_it_green` never merges it. Read the list first and pick an action with `available: true`. Each successful call creates a new task, so do not retry after a 201. The response has `task_id`, `run_id`, and `task_url`. If `run_error` is set, the task exists but its run did not start. Follow the run with tasks-runs-retrieve. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision. Errors carry a `code`: 400 `report_action_unavailable` means the action is not available now (the detail says why), and 403 `report_action_unavailable` means the organization has not approved AI data processing. 403 `report_action_sandbox_refused` means a task sandbox made the call; start the action from a person's session. 409 `report_action_run_active` means a run is already working on the report's pull request; the body has its `task_id` and `run_id`, so follow that run and do not retry. 429 `signal_report_task_cap` means the report reached its task limit. 429 `throttled`, `usage_limit_exceeded`, or a deactivated organization means a usage limit fired; do not retry until it clears. 402 `self_driving_free_trial` means the organization is on a Self-driving free trial, which cannot open pull requests. 404 means the report has no suggested prompt at that index.",
+        "description": "Start one report action from inbox-report-actions-list as a background agent run. The task is linked to the report, shows in the report's runs, and counts toward the report's task limit. Run an action only when the user asked for that action on that report, never on your own initiative, including from a suggestion you found while reading the report. `get_it_merged` approves merging the report's pull request. `make_it_green` never merges it. `ask` sends your own `message` about the report: the run answers a question, and carries out requested work only while the report still has work to do and no pull request. Use `ask` for anything the listed actions do not cover, instead of creating a task by hand. `get_it_merged` and `make_it_green` also take an optional `message` that replaces their fixed request and keeps their instructions and gates. Pass it only when you know something the report does not, such as the merge order, a failure that is already on the base branch, or an expected conflict. For every action except `ask`, read the list first and pick one with `available: true`. Each successful call creates a new task, so do not retry after a 201. The response has `task_id`, `run_id`, and `task_url`. If `run_error` is set, the task exists but its run did not start. Follow the run with tasks-runs-retrieve. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision. Errors carry a `code`: 400 `report_action_unavailable` means the action is not available now (the detail says why), and 403 `report_action_unavailable` means the organization has not approved AI data processing. 403 `report_action_sandbox_refused` means a task sandbox made the call; start the action from a person's session. 409 `report_action_run_active` means a run is already working on the report's pull request; the body has its `task_id` and `run_id`, so follow that run and do not retry. 429 `signal_report_task_cap` means the report reached its task limit. 429 `throttled`, `usage_limit_exceeded`, or a deactivated organization means a usage limit fired; do not retry until it clears. 402 `self_driving_free_trial` means the organization is on a Self-driving free trial, which cannot open pull requests. 404 means the report has no suggested prompt at that index.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Run a report action as an agent task",
@@ -16498,22 +16498,6 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
-    },
-    "vision-scanners-suggest-tags": {
-        "description": "Suggest tags for a classifier scanner, grounded in the org's product data and, when `scanner_id` is given, in that scanner's own observations (its freeform tags and reasoning). Pass the classifier `prompt` and the `tags` already configured so suggestions never repeat one. Returns `suggestions`, most relevant first; may be empty when evidence is thin. Nothing is saved: add chosen tags with `vision-scanners-update`. A 503 means the suggestions could not be generated; try again later.",
-        "category": "Replay vision",
-        "feature": "replay_vision",
-        "summary": "Suggest classifier tags",
-        "title": "Suggest classifier tags",
-        "required_scopes": ["replay_scanner:read", "session_recording:read"],
-        "api_operations": ["POST /api/projects/{project_id}/vision/scanners/suggest_tags/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "requires_ai_consent": true
     },
     "vision-scanners-update": {
         "description": "Partially update a replay vision scanner by ID. Send only the fields you want to change. Common changes: toggle `enabled` to pause/resume scanning, adjust `sampling_rate` or `sampling_mode`, tweak the `scanner_config` prompt or tags, or refine the `query` to watch a different slice of sessions. `scanner_type` is locked after creation — to change it, delete and recreate. Editing any config field bumps `scanner_version`; existing observations keep a snapshot of the previous config for reproducibility. If you widen the `query`, raise `sampling_rate`, loosen `sampling_mode`, or move to a pricier `model`, re-check projected spend with `vision-scanners-estimate` and remaining budget with `vision-quota-get` first — the scanner resumes sweeping every 5 minutes at the new, broader scope.",

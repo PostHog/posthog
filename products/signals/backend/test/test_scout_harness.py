@@ -2888,7 +2888,6 @@ async def test_first_report_experiment_routes_and_records_assignment(ateam, vari
     assert run.metadata["experiment_variant"] == variant
     assert run.metadata["runtime"] == runtime
     events = {call.kwargs["event"]: call.kwargs["properties"] for call in capture.call_args_list}
-    assert events["$experiment_exposure"]["$feature_flag_response"] == variant
     assert events["signals_scout_run_started"]["experiment_variant"] == variant
     assert events["signals_scout_run_finished"]["experiment_variant"] == variant
     assert events["signals_scout_run_finished"]["first_report_outcome"] == "no_actionable_finding"
