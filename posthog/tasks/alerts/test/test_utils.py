@@ -334,8 +334,7 @@ class TestDispatchAlertInsightChart(APIBaseTest):
         dispatch_alert_notification(self.alert, self.alert_check, ["breach"])
 
         mock_prepare.assert_not_called()
-        # No chart keeps the common threshold-alert call shape (no extra_properties forwarded).
-        assert "extra_properties" not in mock_send.call_args.kwargs
+        assert "insight_chart_url" not in mock_send.call_args.kwargs["extra_properties"]
 
     @patch("posthog.tasks.alerts.utils.prepare_alert_insight_chart_url")
     @patch("posthog.tasks.alerts.utils.send_notifications_for_breaches", return_value=[])
