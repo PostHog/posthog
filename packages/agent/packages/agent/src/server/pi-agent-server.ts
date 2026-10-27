@@ -864,6 +864,7 @@ export class PiAgentServer {
       this.recordTurnUsage(event.usage);
     }
     this.handleEvent(event);
+    this.reportAgentEvent(event);
     if (
       this.acpConversation &&
       event.type === "turn_completed" &&
@@ -871,7 +872,6 @@ export class PiAgentServer {
     ) {
       this.broadcastUsage(event.usage);
     }
-    this.reportAgentEvent(event);
   }
 
   private reportAgentEvent(event: AgentConversationEvent): void {

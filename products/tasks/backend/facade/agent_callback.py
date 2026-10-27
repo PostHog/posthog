@@ -3,7 +3,10 @@ from typing import Any
 from products.tasks.backend.agent_proxy_callback import AgentProxyCallbackDispatcher, CallbackOutcome, CallbackRequest
 from products.tasks.backend.feature_flags import run_agent_sends_callbacks
 from products.tasks.backend.logic.services.connection_token import SandboxEventIngestTokenPayload
-from products.tasks.backend.logic.stream.redis_stream import TASK_RUN_STREAM_INITIAL_GENERATION
+from products.tasks.backend.logic.stream.redis_stream import (
+    TASK_RUN_STREAM_INITIAL_GENERATION,
+    get_task_run_stream_generation,
+)
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.redis import get_tasks_cache
 
@@ -20,7 +23,7 @@ def dispatch_agent_callback(
     state = TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).values_list("state", flat=True).first()
     if not run_agent_sends_callbacks(state):
         return CallbackOutcome(status=403, error="The agent-proxy sends the callbacks for this run")
-    generation = (state or {}).get("stream_generation") or TASK_RUN_STREAM_INITIAL_GENERATION
+    generation = get_task_run_stream_generation(run_id)
     if data.get("stream_generation", TASK_RUN_STREAM_INITIAL_GENERATION) != generation:
         return CallbackOutcome(status=409, error="Callback belongs to an earlier stream generation")
     dedupe_key = _turn_dedupe_key(run_id, generation, data)

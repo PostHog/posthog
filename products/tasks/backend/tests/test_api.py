@@ -15114,7 +15114,8 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(turn_completed.call_count, expected_signals)
 
-    def test_agent_callback_dedupe_is_scoped_to_stream_generation(self):
+    @patch("products.tasks.backend.facade.agent_callback.get_task_run_stream_generation")
+    def test_agent_callback_dedupe_is_scoped_to_stream_generation(self, get_generation):
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
         client = self._sandbox_oauth_client(task.id)
@@ -15123,6 +15124,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         with patch.object(TaskRun, "signal_agent_turn_completed", return_value=True) as turn_completed:
             for generation in ("first", "first", "resumed", "resumed"):
+                get_generation.return_value = generation
                 body["stream_generation"] = generation
                 run.state = {**run.state, "agent_sends_callbacks": True, "stream_generation": generation}
                 run.save(update_fields=["state"])
@@ -15133,11 +15135,18 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
 
         self.assertEqual(turn_completed.call_count, 2)
 
-    @parameterized.expand([("heartbeat",), ("awaiting_input",), ("turn_failed",)])
-    def test_agent_callback_rejects_previous_stream_generation(self, kind):
+    @parameterized.expand(
+        [
+            (kind, state_generation)
+            for kind in ("heartbeat", "awaiting_input", "turn_failed")
+            for state_generation in ("initial", "resumed")
+        ]
+    )
+    @patch("products.tasks.backend.facade.agent_callback.get_task_run_stream_generation", return_value="resumed")
+    def test_agent_callback_rejects_previous_stream_generation(self, kind, state_generation, _get_generation):
         task = self.create_task()
         run = self._create_run_with_sandbox(task)
-        run.state = {**run.state, "agent_sends_callbacks": True, "stream_generation": "resumed"}
+        run.state = {**run.state, "agent_sends_callbacks": True, "stream_generation": state_generation}
         run.save(update_fields=["state"])
         client = self._sandbox_oauth_client(task.id)
 
