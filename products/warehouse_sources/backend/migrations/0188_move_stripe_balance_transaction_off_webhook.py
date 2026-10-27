@@ -1,10 +1,11 @@
 from django.db import migrations
 
 # Stripe sends no event that carries a `balance_transaction` object, so a BalanceTransaction table in
-# webhook mode never receives a row: every scheduled run reads 0 webhook files and completes with 0
-# rows. The source stopped offering webhook sync for this table, but tables already set to webhook
-# kept it and have not updated since. This moves them to what a new Stripe source picks for the
-# table: append on `created`.
+# webhook mode never receives a row: when the source has a webhook, every scheduled run reads 0
+# webhook files and completes with 0 rows. When it has none, each run falls back to a full read with
+# no watermark and re-reads, and bills, the whole table. The source stopped offering webhook sync
+# for this table, but tables already set to webhook kept it. This moves them to what a new Stripe
+# source picks for the table: append on `created`.
 #
 # Append rather than full refresh because full refresh re-reads, and bills, every balance
 # transaction on each sync. Each moved table is reset so its next scheduled run deletes the table
@@ -17,11 +18,17 @@ BALANCE_TRANSACTION_SCHEMA_NAME = "BalanceTransaction"
 def move_balance_transaction_off_webhook(apps, schema_editor):
     ExternalDataSchema = apps.get_model("warehouse_sources", "ExternalDataSchema")
 
-    # Matching only webhook rows keeps this idempotent: a second run matches nothing.
-    schemas = ExternalDataSchema.objects.filter(
-        source__source_type=STRIPE_SOURCE_TYPE,
-        name=BALANCE_TRANSACTION_SCHEMA_NAME,
-        sync_type="webhook",
+    # Matching only webhook rows keeps this idempotent: a second run matches nothing. Deleted schemas
+    # and schemas of deleted sources never sync again, so they stay as they are. Paused schemas move
+    # too, so a table that is turned back on reimports. `deleted` is nullable, hence exclude.
+    schemas = (
+        ExternalDataSchema.objects.filter(
+            source__source_type=STRIPE_SOURCE_TYPE,
+            name=BALANCE_TRANSACTION_SCHEMA_NAME,
+            sync_type="webhook",
+        )
+        .exclude(deleted=True)
+        .exclude(source__deleted=True)
     )
     for schema in schemas.iterator():
         schema.sync_type = "append"

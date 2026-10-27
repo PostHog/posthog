@@ -21,13 +21,21 @@ class TestMoveStripeBalanceTransactionOffWebhook(TestMigrations):
         ExternalDataSource = apps.get_model("warehouse_sources", "ExternalDataSource")
         ExternalDataSchema = apps.get_model("warehouse_sources", "ExternalDataSchema")
 
-        def schema(source_type: str, name: str, sync_type: str, sync_type_config: dict | None = None) -> str:
+        def schema(
+            source_type: str,
+            name: str,
+            sync_type: str,
+            sync_type_config: dict | None = None,
+            deleted: bool = False,
+            source_deleted: bool = False,
+        ) -> str:
             source = ExternalDataSource.objects.create(
                 team_id=self.team.id,
                 source_id="source-id",
                 connection_id="connection-id",
                 status="Completed",
                 source_type=source_type,
+                deleted=source_deleted,
             )
             created = ExternalDataSchema.objects.create(
                 team_id=self.team.id,
@@ -36,6 +44,7 @@ class TestMoveStripeBalanceTransactionOffWebhook(TestMigrations):
                 should_sync=True,
                 sync_type=sync_type,
                 sync_type_config=sync_type_config or {},
+                deleted=deleted,
             )
             return str(created.id)
 
@@ -44,9 +53,11 @@ class TestMoveStripeBalanceTransactionOffWebhook(TestMigrations):
             schema("Stripe", "BalanceTransaction", "full_refresh"): "full_refresh",
             schema("Stripe", "Invoice", "webhook"): "webhook",
             schema("Postgres", "BalanceTransaction", "webhook"): "webhook",
+            schema("Stripe", "BalanceTransaction", "webhook", deleted=True): "webhook",
+            schema("Stripe", "BalanceTransaction", "webhook", source_deleted=True): "webhook",
         }
 
-    def test_moves_only_stripe_balance_transaction_webhook_schemas_to_append_with_reset(self) -> None:
+    def test_moves_only_live_stripe_balance_transaction_webhook_schemas_to_append_with_reset(self) -> None:
         assert self.apps is not None
         ExternalDataSchema = self.apps.get_model("warehouse_sources", "ExternalDataSchema")
 
