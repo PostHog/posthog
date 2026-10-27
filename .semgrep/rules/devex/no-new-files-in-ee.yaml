@@ -1,0 +1,22 @@
+# File-level guard: it matches the first character of every `ee/` file, so a finding
+# exists for each file that is already there. `--baseline-commit` grandfathers those
+# findings and reports only the files the branch adds, which is the check this rule is.
+# An edit below line 1 keeps the finding, so changing existing `ee/` code still passes.
+# Gap: a zero-byte file (an empty `__init__.py`) has nothing to match and is not caught.
+rules:
+    - id: no-new-files-in-ee
+      message: >-
+          Do not add a file under `ee/`. The folder is deprecated: new code belongs in
+          `posthog/` or `products/<product>/`. A file that must live here needs human
+          approval. Get the approval first, then add the path to the exempt list in
+          `.semgrep/rules/devex/no-new-files-in-ee.yaml` and say why in the PR
+          description. See `ee/AGENTS.md`.
+      severity: INFO
+      languages: [generic]
+      paths:
+          include:
+              - 'ee/**'
+          # Approved new files, one exact path each, added by hand after a human agreed
+          # in the PR. Never add a glob: it exempts files nobody reviewed.
+          exclude: []
+      pattern-regex: '(?s)\A.'

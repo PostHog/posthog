@@ -1,6 +1,6 @@
 # Devex semgrep rules
 
-Devex / hygiene rules for the PostHog codebase. Run by the `semgrep-devex` job in `ci-security.yaml` in three passes:
+Devex / hygiene rules for the PostHog codebase. Run by the `semgrep-devex` job in `ci-security.yaml`, which has the three passes below and one extra step for INFO rules.
 
 1. **Warnings (informational)** — `semgrep --severity=WARNING` runs all `severity: WARNING` rules. Findings appear in the CI run output but the step does not fail. Use this mode when a rule has a non-zero backlog of existing violations — the list shows up in CI without blocking master while the codebase is cleaned up.
 2. **Errors (blocking)** — `semgrep --severity=ERROR --error` runs all `severity: ERROR` rules and fails CI on any finding. Use this mode for hard regression guards: patterns that should never appear, or migration-style rules whose backlog has been cleaned up.
@@ -12,6 +12,9 @@ Pick the severity that matches the rule's intent:
 
 - **ERROR** when zero violations are expected — either because the pattern is genuinely new (regression guard) or because a previously-WARNING rule has been cleaned up.
 - **WARNING** when there's a known non-zero backlog that will be migrated over time.
+- **INFO** when the backlog is not a backlog: the rule guards a property every existing file has, so listing them proves nothing and buries the pass-1 output. No pass above matches INFO. CI runs these rules in a PR-only step with `--baseline-commit --error`, where findings on the PR base are grandfathered, and `hogli ci:preflight` reports the same findings as an advisory.
+
+`no-new-files-in-ee` is the one INFO rule. It matches the first character of every file in `ee/`, which is how a semgrep rule tells an added file from an edited one: the baseline commit has no finding for a path that did not exist there. Editing an `ee/` file below line 1 keeps its finding, so extending existing code still passes.
 
 A WARNING rule typically gets flipped to ERROR once its backlog hits zero. The rule stays in `.semgrep/rules/devex/`; only the severity changes. To flip a rule:
 
@@ -25,3 +28,4 @@ A WARNING rule typically gets flipped to ERROR once its backlog hits zero. The r
 - Include the migration playbook (or a pointer to a skill) in the rule's `message:` field — that's what reviewers and authors see when the rule fires.
 - Scope with `paths.include:` rather than relying only on `paths.exclude:` — narrower scope means faster scans and clearer intent.
 - For legitimate exceptions, prefer `paths.exclude:` for categorical cases (whole dirs/files) and `# nosemgrep: <rule-id>` for case-by-case exemptions at the call site.
+- When an exemption needs a person to approve it, take it as an entry in the rule file's own `paths.exclude:` (exact paths only, never a glob) and say so in the rule's `message:`. A rule file edit shows up in review; a `# nosemgrep` inside a new file fights for attention with the file itself.
