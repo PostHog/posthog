@@ -120,6 +120,7 @@ export function ExplainChartView({
             pages={pages}
             highlightedIndex={previewIndex ?? activeIndex}
             activeIndex={activeIndex}
+            showMarkers={!singleChapter}
             onSelect={(index) => select(index, 'marker')}
         />
     )
