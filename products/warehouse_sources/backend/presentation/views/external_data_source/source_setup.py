@@ -1344,6 +1344,25 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 },
             )
 
+        # A webhook-mode table that no webhook event feeds never receives a row.
+        webhook_unsupported = sorted(
+            {
+                schema["name"]
+                for schema in payload_schemas
+                if schema.get("sync_type") == ExternalDataSchema.SyncType.WEBHOOK
+                and not source_schemas_by_name[schema["name"]].supports_webhooks
+            }
+        )
+        if webhook_unsupported:
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": f"Webhook sync isn't available for: {', '.join(webhook_unsupported)}. "
+                    "Pick another sync method."
+                },
+            )
+
         # Refuse per-schema `sync_type=cdc` when source-level CDC is off — `_setup_cdc_resources`
         # would be skipped, leaving the source with no replication slot/publication.
         if not cdc_enabled:
