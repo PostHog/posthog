@@ -52,6 +52,8 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm } from '~/types'
 
+import { DevModeSetting } from 'products/ai_gateway/frontend/components/DevModeSetting'
+import { DevModeTeamUsage } from 'products/ai_gateway/frontend/components/DevModeTeamUsage'
 import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/settings/GithubReposSetting'
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
@@ -71,6 +73,7 @@ import { DataQualityGateToggle } from 'products/data_quality/frontend/settings/D
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
+import { FeatureFlagRequestBlocklist } from 'products/feature_flags/frontend/FeatureFlagRequestBlocklist'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
@@ -81,6 +84,7 @@ import { WorkflowsDailyLimitsSettings } from 'products/workflows/frontend/scenes
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
 import { WorkflowsFrequencyCapSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsFrequencyCapSettings'
+import { WorkflowsUtmDefaultsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsUtmDefaultsSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import { SettingScopeTag } from './components/SettingScopeTag'
@@ -705,6 +709,22 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-ai-gateway-dev-mode',
+        title: 'AI gateway developer mode',
+        group: 'Products',
+        settings: [
+            {
+                id: 'ai-gateway-dev-mode-team-usage',
+                title: 'Team usage',
+                description: 'Developer mode minting, spend, and activity per user over the last 30 days.',
+                component: <DevModeTeamUsage />,
+                staffOnly: true,
+                keywords: ['ai gateway', 'llm gateway', 'developer mode', 'phe_', 'spend', 'audit'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-csp-reporting',
         title: 'CSP reporting',
         group: 'Products',
@@ -975,13 +995,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Daily recalculation time',
                 description: (
                     <>
-                        Select the time of day when experiment metrics should be recalculated. This time is in your
+                        Select the time of day when experiment time series are recalculated. This time is in your
                         project's timezone (<ProjectTimezoneName />
                         ).
                     </>
                 ),
                 searchDescription:
-                    "Select the time of day when experiment metrics should be recalculated. This time is in your project's timezone.",
+                    "Select the time of day when experiment time series are recalculated. This time is in your project's timezone.",
                 component: <ExperimentRecalculationTime />,
                 keywords: ['schedule', 'refresh', 'update', 'time'],
                 flag: '!EXPERIMENT_MULTIPLE_RECALCULATION_TIMES',
@@ -991,13 +1011,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Daily recalculation times',
                 description: (
                     <>
-                        Select up to two times of day when experiment metrics should be recalculated, at least 6 hours
+                        Select up to two times of day when experiment time series are recalculated, at least 6 hours
                         apart. Times are in your project's timezone (<ProjectTimezoneName />
                         ).
                     </>
                 ),
                 searchDescription:
-                    "Select up to two times of day when experiment metrics should be recalculated, at least 6 hours apart. Times are in your project's timezone.",
+                    "Select up to two times of day when experiment time series are recalculated, at least 6 hours apart. Times are in your project's timezone.",
                 component: <ExperimentRecalculationTime />,
                 keywords: ['schedule', 'refresh', 'update', 'time'],
                 flag: 'EXPERIMENT_MULTIPLE_RECALCULATION_TIMES',
@@ -1074,6 +1094,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Require every new feature flag to have at least one tag, and stop a tagged flag losing its last one, so flags stay attributable to a team or workstream. Flags created for surveys, experiments, early access features, product tours, and web experiments are exempt.',
                 component: <RequireFeatureFlagTags />,
                 keywords: ['tag', 'tags', 'require', 'governance'],
+            },
+            {
+                id: 'feature-flag-request-blocklist',
+                title: 'Blocked domains and IP addresses',
+                description:
+                    'Feature flag requests from these domains or IP addresses get an empty response and are not billed. Use this when someone else uses your project token without permission.',
+                component: <FeatureFlagRequestBlocklist />,
+                keywords: ['block', 'blocklist', 'domain', 'ip', 'origin', 'abuse', 'token'],
             },
             {
                 id: 'feature-flag-require-evaluation-contexts',
@@ -1838,6 +1866,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ],
             },
             {
+                id: 'workflows-utm-defaults',
+                title: 'UTM tags on email links',
+                description:
+                    'Default UTM tags for new broadcasts and workflow emails, so visits from your emails show up as their own campaigns in web analytics. Each email can still change them.',
+                component: <WorkflowsUtmDefaultsSettings />,
+                keywords: ['workflows', 'broadcasts', 'email', 'utm', 'campaign', 'links', 'web analytics'],
+            },
+            {
                 id: 'workflows-email-tracking-consent',
                 title: 'Email tracking consent',
                 description:
@@ -2544,7 +2580,7 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'organization',
         id: 'organization-danger-zone',
-        title: 'Danger zone',
+        title: 'Delete organization',
         settings: [
             {
                 id: 'organization-delete',
@@ -2615,6 +2651,21 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Applications that have been granted access to your PostHog account via OAuth. You can revoke access at any time.',
                 component: <ConnectedApps />,
                 keywords: ['oauth', 'app', 'connected', 'authorized', 'revoke', 'access', 'token'],
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-ai-gateway-dev-mode',
+        title: 'AI gateway developer mode',
+        settings: [
+            {
+                id: 'ai-gateway-dev-mode',
+                title: 'Developer mode tokens',
+                description: 'AI gateway tokens for PostHog staff.',
+                component: <DevModeSetting />,
+                staffOnly: true,
+                keywords: ['ai gateway', 'llm gateway', 'token', 'developer mode', 'phe_'],
             },
         ],
     },
@@ -2794,7 +2845,7 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'user',
         id: 'user-danger-zone',
-        title: 'Danger zone',
+        title: 'Delete account',
         settings: [
             {
                 id: 'user-delete',

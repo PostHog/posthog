@@ -6,7 +6,7 @@ import base64
 import logging
 import dataclasses
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union
 
@@ -132,6 +132,9 @@ BILLABLE_EVENT_EXCLUDED_EVENTS = [
     # artifact of using the product rather than customer instrumentation.
     LLM_PROMPT_FETCHED_EVENT,
     *CONVERSATIONS_EVENTS,
+    # Written by self-driving anomaly scoring, not sent by the customer.
+    "$anomaly_score",
+    "$anomaly_score_shadow",
 ]
 
 
@@ -2085,6 +2088,23 @@ def get_signals_credited_refund_credits_for_org(
     allow posthog → products.signals but not ee → products.signals.
     """
     return credited_refund_credits_for_org(organization_id, begin, end)
+
+
+def get_self_driving_credits_used_in_period_for_orgs(
+    organization_ids: Collection[str], begin: datetime, end: datetime
+) -> dict[str, int]:
+    """Live self-driving credits used in `[begin, end)` for each org, from one read. Orgs with no usage are absent."""
+    if not organization_ids:
+        return {}
+    rows = get_signals_billing_credits_by_team(begin, end, organization_ids=list(organization_ids))
+    if not rows:
+        return {}
+    team_orgs = dict(Team.objects.filter(id__in=[team_id for team_id, _ in rows]).values_list("id", "organization_id"))
+    totals: dict[str, int] = defaultdict(int)
+    for team_id, credits in rows:
+        if (organization_id := team_orgs.get(team_id)) is not None:
+            totals[str(organization_id)] += credits
+    return dict(totals)
 
 
 def get_self_driving_credits_used_in_period_for_org(

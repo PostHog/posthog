@@ -11,6 +11,7 @@ import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
+import { compareRowKey } from 'products/tracing/frontend/compareUtils'
 import type { Span } from 'products/tracing/frontend/types'
 
 import { traceViewLogic } from '../TraceView/traceViewLogic'
@@ -60,6 +61,7 @@ describe('traceDialogLogic', () => {
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES]: true,
             [FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS]: true,
+            [FEATURE_FLAGS.TRACING_TRACE_FOLDED_RUNS]: true,
         })
         getTraceSpy = jest.spyOn(api.tracing, 'getTrace').mockResolvedValue(page(['a'], null))
         router.actions.push('/logs')
@@ -219,11 +221,15 @@ describe('traceDialogLogic', () => {
         expect(view.values.activeInspectorTab).toBe('errors')
     })
 
-    it('treats a missing parent row as its own selection, not the root span', async () => {
+    it('opens a span-less log on the root span, and treats a missing parent row as its own selection', async () => {
+        const root = { ...span('a'), parent_span_id: '0000000000000000' }
         const orphan = { ...span('child'), parent_span_id: 'GONE' }
-        getTraceSpy.mockResolvedValueOnce({ results: [span('a'), orphan], hasMore: false, nextOffset: null })
-        logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'a' }, { entryPoint: 'log_details' })
+        getTraceSpy.mockResolvedValueOnce({ results: [root, orphan], hasMore: false, nextOffset: null })
+        // The root's parent id is the same all-zero id a span-less log carries.
+        logic.actions.openTraceDialog({ traceId: 'abc123', spanId: '0000000000000000' }, { entryPoint: 'log_details' })
         await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
+        expect(view.values.missingParentSpanId).toBeNull()
+        expect(view.values.selectedSpan?.span_id).toBe('a')
 
         logic.actions.selectSpan('GONE')
         expect(view.values.missingParentSpanId).toBe('GONE')
@@ -341,6 +347,38 @@ describe('traceDialogLogic', () => {
             logic.actions.selectSpan('C')
             logic.actions.toggleChain('A')
             expect(view.values.selectedSpanId).toBe('A')
+        })
+
+        // Fails when the dialog's span keys toggle runs without the dialog's surface, which leaves key toggles out
+        // of the dialog's numbers in the run funnel.
+        it('opens a folded run with the right arrow, and reports the key and the dialog surface', async () => {
+            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+            getTraceSpy.mockResolvedValue({
+                results: [
+                    { ...span('ROOT'), is_root_span: true },
+                    ...['R1', 'R2', 'R3'].map((spanId) => ({
+                        ...span(spanId),
+                        name: 'cache GET',
+                        parent_span_id: 'ROOT',
+                    })),
+                ],
+                hasMore: false,
+                nextOffset: null,
+            })
+            logic.actions.openTraceDialog({ traceId: 'abc123', spanId: 'ROOT' }, { entryPoint: 'log_details' })
+            await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
+
+            press('j')
+            press('ArrowRight')
+
+            expect(view.values.flatSpans.map((node) => node.span.span_id)).toEqual(['ROOT', 'R1', 'R2', 'R3'])
+            expect(captureSpy).toHaveBeenCalledWith('tracing trace run toggled', {
+                action: 'open',
+                span_count: 3,
+                method: 'key',
+                surface: 'trace_dialog',
+            })
+            captureSpy.mockRestore()
         })
 
         it('steps onto a missing parent row and on past it', async () => {
@@ -475,12 +513,14 @@ describe('traceDialogLogic', () => {
             logic.actions.selectNextSpan()
             logic.actions.setInspectorTab('attributes')
             logic.actions.toggleSpanCollapsed('a')
+            logic.actions.toggleRun('b')
             logic.actions.closeTraceDialog()
 
             expect(captureSpy).toHaveBeenCalledWith('tracing trace dialog opened', {
                 entry_point: 'log_row_action',
                 has_span: true,
                 has_log: false,
+                view: 'waterfall',
             })
             expect(captureSpy).toHaveBeenCalledWith(
                 'tracing trace dialog closed',
@@ -489,10 +529,71 @@ describe('traceDialogLogic', () => {
                     reason: 'dismissed',
                     spans_selected: 1,
                     keyboard_steps: 1,
-                    collapse_toggles: 1,
+                    collapse_toggles: 2,
                     tabs_viewed: ['attributes'],
                 })
             )
         })
+
+        // Fails when the highlight, or a selection from outside the tree, opens what hides its span with the
+        // toggle actions, which the dialog counts as the person's own collapse toggles, or when the opened run
+        // sends the event for the person's own run toggles.
+        it.each([
+            {
+                opener: 'a highlight',
+                // a > b > c > d > e, so b to d fold into a chain that hides c.
+                spans: ['a', 'b', 'c', 'd', 'e'].map((spanId, i, ids) => ({
+                    ...span(spanId),
+                    parent_span_id: i === 0 ? '' : ids[i - 1],
+                })),
+                open: () =>
+                    view.actions.highlightOperation(
+                        compareRowKey({ service_name: 'agent-worker', name: 'c' }),
+                        'trace_dialog',
+                        'span'
+                    ),
+                opened: () => view.values.openChainIds,
+                expected: new Set(['b']),
+                viewEvents: [['tracing trace operation highlighted', { surface: 'trace_dialog', scope: 'span' }]],
+            },
+            {
+                opener: 'a selection from outside the tree',
+                // a > r1, r2, r3 of one operation, so they fold into a run that hides r2.
+                spans: [
+                    span('a'),
+                    ...['r1', 'r2', 'r3'].map((spanId) => ({
+                        ...span(spanId),
+                        name: 'cache GET',
+                        parent_span_id: 'a',
+                    })),
+                ],
+                open: () => view.actions.selectSpan('r2'),
+                opened: () => view.values.openRunIds,
+                expected: new Set(['r1']),
+                viewEvents: [],
+            },
+        ])(
+            'does not count the spans $opener opens as toggles by the person',
+            async ({ spans, open, opened, expected, viewEvents }) => {
+                getTraceSpy.mockResolvedValue({ results: spans, hasMore: false, nextOffset: null })
+                logic.actions.openTraceDialog({ traceId: 'abc123' }, { entryPoint: 'log_details' })
+                await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
+                expect(opened()).toEqual(new Set())
+
+                open()
+                expect(opened()).toEqual(expected)
+                logic.actions.closeTraceDialog()
+
+                expect(
+                    captureSpy.mock.calls.filter(([event]) =>
+                        ['tracing trace operation highlighted', 'tracing trace run toggled'].includes(event)
+                    )
+                ).toEqual(viewEvents)
+                expect(captureSpy).toHaveBeenCalledWith(
+                    'tracing trace dialog closed',
+                    expect.objectContaining({ collapse_toggles: 0 })
+                )
+            }
+        )
     })
 })

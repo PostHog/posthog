@@ -28,6 +28,8 @@ LIST_VIEWSETS_WITHOUT_DIRECT_SHARED_PAGINATION = {
 
 EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.aeo.backend.presentation.views.AEOPromptViewSet",
+    # Returns one bounded object (capped at SERVICES_LIMIT services), not a page of rows.
+    "products.apm.backend.presentation.views.ServicesHealthViewSet",
     "ee.api.billing.BillingViewset",
     "ee.api.quota_limits.QuotaLimitsViewSet",
     "products.subscriptions.backend.presentation.views.SubscriptionDeliveryViewSet",
@@ -145,9 +147,14 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.data_catalog.backend.presentation.views.MetricViewSet",
     "products.data_catalog.backend.presentation.views.RelationshipProposalViewSet",
     "products.data_modeling.backend.presentation.views.node.NodeViewSet",
+    # Only the model breakdown is paginated; overview and trends cover the full range.
+    "products.data_modeling.backend.presentation.views.usage.ModelUsageViewSet",
     "products.data_quality.backend.presentation.views.DataQualityCheckViewSet",
     "products.data_quality.backend.presentation.views.DataQualityRunViewSet",
     "products.data_warehouse.backend.presentation.views.column_annotation.WarehouseColumnAnnotationViewSet",
+    # extend_schema_view only documents the all_engines query parameter; the list itself stays the stock
+    # paginated one, with -created_at ordering and a page-boundary test.
+    "products.data_warehouse.backend.presentation.views.data_modeling_job.DataModelingJobViewSet",
     "products.data_warehouse.backend.presentation.views.expression.DataWarehouseExpressionViewSet",
     "products.data_warehouse.backend.presentation.views.fix_hogql.FixHogQLViewSet",
     "products.data_warehouse.backend.presentation.views.saved_query.viewset.DataWarehouseSavedQueryViewSet",
@@ -221,10 +228,14 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.review_hog.backend.presentation.views.resolution.ReviewResolutionConfigViewSet",
     "products.review_hog.backend.presentation.views.reviews.ReviewRecentReviewsViewSet",
     "products.review_hog.backend.presentation.views.validators.ReviewValidatorConfigViewSet",
+    # Returns the requesting user's own summary as a single document, so there is nothing to paginate.
+    "products.signals.backend.presentation.activity_summary.ActivitySummaryViewSet",
     # Counts and hover details must use the same complete seven-day window.
     "products.signals.backend.presentation.inbox_summary.InboxSummaryViewSet",
     # Returns one team's onboarding state as a single document, so there is nothing to paginate.
     "products.signals.backend.presentation.onboarding.InboxOnboardingViewSet",
+    # Lists only the requesting member's own exclusions, a short list, so `pagination_class` is None.
+    "products.signals.backend.presentation.reviewer_exclusions.SignalReviewerExclusionViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutConfigViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutMembersViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutNoteViewSet",
@@ -262,6 +273,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.tasks.backend.presentation.views.config_api.TasksUserConfigViewSet",
     "products.tasks.backend.presentation.views.desktop.DesktopBetaTermsViewSet",
     "products.tasks.backend.presentation.views.sandbox_pricing_api.SandboxComputePricingViewSet",
+    "products.uptime_monitoring.backend.presentation.views.UptimeMonitorViewSet",
     "products.visual_review.backend.presentation.views.RepoRunsViewSet",
     "products.visual_review.backend.presentation.views.RepoViewSet",
     "products.visual_review.backend.presentation.views.RunViewSet",

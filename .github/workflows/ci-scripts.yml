@@ -21,7 +21,6 @@ on:
             - .oxfmtrc*
             # turbo-discover.test.js pins the Django segment table to these, and checks
             # that every path in the events_json list exists.
-            - .github/workflows/ci-backend.yml
             - .depot/workflows/ci-backend.yml
             - .github/new-events-schema-targets.txt
             # The backend test selector and its verdict script gate ci-backend.

@@ -11,7 +11,7 @@ pipeline degrades to a no-op, which keeps warehouse_sources importable on its ow
 
 import uuid
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from typing import TYPE_CHECKING, Any, Optional
 
 from products.warehouse_sources.backend.facade.contracts import RevenueViewSyncInput
@@ -185,6 +185,22 @@ def person_property_sync_enabled_for(team_id: int, binding: WarehouseBinding) ->
     """Gate for starting the person-property sync child workflow: true when the binding feeds at
     least one enabled person-target source (i.e. there are columns to stage/upsert)."""
     return person_property_projection_for(team_id, binding) is not None
+
+
+SavedQueryPropertySourcesResolver = Callable[[int, Collection[str]], set[str]]
+_saved_query_property_sources_resolver: Optional[SavedQueryPropertySourcesResolver] = None
+
+
+def register_saved_query_property_sources(fn: SavedQueryPropertySourcesResolver) -> None:
+    global _saved_query_property_sources_resolver
+    _saved_query_property_sources_resolver = fn
+
+
+def saved_queries_with_property_sources(team_id: int, saved_query_ids: Collection[str]) -> set[str]:
+    """The given saved queries that a configured property source reads, whether or not its sync runs today."""
+    if _saved_query_property_sources_resolver is None:
+        return set()
+    return _saved_query_property_sources_resolver(team_id, saved_query_ids)
 
 
 @dataclasses.dataclass(frozen=True)

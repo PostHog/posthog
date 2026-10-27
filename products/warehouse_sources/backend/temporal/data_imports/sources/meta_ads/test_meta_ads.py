@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     ENTITY_PAGE_REFUSED_ERROR_MESSAGE,
     MALFORMED_JSON_MAX_ATTEMPTS,
     MAX_AD_ACCOUNT_PAGES,
+    META_AD_ACCOUNT_LISTING_UNAVAILABLE_MESSAGE,
     META_ADS_API_VERSION_V25,
     META_ADS_API_VERSION_V26,
     META_ADS_MAX_HISTORY_DAYS,
@@ -1512,7 +1513,7 @@ class TestMidChunkLimitFallback:
                 self.URL, self.PARAMS, {"since": "2026-04-21", "until": "2026-04-21"}, None, manager
             )
             assert next(gen) == [{"ad_id": "1"}]
-            with pytest.raises(Exception, match="Please re-authorize the integration"):
+            with pytest.raises(Exception, match="Reconnect with a Facebook account"):
                 list(gen)
 
         # Initial + failed cursor only — the limit ladder is not exercised for auth errors.
@@ -2130,6 +2131,20 @@ class TestListAdAccounts:
             [ScriptedResponse(status=400, json={"error": {"code": 190, "message": "Invalid OAuth token"}})]
         ):
             with pytest.raises(MetaAdsAuthError):
+                list_ad_accounts(self._integration())
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            ScriptedResponse(status=500, json={"error": {"message": "Service temporarily unavailable", "code": 2}}),
+            ScriptedResponse(status=503, body=b""),
+            ConnectionResetError(104, "Connection reset by peer"),
+        ],
+        ids=["meta_transient_code", "empty_5xx", "connection_reset"],
+    )
+    def test_transient_failure_surfaces_retry_message_to_the_picker(self, answer: Any) -> None:
+        with scripted_network(always(answer)):
+            with pytest.raises(IntegrationAccountListingError, match=META_AD_ACCOUNT_LISTING_UNAVAILABLE_MESSAGE):
                 list_ad_accounts(self._integration())
 
     def test_page_limit_exceeded_fails_closed_instead_of_returning_partial(self) -> None:
