@@ -345,6 +345,9 @@ class TrinoPrinter(PostgresPrinter):
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> str:
         node = self._align_set_query_types(node)
+        values_sql = self._constant_rows_as_values(node)
+        if values_sql is not None:
+            return f"({values_sql})" if len(self.stack) > 1 else values_sql
         if not isinstance(node.initial_select_query, ast.SelectQuery) or not node.initial_select_query.ctes:
             return super().visit_select_set_query(node)
         ctes = node.initial_select_query.ctes
@@ -421,6 +424,89 @@ class TrinoPrinter(PostgresPrinter):
                 else:
                     branch.select[index] = cast_expression
         return lowered
+
+    def _constant_rows_as_values(self, node: ast.SelectSetQuery) -> str | None:
+        """Print a UNION ALL of literal-only rows as one VALUES list.
+
+        Trino gives every UNION ALL branch its own stage when the union feeds a repartitioning
+        exchange (GROUP BY, DISTINCT, JOIN), so a hand-written list of a few hundred rows can
+        exceed the query stage limit. VALUES is one plan node, with the same type coercion.
+        """
+        if node.limit is not None or node.offset is not None:
+            return None
+        if any(
+            subsequent.set_operator != "UNION ALL" or not isinstance(subsequent.select_query, ast.SelectQuery)
+            for subsequent in node.subsequent_select_queries
+        ):
+            return None
+        queries = [
+            node.initial_select_query,
+            *(subsequent.select_query for subsequent in node.subsequent_select_queries),
+        ]
+        branches = [query for query in queries if isinstance(query, ast.SelectQuery)]
+        if len(branches) != len(queries) or not all(self._is_constant_row(branch) for branch in branches):
+            return None
+        first = branches[0]
+        if not all(isinstance(projection, ast.Alias) for projection in first.select):
+            return None
+        names = [projection.alias for projection in first.select if isinstance(projection, ast.Alias)]
+        if len(set(names)) != len(names) or any(len(branch.select) != len(names) for branch in branches):
+            return None
+        rows = []
+        for branch in branches:
+            row = [
+                self.visit(projection.expr if isinstance(projection, ast.Alias) else projection)
+                for projection in branch.select
+            ]
+            rows.append(f"({', '.join(row)})")
+        columns = ", ".join(self._print_identifier(name) for name in names)
+        return f"SELECT * FROM (VALUES {', '.join(rows)}) AS {self._print_identifier('constant_rows')}({columns})"
+
+    def _is_constant_row(self, node: ast.SelectQuery) -> bool:
+        if (
+            node.ctes
+            or node.distinct
+            or node.select_from is not None
+            or node.array_join_list
+            or node.window_exprs
+            or node.where is not None
+            or node.prewhere is not None
+            or node.having is not None
+            or node.qualify is not None
+            or node.group_by
+            or node.order_by
+            or node.limit is not None
+            or node.limit_by is not None
+            or node.offset is not None
+        ):
+            return False
+        expressions = [
+            projection.expr if isinstance(projection, ast.Alias) else projection for projection in node.select
+        ]
+        # Trino expands a ROW value inside VALUES into separate columns, so a tuple column would change shape.
+        if any(isinstance(expr, ast.Call) and expr.name.lower() == "tuple" for expr in expressions):
+            return False
+        return all(self._is_constant_expression(expr) for expr in expressions)
+
+    def _is_constant_expression(self, node: ast.Expr) -> bool:
+        if isinstance(node, ast.Constant):
+            return True
+        if isinstance(node, ast.TypeCast):
+            return self._is_constant_expression(node.expr)
+        if isinstance(node, ast.ArithmeticOperation):
+            return self._is_constant_expression(node.left) and self._is_constant_expression(node.right)
+        if isinstance(node, ast.Call):
+            return (
+                not node.params
+                and not node.distinct
+                and find_hogql_aggregation(node.name) is None
+                # Window functions such as first_value print as Trino aggregates, which VALUES can't hold.
+                and node.name.lower() not in _TRINO_WINDOW_FUNCTIONS
+                and node.name.lower() not in _TRINO_WINDOW_FUNCTION_RENAMES
+                and node.name.lower() not in _TRINO_CONDITIONAL_WINDOW_FUNCTIONS
+                and all(self._is_constant_expression(arg) for arg in node.args)
+            )
+        return False
 
     def _set_query_branches(self, node: ast.SelectSetQuery) -> list[ast.SelectQuery]:
         branches: list[ast.SelectQuery] = []
