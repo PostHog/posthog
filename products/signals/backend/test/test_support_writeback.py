@@ -92,13 +92,18 @@ class TestPostReportFindingsToTickets(BaseTest):
 
     @parameterized.expand(
         [
-            ("internal", {"is_channel": True}, True),
-            ("shared", {"is_channel": True, "is_ext_shared": True}, False),
-            ("unknown", {}, False),
-            ("unreadable", None, False),
+            ("approved_internal", {"is_channel": True}, True, True),
+            ("not_approved", {"is_channel": True}, False, False),
+            ("shared", {"is_channel": True, "is_ext_shared": True}, True, False),
+            ("unknown", {}, True, False),
+            ("unreadable", None, True, False),
         ]
     )
-    def test_pull_request_reply_only_enters_an_internal_slack_thread(self, _name, channel_info, expected_public):
+    def test_pull_request_reply_only_enters_an_approved_internal_slack_thread(
+        self, _name, channel_info, approved, expected_public
+    ):
+        self.team.conversations_settings = {"automated_update_slack_channel_ids": ["C123"] if approved else []}
+        self.team.save(update_fields=["conversations_settings"])
         TeamConversationsSlackConfig.objects.update_or_create(
             team=self.team, defaults={"slack_team_id": "T123", "slack_bot_token": "xoxb-test"}
         )
@@ -121,6 +126,9 @@ class TestPostReportFindingsToTickets(BaseTest):
         with patch("products.conversations.backend.facade.api.get_slack_client", return_value=client):
             first = post_pull_request_to_tickets(self.team, str(self.report.id), pr_url, [signal])
             second = post_pull_request_to_tickets(self.team, str(self.report.id), pr_url, [signal])
+
+        if not approved:
+            client.conversations_info.assert_not_called()
 
         assert (first, second) == (1, 0)
         reply = _ticket_notes(self.team, ticket).get()

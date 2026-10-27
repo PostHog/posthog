@@ -63,6 +63,7 @@ from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE
 from products.conversations.backend.services.messages import public_human_ticket_replies
 from products.conversations.backend.slack import _is_internal_channel, get_slack_client
 from products.conversations.backend.support_slack import (
+    automated_update_channel_allowed,
     get_support_slack_bot_token,
     supporthog_lacks_custom_identity_scope,
 )
@@ -449,7 +450,12 @@ def post_ticket_automated_update(
         return None
     checked_channel = source_ticket.slack_channel_id
     send_to_slack = False
-    if source_ticket.channel_source == Channel.SLACK and checked_channel and source_ticket.slack_thread_ts:
+    if (
+        source_ticket.channel_source == Channel.SLACK
+        and checked_channel
+        and source_ticket.slack_thread_ts
+        and automated_update_channel_allowed(source_ticket.team, checked_channel)
+    ):
         try:
             send_to_slack = _is_internal_channel(get_slack_client(source_ticket.team), checked_channel)
         except Exception:

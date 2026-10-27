@@ -1,5 +1,6 @@
 """Conversations settings update helpers."""
 
+import re
 import secrets
 from typing import Any
 
@@ -12,6 +13,8 @@ from rest_framework import serializers
 from posthog.api.utils import validate_authorized_url_wildcards
 from posthog.event_usage import report_user_action
 from posthog.models import Team, User
+
+from products.conversations.backend.models.constants import AUTOMATED_UPDATE_SLACK_CHANNEL_IDS
 
 
 @extend_schema_field(OpenApiTypes.OBJECT)
@@ -216,6 +219,21 @@ def validate_conversations_settings(
             # null so a clearing PATCH still overwrites the stored list (see
             # merge_conversations_settings, which only replaces keys present here).
             value.pop("slack_channel_ids", None)
+    if AUTOMATED_UPDATE_SLACK_CHANNEL_IDS in value:
+        channel_ids = value[AUTOMATED_UPDATE_SLACK_CHANNEL_IDS]
+        if channel_ids is None:
+            channel_ids = []
+        if not isinstance(channel_ids, list) or any(
+            not isinstance(channel_id, str) or not re.fullmatch(r"[CG][A-Z0-9]{6,}", channel_id)
+            for channel_id in channel_ids
+        ):
+            raise serializers.ValidationError(
+                {AUTOMATED_UPDATE_SLACK_CHANNEL_IDS: "Use a list of Slack channel IDs, such as C0123ABCD."}
+            )
+        channel_ids = list(dict.fromkeys(channel_ids))
+        if len(channel_ids) > 20:
+            raise serializers.ValidationError({AUTOMATED_UPDATE_SLACK_CHANNEL_IDS: "Use 20 channels or fewer."})
+        value[AUTOMATED_UPDATE_SLACK_CHANNEL_IDS] = channel_ids
     icon_url = value.get("slack_bot_icon_url")
     if icon_url is not None:
         if not isinstance(icon_url, str):

@@ -101,14 +101,26 @@ class TestSlackDelivery(BaseTest):
 
     @parameterized.expand(
         [
-            ("shared", {"is_channel": True, "is_ext_shared": True}, False),
-            ("internal", {"is_channel": True}, True),
+            ("shared", {"is_channel": True, "is_ext_shared": True}, True, False, "channel_not_internal"),
+            ("internal", {"is_channel": True}, True, True, ""),
+            ("approval_removed", {"is_channel": True}, False, False, "channel_not_allowlisted"),
         ]
     )
     @patch("products.conversations.backend.tasks.slack.get_slack_client")
     def test_automated_update_checks_channel_before_delivery(
-        self, _name: str, channel_info: dict, expected_sent: bool, mock_get_client: MagicMock
+        self,
+        _name: str,
+        channel_info: dict,
+        approved: bool,
+        expected_sent: bool,
+        expected_error: str,
+        mock_get_client: MagicMock,
     ) -> None:
+        self.team.conversations_settings = {
+            **self.team.conversations_settings,
+            "automated_update_slack_channel_ids": ["C123"] if approved else [],
+        }
+        self.team.save(update_fields=["conversations_settings"])
         Comment.objects.create(
             team=self.team,
             scope="conversations_ticket",
@@ -138,7 +150,7 @@ class TestSlackDelivery(BaseTest):
             assert kwargs["unfurl_media"] is False
         else:
             assert part.status == ConversationDeliveryPart.Status.FAILED
-            assert part.last_error_code == "channel_not_internal"
+            assert part.last_error_code == expected_error
             client.chat_postMessage.assert_not_called()
 
     def test_enqueue_failure_rolls_back_the_comment(self) -> None:

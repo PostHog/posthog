@@ -103,7 +103,11 @@ from products.conversations.backend.slack import (
     ticket_deep_link,
 )
 
-from ..support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, supporthog_missing_file_scopes
+from ..support_slack import (
+    SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES,
+    automated_update_channel_allowed,
+    supporthog_missing_file_scopes,
+)
 
 logger = structlog.get_logger(__name__)
 SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
@@ -932,9 +936,17 @@ def _load_slack_delivery_runtime(claim: DeliveryClaim) -> SlackDeliveryRuntime |
 
 
 def _deliver_slack_body(claim: DeliveryClaim, runtime: SlackDeliveryRuntime) -> None:
-    if runtime.payload.get("internal_channel_only") is True and not _is_internal_channel(
-        runtime.client, str(runtime.route.get("channel") or "")
+    channel = str(runtime.route.get("channel") or "")
+    if runtime.payload.get("internal_channel_only") is True and not automated_update_channel_allowed(
+        runtime.team, channel
     ):
+        _fail_claimed_delivery_part(
+            claim,
+            error_code="channel_not_allowlisted",
+            error="The Slack channel is not approved for automated updates",
+        )
+        return
+    if runtime.payload.get("internal_channel_only") is True and not _is_internal_channel(runtime.client, channel):
         _fail_claimed_delivery_part(
             claim,
             error_code="channel_not_internal",
