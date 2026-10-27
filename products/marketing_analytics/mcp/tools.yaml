@@ -257,5 +257,5 @@ wrappers:
             - modifiers
             - sources
         use_optimized_output: false
-        reads_ingested_data: events_or_warehouse
         feature_flag: marketing-analytics-recommendations
+        reads_ingested_data: events_or_warehouse
