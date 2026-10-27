@@ -7,6 +7,7 @@ import type { ExplainChartData, StoryChapter, StoryEvidence } from './explainCha
 import { StoryChapterView } from './StoryChapterView'
 import { StoryChartOverlay } from './StoryChartOverlay'
 import { buildStoryPages, type StoryPage } from './storyPages'
+import { StorySingleChapterView } from './StorySingleChapterView'
 import { StorySteps } from './StorySteps'
 import { StorySummaryView } from './StorySummaryView'
 
@@ -71,7 +72,9 @@ export function ExplainChartView({
     evidenceCharts,
 }: ExplainChartViewProps): ReactElement {
     const pages = useMemo(() => buildStoryPages(data, formatValue), [data, formatValue])
-    const [activeIndex, setActiveIndex] = useState(0)
+    // With one chapter, a summary page and steps add nothing, so the walkthrough is that chapter alone.
+    const singleChapter = pages.length === 2
+    const [activeIndex, setActiveIndex] = useState(singleChapter ? 1 : 0)
     const [previewIndex, setPreviewIndex] = useState<number | null>(null)
     const [shownEvidenceIndex, setShownEvidenceIndex] = useState<number | null>(null)
     const active = pages[activeIndex] ?? pages[0]!
@@ -88,6 +91,8 @@ export function ExplainChartView({
             prefetch?.(queries)
         }
     }, [active, prefetch])
+
+    const canShowChart = (item: StoryEvidence): boolean => !!item.query && !!evidenceCharts?.canShow(item.query)
 
     const toggleEvidenceChart = (index: number): void => {
         const query = active.chapter?.evidence[index]?.query
@@ -158,11 +163,22 @@ export function ExplainChartView({
                     <div className="flex flex-col @3xl/story:absolute @3xl/story:inset-0">
                         {/* Keyed on the page, so each chapter opens at its top and an evidence chart keeps the scroll. */}
                         <div key={activeIndex} className="min-h-0 flex-1 p-4 @3xl/story:overflow-y-auto">
-                            {hasChapter(active) ? (
+                            {singleChapter && hasChapter(active) ? (
+                                <StorySingleChapterView
+                                    headline={data.headline}
+                                    seriesNote={seriesNoteOf(data)}
+                                    warnings={warningMessages(data.warnings)}
+                                    page={active}
+                                    openLink={openLink}
+                                    canShowChart={canShowChart}
+                                    shownEvidenceIndex={shownEvidenceIndex}
+                                    onToggleChart={toggleEvidenceChart}
+                                />
+                            ) : hasChapter(active) ? (
                                 <StoryChapterView
                                     page={active}
                                     openLink={openLink}
-                                    canShowChart={(item) => !!item.query && !!evidenceCharts?.canShow(item.query)}
+                                    canShowChart={canShowChart}
                                     shownEvidenceIndex={shownEvidenceIndex}
                                     onToggleChart={toggleEvidenceChart}
                                 />
@@ -177,36 +193,38 @@ export function ExplainChartView({
                                 />
                             )}
                         </div>
-                        <div className="flex items-center justify-between gap-3 border-t border-border py-2 ps-4 pe-3">
-                            <StorySteps
-                                pages={pages}
-                                activeIndex={activeIndex}
-                                onSelect={(index) => select(index, 'step')}
-                                onPreview={setPreviewIndex}
-                            />
-                            <div className="flex shrink-0 gap-1">
-                                {activeIndex > 0 && (
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => select(activeIndex - 1, 'back')}
-                                        data-attr="explain-chart-back"
-                                    >
-                                        Back
-                                    </Button>
-                                )}
-                                {hasNext && (
-                                    <Button
-                                        variant="primary"
-                                        size="sm"
-                                        onClick={() => select(activeIndex + 1, 'next')}
-                                        data-attr="explain-chart-next"
-                                    >
-                                        Next
-                                    </Button>
-                                )}
+                        {!singleChapter && (
+                            <div className="flex items-center justify-between gap-3 border-t border-border py-2 ps-4 pe-3">
+                                <StorySteps
+                                    pages={pages}
+                                    activeIndex={activeIndex}
+                                    onSelect={(index) => select(index, 'step')}
+                                    onPreview={setPreviewIndex}
+                                />
+                                <div className="flex shrink-0 gap-1">
+                                    {activeIndex > 0 && (
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => select(activeIndex - 1, 'back')}
+                                            data-attr="explain-chart-back"
+                                        >
+                                            Back
+                                        </Button>
+                                    )}
+                                    {hasNext && (
+                                        <Button
+                                            variant="primary"
+                                            size="sm"
+                                            onClick={() => select(activeIndex + 1, 'next')}
+                                            data-attr="explain-chart-next"
+                                        >
+                                            Next
+                                        </Button>
+                                    )}
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </div>
                 </aside>
             </div>
