@@ -91,4 +91,25 @@ describe('estimateColumnWidths', () => {
         expect(widths[1]).toBe(widths[columnCount - 2])
         expect(widths[1]).toBeGreaterThan(150)
     })
+
+    it('sizes HogQLX links by their visible text', () => {
+        const link = (text: string): TableDataCell<any> => {
+            const value = ['__hx_tag', 'a', 'href', `https://example.com/${'x'.repeat(100)}`, 'children', [text]]
+            return { value, formattedValue: value, type: 'STRING' }
+        }
+        const getCell = (rowIndex: number, columnIndex: number): TableDataCell<any> =>
+            columnIndex === 0 ? link('2026-11') : cell('2026-11')
+
+        const [linkWidth, textWidth] = estimateColumnWidths(['period', 'period'], 3, getCell)
+
+        expect(linkWidth).toBeLessThan(MAX_COLUMN_WIDTH)
+        expect(linkWidth).toBe(textWidth)
+    })
+
+    it('keeps the widest width for HogQLX widgets without text', () => {
+        const value = ['__hx_tag', 'Sparkline', 'data', [1, 2, 3]]
+        const [width] = estimateColumnWidths(['trend'], 1, () => ({ value, formattedValue: value, type: 'STRING' }))
+
+        expect(width).toBe(MAX_COLUMN_WIDTH)
+    })
 })

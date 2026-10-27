@@ -12,6 +12,7 @@ import { lightenDarkenColor } from 'lib/utils/colors'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { parseHogQLX } from '~/queries/nodes/HogQLX/render'
 import { VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
@@ -110,12 +111,32 @@ export const MAX_COLUMN_WIDTH = 320
 const COLUMN_WIDTH_SAMPLE_CELLS = 5000
 const MIN_COLUMN_WIDTH_SAMPLE_ROWS = 10
 
+// Counts the visible text of a parsed HogQLX value. Tags without children (sparklines, buttons, images)
+// and plain objects render as widgets or JSON, so they get the widest column.
+function getHogQLXTextLength(value: unknown): number {
+    if (value == null) {
+        return 0
+    }
+    if (typeof value !== 'object') {
+        return String(value).length
+    }
+    if (Array.isArray(value)) {
+        return value.reduce((total: number, child) => total + getHogQLXTextLength(child), 0)
+    }
+    if ('__hx_tag' in value && 'children' in value) {
+        return getHogQLXTextLength(value.children)
+    }
+    return Infinity
+}
+
 function getCellTextLength(cell: TableDataCell<any>): number {
     if (cell.isTransposedHeader && cell.sourceColumnName) {
         return cell.sourceColumnName.length
     }
     if (cell.formattedValue !== null && typeof cell.formattedValue === 'object') {
-        return Infinity
+        return Array.isArray(cell.formattedValue) && cell.formattedValue[0] === '__hx_tag'
+            ? getHogQLXTextLength(parseHogQLX(cell.formattedValue))
+            : Infinity
     }
     return String(cell.formattedValue ?? cell.value ?? '').length
 }
