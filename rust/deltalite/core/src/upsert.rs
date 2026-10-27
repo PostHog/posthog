@@ -26,6 +26,7 @@
 //! `target_file_size` per partition worker (see `crate::writer`).
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -56,7 +57,7 @@ use tracing::{debug, info, instrument, warn};
 
 use crate::errors::{Error, Result};
 use crate::limits::{
-    check_source_size, estimate_pk_set_bytes, resolve_max_source_bytes, ProcessLimits,
+    check_source_size, estimate_pk_set_bytes, resolve_max_source_bytes, Budget, ProcessLimits,
     SourceFootprint,
 };
 use crate::pkset::PkSet;
@@ -610,17 +611,23 @@ impl Budgets {
         let want = Self::kb(bytes);
         let local_kb = want.min(self.fetch_local_cap_kb as u64) as u32;
         let global_kb = want.min(self.limits.fetch_cap_kb() as u64) as u32;
-        let local = self
-            .fetch_local
-            .clone()
-            .acquire_many_owned(local_kb)
+        // The per-call wait shares the process-wide bound, so a stuck holder of either
+        // budget ends in an error that names the fetch budget.
+        self.limits
+            .bounded(Budget::Fetch, global_kb, async {
+                let local = self
+                    .fetch_local
+                    .clone()
+                    .acquire_many_owned(local_kb)
+                    .await
+                    .map_err(|_| Error::Generic("fetch-budget semaphore closed".into()))?;
+                let global = self.limits.acquire_fetch_kb(global_kb).await?;
+                Ok(FetchPermit {
+                    _local: local,
+                    _global: global,
+                })
+            })
             .await
-            .map_err(|_| Error::Generic("fetch-budget semaphore closed".into()))?;
-        let global = self.limits.acquire_fetch_kb(global_kb).await?;
-        Ok(FetchPermit {
-            _local: local,
-            _global: global,
-        })
     }
 
     /// Bytes of compressed row-group data one reader can hold without passing either
@@ -636,19 +643,35 @@ impl Budgets {
         let want = Self::kb(bytes);
         let local_kb = want.min(self.local_cap_kb as u64) as u32;
         let global_kb = want.min(self.limits.buffer_cap_kb() as u64) as u32;
-        let local = self
-            .local
-            .clone()
-            .acquire_many_owned(local_kb)
-            .await
-            .map_err(|_| Error::Generic("byte-budget semaphore closed".into()))?;
-        let global = self.limits.acquire_buffer_kb(global_kb).await?;
+        let (local, global) = self.acquire_byte_pair(local_kb, global_kb).await?;
         Ok(BudgetPermit {
             local: Some(local),
             global: Some(global),
             held_local_kb: local_kb,
             held_global_kb: global_kb,
         })
+    }
+
+    /// Local before global, the fixed order used everywhere (see `crate::limits`). The
+    /// per-call wait shares the process-wide bound, so a stuck holder of either budget
+    /// ends in an error that names the buffer budget.
+    async fn acquire_byte_pair(
+        &self,
+        local_kb: u32,
+        global_kb: u32,
+    ) -> Result<(OwnedSemaphorePermit, OwnedSemaphorePermit)> {
+        self.limits
+            .bounded(Budget::Buffer, global_kb, async {
+                let local = self
+                    .local
+                    .clone()
+                    .acquire_many_owned(local_kb)
+                    .await
+                    .map_err(|_| Error::Generic("byte-budget semaphore closed".into()))?;
+                let global = self.limits.acquire_buffer_kb(global_kb).await?;
+                Ok((local, global))
+            })
+            .await
     }
 
     /// Grow `permit` so it covers `total_bytes` (used after a decode turns out larger
@@ -678,14 +701,7 @@ impl Budgets {
         permit.global = None;
         permit.held_local_kb = 0;
         permit.held_global_kb = 0;
-        // Local before global, the fixed order used everywhere (see `crate::limits`).
-        let local = self
-            .local
-            .clone()
-            .acquire_many_owned(want_local)
-            .await
-            .map_err(|_| Error::Generic("byte-budget semaphore closed".into()))?;
-        let global = self.limits.acquire_buffer_kb(want_global).await?;
+        let (local, global) = self.acquire_byte_pair(want_local, want_global).await?;
         permit.local = Some(local);
         permit.global = Some(global);
         permit.held_local_kb = want_local;
@@ -2553,10 +2569,18 @@ async fn rewrite_partition(
     // Reader tasks: up to max_parallel_files files stream concurrently (per call AND
     // per process). Each task takes its concurrency permits *inside* the task so
     // spawning never blocks this function.
+    //
+    // The wait for the per-call file permit has no bound, because files of a large
+    // partition queue there for as long as the rewrite takes. After one reader fails,
+    // the readers that get a per-call permit later stop instead of reading. Without
+    // that, every queued reader would wait the full process-wide bound one after
+    // another when a stuck call holds the process-wide file budget.
     let file_sem = Arc::new(Semaphore::new(opts.max_parallel_files.max(1)));
+    let reader_failed = Arc::new(AtomicBool::new(false));
     let mut readers = Vec::with_capacity(rewrite.len());
     for f in rewrite {
         let sem = file_sem.clone();
+        let failed = reader_failed.clone();
         let store = store.clone();
         let pkset = pkset.clone();
         let schema = table_schema.clone();
@@ -2571,8 +2595,18 @@ async fn rewrite_partition(
                 .acquire_owned()
                 .await
                 .map_err(|_| Error::Generic("file semaphore closed".into()))?;
-            let _global = opts.limits.acquire_file().await?;
-            filter_file(store, f, pkset, schema, pcol, value, opts, budgets, tx).await
+            if failed.load(Ordering::Relaxed) {
+                return Ok(None);
+            }
+            let outcome = async {
+                let _global = opts.limits.acquire_file().await?;
+                filter_file(store, f, pkset, schema, pcol, value, opts, budgets, tx).await
+            }
+            .await;
+            if outcome.is_err() {
+                failed.store(true, Ordering::Relaxed);
+            }
+            outcome.map(Some)
         }));
     }
     // Drop the parent's sender so the writer task ends when the readers do.
@@ -2587,11 +2621,13 @@ async fn rewrite_partition(
             .await
             .map_err(|e| Error::Generic(format!("file worker panicked: {e}")))?
         {
-            Ok(o) => {
+            Ok(Some(o)) => {
                 rows_updated += o.rows_updated;
                 rows_copied += o.rows_copied;
                 removes.push(o.remove);
             }
+            // Stopped because another reader failed; that reader's error is kept below.
+            Ok(None) => {}
             // Keep the first reader error, but keep draining so the writer terminates.
             Err(e) => reader_err = reader_err.or(Some(e)),
         }
