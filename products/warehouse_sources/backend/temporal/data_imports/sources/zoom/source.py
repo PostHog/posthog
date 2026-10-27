@@ -182,7 +182,7 @@ class ZoomSource(ResumableSource[ZoomSourceConfig, ZoomResumeConfig]):
             category=DataWarehouseSourceCategory.COMMUNICATION,
             label="Zoom",
             releaseStatus=ReleaseStatus.GA,
-            caption="""Sync your Zoom users, meetings, and webinars into the PostHog Data warehouse.
+            caption="""Sync your Zoom users, meetings, webinars, registrants, and attendance into the PostHog Data warehouse.
 
 Create a **Server-to-Server OAuth** app in the [Zoom App Marketplace](https://marketplace.zoom.us/develop/create) and copy its Account ID, Client ID, and Client Secret below.
 
@@ -190,6 +190,8 @@ Grant the following read scopes:
 - `user:read:list_users:admin`
 - `meeting:read:list_meetings:admin`
 - `webinar:read:list_webinars:admin`
+- `meeting:read:list_registrants:admin` and `webinar:read:list_registrants:admin` for registrants
+- `meeting:read:list_past_instances:admin`, `meeting:read:list_past_participants:admin`, `webinar:read:list_past_instances:admin` and `webinar:read:list_past_participants:admin` for participants
 """,
             iconPath="/static/services/zoom.png",
             docsUrl="https://posthog.com/docs/cdp/sources/zoom",
