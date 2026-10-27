@@ -52,6 +52,9 @@ class TicketBriefItemKind(models.TextChoices):
     PROJECT = "project", "Project"
     REPLAY = "replay", "Replay"
     SURVEY = "survey", "Survey"
+    # Not a PostHog object: a GitHub pull request, a vulnerability report, a status page.
+    # Customers cite these often enough that without a kind for them the link is dropped.
+    EXTERNAL = "external", "External link"
     OTHER = "other", "Other"
 
 

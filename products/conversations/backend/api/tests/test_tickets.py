@@ -117,6 +117,11 @@ class TestTicketBriefSerializer(SimpleTestCase):
                 "affected_items",
             ),
             ("item_without_url", {"affected_items": [{"kind": "insight", "label": "Conversion"}]}, "affected_items"),
+            (
+                "too_many_affected_items",
+                {"affected_items": [{"kind": "insight", "url": f"https://e.com/{i}", "label": "I"} for i in range(6)]},
+                "affected_items",
+            ),
             ("replay_url_not_a_url", {"replay_url": "not-a-url"}, "replay_url"),
             ("purpose_over_cap", {"purpose": "x" * 301}, "purpose"),
             ("error_message_over_cap", {"error_message": "x" * 601}, "error_message"),
