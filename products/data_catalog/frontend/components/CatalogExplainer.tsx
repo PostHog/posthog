@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { IconX } from '@posthog/icons'
+
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 
 import { catalogExplainerLogic } from '../catalogExplainerLogic'
@@ -12,9 +14,13 @@ const STEPS = [
     'PostHog AI and agents on the PostHog MCP compute the metric from the approved definition.',
 ]
 
-export function CatalogExplainer(): JSX.Element {
-    const { explainerOpen } = useValues(catalogExplainerLogic)
-    const { setExplainerOpen } = useActions(catalogExplainerLogic)
+export function CatalogExplainer(): JSX.Element | null {
+    const { explainerOpen, explainerDismissed } = useValues(catalogExplainerLogic)
+    const { setExplainerOpen, dismissExplainer } = useActions(catalogExplainerLogic)
+
+    if (explainerDismissed) {
+        return null
+    }
 
     return (
         <LemonCollapse
@@ -23,7 +29,17 @@ export function CatalogExplainer(): JSX.Element {
             panels={[
                 {
                     key: EXPLAINER_PANEL_KEY,
-                    header: 'How the data catalog works',
+                    header: {
+                        children: 'How the data catalog works',
+                        sideAction: {
+                            icon: <IconX />,
+                            tooltip: "Don't show this again",
+                            'aria-label': "Don't show this again",
+                            onClick: dismissExplainer,
+                            // pinned: data-attr values feed autocapture dashboards
+                            'data-attr': 'data-catalog-explainer-dismiss',
+                        },
+                    },
                     dataAttr: 'data-catalog-explainer',
                     content: (
                         <div className="flex flex-col gap-2 text-sm">
