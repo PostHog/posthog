@@ -101,6 +101,7 @@ class TestInsightAlertMessage(SimpleTestCase):
         [
             ("fall_back", "2026-11-01T05:00:00+00:00", "01:00 EDT", "01:00 EST"),
             ("spring_forward", "2026-03-08T06:00:00+00:00", "01:00 EST", "03:00 EDT"),
+            ("spring_forward_naive", "2026-03-08 01:00:00", "01:00", "03:00"),
         ]
     )
     def test_period_distinguishes_daylight_saving_offsets(self, _name: str, start: str, first: str, last: str) -> None:

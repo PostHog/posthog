@@ -59,6 +59,8 @@ def _affected_period(dates: list[str], project_timezone: str, interval: str | No
     if delta is not None:
         try:
             end = datetime.fromisoformat(dates[-1])
+            if end.tzinfo is None and interval in {"second", "minute", "hour"}:
+                end = end.replace(tzinfo=ZoneInfo(project_timezone))
             if end.tzinfo is not None:
                 end = end.astimezone(ZoneInfo(project_timezone))
             if interval in {"second", "minute", "hour"} and end.tzinfo is not None:
