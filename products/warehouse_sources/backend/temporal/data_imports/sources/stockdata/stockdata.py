@@ -23,12 +23,12 @@ logger = logging.getLogger(__name__)
 STOCKDATA_BASE_URL = "https://api.stockdata.org/v1"
 # StockData.org caps any paginated news result set at 20,000 records (limit × page); requesting
 # beyond it can't return more rows, so pagination stops there and logs the truncation.
-MAX_NEWS_RESULTS = 20_000
+MAX_PAGINATED_RESULTS = 20_000
 
 
 @dataclasses.dataclass
 class StockDataResumeConfig:
-    # Number of the next news page to fetch — StockData.org uses page-number pagination.
+    # Number of the next page to fetch — StockData.org uses page-number pagination.
     next_page: int
 
 
@@ -62,10 +62,19 @@ def _flatten_ohlcv(row: dict[str, Any]) -> dict[str, Any]:
     return flat
 
 
-class StockDataNewsPaginator(PageNumberPaginator):
+def _explode_stats_bucket(row: dict[str, Any]) -> list[dict[str, Any]]:
+    """News stats time series rows arrive as `{date, data: [{key, total_documents, sentiment_avg}]}`
+    — emit one row per key, carrying the bucket date."""
+    entries = row.get("data")
+    if not isinstance(entries, list):
+        return []
+    return [{"date": row.get("date"), **entry} for entry in entries if isinstance(entry, dict)]
+
+
+class StockDataPagePaginator(PageNumberPaginator):
     """Page-number paginator that stops on the documented 20,000-result cap.
 
-    The news response's `meta` block carries `found` (total matches), `limit` (page size), and
+    The paginated responses' `meta` block carries `found` (total matches), `limit` (page size), and
     `page`, so the paginator stops after the last real page instead of paying an extra empty-page
     request, and terminates cleanly at the result-set cap instead of erroring past it.
     """
@@ -100,11 +109,11 @@ class StockDataNewsPaginator(PageNumberPaginator):
                 if fetched >= found:
                     self._has_next_page = False
                     return
-                if fetched >= MAX_NEWS_RESULTS:
+                if fetched >= MAX_PAGINATED_RESULTS:
                     logger.info(
-                        "StockData.org news pagination reached the API's %s-result cap; %s matching "
-                        "articles were not fetched. Older articles sync as the incremental watermark advances.",
-                        MAX_NEWS_RESULTS,
+                        "StockData.org pagination reached the API's %s-result cap; %s matching "
+                        "records were not fetched. Older news articles sync as the incremental watermark advances.",
+                        MAX_PAGINATED_RESULTS,
                         found - fetched,
                     )
                     self._has_next_page = False
@@ -155,6 +164,8 @@ def stockdata_source(
     }
     if config.flatten_data:
         resource["data_map"] = _flatten_ohlcv
+    elif config.explode_buckets:
+        resource["data_map"] = _explode_stats_bucket
 
     rest_config: RESTAPIConfig = {
         "client": {
@@ -162,7 +173,7 @@ def stockdata_source(
             # api_token rides in the query string (the API's only auth method); the framework auth
             # redacts its value from every logged URL, captured sample, and raised error message.
             "auth": {"type": "api_key", "api_key": api_token, "name": "api_token", "location": "query"},
-            "paginator": StockDataNewsPaginator() if config.paginated else "single_page",
+            "paginator": StockDataPagePaginator() if config.paginated else "single_page",
         },
         "resources": [resource],
     }
@@ -205,8 +216,9 @@ def stockdata_source(
         name=endpoint,
         items=lambda: rest_resource,
         primary_keys=config.primary_keys,
-        # Price feeds are requested with sort=asc; news is served newest-first and its sort order
-        # can't be flipped, so it declares desc and the watermark checkpoints at end of sync.
+        # Price feeds and the news stats time series are requested ascending; news is served
+        # newest-first and its sort order can't be flipped, so it declares desc and the watermark
+        # checkpoints at end of sync.
         sort_mode=config.sort_mode,
         **partition_kwargs,
     )

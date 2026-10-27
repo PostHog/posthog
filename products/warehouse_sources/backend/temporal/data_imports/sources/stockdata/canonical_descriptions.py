@@ -103,4 +103,46 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "ratio": 'Split ratio as a string (e.g. "2:1").',
         },
     },
+    "entity_search": {
+        "description": "Entity metadata (name, type, industry, exchange) for the configured symbols.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "symbol": "Unique entity symbol (or ticker).",
+            "name": "Entity name.",
+            "type": "Entity type (e.g. equity, index, etf, mutualfund, currency, cryptocurrency).",
+            "industry": "Industry of the entity.",
+            "exchange": "Exchange identifier.",
+            "exchange_long": "Exchange name.",
+            "mic_code": "ISO 10383 market identifier code of the exchange.",
+            "country": "ISO 3166-1 two-letter country code of the exchange locale.",
+        },
+    },
+    "news_sources": {
+        "description": "News source feeds that StockData.org collects articles from.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "source_id": "Unique ID of the source feed. A domain can have many source IDs.",
+            "domain": "Domain of the source.",
+            "language": "Language of the source.",
+        },
+    },
+    "news_stats_intraday": {
+        "description": "Daily time series of news volume and average sentiment per symbol.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "date": "Start of the daily time series bucket (UTC, ISO 8601).",
+            "key": "Symbol the stats are grouped by.",
+            "total_documents": "Total number of articles that identified the symbol in the bucket.",
+            "sentiment_avg": "Average sentiment of the symbol across the articles in the bucket.",
+        },
+    },
+    "news_stats_aggregation": {
+        "description": "News volume and average sentiment per symbol, aggregated over one time frame.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "key": "Symbol the stats are grouped by.",
+            "total_documents": "Total number of articles that identified the symbol.",
+            "sentiment_avg": "Average sentiment of the symbol across the articles.",
+        },
+    },
 }
