@@ -77,7 +77,7 @@ export function DashboardCustomizeSubMenu(): JSX.Element | null {
                             changeDashboardGridCompaction(value as DashboardGridCompaction)
                         }
                     >
-                        {Object.values(DashboardGridCompaction).map((mode) => (
+                        {[DashboardGridCompaction.Vertical, DashboardGridCompaction.Stable].map((mode) => (
                             <SceneMenuBarRadioItem
                                 key={mode}
                                 value={mode}

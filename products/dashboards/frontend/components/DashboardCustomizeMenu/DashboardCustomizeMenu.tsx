@@ -46,17 +46,6 @@ const GRID_COMPACTION_OPTIONS: {
         ),
     },
     {
-        value: DashboardGridCompaction.Horizontal,
-        label: (
-            <span className="flex items-center gap-2">
-                <span className="text-xs font-medium">
-                    {DASHBOARD_GRID_COMPACTION_LABELS[DashboardGridCompaction.Horizontal]}
-                </span>
-                <DashboardTileMovementPreview mode={DashboardGridCompaction.Horizontal} />
-            </span>
-        ),
-    },
-    {
         value: DashboardGridCompaction.Stable,
         label: (
             <span className="flex items-center gap-2">
