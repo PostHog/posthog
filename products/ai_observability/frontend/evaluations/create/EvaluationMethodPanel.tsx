@@ -28,7 +28,7 @@ const METHOD_HINTS: Record<Method, React.ReactNode> = {
 
 /** Who checks each run: an LLM judge with its model, a decision model, code, or the sentiment classifier. */
 export function EvaluationMethodPanel(): JSX.Element | null {
-    const { evaluation, usesDecisionModel } = useValues(llmEvaluationLogic)
+    const { evaluation, usesDecisionModel, isNewEvaluation } = useValues(llmEvaluationLogic)
     const { setEvaluationType, setJudgeMethod } = useActions(llmEvaluationLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -58,11 +58,19 @@ export function EvaluationMethodPanel(): JSX.Element | null {
                     onChange={setMethod}
                     options={[
                         { value: 'llm_judge', label: 'LLM judge' },
-                        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SYSTEM_ONE_EVALUATIONS]
+                        // A stored decision evaluation keeps the option, so it can still switch back to an LLM judge.
+                        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SYSTEM_ONE_EVALUATIONS] || method === 'decision'
                             ? [{ value: 'decision' as const, label: 'Decision model' }]
                             : []),
                         { value: 'hog', label: 'Code' },
-                        { value: 'sentiment', label: 'Sentiment' },
+                        {
+                            value: 'sentiment',
+                            label: 'Sentiment',
+                            disabledReason:
+                                !isNewEvaluation && ['numeric', 'categorical'].includes(evaluation.output_type)
+                                    ? 'Create a new evaluation to change what it returns.'
+                                    : undefined,
+                        },
                     ]}
                     data-attr="llma-evaluation-create-method"
                 />

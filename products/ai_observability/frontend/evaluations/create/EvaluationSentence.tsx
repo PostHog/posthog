@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
@@ -32,10 +32,11 @@ const PANELS: Record<Part, () => JSX.Element | null> = {
  * a report arrives. Each part opens its settings under the sentence, one at a time.
  */
 export function EvaluationSentence(): JSX.Element | null {
+    const { props } = useMountedLogic(llmEvaluationLogic)
     const [open, setOpen] = useState<Part | null>(null)
     const { evaluation, usesDecisionModel, selectedModelName, selectedModel, isReportableEvaluation } =
         useValues(llmEvaluationLogic)
-    const { configDraft } = useValues(evaluationReportLogic({ evaluationId: 'new' }))
+    const { configDraft } = useValues(evaluationReportLogic({ evaluationId: props.evaluationId }))
 
     if (!evaluation) {
         return null

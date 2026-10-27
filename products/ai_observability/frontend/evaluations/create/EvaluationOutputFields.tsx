@@ -12,7 +12,7 @@ type ReturnShape = 'boolean' | 'numeric' | 'categorical' | 'categorical_multiple
 
 /** What each run returns, read as one sentence, and which answers count as a pass. */
 export function EvaluationOutputFields(): JSX.Element | null {
-    const { evaluation, numericBoundsRequired, usesDecisionModel } = useValues(llmEvaluationLogic)
+    const { evaluation, numericBoundsRequired, usesDecisionModel, isNewEvaluation } = useValues(llmEvaluationLogic)
     const { setOutputType, patchOutputConfig, setAllowsNA, setTrueIsFailure } = useActions(llmEvaluationLogic)
 
     // Sentiment always returns positive, neutral, or negative, which the method hint already says.
@@ -56,12 +56,22 @@ export function EvaluationOutputFields(): JSX.Element | null {
                     size="small"
                     value={shape}
                     onChange={setShape}
-                    options={[
-                        { value: 'boolean', label: 'true or false' },
-                        { value: 'numeric', label: 'a score' },
-                        { value: 'categorical', label: 'one category' },
-                        { value: 'categorical_multiple', label: 'several categories' },
-                    ]}
+                    options={(
+                        [
+                            { value: 'boolean', label: 'true or false' },
+                            { value: 'numeric', label: 'a score' },
+                            { value: 'categorical', label: 'one category' },
+                            { value: 'categorical_multiple', label: 'several categories' },
+                        ] as const
+                    ).map((option) => ({
+                        ...option,
+                        // Past results keep their type, so a saved evaluation can only switch between category modes.
+                        disabledReason:
+                            !isNewEvaluation &&
+                            (option.value === 'categorical_multiple' ? 'categorical' : option.value) !== outputType
+                                ? 'Create a new evaluation to change what it returns.'
+                                : undefined,
+                    }))}
                     data-attr="llma-evaluation-output-type"
                 />
                 {outputType === 'boolean' && (

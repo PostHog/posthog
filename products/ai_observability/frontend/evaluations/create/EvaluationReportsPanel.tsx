@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconPlus } from '@posthog/icons'
@@ -12,9 +12,12 @@ type Cadence = 'every_n' | 'daily' | 'weekly'
 
 /** Scheduled reports in a few lines: when they arrive, where they go, and optional guidance for the agent. */
 export function EvaluationReportsPanel(): JSX.Element | null {
+    const { props } = useMountedLogic(llmEvaluationLogic)
     const [guidanceOpen, setGuidanceOpen] = useState(false)
     const { evaluation, isReportableEvaluation } = useValues(llmEvaluationLogic)
-    const { configDraft, configErrors, shownDestinations } = useValues(evaluationReportLogic({ evaluationId: 'new' }))
+    const { configDraft, configErrors, shownDestinations } = useValues(
+        evaluationReportLogic({ evaluationId: props.evaluationId })
+    )
     const {
         setDraftEnabled,
         setDraftFrequency,
@@ -28,7 +31,7 @@ export function EvaluationReportsPanel(): JSX.Element | null {
         setDraftReportPromptGuidance,
         addDraftDestination,
         removeDraftDestination,
-    } = useActions(evaluationReportLogic({ evaluationId: 'new' }))
+    } = useActions(evaluationReportLogic({ evaluationId: props.evaluationId }))
 
     if (!evaluation) {
         return null
