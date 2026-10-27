@@ -3,8 +3,9 @@ import { expectLogic } from 'kea-test-utils'
 import api, { PaginatedResponse } from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { performQuery } from '~/queries/query'
-import { DatabaseSchemaQueryResponse } from '~/queries/schema/schema-general'
+import { DatabaseSchemaQueryResponse, FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ExternalDataSource } from '~/types'
 
@@ -13,6 +14,12 @@ import { sourceManagementLogic } from '../sourceManagementLogic'
 
 jest.mock('lib/api')
 jest.mock('~/queries/query')
+
+const SORTABLE_SOURCES = [
+    { id: 'recent', source_type: 'Stripe', prefix: 'b', last_run_at: '2026-01-02T00:00:00Z' },
+    { id: 'starred', source_type: 'Stripe', prefix: 'c', last_run_at: '2026-01-01T00:00:00Z' },
+    { id: 'never-run', source_type: 'Stripe', prefix: 'a' },
+].map((source) => ({ ...source, access_method: 'warehouse', schemas: [] }) as unknown as ExternalDataSource)
 
 describe('sourceManagementLogic', () => {
     let logic: ReturnType<typeof sourceManagementLogic.build>
@@ -42,6 +49,57 @@ describe('sourceManagementLogic', () => {
     afterEach(() => {
         logic.unmount()
         databaseLogic.unmount()
+    })
+
+    const mountWithSortableSources = async (starredSourceIds: string[]): Promise<void> => {
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSourcesSuccess'])
+        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+        sourceManagementLogic.actions.loadSourcesSuccess({
+            results: SORTABLE_SOURCES,
+            count: SORTABLE_SOURCES.length,
+            next: null,
+            previous: null,
+        })
+        projectTreeDataLogic.actions.loadShortcutsSuccess(
+            starredSourceIds.map((id) => ({ id: `shortcut-${id}`, path: id, type: 'data_source', ref: id }))
+        )
+    }
+
+    it.each([
+        ['ascending', 1 as const, '', ['starred', 'never-run', 'recent']],
+        ['descending', -1 as const, '', ['starred', 'recent', 'never-run']],
+        ['searching', 1 as const, 'stripe', ['never-run', 'starred', 'recent']],
+    ])('orders managed sources by last run, %s', async (_, order, searchTerm, expectedIds) => {
+        await mountWithSortableSources(['starred'])
+
+        logic.actions.setManagedSearchTerm(searchTerm)
+        logic.actions.setManagedSourcesSorting({ columnKey: 'last_run_at', order })
+
+        expect(logic.values.sortedManagedSources.map((source) => source.id)).toEqual(expectedIds)
+    })
+
+    it('stars and unstars a source through the sidebar shortcuts', async () => {
+        const createShortcut = jest.spyOn(api.fileSystemShortcuts, 'create').mockImplementation(async (data) => ({
+            shortcut: { id: 'shortcut-1', ...data } as FileSystemEntry,
+            created: true,
+        }))
+        const deleteShortcut = jest.spyOn(api.fileSystemShortcuts, 'delete').mockResolvedValue()
+        await mountWithSortableSources([])
+
+        await expectLogic(logic, () => logic.actions.toggleSourceStarred(SORTABLE_SOURCES[2])).toDispatchActions(
+            projectTreeDataLogic,
+            ['addShortcutItemSuccess']
+        )
+        expect(createShortcut).toHaveBeenCalledTimes(1)
+        expect(logic.values.sortedManagedSources[0].id).toEqual('never-run')
+
+        await expectLogic(logic, () => logic.actions.toggleSourceStarred(SORTABLE_SOURCES[2])).toDispatchActions(
+            projectTreeDataLogic,
+            ['deleteShortcutSuccess']
+        )
+        expect(deleteShortcut).toHaveBeenCalledWith('shortcut-1')
+        expect(logic.values.sortedManagedSources[0].id).toEqual('recent')
     })
 
     it.each([
@@ -164,6 +222,17 @@ describe('sourceManagementLogic', () => {
 
         resolveDelete?.()
         await expectLogic(logic).toDispatchActions(['sourceLoadingFinished'])
+    })
+
+    it('removes the star of a deleted source', async () => {
+        jest.spyOn(api.externalDataSources, 'delete').mockResolvedValue()
+        const deleteShortcut = jest.spyOn(api.fileSystemShortcuts, 'delete').mockResolvedValue()
+        await mountWithSortableSources(['starred'])
+
+        logic.actions.deleteSource(SORTABLE_SOURCES[1])
+        await expectLogic(projectTreeDataLogic).toDispatchActions(['deleteShortcutSuccess'])
+
+        expect(deleteShortcut).toHaveBeenCalledWith('shortcut-starred')
     })
 
     it('stops the row spinner when the delete fails', async () => {

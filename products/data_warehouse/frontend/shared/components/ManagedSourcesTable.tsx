@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlusSmall, IconStar, IconStarFilled } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -13,29 +13,29 @@ import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-import { AccessControlLevel, AccessControlResourceType, ExternalDataSchemaStatus } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { StatusTagSetting } from 'products/data_warehouse/frontend/utils'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
-import { sourceManagementLogic } from '../logics/sourceManagementLogic'
+import { SCHEMA_STATUS_ORDER, sourceManagementLogic, totalRowsSynced } from '../logics/sourceManagementLogic'
 import { FreeHistoricalSyncsBanner } from './FreeHistoricalSyncsBanner'
 import { DATA_WAREHOUSE_APP_SOURCE } from './metrics/DataWarehouseMetrics'
 // eslint-disable-next-line import/no-cycle
 import { SourceIcon } from './SourceIcon'
 
-const SCHEMA_STATUS_ORDER: ExternalDataSchemaStatus[] = [
-    ExternalDataSchemaStatus.Failed,
-    ExternalDataSchemaStatus.Paused,
-    ExternalDataSchemaStatus.Cancelled,
-    ExternalDataSchemaStatus.Running,
-    ExternalDataSchemaStatus.Completed,
-]
-
 export function ManagedSourcesTable(): JSX.Element {
-    const { filteredManagedSources, dataWarehouseSourcesLoading, sourceReloadingById, managedSearchTerm } =
-        useValues(sourceManagementLogic)
-    const { deleteSource, reloadSource, setManagedSearchTerm } = useActions(sourceManagementLogic)
+    const {
+        sortedManagedSources,
+        managedSourcesSorting,
+        starredSourceShortcuts,
+        shortcutDataLoading,
+        dataWarehouseSourcesLoading,
+        sourceReloadingById,
+        managedSearchTerm,
+    } = useValues(sourceManagementLogic)
+    const { deleteSource, reloadSource, setManagedSearchTerm, setManagedSourcesSorting, toggleSourceStarred } =
+        useActions(sourceManagementLogic)
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
@@ -48,17 +48,23 @@ export function ManagedSourcesTable(): JSX.Element {
                     placeholder="Search..."
                     onChange={setManagedSearchTerm}
                     value={managedSearchTerm}
+                    data-attr="managed-sources-search"
                 />
             </div>
             <LemonTable
                 id="managed-sources"
                 // Labels and icons come from `availableSources`, so rows shown before it answers
                 // would render raw source types and then swap under the reader.
-                dataSource={availableSourcesLoading ? [] : filteredManagedSources}
+                dataSource={availableSourcesLoading ? [] : sortedManagedSources}
                 loading={dataWarehouseSourcesLoading || availableSourcesLoading}
                 disableTableWhileLoading={false}
                 pagination={{ pageSize: 10 }}
                 scrollToTopOnPageChange={false}
+                // The logic sorts the rows. LemonTable reverses a column sorter for descending order,
+                // which would move starred sources to the bottom.
+                sorting={managedSourcesSorting}
+                onSort={setManagedSourcesSorting}
+                useURLForSorting={false}
                 emptyState={
                     <div className="flex flex-col items-center gap-2 py-2">
                         <span>{managedSearchTerm ? 'No sources matching your search' : 'No managed sources'}</span>
@@ -76,11 +82,29 @@ export function ManagedSourcesTable(): JSX.Element {
                 columns={[
                     {
                         width: 0,
+                        key: 'starred',
+                        render: (_, source) => {
+                            const starred = !!starredSourceShortcuts[source.id]
+                            return (
+                                <LemonButton
+                                    size="small"
+                                    icon={starred ? <IconStarFilled /> : <IconStar />}
+                                    tooltip={starred ? 'Remove from starred' : 'Add to starred'}
+                                    onClick={() => toggleSourceStarred(source)}
+                                    disabledReason={shortcutDataLoading ? 'Updating starred items' : undefined}
+                                    data-attr="managed-sources-star"
+                                />
+                            )
+                        },
+                    },
+                    {
+                        width: 0,
                         render: (_, source) => <SourceIcon type={source.source_type} engine={source.engine} />,
                     },
                     {
                         title: 'Source',
                         key: 'name',
+                        sorter: true,
                         render: (_, source) => (
                             <LemonTableLink
                                 to={urls.dataWarehouseSource(`managed-${source.id}`)}
@@ -92,12 +116,14 @@ export function ManagedSourcesTable(): JSX.Element {
                     {
                         title: 'Table prefix',
                         key: 'prefix',
+                        sorter: true,
                         render: (_, source) => source.prefix || '-',
                     },
                     {
                         title: 'Last Successful Run',
                         key: 'last_run_at',
                         tooltip: 'Time of the last run that completed a data import',
+                        sorter: true,
                         render: (_, run) => {
                             return run.last_run_at ? (
                                 <TZLabel time={run.last_run_at} formatDate="MMM DD, YYYY" formatTime="HH:mm" />
@@ -110,10 +136,8 @@ export function ManagedSourcesTable(): JSX.Element {
                         title: 'Total Rows Synced',
                         key: 'rows_synced',
                         tooltip: 'Total number of rows synced across all schemas in this source',
-                        render: (_, source) =>
-                            source.schemas
-                                .reduce((acc, schema) => acc + (schema.table?.row_count ?? 0), 0)
-                                .toLocaleString(),
+                        sorter: true,
+                        render: (_, source) => totalRowsSynced(source).toLocaleString(),
                     },
                     ...(showMetrics
                         ? [
@@ -144,6 +168,7 @@ export function ManagedSourcesTable(): JSX.Element {
                     {
                         title: 'Status',
                         key: 'status',
+                        sorter: true,
                         render: (_, source) => {
                             if (!source.status) {
                                 return null
