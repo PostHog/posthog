@@ -61,9 +61,10 @@ jobs:
                       private_tip="${private_tip%%[[:space:]]*}"
                       # A rejected push only means success if private master already contains the target.
                       if ! git merge-base --is-ancestor "${target}" "${private_tip}" 2>/dev/null; then
-                          echo "::error::posthog-private master ${private_tip} has commits that public master ${target} lacks; refusing to overwrite them."
+                          # This log is public, so it never prints the private tip, which can be a private-only commit.
+                          echo "::error::posthog-private master has commits that public master ${target} lacks; refusing to overwrite them."
                           exit 1
                       fi
-                      echo "posthog-private master ${private_tip} already contains ${target}; nothing to push."
+                      echo "posthog-private master already contains ${target}; nothing to push."
                   fi
                   git push private "refs/tags/*:refs/tags/*" --force
