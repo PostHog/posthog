@@ -22,9 +22,11 @@ from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Coalesce, NullIf, RowNumber
 
 import numpy as np
+from asgiref.sync import sync_to_async
 
 from posthog.api.embedding_worker import async_generate_embedding
 from posthog.dataclasses import frozen
+from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
 from posthog.utils import dict_from_cursor_fetchall
 
@@ -198,11 +200,16 @@ def current_rank(row: dict[str, Any]) -> dict[str, Any] | None:
     return rank
 
 
-async def save_anchor_similarities(team_id: int, similarities: dict[str, dict[str, float]]) -> None:
-    await ReplayObservationAnchorSimilarity.objects.abulk_create(
+def save_anchor_similarities(team_id: int, similarities: dict[str, dict[str, float]]) -> None:
+    # A bulk insert skips the model's canonical-team rewrite, so the row carries the id reads are scoped to.
+    canonical_team_id = resolve_effective_team_id(team_id)
+    ReplayObservationAnchorSimilarity.objects.for_team(canonical_team_id, canonical=True).bulk_create(
         [
             ReplayObservationAnchorSimilarity(
-                observation_id=observation_id, team_id=team_id, anchor_version=ANCHOR_VERSION, similarities=values
+                observation_id=observation_id,
+                team_id=canonical_team_id,
+                anchor_version=ANCHOR_VERSION,
+                similarities=values,
             )
             for observation_id, values in similarities.items()
         ],
@@ -238,7 +245,7 @@ async def rank_observation(request: RankRequest) -> Literal["ranked", "already_r
         return "already_ranked"
     reading = classify(request.vector, await anchor_vectors(request.team_id))
     # The similarities land first, so a rank on the row means its similarities are there too.
-    await save_anchor_similarities(request.team_id, {request.observation_id: reading.similarities})
+    await sync_to_async(save_anchor_similarities)(request.team_id, {request.observation_id: reading.similarities})
     await ReplayObservation.objects.filter(team_id=request.team_id, id=request.observation_id).aupdate(
         watch_rank=reading.rank.to_json()
     )
