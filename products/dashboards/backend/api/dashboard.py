@@ -3659,17 +3659,7 @@ class DashboardsViewSet(
                         )
                         copied.group_key = new_key
                     else:
-                        tile.copy_to_dashboard(destination, keep_group_key=False)
-                        copied = DashboardTile.objects.get(
-                            dashboard=destination,
-                            **(
-                                {"insight_id": tile.insight_id}
-                                if tile.insight_id
-                                else {"text_id": tile.text_id}
-                                if tile.text_id
-                                else {"button_tile_id": tile.button_tile_id}
-                            ),
-                        )
+                        copied = tile.copy_to_dashboard(destination, keep_group_key=False)
                         copied.group_key = new_key
                     copied.layouts = {
                         size: {**layout, "y": layout.get("y", 0) - source_tops[size] + destination_bottoms[size]}
