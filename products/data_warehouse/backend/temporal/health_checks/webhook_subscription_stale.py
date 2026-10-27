@@ -82,8 +82,6 @@ class WebhookSubscriptionStaleCheck(HealthCheck):
         sources: dict[str, ExternalDataSource] = {}
         for schema in stale_schemas:
             source = schema.source
-            if source is None:
-                continue
             schemas_by_source.setdefault(str(source.pk), []).append(schema)
             sources[str(source.pk)] = source
 
