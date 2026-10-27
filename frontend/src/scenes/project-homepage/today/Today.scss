@@ -580,6 +580,52 @@ html[data-today-transition]::view-transition-new(root) {
     align-items: center;
 }
 
+.TodayReplay__body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 260px;
+    gap: 8px;
+
+    @container main-content (max-width: 900px) {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+
+.TodayReplay__player {
+    height: 360px;
+    overflow: hidden;
+    border: 1px solid var(--today-line);
+    border-radius: 6px;
+}
+
+.TodayReplay__list {
+    display: flex;
+    flex-direction: column;
+    max-height: 360px;
+    padding: 0;
+    margin: 0;
+    overflow-y: auto;
+    list-style: none;
+    background: var(--today-card);
+    border: 1px solid var(--today-line);
+    border-radius: 6px;
+
+    > li + li {
+        border-top: 1px solid var(--today-line);
+    }
+}
+
+.TodayReplay__recording {
+    display: block;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover,
+    &[aria-current] {
+        background: var(--today-soft);
+    }
+}
+
 .TodayRow__undo {
     position: relative;
     z-index: 1;

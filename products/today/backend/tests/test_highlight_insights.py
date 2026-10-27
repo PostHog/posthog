@@ -15,6 +15,7 @@ from posthog.models import FileSystemViewLog
 
 from products.dashboards.backend.facade.api import DashboardInsights, DashboardInsightTile
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeries
+from products.today.backend.logic import routines
 from products.today.backend.logic.highlight_rules import human, short
 from products.today.backend.logic.highlight_sources import home, routine
 from products.today.backend.logic.highlight_trends import BAD_METRIC, MONEY, UNCLEAR_LABEL, UNKNOWN_DIRECTION
@@ -47,7 +48,7 @@ class TestInsightRules(SimpleTestCase):
         ]
     )
     def test_routine_days(self, _name: str, view_days: list[date], warming_up: bool, expected: int) -> None:
-        self.assertEqual(routine.routine_days(view_days, TODAY, warming_up), expected)
+        self.assertEqual(routines.routine_days(view_days, TODAY, warming_up), expected)
 
     @parameterized.expand(
         [
@@ -58,7 +59,7 @@ class TestInsightRules(SimpleTestCase):
         ]
     )
     def test_is_warming_up(self, _name: str, today: date, expected: bool) -> None:
-        self.assertEqual(routine.is_warming_up(today), expected)
+        self.assertEqual(routines.is_warming_up(today), expected)
 
     @parameterized.expand(
         [

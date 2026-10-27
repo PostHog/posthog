@@ -10,6 +10,8 @@ import { type TodayForYouRow } from './todayForYouRows'
 import { TodayHighlightRow } from './TodayHighlightRow'
 import { TodayHomeHeading } from './TodayHomeHeading'
 import { todayLogic } from './todayLogic'
+import { TodayReplayHighlightRow } from './TodayReplayHighlightRow'
+import { replaySavedFilterId } from './todayReplayPreviewLogic'
 import { TodayReportRow } from './TodayReportRow'
 
 function TodayRowsSkeleton(): JSX.Element {
@@ -32,8 +34,20 @@ function renderRow(row: TodayForYouRow): JSX.Element {
     switch (row.kind) {
         case 'report':
             return <TodayReportRow key={row.key} report={row.report} source={row.source} done={row.done} />
-        case 'highlight':
-            return <TodayHighlightRow key={row.key} item={row.item} position={row.position} done={row.done} />
+        case 'highlight': {
+            const savedFilterId = replaySavedFilterId(row.item)
+            return savedFilterId ? (
+                <TodayReplayHighlightRow
+                    key={row.key}
+                    item={row.item}
+                    position={row.position}
+                    done={row.done}
+                    savedFilterId={savedFilterId}
+                />
+            ) : (
+                <TodayHighlightRow key={row.key} item={row.item} position={row.position} done={row.done} />
+            )
+        }
     }
 }
 

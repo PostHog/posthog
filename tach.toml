@@ -845,6 +845,7 @@ path = "products.replay"
 depends_on = [
     "ee",
     "posthog", "products.access_control",
+    "products.today",
 ]
 layer = "modules"
 
