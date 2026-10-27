@@ -1267,22 +1267,14 @@ def get_teams_with_replay_vision_observation_count_in_period(begin: datetime, en
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_business_knowledge_chunks_in_period(
-    begin: datetime,
-    end: datetime,
-    # nosemgrep: tuple-return-prefer-dataclass -- (team_id, count) rows are the shared usage-report contract consumed by convert_team_usage_rows_to_dict.
-) -> list[tuple[int, int]]:
+def get_teams_with_business_knowledge_chunks_in_period(begin: datetime, end: datetime) -> TeamUsageRows:
     # Billed from the KnowledgeUsageRecord ledger, the same source the in-product usage meter reads.
     return business_knowledge_api.get_chunks_by_team(begin, end)
 
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
-def get_teams_with_business_knowledge_queries_in_period(
-    begin: datetime,
-    end: datetime,
-    # nosemgrep: tuple-return-prefer-dataclass -- (team_id, count) rows are the shared usage-report contract consumed by convert_team_usage_rows_to_dict.
-) -> list[tuple[int, int]]:
+def get_teams_with_business_knowledge_queries_in_period(begin: datetime, end: datetime) -> TeamUsageRows:
     # Billed from the KnowledgeUsageRecord ledger, the same source the in-product usage meter reads.
     return business_knowledge_api.get_queries_by_team(begin, end)
 
@@ -3854,7 +3846,6 @@ def send_all_org_usage_reports(
     skip_capture_event: bool = False,
     organization_ids: Optional[list[str]] = None,
 ) -> None:
-
     are_usage_reports_disabled = posthoganalytics.feature_enabled("disable-usage-reports", "internal_billing_events")
     if are_usage_reports_disabled:
         posthoganalytics.capture_exception(Exception(f"Usage reports are disabled for {at}"))
