@@ -3,8 +3,8 @@ import { Message } from 'node-rdkafka'
 import { eventDroppedCounter } from '~/common/metrics'
 import { TeamManager } from '~/common/utils/team-manager'
 import { tokenOrTeamPresentCounter, tokenResolvedAsTeamIdCounter } from '~/ingestion/common/metrics'
-import { TopHogMetricFactory } from '~/ingestion/framework/extensions/tophog'
-import { drop, isOkResult, ok } from '~/ingestion/framework/results'
+import { TopHogMetricFactory, countOkIf } from '~/ingestion/framework/extensions/tophog'
+import { drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, IncomingEvent, Team } from '~/types'
@@ -19,16 +19,12 @@ export function resolveTeamTopHogMetrics<
     TOutput extends { team: Team },
 >(): TopHogMetricFactory<TInput, TOutput>[] {
     return [
-        (registry) => {
-            const recorder = registry.registerSum('token_resolved_as_team_id', { topN: 100 })
-            return {
-                start: (input) => (result) => {
-                    if (isOkResult(result) && isResolvedAsTeamId(input.headers.token, result.value.team)) {
-                        recorder.record({ team_id: String(result.value.team.id) }, 1)
-                    }
-                },
-            }
-        },
+        countOkIf(
+            'token_resolved_as_team_id',
+            (output, input) => isResolvedAsTeamId(input.headers.token, output.team),
+            (output) => ({ team_id: String(output.team.id) }),
+            { topN: 100 }
+        ),
     ]
 }
 
