@@ -12,6 +12,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     RecordedRequest,
     ScriptedResponse,
     SourceDriver,
+    always,
+    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.slack import SlackSourceConfig
@@ -667,6 +669,15 @@ class TestJoinPublicChannels:
             assert _join_public_channels("xoxb", channels, deadline=time.monotonic() - 1) == 0
 
         mock_post.assert_not_called()
+
+    def test_rate_limit_retry_does_not_wait_past_the_deadline(self) -> None:
+        channels = [{"id": "C1"}, {"id": "C2"}]
+        with scripted_network(always(ScriptedResponse(status=429, headers={"Retry-After": "60"}))) as network:
+            joined = _join_public_channels("xoxb", channels, deadline=time.monotonic() + 30)
+
+        assert joined == 0
+        assert network.requests == 1
+        assert network.elapsed < 30
 
     def test_missing_scope_raises(self) -> None:
         # Auto-join silently doing nothing would be worse than failing — surface the missing scope.

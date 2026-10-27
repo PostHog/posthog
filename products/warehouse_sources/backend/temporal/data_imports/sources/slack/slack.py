@@ -3,7 +3,7 @@ import hashlib
 import datetime
 import dataclasses
 from collections.abc import AsyncIterable, Callable, Iterable, Iterator
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from django.core.cache import cache
 
@@ -14,6 +14,7 @@ import structlog
 from asgiref.sync import async_to_sync
 from requests import Request, Response
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity.stop import stop_base
 
 from posthog.egress.slack.transport import slack_request
 
@@ -377,6 +378,14 @@ def get_channels(
     ]
 
 
+class _StopBeforeDeadline(stop_base):
+    def __init__(self, deadline: float) -> None:
+        self.deadline = deadline
+
+    def __call__(self, retry_state: RetryCallState) -> bool:
+        return time.monotonic() + (retry_state.upcoming_sleep or 0) >= self.deadline
+
+
 # conversations.join errors that mean "nothing to do for this channel" rather than a real failure.
 _SKIP_JOIN_ERRORS = {"already_in_channel", "is_archived", "method_not_supported_for_channel_type"}
 
@@ -392,6 +401,10 @@ def _join_public_channels(access_token: str, channels: list[dict[str, Any]], dea
     """
     url = "https://slack.com/api/conversations.join"
     headers = {"Authorization": f"Bearer {access_token}"}
+    post = _slack_post
+    if deadline is not None:
+        # A rate-limited join waits out Slack's Retry-After, which alone can outlast the budget.
+        post = cast(Any, _slack_post).retry_with(stop=stop_after_attempt(5) | _StopBeforeDeadline(deadline))
     joined = 0
     for ch in channels:
         if ch.get("is_private") or ch.get("is_archived") or ch.get("is_member"):
@@ -399,7 +412,13 @@ def _join_public_channels(access_token: str, channels: list[dict[str, Any]], dea
         if deadline is not None and time.monotonic() >= deadline:
             logger.info("Slack auto-join stopped at its time budget", joined=joined)
             break
-        response = _slack_post(url, headers=headers, data={"channel": ch["id"]}, timeout=10)
+        try:
+            response = post(url, headers=headers, data={"channel": ch["id"]}, timeout=10)
+        except (SlackRetryableError, requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            if deadline is None:
+                raise
+            logger.info("Slack auto-join stopped before its time budget ran out", joined=joined)
+            break
         response.raise_for_status()
         data = response.json()
         if data.get("ok"):

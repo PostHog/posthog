@@ -49,9 +49,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.slack.slac
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
-# The setup wizard and a manual refresh discover schemas inside a web request, which the gateway ends
-# at 120 seconds. Joining is one rate-limited call per channel, so a large workspace can't finish there.
+# Joining is one rate-limited call per channel, so a large workspace can't finish in one pass. The setup
+# wizard and a manual refresh discover schemas inside a web request, which the gateway ends at 120
+# seconds. The discovery activity times out at 10 minutes and runs again every few hours.
 _REQUEST_JOIN_BUDGET_SECONDS = 30.0
+_ACTIVITY_JOIN_BUDGET_SECONDS = 300.0
 
 
 @frozen
@@ -388,13 +390,15 @@ Prefer a manifest? Paste this when creating the app — it wires the request URL
         # Joining is idempotent and only touches public channels the bot isn't in, so running it on
         # each discovery/refresh also picks up channels created since the last pass.
         if config.slack_access_token and config.join_public_channels and config.join_public_channels.enabled:
-            # The discovery activity runs as soon as a source is created and has no request timeout,
-            # so it joins whatever a request pass leaves.
+            # The discovery activity runs as soon as a source is created, with the larger budget, so it
+            # joins what a request pass leaves.
             join_public_channels(
                 access.access_token,
                 access.cache_id,
                 access.authed_user_id,
-                time_budget_seconds=None if activity.in_activity() else _REQUEST_JOIN_BUDGET_SECONDS,
+                time_budget_seconds=_ACTIVITY_JOIN_BUDGET_SECONDS
+                if activity.in_activity()
+                else _REQUEST_JOIN_BUDGET_SECONDS,
             )
         channels = get_channels(
             access.cache_id, access.access_token, access.authed_user_id, force_refresh=force_refresh
