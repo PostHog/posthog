@@ -129,6 +129,7 @@ class Integration(models.Model):
         ANTHROPIC = "anthropic"
         APPLE_ADS = "apple-ads"
         APPLE_PUSH = "apns"
+        AWS_KINESIS = "aws-kinesis"
         AWS_REDSHIFT = "aws-redshift"
         AWS_S3 = "aws-s3"
         AZURE_BLOB = "azure-blob"
@@ -238,7 +239,7 @@ class Integration(models.Model):
             return common.dot_get(self.config, "account.name", self.integration_id)
         if self.kind == "databricks":
             return self.integration_id or "unknown ID"
-        if self.kind == Integration.IntegrationKind.AWS_S3:
+        if self.kind in (Integration.IntegrationKind.AWS_S3, Integration.IntegrationKind.AWS_KINESIS):
             name = self.integration_id or "unknown ID"
 
             account_id = self.config.get("aws_account_id")

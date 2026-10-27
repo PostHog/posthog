@@ -83,6 +83,8 @@ from posthog.models.integration import (
     ApplePushIntegration,
     Assignee,
     AssigneeLookupFailed,
+    AWSKinesisIntegration,
+    AWSKinesisRoleBasedIntegration,
     AWSRedshiftIntegration,
     AWSRedshiftRoleBasedIntegration,
     AWSS3Integration,
@@ -1148,7 +1150,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             )
             return instance
 
-        elif validated_data["kind"] == "aws-s3":
+        elif validated_data["kind"] in ("aws-s3", "aws-kinesis"):
             config = validated_data.get("config", {})
 
             for key in ("team_id", "created_by", "organization_id"):
@@ -1159,10 +1161,19 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 raise ValidationError("Organization context is missing")
             organization_id = str(get_organization().id)
 
-            s3_integration = AWSS3RoleBasedIntegration if "aws_role_arn" in config else AWSS3Integration
+            aws_integration: (
+                type[AWSS3RoleBasedIntegration]
+                | type[AWSS3Integration]
+                | type[AWSKinesisRoleBasedIntegration]
+                | type[AWSKinesisIntegration]
+            )
+            if validated_data["kind"] == "aws-kinesis":
+                aws_integration = AWSKinesisRoleBasedIntegration if "aws_role_arn" in config else AWSKinesisIntegration
+            else:
+                aws_integration = AWSS3RoleBasedIntegration if "aws_role_arn" in config else AWSS3Integration
 
             try:
-                instance = s3_integration.integration_from_config(
+                instance = aws_integration.integration_from_config(
                     team_id=team_id,
                     created_by=request.user,
                     organization_id=organization_id,
