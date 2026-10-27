@@ -34,7 +34,7 @@ import type { HogFunctionType, ResourceEditedEvent, UserBasicType } from '../../
 import type { IntegrationType } from '../../../../frontend/src/types'
 import { workflowLogic } from '../Workflows/workflowLogic'
 import { NEW_TEMPLATE } from './constants'
-import { TRANSACTIONAL_PARAM, newTemplateAgentLogic } from './newTemplateAgentLogic'
+import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 import { TemplateSection, templateLibraryUrl, templateSectionFor, templateUrlInSection } from './templateSection'
 import { MessageTemplate } from './types'
 
@@ -63,7 +63,6 @@ export interface messageTemplateLogicValues {
     integrations: IntegrationType[] | null // integrationsLogic
     aiComposerAvailable: boolean // newTemplateAgentLogic
     currentTeamIdStrict: number | string // teamLogic
-    createAsTransactional: boolean
     deferredExternalEdit: ResourceEditedEvent | null
     draftOutOfDate: boolean
     draftsEnabled: boolean
@@ -447,11 +446,10 @@ export interface messageTemplateLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         logicProps: (arg: MessageTemplateLogicProps) => MessageTemplateLogicProps
-        createAsTransactional: (searchParams: Record<string, any>, arg: MessageTemplateLogicProps) => boolean
         transactionalHogFlowId: (originalTemplate: MessageTemplate) => string | null
-        isTransactional: (transactionalHogFlowId: string | null, createAsTransactional: boolean) => boolean
+        isTransactional: (transactionalHogFlowId: string | null) => boolean
         section: (location: { hash: string; pathname: string; search: string }) => TemplateSection
-        listUrl: (isTransactional: boolean, section: any) => string
+        listUrl: (isTransactional: boolean, section: TemplateSection) => string
         draftsEnabled: (transactionalHogFlowId: string | null) => boolean
         hasDraft: (
             savedDraft: {
@@ -657,21 +655,14 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         ],
     }),
     selectors({
-        // A new template started from the Transactional section. Its first save also makes it transactional.
-        createAsTransactional: [
-            () => [router.selectors.searchParams, (_, props: MessageTemplateLogicProps) => props],
-            (searchParams: Record<string, any>, props: MessageTemplateLogicProps): boolean =>
-                props.id === 'new' && !props.messageId && searchParams[TRANSACTIONAL_PARAM] === 'true',
-        ],
         // The saved state decides it: an unsaved template can't be transactional yet.
         transactionalHogFlowId: [
             (s) => [s.originalTemplate],
             (originalTemplate: MessageTemplate): string | null => originalTemplate.transactional_hog_flow_id ?? null,
         ],
         isTransactional: [
-            (s) => [s.transactionalHogFlowId, s.createAsTransactional],
-            (transactionalHogFlowId: string | null, createAsTransactional: boolean): boolean =>
-                !!transactionalHogFlowId || createAsTransactional,
+            (s) => [s.transactionalHogFlowId],
+            (transactionalHogFlowId: string | null): boolean => !!transactionalHogFlowId,
         ],
         // The nav section the page was opened under. Links from the page stay in it.
         section: [
@@ -1013,21 +1004,6 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             lemonToast.error('Failed to save template. Please try again.')
         },
         saveTemplateSuccess: async ({ template }) => {
-            if (values.createAsTransactional && template.id) {
-                actions.resetTemplate(template)
-                actions.setOriginalTemplate(template)
-                try {
-                    await messagingTemplatesMakeTransactionalCreate(String(values.currentTeamIdStrict), template.id, {})
-                    lemonToast.success('Transactional email created. Send it from the API tab.')
-                } catch (error: any) {
-                    // The template exists either way. Its API tab offers "Make transactional" to try again.
-                    lemonToast.error(
-                        `Template created. Couldn't make it transactional: ${error?.detail ?? 'unknown error'}. Try again from the API tab.`
-                    )
-                }
-                router.actions.replace(urls.transactionalTemplate(template.id))
-                return
-            }
             lemonToast.success(
                 props.id === 'new' ? 'Template created' : values.draftsEnabled ? 'Published' : 'Template saved'
             )

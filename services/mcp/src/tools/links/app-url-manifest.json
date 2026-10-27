@@ -1849,6 +1849,11 @@
         "params": [],
         "scope": "project"
     },
+    "transactionalNew": {
+        "template": "/transactional/new",
+        "params": [],
+        "scope": "project"
+    },
     "transactionalTemplate": {
         "template": "/transactional/library/templates/{id}",
         "params": ["id"],

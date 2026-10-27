@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { LemonButton } from '@posthog/lemon-ui'
@@ -25,8 +25,8 @@ import {
     MessagingNavTabKey,
     isMessagingSetupTab,
 } from '../messagingTabs'
-import { newTemplateAgentLogic } from '../TemplateLibrary/newTemplateAgentLogic'
 import { TransactionalEmailsTable } from './TransactionalEmailsTable'
+import { TransactionalEmailWizard } from './wizard/TransactionalEmailWizard'
 
 export const scene: SceneExport = {
     component: TransactionalScene,
@@ -35,17 +35,22 @@ export const scene: SceneExport = {
 
 export function TransactionalScene(): JSX.Element {
     const { location } = useValues(router)
-    const { startNewTransactionalEmail } = useActions(newTemplateAgentLogic)
     const showTransactional = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     // The tab routes are literal paths, so the tab is the last path segment rather than a route param.
-    const lastSegment = location.pathname.split('/').pop() as MessagingNavTabKey
-    const currentTab: MessagingNavTabKey | 'transactional' = MESSAGING_NAV_TAB_KEYS.includes(lastSegment)
-        ? lastSegment
+    const lastSegment = location.pathname.split('/').pop() ?? ''
+    const currentTab: MessagingNavTabKey | 'transactional' = MESSAGING_NAV_TAB_KEYS.includes(
+        lastSegment as MessagingNavTabKey
+    )
+        ? (lastSegment as MessagingNavTabKey)
         : 'transactional'
 
     if (!showTransactional) {
         return <NotFound object="page" />
+    }
+
+    if (lastSegment === 'new') {
+        return <TransactionalEmailWizard />
     }
 
     return (
@@ -63,7 +68,7 @@ export function TransactionalScene(): JSX.Element {
                             {todayRailNav ? (
                                 <Button
                                     data-attr="new-transactional-email"
-                                    onClick={startNewTransactionalEmail}
+                                    onClick={() => router.actions.push(urls.transactionalNew())}
                                     variant="primary"
                                 >
                                     New transactional email
@@ -71,7 +76,7 @@ export function TransactionalScene(): JSX.Element {
                             ) : (
                                 <LemonButton
                                     data-attr="new-transactional-email"
-                                    onClick={startNewTransactionalEmail}
+                                    to={urls.transactionalNew()}
                                     type="primary"
                                     size="small"
                                 >
