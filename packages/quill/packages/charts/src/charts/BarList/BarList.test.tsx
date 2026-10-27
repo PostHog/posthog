@@ -21,8 +21,7 @@ describe('BarList', () => {
         { name: 'an explicit total', total: 1000, valueText: '10% · 100' },
     ])('shows the hovered row in the tooltip and its share of $name', async ({ total, valueText }) => {
         const { chart } = renderChart(
-            <BarList series={ROWS} theme={THEME} total={total} config={{ valueDisplay: 'both' }} />,
-            { nativeTooltip: true }
+            <BarList series={ROWS} theme={THEME} total={total} config={{ valueDisplay: 'both' }} />
         )
 
         const tooltip = await waitForChartTooltip(3000, () => fireEvent.mouseMove(chart.element, INSIDE_B))

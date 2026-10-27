@@ -250,7 +250,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
     ]
 
     return (
-        <div className="@container/evaluation min-w-0 space-y-6">
+        <div className="@container/evaluation min-w-0 space-y-6 pb-8">
             <SceneBreadcrumbBackButton />
             {/* Header */}
             <SceneStickyBar
@@ -370,12 +370,8 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         'data-attr': 'llma-evaluation-runs-tab',
                         content: (
                             <div className="max-w-6xl">
-                                <div className="flex flex-wrap gap-4 justify-between items-center mb-4">
+                                <div className="flex flex-wrap gap-4 justify-between items-start mb-4">
                                     <div className="min-w-0">
-                                        <p className="text-muted text-sm m-0">
-                                            History of when this evaluation has been executed.
-                                        </p>
-
                                         {isReportableEvaluation && (
                                             <EvaluationReportsCallout
                                                 evaluationId={evaluation.id}

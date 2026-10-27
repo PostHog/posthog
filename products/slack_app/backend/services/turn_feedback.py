@@ -569,4 +569,28 @@ def handle_reaction_added(event: dict, slack_team_id: str, workspace_integration
         },
     )
     record_feature_used(integration.integration_id, event.get("user"), SlackFeature.ANSWER_RATING)
+    if rating == "bad" and target.slack_user_id:
+        _offer_interview_after_reaction(target, channel, message.get("thread_ts") if message else None)
     return REACTION_HANDLED
+
+
+def _offer_interview_after_reaction(target: _FeedbackTarget, channel: str, thread_ts: Any) -> None:
+    """A thumbs-down reaction opens no modal, so a private message carries the invitation instead.
+
+    The offer runs on Celery, because the flag check and the post make network calls inside Slack's
+    three-second ack budget.
+    """
+    # noqa reason: the task module imports api, which imports this module at load time.
+    from products.slack_app.backend.tasks import offer_interview_invite_after_reaction  # noqa: PLC0415
+
+    try:
+        offer_interview_invite_after_reaction.delay(
+            team_id=target.integration.team_id,
+            integration_id=target.integration.id,
+            slack_user_id=target.slack_user_id,
+            channel=channel,
+            thread_ts=thread_ts if isinstance(thread_ts, str) and thread_ts else target.turn_id or "",
+            trace_id=target.trace_id,
+        )
+    except Exception:
+        logger.warning("slack_app_interview_invite_after_reaction_failed", run_id=target.run_id, exc_info=True)

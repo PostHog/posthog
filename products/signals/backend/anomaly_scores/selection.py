@@ -117,7 +117,7 @@ def score_order(candidates: Sequence[ScoreCandidate], *, now: datetime, max_stal
     the time since the oldest due bucket ended, so every interval waits about as long when the pick cap binds.
     A count of due buckets would put hourly insights first, and daily, weekly and monthly insights would wait
     that many days, weeks and months. An insight close to ``max_staleness`` due buckets goes first of all,
-    because one more due bucket makes its next visit a catch-up train step.
+    because past it the oldest due buckets are never scored, and the insight waits behind the train pass.
     """
     near_cap = max_staleness - max(1, max_staleness // 5)
     keyed: list[tuple[bool, datetime, int]] = []

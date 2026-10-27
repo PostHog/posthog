@@ -205,7 +205,8 @@ POSTGRES_HOST_CHECK_SOURCE_TYPE = "postgres"
 
 PostgresErrors = {
     **CERTIFICATE_ERRORS,
-    "password authentication failed for user": _INVALID_CREDENTIALS_VALIDATION_ERROR,
+    # Some servers end the message here, without libpq's "for user <name>".
+    "password authentication failed": _INVALID_CREDENTIALS_VALIDATION_ERROR,
     # A proxy/pooler in front of some providers rejects bad credentials during its own
     # database-identification step instead of libpq's "password authentication failed for user",
     # wrapping the rejection in its own sentence ("Failed to identify your database: Your Postgres
