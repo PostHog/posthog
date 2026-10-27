@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("conversations", "0076_tag_legacy_conversation_attachments"),
+        ("conversations", "0078_signingsecret_previous_secret_and_more"),
     ]
 
     operations = [
