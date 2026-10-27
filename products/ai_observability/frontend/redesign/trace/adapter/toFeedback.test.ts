@@ -1,5 +1,5 @@
 import { makeFeedback, makeFeedbackScore, makeFeedbackText, makeTraceResource } from './testFixtures'
-import { toFeedbackChip, toFeedbackMode, toStepFeedback } from './toFeedback'
+import { stepFeedbackOf, toFeedbackChip, toFeedbackMode, toStepFeedback } from './toFeedback'
 
 describe('toFeedback', () => {
     test.each([
@@ -24,6 +24,21 @@ describe('toFeedback', () => {
                 'gen-1': { scores: [score], textCount: 1 },
                 [traceId]: { scores: [traceScore, orphanScore], textCount: 1 },
             })
+        }
+    )
+
+    test.each(['trace-1', 'constructor', '__proto__'])(
+        'stepFeedbackOf finds the root %s only when it has feedback',
+        (traceId) => {
+            const traceScore = makeFeedbackScore({ nodeId: null })
+            const withFeedback = toStepFeedback(
+                makeFeedback({ scores: [traceScore], responses: [] }),
+                makeTraceResource().tree,
+                traceId
+            )
+
+            expect(stepFeedbackOf({}, traceId)).toBeNull()
+            expect(stepFeedbackOf(withFeedback, traceId)).toEqual({ scores: [traceScore], textCount: 0 })
         }
     )
 
