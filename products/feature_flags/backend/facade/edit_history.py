@@ -4,6 +4,7 @@ An edit keeps only the values that decide who gets which variant: the variant sp
 flag-level aggregation, and the bucketing settings. Pass them to ``facade.edits`` to learn what the edit did.
 """
 
+from collections.abc import Collection
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -24,6 +25,12 @@ _SETTING_FIELDS = {
     BucketingSetting.BUCKETING_IDENTIFIER: "bucketing_identifier",
     BucketingSetting.EXPERIENCE_CONTINUITY: "ensure_experience_continuity",
 }
+_SERVED_STRING_PATHS = (
+    "multivariate.variants[*].key",
+    "rules[*].value",
+    "rules[*].variants[*].value",
+    "default_value",
+)
 _PROJECTED = (
     "before_variants",
     "after_variants",
@@ -135,25 +142,21 @@ def flag_edits_since(*, team_id: int, feature_flag_id: int, since: datetime, lim
     )
 
 
-def variant_keys_in_edits(*, team_id: int, flag_key: str) -> list[str]:
+def served_strings_in_edits(*, team_id: int, flag_key: str, excluded_flag_ids: Collection[str]) -> list[str]:
+    columns = {f"served_{index}": path for index, path in enumerate(_SERVED_STRING_PATHS)}
     rows = (
         ActivityLog.objects.filter(
             team_id=team_id,
             scope="FeatureFlag",
             detail__contains={"name": flag_key, "changes": [{"field": _FILTERS}]},
         )
-        .order_by("created_at")
-        .annotate(
-            variant_keys=Func(
-                F("detail"),
-                Value(f'$.changes[*] ? (@.field == "{_FILTERS}").*.multivariate.variants[*].key'),
-                function="jsonb_path_query_array",
-                output_field=JSONField(),
-            )
-        )
-        .values_list("variant_keys", flat=True)
+        .exclude(item_id__in=excluded_flag_ids)
+        .annotate(**{column: _changed_strings(_FILTERS, path) for column, path in columns.items()})
+        .order_by()
+        .values_list(*columns)
+        .distinct()
     )
-    return list(dict.fromkeys(key for keys in rows for key in keys if isinstance(key, str) and key))
+    return list(dict.fromkeys(value for row in rows for strings in row for value in strings if value))
 
 
 def _author(*, job_type: str | None, is_system: bool | None, user_id: int | None) -> FlagEditAuthor:
@@ -185,6 +188,15 @@ def _changes_any_field(*fields: str) -> Q:
     for field in fields:
         query |= Q(detail__contains={"changes": [{"field": field}]})
     return query
+
+
+def _changed_strings(field: str, path: str) -> Func:
+    return Func(
+        F("detail"),
+        Value(f'$.changes[*] ? (@.field == "{field}").*.{path} ? (@.type() == "string")'),
+        function="jsonb_path_query_array",
+        output_field=JSONField(),
+    )
 
 
 def _changed(field: str, path: str) -> Func:

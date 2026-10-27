@@ -32,6 +32,22 @@ from posthog.models import Organization, Team
 from products.access_control.backend.facade.testing import create_access_control
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
+
+def variant_filters(*keys: str) -> dict:
+    return {
+        "groups": [{"rollout_percentage": 100}],
+        "multivariate": {"variants": [{"key": key, "rollout_percentage": 100 // len(keys)} for key in keys]},
+    }
+
+
+def string_flag_filters(default_value: str, *rule_values: str) -> dict:
+    rules = [
+        {"id": f"rule-{value}", "rule_type": "targeted_release", "targeting": {"properties": []}, "value": value}
+        for value in rule_values
+    ]
+    return {"version": 2, "return_type": "string", "default_value": default_value, "rules": rules}
+
+
 MULTIVARIATE_FILTERS = {
     "groups": [{"rollout_percentage": 100}],
     "multivariate": {
@@ -177,28 +193,55 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         assert [r.name for r in results] == expected_names
 
-    def test_feature_flag_property_values_keep_variants_from_earlier_flags_with_the_key(self):
-        earlier = FeatureFlag.objects.create(
-            team=self.team, key="beta", created_by=self.user, filters=MULTIVARIATE_FILTERS
-        )
-        earlier.filters = {
-            "groups": [{"rollout_percentage": 100}],
-            "multivariate": {"variants": [{"key": "redesign", "rollout_percentage": 100}]},
-        }
+    @parameterized.expand(
+        [
+            (
+                "variants",
+                MULTIVARIATE_FILTERS,
+                variant_filters("redesign"),
+                variant_filters("fresh"),
+                {"control", "test", "redesign", "fresh"},
+            ),
+            (
+                "string_flag",
+                string_flag_filters("compact"),
+                string_flag_filters("wide", "dense"),
+                string_flag_filters("standard"),
+                {"compact", "wide", "dense", "standard"},
+            ),
+        ]
+    )
+    def test_feature_flag_property_values_keep_values_from_earlier_flags_with_the_key(
+        self, _name, first_filters, edited_filters, current_filters, expected_strings
+    ):
+        earlier = FeatureFlag.objects.create(team=self.team, key="beta", created_by=self.user, filters=first_filters)
+        earlier.filters = edited_filters
         earlier.save()
         earlier.delete()
-        FeatureFlag.objects.create(
-            team=self.team,
-            key="beta",
-            created_by=self.user,
-            filters={
-                "groups": [{"rollout_percentage": 100}],
-                "multivariate": {"variants": [{"key": "fresh", "rollout_percentage": 100}]},
-            },
-        )
+        FeatureFlag.objects.create(team=self.team, key="beta", created_by=self.user, filters=current_filters)
 
         results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="$feature/beta"))
-        assert {r.name for r in results} == {"fresh", "control", "test", "redesign", "true", "false"}
+        assert {r.name for r in results} == {*expected_strings, "true", "false"}
+
+    def test_feature_flag_property_values_skip_history_of_flags_hidden_from_any_member(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        hidden = FeatureFlag.objects.create(
+            team=self.team, key="beta", created_by=self.user, filters=MULTIVARIATE_FILTERS
+        )
+        hidden.filters = variant_filters("secret")
+        hidden.save()
+        hidden.key = "gamma"
+        hidden.save()
+        create_access_control(
+            team_id=self.team.id, resource="feature_flag", access_level="none", resource_id=str(hidden.id)
+        )
+        FeatureFlag.objects.create(team=self.team, key="beta", created_by=self.user, filters=variant_filters("fresh"))
+
+        results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="$feature/beta"))
+        assert [r.name for r in results] == ["fresh", "true", "false"]
 
     def test_feature_flag_property_without_a_flag_in_the_project_uses_events_scan(self):
         other_team = Team.objects.create(organization=Organization.objects.create(name="Other"))
