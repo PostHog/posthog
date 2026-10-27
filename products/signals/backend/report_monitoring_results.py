@@ -13,6 +13,12 @@ from products.signals.backend.report_check_evidence import EvidenceStatus
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_monitoring_attempts import check_definition_version, current_monitoring_attempt
 
+MONITORING_RESULT_ELIGIBLE_STATUSES = (
+    *SignalReportCheck.OPEN_STATUSES,
+    SignalReportCheck.Status.ERRORED,
+    SignalReportCheck.Status.EXPIRED,
+)
+
 
 class InvalidMonitoringResult(ValueError):
     pass
@@ -111,8 +117,8 @@ def save_monitoring_result(evaluation: MonitoringEvaluation) -> SignalReportMoni
         now = timezone.now()
         if not team_report_monitoring_enabled(evaluation.team_id):
             raise InvalidMonitoringResult("Monitoring is disabled.")
-        if check is None or check.status not in SignalReportCheck.OPEN_STATUSES or check.expires_at <= now:
-            raise InvalidMonitoringResult("The check is no longer open and unexpired.")
+        if check is None or check.status not in MONITORING_RESULT_ELIGIBLE_STATUSES:
+            raise InvalidMonitoringResult("The check was cancelled or already completed.")
         if check_definition_version(check) != evaluation.definition_version:
             raise InvalidMonitoringResult("The authored definition changed.")
         if check.soak_minutes is None:
