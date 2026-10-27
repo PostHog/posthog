@@ -12,6 +12,7 @@ from collections import defaultdict
 from datetime import datetime
 from itertools import batched
 from typing import Any
+from uuid import UUID
 
 from django.db.models import Count
 
@@ -151,10 +152,19 @@ def backfill_team_watch_ranks(team_id: int, since: datetime, *, dry_run: bool = 
             ranked += len(written)
             if not dry_run and written:
                 # Only rows still without a current rank, so a rank the consumer wrote meanwhile, with its group, stays.
-                for observation_id, rank in written.items():
-                    ReplayObservation.objects.filter(team_id=team_id, id=observation_id).exclude(
-                        watch_rank__anchor_version=ANCHOR_VERSION
-                    ).update(watch_rank=rank)
+                still_unranked = set(
+                    ReplayObservation.objects.filter(team_id=team_id, id__in=list(written))
+                    .exclude(watch_rank__anchor_version=ANCHOR_VERSION)
+                    .values_list("id", flat=True)
+                )
+                ReplayObservation.objects.bulk_update(
+                    [
+                        ReplayObservation(id=observation_id, watch_rank=rank)
+                        for observation_id, rank in written.items()
+                        if UUID(observation_id) in still_unranked
+                    ],
+                    ["watch_rank"],
+                )
     without_embedding = len(rows) - embedded
     logger.info(
         "replay_vision.watch_rank_backfill.team_done",

@@ -47,9 +47,10 @@ def unpack(data: bytes | memoryview) -> np.ndarray:
 
 def scanner_space(center_sum: np.ndarray, center_count: int, vector: np.ndarray) -> SemanticSpace:
     """The space for one new vector, given the scanner's sum and count before it joins."""
-    centring = center_count >= CENTRE_MIN_MEMBERS
-    mean = (center_sum + vector) / (center_count + 1) if centring else np.zeros_like(vector)
-    return SemanticSpace(vector=vector, mean=mean, centring=centring)
+    mean = (center_sum + vector) / (center_count + 1)
+    # A vector that matches the scanner mean has no direction once centred, so it compares plain like a young scanner.
+    centring = center_count >= CENTRE_MIN_MEMBERS and bool(np.linalg.norm(vector - mean) > 1e-6)
+    return SemanticSpace(vector=vector, mean=mean if centring else np.zeros_like(vector), centring=centring)
 
 
 def nearest_cluster(
