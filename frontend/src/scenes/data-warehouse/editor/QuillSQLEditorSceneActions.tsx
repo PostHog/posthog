@@ -8,7 +8,6 @@ import {
     DropdownMenuContent,
     DropdownMenuGroup,
     DropdownMenuItem,
-    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@posthog/quill'
 
@@ -127,6 +126,19 @@ export function QuillSQLEditorSceneActions({
         </DropdownMenuItem>
     )
 
+    const continueInNotebookButton = (
+        <Button
+            variant="outline"
+            onClick={() => convertToNotebook()}
+            loading={notebooksLoading}
+            disabledReason={continueInNotebookDisabledReason}
+            data-attr="sql-editor-continue-in-notebook-button"
+        >
+            <IconNotebook />
+            Continue in a notebook
+        </Button>
+    )
+
     const legacySaveAsMenuItemsGroup = (
         <DropdownMenuGroup>
             {continueInNotebookMenuItem}
@@ -162,6 +174,7 @@ export function QuillSQLEditorSceneActions({
                 <>
                     {historyButton()}
                     {discardChangesButton}
+                    {saveAsChooserEnabled && continueInNotebookButton}
                     <DropdownMenu onOpenChange={onSaveMenuOpenChange}>
                         <ButtonGroup>
                             <AccessControlAction
@@ -186,15 +199,7 @@ export function QuillSQLEditorSceneActions({
                             className={saveAsChooserEnabled ? 'w-80' : undefined}
                             data-attr={saveAsChooserEnabled ? 'sql-editor-save-as-dialog' : undefined}
                         >
-                            {saveAsChooserEnabled ? (
-                                <>
-                                    {saveAsTargetMenuItems}
-                                    <DropdownMenuSeparator />
-                                    {continueInNotebookMenuItem}
-                                </>
-                            ) : (
-                                legacySaveAsMenuItemsGroup
-                            )}
+                            {saveAsChooserEnabled ? saveAsTargetMenuItems : legacySaveAsMenuItemsGroup}
                         </DropdownMenuContent>
                     </DropdownMenu>
                     <Button
@@ -211,6 +216,7 @@ export function QuillSQLEditorSceneActions({
                 <>
                     {historyButton('sql-editor-insight-history-button')}
                     {discardChangesButton}
+                    {saveAsChooserEnabled && continueInNotebookButton}
                     <DropdownMenu onOpenChange={onSaveMenuOpenChange}>
                         <ButtonGroup>
                             <Button
@@ -231,15 +237,7 @@ export function QuillSQLEditorSceneActions({
                             className={saveAsChooserEnabled ? 'w-80' : undefined}
                             data-attr={saveAsChooserEnabled ? 'sql-editor-save-as-dialog' : undefined}
                         >
-                            {saveAsChooserEnabled ? (
-                                <>
-                                    {saveAsTargetMenuItems}
-                                    <DropdownMenuSeparator />
-                                    {continueInNotebookMenuItem}
-                                </>
-                            ) : (
-                                legacySaveAsMenuItemsGroup
-                            )}
+                            {saveAsChooserEnabled ? saveAsTargetMenuItems : legacySaveAsMenuItemsGroup}
                         </DropdownMenuContent>
                     </DropdownMenu>
                     <Button
@@ -255,6 +253,7 @@ export function QuillSQLEditorSceneActions({
                 </>
             ) : editingMetricName ? (
                 <>
+                    {saveAsChooserEnabled && continueInNotebookButton}
                     <DropdownMenu onOpenChange={onSaveMenuOpenChange}>
                         <ButtonGroup>
                             <Button
@@ -298,18 +297,7 @@ export function QuillSQLEditorSceneActions({
                 </>
             ) : (
                 <>
-                    {saveAsMenuItems.primary.action === 'insight' && (
-                        <Button
-                            variant="outline"
-                            onClick={() => convertToNotebook()}
-                            loading={notebooksLoading}
-                            disabledReason={continueInNotebookDisabledReason}
-                            data-attr="sql-editor-continue-in-notebook-button"
-                        >
-                            <IconNotebook />
-                            Continue in a notebook
-                        </Button>
-                    )}
+                    {(saveAsChooserEnabled || saveAsMenuItems.primary.action === 'insight') && continueInNotebookButton}
                     {saveAsChooserEnabled ? (
                         <DropdownMenu onOpenChange={onSaveMenuOpenChange}>
                             <DropdownMenuTrigger

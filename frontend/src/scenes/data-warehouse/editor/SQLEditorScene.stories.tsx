@@ -215,6 +215,7 @@ const meta: Meta = {
                 '/api/projects/:team_id/query_tab_state/user': [200, { tabs: [] }],
             },
             post: {
+                '/api/projects/:team_id/file_system/home_folder/': { id: 'example-home', path: 'Users/Example' },
                 '/api/environments/:team_id/query/:kind': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
                     const kind = body?.query?.kind
@@ -471,9 +472,11 @@ export const EditedInsight: Story = {
         )
         await waitFor(() => expect(canvas.getByText('Edited')).toBeVisible())
         await expect(canvas.getByRole('button', { name: 'Update insight' })).toHaveAttribute('aria-disabled', 'false')
+        await expect(canvas.getByRole('button', { name: 'Continue in a notebook' })).toBeVisible()
         await userEvent.click(canvasElement.querySelector('[data-attr="sql-editor-save-options-button"]')!)
         const menu = within(canvasElement.ownerDocument.body)
         await menu.findByText('Save query as')
+        await expect(menu.queryByRole('menuitem', { name: 'Continue in a notebook' })).not.toBeInTheDocument()
         await expect(
             canvasElement.ownerDocument.querySelector('[data-attr="sql-editor-save-as-insight"]')
         ).toHaveAttribute('aria-disabled', 'false')

@@ -841,6 +841,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                         History
                                     </LemonButton>
                                     {discardChangesButton}
+                                    {saveAsChooserEnabled && continueInNotebookButton}
                                     <AccessControlAction
                                         resourceType={AccessControlResourceType.WarehouseObjects}
                                         minAccessLevel={AccessControlLevel.Editor}
@@ -864,7 +865,6 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                         <LemonSaveAsMenuContent
                                                             targets={saveAsTargets}
                                                             onSelect={onSaveAsTargetSelect}
-                                                            afterItemSections={[[continueInNotebookMenuItem]]}
                                                         />
                                                     ) : (
                                                         <LemonMenuOverlay
@@ -898,6 +898,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                         History
                                     </LemonButton>
                                     {discardChangesButton}
+                                    {saveAsChooserEnabled && continueInNotebookButton}
                                     <LemonButton
                                         disabledReason={
                                             saveAsInsightDisabledReason ??
@@ -920,7 +921,6 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                     <LemonSaveAsMenuContent
                                                         targets={saveAsTargets}
                                                         onSelect={onSaveAsTargetSelect}
-                                                        afterItemSections={[[continueInNotebookMenuItem]]}
                                                     />
                                                 ) : (
                                                     <LemonMenuOverlay
@@ -944,6 +944,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 </>
                             ) : editingMetricName ? (
                                 <>
+                                    {saveAsChooserEnabled && continueInNotebookButton}
                                     <LemonButton
                                         type="primary"
                                         size="small"
@@ -983,7 +984,8 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                 </>
                             ) : (
                                 <>
-                                    {saveAsMenuItems.primary.action === 'insight' && continueInNotebookButton}
+                                    {(saveAsChooserEnabled || saveAsMenuItems.primary.action === 'insight') &&
+                                        continueInNotebookButton}
                                     {saveAsChooserEnabled ? (
                                         <LemonMenu
                                             items={[
