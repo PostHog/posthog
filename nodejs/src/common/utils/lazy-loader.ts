@@ -183,6 +183,10 @@ export class LazyLoader<T> {
         return await this.loadViaCache(keys, options)
     }
 
+    public peek(key: string): T | null | undefined {
+        return this.cache[key]?.value
+    }
+
     public markForRefresh(key: string | string[]): void {
         for (const k of Array.isArray(key) ? key : [key]) {
             const entry = this.cache[k]

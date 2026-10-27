@@ -11,6 +11,12 @@ import { validTeamIds } from '~/common/utils/team-manager'
 import { Team } from '~/types'
 
 import { EncryptedFields } from '../../utils/encryption-utils'
+import {
+    FINGERPRINT_COLUMN,
+    FingerprintedLoader,
+    fingerprintSql,
+    splitFingerprint,
+} from '../../utils/fingerprinted-loader'
 
 // Nonzero means a flow's encrypted secret inputs couldn't be decrypted (most likely Fernet key skew
 // between Django and the workers, or a corrupt blob). The flow still runs, but its secret-input steps
@@ -52,6 +58,7 @@ export type HogFlowTeamInfo = Pick<HogFlow, 'id' | 'team_id' | 'version'>
 export class HogFlowManagerService {
     private lazyLoader: LazyLoader<HogFlow>
     private lazyLoaderByTeam: LazyLoader<HogFlowTeamInfo[]>
+    private fingerprintedLoader: FingerprintedLoader<HogFlow>
 
     constructor(
         private postgres: PostgresRouter,
@@ -78,10 +85,19 @@ export class HogFlowManagerService {
             loader: async (teamIds) => await this.fetchTeamHogFlows(teamIds),
         })
 
+        // The refresh ages above re-request every hot flow every ~30s on every pod, so refreshes
+        // compare a hash first and download only the rows that changed.
+        this.fingerprintedLoader = new FingerprintedLoader({
+            name: 'hog_flow_manager',
+            peek: (id) => this.lazyLoader.peek(id),
+            fetchFingerprints: async (ids) => await this.fetchHogFlowFingerprints(ids),
+            fetchFull: async (ids) => await this.fetchHogFlows(ids),
+        })
+
         this.lazyLoader = new LazyLoader({
             name: 'hog_flow_manager',
             ...cacheOptions,
-            loader: async (ids) => await this.fetchHogFlows(ids),
+            loader: async (ids) => await this.fingerprintedLoader.load(ids),
         })
 
         this.pubSub.on<{ teamId: Team['id']; hogFlowIds: HogFlow['id'][] }>('reload-hog-flows', (message) => {
@@ -148,6 +164,7 @@ export class HogFlowManagerService {
 
     private onHogFlowsReloaded(teamId: Team['id'], hogFlowIds: HogFlow['id'][]): void {
         this.lazyLoaderByTeam.markForRefresh(teamId.toString())
+        this.fingerprintedLoader.forceFullReload(hogFlowIds)
         this.lazyLoader.markForRefresh(hogFlowIds)
     }
 
@@ -173,19 +190,29 @@ export class HogFlowManagerService {
         return byTeam
     }
 
-    private async fetchHogFlows(ids: string[]): Promise<Record<string, HogFlow | undefined>> {
+    private async fetchHogFlowFingerprints(ids: string[]): Promise<Record<string, string>> {
+        const response = await this.postgres.query<{ id: string; fingerprint: string }>(
+            PostgresUse.COMMON_READ,
+            `SELECT id, ${fingerprintSql(HOG_FLOW_FIELDS)} AS fingerprint FROM posthog_hogflow WHERE id = ANY($1)`,
+            [ids],
+            'fetchHogFlowFingerprints'
+        )
+        return Object.fromEntries(response.rows.map((row) => [row.id, row.fingerprint]))
+    }
+
+    private async fetchHogFlows(ids: string[]): Promise<Record<string, { value: HogFlow; fingerprint: string }>> {
         logger.debug('[HogFlowManager]', 'Fetching hog flows', { ids })
 
-        const response = await this.postgres.query<HogFlow>(
+        const response = await this.postgres.query<HogFlow & { [FINGERPRINT_COLUMN]: string }>(
             PostgresUse.COMMON_READ,
-            `SELECT ${HOG_FLOW_FIELDS.join(', ')} FROM posthog_hogflow WHERE id = ANY($1)`,
+            `SELECT ${HOG_FLOW_FIELDS.join(', ')}, ${fingerprintSql(HOG_FLOW_FIELDS)} AS ${FINGERPRINT_COLUMN}
+             FROM posthog_hogflow WHERE id = ANY($1)`,
             [ids],
             'fetchHogFlows'
         )
 
-        const items = response.rows
-
-        return items.reduce<Record<string, HogFlow | undefined>>((acc, item) => {
+        return response.rows.reduce<Record<string, { value: HogFlow; fingerprint: string }>>((acc, row) => {
+            const { value: item, fingerprint } = splitFingerprint(row)
             // Ensure billable_action_types is properly parsed as an array
             // PostgreSQL might return empty JSON arrays as empty objects
             if (item.billable_action_types !== undefined && item.billable_action_types !== null) {
@@ -203,7 +230,7 @@ export class HogFlowManagerService {
                 }
             }
             this.mergeEncryptedInputs(item)
-            acc[item.id] = item
+            acc[item.id] = { value: item, fingerprint }
             return acc
         }, {})
     }
