@@ -2,10 +2,20 @@ from typing import Any
 
 from posthog.test.base import TestMigrations
 
+from django.db import connection
+
 
 class TestMoveStripeBalanceTransactionOffWebhook(TestMigrations):
     migrate_from = "0187_repin_teamtailor_api_version"
     migrate_to = "0188_move_stripe_balance_transaction_off_webhook"
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        super().tearDownClass()
+        # The base class migrates back to the latest state after Django has closed the
+        # connection, which leaves it open. Close it so later non-DB tests in the same shard
+        # that call close_old_connections() don't hit pytest-django's database blocker.
+        connection.close()
 
     def setUpBeforeMigration(self, apps: Any) -> None:
         ExternalDataSource = apps.get_model("warehouse_sources", "ExternalDataSource")
