@@ -92936,6 +92936,7 @@ export namespace Schemas {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
      */
     export type TaskOriginProductEnum = typeof TaskOriginProductEnum[keyof typeof TaskOriginProductEnum];
 
@@ -92967,6 +92968,7 @@ export namespace Schemas {
       SpaceSetup: 'space_setup',
       BusinessKnowledge: 'business_knowledge',
       MetricsImport: 'metrics_import',
+      KnowledgeWriter: 'knowledge_writer',
     } as const;
 
     /**
@@ -93028,7 +93030,8 @@ export namespace Schemas {
        * * `workflow` - Workflow
        * * `space_setup` - Space Setup
        * * `business_knowledge` - Business Knowledge
-       * * `metrics_import` - Metrics Import */
+       * * `metrics_import` - Metrics Import
+       * * `knowledge_writer` - Knowledge Writer */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -117470,7 +117473,8 @@ export namespace Schemas {
        * * `workflow` - Workflow
        * * `space_setup` - Space Setup
        * * `business_knowledge` - Business Knowledge
-       * * `metrics_import` - Metrics Import */
+       * * `metrics_import` - Metrics Import
+       * * `knowledge_writer` - Knowledge Writer */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -117699,6 +117703,7 @@ export namespace Schemas {
      * * `experiments` - experiments
      * * `hogdesk` - hogdesk
      * * `image_builder` - image_builder
+     * * `knowledge_writer` - knowledge_writer
      * * `loop` - loop
      * * `mcp_analytics` - mcp_analytics
      * * `onboarding` - onboarding
@@ -117729,6 +117734,7 @@ export namespace Schemas {
       Experiments: 'experiments',
       Hogdesk: 'hogdesk',
       ImageBuilder: 'image_builder',
+      KnowledgeWriter: 'knowledge_writer',
       Loop: 'loop',
       McpAnalytics: 'mcp_analytics',
       Onboarding: 'onboarding',
@@ -119164,7 +119170,8 @@ export namespace Schemas {
        * * `workflow` - Workflow
        * * `space_setup` - Space Setup
        * * `business_knowledge` - Business Knowledge
-       * * `metrics_import` - Metrics Import */
+       * * `metrics_import` - Metrics Import
+       * * `knowledge_writer` - Knowledge Writer */
       origin_product?: TaskOriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -138720,6 +138727,7 @@ export namespace Schemas {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
      * @minLength 1
      */
     origin_product?: SandboxCustomImagesListOriginProduct;
@@ -138755,6 +138763,7 @@ export namespace Schemas {
       SpaceSetup: 'space_setup',
       BusinessKnowledge: 'business_knowledge',
       MetricsImport: 'metrics_import',
+      KnowledgeWriter: 'knowledge_writer',
     } as const;
 
     export type SandboxListParams = {
@@ -140180,6 +140189,7 @@ export namespace Schemas {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct;
@@ -140333,6 +140343,7 @@ export namespace Schemas {
       SpaceSetup: 'space_setup',
       BusinessKnowledge: 'business_knowledge',
       MetricsImport: 'metrics_import',
+      KnowledgeWriter: 'knowledge_writer',
     } as const;
 
     export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];
@@ -140369,6 +140380,7 @@ export namespace Schemas {
      * * `experiments` - experiments
      * * `hogdesk` - hogdesk
      * * `image_builder` - image_builder
+     * * `knowledge_writer` - knowledge_writer
      * * `loop` - loop
      * * `mcp_analytics` - mcp_analytics
      * * `onboarding` - onboarding
@@ -140399,6 +140411,7 @@ export namespace Schemas {
       Experiments: 'experiments',
       Hogdesk: 'hogdesk',
       ImageBuilder: 'image_builder',
+      KnowledgeWriter: 'knowledge_writer',
       Loop: 'loop',
       McpAnalytics: 'mcp_analytics',
       Onboarding: 'onboarding',
