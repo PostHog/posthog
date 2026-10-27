@@ -13,26 +13,14 @@ from collections import Counter
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import Any, Literal
-from uuid import UUID
 
 from django.core.cache import cache
-from django.db.models import (
-    Case,
-    CharField,
-    Count,
-    Exists,
-    F,
-    FloatField,
-    Func,
-    IntegerField,
-    Q,
-    QuerySet,
-    Value,
-    When,
-    Window,
-)
+from django.core.exceptions import EmptyResultSet
+from django.db import connections
+from django.db.models import CharField, Count, Exists, F, QuerySet, Value, Window
+from django.db.models.expressions import RawSQL
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Cast, Coalesce, NullIf, RowNumber
+from django.db.models.functions import Coalesce, NullIf, RowNumber
 from django.utils import timezone
 
 import numpy as np
@@ -44,6 +32,7 @@ from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
+from posthog.utils import dict_from_cursor_fetchall
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.embeddings import (
@@ -52,7 +41,12 @@ from products.replay_vision.backend.embeddings import (
     OBSERVATION_SCOPE_PREWHERE,
     observation_scope_params,
 )
-from products.replay_vision.backend.models.replay_observation import ReplayObservation
+from products.replay_vision.backend.models.replay_observation import (
+    ReplayObservation,
+    jsonb_typeof,
+    watch_group_root,
+    watch_rank_contrast,
+)
 from products.replay_vision.backend.scanner_access import accessible_observations
 from products.replay_vision.backend.watch_feed import WATCH_FEED_MIN_ITEMS, WatchFeedEntry, finish_feed
 
@@ -350,19 +344,6 @@ def people_boost(people: int) -> float:
     return min(WATCH_PICK_PEOPLE_BOOST_CAP, 1 + WATCH_PICK_PEOPLE_BOOST * math.log(max(people, 1)))
 
 
-def _is_uuid(value: str) -> bool:
-    try:
-        UUID(value)
-    except ValueError:
-        return False
-    return True
-
-
-def _embedding_group_root() -> Coalesce:
-    """A ranked row's duplicate group: the observation it duplicates, or itself."""
-    return Coalesce(KeyTextTransform("duplicate_of", "watch_rank"), Cast("id", CharField()), output_field=CharField())
-
-
 def _cap_duplicate_groups(rows: list[dict[str, Any]], cap: int) -> dict[Any, dict[str, Any]]:
     """The first `cap` rows, keeping a few per duplicate group so the ranker can still pick a readable, unseen one.
 
@@ -380,6 +361,65 @@ def _cap_duplicate_groups(rows: list[dict[str, Any]], cap: int) -> dict[Any, dic
     return picked
 
 
+def _pick_window_rows(
+    ranked: QuerySet[ReplayObservation], current_ranks: QuerySet[ReplayObservation], limit: int | None
+) -> list[dict[str, Any]]:
+    """Each scanner's top-fifth issue rows in pick order: every scanner's best first, then every second-best.
+
+    A row's percentile needs only its rank from the top and its scanner's row count, so the query counts each
+    scanner on a narrow index and then reads just its top fifth by score, instead of sorting the whole window.
+    """
+    contrast = watch_rank_contrast()
+    scanner_counts = (
+        ranked.values("scanner_id")
+        .annotate(scanner_rows=Count("id"))
+        .filter(scanner_rows__gte=WATCH_PICK_MIN_SCANNER_ROWS)
+        .values("scanner_id", "scanner_rows")
+    )
+    scanner_top = (
+        # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (a fixed column reference to the CTE below)
+        current_ranks.filter(scanner_id=RawSQL('"scanner_counts"."scanner_id"', ()))
+        .annotate(
+            scanner_rank=Window(RowNumber(), order_by=[contrast.desc(), F("id").desc()]),
+            watch_group_root=watch_group_root(),
+            pick_category=F("watch_category"),
+        )
+        .order_by(contrast.desc(), "-id")
+        .values("id", "created_at", "scanner_rank", "watch_group_root", "pick_category")
+    )
+    try:
+        counts_sql, counts_params = scanner_counts.query.sql_with_params()
+        top_sql, top_params = scanner_top.query.sql_with_params()
+    except EmptyResultSet:
+        # Django compiles a filter that can match nothing, such as an empty scanner list, to this.
+        return []
+    # Only fragments written here join the compiled ORM SQL; every value travels as a parameter.
+    sql = f"""
+        WITH scanner_counts AS ({counts_sql})
+        SELECT id, watch_percentile, watch_group_root FROM (
+            SELECT scanner_top.*,
+                ((scanner_counts.scanner_rows - scanner_top.scanner_rank + 1) - 0.5)
+                    / scanner_counts.scanner_rows::double precision AS watch_percentile
+            FROM scanner_counts
+            CROSS JOIN LATERAL ({top_sql} LIMIT floor(scanner_counts.scanner_rows * %s)::int + 1) scanner_top
+        ) picks
+        WHERE pick_category = ANY(%s) AND watch_percentile >= %s
+        ORDER BY scanner_rank, watch_percentile DESC, created_at DESC, id DESC
+        LIMIT %s
+    """
+    params = (
+        *counts_params,
+        *top_params,
+        1 - WATCH_PICK_MIN_PERCENTILE,
+        list(ISSUE_CATEGORIES),
+        WATCH_PICK_MIN_PERCENTILE,
+        limit,
+    )
+    with connections[ranked.db].cursor() as cursor:
+        cursor.execute(sql, params)
+        return dict_from_cursor_fetchall(cursor)
+
+
 def select_embedding_picks(
     walkable: QuerySet[ReplayObservation],
     scanner_ids: list[Any],
@@ -393,53 +433,23 @@ def select_embedding_picks(
     The percentile is taken over every ranked row a scanner has in the window, not over a recency slice, so a
     longer window reaches further back instead of re-ranking the same newest rows.
     """
-    contrast = Cast(KeyTextTransform("contrast", "watch_rank"), FloatField())
-    category = KeyTextTransform("category", "watch_rank")
-    group_root = _embedding_group_root()
-    current_ranks = (
-        walkable.filter(
-            # The explicit null check lets Postgres match the partial `rlo_scanner_ranked_idx`.
-            scanner_id__in=scanner_ids,
-            watch_rank__isnull=False,
-            watch_rank__anchor_version=ANCHOR_VERSION,
-        )
-        .alias(
-            watch_category=category,
-            contrast_type=Func(
-                KeyTransform("contrast", "watch_rank"), function="jsonb_typeof", output_field=CharField()
-            ),
-        )
-        .filter(contrast_type="number")
+    group_root = watch_group_root()
+    ranked = walkable.filter(
+        # The explicit null and anchor checks let Postgres match the partial `rlo_ranked_*` indexes.
+        scanner_id__in=scanner_ids,
+        watch_rank__isnull=False,
+        watch_rank__anchor_version=ANCHOR_VERSION,
     )
-    qualifying = (
-        current_ranks.annotate(
-            scanner_rows=Window(Count("id"), partition_by=[F("scanner_id")]),
-            scanner_position=Window(
-                RowNumber(), partition_by=[F("scanner_id")], order_by=[contrast.asc(), F("id").asc()]
-            ),
-        )
-        .annotate(
-            watch_percentile=(F("scanner_position") - Value(0.5)) / Cast(F("scanner_rows"), FloatField()),
-            # Each scanner's best row ranks 1, so the cap takes every scanner's best before any second-best.
-            scanner_rank=F("scanner_rows") - F("scanner_position") + Value(1),
-            # Reads a window value, so Django filters on it after the windows run rather than before.
-            issue_scanner_rows=Case(
-                When(watch_category__in=ISSUE_CATEGORIES, then=F("scanner_rows")),
-                default=Value(0),
-                output_field=IntegerField(),
-            ),
-            watch_group_root=group_root,
-        )
-        .filter(issue_scanner_rows__gte=WATCH_PICK_MIN_SCANNER_ROWS, watch_percentile__gte=WATCH_PICK_MIN_PERCENTILE)
-        .order_by("scanner_rank", "-watch_percentile", "-created_at", "-id")
-        .values("id", "watch_percentile", "watch_group_root")
-    )
+    current_ranks = ranked.alias(
+        watch_category=KeyTextTransform("category", "watch_rank"),
+        contrast_type=jsonb_typeof(KeyTransform("contrast", "watch_rank")),
+    ).filter(contrast_type="number")
     # Bounds the fetch, since a client-side cursor buffers every row; only a window full of copies needs the rest.
     fetch_limit = cap * (WATCH_PICK_GROUP_CANDIDATES + 1)
-    rows = list(qualifying[:fetch_limit])
+    rows = _pick_window_rows(ranked, current_ranks, fetch_limit)
     window_values = _cap_duplicate_groups(rows, cap)
     if len(window_values) < cap and len(rows) == fetch_limit:
-        window_values = _cap_duplicate_groups(list(qualifying), cap)
+        window_values = _cap_duplicate_groups(_pick_window_rows(ranked, current_ranks, None), cap)
     if not window_values:
         return []
     # Counted over readable rows only, so a group never reveals how many restricted sessions it holds. Duplicates
@@ -451,10 +461,9 @@ def select_embedding_picks(
         for row in accessible_observations(
             access,
             team_id,
-            # Matches the picks' groups on plain columns first, so only their members reach the snapshot gate.
-            current_ranks.filter(
-                Q(id__in=[root for root in roots if _is_uuid(root)]) | Q(watch_rank__duplicate_of__in=list(roots)),
-                watch_category__in=ISSUE_CATEGORIES,
+            # Matches the picks' groups on the indexed group root first, so only their members reach the snapshot gate.
+            current_ranks.alias(member_root=group_root).filter(
+                member_root__in=list(roots), watch_category__in=ISSUE_CATEGORIES
             ),
         )
         .annotate(watch_group_root=group_root)
@@ -490,7 +499,7 @@ def select_embedding_filler(
     """The newest readable rows outside the picks' duplicate groups, unwatched first, enough to bring a thin feed up to its floor."""
     base = (
         accessible_observations(access, team_id, walkable.filter(scanner_id__in=scanner_ids))
-        .annotate(watch_group_root=_embedding_group_root())
+        .annotate(watch_group_root=watch_group_root())
         .exclude(watch_group_root__in=pick_roots)
         .annotate(feed_viewed=viewed)
     )

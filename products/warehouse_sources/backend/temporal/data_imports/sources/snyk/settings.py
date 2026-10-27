@@ -16,6 +16,12 @@ class SnykScope(Enum):
     ORGANIZATION = "organization"
     # Fan out over every organization the token can see (GET /rest/orgs/{org_id}/...).
     PER_ORG = "per_org"
+    # Fan out over the distinct groups of the organizations (GET /rest/groups/{group_id}/...).
+    # Snyk lists groups only on a beta version, so the group ids come from the orgs' ``group_id``.
+    PER_GROUP = "per_group"
+    # Fan out over every collection of every organization
+    # (GET /rest/orgs/{org_id}/collections/{collection_id}/...).
+    PER_COLLECTION = "per_collection"
 
 
 @dataclass
@@ -56,11 +62,11 @@ def _timestamp_incremental_field(field_name: str) -> IncrementalField:
 
 
 # Endpoint catalog. Coverage mirrors the canonical Snyk streams (org inventory, projects,
-# targets, and the high-value issues/findings table).
+# targets, and the high-value issues/findings table), plus memberships and collections.
 #
 # Incremental vs full refresh: only the issues endpoint documents genuine server-side
 # timestamp filters (``updated_after`` / ``created_after``), so only issues is marked
-# incremental. Orgs/projects/targets have no reliable server-side time filter, so they ship
+# incremental. The other endpoints have no reliable server-side time filter, so they ship
 # full refresh and dedupe on their primary key.
 SNYK_ENDPOINTS: dict[str, SnykEndpointConfig] = {
     "organizations": SnykEndpointConfig(
@@ -80,6 +86,32 @@ SNYK_ENDPOINTS: dict[str, SnykEndpointConfig] = {
         scope=SnykScope.PER_ORG,
         path="/orgs/{org_id}/targets",
         primary_keys=["id", "organization_id"],
+    ),
+    "org_memberships": SnykEndpointConfig(
+        name="org_memberships",
+        scope=SnykScope.PER_ORG,
+        path="/orgs/{org_id}/memberships",
+        primary_keys=["id", "organization_id"],
+    ),
+    "group_memberships": SnykEndpointConfig(
+        name="group_memberships",
+        scope=SnykScope.PER_GROUP,
+        path="/groups/{group_id}/memberships",
+        primary_keys=["id", "group_id"],
+    ),
+    "collections": SnykEndpointConfig(
+        name="collections",
+        scope=SnykScope.PER_ORG,
+        path="/orgs/{org_id}/collections",
+        primary_keys=["id", "organization_id"],
+    ),
+    # One row per project in a collection. A project can be in several collections, so the
+    # collection id is part of the key.
+    "collection_projects": SnykEndpointConfig(
+        name="collection_projects",
+        scope=SnykScope.PER_COLLECTION,
+        path="/orgs/{org_id}/collections/{collection_id}/relationships/projects",
+        primary_keys=["id", "collection_id", "organization_id"],
     ),
     "issues": SnykEndpointConfig(
         name="issues",

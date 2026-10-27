@@ -28,6 +28,8 @@ _REPEAT_ENTRY_SECONDS = 7 * 24 * 60 * 60
 # so the draft starts on a random sample that brings the volume down to about this level.
 _SAMPLE_ABOVE_WEEKLY_EVENTS = 50_000
 _SAMPLE_ID = "action_sample"
+_PUSH_TITLE_LIMIT = 65
+PUSH_SETUP_NOTE = "Connect APNs or Firebase, and register device tokens in your app, before you turn this on."
 
 
 @frozen
@@ -48,6 +50,7 @@ class BuildContext:
     once_per_person: bool = False
     event_properties: frozenset[str] = frozenset()
     weekly_count: int = 0
+    push_integration_ids: tuple[int, ...] = ()
 
 
 @frozen
@@ -248,6 +251,8 @@ def _wait_step(step_id: str, next_id: str) -> PlannedStep:
         email_subject=None,
         email_heading=None,
         email_paragraphs=None,
+        push_title=None,
+        push_body=None,
         slack_message=None,
     )
 
@@ -275,7 +280,7 @@ def _build_step(step: PlannedStep, action_id: str, context: BuildContext) -> dic
         case "sms":
             return _action(step, action_id, "function_sms", {"template_id": "template-twilio", "inputs": {}})
         case "push":
-            return _action(step, action_id, "function_push", {"template_id": "template-native-push", "inputs": {}})
+            return _build_push_step(step, action_id, context)
         case "slack":
             return _action(step, action_id, "function", _slack_config(step, context))
         case "function":
@@ -335,6 +340,31 @@ def _wait_config(step: PlannedStep) -> dict[str, Any]:
         "events": [{"name": step.wait_event, "filters": {"events": [event]}}],
         "max_wait_duration": step.duration or _DEFAULT_MAX_WAIT,
     }
+
+
+def _build_push_step(step: PlannedStep, action_id: str, context: BuildContext) -> dict[str, Any] | None:
+    title = with_variables(clean_copy(step.push_title or ""), frozenset())[:_PUSH_TITLE_LIMIT]
+    if not title:
+        return None
+    body = with_variables(clean_copy(step.push_body or ""), context.event_properties, raw=True)
+    action = _action(
+        step,
+        action_id,
+        "function_push",
+        {
+            "template_id": "template-native-push",
+            "inputs": {
+                "distinctId": {"value": "{event.distinct_id}", "templating": "hog"},
+                # Every connected app gets the send, and each person only has a device token on the apps they use.
+                "channels": {"value": list(context.push_integration_ids)},
+                "title": {"value": title, "templating": "hog"},
+                "body": {"value": body, "templating": "liquid"},
+            },
+        },
+    )
+    if not context.push_integration_ids:
+        action["description"] = " ".join(filter(None, [PUSH_SETUP_NOTE, action["description"]]))
+    return action
 
 
 def _build_email_step(step: PlannedStep, action_id: str, context: BuildContext) -> dict[str, Any] | None:
