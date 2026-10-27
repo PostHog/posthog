@@ -34,6 +34,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT, ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
+from products.warehouse_sources.backend.facade.contracts import SourceCredentialsMissingError
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -806,7 +807,12 @@ async def _import_data_with_reporting(
                 source_cursor=source_cursor_manager,
             )
 
-            source_inputs = await SourceInputsStore.aload(model.pipeline)
+            try:
+                source_inputs = await SourceInputsStore.aload(model.pipeline)
+            except SourceCredentialsMissingError as e:
+                await handle_non_retryable_error(
+                    job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id, str(e), logger, e
+                )
             try:
                 config = new_source.parse_config(source_inputs)
             except CredentialsServiceFailure as e:

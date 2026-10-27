@@ -43,6 +43,7 @@ from products.managed_warehouse.backend.facade.temporal import (
     build_register_data_imports_workflow_id,
 )
 from products.warehouse_sources.backend.billing import billed_usage_for_job
+from products.warehouse_sources.backend.facade.contracts import SOURCE_CREDENTIALS_MISSING_ERROR
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     AUTO_DISABLED_JOB_ERROR,
@@ -204,6 +205,12 @@ Any_Source_Errors: dict[str, str | None] = {
     # integration id back at the customer.
     "Integration not found:": MISSING_INTEGRATION_MESSAGE,
     "Missing integration ID": MISSING_INTEGRATION_MESSAGE,
+    # Raised by `SourceInputsStore.load` when a source has no copy of its connection fields in `job_inputs` and
+    # its credentials row is missing or unreadable. A retry reads the same row, so only new credentials help.
+    SOURCE_CREDENTIALS_MISSING_ERROR: (
+        "The saved credentials of this source are missing or cannot be read. Enter the credentials of the "
+        "source again, or reconnect its account, then re-enable the sync."
+    ),
     # A fatal TLS alert from the remote host (raised in the shared HTTP transport for every
     # REST-based source). The server refused the handshake, which is deterministic for a given
     # host/TLS config — retrying replays the identical failure, so it's not transient. Usually a
