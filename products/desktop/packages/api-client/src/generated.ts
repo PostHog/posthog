@@ -234,7 +234,6 @@ export namespace Schemas {
         timings: boolean | null;
         typeAwareCastSimplification: boolean | null;
         useMaterializedViews: boolean | null;
-        useNewEventsCluster: boolean | null;
         useNewEventsSchema: boolean | null;
         usePreaggregatedIntermediateResults: boolean | null;
         usePreaggregatedTableTransforms: boolean | null;
@@ -346,6 +345,7 @@ export namespace Schemas {
          * Warehouse table name that was referenced
          */
         table_name: string;
+        uses_history_table?: (boolean | null) | undefined;
     };
     export type DataWarehouseSyncWarning = {
         data_is_current?: (boolean | null) | undefined;
@@ -1953,6 +1953,7 @@ export namespace Schemas {
         values: Array<PropertyGroupFilterValue>;
     };
     export type BoxPlotDatum = {
+        count?: (number | null) | undefined;
         day: string;
         label: string;
         max: number;
@@ -9588,23 +9589,23 @@ export namespace Schemas {
         value: string;
     };
     /**
+     * * `semver_eq` - semver_eq
+     * * `semver_neq` - semver_neq
      * * `semver_gt` - semver_gt
      * * `semver_gte` - semver_gte
      * * `semver_lt` - semver_lt
      * * `semver_lte` - semver_lte
-     * * `semver_eq` - semver_eq
-     * * `semver_neq` - semver_neq
      * * `semver_tilde` - semver_tilde
      * * `semver_caret` - semver_caret
      * * `semver_wildcard` - semver_wildcard
      */
-    export type FeatureFlagFilterPropertySemverSchemaOperatorEnum =
+    export type SemverOperatorEnum =
+        | "semver_eq"
+        | "semver_neq"
         | "semver_gt"
         | "semver_gte"
         | "semver_lt"
         | "semver_lte"
-        | "semver_eq"
-        | "semver_neq"
         | "semver_tilde"
         | "semver_caret"
         | "semver_wildcard";
@@ -9619,17 +9620,17 @@ export namespace Schemas {
         /**
          * Semantic version comparison operator.
          *
+         * * `semver_eq` - semver_eq
+         * * `semver_neq` - semver_neq
          * * `semver_gt` - semver_gt
          * * `semver_gte` - semver_gte
          * * `semver_lt` - semver_lt
          * * `semver_lte` - semver_lte
-         * * `semver_eq` - semver_eq
-         * * `semver_neq` - semver_neq
          * * `semver_tilde` - semver_tilde
          * * `semver_caret` - semver_caret
          * * `semver_wildcard` - semver_wildcard
          */
-        operator: FeatureFlagFilterPropertySemverSchemaOperatorEnum;
+        operator: SemverOperatorEnum;
         /**
          * Semantic version string.
          */
@@ -15970,6 +15971,10 @@ export namespace Schemas {
          * Mixin for serializers to add user access control fields
          */
         origin_product?: (HogFlowOriginProductEnum | NullEnum) | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        source_record?: (string | null) | undefined;
         created_at: string;
         created_by: UserBasic & unknown;
         updated_at: string;
@@ -22721,6 +22726,7 @@ export namespace Endpoints {
                 optimization_enabled: boolean;
                 origin_product: "broadcasts" | "loops" | "transactional_emails";
                 search: string;
+                source_record: string;
                 status: "active" | "archived" | "draft";
                 tags: string;
                 trigger: string;

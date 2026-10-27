@@ -2808,9 +2808,7 @@ export namespace Schemas {
       /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
       typeAwareCastSimplification?: boolean | null;
       useMaterializedViews?: boolean | null;
-      /** Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported. */
-      useNewEventsCluster?: boolean | null;
-      /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+      /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
       useNewEventsSchema?: boolean | null;
       usePreaggregatedIntermediateResults?: boolean | null;
       /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
@@ -2941,6 +2939,8 @@ export namespace Schemas {
       source_type?: string | null;
       /** Warehouse table name that was referenced */
       table_name: string;
+      /** Whether the query read a history table of this source */
+      uses_history_table?: boolean | null;
     }
 
     export interface DataWarehouseSyncWarning {
@@ -5731,6 +5731,7 @@ export namespace Schemas {
     }
 
     export interface BoxPlotDatum {
+      count?: number | null;
       day: string;
       label: string;
       max: number;
@@ -12287,6 +12288,8 @@ export namespace Schemas {
      * * `escalated_with_best` - escalated_with_best
      * * `escalated_no_reply` - escalated_no_reply
      * * `skipped_unactionable` - skipped_unactionable
+     * * `skipped_team_replied` - skipped_team_replied
+     * * `skipped_channel_excluded` - skipped_channel_excluded
      * * `blocked_unsafe` - blocked_unsafe
      * * `blocked_unsafe_reply` - blocked_unsafe_reply
      * * `clarified` - clarified
@@ -12303,6 +12306,8 @@ export namespace Schemas {
       EscalatedWithBest: 'escalated_with_best',
       EscalatedNoReply: 'escalated_no_reply',
       SkippedUnactionable: 'skipped_unactionable',
+      SkippedTeamReplied: 'skipped_team_replied',
+      SkippedChannelExcluded: 'skipped_channel_excluded',
       BlockedUnsafe: 'blocked_unsafe',
       BlockedUnsafeReply: 'blocked_unsafe_reply',
       Clarified: 'clarified',
@@ -13902,6 +13907,30 @@ export namespace Schemas {
       undo_ops: unknown[];
       /** The config as it now stands */
       marketing_analytics_config: unknown;
+    }
+
+    export interface ApplyUtmDefaultsRequest {
+      /** When true, only count the emails the change would update. Nothing is saved. */
+      dry_run?: boolean;
+      /** Also turn UTM tags on in emails that have them off. Off by default, so those emails keep sending untagged links. */
+      enable_where_off?: boolean;
+    }
+
+    export interface ApplyUtmDefaultsResponse {
+      /** Email steps that get (or would get) the team defaults. */
+      emails_updated: number;
+      /** Workflows and broadcasts that contain those email steps. */
+      workflows_updated: number;
+      /** Of those, the ones that are live, so their next send uses the new values. */
+      active_workflows_updated: number;
+      /** Email steps where UTM tags get (or would get) turned on. */
+      emails_turned_on: number;
+      /** Email steps in scope that have UTM tags off. enable_where_off turns them on. */
+      emails_off: number;
+      /** Workflows with emails to update that you can't edit. They keep their old values. */
+      workflows_without_access: number;
+      /** Workflows that could not be saved, for example because they fail validation. They keep their old values. */
+      workflows_failed: number;
     }
 
     export interface ApprovalPolicy {
@@ -29827,10 +29856,10 @@ export namespace Schemas {
          */
       unit?: string;
       /**
-         * Email of the human accountable for this metric, or null.
+         * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
          * @nullable
          */
-      readonly owner: string | null;
+      owner?: string | null;
       /**
          * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
          * @nullable
@@ -29917,6 +29946,34 @@ export namespace Schemas {
     }
 
     /**
+     * Outcome of a bulk owner change: what changed, and what was left alone.
+     */
+    export interface DataCatalogMetricBulkChangeOwner {
+      /** The metrics that now have the new owner, freshly serialized. */
+      updated: DataCatalogMetric[];
+      /** Requested metrics whose owner did not change, with reasons. */
+      skipped: DataCatalogMetricBulkSkip[];
+    }
+
+    /**
+     * Input for giving many metrics one owner.
+     */
+    export interface DataCatalogMetricBulkChangeOwnerRequest {
+      /**
+         * Names of the metrics to act on, at most 100. Duplicates are collapsed.
+         * @minItems 1
+         * @maxItems 100
+         * @items.maxLength 128
+         */
+      names: string[];
+      /**
+         * Email of the member of this organization who becomes the owner of every named metric, or null to clear the owner. Changing the owner keeps each metric's approval.
+         * @nullable
+         */
+      owner: string | null;
+    }
+
+    /**
      * Outcome of a bulk delete: which names are gone, and what was left alone.
      */
     export interface DataCatalogMetricBulkDelete {
@@ -29972,10 +30029,10 @@ export namespace Schemas {
          */
       unit?: string;
       /**
-         * Email of the human accountable for this metric, or null.
+         * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
          * @nullable
          */
-      readonly owner: string | null;
+      owner?: string | null;
       /**
          * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
          * @nullable
@@ -44086,6 +44143,8 @@ export namespace Schemas {
          * @nullable
          */
       per_issue_rate_limit_bucket_size_minutes?: number | null;
+      /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
+      ingestion_enabled?: boolean;
     }
 
     /**
@@ -46463,26 +46522,26 @@ export namespace Schemas {
     }
 
     /**
+     * * `semver_eq` - semver_eq
+     * * `semver_neq` - semver_neq
      * * `semver_gt` - semver_gt
      * * `semver_gte` - semver_gte
      * * `semver_lt` - semver_lt
      * * `semver_lte` - semver_lte
-     * * `semver_eq` - semver_eq
-     * * `semver_neq` - semver_neq
      * * `semver_tilde` - semver_tilde
      * * `semver_caret` - semver_caret
      * * `semver_wildcard` - semver_wildcard
      */
-    export type FeatureFlagFilterPropertySemverSchemaOperatorEnum = typeof FeatureFlagFilterPropertySemverSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertySemverSchemaOperatorEnum];
+    export type SemverOperatorEnum = typeof SemverOperatorEnum[keyof typeof SemverOperatorEnum];
 
 
-    export const FeatureFlagFilterPropertySemverSchemaOperatorEnum = {
+    export const SemverOperatorEnum = {
+      SemverEq: 'semver_eq',
+      SemverNeq: 'semver_neq',
       SemverGt: 'semver_gt',
       SemverGte: 'semver_gte',
       SemverLt: 'semver_lt',
       SemverLte: 'semver_lte',
-      SemverEq: 'semver_eq',
-      SemverNeq: 'semver_neq',
       SemverTilde: 'semver_tilde',
       SemverCaret: 'semver_caret',
       SemverWildcard: 'semver_wildcard',
@@ -46509,16 +46568,16 @@ export namespace Schemas {
       group_type_index?: number | null;
       /** Semantic version comparison operator.
        *
+       * * `semver_eq` - semver_eq
+       * * `semver_neq` - semver_neq
        * * `semver_gt` - semver_gt
        * * `semver_gte` - semver_gte
        * * `semver_lt` - semver_lt
        * * `semver_lte` - semver_lte
-       * * `semver_eq` - semver_eq
-       * * `semver_neq` - semver_neq
        * * `semver_tilde` - semver_tilde
        * * `semver_caret` - semver_caret
        * * `semver_wildcard` - semver_wildcard */
-      operator: FeatureFlagFilterPropertySemverSchemaOperatorEnum;
+      operator: SemverOperatorEnum;
       /** Semantic version string. */
       value: string;
     }
@@ -55959,6 +56018,55 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    /**
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `no_data` - No data
+     * * `report_created` - Report created
+     * * `insufficient_data` - Insufficient data
+     * * `no_actionable_finding` - No actionable finding
+     * * `incomplete` - Incomplete
+     */
+    export type FirstReportStatusEnum = typeof FirstReportStatusEnum[keyof typeof FirstReportStatusEnum];
+
+
+    export const FirstReportStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      NoData: 'no_data',
+      ReportCreated: 'report_created',
+      InsufficientData: 'insufficient_data',
+      NoActionableFinding: 'no_actionable_finding',
+      Incomplete: 'incomplete',
+    } as const;
+
+    export interface FirstReportState {
+      /** Scout run ID for inspecting the investigation through the scout API. */
+      scout_run_id?: string;
+      /** Task ID for following the investigation's live activity. */
+      task_id?: string;
+      /** Task run ID for following the investigation's live activity. */
+      task_run_id?: string;
+      /** When the investigation's task run started. */
+      started_at?: string;
+      /** Progress of the first investigation.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `no_data` - No data
+       * * `report_created` - Report created
+       * * `insufficient_data` - Insufficient data
+       * * `no_actionable_finding` - No actionable finding
+       * * `incomplete` - Incomplete */
+      status: FirstReportStatusEnum;
+      /** The first useful report produced by the investigation. */
+      report_id?: string;
+      /** Products checked during the investigation. */
+      checked_products?: string[];
+      /** Data or history needed for a reliable finding. */
+      missing_data?: string[];
+    }
+
     export type FlagEvaluationsModeEnum = typeof FlagEvaluationsModeEnum[keyof typeof FlagEvaluationsModeEnum];
 
 
@@ -57615,6 +57723,44 @@ export namespace Schemas {
       snoozed: HealthIssueCounts;
     }
 
+    export interface HealthRow {
+      /**
+         * Requests per second over the window.
+         * @nullable
+         */
+      request_rate: number | null;
+      /**
+         * Share of requests with an error status, 0 to 1.
+         * @nullable
+         */
+      error_rate: number | null;
+      /**
+         * 95th percentile request duration in milliseconds.
+         * @nullable
+         */
+      p95_ms: number | null;
+      /** Requests counted in the window. */
+      span_count: number;
+      /** Requests with an error status in the window. */
+      error_count: number;
+    }
+
+    /**
+     * * `good` - Good
+     * * `warning` - Warning
+     * * `serious` - Serious
+     * * `critical` - Critical
+     */
+    export type HealthStatusEnum = typeof HealthStatusEnum[keyof typeof HealthStatusEnum];
+
+
+    export const HealthStatusEnum = {
+      Good: 'good',
+      Warning: 'warning',
+      Serious: 'serious',
+      Critical: 'critical',
+    } as const;
+
     export interface HeatmapCapturePage {
       /** A page URL that currently sends heatmap data. */
       url: string;
@@ -58640,6 +58786,13 @@ export namespace Schemas {
        * * `broadcasts` - Broadcasts
        * * `transactional_emails` - Transactional emails */
       origin_product?: HogFlowOriginProductEnum | null;
+      /**
+         * The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`.
+         * @maxLength 255
+         * @nullable
+         * @pattern ^[a-z_]+:[A-Za-z0-9_-]+$
+         */
+      source_record?: string | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
       readonly updated_at: string;
@@ -63876,7 +64029,7 @@ export namespace Schemas {
     } as const;
 
     export interface InboxOnboardingJobs {
-      /** Dispatch status of the first general scout run.
+      /** Dispatch status of the first-report scout run.
        *
        * * `pending` - Pending
        * * `started` - Started
@@ -63893,6 +64046,15 @@ export namespace Schemas {
     }
 
     export interface InboxOnboardingState {
+      /** Whether the current user can receive an in-app notification when this investigation finishes. */
+      first_report_completion_notification?: boolean;
+      /**
+         * The current user's email when enrolled for a first-report notification.
+         * @nullable
+         */
+      first_report_notification_email?: string | null;
+      /** First investigation outcome. */
+      first_report?: FirstReportState | null;
       /** Background work started by quick activation. */
       jobs?: InboxOnboardingJobs;
       /** Saved setup choices, without activating them. */
@@ -64431,16 +64593,18 @@ export namespace Schemas {
       depth?: InsightDataChecksDepthEnum;
     }
 
+    /**
+     * The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API.
+     */
+    export type InsightPlatformAlertConditionDetector = { [key: string]: unknown } | null;
+
     export interface InsightPlatformAlertCondition {
       /** The bounds the insight's value is checked against, absolute or as a percentage change. */
       threshold: InsightThreshold | null;
       /** How the value is compared: as it is, or as an increase or decrease from the previous interval. */
       comparison: AlertCondition;
-      /**
-         * Always null. The platform owns threshold alerts only, so no detector applies.
-         * @nullable
-         */
-      detector?: null;
+      /** The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API. */
+      detector?: InsightPlatformAlertConditionDetector;
     }
 
     /**
@@ -65144,6 +65308,12 @@ export namespace Schemas {
     export interface ItemSubmission {
       /** Caller-generated UUID for one input/output execution. Reuse for exact retries. */
       id: string;
+      /**
+         * Model used for this item. Omitted or null values inherit the experiment's model.
+         * @maxLength 255
+         * @nullable
+         */
+      model_version?: string | null;
       /**
          * Stable case identifier for matching inputs across experiments.
          * @maxLength 255
@@ -73952,6 +74122,11 @@ export namespace Schemas {
     }
 
     export interface OfflineHistoryPoint {
+      /**
+         * Breakdown value for this summary; null when unspecified or no breakdown is selected.
+         * @nullable
+         */
+      breakdown_value?: string | null;
       /** Experiment execution and cohort context. */
       experiment: OfflineExperimentRead;
       /** Complete summary for one experiment and scorer version. */
@@ -74031,6 +74206,11 @@ export namespace Schemas {
     }
 
     export interface OfflineItemRead {
+      /**
+         * Model used for the item, falling back to the experiment's model.
+         * @nullable
+         */
+      model_version?: string | null;
       /** Stable item UUID. */
       id: string;
       /** Owning experiment UUID. */
@@ -77840,9 +78020,9 @@ export namespace Schemas {
          * @nullable
          */
       readonly estimated_monthly_credits: number | null;
-      /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+      /** Credits billed for this scanner's observations created in the current billing period (1 credit = $0.01), each at the price frozen when it succeeded. Deleted observations still count. */
       readonly credits_this_month: number;
-      /** Succeeded observations this scanner produced in the current billing period. */
+      /** Billed observations this scanner created in the current billing period, including deleted ones. */
       readonly observations_this_month: number;
       /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the organization's free credits, this is the organization's usage, not the scanner's own. */
       readonly credits_used_against_limit: number;
@@ -81663,7 +81843,7 @@ export namespace Schemas {
        * * `on-track` - on-track
        * * `all` - all */
       sla?: TicketSlaFilterEnum;
-      /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress. */
+      /** AI triage outcomes to include. 'in_progress' matches tickets still being triaged. Valid values: persisted, suggested, escalated_with_findings, escalated_with_best, escalated_no_reply, skipped_unactionable, skipped_team_replied, skipped_channel_excluded, blocked_unsafe, blocked_unsafe_reply, clarified, suggested_clarification, in_progress. */
       aiTriageResult?: AiTriageResultEnum[];
       /** Assignees to match (any of): 'unassigned', 'me' (resolved to the requesting user), or an object with type ('user' or 'role') and id. Send a list. Views saved earlier can hold a single value instead of a list, or the value 'all'. Wrap a single value in a list, and replace 'all' with an empty list to apply no assignee filter. */
       assignee?: TicketViewFiltersAssigneeItem[];
@@ -83824,7 +84004,10 @@ export namespace Schemas {
     }
 
     export interface PatchedAddPersonsToStaticCohortRequest {
-      /** List of person UUIDs to add to the cohort */
+      /**
+         * Person UUIDs to add to the cohort (the `id` column of the persons table, not distinct IDs). At most 1000 per request.
+         * @maxItems 1000
+         */
       person_ids?: string[];
     }
 
@@ -84975,10 +85158,10 @@ export namespace Schemas {
          */
       unit?: string;
       /**
-         * Email of the human accountable for this metric, or null.
+         * Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval.
          * @nullable
          */
-      readonly owner?: string | null;
+      owner?: string | null;
       /**
          * Machine-readable query. Omit for a name+description-only stub. Stored upgrade-canonical.
          * @nullable
@@ -85853,6 +86036,8 @@ export namespace Schemas {
          * @nullable
          */
       per_issue_rate_limit_bucket_size_minutes?: number | null;
+      /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
+      ingestion_enabled?: boolean;
     }
 
     /**
@@ -89044,7 +89229,7 @@ export namespace Schemas {
        * * `opt_out` - Opt Out
        * * `opt_in` - Opt In */
       email_tracking_consent_mode?: EmailTrackingConsentModeEnum;
-      /** Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails keep their current values. */
+      /** Whether new email steps and broadcasts start with UTM tags on their links. Each email can still change it. Existing emails change only through apply_utm_defaults. */
       email_utm_tags_enabled?: boolean;
       /** Default UTM values that new email steps and broadcasts copy. An empty value keeps the built-in default for that tag. */
       email_utm_params?: EmailUtmParams;
@@ -90223,9 +90408,9 @@ export namespace Schemas {
          * @nullable
          */
       readonly estimated_monthly_credits?: number | null;
-      /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+      /** Credits billed for this scanner's observations created in the current billing period (1 credit = $0.01), each at the price frozen when it succeeded. Deleted observations still count. */
       readonly credits_this_month?: number;
-      /** Succeeded observations this scanner produced in the current billing period. */
+      /** Billed observations this scanner created in the current billing period, including deleted ones. */
       readonly observations_this_month?: number;
       /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the organization's free credits, this is the organization's usage, not the scanner's own. */
       readonly credits_used_against_limit?: number;
@@ -90538,6 +90723,24 @@ export namespace Schemas {
     export interface PatchedReviewValidatorConfigSelect {
       /** Set true to make this the single validator that runs on the user's PR reviews. Only true is accepted — validators are single-active, so you switch by selecting a different one, not by deactivating the current one. */
       active?: boolean;
+    }
+
+    export interface PatchedReviewerExclusionUpdate {
+      /**
+         * Repository in `owner/name` form. Leave empty to cover every repository.
+         * @maxLength 200
+         */
+      repository?: string;
+      /**
+         * Path inside the repository, such as `src/billing`. Needs a repository.
+         * @maxLength 500
+         */
+      path_prefix?: string;
+      /**
+         * New text for the instruction.
+         * @maxLength 2000
+         */
+      instruction?: string;
     }
 
     export type PatchedRoleMembersItem = { [key: string]: unknown };
@@ -102669,6 +102872,7 @@ export namespace Schemas {
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
      * * `suggested_prompt` - Suggested prompt
+     * * `ask` - Ask
      */
     export type ReportTaskActionKindEnum = typeof ReportTaskActionKindEnum[keyof typeof ReportTaskActionKindEnum];
 
@@ -102677,6 +102881,7 @@ export namespace Schemas {
       GetItMerged: 'get_it_merged',
       MakeItGreen: 'make_it_green',
       SuggestedPrompt: 'suggested_prompt',
+      Ask: 'ask',
     } as const;
 
     /**
@@ -103047,20 +103252,6 @@ export namespace Schemas {
          */
       agent_response?: string;
     }
-
-    /**
-     * * `accepted` - accepted
-     * * `target_finished` - target_finished
-     * * `rejected` - rejected
-     */
-    export type ResultEnum = typeof ResultEnum[keyof typeof ResultEnum];
-
-
-    export const ResultEnum = {
-      Accepted: 'accepted',
-      TargetFinished: 'target_finished',
-      Rejected: 'rejected',
-    } as const;
 
     export interface ResultReceipt {
       /** Accepted item UUID. */
@@ -104750,6 +104941,79 @@ export namespace Schemas {
       Replace: 'replace',
       Confirm: 'confirm',
     } as const;
+
+    /**
+     * * `active` - Active
+     * * `revoked` - Revoked
+     */
+    export type SignalReviewerExclusionStatusEnum = typeof SignalReviewerExclusionStatusEnum[keyof typeof SignalReviewerExclusionStatusEnum];
+
+
+    export const SignalReviewerExclusionStatusEnum = {
+      Active: 'active',
+      Revoked: 'revoked',
+    } as const;
+
+    export interface ReviewerExclusion {
+      /** Identifier of the instruction. */
+      readonly id: string;
+      /** Repository in `owner/name` form that the instruction covers. Empty covers every one. */
+      readonly repository: string;
+      /** Path inside the repository that the instruction covers. Empty covers the repository. */
+      readonly path_prefix: string;
+      /** Why the member stays off this area. */
+      readonly instruction: string;
+      /** `active` instructions apply to automatic reviewer selection. `revoked` instructions do not.
+       *
+       * * `active` - Active
+       * * `revoked` - Revoked */
+      readonly status: SignalReviewerExclusionStatusEnum;
+      /** Increases by one at each change. */
+      readonly revision: number;
+      /** When the member saved the instruction. */
+      readonly created_at: string;
+      /** When the instruction last changed. */
+      readonly updated_at: string;
+    }
+
+    export interface ReviewerExclusionCreate {
+      /**
+         * Repository in `owner/name` form. Leave empty to cover every repository.
+         * @maxLength 200
+         */
+      repository?: string;
+      /**
+         * Path inside the repository, such as `src/billing`. Needs a repository.
+         * @maxLength 500
+         */
+      path_prefix?: string;
+      /**
+         * Why you stay off this area, for the people who read it later.
+         * @maxLength 2000
+         */
+      instruction: string;
+      /** Optional report to take you off first. The report removal and the instruction save are separate steps. */
+      report_id?: string;
+    }
+
+    export interface ReviewerExclusionCreateResult {
+      /** True only when the instruction is saved. Only then does it keep you off automatic selection. */
+      instruction_saved: boolean;
+      /**
+         * True when the report removal succeeded. Null when no report was given.
+         * @nullable
+         */
+      report_removed: boolean | null;
+      /** The saved instruction, or null. */
+      exclusion: ReviewerExclusion | null;
+      /** What happened, and what to do next. */
+      detail: string;
+    }
+
+    export interface ReviewerExclusionError {
+      /** Why the request failed. */
+      detail: string;
+    }
 
     export interface RevokeOtherSessionsResponse {
       /** Number of other login sessions that were revoked. */
@@ -107874,6 +108138,24 @@ export namespace Schemas {
       policies?: ToolPolicyEntry[];
     }
 
+    export interface ServiceHealth {
+      /** The service.name resource attribute. */
+      service_name: string;
+      /** The environment the row was computed for. */
+      environment: string;
+      /** Health band from the error rate.
+       *
+       * * `good` - Good
+       * * `warning` - Warning
+       * * `serious` - Serious
+       * * `critical` - Critical */
+      status: HealthStatusEnum;
+      /** The health row every surface renders. */
+      health: HealthRow;
+      /** Request counts per bucket across the window, oldest first. */
+      sparkline: number[];
+    }
+
     /**
      * * `none` - None
      * * `previous_period` - Previous Period
@@ -108130,6 +108412,19 @@ export namespace Schemas {
       truncated: boolean;
       /** Caveats about this result. */
       notes: string[];
+    }
+
+    export interface ServicesHealthResponse {
+      /** One row per service, worst status first. */
+      results: ServiceHealth[];
+      /** Environments seen in the window. */
+      environments: string[];
+      /** The environment the rows were computed for. */
+      environment: string;
+      /** Start of the window used. */
+      date_from: string;
+      /** End of the window used. */
+      date_to: string;
     }
 
     export interface SessionRecordingBulkDeleteRequest {
@@ -108988,7 +109283,8 @@ export namespace Schemas {
        *
        * * `get_it_merged` - Get it merged
        * * `make_it_green` - Make it green
-       * * `suggested_prompt` - Suggested prompt */
+       * * `suggested_prompt` - Suggested prompt
+       * * `ask` - Ask */
       action: ReportTaskActionKindEnum;
       /** Whether a run of this action can start now. */
       available: boolean;
@@ -109023,17 +109319,23 @@ export namespace Schemas {
     }
 
     export interface SignalReportTaskActionRunRequest {
-      /** The action to run. Use a value from the actions list.
+      /** The action to run. Use a value from the actions list, or `ask` to send your own `message`.
        *
        * * `get_it_merged` - Get it merged
        * * `make_it_green` - Make it green
-       * * `suggested_prompt` - Suggested prompt */
+       * * `suggested_prompt` - Suggested prompt
+       * * `ask` - Ask */
       action: ReportTaskActionKindEnum;
       /**
          * Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.
          * @minimum 0
          */
       suggested_prompt_index?: number;
+      /**
+         * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged` and `make_it_green`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
+         * @maxLength 2000
+         */
+      message?: string;
     }
 
     export interface SignalReportTaskActionRunResponse {
@@ -109665,6 +109967,11 @@ export namespace Schemas {
          * @nullable
          */
       readonly updated_at: string | null;
+      /**
+         * Until when the previous secret keeps verifying after a rotation, or null when no grace window is active.
+         * @nullable
+         */
+      readonly previous_secret_valid_until: string | null;
     }
 
     export interface SlackChannel {
@@ -115301,70 +115608,6 @@ export namespace Schemas {
     }
 
     /**
-     * Body of POST /vision/scanners/suggest_tags/ — the classifier config currently being edited.
-     */
-    export interface SuggestTagsRequest {
-      /**
-         * The classifier's instruction prompt — the single dimension to categorize sessions by.
-         * @maxLength 10000
-         */
-      prompt: string;
-      /**
-         * The categories already configured, so suggestions never duplicate one the user has.
-         * @maxItems 200
-         * @items.maxLength 200
-         */
-      tags?: string[];
-      /** Whether the classifier assigns multiple tags per session. */
-      multi_label?: boolean;
-      /** Whether the classifier may emit tags outside the fixed vocabulary. */
-      allow_freeform_tags?: boolean;
-      /**
-         * Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner.
-         * @nullable
-         */
-      scanner_id?: string | null;
-    }
-
-    /**
-     * * `observed` - observed
-     * * `product` - product
-     * * `prompt` - prompt
-     */
-    export type TagSuggestionSourceEnum = typeof TagSuggestionSourceEnum[keyof typeof TagSuggestionSourceEnum];
-
-
-    export const TagSuggestionSourceEnum = {
-      Observed: 'observed',
-      Product: 'product',
-      Prompt: 'prompt',
-    } as const;
-
-    /**
-     * One grounded tag suggestion.
-     */
-    export interface TagSuggestion {
-      /** Suggested tag to add to the vocabulary, normalized to lowercase. */
-      tag: string;
-      /** One sentence explaining the specific evidence this tag is grounded in. */
-      rationale: string;
-      /** Primary grounding: observed=a category this scanner already emitted on recordings; product=the org's events/screens; prompt=the scanner's stated goal.
-       *
-       * * `observed` - observed
-       * * `product` - product
-       * * `prompt` - prompt */
-      source: TagSuggestionSourceEnum;
-    }
-
-    /**
-     * Grounded tag suggestions for the classifier config editor.
-     */
-    export interface SuggestTagsResponse {
-      /** Suggested tags to add, most relevant first. May be empty when the evidence is too thin. */
-      suggestions: TagSuggestion[];
-    }
-
-    /**
      * * `trace` - trace
      * * `event` - event
      */
@@ -117707,84 +117950,6 @@ export namespace Schemas {
     export interface TaskRunLivingArtifactsResponse {
       /** Living artifacts for this task run. */
       artifacts: TaskRunLivingArtifactResponse[];
-    }
-
-    /**
-     * One peer agent run visible to the requesting run (agent peer messaging).
-     */
-    export interface TaskRunPeer {
-      /** The peer run's id — the address send_agent_message targets. */
-      run_id: string;
-      /** Id of the peer run's parent task. */
-      task_id: string;
-      /** Title of the peer run's parent task. */
-      task_title: string;
-      /**
-         * Email of the user whose task the peer run belongs to.
-         * @nullable
-         */
-      created_by_email: string | null;
-      /** Agent runtime of the peer run's task (e.g. 'pi'). */
-      runtime: string;
-      /**
-         * Model the peer run was started with, when recorded.
-         * @nullable
-         */
-      model: string | null;
-      /**
-         * Repository the peer run works on, or null for repo-less (channel-mode) runs.
-         * @nullable
-         */
-      repository: string | null;
-      /**
-         * Current stage of the peer run (e.g. 'build').
-         * @nullable
-         */
-      stage: string | null;
-      /** Run status: 'in_progress' or 'queued' (only these are listed). */
-      status: string;
-      /** Whether the peer accepts messages right now. Only in-progress runs are sendable; a queued run is listed but its workflow may not exist yet. Never infer sendability from status labels. */
-      sendable: boolean;
-      /**
-         * ISO-8601 timestamp of the peer run's last update.
-         * @nullable
-         */
-      updated_at: string | null;
-    }
-
-    export interface TaskRunPeerMessageRequest {
-      /**
-         * Plain-text message body (max 16000 chars). Delivered to the peer below a server-composed provenance envelope; send short summaries, never raw file dumps — use artifact_ids for files.
-         * @maxLength 16000
-         */
-      content: string;
-      /**
-         * Manifest ids of artifacts on the SENDING run to share (max 10). Each is copied into the target run's own artifact storage; the receiver gets an immutable snapshot.
-         * @maxItems 10
-         * @items.maxLength 128
-         */
-      artifact_ids?: string[];
-    }
-
-    export interface TaskRunPeerMessageResponse {
-      /** Send outcome: 'accepted' (queued for delivery — not a delivery confirmation), 'target_finished' (the peer's workflow is gone), or 'rejected' (throttled or invalid).
-       *
-       * * `accepted` - accepted
-       * * `target_finished` - target_finished
-       * * `rejected` - rejected */
-      result: ResultEnum;
-      /** Human-readable explanation of the result. */
-      detail: string;
-      /**
-         * Id of the recorded peer message, when one was created for this send.
-         * @nullable
-         */
-      message_id?: string | null;
-    }
-
-    export interface TaskRunPeersResponse {
-      /** Active agent runs the requesting run may message, most recently updated first. */
-      peers: TaskRunPeer[];
     }
 
     export interface TaskRunPostHogReference {
@@ -127733,6 +127898,17 @@ export namespace Schemas {
      */
     application_version?: string;
     /**
+     * Split history by this property. Model uses each item's model, falling back to the experiment's model.
+     *
+     * * `model_version` - Model
+     * * `prompt_version` - Prompt version
+     * * `application_version` - Application version
+     * * `suite_key` - Suite
+     * * `run_source` - Run source
+     * @minLength 1
+     */
+    breakdown?: AiObservabilityOfflineScorersHistoryListBreakdown;
+    /**
      * Filter experiments by the author's user ID.
      * @minimum 1
      */
@@ -127835,6 +128011,17 @@ export namespace Schemas {
     tags?: string;
     };
 
+    export type AiObservabilityOfflineScorersHistoryListBreakdown = typeof AiObservabilityOfflineScorersHistoryListBreakdown[keyof typeof AiObservabilityOfflineScorersHistoryListBreakdown];
+
+
+    export const AiObservabilityOfflineScorersHistoryListBreakdown = {
+      ModelVersion: 'model_version',
+      PromptVersion: 'prompt_version',
+      ApplicationVersion: 'application_version',
+      SuiteKey: 'suite_key',
+      RunSource: 'run_source',
+    } as const;
+
     export type AiObservabilityOfflineScorersHistoryListTagMatch = typeof AiObservabilityOfflineScorersHistoryListTagMatch[keyof typeof AiObservabilityOfflineScorersHistoryListTagMatch];
 
 
@@ -127931,6 +128118,23 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ApmServicesListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string;
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
+     * @minLength 1
+     * @maxLength 200
+     */
+    environment?: string;
     };
 
     export type ApprovalPoliciesListParams = {
@@ -128964,7 +129168,7 @@ export namespace Schemas {
 
     export type ConversationsTicketsListParams = {
     /**
-     * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `suggested`, `escalated_with_findings`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `blocked_unsafe`, `blocked_unsafe_reply`, `clarified`, `suggested_clarification`, `in_progress`.
+     * Filter by AI triage outcome. Accepts a single value or a comma-separated list. Valid values: `persisted`, `suggested`, `escalated_with_findings`, `escalated_with_best`, `escalated_no_reply`, `skipped_unactionable`, `skipped_team_replied`, `skipped_channel_excluded`, `blocked_unsafe`, `blocked_unsafe_reply`, `clarified`, `suggested_clarification`, `in_progress`.
      */
     ai_triage_result?: string;
     /**
@@ -130156,6 +130360,48 @@ export namespace Schemas {
       PosthogTable: 'posthog_table',
       Table: 'table',
       View: 'view',
+    } as const;
+
+    export type DataQualityChecksSubjectsListParams = {
+    /**
+     * Set to false to return an empty columns map for every subject. Use it to find a subject id without reading every column schema.
+     */
+    include_columns?: boolean;
+    /**
+     * Maximum number of subjects to return. Omit to return every match.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * Number of matching subjects to skip. Subjects are sorted by subject_type, then name. When a response has limit rows, call again with offset increased by limit to read the next page.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Return only subjects whose name or display name contains this text, ignoring case.
+     */
+    search?: string;
+    /**
+     * Return only subjects of this kind: 'table', 'view', 'metric', or 'posthog_table'.
+     *
+     * * `table` - table
+     * * `view` - view
+     * * `metric` - metric
+     * * `posthog_table` - posthog_table
+     * @minLength 1
+     */
+    subject_type?: DataQualityChecksSubjectsListSubjectType;
+    };
+
+    export type DataQualityChecksSubjectsListSubjectType = typeof DataQualityChecksSubjectsListSubjectType[keyof typeof DataQualityChecksSubjectsListSubjectType];
+
+
+    export const DataQualityChecksSubjectsListSubjectType = {
+      Table: 'table',
+      View: 'view',
+      Metric: 'metric',
+      PosthogTable: 'posthog_table',
     } as const;
 
     export type DataQualityRunsListParams = {
@@ -132167,6 +132413,10 @@ export namespace Schemas {
      */
     excluded_properties?: string;
     /**
+     * When true, find similar event names only if the filtered search has no matches.
+     */
+    fuzzy_search?: boolean;
+    /**
      * Number of results to return per page.
      * @minimum 1
      */
@@ -133536,6 +133786,10 @@ export namespace Schemas {
      * Case-insensitive search. Matches workflow name, description and tag names first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.
      */
     search?: string;
+    /**
+     * Filter to workflows started from this record, as '<kind>:<id>', e.g. `early_access:<id>`.
+     */
+    source_record?: string;
     /**
      * * `draft` - Draft
      * * `active` - Active
@@ -139888,6 +140142,10 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string;
     };
 
     export type VisionObservationsThumbnailRetrieveParams = {
@@ -140130,6 +140388,10 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string;
     };
 
     export type VisionScannersObservationsRetrieveParams = {
@@ -140189,6 +140451,10 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string;
     };
 
     export type VisionScannersObservationsSignalReportsListParams = {
@@ -140248,6 +140514,10 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string;
     };
 
     export type VisionScannersObservationsThumbnailRetrieveParams = {
@@ -140331,6 +140601,10 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string;
     };
 
     export type VisionScannersWatchFeedRetrieveParams = {
