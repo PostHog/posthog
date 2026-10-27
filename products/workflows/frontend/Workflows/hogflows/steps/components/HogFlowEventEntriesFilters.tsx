@@ -1,5 +1,7 @@
 import { Fragment } from 'react'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { HogFlowEventFilters, HogFlowFiltersProps } from '../../filters/HogFlowFilters'
 import { EventEntry } from './cohortMembershipEvent'
 
@@ -18,7 +20,9 @@ export function HogFlowEventEntriesFilters({
     typeKey,
     ...filterProps
 }: HogFlowEventEntriesFiltersProps): JSX.Element {
-    const shownEntries: EventEntry[] = entries.length ? entries : [{}]
+    const allEntriesEnabled = useFeatureFlag('WORKFLOWS_GOAL_EVENT_ENTRIES')
+    const editableEntries = allEntriesEnabled ? entries : entries.slice(0, 1)
+    const shownEntries: EventEntry[] = editableEntries.length ? editableEntries : [{}]
 
     return (
         <div className="flex flex-col gap-2 items-start w-full">
