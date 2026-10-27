@@ -1,8 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -144,21 +142,12 @@ describe('emailTemplaterLogic', () => {
             {
                 description: 'identifies the project to Unlayer in the native editor',
                 type: 'native_email',
-                flagOn: true,
                 identified: true,
             },
-            {
-                description: 'leaves Unlayer anonymous with the flag off',
-                type: 'native_email',
-                flagOn: false,
-                identified: false,
-            },
-            { description: 'leaves the destination editor untouched', type: 'email', flagOn: true, identified: false },
-        ] as const)('$description', ({ type, flagOn, identified }) => {
+            { description: 'leaves the destination editor untouched', type: 'email', identified: false },
+        ] as const)('$description', ({ type, identified }) => {
             preflightLogic.mount()
             preflightLogic.actions.loadPreflightSuccess({ realm: Realm.Cloud } as any)
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_EMAIL_MEDIA_LIBRARY]: flagOn })
 
             logic = emailTemplaterLogic(makeProps({ type }))
             logic.mount()
