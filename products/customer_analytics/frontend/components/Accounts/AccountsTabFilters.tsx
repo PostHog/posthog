@@ -43,7 +43,7 @@ export function AccountsTabFilters(): JSX.Element {
                         value={searchInput}
                         onChange={setSearchInput}
                         size="small"
-                        className="min-w-64"
+                        className="min-w-80"
                         data-attr="accounts-search"
                     />
                     <AccountsViewSelector />
