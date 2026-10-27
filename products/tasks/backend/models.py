@@ -5,7 +5,7 @@ import json
 import uuid
 from collections.abc import Callable, Iterable
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 
 from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import receiver
@@ -52,6 +52,7 @@ from products.tasks.backend.dev_stack_image_models import (
     DevStackImageTarget as DevStackImageTarget,
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
+from products.tasks.backend.facade.profiles import TaskProfile, resolve_task_origin
 from products.tasks.backend.feature_flags import (
     is_task_run_stream_presence_gated,
     is_task_run_stream_thin_tail,
@@ -122,6 +123,14 @@ MCP_BUILT_IN_AGENT_KEY_BY_ORIGIN: dict[str, MCPBuiltInAgentKey] = {
     "scout_suggestions": "scout",
     "workflow": "workflow",
 }
+
+
+def task_source_fields(*, signal_report_id: str | None, hog_flow_id: uuid.UUID | None) -> dict[str, str]:
+    if signal_report_id:
+        return {"source_kind": "signal_report", "source_id": str(signal_report_id)}
+    if hog_flow_id:
+        return {"source_kind": "hog_flow", "source_id": str(hog_flow_id)}
+    return {}
 
 
 def resolve_schema(schema: type[BaseModel] | dict) -> dict:
@@ -456,6 +465,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
     title_manually_set = models.BooleanField(default=False)
     description = models.TextField()
     origin_product = models.CharField(max_length=20, choices=task_origin_product_choices)
+    profile = models.CharField(max_length=64, null=True, blank=True)
+    source_kind = models.CharField(max_length=32, null=True, blank=True)
+    source_id = models.CharField(max_length=64, null=True, blank=True)
+    idempotency_key = models.CharField(max_length=128, null=True, blank=True)
     client_provenance = models.CharField(
         max_length=32,
         choices=task_client_provenance_choices,
@@ -628,10 +641,24 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         if self.task_number is None:
             self._assign_task_number()
 
+        if is_new:
+            self._fill_contract_fields()
+
         super().save(*args, **kwargs)
 
         if is_new:
             transaction.on_commit(self._track_task_created)
+
+    def _fill_contract_fields(self) -> None:
+        if self.idempotency_key is None:
+            self.idempotency_key = self.origin_key or None
+        if self.source_kind is None:
+            source = task_source_fields(
+                signal_report_id=str(self.signal_report_id) if self.signal_report_id else None,
+                hog_flow_id=self.hog_flow_id,
+            )
+            self.source_kind = source.get("source_kind")
+            self.source_id = source.get("source_id")
 
     @property
     def mcp_builtin_agent_key(self) -> MCPBuiltInAgentKey | None:
@@ -1212,6 +1239,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
         mcp_tool_allowlist: list[str] | None = None,
+        profile_key: str | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Prepare an unsaved Task and the initial run's `extra_state`.
 
@@ -1343,6 +1371,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             title_manually_set=title_manually_set,
             description=description,
             origin_product=origin_product,
+            profile=profile_key,
             client_provenance=client_provenance,
             created_by=created_by,
             github_integration=github_integration,
@@ -1496,8 +1525,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         team: Team,
         title: str,
         description: str,
-        origin_product: "Task.OriginProduct",
         user_id: int,
+        origin_product: "Task.OriginProduct | None" = None,
+        profile: TaskProfile | None = None,
         repository: str | None = None,
         repositories: list[str] | None = None,
         channel: Channel | None = None,
@@ -1506,7 +1536,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         branch: str | None = None,
         signal_report_id: str | None = None,
         sandbox_environment_id: str | None = None,
-        internal: bool = False,
+        internal: bool | None = None,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
         model: str | None = None,
@@ -1522,11 +1552,13 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         (`products/tasks/backend/logic/services/warm.py`), which creates the first run with its
         own state. The run `extra_state` assembled by `_build_task` is discarded here.
         """
+        origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=internal)
         task, _ = Task._build_task(
             team=team,
             title=title,
             description=description,
-            origin_product=origin_product,
+            origin_product=cast("Task.OriginProduct", origin.origin_product),
+            profile_key=origin.profile_key,
             user_id=user_id,
             repository=repository,
             repositories=repositories,
@@ -1536,7 +1568,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             branch=branch,
             signal_report_id=signal_report_id,
             sandbox_environment_id=sandbox_environment_id,
-            internal=internal,
+            internal=origin.internal,
             output_schema=output_schema,
             interaction_origin=interaction_origin,
             model=model,
@@ -1555,8 +1587,9 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         team: Team,
         title: str,
         description: str,
-        origin_product: "Task.OriginProduct",
         user_id: int,
+        origin_product: "Task.OriginProduct | None" = None,
+        profile: TaskProfile | None = None,
         title_manually_set: bool = False,
         repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
         repositories: list[str] | None = None,
@@ -1573,7 +1606,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         origin_key: str | None = None,
         extra_run_state: dict[str, Any] | None = None,
         sandbox_environment_id: str | None = None,
-        internal: bool = False,
+        internal: bool | None = None,
         client_provenance: TaskClientProvenance | None = None,
         output_schema: type[BaseModel] | dict | None = None,
         interaction_origin: str | None = None,
@@ -1621,11 +1654,15 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             if carried_template is not None:
                 sandbox_template = carried_template
 
+        origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=internal)
+        origin_product = cast("Task.OriginProduct", origin.origin_product)
+        internal = origin.internal
         task, extra_state = Task._build_task(
             team=team,
             title=title,
             description=description,
             origin_product=origin_product,
+            profile_key=origin.profile_key,
             user_id=user_id,
             title_manually_set=title_manually_set,
             repository=repository,

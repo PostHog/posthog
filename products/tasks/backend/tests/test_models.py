@@ -33,6 +33,7 @@ from products.tasks.backend.models import (
     TaskThreadMessage,
     bump_task_activity,
 )
+from products.tasks.backend.task_profiles import TASK_ANALYSIS
 
 # Far enough back that any bump is unambiguously forward, and stable so a test can assert the
 # clock did *not* move.
@@ -68,6 +69,25 @@ class TestTask(TestCase):
         self.assertEqual(task.title, "Test Task")
         self.assertEqual(task.description, "Test Description")
         self.assertEqual(task.origin_product, origin_product)
+
+    @parameterized.expand(
+        [
+            ("plain", {"origin_product": "user_created"}, (None, None, None)),
+            ("origin_key", {"origin_product": "user_created", "origin_key": "key-1"}, ("key-1", None, None)),
+            (
+                "hog_flow",
+                {"origin_product": "workflow", "hog_flow_id": uuid.UUID("5ab01f4d-5b1e-4990-9802-4f8792a76759")},
+                (None, "hog_flow", "5ab01f4d-5b1e-4990-9802-4f8792a76759"),
+            ),
+        ]
+    )
+    def test_direct_insert_fills_the_source_and_idempotency_key(
+        self, _name: str, fields: dict, expected: tuple[str | None, str | None, str | None]
+    ) -> None:
+        task = Task.objects.create(team=self.team, title="t", description="d", **fields)
+
+        task.refresh_from_db()
+        self.assertEqual((task.idempotency_key, task.source_kind, task.source_id), expected)
 
     @parameterized.expand(
         [
@@ -127,6 +147,22 @@ class TestTask(TestCase):
         task_run = TaskRun.objects.get(id=call_args.kwargs["run_id"])
         self.assertEqual(task_run.task, task)
         self.assertEqual(task_run.status, TaskRun.Status.QUEUED)
+
+    @parameterized.expand(
+        [
+            ("origin", {"origin_product": Task.OriginProduct.TASK_ANALYSIS, "internal": True}, None),
+            ("profile", {"profile": TASK_ANALYSIS}, "task_analysis"),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_stores_the_same_origin_from_an_origin_or_a_profile(
+        self, name: str, origin_kwargs: dict, expected_profile: str | None, _mock_execute_workflow
+    ) -> None:
+        user = User.objects.create(email=f"{name}@test.com")
+
+        task = Task.create_and_run(team=self.team, title="t", description="d", user_id=user.id, **origin_kwargs)
+
+        self.assertEqual((task.origin_product, task.internal, task.profile), ("task_analysis", True, expected_profile))
 
     @parameterized.expand([("committed", False), ("rolled_back", True)])
     def test_create_and_run_captures_only_committed_tasks(self, _name: str, rolled_back: bool) -> None:
