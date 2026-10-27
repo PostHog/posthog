@@ -2460,7 +2460,7 @@ class TestSignalReportListAPI(APIBaseTest):
         assert filter_sql
         for sql in filter_sql:
             # Django aliases the PR artefact, task-run artefact, legacy task, and assignment task tables as V0.
-            assert sql.count(f'V0."team_id" = {self.team.id}') == 4
+            assert sql.count(f'"V0"."team_id" = {self.team.id}') == 4
             # A join to the assignment or pull request table lets the planner scan every team's rows first.
             assert "JOIN" not in sql
             assert '"pull_request_id" = ANY((ARRAY(SELECT' in sql
@@ -3125,7 +3125,6 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["repo_slug"] is None
-
     @parameterized.expand(
         [
             ("Scout self-improvement: signals-scout-errors - noisy rule", True),
