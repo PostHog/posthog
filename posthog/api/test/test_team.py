@@ -2343,6 +2343,31 @@ def team_api_test_factory():
             assert settings["widget_greeting_text"] == "Hello!"
             assert settings["widget_color"] == "#ff0000"
 
+        @parameterized.expand(
+            [
+                ("deduplicates_ids", ["C0123ABCD", "C0123ABCD"], status.HTTP_200_OK, ["C0123ABCD"]),
+                ("clears_with_null", None, status.HTTP_200_OK, []),
+                ("rejects_names", ["#support"], status.HTTP_400_BAD_REQUEST, None),
+                ("rejects_direct_messages", ["D0123ABCD"], status.HTTP_400_BAD_REQUEST, None),
+                ("rejects_non_list", "C0123ABCD", status.HTTP_400_BAD_REQUEST, None),
+                ("rejects_non_string", [123], status.HTTP_400_BAD_REQUEST, None),
+                ("caps_channels", [f"C{i:08d}" for i in range(21)], status.HTTP_400_BAD_REQUEST, None),
+            ]
+        )
+        def test_automated_update_channel_allowlist_validation(
+            self, _name, channel_ids, expected_status, expected_channels
+        ):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"automated_update_slack_channel_ids": channel_ids}},
+            )
+
+            assert response.status_code == expected_status
+            if expected_channels is not None:
+                assert (
+                    response.json()["conversations_settings"]["automated_update_slack_channel_ids"] == expected_channels
+                )
+
         @parameterized.expand([(["legacy", "list"],), ("legacy string",), (1,)])
         def test_conversations_settings_merges_with_legacy_non_object_existing(self, legacy_value):
             # Rows written before validation required an object/null can hold a stray
