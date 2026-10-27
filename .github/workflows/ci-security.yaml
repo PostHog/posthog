@@ -426,7 +426,7 @@ jobs:
     #   - ERROR-severity rules fail the job on any finding (regression guards).
     # INFO-severity rules run in neither pass: their whole existing backlog is
     # grandfathered, so a pass that prints it is noise. The `ee/` file guard below
-    # is the one such rule, and it runs against the PR baseline only.
+    # is the one such rule, and it runs on the paths a PR adds only.
     # See `.semgrep/rules/devex/README.md`.
     semgrep-devex:
         needs: changes
@@ -508,25 +508,34 @@ jobs:
                       --timeout 300 \
                       bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
 
-            # No new files under ee/. The rule matches every file in the tree, so only a
-            # baseline diff can tell a new file from an existing one: findings on HEAD^1
-            # (the PR base) are grandfathered, and a file the PR adds fails the step.
-            # INFO severity keeps this out of the backlog passes above.
+            # No new files under ee/. Git names the added paths and semgrep receives them as
+            # targets: a named file bypasses semgrep's default ignore list, so a new file
+            # under ee/test/ is still checked, while an edit to an existing ee/ file is never
+            # scanned. The rule's `paths.exclude` is the only way past it. INFO severity
+            # keeps the rule out of the three passes above.
             - name: No new files under ee/ (PRs only)
               if: github.event_name == 'pull_request'
               run: |
-                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                  added="$RUNNER_TEMP/ee-added"
+                  git diff -z --name-only --diff-filter=AR "$(git rev-parse HEAD^1)" HEAD -- ee/ > "$added"
+                  if [ ! -s "$added" ]; then
+                    echo "No file added under ee/"
+                    exit 0
+                  fi
+                  echo "Checking the files this PR adds under ee/:"
+                  tr '\0' '\n' < "$added"
+                  xargs -0 docker run --rm -v "${{ github.workspace }}:/src" -w /src \
                     -e SEMGREP_ENABLE_VERSION_CHECK=false \
                     ${{ env.SEMGREP_IMAGE }} \
-                    semgrep \
+                    semgrep scan \
                       --config ".semgrep/rules/devex/no-new-files-in-ee.yaml" \
                       --severity=INFO \
-                      --baseline-commit "$(git rev-parse HEAD^1)" \
                       --error \
                       --metrics=off \
                       --verbose \
                       --timeout 300 \
-                      ee/
+                      -- \
+                      < "$added"
 
     semgrep-test-rules:
         needs: changes

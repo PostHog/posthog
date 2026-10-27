@@ -1,7 +1,6 @@
-# File-level guard: it matches the first character of every `ee/` file, so a finding
-# exists for each file that is already there. `--baseline-commit` grandfathers those
-# findings and reports only the files the branch adds, which is the check this rule is.
-# An edit below line 1 keeps the finding, so changing existing `ee/` code still passes.
+# File-level guard: it matches the first character of a file, so it reports every file it is
+# given. CI hands it only the paths `git diff` reports as added under `ee/`, so a file here
+# means the branch adds one, and an edit to an existing file is never scanned.
 # Gap: a zero-byte file (an empty `__init__.py`) has nothing to match and is not caught.
 rules:
     - id: no-new-files-in-ee
@@ -15,8 +14,10 @@ rules:
       languages: [generic]
       paths:
           include:
-              - 'ee/**'
+              - '/ee/**'
           # Approved new files, one exact path each, added by hand after a human agreed
-          # in the PR. Never add a glob: it exempts files nobody reviewed.
+          # in the PR. Write the path with its leading slash (`/ee/api/foo.py`): an
+          # unanchored path would also match an `ee/` folder nested elsewhere. Never add a
+          # glob, because it exempts files nobody reviewed.
           exclude: []
       pattern-regex: '(?s)\A.'

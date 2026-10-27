@@ -12,9 +12,9 @@ Pick the severity that matches the rule's intent:
 
 - **ERROR** when zero violations are expected — either because the pattern is genuinely new (regression guard) or because a previously-WARNING rule has been cleaned up.
 - **WARNING** when there's a known non-zero backlog that will be migrated over time.
-- **INFO** when the backlog is not a backlog: the rule guards a property every existing file has, so listing them proves nothing and buries the pass-1 output. No pass above matches INFO. CI runs these rules in a PR-only step with `--baseline-commit --error`, where findings on the PR base are grandfathered, and `hogli ci:preflight` reports the same findings as an advisory.
+- **INFO** when the backlog is not a backlog: the rule guards a property every existing file has, so listing them proves nothing and buries the pass-1 output. No pass above matches INFO. CI runs these rules in a PR-only step of its own, and `hogli ci:preflight` reports them as an advisory.
 
-`no-new-files-in-ee` is the one INFO rule. It matches the first character of every file in `ee/`, which is how a semgrep rule tells an added file from an edited one: the baseline commit has no finding for a path that did not exist there. Editing an `ee/` file below line 1 keeps its finding, so extending existing code still passes.
+`no-new-files-in-ee` is the one INFO rule. Semgrep cannot tell an added file from an edited one, so the CI step asks git (`git diff --diff-filter=AR`) and passes the added paths to semgrep as targets. Naming the files also bypasses semgrep's default ignore list, which is what makes a new file under `ee/test/` visible.
 
 A WARNING rule typically gets flipped to ERROR once its backlog hits zero. The rule stays in `.semgrep/rules/devex/`; only the severity changes. To flip a rule:
 
