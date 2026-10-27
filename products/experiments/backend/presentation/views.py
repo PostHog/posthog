@@ -85,11 +85,12 @@ from products.experiments.backend.facade.api import (
     get_experiment_health_inputs,
     get_running_time_target,
 )
-from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess, RunningTimeMode
-from products.experiments.backend.facade.legacy_migration import (
+from products.experiments.backend.facade.contracts import (
+    ExperimentHealthReaderAccess,
     LegacyMigrationError,
-    migrate_experiment as migrate_legacy_experiment,
+    RunningTimeMode,
 )
+from products.experiments.backend.facade.legacy_migration import migrate_experiment as migrate_legacy_experiment
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
@@ -567,7 +568,7 @@ class EnterpriseExperimentsViewSet(
                 .select_related("created_by")
                 .defer(*LIST_DEFERRED_FIELDS)
             )
-        if self.action in ("health", "health_inputs"):
+        if self.action in ("health", "health_inputs", "in_session_exposure"):
             # The facade reads the experiment again with the joins its checks need, so the object lookup
             # here only checks access.
             queryset = queryset.select_related(None).prefetch_related(None).select_related("team")
@@ -1961,7 +1962,9 @@ class EnterpriseExperimentsViewSet(
         Postgres reads only, so it can serve the tab's mount path.
         """
         experiment: Experiment = self.get_object()
-        semantics = resolve_in_session_exposure_semantics(self.team, experiment)
+        semantics = resolve_in_session_exposure_semantics(team_id=self.team_id, experiment_id=experiment.id)
+        if semantics is None:
+            raise NotFound()
         return Response(ExperimentInSessionExposureSerializer(semantics).data)
 
     @validated_request(
