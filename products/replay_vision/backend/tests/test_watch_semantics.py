@@ -130,19 +130,25 @@ class TestAssignSemantics(BaseTest):
 
     @parameterized.expand(
         [
-            ("monitor_answer_the_scanner_is_not_looking_for", False),
+            ("monitor_answer_the_scanner_is_not_looking_for", "unwanted_answer"),
             # A theme name reaches every scanner reader, so a row only the experiment's viewers may read stays out.
-            ("observation_scanned_under_experiment_targeting", True),
+            ("observation_scanned_under_experiment_targeting", "experiment"),
+            # The current valence may describe a question of the opposite sense to the one this row answered.
+            ("monitor_row_scanned_under_an_earlier_prompt", "earlier_prompt"),
         ]
     )
-    def test_some_rows_get_a_feed_group_but_no_theme(self, _name: str, experiment_scoped: bool) -> None:
-        if experiment_scoped:
+    def test_some_rows_get_a_feed_group_but_no_theme(self, _name: str, case: str) -> None:
+        if case == "experiment":
             observation = self._observation()
             snapshot = {**observation.scanner_snapshot, "experiment_targeting": {"experiment_id": 7}}
             ReplayObservation.objects.filter(id=observation.id).update(scanner_snapshot=snapshot)
         else:
             monitor = self._scanner(ScannerType.MONITOR, PromptValence.BAD, name="checkout errors")
-            observation = self._observation(output={"scanner_type": "monitor", "verdict": "no"}, scanner=monitor)
+            verdict = "no" if case == "unwanted_answer" else "yes"
+            observation = self._observation(output={"scanner_type": "monitor", "verdict": verdict}, scanner=monitor)
+            if case == "earlier_prompt":
+                monitor.scanner_config = {"prompt": "Did checkout succeed?"}
+                monitor.save(update_fields=["scanner_config"])
 
         assignment = self._assign(observation, _vector(1.0))
 

@@ -17,7 +17,7 @@ import numpy as np
 from posthog.dataclasses import frozen
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.models.replay_scanner import PromptValence, ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_semantics import (
     ReplayScannerFeedGroup,
     ReplayScannerSearchTheme,
@@ -51,7 +51,9 @@ def assign_semantics(
 ) -> SemanticAssignment | None:
     """None when the observation is not a ranked issue, already has its clusters, or is gone."""
     scanner = (
-        ReplayScanner.objects.filter(team_id=team_id, id=scanner_id).values("scanner_type", "prompt_valence").first()
+        ReplayScanner.objects.filter(team_id=team_id, id=scanner_id)
+        .values("scanner_type", "prompt_valence", "scanner_config")
+        .first()
     )
     if scanner is None:
         return None
@@ -86,11 +88,20 @@ def assign_semantics(
             output = (row["scanner_result"] or {}).get("model_output") or {}
             # A theme name surfaces as a suggestion to anyone who can read the scanner, so an observation scanned
             # under experiment targeting, which only that experiment's viewers may read, never joins one.
-            if not _experiment_scoped(row["scanner_snapshot"]) and belongs_in_theme(
-                category=rank["category"],
-                scanner_type=scanner["scanner_type"],
-                valence=scanner["prompt_valence"],
-                output=output,
+            if (
+                not _experiment_scoped(row["scanner_snapshot"])
+                and not _valence_unknown_for_row(
+                    scanner["scanner_type"],
+                    scanner["prompt_valence"],
+                    scanner["scanner_config"],
+                    row["scanner_snapshot"],
+                )
+                and belongs_in_theme(
+                    category=rank["category"],
+                    scanner_type=scanner["scanner_type"],
+                    valence=scanner["prompt_valence"],
+                    output=output,
+                )
             ):
                 theme = assign_theme(team_id=team_id, scanner_id=scanner_id, space=space, now=now)
 
@@ -114,6 +125,17 @@ def assign_semantics(
         feed_group_cache.forget(scanner_id)
         raise
     return SemanticAssignment(group_id=group_id, theme=theme)
+
+
+def _valence_unknown_for_row(
+    scanner_type: str, valence: str, scanner_config: dict[str, Any] | None, snapshot: dict[str, Any] | None
+) -> bool:
+    """A monitor's current valence describes its current prompt, so a row scanned under another prompt may answer a
+    question of the opposite sense and stays out of themes."""
+    if scanner_type != ScannerType.MONITOR or valence not in (PromptValence.GOOD, PromptValence.BAD):
+        return False
+    scanned_prompt = ((snapshot or {}).get("scanner_config") or {}).get("prompt")
+    return scanned_prompt != (scanner_config or {}).get("prompt")
 
 
 def _experiment_scoped(snapshot: dict[str, Any] | None) -> bool:
