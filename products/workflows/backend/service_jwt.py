@@ -40,3 +40,9 @@ WORKFLOW_MESSAGE_OPT_OUT_PURPOSE = ScopedServiceJwtPurpose(
     audience=PosthogJwtAudience.WORKFLOW_MESSAGE_OPT_OUT,
     settings_name="WORKFLOW_MESSAGE_OPT_OUT_JWT_SECRETS",
 )
+
+# Its own key, for the same narrowest-scope reason as WORKFLOW_SCOUT_RUN_PURPOSE.
+WORKFLOW_SLACK_DM_TEAM_MEMBER_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOW_SLACK_DM_TEAM_MEMBER,
+    settings_name="WORKFLOW_SLACK_DM_TEAM_MEMBER_JWT_SECRETS",
+)
