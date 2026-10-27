@@ -6,9 +6,10 @@ import { LemonButton, LemonButtonProps, LemonButtonWithDropdown } from 'lib/lemo
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
-import { AccessControlLevel, AccessControlResourceType, ExporterFormat, OnlineExportContext } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ExporterFormat } from '~/types'
 
 import { TriggerExportProps } from './exporter'
+import { exportItemAttributes } from './exportItemAttributes'
 
 export interface ExportButtonItem {
     title?: string | React.ReactNode
@@ -66,41 +67,18 @@ export const ExportButton: React.FunctionComponent<ExportButtonProps & React.Ref
                             <h5>File type</h5>
                             <LemonDivider />
                             {items.map(({ title, ...triggerExportProps }, i) => {
-                                const exportFormatExtension = (
-                                    Object.keys(ExporterFormat).find(
-                                        (key) =>
-                                            ExporterFormat[key as keyof typeof ExporterFormat] ===
-                                            triggerExportProps.export_format
-                                    ) ?? triggerExportProps.export_format
-                                ).toLowerCase()
-
-                                let target: string
-                                let exportBody: string = ''
-                                if (triggerExportProps.insight) {
-                                    target = `insight-${triggerExportProps.insight}`
-                                } else if (triggerExportProps.dashboard) {
-                                    target = `dashboard-${triggerExportProps.dashboard}`
-                                } else if ('path' in (triggerExportProps.export_context || {})) {
-                                    target =
-                                        (triggerExportProps.export_context as OnlineExportContext)?.path || 'unknown'
-                                    exportBody =
-                                        (triggerExportProps.export_context as OnlineExportContext)?.body || 'unknown'
-                                } else {
-                                    target = 'unknown'
-                                }
+                                const { extension, target, body } = exportItemAttributes(triggerExportProps)
 
                                 return (
                                     <LemonButton
                                         key={i}
                                         fullWidth
                                         onClick={() => void onExportClick(triggerExportProps)}
-                                        data-attr={`export-button-${exportFormatExtension}`}
+                                        data-attr={`export-button-${extension}`}
                                         data-ph-capture-attribute-export-target={target}
-                                        data-ph-capture-attribute-export-body={
-                                            exportBody.length ? JSON.stringify(exportBody) : null
-                                        }
+                                        data-ph-capture-attribute-export-body={body}
                                     >
-                                        {title ? title : `.${exportFormatExtension}`}
+                                        {title ? title : `.${extension}`}
                                     </LemonButton>
                                 )
                             })}

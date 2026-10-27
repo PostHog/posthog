@@ -10,26 +10,18 @@ import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardControlScopeText } from 'scenes/dashboard/dashboardControls'
 import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import {
+    TEST_ACCOUNT_CHOICE_HINTS,
+    TEST_ACCOUNT_CHOICE_TO_FILTER,
+    TestAccountFilterChoice,
+    testAccountFilterChoice,
+} from 'scenes/dashboard/dashboardTestAccountFilterChoice'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { DashboardPlacement } from '~/types'
 
 import { DashboardCompareFilter } from 'products/dashboards/frontend/components/DashboardCompareFilter/DashboardCompareFilter'
-
-type TestAccountFilterChoice = 'inherit' | 'filter-out' | 'include'
-
-const CHOICE_TO_FILTER: Record<TestAccountFilterChoice, boolean | null> = {
-    inherit: null,
-    'filter-out': true,
-    include: false,
-}
-
-const CHOICE_HINTS: Record<TestAccountFilterChoice, string> = {
-    inherit: 'Each insight keeps its own "Filter out internal and test users" setting.',
-    'filter-out': 'Internal and test users are filtered out of every insight on this dashboard.',
-    include: 'Internal and test users are included in every insight on this dashboard.',
-}
 
 /**
  * "…" at the end of the dashboard edit bar, opening a panel for overrides that are too rarely
@@ -59,9 +51,7 @@ export function DashboardEditBarAdvancedFilters({
     const hasDashboardColors = useFeatureFlag('PRODUCT_ANALYTICS_DASHBOARD_COLORS')
     const [visible, setVisible] = useState(false)
 
-    const filterTestAccounts = effectiveEditBarFilters.filterTestAccounts ?? null
-    const choice: TestAccountFilterChoice =
-        filterTestAccounts === null ? 'inherit' : filterTestAccounts ? 'filter-out' : 'include'
+    const choice = testAccountFilterChoice(effectiveEditBarFilters.filterTestAccounts)
     const hasTestAccountFilters = (currentTeam?.test_account_filters || []).length > 0
     // Only the full dashboard scene mounts DashboardInsightColorsModal, so elsewhere the button would no-op.
     const showColors =
@@ -108,7 +98,7 @@ export function DashboardEditBarAdvancedFilters({
                                     DashboardEventSource.DashboardFilters
                                 )
                             }
-                            setFilterTestAccounts(CHOICE_TO_FILTER[next])
+                            setFilterTestAccounts(TEST_ACCOUNT_CHOICE_TO_FILTER[next])
                         }}
                         options={[
                             {
@@ -134,7 +124,7 @@ export function DashboardEditBarAdvancedFilters({
                             },
                         ]}
                     />
-                    <p className="mb-0 text-xs text-secondary">{CHOICE_HINTS[choice]}</p>
+                    <p className="mb-0 text-xs text-secondary">{TEST_ACCOUNT_CHOICE_HINTS[choice]}</p>
                     {testAccountsScopeText && <p className="mb-0 text-xs text-secondary">{testAccountsScopeText}.</p>}
                     {showCompareFilter && (
                         <>
