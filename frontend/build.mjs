@@ -24,6 +24,7 @@ import { writeStableChunks } from './bin/stableChunkNames.mjs'
 import { buildCssGroups } from './bin/stableCss.mjs'
 import { cssPrelude, CSS_SPECIFIER_PREFIX, planCssGroups } from './bin/stableCssPlan.mjs'
 import { removeUnlinkedStylesheets } from './bin/unlinkedStylesheets.mjs'
+import { isRedactEnabled, redactEsbuildPlugin } from './plugins/redact.mjs'
 import { zodJitlessEsbuildPlugin } from './plugins/zodJitless.mjs'
 import { finalizeToolbarBuild, getToolbarAppBuildConfig } from './toolbar-config.mjs'
 import { WORKER_ENTRIES } from './workers.config.mjs'
@@ -58,7 +59,10 @@ const common = {
 
 // Not part of `common`: the toolbar spreads `common` over its own config, so an `extraPlugins` key
 // there would replace the toolbar's module plugin. The toolbar bundles no zod.
-const appBundle = { ...common, extraPlugins: [zodJitlessEsbuildPlugin()] }
+const appBundle = {
+    ...common,
+    extraPlugins: [zodJitlessEsbuildPlugin(), ...(isRedactEnabled ? [redactEsbuildPlugin()] : [])],
+}
 
 await buildInParallel(
     [

@@ -316,6 +316,7 @@
         "@sucrase/jest-plugin": "^3.0.0",
         "@tailwindcss/postcss": "4.3.0",
         "@tailwindcss/vite": "4.3.0",
+        "@tanstack/redact": "0.1.4",
         "@testing-library/dom": ">=9.3.4",
         "@testing-library/jest-dom": "^5.17.0",
         "@testing-library/react": "^14.3.1",

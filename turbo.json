@@ -71,7 +71,7 @@
             "dependsOn": ["^build"],
             "inputs": ["src", "Cargo.toml", "!**/*.pyc"],
             "outputs": ["dist", "index.node", ".turbo"],
-            "env": ["RUST_VERSION", "SHARD_INDEX", "SHARD_COUNT"],
+            "env": ["RUST_VERSION", "SHARD_INDEX", "SHARD_COUNT", "REDACT"],
             "passThroughEnv": [
                 "RUSTUP_HOME",
                 "CARGO_HOME",
@@ -119,13 +119,15 @@
             "cache": false,
             // Turbo strips undeclared env vars, so an opt-in set in .env.local never reaches vite.config.mts
             // unless it is listed here. DEV_CODE_INSPECTOR loads the click-to-source plugin, and CODE_EDITOR picks the editor it opens.
+            // REDACT swaps React for the experimental TanStack Redact runtime.
             "passThroughEnv": [
                 "SKIP_TYPEGEN",
                 "COREPACK_ENABLE_DOWNLOAD_PROMPT",
                 "SSL_CERT_FILE",
                 "JS_URL",
                 "DEV_CODE_INSPECTOR",
-                "CODE_EDITOR"
+                "CODE_EDITOR",
+                "REDACT"
             ]
         },
         "dev": {

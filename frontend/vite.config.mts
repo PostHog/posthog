@@ -1,4 +1,5 @@
 import tailwindcss from '@tailwindcss/vite'
+import { redact } from '@tanstack/redact/vite'
 import react from '@vitejs/plugin-react'
 import { dirname, resolve } from 'node:path'
 import { URL, fileURLToPath } from 'node:url'
@@ -32,6 +33,8 @@ export default defineConfig(({ mode }) => {
                     })
                 ),
             react(),
+            // Experimental: REDACT=1 swaps the React runtime for TanStack Redact. See plugins/redact.mjs.
+            ['1', 'true'].includes(process.env.REDACT?.toLowerCase() ?? '') && redact(),
             tailwindcss(),
             // We delete and copy the HTML files for development
             htmlGenerationPlugin(),
