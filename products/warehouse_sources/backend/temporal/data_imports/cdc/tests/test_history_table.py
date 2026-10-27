@@ -138,10 +138,14 @@ class TestHistoryNaming(BaseTest):
         marked = self._table("other_history", {"history_table": True})
         self._table("orders")
         self._table("customer_cdc")
-        # `items_cdc` is a source table of its own, not the history of `items`.
+        # A discovered `orders_cdc` source table that does not sync owns no table, so the legacy table above
+        # is still the history of `orders`.
+        ExternalDataSchema.objects.create(name="orders_cdc", team=self.team, source=self.source)
+        # `items_cdc` syncs into its own table, which is not the history of `items`.
         ExternalDataSchema.objects.create(name="items", team=self.team, source=self.source)
-        ExternalDataSchema.objects.create(name="items_cdc", team=self.team, source=self.source)
-        self._table("items_cdc")
+        ExternalDataSchema.objects.create(
+            name="items_cdc", team=self.team, source=self.source, table=self._table("items_cdc")
+        )
 
         assert set(history_tables(self.source)) == {legacy, marked}
 
@@ -149,8 +153,8 @@ class TestHistoryNaming(BaseTest):
     def test_backfill_marks_unmarked_legacy_history_tables(self, _name: str, live_run: bool) -> None:
         legacy = self._table("orders_cdc")
         ExternalDataSchema.objects.create(name="items", team=self.team, source=self.source)
-        ExternalDataSchema.objects.create(name="items_cdc", team=self.team, source=self.source)
         own_table = self._table("items_cdc")
+        ExternalDataSchema.objects.create(name="items_cdc", team=self.team, source=self.source, table=own_table)
 
         call_command("backfill_history_table_marker", *(["--live-run"] if live_run else []), stdout=StringIO())
 

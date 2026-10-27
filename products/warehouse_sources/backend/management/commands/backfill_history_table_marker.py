@@ -34,11 +34,13 @@ class Command(BaseCommand):
         )
         if options["team_id"] is not None:
             candidates = candidates.filter(team_id=options["team_id"])
-        source_ids = set(candidates.values_list("external_data_source_id", flat=True))
+        sources = ExternalDataSource.objects.filter(id__in=candidates.values("external_data_source_id"))
 
         marked = 0
-        for source in ExternalDataSource.objects.filter(id__in=source_ids):
-            # Filtered here, not in SQL: excluding the key also drops the rows that lack it.
+        scanned = 0
+        # Streamed, so memory stays flat across every source of the installation.
+        for source in sources.iterator(chunk_size=500):
+            scanned += 1
             for table in (table for table in history_tables(source) if not table.is_history_table):
                 self.stdout.write(f"team={table.team_id} source={source.id} table={table.id} name={table.name}")
                 marked += 1
@@ -47,4 +49,4 @@ class Command(BaseCommand):
                     table.save(update_fields=["options"])
 
         verb = "Marked" if options["live_run"] else "Would mark"
-        self.stdout.write(f"{verb} {marked} table(s) across {len(source_ids)} candidate source(s).")
+        self.stdout.write(f"{verb} {marked} table(s) across {scanned} candidate source(s).")
