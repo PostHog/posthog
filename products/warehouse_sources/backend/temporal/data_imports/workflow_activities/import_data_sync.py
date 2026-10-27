@@ -131,7 +131,7 @@ from products.warehouse_sources.backend.temporal.data_imports.util import (
     PostHogInternalDatabaseError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workload_report import aworkload_reporting
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSchemaSyncType, ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 
@@ -274,7 +274,7 @@ def _jobs_to_continue(job: ExternalDataJob, schema: ExternalDataSchema) -> list[
 
 
 def _publishes_staged_full_refresh(
-    job: ExternalDataJob, sync_type: ExternalDataSchema.SyncType | None, team_id: int
+    job: ExternalDataJob, sync_type: ExternalDataSchemaSyncType | None, team_id: int
 ) -> bool:
     """Whether an external destination stages this full refresh and publishes it on the final batch.
 
