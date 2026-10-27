@@ -9360,10 +9360,6 @@ snapshots:
         hash: v1.k794b7964.81ce7999f24877f6e4ac2d9ab89fb4e584e5bc0749e594742c15377c8da8a1a7.BlSbtKwSVk0n9eZKEpRMG7hADbYEDAXAedKVuCaBN_8
     scenes-app-ai-observability-system-one-connection--provider-settings--light:
         hash: v1.k794b7964.05b7de1c84c25e03badf722fa567182ff449e74a6299d6a543c554ecd20e3184.eccRHOq726ohqws6q_XlZPELbvyUZPfAZk1cwlog_QY
-    scenes-app-ai-observability-system-one-connection--provider-settings-flag-off--dark:
-        hash: v1.k794b7964.81ce7999f24877f6e4ac2d9ab89fb4e584e5bc0749e594742c15377c8da8a1a7.DaP59ecAHMR8eaDYuWmJyKEowz34lJ3qbuKNJ4DsN8U
-    scenes-app-ai-observability-system-one-connection--provider-settings-flag-off--light:
-        hash: v1.k794b7964.05b7de1c84c25e03badf722fa567182ff449e74a6299d6a543c554ecd20e3184.3SudNZ7cfTDqUdodzpr3A8w1rZBmSjpUHNJ-qyTQQC4
     scenes-app-ai-observability-trace--full--dark:
         hash: v1.k794b7964.4d3ad4ebbe259bff3cd17afce36a4f9e9e69b5def84e53c89a543b970751e695.a2alK28PTn9_H4Th1Gy1knhB3uSsWmZ77ZmrV0jqQso
     scenes-app-ai-observability-trace--full--light:
@@ -13216,10 +13212,6 @@ snapshots:
         hash: v1.k794b7964.58dc8d73bf85d6c8bcd7a10b08c1e38efefd840fbe912cbbdff34bc4596041d8.5_RSGKERITVltMJ5ap2pmDAF2IC77kXkHPRfyXJi2oY
     scenes-app-llm-observability-evaluationmodelpicker--decision-narrow--light:
         hash: v1.k794b7964.28a30a7cb478ba7b585a0736e53e74735c643e3b61b0b84059494f6040493c29.haO943nTQB3hFa_f-TgDhACaCqM3_bOKVEdmp0SXTzg
-    scenes-app-llm-observability-evaluationmodelpicker--flag-off--dark:
-        hash: v1.k794b7964.277344d00b8edc7551d8850029611c83e1740ac1ea3adb9e679ceffd2037064b.0gLUQZyT3_xppzOwry0tkGL0HlIjU-jdxq6V8VIAGs4
-    scenes-app-llm-observability-evaluationmodelpicker--flag-off--light:
-        hash: v1.k794b7964.060fc008f850bbab373cb0c43a70e91454426b70a2d259ab371e1c2cfa7d1834.YTIqtwuIVdRppnvMFv142GGjOIDBIehxdylH9qJJQLY
     scenes-app-llm-observability-evaluationmodelpicker--llm--dark:
         hash: v1.k794b7964.43b905fdb235f4c15e7b906f14467c4ee9e8df010a3f26e476a2b3e6f59a4323.MZUQFFzWautdc3zzDJVWS6YbBa4qxX69-2HNwn-4wXQ
     scenes-app-llm-observability-evaluationmodelpicker--llm--light:
