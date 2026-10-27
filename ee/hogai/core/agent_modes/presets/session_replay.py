@@ -112,7 +112,6 @@ class SessionReplayAgentToolkit(AgentToolkit):
             RetryReplayVisionObservationTool,
             ScanReplayVisionSessionsTool,
             SearchReplayVisionObservationsTool,
-            SuggestReplayVisionTagsTool,
             UpdateReplayVisionScannerTool,
         )
 
@@ -131,7 +130,6 @@ class SessionReplayAgentToolkit(AgentToolkit):
             EstimateReplayVisionScannerTool,
             LabelReplayVisionObservationTool,
             ListReplayVisionScannersTool,
-            SuggestReplayVisionTagsTool,
         ]
         return tools
 

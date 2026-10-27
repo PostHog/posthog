@@ -46482,26 +46482,26 @@ export namespace Schemas {
     }
 
     /**
+     * * `semver_eq` - semver_eq
+     * * `semver_neq` - semver_neq
      * * `semver_gt` - semver_gt
      * * `semver_gte` - semver_gte
      * * `semver_lt` - semver_lt
      * * `semver_lte` - semver_lte
-     * * `semver_eq` - semver_eq
-     * * `semver_neq` - semver_neq
      * * `semver_tilde` - semver_tilde
      * * `semver_caret` - semver_caret
      * * `semver_wildcard` - semver_wildcard
      */
-    export type FeatureFlagFilterPropertySemverSchemaOperatorEnum = typeof FeatureFlagFilterPropertySemverSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertySemverSchemaOperatorEnum];
+    export type SemverOperatorEnum = typeof SemverOperatorEnum[keyof typeof SemverOperatorEnum];
 
 
-    export const FeatureFlagFilterPropertySemverSchemaOperatorEnum = {
+    export const SemverOperatorEnum = {
+      SemverEq: 'semver_eq',
+      SemverNeq: 'semver_neq',
       SemverGt: 'semver_gt',
       SemverGte: 'semver_gte',
       SemverLt: 'semver_lt',
       SemverLte: 'semver_lte',
-      SemverEq: 'semver_eq',
-      SemverNeq: 'semver_neq',
       SemverTilde: 'semver_tilde',
       SemverCaret: 'semver_caret',
       SemverWildcard: 'semver_wildcard',
@@ -46528,16 +46528,16 @@ export namespace Schemas {
       group_type_index?: number | null;
       /** Semantic version comparison operator.
        *
+       * * `semver_eq` - semver_eq
+       * * `semver_neq` - semver_neq
        * * `semver_gt` - semver_gt
        * * `semver_gte` - semver_gte
        * * `semver_lt` - semver_lt
        * * `semver_lte` - semver_lte
-       * * `semver_eq` - semver_eq
-       * * `semver_neq` - semver_neq
        * * `semver_tilde` - semver_tilde
        * * `semver_caret` - semver_caret
        * * `semver_wildcard` - semver_wildcard */
-      operator: FeatureFlagFilterPropertySemverSchemaOperatorEnum;
+      operator: SemverOperatorEnum;
       /** Semantic version string. */
       value: string;
     }
@@ -64553,16 +64553,18 @@ export namespace Schemas {
       depth?: InsightDataChecksDepthEnum;
     }
 
+    /**
+     * The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API.
+     */
+    export type InsightPlatformAlertConditionDetector = { [key: string]: unknown } | null;
+
     export interface InsightPlatformAlertCondition {
       /** The bounds the insight's value is checked against, absolute or as a percentage change. */
       threshold: InsightThreshold | null;
       /** How the value is compared: as it is, or as an increase or decrease from the previous interval. */
       comparison: AlertCondition;
-      /**
-         * Always null. The platform owns threshold alerts only, so no detector applies.
-         * @nullable
-         */
-      detector?: null;
+      /** The anomaly detector the alert uses in place of its threshold, or null for a threshold alert. It can't change through this API. */
+      detector?: InsightPlatformAlertConditionDetector;
     }
 
     /**
@@ -83965,7 +83967,10 @@ export namespace Schemas {
     }
 
     export interface PatchedAddPersonsToStaticCohortRequest {
-      /** List of person UUIDs to add to the cohort */
+      /**
+         * Person UUIDs to add to the cohort (the `id` column of the persons table, not distinct IDs). At most 1000 per request.
+         * @maxItems 1000
+         */
       person_ids?: string[];
     }
 
@@ -115580,70 +115585,6 @@ export namespace Schemas {
     }
 
     /**
-     * Body of POST /vision/scanners/suggest_tags/ — the classifier config currently being edited.
-     */
-    export interface SuggestTagsRequest {
-      /**
-         * The classifier's instruction prompt — the single dimension to categorize sessions by.
-         * @maxLength 10000
-         */
-      prompt: string;
-      /**
-         * The categories already configured, so suggestions never duplicate one the user has.
-         * @maxItems 200
-         * @items.maxLength 200
-         */
-      tags?: string[];
-      /** Whether the classifier assigns multiple tags per session. */
-      multi_label?: boolean;
-      /** Whether the classifier may emit tags outside the fixed vocabulary. */
-      allow_freeform_tags?: boolean;
-      /**
-         * Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner.
-         * @nullable
-         */
-      scanner_id?: string | null;
-    }
-
-    /**
-     * * `observed` - observed
-     * * `product` - product
-     * * `prompt` - prompt
-     */
-    export type TagSuggestionSourceEnum = typeof TagSuggestionSourceEnum[keyof typeof TagSuggestionSourceEnum];
-
-
-    export const TagSuggestionSourceEnum = {
-      Observed: 'observed',
-      Product: 'product',
-      Prompt: 'prompt',
-    } as const;
-
-    /**
-     * One grounded tag suggestion.
-     */
-    export interface TagSuggestion {
-      /** Suggested tag to add to the vocabulary, normalized to lowercase. */
-      tag: string;
-      /** One sentence explaining the specific evidence this tag is grounded in. */
-      rationale: string;
-      /** Primary grounding: observed=a category this scanner already emitted on recordings; product=the org's events/screens; prompt=the scanner's stated goal.
-       *
-       * * `observed` - observed
-       * * `product` - product
-       * * `prompt` - prompt */
-      source: TagSuggestionSourceEnum;
-    }
-
-    /**
-     * Grounded tag suggestions for the classifier config editor.
-     */
-    export interface SuggestTagsResponse {
-      /** Suggested tags to add, most relevant first. May be empty when the evidence is too thin. */
-      suggestions: TagSuggestion[];
-    }
-
-    /**
      * * `trace` - trace
      * * `event` - event
      */
@@ -140256,6 +140197,10 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string;
     };
 
     export type VisionObservationsThumbnailRetrieveParams = {
@@ -140498,6 +140443,10 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string;
     };
 
     export type VisionScannersObservationsRetrieveParams = {
@@ -140557,6 +140506,10 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string;
     };
 
     export type VisionScannersObservationsSignalReportsListParams = {
@@ -140616,6 +140569,10 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string;
     };
 
     export type VisionScannersObservationsThumbnailRetrieveParams = {
@@ -140699,6 +140656,10 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string;
     };
 
     export type VisionScannersWatchFeedRetrieveParams = {

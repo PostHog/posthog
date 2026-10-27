@@ -20,6 +20,10 @@ jest.mock('../../inboxAnalytics', () => ({
     captureInboxReportFeedbackNote: jest.fn(),
 }))
 
+jest.mock('./ReportInterviewInvite', () => ({
+    ReportInterviewInvite: () => <span>Interview invite</span>,
+}))
+
 const CELEBRATION_SELECTOR = '[data-attr="inbox-report-feedback-celebration"]'
 
 function setCelebrationFlag(enabled: boolean): void {
@@ -101,9 +105,11 @@ describe('ReportFeedbackFooter', () => {
     it('asks a question matched to the rating, sends the note with Enter, and shows what went through', async () => {
         setCelebrationFlag(false)
         expect(screen.queryByLabelText('Add a note about this report')).not.toBeInTheDocument()
+        expect(screen.queryByText('Interview invite')).not.toBeInTheDocument()
 
         await user.click(screen.getByLabelText('This report was useful'))
         expect(await screen.findByText('What made it useful?')).toBeVisible()
+        expect(screen.queryByText('Interview invite')).not.toBeInTheDocument()
 
         await user.click(screen.getByLabelText('This report was not useful'))
         expect(await screen.findByText('What was off?')).toBeVisible()
@@ -133,6 +139,25 @@ describe('ReportFeedbackFooter', () => {
         )
         expect(await screen.findByText('Note added: The repro steps were wrong')).toBeVisible()
         expect(screen.queryByLabelText('Add a note about this report')).not.toBeInTheDocument()
+        expect(screen.getByText('Interview invite')).toBeVisible()
+    })
+
+    it('shows the invite after a note on a previously rated report', async () => {
+        cleanup()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: 'positive', note: '' },
+            },
+        })
+        render(<ReportFeedbackFooter report={makeReport({ id: 'report-with-saved-rating' })} />)
+
+        expect(await screen.findByText('What made it useful?')).toBeVisible()
+        expect(screen.queryByText('Interview invite')).not.toBeInTheDocument()
+
+        await user.type(screen.getByLabelText('Add a note about this report'), 'Clear steps{Enter}')
+
+        expect(await screen.findByText('Note added: Clear steps')).toBeVisible()
+        expect(screen.getByText('Interview invite')).toBeVisible()
     })
 
     it('does not pop on thumbs-down', async () => {
