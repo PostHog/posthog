@@ -152,12 +152,13 @@ const featureFlagArchive = (): ToolBase<
 })
 
 const FeatureFlagDisableSchema = () => {
+    const FeatureFlagsDisableCreateBody = orvalSchemas.FeatureFlagsDisableCreateBody()
     const FeatureFlagsDisableCreateParams = orvalSchemas.FeatureFlagsDisableCreateParams()
     return z.preprocess(
         normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
-        FeatureFlagsDisableCreateParams.omit({ project_id: true }).extend({
-            id: z.preprocess(castStringToInt, FeatureFlagsDisableCreateParams.shape['id']),
-        })
+        FeatureFlagsDisableCreateParams.omit({ project_id: true })
+            .extend(FeatureFlagsDisableCreateBody.shape)
+            .extend({ id: z.preprocess(castStringToInt, FeatureFlagsDisableCreateParams.shape['id']) })
     )
 }
 
@@ -169,9 +170,14 @@ const featureFlagDisable = (): ToolBase<
     schema: FeatureFlagDisableSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagDisableSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.version !== undefined) {
+            body['version'] = params.version
+        }
         const result = await context.api.request<Schemas.FeatureFlag>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/disable/`,
+            body,
         })
         const filtered = pickResponseFields(result, [
             'id',
@@ -186,12 +192,13 @@ const featureFlagDisable = (): ToolBase<
 })
 
 const FeatureFlagEnableSchema = () => {
+    const FeatureFlagsEnableCreateBody = orvalSchemas.FeatureFlagsEnableCreateBody()
     const FeatureFlagsEnableCreateParams = orvalSchemas.FeatureFlagsEnableCreateParams()
     return z.preprocess(
         normalizeParamAliases({ id: ['flagId', 'flag_id', 'feature_flag_id', 'featureFlagId'] }),
-        FeatureFlagsEnableCreateParams.omit({ project_id: true }).extend({
-            id: z.preprocess(castStringToInt, FeatureFlagsEnableCreateParams.shape['id']),
-        })
+        FeatureFlagsEnableCreateParams.omit({ project_id: true })
+            .extend(FeatureFlagsEnableCreateBody.shape)
+            .extend({ id: z.preprocess(castStringToInt, FeatureFlagsEnableCreateParams.shape['id']) })
     )
 }
 
@@ -203,9 +210,14 @@ const featureFlagEnable = (): ToolBase<
     schema: FeatureFlagEnableSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagEnableSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.version !== undefined) {
+            body['version'] = params.version
+        }
         const result = await context.api.request<Schemas.FeatureFlag>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flags/${encodeURIComponent(String(params.id))}/enable/`,
+            body,
         })
         const filtered = pickResponseFields(result, [
             'id',
