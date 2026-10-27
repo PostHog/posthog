@@ -1650,7 +1650,7 @@ class ScannerStatsResponseSerializer(serializers.Serializer):
 WATCH_FEED_DEFAULT_LIMIT = 20
 WATCH_FEED_MAX_LIMIT = 50
 WATCH_FEED_DEFAULT_DATE_FROM = "-7d"
-# Widest window one request may rank. A scanner with few rows in the window walks its whole window before the cap stops it.
+# Widest window one request may rank.
 WATCH_FEED_MAX_WINDOW_DAYS = 90
 # The most picks one load ranks, and the furthest `offset` may reach.
 WATCH_FEED_CANDIDATE_CAP = 1000
@@ -1840,7 +1840,7 @@ class WatchFeedImpressionsSerializer(serializers.Serializer):
         min_length=1,
         max_length=WATCH_FEED_IMPRESSIONS_MAX_IDS,
         help_text=(
-            f"Observations the calling user saw in What to watch, at most {WATCH_FEED_IMPRESSIONS_MAX_IDS}. "
+            f"Observations the calling user saw in the Highlights feed, at most {WATCH_FEED_IMPRESSIONS_MAX_IDS}. "
             "Ids the user cannot read are ignored."
         ),
     )
@@ -2439,7 +2439,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         throttle_classes=[ReplayVisionWatchFeedBurstRateThrottle, ReplayVisionWatchFeedSustainedRateThrottle],
     )
     def watch_feed(self, request: Request, **kwargs: Any) -> Response:
-        """Succeeded observations in the window worth watching, ranked — feeds the What to watch tab."""
+        """Succeeded observations in the window worth watching, ranked for the Highlights tab."""
         query = WatchFeedQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         params = query.validated_data
@@ -2486,7 +2486,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 ).values_list("id", flat=True)
             )
             allowed_ids = [scanner_id for scanner_id in allowed_ids if scanner_id in created_ids]
-        # The scanner list stays off this base: every per-scanner walk would otherwise carry the whole list.
+        # The scanner list stays off this base: the pick query adds it once per scanner in its lateral join.
         candidates = ReplayObservation.objects.filter(
             team_id=self.team_id,
             status=ObservationStatus.SUCCEEDED,
@@ -2604,7 +2604,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         throttle_classes=[ReplayVisionWatchFeedImpressionsRateThrottle],
     )
     def watch_feed_impressions(self, request: Request, **kwargs: Any) -> Response:
-        """Record that the calling user saw these cards in What to watch, so the feed ranks them lower next time."""
+        """Record that the calling user saw these cards in the Highlights feed, so the feed ranks them lower next time."""
         body = WatchFeedImpressionsSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):

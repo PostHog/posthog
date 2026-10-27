@@ -1,4 +1,4 @@
-"""What to watch ranking from observation embeddings.
+"""Highlights feed ranking from observation embeddings.
 
 A consumer of the embedding worker's results ranks each observation once, from the vector the scan
 already embeds for search, so the feed needs no model call and no sweep. Each vector is compared with fixed anchor sentences: the
@@ -256,22 +256,6 @@ async def rank_observation(request: RankRequest) -> Literal["ranked", "already_r
     return "ranked"
 
 
-def _scanner_percentiles(rows: list[dict[str, Any]]) -> dict[str, float]:
-    """Each ranked row's score as a percentile among its scanner's ranked rows in the window."""
-    by_scanner: dict[Any, list[tuple[float, str]]] = {}
-    for row in rows:
-        if rank := current_rank(row):
-            by_scanner.setdefault(row["scanner_id"], []).append((float(rank["contrast"]), str(row["id"])))
-    percentiles: dict[str, float] = {}
-    for scored in by_scanner.values():
-        if len(scored) < WATCH_PICK_MIN_SCANNER_ROWS:
-            continue
-        scored.sort()
-        for position, (_, observation_id) in enumerate(scored):
-            percentiles[observation_id] = (position + 0.5) / len(scored)
-    return percentiles
-
-
 def people_boost(people: int) -> float:
     """How much a pick's score grows with the number of people its feed group reached."""
     return min(WATCH_PICK_PEOPLE_BOOST_CAP, 1 + WATCH_PICK_PEOPLE_BOOST * math.log(max(people, 1)))
@@ -466,12 +450,7 @@ def rank_watch_feed_by_embedding(rows: list[dict[str, Any]]) -> list[WatchFeedEn
     of the picks, and one session's picks spaced apart. Every other row is filler, kept only to reach the
     feed's floor.
     """
-    # Rows from `select_embedding_picks` carry their whole-window percentile; a plain candidate slice does not.
-    percentiles = (
-        {str(row["id"]): row["watch_percentile"] for row in rows if row.get("watch_percentile") is not None}
-        if any("watch_percentile" in row for row in rows)
-        else _scanner_percentiles(rows)
-    )
+    percentiles = {str(row["id"]): row["watch_percentile"] for row in rows if row.get("watch_percentile") is not None}
     best_in_group: dict[str, tuple[float, dict[str, Any]]] = {}
     group_members: dict[str, list[str]] = {}
     for row in rows:

@@ -198,7 +198,7 @@ class ReplayObservationLabelSerializer(serializers.Serializer):
 
 
 class ObservationFeedDismissalSerializer(serializers.Serializer):
-    """Why the calling user marked an observation not useful in What to watch."""
+    """Why the calling user marked an observation not useful in the Highlights feed."""
 
     reason = serializers.ChoiceField(
         choices=FeedDismissalReason.choices,
@@ -1269,7 +1269,7 @@ class ReplayObservationViewSet(
         request=ObservationFeedDismissalSerializer,
         responses={204: None},
         description=(
-            "Mark this observation not useful for the calling user, with an optional reason. What to watch stops "
+            "Mark this observation not useful for the calling user, with an optional reason. The Highlights feed stops "
             "showing it to that user. Sending it again replaces the reason."
         ),
     )
@@ -1277,7 +1277,7 @@ class ReplayObservationViewSet(
         methods=["DELETE"],
         request=None,
         responses={204: None},
-        description="Undo the calling user's not-useful mark, so What to watch can show the observation again.",
+        description="Undo the calling user's not-useful mark, so the Highlights feed can show the observation again.",
     )
     @action(
         detail=True,

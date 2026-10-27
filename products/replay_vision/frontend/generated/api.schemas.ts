@@ -871,7 +871,7 @@ export const FeedDismissalReasonEnumApi = {
 } as const
 
 /**
- * Why the calling user marked an observation not useful in What to watch.
+ * Why the calling user marked an observation not useful in the Highlights feed.
  */
 export interface ObservationFeedDismissalApi {
     /** Optional reason the observation was not useful. Omit or send null when the user gave none.
@@ -2994,7 +2994,7 @@ export interface WatchFeedImpressionsApi {
     /** The client's id for the feed load that showed these cards. One load counts each card once. */
     feed_load_id: string
     /**
-     * Observations the calling user saw in What to watch, at most 100. Ids the user cannot read are ignored.
+     * Observations the calling user saw in the Highlights feed, at most 100. Ids the user cannot read are ignored.
      * @minItems 1
      * @maxItems 100
      */

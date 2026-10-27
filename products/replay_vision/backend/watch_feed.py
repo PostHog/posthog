@@ -7,11 +7,7 @@ from uuid import UUID
 
 from posthog.dataclasses import frozen
 
-# Reason kinds that say nothing about the session: the fall-through for a row that scored on no source at
-# all. They are ordering, not evidence, so the feed carries them only to reach the floor below.
-FILLER_REASON_KINDS = frozenset({"unviewed_recent", "recent"})
-# How short the feed may get before filler rows pad it. A feed of 3 real findings beats one of 3 findings
-# and 17 "new since you last looked", and a feed that empties the moment nothing is wrong reads as broken.
+# Filler pads a quiet feed to this many cards, so a window with nothing wrong still shows the newest clips.
 WATCH_FEED_MIN_ITEMS = 3
 
 
@@ -23,30 +19,6 @@ class WatchFeedEntry:
     session_id: str | None = None
 
 
-def _trim_filler(ranked: list[WatchFeedEntry]) -> list[WatchFeedEntry]:
-    """Drop the no-evidence rows once WATCH_FEED_MIN_ITEMS real findings are in the feed.
-
-    `limit` is a ceiling the feed had been filling: a quiet window returned 20 cards of which 17 said
-    "New since you last looked", which buries the few that meant something. Findings are kept whatever
-    their count; filler only makes up the difference to the floor, so a window with nothing to say
-    returns 3 newest clips rather than 20 or an empty state.
-    """
-    findings = [entry for entry in ranked if entry.reason["kind"] not in FILLER_REASON_KINDS]
-    if len(findings) >= WATCH_FEED_MIN_ITEMS:
-        return findings
-    # Walk rather than concatenate, because a row the reader already opened is docked half a point and can
-    # sort below an unviewed filler row — findings are not always a prefix of the list.
-    budget = WATCH_FEED_MIN_ITEMS - len(findings)
-    kept: list[WatchFeedEntry] = []
-    for entry in ranked:
-        if entry.reason["kind"] not in FILLER_REASON_KINDS:
-            kept.append(entry)
-        elif budget > 0:
-            kept.append(entry)
-            budget -= 1
-    return kept
-
-
 # One incident can put many near-identical sessions on one scanner, so each scanner holds at most this share of the
 # picks, above a floor that keeps a short feed from being over-constrained.
 MAX_SCANNER_SHARE = 0.4
@@ -54,10 +26,10 @@ _SCANNER_SPREAD_FLOOR = 3
 
 
 def spread_scanners(ordered: list[tuple[Any, WatchFeedEntry]]) -> list[WatchFeedEntry]:
-    """Hold each scanner to MAX_SCANNER_SHARE of the evidence tier as it is placed.
+    """Hold each scanner to MAX_SCANNER_SHARE of the picks as it is placed.
 
     Checked per place rather than over the whole list because the view slices the head: a feed of 5
-    obeys the same share as a feed of 50. Overflow trails the tier in score order — reordering
+    obeys the same share as a feed of 50. Overflow trails the picks in score order — reordering
     for breadth is the job here, shortening the feed is not.
     """
     placed: list[WatchFeedEntry] = []
@@ -110,7 +82,5 @@ def finish_feed(
         entry = WatchFeedEntry(observation_id=row["id"], reason={"kind": "recent" if viewed else "unviewed_recent"})
         filler.append((not viewed, row["created_at"], entry))
     filler.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    return _trim_filler(
-        space_sessions(spread_scanners([(scanner_id, entry) for _, _, scanner_id, entry in ordered]))
-        + [entry for *_, entry in filler]
-    )
+    placed = space_sessions(spread_scanners([(scanner_id, entry) for _, _, scanner_id, entry in ordered]))
+    return placed + [entry for *_, entry in filler][: max(0, WATCH_FEED_MIN_ITEMS - len(placed))]

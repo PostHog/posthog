@@ -181,10 +181,10 @@ class _TileBuilder:
 
     def add_latest_sessions_tile(self) -> None:
         scanner_type = ScannerType(self.scanner.scanner_type)
-        if scanner_type in (ScannerType.SUMMARIZER, ScannerType.EXPERIMENT):
-            return
         detail = "properties.scanner_output_reasoning"
-        if scanner_type == ScannerType.CLASSIFIER:
+        if scanner_type in (ScannerType.SUMMARIZER, ScannerType.EXPERIMENT):
+            detail = "properties.scanner_output_title"
+        elif scanner_type == ScannerType.CLASSIFIER:
             detail = f"arrayStringConcat({_TAGS_EXPR}, ', ')"
         score_column = (
             "toFloat(properties.scanner_output_score) AS score, " if scanner_type == ScannerType.SCORER else ""

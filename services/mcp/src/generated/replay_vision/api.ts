@@ -2323,7 +2323,7 @@ export const VisionScannersStatsRetrieveParams = () => zod.object({
 })
 
 /**
- * Succeeded observations in the window worth watching, ranked — feeds the What to watch tab.
+ * Succeeded observations in the window worth watching, ranked for the Highlights tab.
  */
 export const VisionScannersWatchFeedRetrieveParams = () => zod.object({
     project_id: zod
