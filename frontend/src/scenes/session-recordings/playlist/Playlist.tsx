@@ -71,6 +71,8 @@ export type PlaylistProps = {
      * offer the generic replay hints. Collections keep their own empty state.
      */
     listEmptyState?: JSX.Element
+    /** Shows above the recordings, inside the list frame. */
+    listBanner?: JSX.Element
 }
 
 export function Playlist({
@@ -81,6 +83,7 @@ export function Playlist({
     description,
     selectInitialItem,
     listEmptyState,
+    listBanner,
 }: PlaylistProps): JSX.Element {
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
@@ -350,6 +353,7 @@ export function Playlist({
                                 until you close it.
                             </LemonBanner>
                         )}
+                        {listBanner}
                         <div className="overflow-y-auto flex-1 min-h-0" onScroll={handleScroll} ref={setScrollEl}>
                             {sectionCount > 1 ? (
                                 <LemonCollapse

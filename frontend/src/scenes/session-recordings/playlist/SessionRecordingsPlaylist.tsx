@@ -32,6 +32,10 @@ type SessionRecordingsPlaylistProps = SessionRecordingPlaylistLogicProps & {
     description?: string
     /** Replaces the shared replay troubleshooting panel when the list comes back empty. */
     listEmptyState?: JSX.Element
+    /** Shows above the recordings, inside the list frame. */
+    listBanner?: JSX.Element
+    /** Shows under the player while a recording is open. */
+    playerFooter?: JSX.Element
     picksInList?: boolean
 }
 
@@ -186,9 +190,11 @@ function PlayerWrapper({
     style,
     resizer,
     className,
+    playerFooter,
     ...props
 }: SessionRecordingPlaylistLogicProps & {
     showContent?: boolean
+    playerFooter?: JSX.Element
     type?: 'filters' | 'collection'
     isSynthetic?: boolean
     description?: string
@@ -240,30 +246,35 @@ function PlayerWrapper({
                 </div>
             )}
             {showContent && activeSessionRecording ? (
-                <div className={cn('h-full', isFiltersExpanded && 'hidden')}>
-                    <SessionRecordingPlayer
-                        playerKey={props.logicKey ?? 'playlist'}
-                        sessionRecordingId={activeSessionRecording.id}
-                        matchingEventsMatchType={matchingEventsMatchType}
-                        exposureSkipExperimentId={exposureSkipExperimentId}
-                        autoPlay={props.autoPlay}
-                        onRecordingDeleted={() => {
-                            loadAllRecordings()
-                            setSelectedRecordingId(null)
-                        }}
-                        pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecording.id)}
-                        setPinned={
-                            props.onPinnedChange
-                                ? (pinned) => {
-                                      if (!activeSessionRecording.id) {
-                                          return
+                <div className={cn('h-full flex flex-col gap-2', isFiltersExpanded && 'hidden')}>
+                    {/* The player keeps the same parent whether or not a footer shows, so a footer
+                        that appears after a load does not remount the player and restart playback. */}
+                    <div className="flex-1 min-h-0">
+                        <SessionRecordingPlayer
+                            playerKey={props.logicKey ?? 'playlist'}
+                            sessionRecordingId={activeSessionRecording.id}
+                            matchingEventsMatchType={matchingEventsMatchType}
+                            exposureSkipExperimentId={exposureSkipExperimentId}
+                            autoPlay={props.autoPlay}
+                            onRecordingDeleted={() => {
+                                loadAllRecordings()
+                                setSelectedRecordingId(null)
+                            }}
+                            pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecording.id)}
+                            setPinned={
+                                props.onPinnedChange
+                                    ? (pinned) => {
+                                          if (!activeSessionRecording.id) {
+                                              return
+                                          }
+                                          props.onPinnedChange?.(activeSessionRecording, pinned)
                                       }
-                                      props.onPinnedChange?.(activeSessionRecording, pinned)
-                                  }
-                                : undefined
-                        }
-                        playNextRecording={nextSessionRecording?.id ? onPlayNextRecording : undefined}
-                    />
+                                    : undefined
+                            }
+                            playNextRecording={nextSessionRecording?.id ? onPlayNextRecording : undefined}
+                        />
+                    </div>
+                    {playerFooter}
                 </div>
             ) : sessionRecordingsResponseLoading ? (
                 <div className="relative flex flex-col h-full p-4">
