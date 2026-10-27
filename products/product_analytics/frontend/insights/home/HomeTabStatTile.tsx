@@ -173,6 +173,7 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
             value={value ?? undefined}
             showChange={compare}
             change={changeFromPreviousPct != null ? { value: changeFromPreviousPct } : null}
+            changeInline
             hoverChangeFromPreviousPoint
             data={trend?.data}
             labels={trend?.days}
