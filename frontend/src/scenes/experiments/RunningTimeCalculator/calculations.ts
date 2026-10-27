@@ -1,82 +1,13 @@
 import { dayjs } from 'lib/dayjs'
 
-import type { CachedNewExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
-import {
-    isExperimentFunnelMetric,
-    isExperimentMeanMetric,
-    isExperimentRatioMetric,
-    isExperimentRetentionMetric,
-} from '~/queries/schema/schema-general'
-import { ExperimentMetricMathType } from '~/types'
+import type { CachedNewExperimentQueryResponse } from '~/queries/schema/schema-general'
 
-import type { RunningTimeBaselineStatsApi } from 'products/experiments/frontend/generated/api.schemas'
-
-// The sample-size and variance math lives in the backend running-time calculator
-// (products/experiments/backend/running_time_calculator.py), reached via
-// POST /experiments/calculate_running_time. This module keeps only the client-side
-// helpers that classify a metric and read live experiment state to build that request.
+// The target sample lives in the backend (products/experiments/backend/running_time_target.py), reached via
+// GET /experiments/:id/running_time_target, and the manual preview's math via POST
+// /experiments/calculate_running_time. This module keeps only the client-side helpers that read live experiment state.
 
 // Manual calculator only supports these types (ratio/retention require full baseline data).
 export type ManualCalculatorMetricType = 'funnel' | 'mean_count' | 'mean_sum_or_avg'
-
-// Full calculator supports all metric types.
-export type CalculatorMetricType = ManualCalculatorMetricType | 'ratio' | 'retention'
-
-/**
- * Map an ExperimentMetric to the calculator metric type expected by the backend endpoint.
- */
-export function getCalculatorMetricType(metric: ExperimentMetric): CalculatorMetricType {
-    if (isExperimentFunnelMetric(metric)) {
-        return 'funnel'
-    }
-    if (isExperimentRatioMetric(metric)) {
-        return 'ratio'
-    }
-    if (isExperimentRetentionMetric(metric)) {
-        return 'retention'
-    }
-    if (isExperimentMeanMetric(metric) && metric.source.math === ExperimentMetricMathType.Sum) {
-        return 'mean_sum_or_avg'
-    }
-    return 'mean_count'
-}
-
-/**
- * Shape the raw baseline stats from experiment results into the backend request body.
- * The backend derives the baseline value and (for ratio/retention) the delta-method variance from these.
- */
-export function baselineStatsFromResults(
-    baseline: CachedNewExperimentQueryResponse['baseline']
-): RunningTimeBaselineStatsApi {
-    // Omit optional stats that are null for this metric type (e.g. step_counts on non-funnel
-    // metrics, denominator_* on non-ratio metrics) — the serializer rejects explicit nulls,
-    // and the backend already treats absent values as unset.
-    return {
-        number_of_samples: baseline.number_of_samples,
-        sum: baseline.sum,
-        sum_squares: baseline.sum_squares,
-        denominator_sum: baseline.denominator_sum ?? undefined,
-        denominator_sum_squares: baseline.denominator_sum_squares ?? undefined,
-        numerator_denominator_sum_product: baseline.numerator_denominator_sum_product ?? undefined,
-        step_counts: baseline.step_counts ?? undefined,
-    }
-}
-
-/**
- * Whether the baseline stats are sufficient to size this metric type. Ratio and retention
- * sizing needs the baseline's denominator stats; low-data experiments return
- * denominator_sum as null or 0, which the backend rejects — callers should skip the
- * request rather than fire a doomed one.
- */
-export function hasRequiredBaselineStats(
-    metricType: CalculatorMetricType,
-    baseline: CachedNewExperimentQueryResponse['baseline']
-): boolean {
-    if (metricType === 'ratio' || metricType === 'retention') {
-        return (baseline.denominator_sum ?? 0) > 0
-    }
-    return true
-}
 
 export function calculateCurrentExposures(results: CachedNewExperimentQueryResponse | null): number | null {
     if (!results) {
@@ -103,4 +34,17 @@ export function calculateExposureRate(currentExposures: number | null, daysElaps
     }
 
     return currentExposures / daysElapsed
+}
+
+/**
+ * The target sample for another minimum detectable effect, by the rule the target endpoint documents: the variances come
+ * from the results, so the sample scales with 1 / effect². The settings rescale locally, which lets every value of the
+ * slider show its estimate at once, without a request.
+ */
+export function rescaleSampleSize(sampleSize: number, fromEffect: number, toEffect: number): number | null {
+    if (!(sampleSize > 0) || !(fromEffect > 0) || !(toEffect > 0)) {
+        return null
+    }
+    // Round before the ceiling, as the backend does, so that float noise doesn't turn an exact 3,200 into 3,201.
+    return Math.ceil(Number((sampleSize * (fromEffect / toEffect) ** 2).toFixed(6)))
 }

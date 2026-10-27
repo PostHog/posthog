@@ -177,6 +177,9 @@ def _run_mode(materialize_result: MaterializeViewResult | None) -> str:
 
 
 def _record_managed_warehouse_node_metrics(result: ManagedWarehouseShadowResult, tier: str) -> None:
+    if result.skipped:
+        get_node_finished_metric("skipped", MANAGED_WAREHOUSE_ENGINE, tier=tier, run_mode=result.run_mode).add(1)
+        return
     if result.error is not None:
         get_node_finished_metric(
             "failed",
@@ -893,7 +896,12 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             shadow_result: ManagedWarehouseShadowResult = await shadow_handle
 
             row_count_matched = clickhouse_row_count == shadow_result.row_count
-            status = "completed" if shadow_result.error is None else "failed"
+            if shadow_result.skipped:
+                status = "skipped"
+            elif shadow_result.error is None:
+                status = "completed"
+            else:
+                status = "failed"
 
             get_managed_warehouse_shadow_finished_metrics(status).add(1)
             get_clickhouse_materialization_duration_metric().record(clickhouse_duration_seconds)
