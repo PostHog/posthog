@@ -5633,6 +5633,12 @@ importers:
         specifier: '*'
         version: 8.0.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
     devDependencies:
+      '@testing-library/jest-dom':
+        specifier: ^5.17.0
+        version: 5.17.0
+      '@testing-library/react':
+        specifier: ^14.3.1
+        version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@types/query-selector-shadow-dom':
         specifier: 'catalog:'
         version: 1.0.0
@@ -23412,8 +23418,8 @@ packages:
     resolution: {integrity: sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.526.0:
-    resolution: {integrity: sha512-XkwTREpJQKQwLMbvvDAwhDCyCV+X50rmAJzlJ4Vr7o4mJnUpRqupBUBF4F+gd1gjmpkuE9ZS5C+4VaW5+5PH/g==}
+  unlayer-types@1.529.0:
+    resolution: {integrity: sha512-VV3e5RpIoOVs+ewASAastLaMXB56PEX2wSNpKncvzAqEpgjTwPHuyWhnrVq40brOS9pmn9jYW0msXj2oGeT03w==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -44121,7 +44127,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.526.0
+      unlayer-types: 1.529.0
 
   react-grid-layout@2.2.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1):
     dependencies:
@@ -46479,7 +46485,7 @@ snapshots:
 
   universalify@2.0.1: {}
 
-  unlayer-types@1.526.0: {}
+  unlayer-types@1.529.0: {}
 
   unpipe@1.0.0: {}
 
