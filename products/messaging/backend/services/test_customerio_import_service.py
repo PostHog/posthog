@@ -5,13 +5,17 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.models import Team
+
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
     MessageRecipientPreference,
     PreferenceStatus,
 )
+from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
 
+from .customerio_client import CustomerIOAPIError
 from .customerio_import_service import CustomerIOImportService
 
 
@@ -284,6 +288,78 @@ user4@example.com,cio_6,"{""topics"": {""topic_1"": true, ""topic_2"": true}}"
         assert result["globally_unsubscribed_count"] == 1
         preference = MessageRecipientPreference.objects.get(team=self.team, identifier="unsubscribed@example.com")
         assert preference.get_preference(ALL_MESSAGE_PREFERENCE_CATEGORY_ID) == PreferenceStatus.OPTED_OUT
+
+    @parameterized.expand([("project", False), ("child_environment", True)])
+    @patch("products.messaging.backend.services.customerio_import_service.SUPPRESSION_PAGE_DELAY_SECONDS", 0)
+    @patch("products.messaging.backend.services.customerio_import_service.SUPPRESSION_PAGE_SIZE", 2)
+    @patch("products.messaging.backend.services.customerio_import_service.CustomerIOClient")
+    def test_api_import_adds_customerio_suppressions(
+        self, _name: str, from_child_environment: bool, mock_client_class: MagicMock
+    ) -> None:
+        import_team_id = self.team.id
+        if from_child_environment:
+            import_team_id = Team.objects.create(
+                organization=self.organization, project=self.project, parent_team=self.team
+            ).id
+        MessageSuppression.objects.for_team(self.team.id).create(
+            team=self.team, identifier="manual@example.com", source=SuppressionSource.MANUAL, suppressed=True
+        )
+        MessageSuppression.objects.for_team(self.team.id).create(
+            team=self.team, identifier="removed@example.com", suppressed=False, deleted=True
+        )
+        pages = {
+            ("bounces", 0): [{"email": " Bounced@Example.com "}, {"email": "manual@example.com"}],
+            ("bounces", 2): [{"email": "removed@example.com"}],
+            ("spam_reports", 0): [{"email": "spam@example.com"}],
+        }
+
+        def get_suppressions(suppression_type: str, limit: int, offset: int) -> list[dict]:
+            if suppression_type == "invalid_emails":
+                raise CustomerIOAPIError("Customer.io API error: 500")
+            return pages.get((suppression_type, offset), [])
+
+        mock_client = mock_client_class.return_value
+        mock_client.validate_credentials.return_value = True
+        mock_client.get_subscription_topics.return_value = []
+        mock_client.get_globally_unsubscribed_customers.return_value = {"identifiers": []}
+        mock_client.get_suppressions.side_effect = get_suppressions
+
+        result = CustomerIOImportService(import_team_id, self.api_key, self.user.id).import_api_data()
+
+        assert result["status"] == "completed"
+        assert result["suppressions_imported"] == 2
+        assert any("invalid_emails" in error for error in result["errors"])
+        rows = {
+            row.identifier: (row.source, row.suppressed, row.deleted)
+            for row in MessageSuppression.objects.for_team(self.team.id).all()
+        }
+        assert rows == {
+            "bounced@example.com": (SuppressionSource.BOUNCE, True, False),
+            "spam@example.com": (SuppressionSource.COMPLAINT, True, False),
+            "manual@example.com": (SuppressionSource.MANUAL, True, False),
+            "removed@example.com": (SuppressionSource.BOUNCE, False, True),
+        }
+
+    @patch("products.messaging.backend.services.customerio_import_service.SUPPRESSION_PAGE_DELAY_SECONDS", 0)
+    @patch("products.messaging.backend.services.customerio_import_service.CustomerIOClient")
+    def test_api_import_saves_suppressions_before_a_killed_unsubscribe_step(self, mock_client_class: MagicMock) -> None:
+        class RequestKilled(BaseException):
+            pass
+
+        mock_client = mock_client_class.return_value
+        mock_client.validate_credentials.return_value = True
+        mock_client.get_subscription_topics.return_value = []
+        mock_client.get_suppressions.side_effect = lambda suppression_type, limit, offset: (
+            [{"email": "bounced@example.com"}] if (suppression_type, offset) == ("bounces", 0) else []
+        )
+        mock_client.get_globally_unsubscribed_customers.side_effect = RequestKilled()
+
+        with self.assertRaises(RequestKilled):
+            CustomerIOImportService(self.team.id, self.api_key, self.user.id).import_api_data()
+
+        assert list(MessageSuppression.objects.for_team(self.team.id).values_list("identifier", flat=True)) == [
+            "bounced@example.com"
+        ]
 
     def test_process_csv_without_categories(self):
         """Test CSV processing when no categories exist"""

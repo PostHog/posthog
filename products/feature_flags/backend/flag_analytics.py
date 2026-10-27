@@ -42,6 +42,9 @@ SDK_LIBRARIES = [
     "posthog-convex",
     "posthog-python",
     "posthog-python-mcp",
+    "posthog-rs-mcp",
+    "posthog-go-mcp",
+    "posthog-ruby-mcp",
     "posthog-php",
     "posthog-ruby",
     "posthog-rails",
@@ -57,6 +60,8 @@ SDK_LIBRARIES = [
     "posthog-flutter",
     "posthog-kmp",
     "posthog-unity",
+    "posthog-godot",
+    "posthog-unreal",
     "posthog-server",
     "other",
 ]

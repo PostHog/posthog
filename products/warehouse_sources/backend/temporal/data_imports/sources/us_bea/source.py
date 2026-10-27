@@ -141,6 +141,7 @@ class UsBeaSource(SimpleSource[UsBeaSourceConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="custom_dataset_name",
+                        sync_setting=True,
                         label="Custom query: dataset name",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -149,6 +150,7 @@ class UsBeaSource(SimpleSource[UsBeaSourceConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="custom_query_params",
+                        sync_setting=True,
                         label="Custom query: parameters",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=False,
