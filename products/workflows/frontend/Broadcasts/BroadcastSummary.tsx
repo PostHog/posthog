@@ -384,7 +384,7 @@ export function BroadcastSummary(): JSX.Element {
                           {
                               label: item.label,
                               onClick: item.onClick,
-                              disabledReason: 'disabledReason' in item ? item.disabledReason : undefined,
+                              disabledReason: item.disabledReason,
                               danger: 'status' in item && item.status === 'danger',
                               'data-attr': item['data-attr'],
                           },
