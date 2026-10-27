@@ -8,9 +8,11 @@ import {
     IconMessage,
     IconNotebook,
     IconRewindPlay,
+    IconTrending,
     IconWarning,
 } from '@posthog/icons'
 
+import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductKey, QuickFilterContext } from '~/queries/schema/schema-general'
@@ -23,6 +25,7 @@ import {
     experimentResultsWidgetConfigSchema,
     experimentsWidgetConfigSchema,
     logsWidgetConfigSchema,
+    metricsTableWidgetConfigSchema,
     notebookWidgetConfigSchema,
     sessionReplayWidgetConfigSchema,
     surveyResultsWidgetConfigSchema,
@@ -91,6 +94,7 @@ export const DASHBOARD_WIDGET_GROUP_LABELS = {
     logs: 'Logs',
     conversations: 'Support',
     canvas: 'Canvas',
+    metrics: 'Metrics',
 } as const satisfies Record<string, string>
 
 export function getDashboardWidgetGroupLabel(groupId: string): string {
@@ -108,6 +112,7 @@ export const DASHBOARD_WIDGET_GROUP_ICONS = {
     logs: IconList,
     conversations: IconMessage,
     canvas: IconApps,
+    metrics: IconTrending,
 } as const satisfies Record<keyof typeof DASHBOARD_WIDGET_GROUP_LABELS, ComponentType<{ className?: string }>>
 
 export function getDashboardWidgetGroupIcon(groupId: string): ComponentType<{ className?: string }> | undefined {
@@ -164,6 +169,8 @@ export type DashboardWidgetCatalogEntry = {
     description: string
     defaultConfig: Record<string, unknown>
     hideFromPicker?: boolean
+    /** Hides the widget from the Add widget picker while this flag is off. Tiles already placed keep rendering. */
+    featureFlag?: FeatureFlagKey
     defaultLayout: { w: number; h: number; minW: number; minH?: number }
     productAccess?: DashboardWidgetProductAccess
     headerLayout?: DashboardWidgetHeaderLayout
@@ -345,6 +352,24 @@ export const DASHBOARD_WIDGET_CATALOG = {
         sharedPlaceholder: {
             title: 'Recent logs',
             message: 'Log in to PostHog to see the latest logs from this dashboard.',
+        },
+    },
+    metrics_table: {
+        groupId: 'metrics',
+        label: 'Metrics table',
+        description: 'One row per label value, such as each endpoint, with a sparkline for each metric.',
+        headerTitle: 'Metrics table',
+        productAccess: 'metrics',
+        featureFlag: FEATURE_FLAGS.METRICS,
+        defaultConfig: metricsTableWidgetConfigSchema.parse({
+            dateRange: { date_from: '-1h' },
+        }),
+        // Full width, like a Grafana row: each row is one label value, and the columns need the room.
+        defaultLayout: { w: 12, h: 6, minW: 12, minH: 4 },
+        titleHref: urls.metrics(),
+        sharedPlaceholder: {
+            title: 'Metrics table',
+            message: 'Log in to PostHog to see the metrics in this table.',
         },
     },
 } as const satisfies Record<string, DashboardWidgetCatalogEntry>

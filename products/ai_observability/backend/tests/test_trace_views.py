@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.constants import AvailableFeature
 from posthog.models import Team
@@ -179,6 +180,7 @@ class TestTraceViewSet(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(self._url(_encode("trace-1")) + suffix, headers=headers)
 
         assert response.status_code == 429
+        assert response["Retry-After"] == str(CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS)
 
 
 class TestTraceNodeView(ClickhouseTestMixin, APIBaseTest):

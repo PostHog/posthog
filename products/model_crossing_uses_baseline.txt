@@ -628,7 +628,6 @@ product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_e
 product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_endpoint_execution drives(TrendsQuery) 32
 product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_endpoint_materialization drives(TrendsQuery) 10
 product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_insight_response_parity drives(TrendsQuery) 9
-product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_materialization_suggestion drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_openapi_spec drives(TrendsQuery) 4
 product_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_variable_materialization drives(TrendsQuery) 1
 product_analytics:backend/hogql_queries/ products.posthog_ai.scripts.hogql_example.test.test_hogql_example drives(TrendsQuery) 3
@@ -999,7 +998,6 @@ web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_endpo
 web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_endpoint_execution drives(TrendsQuery) 32
 web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_endpoint_materialization drives(TrendsQuery) 10
 web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_insight_response_parity drives(TrendsQuery) 9
-web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_materialization_suggestion drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_openapi_spec drives(TrendsQuery) 4
 web_analytics:backend/hogql_queries/ products.endpoints.backend.tests.test_variable_materialization drives(TrendsQuery) 1
 web_analytics:backend/hogql_queries/ products.posthog_ai.scripts.hogql_example.test.test_hogql_example drives(TrendsQuery) 3

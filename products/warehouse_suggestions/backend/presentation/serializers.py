@@ -280,6 +280,14 @@ class WarehouseSuggestionSerializer(DataclassSerializer):
             "can_act": {
                 "help_text": "Whether the caller has edit access to the subject and so may accept, dismiss or resume."
             },
+            "subject_source_id": {
+                "help_text": "Warehouse source that syncs the subject table, for linking to its schema page. Null for "
+                "views and for tables no source syncs."
+            },
+            "subject_schema_id": {
+                "help_text": "Source schema that syncs the subject table, for linking to its schema page. Null for "
+                "views and for tables no source syncs."
+            },
         }
 
 

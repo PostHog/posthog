@@ -1070,6 +1070,75 @@ export interface ErrorTrackingIssueSplitResponseApi {
 }
 
 /**
+ * * `ready` - Ready
+ * * `generating` - Generating
+ * * `unavailable` - Unavailable
+ */
+export type IssueSummaryStatusEnumApi = (typeof IssueSummaryStatusEnumApi)[keyof typeof IssueSummaryStatusEnumApi]
+
+export const IssueSummaryStatusEnumApi = {
+    Ready: 'ready',
+    Generating: 'generating',
+    Unavailable: 'unavailable',
+} as const
+
+/**
+ * * `own_code` - Own Code
+ * * `third_party` - Third Party
+ * * `network` - Network
+ * * `bots` - Bots
+ * * `expected` - Expected
+ * * `unclear` - Unclear
+ */
+export type IssueSummaryCategoryEnumApi = (typeof IssueSummaryCategoryEnumApi)[keyof typeof IssueSummaryCategoryEnumApi]
+
+export const IssueSummaryCategoryEnumApi = {
+    OwnCode: 'own_code',
+    ThirdParty: 'third_party',
+    Network: 'network',
+    Bots: 'bots',
+    Expected: 'expected',
+    Unclear: 'unclear',
+} as const
+
+export interface ErrorTrackingStoredIssueSummaryApi {
+    /** What the exception is and where it happens. */
+    what_happened: string
+    /** The model's hypothesis about the cause. Not a confirmed finding. Can be empty. */
+    likely_cause: string
+    /** Which users, sessions or environments see the issue. */
+    who_is_affected: string
+    /** One concrete step to investigate or fix the issue. */
+    suggested_next_step: string
+    /** Broad source of the issue, or null when the category model did not answer.
+     *
+     * * `own_code` - Own Code
+     * * `third_party` - Third Party
+     * * `network` - Network
+     * * `bots` - Bots
+     * * `expected` - Expected
+     * * `unclear` - Unclear */
+    category: IssueSummaryCategoryEnumApi | null
+    /** Model that wrote the summary. */
+    model: string
+    /** When the summary was written. */
+    generated_at: string
+    /** When generation last wrote the summary or confirmed it unchanged. The regenerate interval runs from it. */
+    checked_at: string
+}
+
+export interface ErrorTrackingIssueSummaryResponseApi {
+    /** ready: `summary` holds the stored summary. generating: a summary is being written in the background, so poll again. `summary` holds the previous one, if any. unavailable: no summary exists and none will be written, for example because the feature is off.
+     *
+     * * `ready` - Ready
+     * * `generating` - Generating
+     * * `unavailable` - Unavailable */
+    status: IssueSummaryStatusEnumApi
+    /** The stored summary, or null when none exists yet. */
+    summary: ErrorTrackingStoredIssueSummaryApi | null
+}
+
+/**
  * * `set_status` - set_status
  * * `assign` - assign
  */
@@ -1293,25 +1362,6 @@ export interface ErrorTrackingIssueBreakdownApi {
     top_values: ErrorTrackingBreakdownTopValuesApi
 }
 
-/**
- * * `own_code` - Own Code
- * * `third_party` - Third Party
- * * `network` - Network
- * * `bots` - Bots
- * * `expected` - Expected
- * * `unclear` - Unclear
- */
-export type IssueSummaryCategoryEnumApi = (typeof IssueSummaryCategoryEnumApi)[keyof typeof IssueSummaryCategoryEnumApi]
-
-export const IssueSummaryCategoryEnumApi = {
-    OwnCode: 'own_code',
-    ThirdParty: 'third_party',
-    Network: 'network',
-    Bots: 'bots',
-    Expected: 'expected',
-    Unclear: 'unclear',
-} as const
-
 export interface ErrorTrackingIssueSummaryApi {
     /** What the error is and where it happens, in plain language. */
     what_happened: string
@@ -1333,19 +1383,6 @@ export interface ErrorTrackingIssueSummaryApi {
     /** When the summary was written. */
     generated_at: string
 }
-
-/**
- * * `ready` - Ready
- * * `generating` - Generating
- * * `unavailable` - Unavailable
- */
-export type IssueSummaryStatusEnumApi = (typeof IssueSummaryStatusEnumApi)[keyof typeof IssueSummaryStatusEnumApi]
-
-export const IssueSummaryStatusEnumApi = {
-    Ready: 'ready',
-    Generating: 'generating',
-    Unavailable: 'unavailable',
-} as const
 
 export interface ErrorTrackingIssueDetailApi {
     /** Error tracking issue ID. */
@@ -2167,6 +2204,8 @@ export interface ErrorTrackingSettingsApi {
      * @nullable
      */
     per_issue_rate_limit_bucket_size_minutes?: number | null
+    /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
+    ingestion_enabled?: boolean
 }
 
 export interface PatchedErrorTrackingSettingsApi {
@@ -2194,6 +2233,8 @@ export interface PatchedErrorTrackingSettingsApi {
      * @nullable
      */
     per_issue_rate_limit_bucket_size_minutes?: number | null
+    /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
+    ingestion_enabled?: boolean
 }
 
 /**

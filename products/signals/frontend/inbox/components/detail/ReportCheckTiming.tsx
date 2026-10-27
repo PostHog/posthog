@@ -1,11 +1,19 @@
 import { TZLabel } from 'lib/components/TZLabel'
 
-import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
+import type { SignalReportCheckApi, SignalReportStatusEnumApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { monitoringPeriodLabel } from './reportCheckPresentation'
 
-export function ReportCheckTiming({ check, detail }: { check: SignalReportCheckApi; detail: string }): JSX.Element {
-    const timing = check.monitoring_timing
+export function ReportCheckTiming({
+    check,
+    reportStatus,
+    detail,
+}: {
+    check: SignalReportCheckApi
+    reportStatus: SignalReportStatusEnumApi
+    detail: string
+}): JSX.Element {
+    const timing = reportStatus === 'monitoring' ? check.monitoring_timing : null
     return (
         <span className="flex min-w-0 flex-col gap-1">
             <span>{detail}</span>

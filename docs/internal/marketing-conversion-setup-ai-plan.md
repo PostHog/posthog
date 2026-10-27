@@ -13,6 +13,8 @@ The existing Marketing analytics setup flag must also be enabled.
 ## Analysis lifecycle
 
 The first visit to Setup or the source onboarding dashboard starts an analysis once, after loading the saved state and checking permission to generate.
+The dashboard waits for the project settings and source connections to load successfully before mounting recommendations or starting the first scan.
+Background source refreshes keep the recommendations visible while the last successful source response remains available.
 Analyses use a 30-day catalog recency cutoff until one completes successfully; later analyses use 14 days and require an explicit **Scan again** action.
 The cutoff uses the catalog’s last-seen timestamp when available; it does not query or count events in that period.
 Definitions with no last-seen timestamp remain eligible.

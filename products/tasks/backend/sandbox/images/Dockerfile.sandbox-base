@@ -78,9 +78,12 @@ RUN set -eux; \
     git --version; \
     git help -a | grep -q '[[:space:]]backfill'
 
-# Install Node.js 24.x
+# Install Node.js 24.x. The layer cache keys on this RUN text, so cd-sandbox-base-image.yml
+# passes the newest nodesource package as NODEJS_VERSION to rebuild the layer when Node ships
+# a release. A build without the arg installs the newest package.
+ARG NODEJS_VERSION
 RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
-    apt-get install -y --no-install-recommends nodejs && \
+    apt-get install -y --no-install-recommends "nodejs${NODEJS_VERSION:+=$NODEJS_VERSION}" && \
     rm -rf /var/lib/apt/lists/*
 
 # Install additional language package managers
@@ -161,8 +164,8 @@ RUN set -eux; \
 # every sandbox image with no PostHog commit or review. Bump this deliberately
 # in a reviewed PR when picking up a new agent release. COMMIT_HASH invalidates
 # the layer for PostHog-side image changes that keep the agent version unchanged.
-ARG AGENT_VERSION=2.4.290
-ARG AGENT_TARBALL_SHA256="9d8f3795f7743ae15f25947a4d6d1831f6841fd932ec190e6e11cf65b9aea055"
+ARG AGENT_VERSION=2.4.293
+ARG AGENT_TARBALL_SHA256="b6fd52aefa49cdb278bf3c58e74973735a68520b6c9149e166477cdca023fd19"
 ARG AGENT_TARBALL_URL=https://github.com/PostHog/posthog/releases/download/agent-v${AGENT_VERSION}/posthog-agent-${AGENT_VERSION}.tgz
 ARG COMMIT_HASH
 RUN mkdir -p /scripts && \

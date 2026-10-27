@@ -74,7 +74,7 @@ export function ModelsScene(): JSX.Element {
                       key: 'usage' as const,
                       label: 'Usage',
                       link: urls.models('usage'),
-                      content: <ModelsUsageTab />,
+                      content: <ModelsUsageTab savedQueryIdToNodeId={savedQueryIdToNodeId} />,
                       'data-attr': 'models-tab-usage',
                   },
               ]
