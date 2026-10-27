@@ -341,15 +341,31 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("relative", "-1d", False, True),
-            ("absolute", "2026-04-23T12:00:00Z", False, True),
-            ("milliseconds", "2026-04-24T10:00:00.500Z", False, False),
-            ("before_both", "-3d", True, True),
+            ("relative", {"firstSeenAfter": "-1d"}, False, True),
+            ("absolute", {"firstSeenAfter": "2026-04-23T12:00:00Z"}, False, True),
+            ("milliseconds", {"firstSeenAfter": "2026-04-24T10:00:00.500Z"}, False, False),
+            ("before_both", {"firstSeenAfter": "-3d"}, True, True),
+            (
+                "filter_group_before",
+                {
+                    "filterGroup": [
+                        {"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]},
+                        {
+                            "key": "first_seen",
+                            "type": "error_tracking_issue",
+                            "operator": "lt",
+                            "value": "2026-04-23T12:00:00Z",
+                        },
+                    ]
+                },
+                True,
+                False,
+            ),
         ]
     )
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issues_list_accepts_typed_filters_and_matches_release_precisely(
-        self, _name: str, first_seen_after: str, old_included: bool, new_included: bool
+        self, _name: str, first_seen_fields: dict[str, object], old_included: bool, new_included: bool
     ) -> None:
         self.create_issue()
         self.create_exception_event(
@@ -398,12 +414,12 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                 data={
                     "status": "all",
                     "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
-                    "firstSeenAfter": first_seen_after,
                     "library": "posthog-js",
                     "release": "2026.04.24",
                     "fingerprint": [self.fingerprint, "new-fingerprint-on-old-issue"],
                     "url": "/checkout",
                     "filterGroup": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]}],
+                    **first_seen_fields,
                 },
                 format="json",
             )
