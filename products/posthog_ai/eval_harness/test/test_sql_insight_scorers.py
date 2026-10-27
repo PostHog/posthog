@@ -65,25 +65,56 @@ def test_sql_follows_date_filter(sql: str, filters: dict | None, expected_score:
     assert score.score == expected_score, score.metadata
 
 
-@pytest.mark.parametrize(
-    "order_by,expected_score",
-    [
-        ("ORDER BY day", 1.0),
-        ("ORDER BY day ASC", 1.0),
-        ("ORDER BY 1", 1.0),
-        ("ORDER BY file_type, toStartOfDay(timestamp)", 1.0),
-        ("ORDER BY day DESC", 0.0),
-        ("ORDER BY uploads DESC", 0.0),
-        ("", 0.0),
-    ],
-    ids=["alias", "alias_asc", "position", "expression_after_breakdown", "desc", "no_time_key", "no_order_by"],
+DAILY_BY_FILE_TYPE = (
+    "SELECT toStartOfDay(timestamp) AS day, properties.file_type AS file_type, count() AS uploads "
+    "FROM events WHERE {filters} GROUP BY day, file_type "
 )
-def test_sql_time_axis_ascending(order_by: str, expected_score: float) -> None:
-    sql = (
-        "SELECT toStartOfDay(timestamp) AS day, properties.file_type AS file_type, count() AS uploads "
-        f"FROM events WHERE {{filters}} GROUP BY day, file_type {order_by}"
-    )
+DAY_SERIES_JOIN = (
+    "SELECT d.day AS day, coalesce(c.uploads, 0) AS uploads "
+    "FROM (SELECT today() - number AS day FROM numbers(30)) AS d "
+    "LEFT JOIN (SELECT toDate(timestamp) AS day, count() AS uploads FROM events WHERE {filters} GROUP BY day) AS c "
+    "ON d.day = c.day "
+)
 
+
+@pytest.mark.parametrize(
+    "sql,expected_score",
+    [
+        (DAILY_BY_FILE_TYPE + "ORDER BY day", 1.0),
+        (DAILY_BY_FILE_TYPE + "ORDER BY day ASC", 1.0),
+        (DAILY_BY_FILE_TYPE + "ORDER BY 1", 1.0),
+        (DAILY_BY_FILE_TYPE + "ORDER BY file_type, toStartOfDay(timestamp)", 1.0),
+        (DAY_SERIES_JOIN + "ORDER BY day", 1.0),
+        (
+            "SELECT bucket, sum(uploads) AS uploads FROM (SELECT toStartOfWeek(timestamp) AS bucket, count() AS uploads "
+            "FROM events WHERE {filters} GROUP BY bucket) GROUP BY bucket ORDER BY bucket",
+            1.0,
+        ),
+        (
+            "WITH weeks AS (SELECT toStartOfWeek(now()) - toIntervalWeek(number) AS week FROM numbers(8)) "
+            "SELECT weeks.week AS week FROM weeks ORDER BY week",
+            1.0,
+        ),
+        (DAILY_BY_FILE_TYPE + "ORDER BY day DESC", 0.0),
+        (DAY_SERIES_JOIN + "ORDER BY day DESC", 0.0),
+        (DAILY_BY_FILE_TYPE + "ORDER BY uploads DESC", 0.0),
+        (DAILY_BY_FILE_TYPE, 0.0),
+    ],
+    ids=[
+        "alias",
+        "alias_asc",
+        "position",
+        "expression_after_breakdown",
+        "generated_day_series_join",
+        "outer_query_over_subquery",
+        "generated_week_series_cte",
+        "desc",
+        "generated_day_series_join_desc",
+        "no_time_key",
+        "no_order_by",
+    ],
+)
+def test_sql_time_axis_ascending(sql: str, expected_score: float) -> None:
     score = SqlTimeAxisAscending()._run_eval_sync(_output(_save(sql)), expected={"sql_time_axis_ascending": {}})
 
     assert score.score == expected_score, score.metadata

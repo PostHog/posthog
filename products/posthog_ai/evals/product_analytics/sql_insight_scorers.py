@@ -195,25 +195,65 @@ class SqlFollowsDateFilter(Scorer):
 def _is_time_bucket(node: ast.Expr) -> bool:
     found = _calls_in(node)
     return (
-        any(name.startswith("tostartof") or name in _TIME_BUCKET_FUNCTIONS for name in found.names)
+        any(
+            name.startswith("tostartof") or name in _TIME_BUCKET_FUNCTIONS or name in _CLOCK_FUNCTIONS
+            for name in found.names
+        )
         or "timestamp" in found.fields
     )
 
 
-def _time_order_keys(select: ast.SelectQuery) -> list[ast.OrderExpr]:
+def _field_name(node: ast.Expr) -> str | None:
+    return str(node.chain[-1]).lower() if isinstance(node, ast.Field) and node.chain else None
+
+
+def _column_name(column: ast.Expr) -> str | None:
+    return column.alias.lower() if isinstance(column, ast.Alias) else _field_name(column)
+
+
+def _source_queries(select: ast.SelectQuery, ctes: dict[str, ast.Expr]) -> list[ast.SelectQuery | ast.SelectSetQuery]:
+    sources: list[ast.SelectQuery | ast.SelectSetQuery] = []
+    join = select.select_from
+    while join is not None:
+        table: ast.Expr | None = join.table
+        if isinstance(table, ast.Field) and len(table.chain) == 1:
+            table = ctes.get(str(table.chain[0]).lower())
+        if isinstance(table, ast.SelectQuery | ast.SelectSetQuery):
+            sources.append(table)
+        join = join.next_join
+    return sources
+
+
+def _time_columns(node: ast.SelectQuery | ast.SelectSetQuery, ctes: dict[str, ast.Expr]) -> set[str]:
+    """Output columns that hold a time bucket, followed through subqueries, joins, and CTEs.
+
+    Agents often fill empty buckets with a generated date series, such as
+    ``SELECT today() - number AS day FROM numbers(14)``, joined to the counts, and select the
+    bucket in the outer query only as ``d.day``.
+    """
+    select = _outer_select(node)
+    ctes = {**ctes, **{name.lower(): cte.expr for name, cte in (select.ctes or {}).items()}}
+    inner = set().union(*(_time_columns(source, ctes) for source in _source_queries(select, ctes)))
+    names = set()
+    for column in select.select or []:
+        expr = column.expr if isinstance(column, ast.Alias) else column
+        name = _column_name(column)
+        if name and (_is_time_bucket(expr) or _field_name(expr) in inner):
+            names.add(name)
+    return names
+
+
+def _time_order_keys(node: ast.SelectQuery | ast.SelectSetQuery) -> list[ast.OrderExpr]:
+    select = _outer_select(node)
     columns = list(select.select or [])
-    time_aliases = {
-        column.alias.lower() for column in columns if isinstance(column, ast.Alias) and _is_time_bucket(column.expr)
-    }
+    time_columns = _time_columns(node, {})
     keys = []
     for order in select.order_by or []:
         expr = order.expr
         if isinstance(expr, ast.Constant) and isinstance(expr.value, int) and 0 < expr.value <= len(columns):
-            is_time = _is_time_bucket(columns[expr.value - 1])
-        elif isinstance(expr, ast.Field) and len(expr.chain) == 1 and str(expr.chain[0]).lower() in time_aliases:
-            is_time = True
+            is_time = _column_name(columns[expr.value - 1]) in time_columns or _is_time_bucket(columns[expr.value - 1])
         else:
-            is_time = _is_time_bucket(expr)
+            is_time = _field_name(expr) in time_columns or _is_time_bucket(expr)
         if is_time:
             keys.append(order)
     return keys
@@ -225,7 +265,8 @@ class SqlTimeAxisAscending(Scorer):
     ``expected = {"sql_time_axis_ascending": {}}``
 
     A SQL chart takes its X axis from the row order. The outer query must order by its time
-    bucket (by alias, position, or expression), and every time key must be ascending. A
+    bucket (by alias, position, or expression), and every time key must be ascending. A time
+    bucket selected from a subquery, a join, or a CTE counts as the time bucket. A
     missing ``ORDER BY`` fails, because ClickHouse returns grouped rows in no fixed order.
     ``None`` when no SQL insight was saved or the spec is absent.
     """
@@ -243,7 +284,7 @@ class SqlTimeAxisAscending(Scorer):
         if node is None:
             return Score(name=self._name(), score=0.0, metadata={"reason": "The saved SQL does not parse"})
 
-        keys = _time_order_keys(_outer_select(node))
+        keys = _time_order_keys(node)
         if not keys:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No ORDER BY on the time column"})
         descending = [key.expr.to_hogql() for key in keys if key.order == "DESC"]
