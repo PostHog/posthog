@@ -927,8 +927,9 @@ def _convert_boolean_literal(value: object) -> bool | None:
         return value
     if isinstance(value, int) and value in (0, 1):
         return bool(value)
-    if isinstance(value, str) and value.lower() in {"true", "false"}:
-        return value.lower() == "true"
+    # ClickHouse reads '1' and '0' as Bool text, the same as 'true' and 'false'.
+    if isinstance(value, str) and value.lower() in {"true", "false", "1", "0"}:
+        return value.lower() in {"true", "1"}
     return None
 
 

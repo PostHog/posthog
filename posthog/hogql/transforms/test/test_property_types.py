@@ -599,6 +599,7 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             ("text_in", "properties.status IN ('SUCCESS', 'FAILURE')", [1, 1, 0, 0, None, 0]),
             ("text_and_boolean_in", "properties.status IN ('SUCCESS', 'true')", [1, 0, 1, 1, None, 0]),
             ("boolean_text_equals", "properties.status = 'true'", [0, 0, 1, 1, 0, 0]),
+            ("boolean_digit_equals", "properties.status = '1'", [0, 0, 1, 1, 0, 0]),
         ]
     )
     def test_boolean_property_compared_to_text_matches_text(
@@ -623,6 +624,17 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             },
         )
         assert [row[0] for row in rows] == expected
+
+    def test_boolean_text_comparison_keeps_user_written_cast(self) -> None:
+        context = self._context(use_new_events_schema=True, event_properties={"status": {"type": "Boolean"}})
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(
+                parse_select("SELECT toBool(toString(properties.status)) = 'SUCCESS' FROM events"),
+                context,
+                "clickhouse",
+            )
+        assert "CAST(events.properties.status, 'Nullable(String)')" not in printed
+        assert "accurateCastOrNull(toString(accurateCastOrNull(transform(toString(events.properties.status)" in printed
 
     @parameterized.expand(
         [
