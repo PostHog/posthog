@@ -30,6 +30,7 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.dataclasses import frozen
 from posthog.models import PropertyDefinition, Team, User
+from posthog.models.team.event_retention import events_retention_months_for_team
 
 from products.access_control.backend.property_access_control import (
     get_restricted_properties_for_team,
@@ -38,6 +39,7 @@ from products.access_control.backend.property_access_control import (
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
+    retention_build_floor,
 )
 
 from .adapters.factory import MarketingSourceFactory
@@ -630,7 +632,20 @@ class ConversionGoalProcessor:
             return False
         if self._test_account_filters_restricted_for_user():
             return False
+        if self._touchpoints_reach_retention_floor(date_from):
+            return False
         return True
+
+    def _touchpoints_reach_retention_floor(self, date_from: datetime) -> bool:
+        """True when the touchpoint lookback starts before the events-retention build floor.
+
+        The executor builds no windows before that floor, so the precompute would serve the read short.
+        """
+        months = events_retention_months_for_team(self.team, self.team.pk)
+        if months is None:
+            return False
+        touchpoints_start = date_from - timedelta(days=self.config.attribution_window_days)
+        return touchpoints_start < retention_build_floor(months)
 
     def _test_account_filters_restricted_for_user(self) -> bool:
         """True when dropping test accounts inside the precompute could leak a property this user can't read.
