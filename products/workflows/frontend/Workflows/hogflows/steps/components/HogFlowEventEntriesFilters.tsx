@@ -9,14 +9,12 @@ export interface HogFlowEventEntriesFiltersProps extends Pick<
 > {
     entries: EventEntry[]
     onChange: (entries: EventEntry[]) => void
-    filtersKey: string
     typeKey: string
 }
 
 export function HogFlowEventEntriesFilters({
     entries,
     onChange,
-    filtersKey,
     typeKey,
     ...filterProps
 }: HogFlowEventEntriesFiltersProps): JSX.Element {
@@ -24,20 +22,23 @@ export function HogFlowEventEntriesFilters({
 
     return (
         <div className="flex flex-col gap-2 items-start w-full">
-            {shownEntries.map((entry, index) => (
-                <Fragment key={index}>
-                    {index > 0 ? <span className="text-xs text-tertiary uppercase tracking-wide">or</span> : null}
-                    <HogFlowEventFilters
-                        {...filterProps}
-                        filtersKey={`${filtersKey}-${index}`}
-                        typeKey={`${typeKey}-${index}`}
-                        filters={entry.filters ?? {}}
-                        setFilters={(filters) =>
-                            onChange(shownEntries.map((shown, i) => (i === index ? { ...shown, filters } : shown)))
-                        }
-                    />
-                </Fragment>
-            ))}
+            {shownEntries.map((entry, index) => {
+                const entryTypeKey = `${typeKey}-${index}`
+                return (
+                    <Fragment key={index}>
+                        {index > 0 ? <span className="text-xs text-tertiary uppercase tracking-wide">or</span> : null}
+                        <HogFlowEventFilters
+                            {...filterProps}
+                            filtersKey={entryTypeKey}
+                            typeKey={entryTypeKey}
+                            filters={entry.filters ?? {}}
+                            setFilters={(filters) =>
+                                onChange(shownEntries.map((shown, i) => (i === index ? { ...shown, filters } : shown)))
+                            }
+                        />
+                    </Fragment>
+                )
+            })}
         </div>
     )
 }
