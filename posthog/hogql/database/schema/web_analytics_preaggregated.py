@@ -5,6 +5,7 @@ from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
     DateTimeDatabaseField,
+    EventsRetentionTable,
     FieldOrTable,
     IntegerDatabaseField,
     StringDatabaseField,
@@ -198,12 +199,14 @@ WEB_DIMENSIONAL_SPECIFIC_FIELDS = {
 }
 
 
-class WebStatsDimensionalPreAggregatedTable(Table):
+class WebStatsDimensionalPreAggregatedTable(EventsRetentionTable):
     description: str = (
         "Precomputation-framework successor to web_pre_aggregated_stats: same dimensions plus a job_id "
         "generation column, used internally by the web analytics product. Metric columns are AggregateFunction "
         "states that must be merged, and reads must filter job_id to READY jobs to avoid double-counting."
     )
+    # Holds the start of each hourly bucket, so the floor drops the whole bucket that contains the boundary.
+    events_retention_field: str = "period_bucket"
     # Sharded by `sipHash64(job_id)` and every read filters `job_id IN (...)`, so ClickHouse can skip
     # shards that hold none of the requested jobs.
     top_level_settings: HogQLQuerySettings | None = Field(
@@ -224,12 +227,14 @@ class WebStatsDimensionalPreAggregatedTable(Table):
         return "web_stats_dimensional_preaggregated"
 
 
-class WebBouncesDimensionalPreAggregatedTable(Table):
+class WebBouncesDimensionalPreAggregatedTable(EventsRetentionTable):
     description: str = (
         "Precomputation-framework successor to web_pre_aggregated_bounces: same dimensions plus a job_id "
         "generation column, used internally by the web analytics product. Metric columns are AggregateFunction "
         "states that must be merged, and reads must filter job_id to READY jobs to avoid double-counting."
     )
+    # Holds the start of each hourly bucket, so the floor drops the whole bucket that contains the boundary.
+    events_retention_field: str = "period_bucket"
     # Sharded by `sipHash64(job_id)` and every read filters `job_id IN (...)`, so ClickHouse can skip
     # shards that hold none of the requested jobs.
     top_level_settings: HogQLQuerySettings | None = Field(

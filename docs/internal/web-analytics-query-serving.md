@@ -148,6 +148,8 @@ Both runners skip the dimensional tables when the rows cannot match the live res
 - Either period starts at or before the events retention floor.
 - The team has custom channel rules and the query breaks down or filters by channel type.
 
+The dimensional tables subclass `EventsRetentionTable`, as `events` does. The printer floors every read of them at the events retention floor on `period_bucket`, so a direct HogQL query cannot read rows past retention either. A new table that stores aggregates of events should subclass it too.
+
 ### Traffic metrics alongside conversion goals
 
 `WebStatsTableQuery.includeTrafficMetrics` adds sessions and retains pageviews alongside conversion columns. Traffic visitors and sessions require a pageview or screenview; goal-only sessions contribute to conversions without increasing the traffic denominator. The option defaults to off, preserving existing callers.
