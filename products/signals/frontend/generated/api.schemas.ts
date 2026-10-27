@@ -3149,10 +3149,8 @@ export interface SuggestedReviewerEntryWriteApi {
 
 /**
  * * `wrong_area` - Not their area
- * * `moved_off_area` - Moved off this area
  * * `already_covered` - Someone else is on it
- * * `unavailable` - Not available
- * * `overloaded` - Too many reports
+ * * `unavailable` - No bandwidth
  * * `other` - Other
  */
 export type ReviewerRemovalReasonEnumApi =
@@ -3160,10 +3158,8 @@ export type ReviewerRemovalReasonEnumApi =
 
 export const ReviewerRemovalReasonEnumApi = {
     WrongArea: 'wrong_area',
-    MovedOffArea: 'moved_off_area',
     AlreadyCovered: 'already_covered',
     Unavailable: 'unavailable',
-    Overloaded: 'overloaded',
     Other: 'other',
 } as const
 
@@ -3187,13 +3183,11 @@ export interface SignalReportArtefactWriteApi {
      * @maxItems 10
      */
     targets?: SuggestedReviewerEntryWriteApi[]
-    /** Why the people in `targets` are removed. Remove action only. 'wrong_area': the work is outside their area or someone else owns it. 'moved_off_area': they used to work on this area and no longer do. 'already_covered': another reviewer already covers the report. 'unavailable': they are not available. 'overloaded': they have too many reports right now. The last three say nothing about ownership. 'other': explain in removal_note. Research and scouts read the reason when they pick reviewers for later reports.
+    /** Why the people in `targets` are removed. Remove action only. 'wrong_area': the work should not be on them, because it is outside their area, they moved off it, or someone else owns it. 'already_covered': another reviewer already covers the report. 'unavailable': they do not have bandwidth right now. The last two say nothing about ownership. 'other': explain in removal_note. Research and scouts read the reason when they pick reviewers for later reports.
      *
      * * `wrong_area` - Not their area
-     * * `moved_off_area` - Moved off this area
      * * `already_covered` - Someone else is on it
-     * * `unavailable` - Not available
-     * * `overloaded` - Too many reports
+     * * `unavailable` - No bandwidth
      * * `other` - Other */
     removal_reason?: ReviewerRemovalReasonEnumApi
     /**
@@ -8090,7 +8084,7 @@ export interface ReviewerCorrectionEntryApi {
     /** GitHub logins on the report after the human edit (lowercased). */
     after: string[]
     /**
-     * Why the editor removed reviewers: wrong_area, moved_off_area, already_covered, unavailable, overloaded, or other.
+     * Why the editor removed reviewers: wrong_area, already_covered, unavailable, or other.
      * @nullable
      */
     removal_reason?: string | null

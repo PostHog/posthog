@@ -3029,10 +3029,10 @@ class SignalReportArtefactWriteSerializer(serializers.Serializer):
         choices=ReviewerRemovalReason.choices,
         required=False,
         help_text=(
-            "Why the people in `targets` are removed. Remove action only. 'wrong_area': the work is outside their "
-            "area or someone else owns it. 'moved_off_area': they used to work on this area and no longer do. "
-            "'already_covered': another reviewer already covers the report. 'unavailable': they are not available. "
-            "'overloaded': they have too many reports right now. The last three say nothing about ownership. 'other': explain in removal_note. Research and scouts read the "
+            "Why the people in `targets` are removed. Remove action only. 'wrong_area': the work should not be on "
+            "them, because it is outside their area, they moved off it, or someone else owns it. 'already_covered': "
+            "another reviewer already covers the report. 'unavailable': they do not have bandwidth right now. The "
+            "last two say nothing about ownership. 'other': explain in removal_note. Research and scouts read the "
             "reason when they pick reviewers for later reports."
         ),
     )

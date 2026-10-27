@@ -6,7 +6,6 @@ import { LemonButton, LemonMenu, LemonMenuItem } from '@posthog/lemon-ui'
 import { userLogic } from 'scenes/userLogic'
 
 import { EnrichedReviewer, ReviewerRemoval } from '../../types'
-import { openRemoveReviewerNoteDialog } from './RemoveReviewerNoteDialog'
 
 /**
  * Makes a reviewer's name the trigger for the actions on that reviewer, so the row shows no buttons
@@ -44,33 +43,15 @@ export function ReviewerRowMenu({
                 {
                     title,
                     items: [
-                        reason(isSelf ? 'Not my area' : 'Not their area', 'wrong_area'),
-                        reason(isSelf ? 'I moved off this area' : 'They moved off this area', 'moved_off_area'),
                         reason('Someone else is on it', 'already_covered'),
+                        reason(isSelf ? 'Not my area' : 'Not their area', 'wrong_area'),
                         reason(
-                            isSelf ? "I'm not available right now" : "They're not available right now",
+                            isSelf ? "I don't have bandwidth right now" : "They don't have bandwidth right now",
                             'unavailable'
                         ),
-                        reason(
-                            isSelf ? 'I have too many reports right now' : 'They have too many reports right now',
-                            'overloaded'
-                        ),
                     ],
                 },
-                {
-                    items: [
-                        {
-                            label: 'Something else…',
-                            disabledReason,
-                            onClick: () =>
-                                openRemoveReviewerNoteDialog({
-                                    title,
-                                    onConfirm: (note) => onRemove({ reason: 'other', note }),
-                                }),
-                        },
-                        { label: 'Without a reason', disabledReason, onClick: () => onRemove() },
-                    ],
-                },
+                { items: [{ label: 'Without a reason', disabledReason, onClick: () => onRemove() }] },
             ]}
         >
             <LemonButton
