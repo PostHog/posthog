@@ -40,7 +40,8 @@ const meta: Meta = {
         pageUrl: urls.aiObservabilityEvaluation('new'),
         featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_EVALUATIONS_OVERVIEW],
         testOptions: {
-            waitForSelector: '[data-attr="llma-evaluation-create-volume"]',
+            // The preview lists the run rate once the volume estimate loads.
+            waitForSelector: '[data-attr="llma-evaluation-create-scope"] li',
         },
     },
 }
@@ -54,15 +55,7 @@ export const FromTemplate: Story = {
     decorators: [scene(1240)],
 }
 
-export const NothingMatches: Story = {
-    parameters: {
-        pageUrl: `${urls.aiObservabilityEvaluation('new')}?template=helpfulness`,
-        testOptions: { waitForSelector: '[data-attr="llma-evaluation-create-volume-none"]' },
-    },
-    decorators: [scene(0)],
-}
-
-/** Opens one part of the sentence, the way someone clicks it, and waits for its panel. */
+/** Clicks one part of the sentence, the way someone does, and waits for the step it opens. */
 async function openPart(canvasElement: HTMLElement, part: string, panelText: string): Promise<void> {
     const button = await waitFor(() => {
         const element = canvasElement.querySelector<HTMLElement>(`[data-attr="llma-evaluation-create-part-${part}"]`)
@@ -89,5 +82,19 @@ export const SentimentEvaluation: Story = {
         await openPart(canvasElement, 'method', 'Sentiment')
         within(canvasElement).getByText('Sentiment').click()
         await within(canvasElement).findByText('a sentiment classifier')
+    },
+}
+
+/** The "What it runs on" step, with the warning shown when no generation matched. */
+export const NothingMatches: Story = {
+    parameters: { pageUrl: `${urls.aiObservabilityEvaluation('new')}?template=helpfulness` },
+    decorators: [scene(0)],
+    play: async ({ canvasElement }) => {
+        await openPart(canvasElement, 'triggers', 'Triggers')
+        await waitFor(() => {
+            if (!canvasElement.querySelector('[data-attr="llma-evaluation-create-volume-none"]')) {
+                throw new Error('Waiting for the volume estimate')
+            }
+        })
     },
 }

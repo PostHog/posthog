@@ -17,9 +17,9 @@ import { methodText, reportText, targetText, triggerText } from './evaluationSum
 import { EvaluationTargetPanel } from './EvaluationTargetPanel'
 import { EvaluationVolumeEstimate } from './EvaluationVolumeEstimate'
 
-type Part = 'method' | 'model' | 'target' | 'triggers' | 'reports'
+export type SentencePart = 'method' | 'model' | 'target' | 'triggers' | 'reports'
 
-const PANELS: Record<Part, () => JSX.Element | null> = {
+const PANELS: Record<SentencePart, () => JSX.Element | null> = {
     method: EvaluationMethodPanel,
     model: EvaluationModelPanel,
     target: EvaluationTargetPanel,
@@ -29,11 +29,18 @@ const PANELS: Record<Part, () => JSX.Element | null> = {
 
 /**
  * The whole setup as one sentence: who checks, with which model, what one run covers, which traffic, and how often
- * a report arrives. Each part opens its settings under the sentence, one at a time.
+ * a report arrives. By default each part opens its settings under the sentence, one at a time. Given `onPartClick`,
+ * the sentence is an overview instead: it marks the parts the current step edits, and a click goes to their step.
  */
-export function EvaluationSentence(): JSX.Element | null {
+export function EvaluationSentence({
+    activeParts,
+    onPartClick,
+}: {
+    activeParts?: SentencePart[]
+    onPartClick?: (part: SentencePart) => void
+} = {}): JSX.Element | null {
     const { props } = useMountedLogic(llmEvaluationLogic)
-    const [open, setOpen] = useState<Part | null>(null)
+    const [open, setOpen] = useState<SentencePart | null>(null)
     const { evaluation, usesDecisionModel, selectedModelName, selectedModel, isReportableEvaluation } =
         useValues(llmEvaluationLogic)
     const { configDraft } = useValues(evaluationReportLogic({ evaluationId: props.evaluationId }))
@@ -42,27 +49,37 @@ export function EvaluationSentence(): JSX.Element | null {
         return null
     }
     const needsModel = evaluation.evaluation_type === 'llm_judge' && !selectedModel
-    const part = (key: Part, text: React.ReactNode): JSX.Element => (
+    const isActive = (key: SentencePart): boolean => (onPartClick ? !!activeParts?.includes(key) : open === key)
+    const part = (key: SentencePart, text: React.ReactNode): JSX.Element => (
         <LemonButton
-            type="secondary"
+            // As an overview, the parts of the current step stand out, so the sentence shows where you are.
+            type={onPartClick && isActive(key) ? 'primary' : 'secondary'}
             size="small"
-            active={open === key}
-            sideIcon={<IconChevronDown className={cn('transition-transform', open === key && 'rotate-180')} />}
+            active={isActive(key)}
+            sideIcon={
+                onPartClick ? undefined : (
+                    <IconChevronDown className={cn('transition-transform', open === key && 'rotate-180')} />
+                )
+            }
             onClick={() => {
-                if (open !== key) {
+                if (!isActive(key)) {
                     // pinned: analytics event name and properties, because the creation funnel reads them
                     posthog.capture('llma evaluation create part opened', { part: key })
                 }
-                setOpen(open === key ? null : key)
+                if (onPartClick) {
+                    onPartClick(key)
+                } else {
+                    setOpen(open === key ? null : key)
+                }
             }}
-            aria-expanded={open === key}
+            aria-expanded={onPartClick ? undefined : open === key}
             className="inline-flex align-middle"
             data-attr={`llma-evaluation-create-part-${key}`}
         >
             {text}
         </LemonButton>
     )
-    const Panel = open ? PANELS[open] : null
+    const Panel = open && !onPartClick ? PANELS[open] : null
 
     return (
         <section className="flex flex-col gap-3" data-attr="llma-evaluation-create-sentence">
@@ -107,7 +124,7 @@ export function EvaluationSentence(): JSX.Element | null {
                     <Panel />
                 </div>
             )}
-            <EvaluationVolumeEstimate />
+            {!onPartClick && <EvaluationVolumeEstimate />}
         </section>
     )
 }

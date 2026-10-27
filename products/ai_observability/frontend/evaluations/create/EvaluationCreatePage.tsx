@@ -10,8 +10,6 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SceneStickyBar, useSceneStickyBarBottom } from '~/layout/scenes/components/SceneStickyBar'
 
-import { EvaluationCodeEditor } from '../components/EvaluationCodeEditor'
-import { EvaluationPromptEditor } from '../components/EvaluationPromptEditor'
 import { booleanOutputConfigError, numericOutputConfigError } from '../constants'
 import { evaluationSupportsReports } from '../evaluationCapabilities'
 import { buildDeliveryTargets, evaluationReportLogic } from '../evaluationReportLogic'
@@ -20,12 +18,10 @@ import { hasUnsetConditionRollout, llmEvaluationLogic } from '../llmEvaluationLo
 import { defaultEvaluationTemplates } from '../templates'
 import { categoryResultError, creationChecklist } from './creationChecklist'
 import { EvaluationCreateButton } from './EvaluationCreateButton'
-import { EvaluationNameFields } from './EvaluationNameFields'
-import { EvaluationOutputFields } from './EvaluationOutputFields'
+import { EvaluationCreateSteps } from './EvaluationCreateSteps'
 import { EvaluationResultPreview } from './EvaluationResultPreview'
-import { EvaluationSentence } from './EvaluationSentence'
 
-/** The new evaluation form: its name, one sentence for the whole setup, and the instructions. */
+/** The new evaluation form: steps under a pinned sentence that sums up the setup, with a preview beside them. */
 export function EvaluationCreatePage({ templateKey }: { templateKey?: string }): JSX.Element | null {
     const {
         evaluation,
@@ -129,14 +125,8 @@ export function EvaluationCreatePage({ templateKey }: { templateKey?: string }):
                 </SceneStickyBar>
                 {/* Fixed column widths keep the summary next to the form instead of drifting to the window's edge. */}
                 <div className="grid gap-4 grid-cols-1 @min-[64rem]/evaluation:grid-cols-[minmax(0,56rem)_18rem] items-start">
-                    <div className="bg-bg-light border rounded p-4 @min-[40rem]/evaluation:p-6 min-w-0 flex flex-col gap-6">
-                        <EvaluationNameFields />
-                        <EvaluationSentence />
-                        <div className="flex flex-col gap-4 min-w-0">
-                            {evaluation.evaluation_type === 'llm_judge' && <EvaluationPromptEditor />}
-                            {evaluation.evaluation_type === 'hog' && <EvaluationCodeEditor />}
-                            <EvaluationOutputFields />
-                        </div>
+                    <div className="bg-bg-light border rounded p-4 @min-[40rem]/evaluation:p-6 min-w-0">
+                        <EvaluationCreateSteps />
                     </div>
                     {/* Pinned just under the sticky header, so scrolling never hides the checklist behind it. */}
                     <div
