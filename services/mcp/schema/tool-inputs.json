@@ -630,6 +630,123 @@
             },
             "description": "Screenshot media IDs per variant, keyed by variant key, shown under each variant in the experiment view. Each value is the complete list of uploaded media IDs for that variant. To add a screenshot, upload the image with media-image-upload-start and media-image-upload-complete with purpose \"experiment\", then pass the returned id here. On update, only the variants you pass change and the screenshots of other variants stay. Pass an empty list to remove all screenshots of a variant."
         },
+        "ExplainChartInputSchema": {
+            "type": "object",
+            "properties": {
+                "insightId": {
+                    "description": "The saved insight to explain: its numeric `id` or 8-character `short_id`.",
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "number"
+                        }
+                    ]
+                },
+                "query": {
+                    "description": "A TrendsQuery to explain when the chart is not a saved insight. Pass this or `insightId`.",
+                    "type": "object",
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "additionalProperties": {}
+                },
+                "series": {
+                    "default": 0,
+                    "description": "Index of the series in the chart's results that the story follows. Defaults to the first one.",
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                },
+                "headline": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300,
+                    "description": "One sentence a person could read in place of the whole story. Name what stands out, with no numbers, and wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in **double asterisks**."
+                },
+                "chapters": {
+                    "minItems": 1,
+                    "maxItems": 8,
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80,
+                                "description": "A short title, for example \"A spike on October 2\" or \"Lower since September 28\"."
+                            },
+                            "start": {
+                                "type": "string",
+                                "minLength": 1,
+                                "description": "The first point the chapter covers, copied from the chart's `days` (for example `2026-10-02`, or `2026-10-02 14:00:00` on an hourly chart)."
+                            },
+                            "end": {
+                                "description": "The last point the chapter covers, inclusive. Omit it when the chapter is about one point.",
+                                "type": "string",
+                                "minLength": 1
+                            },
+                            "summary": {
+                                "description": "What happened, in one or two sentences. Do not repeat the chart's own numbers: the app works them out from the chart and shows them above this.",
+                                "type": "string",
+                                "maxLength": 400
+                            },
+                            "cause": {
+                                "description": "The most likely cause, in one or two sentences. Say whether it is a real change in behavior or an artifact of the data. Wrap the name behind it, such as a referrer or a country, in **double asterisks**. Omit it when you found no cause.",
+                                "type": "string",
+                                "maxLength": 600
+                            },
+                            "confidence": {
+                                "description": "How sure you are of the cause. high: independent signals agree. medium: one signal, or a strong pattern without a cross-check. low: a guess.",
+                                "type": "string",
+                                "enum": ["high", "medium", "low"]
+                            },
+                            "confidence_reason": {
+                                "description": "Why you gave that confidence, in one sentence.",
+                                "type": "string",
+                                "maxLength": 200
+                            },
+                            "evidence": {
+                                "description": "What you checked, at most 6 findings.",
+                                "maxItems": 6,
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "text": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 400,
+                                            "description": "One finding in one sentence, with the numbers from the query that found it. Mark the name that matters with **double asterisks**."
+                                        },
+                                        "query": {
+                                            "description": "The query that found this, as you ran it (for example a TrendsQuery with a breakdown). It becomes a link to that chart, and a TrendsQuery also draws as a chart in the walkthrough.",
+                                            "type": "object",
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "additionalProperties": {}
+                                        },
+                                        "url": {
+                                            "description": "A link to the source when it is not a query, for example a commit, a pull request or a deploy.",
+                                            "type": "string",
+                                            "format": "uri",
+                                            "pattern": "^https:\\/\\/.*"
+                                        }
+                                    },
+                                    "required": ["text"]
+                                }
+                            }
+                        },
+                        "required": ["title", "start"]
+                    },
+                    "description": "The moments that stand out, in the order to read them. At most 8."
+                }
+            },
+            "required": ["headline", "chapters"]
+        },
         "ExternalDataJobsAfterSchema": {
             "type": "string",
             "description": "ISO timestamp — only return jobs created after this date (e.g. \"2025-01-01T00:00:00Z\")."

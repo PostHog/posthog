@@ -30,6 +30,9 @@ export const CHART_COLORS = [
 // Picks a palette color by index, wrapping when there are more series than colors.
 export const colorAt = (index: number): string => CHART_COLORS[index % CHART_COLORS.length]!
 
+// The palette's hex with a quarter opacity, for a series pushed into the background.
+export const fadedColorAt = (index: number): string => `${colorAt(index)}40`
+
 // Single brand blue for every funnel step's converted bar — the bar height already encodes
 // conversion, so distinct per-step colors would only add noise.
 export const FUNNEL_COLOR = '#1d4aff'
