@@ -156,6 +156,47 @@ describe('emailTemplaterLogic', () => {
         })
     })
 
+    describe('merge tags', () => {
+        beforeEach(() => {
+            useMocks({ get: { '/api/projects/:team_id/property_definitions/': { results: [{ name: 'email' }] } } })
+        })
+
+        it.each([
+            { type: 'native_email_template', variables: undefined, expected: ['email'] },
+            {
+                type: 'native_email_transactional_template',
+                variables: { variables: { first_name: '', reset_link: '' } },
+                expected: ['variables.first_name', 'variables.reset_link'],
+            },
+        ] as const)('$type offers $expected', async ({ type, variables, expected }) => {
+            logic = emailTemplaterLogic(makeProps({ type, variables }))
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            const offered = Object.keys(logic.values.mergeTags).filter((key) => !key.startsWith('unsubscribe'))
+            expect(offered).toEqual(expected)
+        })
+
+        it('pushes a newly added variable into the open editor', async () => {
+            const setMergeTags = jest.fn()
+            const props = makeProps({ type: 'native_email_transactional_template', variables: { variables: {} } })
+            logic = emailTemplaterLogic(props)
+            logic.mount()
+            logic.actions.setEmailEditorRef({
+                editor: { setMergeTags, addEventListener: jest.fn(), loadDesign: jest.fn() },
+            } as any)
+            logic.actions.onEmailEditorReady()
+
+            emailTemplaterLogic({ ...props, variables: { variables: { code: '' } } })
+
+            expect(setMergeTags).toHaveBeenLastCalledWith(
+                expect.objectContaining({
+                    'variables.code': expect.objectContaining({ value: '{{ variables.code }}' }),
+                })
+            )
+        })
+    })
+
     describe('modal content tab default', () => {
         it.each([
             {

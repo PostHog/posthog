@@ -30,6 +30,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { transactionalEditorGlobals, variablesInEmail } from '../Transactional/wizard/emailVariables'
 import { WorkflowInvocations } from '../Workflows/WorkflowInvocations'
 import { workflowLogic } from '../Workflows/workflowLogic'
 import { WorkflowMetrics } from '../Workflows/WorkflowMetrics'
@@ -90,7 +91,6 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         isSavingDraft,
         isDiscardingDraft,
         isSavingSensitive,
-        createAsTransactional,
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -138,9 +138,14 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     onChange={(value) => setTemplateValue('content.email', value)}
                     onChangeTemplating={(templating) => setTemplateValue('content.email.templating', templating)}
                     type={
-                        template?.transactional_hog_flow_id || createAsTransactional
+                        template?.transactional_hog_flow_id
                             ? 'native_email_transactional_template'
                             : 'native_email_template'
+                    }
+                    variables={
+                        template?.transactional_hog_flow_id
+                            ? transactionalEditorGlobals(variablesInEmail(template.content.email))
+                            : undefined
                     }
                     layout="inline"
                 />
@@ -261,12 +266,6 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     </Tooltip>
                                 )}
                             </>
-                        ) : createAsTransactional ? (
-                            <Tooltip title="Saving creates the email and makes it transactional, so you can send it from your code.">
-                                <LemonTag type="success" className="ml-1">
-                                    Transactional
-                                </LemonTag>
-                            </Tooltip>
                         ) : undefined
                     }
                     actions={

@@ -1,4 +1,5 @@
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { useMountedLogic, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconLock } from '@posthog/icons'
 import { LemonTag, Link } from '@posthog/lemon-ui'
@@ -14,13 +15,11 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { messageTemplatesLogic } from '../TemplateLibrary/messageTemplatesLogic'
-import { newTemplateAgentLogic } from '../TemplateLibrary/newTemplateAgentLogic'
 import { MessageTemplate } from '../TemplateLibrary/types'
 
 export function TransactionalEmailsTable(): JSX.Element {
     useMountedLogic(messageTemplatesLogic)
     const { transactionalTemplates, templatesLoading } = useValues(messageTemplatesLogic)
-    const { startNewTransactionalEmail } = useActions(newTemplateAgentLogic)
 
     if (!templatesLoading && transactionalTemplates.length === 0) {
         return (
@@ -28,7 +27,7 @@ export function TransactionalEmailsTable(): JSX.Element {
                 thingName="transactional email"
                 description="Send emails from your code with one API call. Use them for emails a person triggers, like password resets, receipts and sign-in codes. This tab shows how many were sent, delivered and failed in the last 7 days."
                 docsURL="https://posthog.com/docs/workflows"
-                action={startNewTransactionalEmail}
+                action={() => router.actions.push(urls.transactionalNew())}
                 disabledReason={
                     getAccessControlDisabledReason(AccessControlResourceType.Workflow, AccessControlLevel.Editor) ??
                     undefined
