@@ -19,6 +19,7 @@ from products.tasks.backend.temporal.process_task.activities.update_task_run_sta
     TIMED_OUT_WALL_CLOCK_STATE_KEY,
     USAGE_METRICS_RECORDED_STATE_KEY,
     UpdateTaskRunStatusInput,
+    complete_signal_spend,
     update_task_run_status,
 )
 
@@ -593,6 +594,14 @@ class TestUpdateTaskRunStatusActivity:
         with pytest.raises(ApplicationError) as exc_info:
             async_to_sync(activity_environment.run)(update_task_run_status, input_data)
         assert exc_info.value.non_retryable is True
+
+    @pytest.mark.django_db(transaction=True)
+    def test_complete_signal_spend_skips_missing_task_run(self, activity_environment):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.update_task_run_status.complete_task_spend"
+        ) as mock_complete:
+            async_to_sync(activity_environment.run)(complete_signal_spend, "550e8400-e29b-41d4-a716-446655440000")
+        mock_complete.assert_not_called()
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
