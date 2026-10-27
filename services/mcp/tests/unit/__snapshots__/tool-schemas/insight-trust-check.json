@@ -2,15 +2,8 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "id": {
-            "anyOf": [
-                {
-                    "type": "number"
-                },
-                {
-                    "type": "string"
-                }
-            ],
-            "description": "Numeric id or 8-character `short_id` of a saved insight. Pass this or `query`, not both."
+            "description": "Numeric id or 8-character `short_id` of a saved insight. Pass this or `query`, not both.",
+            "type": ["number", "string"]
         },
         "query": {
             "additionalProperties": {},

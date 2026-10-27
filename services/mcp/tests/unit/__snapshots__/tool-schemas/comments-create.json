@@ -2,24 +2,10 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "content": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ]
+            "type": ["string", "null"]
         },
         "deleted": {
-            "anyOf": [
-                {
-                    "type": "boolean"
-                },
-                {
-                    "type": "null"
-                }
-            ]
+            "type": ["boolean", "null"]
         },
         "is_task": {
             "default": false,
@@ -55,14 +41,7 @@
             "type": "string"
         },
         "source_comment": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ]
+            "type": ["string", "null"]
         }
     },
     "type": "object"

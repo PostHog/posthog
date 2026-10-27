@@ -2,15 +2,8 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "access_level": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null to remove the rule."
+            "description": "The level to set, within the scope's `minimum` and `maximum` on access-control-defaults-get, or null to remove the rule.",
+            "type": ["string", "null"]
         },
         "id": {
             "description": "Project id. If omitted, uses the active project.",
@@ -83,16 +76,9 @@
             "type": "string"
         },
         "resource_id": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
             "default": null,
-            "description": "The project id for a project rule, the object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Null only for a rule on a whole tool."
+            "description": "The project id for a project rule, the object's id for a rule on one object (a pk, as returned by the object's own get tool), or the property definition id for a property rule. Null only for a rule on a whole tool.",
+            "type": ["string", "null"]
         }
     },
     "required": ["resource", "access_level", "member_id"],

@@ -16,26 +16,12 @@
             "description": "Report reviewer_assignment.state read before selection began. Required when reviewer corrections are enabled.",
             "properties": {
                 "corrections_id": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Current corrections artefact ID, or null before corrections are stored."
+                    "description": "Current corrections artefact ID, or null before corrections are stored.",
+                    "type": ["string", "null"]
                 },
                 "reviewers_id": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Current reviewer artefact ID, or null before the first list."
+                    "description": "Current reviewer artefact ID, or null before the first list.",
+                    "type": ["string", "null"]
                 }
             },
             "required": ["reviewers_id", "corrections_id"],

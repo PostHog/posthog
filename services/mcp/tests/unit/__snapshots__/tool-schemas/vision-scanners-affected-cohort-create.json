@@ -6,26 +6,12 @@
             "type": "string"
         },
         "max_score": {
-            "anyOf": [
-                {
-                    "type": "number"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Scorer scanners only: count sessions scoring at or below this value."
+            "description": "Scorer scanners only: count sessions scoring at or below this value.",
+            "type": ["number", "null"]
         },
         "min_score": {
-            "anyOf": [
-                {
-                    "type": "number"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and/or `max_score`. Not applicable to other scanner types."
+            "description": "Scorer scanners only: count sessions scoring at or above this value. Scorers require `min_score` and/or `max_score`. Not applicable to other scanner types.",
+            "type": ["number", "null"]
         },
         "tag": {
             "anyOf": [

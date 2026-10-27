@@ -2,15 +2,8 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "adopt_generation_id": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Use this completed generation's governing source for the whole saved rubric. Omit to keep its source."
+            "description": "Use this completed generation's governing source for the whole saved rubric. Omit to keep its source.",
+            "type": ["string", "null"]
         },
         "criteria": {
             "description": "Complete set of criteria to save.",

@@ -28,15 +28,8 @@
             "type": "string"
         },
         "version_id": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Version to pin, or null to follow the reusable widget's latest version."
+            "description": "Version to pin, or null to follow the reusable widget's latest version.",
+            "type": ["string", "null"]
         },
         "widget_id": {
             "description": "Reusable widget to place in this notebook node.",

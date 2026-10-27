@@ -9,15 +9,8 @@
                     "type": "string"
                 },
                 "date_to": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "End of the date range as an ISO timestamp or relative date. Defaults to now when omitted."
+                    "description": "End of the date range as an ISO timestamp or relative date. Defaults to now when omitted.",
+                    "type": ["string", "null"]
                 }
             },
             "type": "object"
@@ -127,14 +120,7 @@
                             },
                             {
                                 "items": {
-                                    "anyOf": [
-                                        {
-                                            "type": "string"
-                                        },
-                                        {
-                                            "type": "number"
-                                        }
-                                    ]
+                                    "type": ["string", "number"]
                                 },
                                 "type": "array"
                             }

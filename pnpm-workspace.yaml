@@ -113,6 +113,8 @@ overrides:
     '@tiptap/extension-text-align': 3.20.6
     '@tiptap/extension-text-style': 3.20.6
     '@tiptap/extension-underline': 3.20.6
+    # CVE-2023-54404 is fixed in 4.6.6. Scoped to 4.x; 3.x consumers are untouched.
+    'zod@^4.0.0': 4.6.7
 
 patchedDependencies:
     # The drag library changes a body-wide selection style, which stalls dense dashboards.

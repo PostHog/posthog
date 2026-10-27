@@ -7,8 +7,8 @@ export interface ReplayIframeData {
     html: string
     width: number // NB this should be meta width
     height: number // NB this should be meta height
-    startDateTime: string | undefined
-    url: string | undefined
+    startDateTime?: string
+    url?: string
 }
 
 export const ReplayIframeDatakeyPrefix = 'ph_replay_fixed_heatmap_'
@@ -36,8 +36,8 @@ const replayIframeDataSchema = z.object({
     html: z.string().refine((html) => !!html.trim()),
     width: replayDimensionSchema,
     height: replayDimensionSchema,
-    startDateTime: z.union([z.string(), z.undefined()]),
-    url: z.union([z.string(), z.undefined()]),
+    startDateTime: z.string().optional(),
+    url: z.string().optional(),
 })
 
 export function removeReplayIframeDataFromLocalStorage(exceptKey?: string): void {

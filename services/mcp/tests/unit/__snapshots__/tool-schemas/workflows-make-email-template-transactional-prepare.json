@@ -2,15 +2,8 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "from_integration_id": {
-            "anyOf": [
-                {
-                    "type": "number"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "ID of the verified email sender integration the email is sent from. Defaults to the project's default sender."
+            "description": "ID of the verified email sender integration the email is sent from. Defaults to the project's default sender.",
+            "type": ["number", "null"]
         },
         "id": {
             "description": "A UUID string identifying this message template.",

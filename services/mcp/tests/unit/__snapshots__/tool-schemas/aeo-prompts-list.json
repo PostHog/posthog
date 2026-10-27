@@ -2,15 +2,8 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "active": {
-            "anyOf": [
-                {
-                    "type": "boolean"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Only list prompts that are on (true) or off (false). Omit to list both."
+            "description": "Only list prompts that are on (true) or off (false). Omit to list both.",
+            "type": ["boolean", "null"]
         },
         "include_archived": {
             "default": false,

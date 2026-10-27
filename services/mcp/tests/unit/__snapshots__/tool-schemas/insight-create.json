@@ -174,26 +174,12 @@
                                             "type": "string"
                                         },
                                         "seriesColumn": {
-                                            "anyOf": [
-                                                {
-                                                    "type": "string"
-                                                },
-                                                {
-                                                    "type": "null"
-                                                }
-                                            ],
-                                            "description": "Optional column that groups each X-axis value into separate colored series. Set to `null` for one series."
+                                            "description": "Optional column that groups each X-axis value into separate colored series. Set to `null` for one series.",
+                                            "type": ["string", "null"]
                                         },
                                         "xAxisColumn": {
-                                            "anyOf": [
-                                                {
-                                                    "type": "string"
-                                                },
-                                                {
-                                                    "type": "null"
-                                                }
-                                            ],
-                                            "description": "X-axis category column. Set to `null` for one overall distribution or one box per series."
+                                            "description": "X-axis category column. Set to `null` for one overall distribution or one box per series.",
+                                            "type": ["string", "null"]
                                         }
                                     },
                                     "required": [
@@ -317,15 +303,8 @@
                                     "type": "object"
                                 },
                                 "seriesBreakdownColumn": {
-                                    "anyOf": [
-                                        {
-                                            "type": "string"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by x value, so it is ignored when `display` is `ScatterPlot`."
+                                    "description": "Column that splits a single Y series into multiple colored series — e.g. breaking down a line chart by `country`. Set to `null` or omit to disable. A breakdown buckets rows by x value, so it is ignored when `display` is `ScatterPlot`.",
+                                    "type": ["string", "null"]
                                 },
                                 "showLegend": {
                                     "description": "Show the chart legend.",

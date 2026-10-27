@@ -8,26 +8,12 @@
                     "description": "Date range to mine patterns from. Defaults to last hour.",
                     "properties": {
                         "date_from": {
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc."
+                            "description": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.",
+                            "type": ["string", "null"]
                         },
                         "date_to": {
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "End of the date range. Same format as date_from. Omit or null for \"now\"."
+                            "description": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+                            "type": ["string", "null"]
                         }
                     },
                     "type": "object"

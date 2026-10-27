@@ -5,26 +5,12 @@
             "description": "An explicit baseline window. Overrides query.compare.",
             "properties": {
                 "date_from": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Relative (-30m, -6h, -7d) or ISO 8601."
+                    "description": "Relative (-30m, -6h, -7d) or ISO 8601.",
+                    "type": ["string", "null"]
                 },
                 "date_to": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Same format. Omit or null for \"now\"."
+                    "description": "Same format. Omit or null for \"now\".",
+                    "type": ["string", "null"]
                 }
             },
             "type": "object"
@@ -42,40 +28,19 @@
                     "description": "The window to score. Defaults to the last hour.",
                     "properties": {
                         "date_from": {
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Relative (-30m, -6h, -7d) or ISO 8601."
+                            "description": "Relative (-30m, -6h, -7d) or ISO 8601.",
+                            "type": ["string", "null"]
                         },
                         "date_to": {
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Same format. Omit or null for \"now\"."
+                            "description": "Same format. Omit or null for \"now\".",
+                            "type": ["string", "null"]
                         }
                     },
                     "type": "object"
                 },
                 "environment": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Only this environment, matched without case on deployment.environment.name, then deployment.environment, then env."
+                    "description": "Only this environment, matched without case on deployment.environment.name, then deployment.environment, then env.",
+                    "type": ["string", "null"]
                 },
                 "limit": {
                     "default": 25,

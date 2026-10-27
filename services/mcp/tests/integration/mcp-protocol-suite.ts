@@ -549,7 +549,7 @@ export function defineJsonRpcEdgeCaseTests(
     describe(`MCP JSON-RPC edge cases (${label})`, () => {
         async function postMcp(
             harness: ProtocolTestHarness,
-            body: string | Uint8Array,
+            body: string | Uint8Array | ReadableStream<Uint8Array>,
             extraHeaders: Record<string, string> = {}
         ): Promise<Response> {
             return harness.fetch(new URL('/mcp', harness.baseUrl), {
@@ -562,7 +562,9 @@ export function defineJsonRpcEdgeCaseTests(
                 },
                 // Cast to BodyInit because Node's `fetch` accepts both string and Uint8Array.
                 body: body as unknown as BodyInit,
-            })
+                // Node's `fetch` refuses a stream body without it.
+                ...(body instanceof ReadableStream ? { duplex: 'half' } : {}),
+            } as RequestInit)
         }
 
         it('returns a JSON-RPC parse error for a malformed body', async () => {
@@ -676,12 +678,30 @@ export function defineJsonRpcEdgeCaseTests(
             expect(json.error?.code).toBe(-32600)
         })
 
-        // The body limit (MAX_BODY_BYTES = 1 MiB) is enforced based on
-        // Content-Length. We send an actual oversized body so undici accepts
-        // the request, and pass Content-Length explicitly so transports that
-        // don't auto-set it (Hono's in-process `app.request`) still hit the
-        // dispatcher's size guard.
-        it('rejects a body larger than the size cap', async () => {
+        // The body limit (MAX_BODY_BYTES = 1 MiB) holds with a Content-Length
+        // header and without one. We send an actual oversized body so undici
+        // accepts the request. The first case passes Content-Length explicitly
+        // so transports that don't auto-set it (Hono's in-process
+        // `app.request`) still hit the header check. The second streams the
+        // body, so no Content-Length is sent at all.
+        it.each([
+            [
+                'with a Content-Length header',
+                (body: string) => ({ body, headers: { 'Content-Length': String(body.length) } }),
+            ],
+            [
+                'streamed without a Content-Length header',
+                (body: string) => ({
+                    body: new ReadableStream<Uint8Array>({
+                        start(controller) {
+                            controller.enqueue(new TextEncoder().encode(body))
+                            controller.close()
+                        },
+                    }),
+                    headers: {},
+                }),
+            ],
+        ])('rejects a body larger than the size cap %s', async (_label, send) => {
             const harness = await getHarness()
             const padding = 'a'.repeat(1_572_864) // 1.5 MiB
             const oversizedBody = JSON.stringify({
@@ -690,9 +710,8 @@ export function defineJsonRpcEdgeCaseTests(
                 method: 'ping',
                 params: { padding },
             })
-            const res = await postMcp(harness, oversizedBody, {
-                'Content-Length': String(oversizedBody.length),
-            })
+            const { body, headers } = send(oversizedBody)
+            const res = await postMcp(harness, body, headers)
             expect(res.status).toBe(200)
             const json = (await res.json()) as { error?: { code?: number } }
             expect(json.error?.code).toBe(-32600)

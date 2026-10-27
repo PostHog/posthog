@@ -7,26 +7,12 @@
                     "items": {
                         "properties": {
                             "breakdownProperty": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ],
-                                "description": "Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property."
+                                "description": "Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.",
+                                "type": ["string", "null"]
                             },
                             "breakdownType": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ],
-                                "description": "Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`."
+                                "description": "Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.",
+                                "type": ["string", "null"]
                             },
                             "breakdownValue": {
                                 "description": "The breakdown value this color applies to, as it appears in the chart legend.",
@@ -70,15 +56,8 @@
             "description": "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
         },
         "data_color_theme_id": {
-            "anyOf": [
-                {
-                    "type": "number"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "ID of the color theme used for chart visualizations."
+            "description": "ID of the color theme used for chart visualizations.",
+            "type": ["number", "null"]
         },
         "delete_insights": {
             "description": "When deleting, also delete insights that are only on this dashboard.",
@@ -91,26 +70,12 @@
             "description": "Dashboard-level filters (date range and properties) applied across all tiles as the source of truth.",
             "properties": {
                 "date_from": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Dashboard-level start of the date range, e.g. '-30d', '-7d', or an ISO date. Applies to all tiles."
+                    "description": "Dashboard-level start of the date range, e.g. '-30d', '-7d', or an ISO date. Applies to all tiles.",
+                    "type": ["string", "null"]
                 },
                 "date_to": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Dashboard-level end of the date range, e.g. '-1d' or an ISO date. Null/omitted means up to now."
+                    "description": "Dashboard-level end of the date range, e.g. '-1d' or an ISO date. Null/omitted means up to now.",
+                    "type": ["string", "null"]
                 },
                 "properties": {
                     "description": "Dashboard-level property filters applied to every tile (PostHog property filter group)."
@@ -324,15 +289,8 @@
             "type": "array"
         },
         "use_dashboard": {
-            "anyOf": [
-                {
-                    "type": "number"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "ID of an existing dashboard to duplicate."
+            "description": "ID of an existing dashboard to duplicate.",
+            "type": ["number", "null"]
         },
         "use_template": {
             "description": "Template key to create the dashboard from a predefined template.",

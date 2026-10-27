@@ -57,6 +57,29 @@ export type { ResolvedState } from './request-state-resolver'
 const MAX_BATCH_SIZE = 100
 const MAX_BODY_BYTES = 1_048_576
 
+// A chunked request carries no Content-Length, so the cap must also hold while the body streams in.
+async function readBodyWithinLimit(req: Request, maxBytes: number): Promise<string | undefined> {
+    if (!req.body) {
+        return ''
+    }
+    const reader = req.body.getReader()
+    const decoder = new TextDecoder()
+    let size = 0
+    let text = ''
+    for (;;) {
+        const { done, value } = await reader.read()
+        if (done) {
+            return text + decoder.decode()
+        }
+        size += value.byteLength
+        if (size > maxBytes) {
+            await reader.cancel()
+            return undefined
+        }
+        text += decoder.decode(value, { stream: true })
+    }
+}
+
 const Method = {
     Initialize: 'initialize' as InitializeRequest['method'],
     Discover: SERVER_DISCOVER_METHOD,
@@ -198,9 +221,13 @@ class McpDispatcher {
             return jsonRpcErrorResponse(null, ErrorCode.InvalidRequest, 'Request body too large')
         }
 
+        const text = await readBodyWithinLimit(req, MAX_BODY_BYTES)
+        if (text === undefined) {
+            return jsonRpcErrorResponse(null, ErrorCode.InvalidRequest, 'Request body too large')
+        }
         let body: unknown
         try {
-            body = await req.json()
+            body = JSON.parse(text)
         } catch {
             return jsonRpcErrorResponse(null, ErrorCode.ParseError, 'Parse error: Invalid JSON')
         }

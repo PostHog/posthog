@@ -590,7 +590,8 @@ const ExplainChartEvidenceSchema = z.object({
     url: z
         .string()
         .url()
-        .startsWith('https://')
+        // zod 4.6 writes `startsWith` into JSON Schema as the invalid format "starts_with".
+        .regex(/^https:\/\//)
         .optional()
         .describe('A link to the source when it is not a query, for example a commit, a pull request or a deploy.'),
 })

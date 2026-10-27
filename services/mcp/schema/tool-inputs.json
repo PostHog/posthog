@@ -635,14 +635,7 @@
             "properties": {
                 "insightId": {
                     "description": "The saved insight to explain: its numeric `id` or 8-character `short_id`.",
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "number"
-                        }
-                    ]
+                    "type": ["string", "number"]
                 },
                 "query": {
                     "description": "A TrendsQuery to explain when the chart is not a saved insight. Pass this or `insightId`.",
@@ -732,8 +725,7 @@
                                         "url": {
                                             "description": "A link to the source when it is not a query, for example a commit, a pull request or a deploy.",
                                             "type": "string",
-                                            "format": "uri",
-                                            "pattern": "^https:\\/\\/.*"
+                                            "pattern": "^https:\\/\\/"
                                         }
                                     },
                                     "required": ["text"]
@@ -935,15 +927,8 @@
             "type": "object",
             "properties": {
                 "insightId": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "number"
-                        }
-                    ],
-                    "description": "The insight to run: its numeric `id` or 8-character `short_id`."
+                    "description": "The insight to run: its numeric `id` or 8-character `short_id`.",
+                    "type": ["string", "number"]
                 },
                 "output_format": {
                     "default": "optimized",
@@ -1057,14 +1042,7 @@
                     },
                     "dataset_item_version_id": {
                         "description": "UUID of the hosted item version in the experiment's dataset revision.",
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ]
+                        "type": ["string", "null"]
                     },
                     "application_trace_id": {
                         "description": "Trace identifier for the application execution that produced this output.",
@@ -1256,7 +1234,7 @@
                             {
                                 "type": "string",
                                 "format": "date-time",
-                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
                             },
                             {
                                 "type": "null"
@@ -1268,24 +1246,10 @@
                         "type": "object",
                         "properties": {
                             "reasoning": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ]
+                                "type": ["string", "null"]
                             },
                             "error_message": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ]
+                                "type": ["string", "null"]
                             },
                             "metadata": {
                                 "anyOf": [
@@ -1918,14 +1882,7 @@
                         },
                         "true_is_failure": {
                             "description": "Whether true means failure. False, omitted, or null means true passes in offline evaluations.",
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
+                            "type": ["boolean", "null"]
                         }
                     },
                     "additionalProperties": false,
@@ -1959,14 +1916,7 @@
                 },
                 "repository": {
                     "description": "Repository in organization/repo format.",
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
+                    "type": ["string", "null"]
                 },
                 "branch": {
                     "description": "Base branch for the run.",
@@ -1986,7 +1936,7 @@
                     "anyOf": [
                         {
                             "type": "string",
-                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z||([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d))|(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?)$"
                         },
                         {
                             "type": "null"
@@ -2042,7 +1992,7 @@
                     "anyOf": [
                         {
                             "type": "string",
-                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z||([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d))|(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?)$"
                         },
                         {
                             "type": "null"
@@ -2090,25 +2040,11 @@
                                                 },
                                                 "cohort_name": {
                                                     "description": "Resolved cohort name for cohort-type filters.",
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ]
+                                                    "type": ["string", "null"]
                                                 },
                                                 "group_type_index": {
                                                     "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ]
+                                                    "type": ["number", "null"]
                                                 },
                                                 "value": {
                                                     "description": "Comparison value for the property filter. Supports strings, numbers, booleans, and arrays."
@@ -2150,25 +2086,11 @@
                                                 },
                                                 "cohort_name": {
                                                     "description": "Resolved cohort name for cohort-type filters.",
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ]
+                                                    "type": ["string", "null"]
                                                 },
                                                 "group_type_index": {
                                                     "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ]
+                                                    "type": ["number", "null"]
                                                 },
                                                 "operator": {
                                                     "type": "string",
@@ -2195,25 +2117,11 @@
                                                 },
                                                 "cohort_name": {
                                                     "description": "Resolved cohort name for cohort-type filters.",
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ]
+                                                    "type": ["string", "null"]
                                                 },
                                                 "group_type_index": {
                                                     "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ]
+                                                    "type": ["number", "null"]
                                                 },
                                                 "operator": {
                                                     "type": "string",
@@ -2241,25 +2149,11 @@
                                                 },
                                                 "cohort_name": {
                                                     "description": "Resolved cohort name for cohort-type filters.",
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ]
+                                                    "type": ["string", "null"]
                                                 },
                                                 "group_type_index": {
                                                     "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ]
+                                                    "type": ["number", "null"]
                                                 },
                                                 "operator": {
                                                     "type": "string",
@@ -2297,25 +2191,11 @@
                                                 },
                                                 "cohort_name": {
                                                     "description": "Resolved cohort name for cohort-type filters.",
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ]
+                                                    "type": ["string", "null"]
                                                 },
                                                 "group_type_index": {
                                                     "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ]
+                                                    "type": ["number", "null"]
                                                 },
                                                 "operator": {
                                                     "type": "string",
@@ -2346,25 +2226,11 @@
                                                 },
                                                 "cohort_name": {
                                                     "description": "Resolved cohort name for cohort-type filters.",
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ]
+                                                    "type": ["string", "null"]
                                                 },
                                                 "group_type_index": {
                                                     "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ]
+                                                    "type": ["number", "null"]
                                                 },
                                                 "operator": {
                                                     "type": "string",
@@ -2399,25 +2265,11 @@
                                                 },
                                                 "cohort_name": {
                                                     "description": "Resolved cohort name for cohort-type filters.",
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ]
+                                                    "type": ["string", "null"]
                                                 },
                                                 "group_type_index": {
                                                     "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ]
+                                                    "type": ["number", "null"]
                                                 },
                                                 "operator": {
                                                     "type": "string",
@@ -2439,25 +2291,11 @@
                             },
                             "variant": {
                                 "description": "Variant key override for multivariate flags.",
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ]
+                                "type": ["string", "null"]
                             },
                             "aggregation_group_type_index": {
                                 "description": "Group type index for this condition set. None means person-level aggregation.",
-                                "anyOf": [
-                                    {
-                                        "type": "number"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ]
+                                "type": ["number", "null"]
                             },
                             "condition_id": {
                                 "description": "The condition_id this condition had when you read the flag. Send it unchanged when you keep, edit, or move the condition. Leave it off a new condition or one copied from a different flag. The update is refused when no condition on the flag has this ID.",
@@ -2504,14 +2342,7 @@
                 },
                 "aggregation_group_type_index": {
                     "description": "Group type index for group-based feature flags.",
-                    "anyOf": [
-                        {
-                            "type": "number"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
+                    "type": ["number", "null"]
                 },
                 "payloads": {
                     "description": "Optional payload values keyed by variant key.",
@@ -2525,14 +2356,7 @@
                 },
                 "feature_enrollment": {
                     "description": "Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.",
-                    "anyOf": [
-                        {
-                            "type": "boolean"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
+                    "type": ["boolean", "null"]
                 },
                 "early_exit": {
                     "default": false,

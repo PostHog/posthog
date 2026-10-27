@@ -52,7 +52,7 @@ import {
     markNoncanonicalMetricRun,
     parseExecCallInnerArgs,
     parseExecCallInnerToolName,
-    repairArgumentNesting,
+    validateToolArguments,
     UNRECOGNIZED_EXEC_TOKEN,
     type ExecCommandMeta,
     type ExecInnerCallTracker,
@@ -345,11 +345,7 @@ export class ToolExecutor {
 
         const tool = preBuilt.build()
         const rawToolArgs = (callParams.arguments ?? {}) as Record<string, unknown>
-        const firstPass = tool.schema.safeParse(rawToolArgs, { reportInput: true })
-        const rewrapped = firstPass.success
-            ? undefined
-            : repairArgumentNesting(firstPass.error, rawToolArgs, tool.schema)
-        const validation = rewrapped ? tool.schema.safeParse(rewrapped, { reportInput: true }) : firstPass
+        const { validation } = validateToolArguments(tool.schema, rawToolArgs)
         if (!validation.success) {
             return this.callTool(
                 {
@@ -445,12 +441,7 @@ export class ToolExecutor {
         const rawToolArgs = (params?.arguments ?? {}) as Record<string, unknown>
         // Computed on the raw input, before any alias is folded away by preprocess.
         const inputShape = inputShapeAnalyticsProperties(rawToolArgs, tool.schema)
-        const firstPass = tool.schema.safeParse(rawToolArgs, { reportInput: true })
-        const rewrapped = firstPass.success
-            ? undefined
-            : repairArgumentNesting(firstPass.error, rawToolArgs, tool.schema)
-        const toolArgs = rewrapped ?? rawToolArgs
-        const validation = rewrapped ? tool.schema.safeParse(toolArgs, { reportInput: true }) : firstPass
+        const { input: toolArgs, validation } = validateToolArguments(tool.schema, rawToolArgs)
         if (!validation.success) {
             toolCallsTotal.inc({ tool: tool.name, status: 'validation_error' })
             const message = formatInputValidationError(tool.name, validation.error, toolArgs, tool.schema)

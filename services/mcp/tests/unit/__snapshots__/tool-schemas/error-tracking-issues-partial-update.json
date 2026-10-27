@@ -2,29 +2,15 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "description": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Optional issue description."
+            "description": "Optional issue description.",
+            "type": ["string", "null"]
         },
         "id": {
             "type": "string"
         },
         "name": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Optional issue display name."
+            "description": "Optional issue display name.",
+            "type": ["string", "null"]
         },
         "severity": {
             "anyOf": [
