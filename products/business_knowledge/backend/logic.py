@@ -598,7 +598,7 @@ def _library_ids_subquery() -> Subquery:
     return Subquery(
         KnowledgeLibrarySource.objects.filter(source_id=OuterRef("pk"))
         .values("source_id")
-        .annotate(_ids=ArrayAgg("library_id", ordering="library_id"))
+        .annotate(_ids=ArrayAgg("library_id", order_by="library_id"))
         .values("_ids")[:1]
     )
 

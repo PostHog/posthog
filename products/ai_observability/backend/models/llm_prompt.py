@@ -127,7 +127,7 @@ class LLMPromptDependency(UUIDModel):
     class Meta:
         constraints = [
             models.CheckConstraint(
-                check=models.Q(child_version__isnull=False, child_label__isnull=True)
+                condition=models.Q(child_version__isnull=False, child_label__isnull=True)
                 | models.Q(child_version__isnull=True, child_label__isnull=False),
                 name="llm_prompt_dependency_version_xor_label",
             ),

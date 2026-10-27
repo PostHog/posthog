@@ -3,7 +3,6 @@ from unittest import mock
 
 from django.test import override_settings
 from django.utils import timezone
-from django.utils.deprecation import RemovedInDjango60Warning
 
 from parameterized import parameterized
 
@@ -138,20 +137,6 @@ class TestBehavioralBackfillDependencies(BaseTest):
         self.assertNotEqual(cohort.behavioral_filters_shape_hash, old_behavioral_hash)
         self.assertIsNone(cohort.last_backfill_events_at)
         self.assertIsNone(cohort.last_realtime_cohort_calculation_at)
-
-    def test_positional_filter_update_persists_maintained_fields(self) -> None:
-        cohort = self._cohort(7)
-        old_hash = cohort.filters_shape_hash
-        Cohort.objects.filter(id=cohort.id).update(last_backfill_events_at=timezone.now())
-        cohort.refresh_from_db()
-
-        cohort.filters = self._filters(30)
-        with self.assertWarns(RemovedInDjango60Warning):
-            cohort.save(False, False, None, ["filters"])
-
-        cohort.refresh_from_db()
-        self.assertNotEqual(cohort.filters_shape_hash, old_hash)
-        self.assertIsNone(cohort.last_backfill_events_at)
 
     def test_non_filter_partial_save_does_not_maintain_shape(self) -> None:
         cohort = self._cohort(7)

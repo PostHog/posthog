@@ -39,6 +39,7 @@ from products.conversations.backend.mailgun import (
     add_domain as mailgun_add_domain,
     delete_domain as mailgun_delete_domain,
     get_domain as mailgun_get_domain,
+    mime_bytes_with_crlf,
     send_mime,
     verify_domain as mailgun_verify_domain,
 )
@@ -842,7 +843,7 @@ class EmailSendTestView(APIView):
         )
         email_message.attach_alternative(html_body, "text/html")
 
-        mime_bytes = email_message.message().as_bytes(linesep="\r\n")
+        mime_bytes = mime_bytes_with_crlf(email_message)
 
         try:
             send_mime(config.domain, mime_bytes, recipients=[user.email])

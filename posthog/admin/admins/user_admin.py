@@ -21,6 +21,7 @@ from django.template.response import TemplateResponse
 from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.http import urlencode
+from django.utils.safestring import mark_safe
 from django.utils.translation import (
     gettext,
     gettext_lazy as _,
@@ -242,9 +243,9 @@ class UserAdmin(DjangoUserAdmin):
     @admin.display(description="Email Verification")
     def email_verification_status(self, user: User):
         if user.is_email_verified:
-            return format_html('<p style="color: green;">✓ Verified</p>')
+            return mark_safe('<p style="color: green;">✓ Verified</p>')
         else:
-            return format_html(
+            return mark_safe(
                 '<p style="color: red;">✗ Not verified</p><br>'
                 '<a href="#" class="button" id="send_verification_email_button">Send verification email</a>'
             )
@@ -271,7 +272,7 @@ class UserAdmin(DjangoUserAdmin):
                 status_text,
             )
         else:
-            return format_html('<p style="color: gray;">✗ Not configured</p>')
+            return mark_safe('<p style="color: gray;">✗ Not configured</p>')
 
     def change_view(self, request, object_id, form_url="", extra_context=None):
         """Override change view to handle email verification button."""
