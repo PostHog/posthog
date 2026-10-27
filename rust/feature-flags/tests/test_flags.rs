@@ -1742,9 +1742,9 @@ async fn it_sets_quota_limited_in_legacy_and_v2() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_minimal_flag_called_events_reaches_v2_and_v3_but_not_legacy_response() -> Result<()> {
+async fn test_minimal_flag_called_events_reaches_v2_and_v4_but_not_legacy_response() -> Result<()> {
     let mut config = DEFAULT_TEST_CONFIG.clone();
-    config.flags_v3_response_enabled = true;
+    config.flags_v4_response_enabled = true;
     let distinct_id = "user1".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
@@ -1771,13 +1771,13 @@ async fn test_minimal_flag_called_events_reaches_v2_and_v3_but_not_legacy_respon
     let v2: FlagsResponse = res.json().await?;
     assert_eq!(v2.minimal_flag_called_events, Some(true));
 
-    // V3 response: carried over from the v2 response.
+    // V4 response: carried over from the v2 response.
     let res = server
-        .send_flags_request(payload.to_string(), Some("3"), None)
+        .send_flags_request(payload.to_string(), Some("4"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
-    let v3 = res.json::<Value>().await?;
-    assert_eq!(v3["minimalFlagCalledEvents"], true);
+    let v4 = res.json::<Value>().await?;
+    assert_eq!(v4["minimalFlagCalledEvents"], true);
 
     // Legacy response (v=1): LegacyFlagsResponse doesn't carry the field at all, so a
     // gated team's v1 clients never see the signal and keep sending full events.

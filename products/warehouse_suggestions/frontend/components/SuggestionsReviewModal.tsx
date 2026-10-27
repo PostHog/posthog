@@ -42,10 +42,10 @@ export function SuggestionsReviewModal({ title, summary, children }: Suggestions
                 footer={
                     <div className="flex w-full flex-wrap items-center justify-between gap-2">
                         <span className="min-w-0 flex-1 whitespace-normal text-xs text-muted">
-                            <span>Based on read counts from the query log. PostHog never reads your query text.</span>
+                            <span>{`Based on the last ${status?.window_days ?? 0} days of reads. Cached dashboard views aren't counted.`}</span>
                             {status?.refreshed_at && (
                                 <>
-                                    <span> Refreshed </span>
+                                    <span> Updated </span>
                                     <TZLabel time={status.refreshed_at} showPopover={false} />
                                     <span>.</span>
                                 </>

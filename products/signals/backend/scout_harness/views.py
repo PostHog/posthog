@@ -72,6 +72,7 @@ from posthog.user_permissions import UserPermissions
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.artefact_schemas import ReviewerState
 from products.signals.backend.background_pilot import OPT_OUT_DELETED, capture_background_scout_opted_out
+from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
@@ -3761,6 +3762,8 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         if config is None:
             raise exceptions.NotFound()
         skill_name = config.skill_name
+        if skill_name in SYSTEM_SCOUT_NAMES:
+            raise exceptions.ValidationError("This scout runs once during onboarding.")
         # A withheld scout is invisible across the whole config API (it's excluded from list), so a
         # run request for one is a 404 here too — and the runner would refuse it anyway. Resolved
         # against the canonical team, matching `list`/`sync`.

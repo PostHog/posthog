@@ -827,6 +827,12 @@ test('the cli workflow and the reusable release plan share the cli lane', () => 
     }
 })
 
+test('the hogbox preview workflows keep the hogbox tooling lane', () => {
+    for (const file of ['.github/workflows/hogbox-preview-env.yml', '.github/workflows/hogbox-preview-cleanup.yml']) {
+        assert.deepEqual(computeTargets([file], CONTEXT), ['tools:hogbox-preview'], file)
+    }
+})
+
 test('the mcp ui-apps workflow claims the product-surface readers', () => {
     assert.deepEqual(
         computeTargets(['.github/workflows/ci-mcp-ui-apps.yml'], CONTEXT),
@@ -1330,6 +1336,7 @@ test('every target the rules can emit appears in the enumerated universe', () =>
         '.github/workflows/ci-hobby.yml',
         '.github/workflows/ci-oauth-proxy.yml',
         '.github/workflows/ci-agent-skills.yml',
+        '.github/workflows/hogbox-preview-env.yml',
         '.github/workflows/ci-cli.yml',
         'bin/hobby-ci.py',
         'Dockerfile.llm-analytics',

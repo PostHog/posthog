@@ -13,6 +13,7 @@ from posthog.hogql.functions.prompt_jev import DECISION_FUNCTIONS, PromptJevFind
 from posthog.hogql.parser import parse_select
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.uuidt import UUIDT
 
 from ..facade.contracts import SavedQueryDefinition, SavedQuerySummary, UpstreamTableRef
 from ..models.data_modeling_job import (
@@ -161,6 +162,21 @@ def calls_decision_functions(hogql: str) -> bool:
         return PromptJevFinder.contains(parse_select(hogql))
     except BaseHogQLError:
         return True
+
+
+def saved_query_ids_created_by(team_id: int, user_id: int, *, ids: Collection[str] | None = None) -> frozenset[UUID]:
+    """The saved queries this user created, soft-deleted ones included. One query.
+
+    ``ids`` narrows the lookup to those saved queries; ``None`` asks about every one. An id that is
+    not a UUID matches nothing.
+    """
+    candidates = DataWarehouseSavedQuery.objects.filter(team_id=team_id, created_by_id=user_id)
+    if ids is not None:
+        valid_ids = [UUID(value) for value in ids if UUIDT.is_valid_uuid(value)]
+        if not valid_ids:
+            return frozenset()
+        candidates = candidates.filter(id__in=valid_ids)
+    return frozenset(candidates.values_list("id", flat=True))
 
 
 def allowed_saved_query_ids(
