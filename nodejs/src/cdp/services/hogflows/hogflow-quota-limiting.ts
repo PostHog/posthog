@@ -16,11 +16,8 @@ export interface HogFlowQuotaLimitResult {
     isLimited: boolean
 }
 
-// Transactional emails such as password resets and receipts must still go out when the team is over its
-// email quota. Each send still reports billable usage, so the team pays for it. A flow without a
-// transactional email action stays limited.
+// Transactional emails bypass the email quota. Each send still reports billable usage, so the team pays for it.
 function sendsOnlyTransactionalEmail(hogFlow: HogFlow): boolean {
-    // An API trigger is the transactional email send endpoint.
     if (hogFlow.trigger.type === 'api') {
         return true
     }
