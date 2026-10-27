@@ -219,8 +219,13 @@ class TwitterAdsClient:
                         {
                             "entity": STATS_TABLES[table],
                             "entity_ids": ",".join(entity_ids[batch_start : batch_start + 20]),
-                            "start_time": start_time.isoformat().replace("+00:00", "Z"),
-                            "end_time": end_time.isoformat().replace("+00:00", "Z"),
+                            # A bare date tells X to resolve midnight-to-midnight in the account's
+                            # own timezone itself. An account on a half-hour-offset timezone (e.g.
+                            # IST) never lands on a whole UTC hour, so sending our own UTC
+                            # conversion here gets a 400 ("whole hours" requirement) that this
+                            # sidesteps entirely.
+                            "start_time": start.isoformat(),
+                            "end_time": window_end.isoformat(),
                             "granularity": "DAY",
                             "placement": placement,
                             "metric_groups": "ENGAGEMENT,BILLING",
