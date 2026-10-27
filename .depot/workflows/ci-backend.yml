@@ -1779,17 +1779,9 @@ jobs:
                   # pushed commit does not have.
                   ref: ${{ github.event_name == 'push' && github.sha || 'master' }}
                   path: upstream-master
-            - name: Install python dependencies for master
-              working-directory: upstream-master
-              timeout-minutes: 5
-              retry: 1
-              run: |
-                  UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev --no-install-package pytest-split
             - name: Compute master schema cache key
-              # Must match the migration-set computation in turbo-discover and the
-              # push-side save below (inputs, hash, and key prefix). Keyed off the
-              # master checkout (HEAD here) so a restored dump is exactly the state
-              # that "Run migrations up to master" would build from scratch.
+              # Only master pushes write this namespace. PR-base dumps can include
+              # unmerged migrations on stacked PRs, and Depot Cache has no branch isolation.
               if: github.event_name != 'push'
               id: master-schema-key
               working-directory: upstream-master
@@ -1806,22 +1798,32 @@ jobs:
                       echo "key=" >> $GITHUB_OUTPUT
                   else
                       MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
-                      echo "key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
+                      echo "key=posthog-schema-master-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
             - name: Restore master schema dump from cache
+              id: master-schema-cache
               if: github.event_name != 'push' && steps.master-schema-key.outputs.key != ''
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
                   key: ${{ steps.master-schema-key.outputs.key }}
-                  # The master push for the checked-out commit saves the exact key when it
-                  # finishes, and on merge queue runs that push is often still running.
-                  # The prefix then restores the newest master dump. Every dump comes from
-                  # a master commit at or before the checkout, so migrate only applies the
-                  # migrations the dump lacks.
                   restore-keys: |
-                      posthog-schema-master-${{ github.event.pull_request.base.sha }}
-                      posthog-schema-mig-${{ env.SCHEMA_CACHE_EPOCH }}-
+                      posthog-schema-master-mig-${{ env.SCHEMA_CACHE_EPOCH }}-
+            - name: Refresh upstream master after a schema fallback
+              # Master can advance between the first checkout and the cache lookup.
+              # Refresh after selecting the dump so its migrations exist in the checkout.
+              if: steps.master-schema-cache.outputs.cache-matched-key != '' && steps.master-schema-cache.outputs.cache-matched-key != steps.master-schema-key.outputs.key
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  repository: PostHog/posthog
+                  ref: master
+                  path: upstream-master
+            - name: Install python dependencies for master
+              working-directory: upstream-master
+              timeout-minutes: 5
+              retry: 1
+              run: |
+                  UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev --no-install-package pytest-split
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
@@ -2256,8 +2258,7 @@ jobs:
                   gunzip -t schema.sql.gz
 
             - name: Compute migration-set schema key
-              # Must match the PR-base computation in turbo-discover and the
-              # master restore key above (inputs, hash, and key prefix).
+              # Both namespaces use the same inputs and hash as turbo-discover.
               if: github.event_name == 'push'
               id: mig-schema-key
               run: |
@@ -2270,13 +2271,16 @@ jobs:
                   PG_IMAGE=$(git show "HEAD:docker-compose.base.yml" 2>/dev/null \
                       | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
                   KEY=""
+                  MASTER_KEY=""
                   if [ -z "$MIG_FILES" ]; then
                       echo "::notice::no migration files matched — skipping migration-set schema save"
                   else
                       MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
                       KEY="posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}"
+                      MASTER_KEY="posthog-schema-master-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}"
                   fi
                   echo "key=$KEY" >> $GITHUB_OUTPUT
+                  echo "master_key=$MASTER_KEY" >> $GITHUB_OUTPUT
                   printf '%s' "$KEY" > schema-cache-key
             - name: Upload migrated schema artifact
               if: ${{ github.event_name == 'push' }}
@@ -2304,6 +2308,12 @@ jobs:
               with:
                   path: schema.sql.gz
                   key: ${{ steps.mig-schema-key.outputs.key }}
+            - name: Save master schema for migration validation
+              if: github.event_name == 'push' && steps.mig-schema-key.outputs.master_key != ''
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: schema.sql.gz
+                  key: ${{ steps.mig-schema-key.outputs.master_key }}
             - name: Check migrations
               # Skip migration safety check on master push (no migration_files from path filter)
               if: github.event_name != 'push'
