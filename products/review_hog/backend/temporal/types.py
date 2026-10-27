@@ -13,9 +13,6 @@ from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FULL
 # (an explicit human ask from the Code review scene) and comment (an `@posthog review` pull request
 # comment) → ungated. Plain strings (not an Enum) so Temporal payloads stay forward/backward-compatible
 # across deploys.
-# The `posthog-review` label no longer starts reviews. Label runs that started earlier still replay
-# with this value, and stored reports keep it.
-TRIGGER_LABEL = "label"
 TRIGGER_STAMPHOG = "stamphog"
 TRIGGER_INBOX = "inbox"
 TRIGGER_MANUAL = "manual"
@@ -24,7 +21,7 @@ TRIGGER_COMMENT = "comment"
 TRIGGER_AUTOMATIC = "automatic"
 # The triggers that ask for a review and then wait on an answer. A Stamphog handoff counts, because
 # Inbox triage reads the answer. An inbox review comes from the signals agent, so it is not one of them.
-REQUESTED_TRIGGERS = frozenset({TRIGGER_LABEL, TRIGGER_STAMPHOG, TRIGGER_MANUAL, TRIGGER_UI, TRIGGER_COMMENT})
+REQUESTED_TRIGGERS = frozenset({TRIGGER_STAMPHOG, TRIGGER_MANUAL, TRIGGER_UI, TRIGGER_COMMENT})
 
 
 @frozen

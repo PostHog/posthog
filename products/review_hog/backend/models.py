@@ -492,7 +492,7 @@ class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
     review_inbox_prs = models.BooleanField(default=False, db_default=False)
     # Unused: values live in preferences.
     stamphog_review_inbox_prs = models.BooleanField(default=False, db_default=False)
-    # Unused: a label always runs.
+    # Unused: no label starts a review.
     review_labeled_prs = models.BooleanField(default=True, db_default=True)
     # Unused: values live in preferences.
     resolve_comments = models.BooleanField(default=True, db_default=True)
