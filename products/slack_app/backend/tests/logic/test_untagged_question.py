@@ -2,7 +2,10 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.slack_app.backend.logic.untagged_question import is_untagged_question_candidate
+from products.slack_app.backend.logic.untagged_question import (
+    is_untagged_question_candidate,
+    is_untagged_thread_question_candidate,
+)
 
 
 class TestIsUntaggedQuestionCandidate(SimpleTestCase):
@@ -23,3 +26,30 @@ class TestIsUntaggedQuestionCandidate(SimpleTestCase):
         event = {"channel_type": "channel", "text": text}
 
         assert is_untagged_question_candidate(event) is expected
+
+
+class TestIsUntaggedThreadQuestionCandidate(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("a reply in the author's own thread", {"thread_ts": "1.0", "parent_user_id": "U_BOB"}, True),
+            ("a reply in another person's thread", {"thread_ts": "1.0", "parent_user_id": "U_ALICE"}, False),
+            ("a reply without a parent author", {"thread_ts": "1.0"}, False),
+            ("a top-level post", {"thread_ts": None, "parent_user_id": "U_BOB"}, False),
+            ("the thread root", {"thread_ts": "2.0", "parent_user_id": "U_BOB"}, False),
+            (
+                "a reply that is a command",
+                {"thread_ts": "1.0", "parent_user_id": "U_BOB", "text": "/remind me later today"},
+                False,
+            ),
+        ]
+    )
+    def test_only_replies_in_the_authors_own_thread(self, _name, overrides, expected):
+        event = {
+            "channel_type": "channel",
+            "user": "U_BOB",
+            "ts": "2.0",
+            "text": "how many of them came back the week after?",
+            **overrides,
+        }
+
+        assert is_untagged_thread_question_candidate(event) is expected

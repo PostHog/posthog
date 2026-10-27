@@ -1,6 +1,6 @@
 import time
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.core.cache import cache
@@ -241,6 +241,72 @@ class TestRouteThreadMessage(TestCase):
 
         assert proxy.called is expect_proxy
         mock_start.assert_not_called()
+
+    def _make_unowned_thread_reply(self, **overrides) -> dict:
+        defaults = {
+            "channel": "C002",
+            "channel_type": "channel",
+            "ts": "3001.0000",
+            "thread_ts": "3000.0000",
+            "parent_user_id": "U_BOB",
+            "text": "also, how many of them came back the week after?",
+        }
+        return self._make_event(**{**defaults, **overrides})
+
+    def _route_unowned_thread_reply(
+        self, event: dict, *, thread_flag_on: bool = True, is_ext_shared_channel: bool = False
+    ) -> MagicMock:
+        with (
+            patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False),
+            patch("products.slack_app.backend.api.is_slack_app_unprompted_answers_enabled", return_value=True),
+            patch(
+                "products.slack_app.backend.api.is_slack_app_unprompted_thread_answers_enabled",
+                return_value=thread_flag_on,
+            ),
+            patch("products.slack_app.backend.api.get_cached_bot_user_id", return_value="U0BOT"),
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+        ):
+            self._route(event, is_ext_shared_channel=is_ext_shared_channel)
+        return mock_start
+
+    @parameterized.expand(
+        [
+            ("a reply in the author's own thread", {}, True, False, True),
+            ("the thread flag is off", {}, False, False, False),
+            ("a reply in another person's thread", {"parent_user_id": "U_ALICE"}, True, False, False),
+            ("a reply that tags the app", {"text": "<@U0BOT> how many came back?"}, True, False, False),
+            ("an externally shared channel", {}, True, True, False),
+        ]
+    )
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_untagged_reply_in_a_thread_without_the_app_starts_the_untagged_question_workflow(
+        self, _name, overrides, thread_flag_on, ext_shared, expect_dispatch
+    ):
+        mock_start = self._route_unowned_thread_reply(
+            self._make_unowned_thread_reply(**overrides),
+            thread_flag_on=thread_flag_on,
+            is_ext_shared_channel=ext_shared,
+        )
+
+        assert mock_start.called is expect_dispatch
+        if expect_dispatch:
+            assert mock_start.call_args.kwargs["untagged_question"] is True
+            assert mock_start.call_args.kwargs["posthog_user"].id == self.bob.id
+
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_one_offer_in_a_thread_holds_back_the_next_reply_in_it(self):
+        from products.slack_app.backend.api import _post_untagged_question_prompt
+
+        slack = MagicMock()
+        with patch("products.slack_app.backend.api.app_home_url", return_value=None):
+            assert _post_untagged_question_prompt(slack, self.integration, self._make_unowned_thread_reply())
+        assert slack.client.chat_postEphemeral.call_args.kwargs["thread_ts"] == "3000.0000"
+
+        next_reply = self._make_unowned_thread_reply(ts="3002.0000", text="and how many upgraded to a paid plan?")
+        assert not self._route_unowned_thread_reply(next_reply).called
+        # Another thread by the same author still gets its own offer.
+        other_thread = self._make_unowned_thread_reply(ts="4001.0000", thread_ts="4000.0000")
+        assert self._route_unowned_thread_reply(other_thread).called
 
     def test_no_user_dropped(self):
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY

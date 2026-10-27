@@ -1,4 +1,6 @@
-"""Answering a top-level Slack channel message that did not tag the app.
+"""Answering a Slack channel message that did not tag the app.
+
+The message is a top-level post, or a reply in a thread its author started and the app is not part of.
 
 Nobody asked PostHog anything, so the bar is high on purpose: a wrong answer interrupts a
 conversation in public. Jev, a System One decision model, answers two yes/no questions about
@@ -18,8 +20,10 @@ from posthog.models.user import User
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.logic.untagged_question import is_reply
 from products.slack_app.backend.models import UntaggedFollowupMode
 from products.slack_app.backend.services.slack_conversations import channel_is_ext_shared
+from products.slack_app.backend.services.slack_messages import collect_thread_messages
 from products.slack_app.backend.services.slack_settings import resolve_untagged_question_mode
 from products.slack_app.backend.temporal.activities.classifiers import CLASSIFIER_PROPERTY, _thread_trace_id
 from products.slack_app.backend.temporal.types import (
@@ -39,12 +43,22 @@ UNTAGGED_QUESTION_TIMEOUT_SECONDS = 5.0
 # products/slack_app/evals/eval_untagged_question.py.
 UNTAGGED_QUESTION_MIN_PROBABILITY = 0.85
 
+# The newest replies carry the context a reply depends on. Older ones only make the call slower.
+UNTAGGED_QUESTION_MAX_THREAD_MESSAGES = 20
+
 ASKS_QUESTION_ID = "asks_for_information"
 ANSWERABLE_QUESTION_ID = "answerable_by_posthog"
 
 ASKS_FOR_INFORMATION_INSTRUCTIONS = (
     "`message` is a new top-level post in a team's Slack channel. Nobody tagged an assistant in it. "
     "Is the author asking for a specific piece of information or a specific analysis that they do not have yet?"
+)
+ASKS_FOR_INFORMATION_IN_THREAD_INSTRUCTIONS = (
+    "`message` is a new reply in a Slack thread that its author started. `thread` holds the earlier "
+    "messages in that thread, oldest first, as `name: text` lines. Nobody tagged an assistant in `message`. "
+    "Read `thread` only to understand what `message` refers to. "
+    "Is the author asking, in `message`, for a specific piece of information or a specific analysis that "
+    "they do not have yet? A reply that answers, thanks or reacts to another person in the thread is not a question."
 )
 ASKS_FOR_INFORMATION_TRUE = (
     "A real question or request for facts, numbers, an explanation, or a lookup. "
@@ -98,8 +112,12 @@ def classify_untagged_question(
     team_id: int,
     distinct_id: str | None,
     trace_id: str | None = None,
+    thread: list[str] | None = None,
 ) -> UntaggedQuestionVerdict | None:
     """Ask the decision model whether PostHog can answer this message. ``None`` means no verdict.
+
+    ``thread`` is the earlier messages of the thread a reply sits in, oldest first. ``None`` means
+    a top-level post.
 
     Raises when no System One server is configured or the call fails, so the caller can tell
     an outage from a refusal.
@@ -117,11 +135,16 @@ def classify_untagged_question(
         properties={CLASSIFIER_PROPERTY: "untagged_question"},
         timeout=UNTAGGED_QUESTION_TIMEOUT_SECONDS,
     )
+    state: dict[str, str] = {"message": text}
+    if thread is not None:
+        state["thread"] = "\n".join(thread[-UNTAGGED_QUESTION_MAX_THREAD_MESSAGES:])
     result = client.decide(
-        state={"message": text},
+        state=state,
         questions={
             ASKS_QUESTION_ID: NoulQuestion(
-                instructions=ASKS_FOR_INFORMATION_INSTRUCTIONS,
+                instructions=ASKS_FOR_INFORMATION_INSTRUCTIONS
+                if thread is None
+                else ASKS_FOR_INFORMATION_IN_THREAD_INSTRUCTIONS,
                 criteria_true=ASKS_FOR_INFORMATION_TRUE,
                 criteria_false=ASKS_FOR_INFORMATION_FALSE,
             ),
@@ -148,10 +171,17 @@ def _load_integration(inputs: PostHogCodeSlackMentionWorkflowInputs) -> Integrat
     )
 
 
+def _earlier_thread_messages(integration: Integration, event: dict) -> list[str]:
+    messages = collect_thread_messages(
+        SlackIntegration(integration), integration, str(event.get("channel") or ""), str(event["thread_ts"]), None
+    )
+    return [f"{message.user}: {message.text}" for message in messages if message.ts != event.get("ts")]
+
+
 @activity.defn
 @close_db_connections
 def classify_untagged_question_activity(inputs: PostHogCodeSlackMentionWorkflowInputs) -> bool:
-    """Whether PostHog should answer, or offer to answer, a top-level message nobody tagged it in.
+    """Whether PostHog should answer, or offer to answer, a message nobody tagged it in.
 
     Any failure returns ``False``: staying quiet is the safe default when nobody asked.
     """
@@ -162,12 +192,16 @@ def classify_untagged_question_activity(inputs: PostHogCodeSlackMentionWorkflowI
         return False
 
     verdict: UntaggedQuestionVerdict | None = None
+    reply = is_reply(inputs.event)
     try:
         verdict = classify_untagged_question(
             inputs.event.get("text") or "",
             team_id=integration.team_id,
             distinct_id=user.distinct_id,
-            trace_id=_thread_trace_id(inputs.slack_team_id, inputs.event.get("ts")),
+            trace_id=_thread_trace_id(
+                inputs.slack_team_id, inputs.event.get("thread_ts") if reply else inputs.event.get("ts")
+            ),
+            thread=_earlier_thread_messages(integration, inputs.event) if reply else None,
         )
     except SystemOneNotConfigured:
         logger.info("slack_app_untagged_question_system_one_not_configured")
@@ -196,6 +230,7 @@ def classify_untagged_question_activity(inputs: PostHogCodeSlackMentionWorkflowI
         asks_for_information=verdict.asks_for_information if verdict else None,
         answerable_by_posthog=verdict.answerable_by_posthog if verdict else None,
         threshold=UNTAGGED_QUESTION_MIN_PROBABILITY,
+        reply=reply,
     )
     if not answerable:
         return False

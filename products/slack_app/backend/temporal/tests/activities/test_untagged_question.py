@@ -17,7 +17,9 @@ from products.slack_app.backend.api import claim_message_handled
 from products.slack_app.backend.models import SlackSettings, UntaggedFollowupMode
 from products.slack_app.backend.temporal.activities.untagged_question import (
     ANSWERABLE_QUESTION_ID,
+    ASKS_FOR_INFORMATION_IN_THREAD_INSTRUCTIONS,
     ASKS_QUESTION_ID,
+    UNTAGGED_QUESTION_MAX_THREAD_MESSAGES,
     UntaggedQuestionVerdict,
     classify_untagged_question,
     classify_untagged_question_activity,
@@ -55,6 +57,20 @@ class TestClassifyUntaggedQuestion(SimpleTestCase):
         # The message travels as state, never inside the instructions.
         state = client.decide.call_args.kwargs["state"]
         assert state == {"message": "How many people signed up last week?"}
+
+    def test_a_reply_carries_the_newest_thread_messages(self):
+        client = MagicMock()
+        client.decide.return_value = _result(NoulAnswer(probability=0.97), NoulAnswer(probability=0.91))
+        thread = [f"Dana: message {index}" for index in range(UNTAGGED_QUESTION_MAX_THREAD_MESSAGES + 5)]
+        with patch(f"{MODULE}.build_system_one_client", return_value=client):
+            classify_untagged_question("how many of them came back?", team_id=1, distinct_id="user-1", thread=thread)
+
+        kwargs = client.decide.call_args.kwargs
+        assert kwargs["state"] == {
+            "message": "how many of them came back?",
+            "thread": "\n".join(thread[-UNTAGGED_QUESTION_MAX_THREAD_MESSAGES:]),
+        }
+        assert kwargs["questions"][ASKS_QUESTION_ID].instructions == ASKS_FOR_INFORMATION_IN_THREAD_INSTRUCTIONS
 
 
 class TestRequestUntaggedQuestionConfirmation(TestCase):
