@@ -143,6 +143,7 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
 )
 from products.dashboards.backend.constants import (
     DASHBOARD_GRID_COLUMN_COUNT,
+    MAX_GROUP_KEY_LENGTH,
     MAX_GROUP_TITLE_LENGTH,
     MAX_GROUPS,
     MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
@@ -153,6 +154,7 @@ from products.dashboards.backend.constants import (
 )
 from products.dashboards.backend.customization import (
     normalize_dashboard_customization,
+    normalized_group_key,
     stored_customization,
     stored_groups,
     validate_template_groups,
@@ -3593,7 +3595,7 @@ class DashboardsViewSet(
         if not tiles:
             raise exceptions.NotFound("Tile group not found.")
 
-        groups = _stored_groups(destination.customization)
+        groups = stored_groups(destination.customization)
         if len(groups) >= MAX_GROUPS:
             raise exceptions.ValidationError({"groups": f"A dashboard can have at most {MAX_GROUPS} groups."})
         new_key = uuid.uuid4().hex
@@ -3669,9 +3671,9 @@ class DashboardsViewSet(
                         for size, layout in tile.layouts.items()
                     }
                     copied.save(update_fields=["group_key", "layouts"])
-                groups[new_key] = _stored_groups(source.customization).get(group_key, {})
+                groups[new_key] = stored_groups(source.customization).get(group_key, {})
                 destination.customization = _with_groups(
-                    _normalize_dashboard_customization(destination.customization), groups
+                    normalize_dashboard_customization(destination.customization), groups
                 )
                 destination.save(update_fields=["customization"])
         except (DjangoValidationError, IntegrityError):
@@ -3687,7 +3689,7 @@ class DashboardsViewSet(
         serializer = CopyDashboardGroupRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         source_id = serializer.validated_data["fromDashboardId"]
-        group_key = _normalized_group_key(serializer.validated_data["groupKey"])
+        group_key = normalized_group_key(serializer.validated_data["groupKey"])
         self._copy_group_tiles(request, destination, source_id, group_key)
 
         return Response(DashboardSerializer(destination, context=self.get_serializer_context()).data)
