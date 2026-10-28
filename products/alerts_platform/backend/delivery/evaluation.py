@@ -10,6 +10,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from functools import cache
 from typing import Any, Final
+from uuid import UUID
 
 import structlog
 
@@ -43,9 +44,13 @@ from products.alerts_platform.backend.facade.contracts import (
     IncidentAction,
     LegacyEventEmission,
     MessageLink,
+    StoredAlertDestination,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.logic import delivery_holds
+from products.alerts_platform.backend.logic.alert_destinations import list_alert_destinations
 from products.alerts_platform.backend.logic.platform_alert_events import announced_kinds, announcement
+from products.alerts_platform.backend.models import PlatformAlertConfiguration
 from products.alerts_platform.backend.temporal.metrics import DeliveryOutcomeLabel, increment_deliveries, safe_record
 
 logger = structlog.get_logger(__name__)
@@ -73,6 +78,12 @@ _TRANSPORTS: Final[dict[DestinationType, type[DeliveryTransport]]] = {
     DestinationType.PAGERDUTY: PagerDutyTransport,
     DestinationType.EMAIL: EmailTransport,
     DestinationType.IN_APP: InAppTransport,
+}
+
+# The announced kind an incident action reaches an incident manager's `AlertDestination` with.
+_INCIDENT_KINDS: Final[dict[IncidentAction, AlertEventKind]] = {
+    IncidentAction.TRIGGER: AlertEventKind.FIRING,
+    IncidentAction.RESOLVE: AlertEventKind.RESOLVED,
 }
 
 
@@ -181,12 +192,14 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     )
     if announced is None:
         return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
-    native_announced, emissions = _split_by_path(request, announced)
+    platform_destinations = _platform_destinations(request)
+    native_announced, emissions = _split_by_path(request, announced, platform_destinations)
     emitter = delivery_paths.emitter_for(request.source) if emissions else None
     notice_keys: dict[str, str] = {}
     if request.parts > 1 and request.overflowed:
         notice_keys = _overflow_notice_keys(
             request,
+            platform_destinations,
             announced_kinds(
                 request.team_id,
                 request.configuration_id,
@@ -214,7 +227,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     noticed: set[str] = set()
     native_by_event = _by_subscription(request, native_announced)
     for event_id, all_transitions in _by_subscription(request, announced).items():
-        for subscribed_destination in _destinations(request, event_id):
+        for subscribed_destination in _destinations(request, event_id, platform_destinations):
             transitions = (
                 native_by_event.get(event_id, ()) if subscribed_destination.receives_emitted_events else all_transitions
             )
@@ -370,7 +383,9 @@ def _count_emissions(request: AlertDeliveryRequest, outcome: DeliveryOutcomeLabe
 
 
 def _split_by_path(
-    request: AlertDeliveryRequest, announced: EvaluationAnnouncement
+    request: AlertDeliveryRequest,
+    announced: EvaluationAnnouncement,
+    platform_destinations: tuple[StoredAlertDestination, ...] | None,
 ) -> tuple[EvaluationAnnouncement, tuple[LegacyEventEmission, ...]]:
     """The transitions HogFunction destinations receive natively, and the ones the source emits for them.
 
@@ -380,7 +395,12 @@ def _split_by_path(
     A transition inside a firing takes the path its firing took first, so a firing and its resolve
     never split across paths. Any other transition takes the path its destinations allow now.
     """
-    if not request.owned_by_platform or delivery_paths.emitter_for(request.source) is None:
+    # Destinations in `AlertDestination` have no HogFunction to emit for.
+    if (
+        not request.owned_by_platform
+        or platform_destinations is not None
+        or delivery_paths.emitter_for(request.source) is None
+    ):
         return announced, ()
 
     # Read once per delivery, because the chooser reads every destination of the alert.
@@ -422,7 +442,11 @@ def _split_by_path(
     return replace(announced, transitions=tuple(native)), tuple(emissions)
 
 
-def _overflow_notice_keys(request: AlertDeliveryRequest, kinds: dict[str, AlertEventKind]) -> dict[str, str]:
+def _overflow_notice_keys(
+    request: AlertDeliveryRequest,
+    platform_destinations: tuple[StoredAlertDestination, ...] | None,
+    kinds: dict[str, AlertEventKind],
+) -> dict[str, str]:
     """For each destination, the grouping key whose part tells it about the overflow.
 
     Read from the kinds of the whole announcement, so every part agrees, and a destination whose
@@ -437,7 +461,7 @@ def _overflow_notice_keys(request: AlertDeliveryRequest, kinds: dict[str, AlertE
             first_by_event_id[event_id] = min(first_by_event_id.get(event_id, grouping_key), grouping_key)
     keys: dict[str, str] = {}
     for event_id, first in first_by_event_id.items():
-        for subscribed_destination in _destinations(request, event_id):
+        for subscribed_destination in _destinations(request, event_id, platform_destinations):
             destination = json.dumps(subscribed_destination.data, sort_keys=True)
             keys[destination] = min(keys.get(destination, first), first)
     return keys
@@ -489,12 +513,33 @@ class _SubscribedDestination:
     receives_emitted_events: bool
 
 
-def _destinations(request: AlertDeliveryRequest, event_id: str) -> list[_SubscribedDestination]:
+def _platform_destinations(request: AlertDeliveryRequest) -> tuple[StoredAlertDestination, ...] | None:
+    """The alert's `AlertDestination` rows when the platform owns its destinations, or None when its
+    source's HogFunctions hold them. Read once per delivery, and after the check, so a destination
+    removed in between is not sent to."""
+    owner = (
+        PlatformAlertConfiguration.objects.for_team(request.team_id)
+        .filter(id=request.configuration_id)
+        .values_list("destinations_owner", flat=True)
+        .first()
+    )
+    if owner != PlatformAlertOwner.PLATFORM:
+        return None
+    return list_alert_destinations(team_id=request.team_id, configuration_id=UUID(request.configuration_id))
+
+
+def _destinations(
+    request: AlertDeliveryRequest,
+    event_id: str,
+    platform_destinations: tuple[StoredAlertDestination, ...] | None,
+) -> list[_SubscribedDestination]:
     """Who subscribed to this event, resolved now rather than pinned when the check ran.
 
     A destination removed between the check and the send is not sent to, which a pinned set
     would get wrong.
     """
+    if platform_destinations is not None:
+        return _platform_subscribers(request, event_id, platform_destinations)
     groups = list_alert_destination_groups(
         team_id=request.team_id,
         alert_id=request.destination_alert_id,
@@ -508,4 +553,35 @@ def _destinations(request: AlertDeliveryRequest, event_id: str) -> list[_Subscri
         )
         for group in groups
         if group.fully_enabled
+    ]
+
+
+def _platform_subscribers(
+    request: AlertDeliveryRequest, event_id: str, destinations: tuple[StoredAlertDestination, ...]
+) -> list[_SubscribedDestination]:
+    """The enabled `AlertDestination` rows that hear this event.
+
+    A message event reaches every destination but an incident manager that asked for its kind. An
+    incident event reaches only incident managers, which ask for firings to hear the trigger and for
+    resolves to hear the resolve, as with HogFunction destinations.
+    """
+    action = next(
+        (IncidentAction(action) for action, event in request.event_ids_by_incident_action.items() if event == event_id),
+        None,
+    )
+    kind = (
+        _INCIDENT_KINDS[action]
+        if action is not None
+        else next(
+            (AlertEventKind(kind) for kind, event in request.event_ids_by_kind.items() if event == event_id), None
+        )
+    )
+    if kind is None:
+        return []
+    return [
+        _SubscribedDestination(id=str(destination.id), data=destination.data, receives_emitted_events=False)
+        for destination in destinations
+        if destination.enabled
+        and kind in destination.event_kinds
+        and (destination.data["type"] == DestinationType.PAGERDUTY) == (action is not None)
     ]

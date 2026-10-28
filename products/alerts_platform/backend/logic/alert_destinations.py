@@ -22,6 +22,7 @@ from products.alerts_platform.backend.facade.contracts import (
     NewAlertDestination,
     StoredAlertDestination,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.models import AlertDestination, PlatformAlertConfiguration
 
 _REQUIRED_FIELDS: Final[dict[DestinationType, tuple[str, ...]]] = {
@@ -72,6 +73,9 @@ def create_alert_destinations(
         configuration = (
             PlatformAlertConfiguration.objects.for_team(team_id).select_for_update().get(id=configuration_id)
         )
+        # Delivery reads these rows only for such an alert. On any other, they would never send.
+        if configuration.destinations_owner != PlatformAlertOwner.PLATFORM:
+            raise AlertDestinationValidationError("This alert's destinations are managed by its product.")
         _refuse_duplicates(team_id, configuration_id, destinations)
         rows = [
             AlertDestination.objects.for_team(team_id).create(
@@ -108,6 +112,15 @@ def delete_alert_destinations(*, team_id: int, configuration_id: UUID, destinati
         .delete()
     )
     return deleted
+
+
+def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:
+    """Whether the alert has an enabled incident manager, so that a firing that opens or closes needs a delivery."""
+    return (
+        AlertDestination.objects.for_team(team_id)
+        .filter(configuration_id=configuration_id, type=DestinationType.PAGERDUTY, enabled=True)
+        .exists()
+    )
 
 
 def _refuse_duplicates(team_id: int, configuration_id: UUID, destinations: Sequence[NewAlertDestination]) -> None:
