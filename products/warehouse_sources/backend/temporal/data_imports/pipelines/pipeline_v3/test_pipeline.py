@@ -23,6 +23,7 @@ from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDown
 
 from products.warehouse_sources.backend.models import external_data_schema as schema_models
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import CONSOLIDATED_WRITE_MODE
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     finalize_desc_sort_incremental_value,
     handle_reset_or_full_refresh,
@@ -1376,7 +1377,7 @@ class TestSingleTableRunIsUntouched:
         [
             pytest.param(None, [mask_value(1, "a@example.com")], id="source_rows"),
             # Capture masked the change before it wrote the buffer, and a second hash would differ from the snapshot's.
-            pytest.param("consolidated", ["already-masked"], id="buffered_change_rows"),
+            pytest.param(CONSOLIDATED_WRITE_MODE, ["already-masked"], id="buffered_change_rows"),
         ],
     )
     async def test_masked_columns_are_hashed_once_before_anything_is_staged(

@@ -5297,6 +5297,21 @@ class TestExternalDataSchemaMaskedColumns(APIBaseTest):
         }
         assert bounds == {"password": (None, None), "email": ("a", "z")}
 
+    @parameterized.expand(
+        [
+            ("unrelated_edit", {"incremental_field": "created_at", "incremental_field_type": "datetime"}),
+            ("new_mask_next_to_it", {"masked_columns": ["gone", "password"]}),
+        ]
+    )
+    def test_a_stored_mask_on_a_column_that_left_the_source_does_not_block_edits(
+        self, _name: str, data: dict[str, Any]
+    ) -> None:
+        schema = self._create(masked_columns=["gone"], sync_type=ExternalDataSchema.SyncType.INCREMENTAL)
+        with mock.patch(f"{self.VIEWS}.trigger_external_data_workflow"):
+            response = self._patch(schema, data)
+
+        assert response.status_code == 200, response.json()
+
     def test_a_patch_without_the_field_keeps_the_masks(self) -> None:
         schema = self._create(masked_columns=["password"])
         with mock.patch(f"{self.VIEWS}.trigger_external_data_workflow") as mock_trigger:

@@ -479,6 +479,24 @@ MASKING_KEY_IS_PUBLIC_ERROR = (
 )
 
 
+def masked_key_conflict_error(
+    masked_columns: list[str],
+    primary_key_columns: Iterable[str] | None,
+    incremental_fields: Iterable[str | None],
+    partition_keys: Iterable[str] = (),
+) -> str | None:
+    # A partition column is read as a date or a number to pick the partition, which a digest is not.
+    protected = {
+        fold_column_name(column)
+        for column in [*(primary_key_columns or []), *partition_keys, *incremental_fields]
+        if column
+    }
+    conflicting = [column for column in masked_columns if fold_column_name(column) in protected]
+    if conflicting:
+        return f"Primary-key, incremental-field and partition columns can't be masked: {sorted(conflicting)}."
+    return None
+
+
 def masked_columns_error(
     masked_columns: list[str],
     *,
@@ -515,16 +533,7 @@ def masked_columns_error(
             f"Can't mask columns whose names collide after normalization: {sorted(ambiguous)}. "
             "Rename the source columns so they differ by more than case."
         )
-    # A partition column is read as a date or a number to pick the partition, which a digest is not.
-    protected = {
-        fold_column_name(column)
-        for column in [*(primary_key_columns or []), *partition_keys, *incremental_fields]
-        if column
-    }
-    conflicting = [column for column in masked_columns if fold_column_name(column) in protected]
-    if conflicting:
-        return f"Primary-key, incremental-field and partition columns can't be masked: {sorted(conflicting)}."
-    return None
+    return masked_key_conflict_error(masked_columns, primary_key_columns, incremental_fields, partition_keys)
 
 
 def canonical_masked_columns(masked_columns: list[str], source_columns: Iterable[str]) -> list[str]:
@@ -581,17 +590,27 @@ def _validate_masked_columns(
         # Without a stored key, a sync merges and partitions on `id` when the table has one.
         if not primary_key_columns:
             primary_key_columns = [name for name in source_columns if name.lower() == "id"][:1]
-        error = masked_columns_error(
-            masked_columns,
-            source_type=instance.source.source_type,
-            is_direct_query=instance.source.is_direct_query,
-            source_columns=source_columns,
-            # The stored key and cursor count too: an update can leave them in place, for example when a
-            # CDC table ignores the incremental field in the request.
-            primary_key_columns=primary_key_columns,
-            incremental_fields=[data.get("incremental_field"), instance.incremental_field],
-            partition_keys=[*(instance.partitioning_keys or []), *(instance.partitioning_keys_override or [])],
-        )
+        # The stored key and cursor count too: an update can leave them in place, for example when a
+        # CDC table ignores the incremental field in the request.
+        incremental_fields = [data.get("incremental_field"), instance.incremental_field]
+        partition_keys = [*(instance.partitioning_keys or []), *(instance.partitioning_keys_override or [])]
+        # A stored mask whose column left the source must not block unrelated edits, so only new masks
+        # are checked against the known columns. Every mask is still checked against the keys.
+        stored = {fold_column_name(column) for column in instance.masked_columns or []}
+        new_masks = [column for column in masked_columns if fold_column_name(column) not in stored]
+        error = (
+            masked_columns_error(
+                new_masks,
+                source_type=instance.source.source_type,
+                is_direct_query=instance.source.is_direct_query,
+                source_columns=source_columns,
+                primary_key_columns=primary_key_columns,
+                incremental_fields=incremental_fields,
+                partition_keys=partition_keys,
+            )
+            if new_masks
+            else None
+        ) or masked_key_conflict_error(masked_columns, primary_key_columns, incremental_fields, partition_keys)
         if error:
             raise ValidationError(error)
         if mask_in_request:
@@ -1900,7 +1919,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # buffer first: files captured before the change hold the old values and the old column type.
         cdc_mask_reset = is_cdc and masked_columns_changed and updated_instance.should_sync
         if cdc_mask_reset:
-            self._run_temporal_side_effect(lambda: hand_reset_to_capture(updated_instance, logger))
+            # The save above staged the reset.
+            self._run_temporal_side_effect(lambda: hand_reset_to_capture(updated_instance, logger, restage=False))
 
         # If the cdc_table_mode change added a new physical write target, kick a full re-snapshot so the
         # new table is seeded from the current source state. `_seed_cdc_companion_from_snapshot` runs

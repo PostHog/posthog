@@ -91,8 +91,8 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager
     snapshot_can_start_in_buffer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.naming_convention import fold_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.masking import (
-    fold_column_name,
     get_masking_key,
     mask_value,
     protected_masked_columns,
