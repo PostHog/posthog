@@ -243,12 +243,30 @@ fn payload_head(bytes: &[u8], start: usize, decoded: usize) -> Vec<u8> {
                 base64.push(b'/');
                 position += 6;
             }
-            Some([b' ' | b'\t' | b'\n' | b'\r', ..]) => position += 1,
+            // A space before a srcset descriptor such as `100w` ends the payload.
+            Some([b' ', ..]) => {
+                let next = position + bytes[position..].iter().take_while(|&&b| b == b' ').count();
+                if is_descriptor(bytes, next) {
+                    break;
+                }
+                position = next;
+            }
+            Some([b'\t' | b'\n' | b'\r', ..]) => position += 1,
+            // Padding ends the payload.
+            Some([b'=', ..]) => {
+                base64.push(b'=');
+                break;
+            }
             Some([byte, ..]) if is_base64(*byte) => {
                 base64.push(*byte);
                 position += 1;
             }
             _ => break,
+        }
+    }
+    if base64.last() == Some(&b'=') {
+        while base64.len() % 4 != 0 {
+            base64.push(b'=');
         }
     }
     base64.truncate(base64.len() / 4 * 4);
@@ -548,6 +566,14 @@ mod tests {
             );
             assert_eq!((images.images.len(), images.removed_avif), (0, 1), "{uri}");
         }
+        // A short, padded payload before a srcset descriptor, under another label.
+        let event = format!(r#"{{"srcset":"data:image/png;base64,{avif} 100w"}}"#);
+        let mut images = sink(ImageLimits::default());
+        let out = extract_images(event.as_bytes(), &mut images);
+        assert_eq!(
+            String::from_utf8_lossy(&out),
+            format!(r#"{{"srcset":"{AVIF_MARKER} 100w"}}"#)
+        );
     }
 
     #[test]

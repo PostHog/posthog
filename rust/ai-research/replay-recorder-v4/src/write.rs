@@ -906,6 +906,27 @@ mod tests {
     }
 
     #[test]
+    fn rebuilds_a_srcset_as_the_block_holds_it_after_escapes_are_written_again() {
+        // The `\/` escapes keep the PNG inline, and the writer then writes them as `/`.
+        let png = STANDARD.encode(png(&[0xff; 30]));
+        assert!(png.contains('/'));
+        let inline = format!("data:image/png;base64,{png}");
+        let events = format!(
+            r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[],"removes":[],"texts":[],"attributes":[{{"id":99,"attributes":{{"srcset":"{} 1x, https://10.0.0.7/a.png 2x"}}}}]}}}}]"#,
+            inline.replace('/', "\\/")
+        );
+        let lines = stored_lines(&events, &[]);
+        assert!(
+            lines.contains(&format!(r#""srcset":"{inline} 1x""#)),
+            "{lines}"
+        );
+        assert!(
+            !lines.contains("declined") && !lines.contains("10.0.0.7"),
+            "{lines}"
+        );
+    }
+
+    #[test]
     fn keeps_the_sealed_urls_of_a_row_under_the_message_limit() {
         let page = |i: usize| format!("https://app.example.com/{i}/{}", "p".repeat(1000));
         let (kept, truncated) = index_urls((0..1000).map(page).collect());
@@ -949,10 +970,8 @@ mod tests {
             lines.contains(&format!(r#""src":"{reference}""#)),
             "{lines}"
         );
-        assert!(lines.contains(&format!(
-            r#""srcset":"{} 2x""#,
-            crate::rewrite::declined_marker("credential")
-        )));
+        // The srcset held only the declined candidate, so it is left empty.
+        assert!(lines.contains(r#""srcset":"""#), "{lines}");
         assert!(!lines.contains("cdn.example.com"));
     }
 
