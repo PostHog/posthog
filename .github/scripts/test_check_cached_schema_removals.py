@@ -34,6 +34,18 @@ def schema(**definitions: Any) -> dict[str, Any]:
             id="enum-value-removed",
         ),
         pytest.param(
+            schema(Modifiers={"properties": {"mode": {"enum": ["a", "b"]}}}),
+            schema(Modifiers={"properties": {"mode": {"const": "a"}}}),
+            ["`Modifiers` at `mode`: enum value `b`"],
+            id="enum-narrowed-to-a-single-const",
+        ),
+        pytest.param(
+            schema(Modifiers={"properties": {"mode": {"const": "a"}}}),
+            schema(Modifiers={"properties": {"mode": {"const": "b"}}}),
+            ["`Modifiers` at `mode`: enum value `a`"],
+            id="const-value-changed",
+        ),
+        pytest.param(
             schema(Modifiers={"properties": {"inner": {"properties": {"gone": {}}}}}),
             schema(Modifiers={"properties": {"inner": {"properties": {}}}}),
             ["`Modifiers` at `inner`: property `gone`"],

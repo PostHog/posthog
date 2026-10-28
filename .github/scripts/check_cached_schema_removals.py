@@ -93,6 +93,15 @@ def referenced_definitions(node: Any) -> Iterator[str]:
             yield from referenced_definitions(item)
 
 
+def allowed_values(node: dict[str, Any]) -> list[Any] | None:
+    # The schema generator writes a type with a single allowed value as `const`, not a one-item `enum`.
+    if isinstance(node.get("enum"), list):
+        return node["enum"]
+    if "const" in node:
+        return [node["const"]]
+    return None
+
+
 def cached_definitions(definitions: dict[str, Any]) -> set[str]:
     pending = [name for name in definitions if name.startswith(CACHED_ROOT_PREFIX)]
     seen: set[str] = set()
@@ -138,6 +147,12 @@ class SchemaPair:
             head = self.head_definitions.get(head_ref) if head_ref is not None else head
         if not isinstance(base, dict) or not isinstance(head, dict):
             return
+        base_values = allowed_values(base)
+        head_values = allowed_values(head)
+        if base_values is not None and head_values is not None:
+            for value in base_values:
+                if value not in head_values:
+                    yield Removal(model=model, location=location, kind="enum value", name=str(value))
         for key, base_value in base.items():
             head_value = head.get(key)
             if key == "properties" and isinstance(base_value, dict):
@@ -150,10 +165,6 @@ class SchemaPair:
                         yield from self.removed_fields(
                             model, base_property, head_properties[name], child_location, followed
                         )
-            elif key == "enum" and isinstance(base_value, list) and isinstance(head_value, list):
-                for value in base_value:
-                    if value not in head_value:
-                        yield Removal(model=model, location=location, kind="enum value", name=str(value))
             elif isinstance(base_value, dict):
                 yield from self.removed_fields(model, base_value, head_value, location, followed)
 
