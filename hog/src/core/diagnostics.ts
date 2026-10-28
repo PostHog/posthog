@@ -52,7 +52,8 @@ function locate(
     end: number
 ): { line: number; column: number; before: string; marked: string; after: string } {
     const offset = Math.min(Math.max(start, 0), chars.length)
-    const lineStart = chars.lastIndexOf('\n', offset - 1) + 1
+    // Unlike a string's, an array's lastIndexOf reads -1 as the last index.
+    const lineStart = offset === 0 ? 0 : chars.lastIndexOf('\n', offset - 1) + 1
     const newline = chars.indexOf('\n', offset)
     const lineEnd = newline === -1 ? chars.length : newline
     const markEnd = Math.min(Math.max(end, offset), lineEnd)
