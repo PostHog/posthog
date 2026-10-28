@@ -5,6 +5,7 @@ import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSelect } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -231,7 +232,17 @@ export function MetricsTab(): JSX.Element {
             ),
             sorter: (a, b) => compareText(a.owner, b.owner),
         },
-        createdAtColumn<DataCatalogMetricApi>() as LemonTableColumns<DataCatalogMetricApi>[number],
+        // Left-aligned so the date sits next to the owner instead of across an empty gap.
+        // The shared column right-aligns inside its render, so only the render is replaced; sorting is kept.
+        {
+            ...(createdAtColumn<DataCatalogMetricApi>() as LemonTableColumns<DataCatalogMetricApi>[number]),
+            align: 'left',
+            render: (_, metric) => (
+                <div className="whitespace-nowrap">
+                    <TZLabel time={metric.created_at} />
+                </div>
+            ),
+        },
     ]
 
     const menuColumn: LemonTableColumns<DataCatalogMetricApi>[number] = {
