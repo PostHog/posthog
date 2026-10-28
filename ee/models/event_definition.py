@@ -24,6 +24,8 @@ class EnterpriseEventDefinition(EventDefinition):
         related_name="verifying_user",
     )
     hidden = models.BooleanField(null=True, blank=True, default=False)
+    # Set when the event's ingestion is stopped. A periodic task deletes the definition after this time.
+    scheduled_deletion_at = models.DateTimeField(null=True, blank=True)
     # Store default columns for event definition view, similar to team.live_events_columns
     default_columns = ArrayField(models.TextField(), null=True, blank=True)
 
@@ -36,3 +38,12 @@ class EnterpriseEventDefinition(EventDefinition):
         default=None,
         db_column="tags",
     )
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["scheduled_deletion_at"],
+                name="ee_eventdef_sched_del_idx",
+                condition=models.Q(scheduled_deletion_at__isnull=False),
+            ),
+        ]

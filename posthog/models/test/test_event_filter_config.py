@@ -12,6 +12,7 @@ from posthog.models.event_filter_config import (
     EventFilterMode,
     add_event_name_drop,
     evaluate_filter_tree,
+    event_name_is_dropped,
     prune_filter_tree,
     run_test_cases,
     tree_drops_event_name,
@@ -602,3 +603,34 @@ class TestAddEventNameDrop(BaseTest):
 
         self.assertFalse(EventFilterConfig.objects.filter(team=self.team).exists())
         self.assertEqual(self._config(other_team).mode, EventFilterMode.DRY_RUN)
+
+
+class TestEventNameIsDropped(BaseTest):
+    @parameterized.expand(
+        [
+            ("live with the condition", EventFilterMode.LIVE, _or(_cond(value="spam")), True),
+            ("dry run with the condition", EventFilterMode.DRY_RUN, _or(_cond(value="spam")), False),
+            ("live without the condition", EventFilterMode.LIVE, _or(_cond(value="other")), False),
+        ]
+    )
+    def test_event_name_is_dropped(self, _name: str, mode: str, tree: dict, expected: bool):
+        EventFilterConfig.objects.create(team=self.team, mode=mode, filter_tree=tree)
+
+        self.assertEqual(event_name_is_dropped([self.team], "spam"), expected)
+
+    def test_not_dropped_without_a_config(self):
+        self.assertFalse(event_name_is_dropped([self.team], "spam"))
+
+    def test_every_environment_must_drop_it(self):
+        other_team = Team.objects.create(organization=self.organization, project=self.project, name="Staging")
+        EventFilterConfig.objects.create(
+            team=self.team, mode=EventFilterMode.LIVE, filter_tree=_or(_cond(value="spam"))
+        )
+
+        self.assertFalse(event_name_is_dropped([self.team, other_team], "spam"))
+
+        EventFilterConfig.objects.create(
+            team=other_team, mode=EventFilterMode.LIVE, filter_tree=_or(_cond(value="spam"))
+        )
+
+        self.assertTrue(event_name_is_dropped([self.team, other_team], "spam"))

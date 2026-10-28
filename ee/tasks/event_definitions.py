@@ -1,0 +1,126 @@
+"""Delete event definitions whose ingestion was stopped, once nothing can recreate them."""
+
+from datetime import datetime, timedelta
+
+from django.db import transaction
+from django.utils import timezone
+
+import structlog
+
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.models.activity_logging.activity_log import Detail, Trigger, log_activity
+from posthog.models.event_filter_config import event_name_is_dropped
+from posthog.models.team.team import Team
+
+from ee.models.event_definition import EnterpriseEventDefinition
+
+logger = structlog.get_logger(__name__)
+
+# The delay between stopping ingestion and the first delete attempt. Events that ingestion
+# processed before it loaded the drop condition can still recreate the definition until then.
+SCHEDULED_DELETION_DELAY = timedelta(hours=2)
+# Events ingested in this window block the delete. The window starts 30 minutes after ingestion
+# stopped, so events processed before the drop condition loaded don't block the first attempt.
+RECENT_EVENTS_WINDOW = timedelta(minutes=90)
+# After this, stop trying. The definition stays hidden.
+GIVE_UP_AFTER = timedelta(days=7)
+# Events with an older timestamp aren't checked. This keeps the query to recent partitions.
+RECENT_EVENTS_MAX_AGE = timedelta(days=31)
+BATCH_SIZE = 200
+
+TRIGGER_JOB_TYPE = "scheduled_event_definition_deletion"
+
+
+def delete_scheduled_event_definitions() -> None:
+    """Delete each due definition if its event is still dropped and no event arrived recently.
+
+    A definition that fails a check stays due, so the next run tries it again. A definition
+    that someone unhid is no longer scheduled.
+    """
+    now = timezone.now()
+    due = list(
+        EnterpriseEventDefinition.objects.filter(scheduled_deletion_at__lte=now)
+        .select_related("team")
+        .order_by("scheduled_deletion_at")[:BATCH_SIZE]
+    )
+    for definition in due:
+        try:
+            _process(definition, now)
+        except Exception:
+            logger.exception("scheduled_event_definition_deletion_failed", event_definition_id=str(definition.id))
+
+
+def _process(definition: EnterpriseEventDefinition, now: datetime) -> None:
+    if not definition.hidden:
+        # Someone unhid or verified the event, so they want to keep it.
+        _clear_schedule(definition)
+        return
+
+    teams = list(Team.objects.filter(project_id=definition.team.project_id))
+    if event_name_is_dropped(teams, definition.name) and not _has_recent_events(
+        [team.id for team in teams], definition.name, now
+    ):
+        _delete(definition, now)
+        return
+
+    assert definition.scheduled_deletion_at is not None
+    if now - definition.scheduled_deletion_at > GIVE_UP_AFTER:
+        logger.warning("scheduled_event_definition_deletion_gave_up", event_definition_id=str(definition.id))
+        _clear_schedule(definition)
+
+
+def _has_recent_events(team_ids: list[int], event_name: str, now: datetime) -> bool:
+    # `_timestamp` is when ingestion processed the event, and it has a minmax index.
+    tag_queries(product=Product.PRODUCT_ANALYTICS, name=TRIGGER_JOB_TYPE)
+    rows = sync_execute(
+        """
+        SELECT 1
+        FROM events
+        WHERE team_id IN %(team_ids)s
+          AND event = %(event)s
+          AND timestamp > %(oldest_timestamp)s
+          AND _timestamp > %(since)s
+        LIMIT 1
+        """,
+        {
+            "team_ids": team_ids,
+            "event": event_name,
+            "oldest_timestamp": now - RECENT_EVENTS_MAX_AGE,
+            "since": now - RECENT_EVENTS_WINDOW,
+        },
+        workload=Workload.OFFLINE,
+    )
+    return len(rows) > 0
+
+
+def _clear_schedule(definition: EnterpriseEventDefinition) -> None:
+    EnterpriseEventDefinition.objects.filter(pk=definition.pk).update(scheduled_deletion_at=None)
+
+
+def _delete(definition: EnterpriseEventDefinition, now: datetime) -> None:
+    with transaction.atomic():
+        # Lock the row and check again, so an unhide that just landed wins.
+        locked = (
+            EnterpriseEventDefinition.objects.select_for_update()
+            .filter(pk=definition.pk, hidden=True, scheduled_deletion_at__lte=now)
+            .first()
+        )
+        if locked is None:
+            return
+        locked.delete()
+        log_activity(
+            organization_id=definition.team.organization_id,
+            team_id=definition.team_id,
+            user=None,
+            was_impersonated=False,
+            item_id=str(definition.id),
+            scope="EventDefinition",
+            activity="deleted",
+            detail=Detail(
+                name=definition.name,
+                changes=None,
+                trigger=Trigger(job_type=TRIGGER_JOB_TYPE, job_id=str(definition.id), payload={}),
+            ),
+        )

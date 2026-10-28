@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 
 import time_machine
@@ -922,6 +922,8 @@ class TestEventDefinitionStopIngestingAPI(APIBaseTest):
         assert event.verified is False
         assert event.verified_by is None
         assert event.verified_at is None
+        assert event.scheduled_deletion_at == timezone.now() + timedelta(hours=2)
+        assert response.json()["scheduled_deletion_at"] == "2020-01-02T02:00:00Z"
 
         log = ActivityLog.objects.get(team_id=self.team.pk, scope="EventDefinition", item_id=str(event.id))
         assert log.activity == "changed"
@@ -970,6 +972,7 @@ class TestEventDefinitionStopIngestingAPI(APIBaseTest):
         assert (config.mode, config.filter_tree) == (EventFilterMode.DRY_RUN, tree)
         event.refresh_from_db()
         assert event.hidden is False
+        assert event.scheduled_deletion_at is None
 
     def test_refuses_posthog_events(self):
         event = EnterpriseEventDefinition.objects.create(team=self.team, name="$pageview")

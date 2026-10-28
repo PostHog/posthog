@@ -1002,7 +1002,7 @@ class EventDefinitionViewSet(
         required_scopes=["event_definition:write", "event_filter:write"],
     )
     def stop_ingesting(self, request, *args, **kwargs) -> response.Response:
-        """Drop new events with this name at ingestion, and hide the event definition.
+        """Drop new events with this name at ingestion, then hide the definition and schedule its delete.
 
         Adds an exact event name condition to the live event filter of each environment in the
         project, because the definition is shared by all of them. This never makes a team's own
@@ -1029,6 +1029,8 @@ class EventDefinitionViewSet(
         except DjangoValidationError as error:
             raise serializers.ValidationError(" ".join(error.messages))
 
+        from ee.tasks.event_definitions import SCHEDULED_DELETION_DELAY
+
         before = {"hidden": bool(instance.hidden), "verified": bool(instance.verified)}
         # An event can't be both hidden and verified.
         instance.hidden = True
@@ -1036,6 +1038,8 @@ class EventDefinitionViewSet(
         instance.verified_by = None
         instance.verified_at = None
         instance.updated_by = user
+        # A periodic task deletes the definition after this, if nothing recreates it meanwhile.
+        instance.scheduled_deletion_at = timezone.now() + SCHEDULED_DELETION_DELAY
         instance.save()
 
         log_activity(

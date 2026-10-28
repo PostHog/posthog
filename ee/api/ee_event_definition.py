@@ -53,6 +53,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "verified_at",
             "verified_by",
             "hidden",
+            "scheduled_deletion_at",
             "enforcement_mode",
             "primary_property",
             # Action fields
@@ -74,6 +75,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "last_updated_at",
             "verified_at",
             "verified_by",
+            "scheduled_deletion_at",
             # Action fields
             "is_action",
             "action_id",

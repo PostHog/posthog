@@ -169,7 +169,7 @@ export const getEventDefinitionsStopIngestingCreateUrl = (projectId: string, id:
 }
 
 /**
- * Drop new events with this name at ingestion, and hide the event definition.
+ * Drop new events with this name at ingestion, then hide the definition and schedule its delete.
  *
  * Adds an exact event name condition to the live event filter of each environment in the
  * project, because the definition is shared by all of them. This never makes a team's own
