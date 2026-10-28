@@ -101,14 +101,16 @@ def schema(**definitions: Any) -> dict[str, Any]:
             id="object-made-nullable-with-a-removal",
         ),
         pytest.param(
-            schema(
-                Modifiers={
-                    "properties": {"inner": {"anyOf": [{"properties": {"kept": {}, "gone": {}}}, {"type": "null"}]}}
-                }
-            ),
-            schema(Modifiers={"properties": {"inner": {"anyOf": [{"properties": {"kept": {}}}, {"type": "null"}]}}}),
-            ["`Modifiers` at `inner`: property `gone`"],
-            id="property-removed-from-an-inline-object-inside-a-union",
+            schema(Modifiers={"properties": {"days": {"anyOf": [{"items": {"enum": [1, 2, 7]}}, {"type": "null"}]}}}),
+            schema(Modifiers={"properties": {"days": {"anyOf": [{"items": {"enum": [1, 2]}}, {"type": "null"}]}}}),
+            ["`Modifiers` at `days`: enum value `7`"],
+            id="enum-value-removed-from-a-nullable-array",
+        ),
+        pytest.param(
+            schema(Modifiers={"properties": {"inner": {"properties": {"kept": {}}}}}),
+            schema(Modifiers={"properties": {"inner": {"anyOf": [{"properties": {"kept": {}}}, {"type": "string"}]}}}),
+            [],
+            id="union-with-two-types-is-skipped",
         ),
         pytest.param(
             schema(Modifiers={"properties": {"keep": {}}}, Request={"properties": {"gone": {}}}),

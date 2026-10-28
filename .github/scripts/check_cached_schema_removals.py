@@ -8,7 +8,7 @@ The generated models reject unknown keys, so a cached entry that still holds a r
 fails to parse and counts as a cache miss.
 This script compares two copies of frontend/src/queries/schema.json and lists those removals.
 It checks named definitions and the objects inline in them, and follows a $ref when only one side has it.
-Inside anyOf and oneOf unions, it compares each base branch with the head branch that loses the fewest fields.
+It looks through a nullable wrapper (an anyOf of one type and null) and skips every other anyOf or oneOf union.
 
 Usage:
     check_cached_schema_removals.py BASE_SCHEMA HEAD_SCHEMA
@@ -35,6 +35,7 @@ ACKNOWLEDGEMENT_LABELS = {
 }
 CACHED_ROOT_PREFIX = "Cached"
 DEFINITION_REF_PREFIX = "#/definitions/"
+NULL_BRANCH = {"type": "null"}
 
 SECTION_BODY = """\
 PostHog stores each query response, with its modifiers, in the query cache.
@@ -102,11 +103,17 @@ def allowed_values(node: dict[str, Any]) -> list[Any] | None:
     return None
 
 
-def union_branches(node: dict[str, Any]) -> list[Any] | None:
-    for key in ("anyOf", "oneOf"):
-        if isinstance(node.get(key), list):
-            return node[key]
-    return None
+def without_null(node: Any) -> Any:
+    branches = node.get("anyOf") if isinstance(node, dict) else None
+    if isinstance(branches, list) and NULL_BRANCH in branches:
+        others = [branch for branch in branches if branch != NULL_BRANCH]
+        if len(others) == 1:
+            return others[0]
+    return node
+
+
+def is_union(node: dict[str, Any]) -> bool:
+    return isinstance(node.get("anyOf"), list) or isinstance(node.get("oneOf"), list)
 
 
 def cached_definitions(definitions: dict[str, Any]) -> set[str]:
@@ -140,6 +147,8 @@ class SchemaPair:
         location: str,
         followed: frozenset[RefPair] = frozenset(),
     ) -> Iterator[Removal]:
+        base = without_null(base)
+        head = without_null(head)
         base_ref = reference_name(base)
         head_ref = reference_name(head)
         if base_ref is not None and base_ref == head_ref:
@@ -154,12 +163,7 @@ class SchemaPair:
             head = self.head_definitions.get(head_ref) if head_ref is not None else head
         if not isinstance(base, dict) or not isinstance(head, dict):
             return
-        base_branches = union_branches(base)
-        head_branches = union_branches(head)
-        if base_branches is not None or head_branches is not None:
-            yield from self.removed_from_union(
-                model, base_branches or [base], head_branches or [head], location, followed
-            )
+        if is_union(base) or is_union(head):
             return
         base_values = allowed_values(base)
         head_values = allowed_values(head)
@@ -181,24 +185,6 @@ class SchemaPair:
                         )
             elif isinstance(base_value, dict):
                 yield from self.removed_fields(model, base_value, head_value, location, followed)
-
-    def removed_from_union(
-        self,
-        model: str,
-        base_branches: list[Any],
-        head_branches: list[Any],
-        location: str,
-        followed: frozenset[RefPair],
-    ) -> Iterator[Removal]:
-        # A cached value matched one base branch, and it stays valid if any head branch still accepts it.
-        for base_branch in base_branches:
-            yield from min(
-                (
-                    list(self.removed_fields(model, base_branch, head_branch, location, followed))
-                    for head_branch in head_branches
-                ),
-                key=len,
-            )
 
 
 def find_removals(base_schema: dict[str, Any], head_schema: dict[str, Any]) -> list[Removal]:
