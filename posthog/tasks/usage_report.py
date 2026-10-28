@@ -95,7 +95,7 @@ from products.warehouse_sources.backend.facade.billing import (
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
-from products.workflows.backend.facade.transactional_emails import transactional_email_workflow_ids
+from products.workflows.backend.facade.transactional_emails import EMAIL_ACTION_ID as TRANSACTIONAL_EMAIL_ACTION_ID
 
 logger = structlog.get_logger(__name__)
 logging.getLogger(__name__).setLevel(logging.INFO)
@@ -2511,18 +2511,16 @@ def get_teams_with_workflow_transactional_emails_sent_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
-    workflow_ids = transactional_email_workflow_ids()
-    if not workflow_ids:
-        return []
+    # Every transactional workflow bills its email under the same step id, which outlives a deleted workflow.
     with tags_context(product=Product.WORKFLOWS, feature=Feature.USAGE_REPORT):
         return sync_execute(
             """
             SELECT team_id, SUM(count) as count
             FROM app_metrics2
-            WHERE app_source='hog_flow' AND app_source_id IN %(workflow_ids)s AND metric_name IN ('billable_invocation') AND metric_kind IN ('email') AND timestamp >= %(begin)s AND timestamp < %(end)s
+            WHERE app_source='hog_flow' AND instance_id = %(email_action_id)s AND metric_name IN ('billable_invocation') AND metric_kind IN ('email') AND timestamp >= %(begin)s AND timestamp < %(end)s
             GROUP BY team_id
         """,
-            {"begin": begin, "end": end, "workflow_ids": workflow_ids},
+            {"begin": begin, "end": end, "email_action_id": TRANSACTIONAL_EMAIL_ACTION_ID},
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
             ch_user=ClickHouseUser.BILLING,

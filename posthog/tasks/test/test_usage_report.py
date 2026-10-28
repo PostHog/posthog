@@ -107,7 +107,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.workflows.backend.facade.testing import create_workflow_for_test
+from products.workflows.backend.facade.transactional_emails import EMAIL_ACTION_ID as TRANSACTIONAL_EMAIL_ACTION_ID
 
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.materialized_columns.columns import materialize
@@ -3552,11 +3552,10 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         )
 
         # Create workflow metrics for org 1 team 2
-        transactional_flow = create_workflow_for_test(team_id=self.org_1_team_2.id, trigger={"type": "api"})
         create_app_metric2(
             team_id=self.org_1_team_2.id,
             app_source="hog_flow",
-            app_source_id=str(transactional_flow.id),
+            instance_id=TRANSACTIONAL_EMAIL_ACTION_ID,
             metric_name="billable_invocation",
             metric_kind="email",
             count=9,
