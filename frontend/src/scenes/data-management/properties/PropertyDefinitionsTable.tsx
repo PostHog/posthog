@@ -8,7 +8,8 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { cn } from 'lib/utils/css-classes'
 import { DefinitionsSceneTabs } from 'scenes/data-management/DefinitionsSceneTabs'
 import { DefinitionHeader, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
@@ -147,7 +148,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     )}
                 </div>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 className="event-properties-definition-table"
                 data-attr="event-properties-definition-table"

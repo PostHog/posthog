@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonButtonProps, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
 
 import { IntegrationType, OnboardingStepKey } from '~/types'
@@ -67,7 +68,7 @@ export const OnboardingErrorTrackingAlertsStep: OnboardingStepComponentType = ()
         >
             <p>Get notified when a new issue occurs. Don't worry this can always be reconfigured later.</p>
             {integration === null ? (
-                <LemonTable
+                <LemonOrQuillTable
                     showHeader={false}
                     columns={[
                         {

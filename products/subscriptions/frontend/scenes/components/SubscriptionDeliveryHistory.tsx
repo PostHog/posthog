@@ -1,15 +1,8 @@
 import { IconSend, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonDivider,
-    LemonSelect,
-    LemonTable,
-    LemonTableColumns,
-    LemonTag,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type {
     PaginatedSubscriptionDeliveryListApi,
@@ -377,7 +370,7 @@ export function SubscriptionDeliveryHistory({
                     ) : null}
                 </div>
                 {showTable ? (
-                    <LemonTable
+                    <LemonOrQuillTable
                         dataSource={deliveriesPage?.results ?? []}
                         columns={columns}
                         loading={deliveriesPageLoading}

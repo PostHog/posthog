@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconCopy, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonColorGlyph, LemonInput, LemonLabel, LemonModal, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonColorGlyph, LemonInput, LemonLabel, LemonModal } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { dataColorThemesModalLogic } from './dataColorThemeModalLogic'
 
@@ -43,7 +44,7 @@ export function DataColorThemeModal(): JSX.Element {
                     <LemonInput placeholder="My custom theme" autoFocus={isNew} disabled={isOfficial} />
                 </LemonField>
                 <LemonLabel>Colors</LemonLabel>
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={theme?.colors?.map((color, index) => ({
                         name: `preset-${index + 1}`,
                         color,

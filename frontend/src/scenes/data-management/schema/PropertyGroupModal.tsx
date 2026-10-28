@@ -13,7 +13,8 @@ import {
 } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import {
     MAX_PROPERTY_NAME_LENGTH,
@@ -204,7 +205,7 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
 
                     {propertyGroupForm.properties.length > 0 ? (
                         <>
-                            <LemonTable
+                            <LemonOrQuillTable
                                 columns={columns}
                                 dataSource={propertyGroupForm.properties}
                                 pagination={undefined}

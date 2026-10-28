@@ -9,7 +9,6 @@ import {
     LemonButton,
     LemonDivider,
     LemonInput,
-    LemonTable,
     LemonTabs,
     Link,
     Spinner,
@@ -25,6 +24,7 @@ import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -413,7 +413,7 @@ export function ReplayScannersScene(): JSX.Element {
                             </div>
                         </div>
 
-                        <LemonTable
+                        <LemonOrQuillTable
                             columns={columns}
                             dataSource={scanners}
                             loading={scannersLoading}

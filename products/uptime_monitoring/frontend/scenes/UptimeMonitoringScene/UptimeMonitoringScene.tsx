@@ -1,8 +1,9 @@
 import { IconPlus } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -49,7 +50,7 @@ export function UptimeMonitoringScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <LemonTable
+            <LemonOrQuillTable
                 data-attr="uptime-monitoring-table"
                 dataSource={[]}
                 columns={COLUMNS}

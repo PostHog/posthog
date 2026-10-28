@@ -5,7 +5,8 @@ import { HeatmapEvent } from 'lib/components/heatmaps/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { urls } from 'scenes/urls'
 
@@ -77,7 +78,7 @@ export function HeatmapEventsPanel({ context, exportToken }: HeatmapDataLogicPro
                             so the count shown on hover may differ.
                         </div>
                     </div>
-                    <LemonTable
+                    <LemonOrQuillTable
                         dataSource={areaEvents.results}
                         columns={columns}
                         size="small"

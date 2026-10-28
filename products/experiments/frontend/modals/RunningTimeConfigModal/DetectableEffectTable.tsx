@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheck, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Label } from 'lib/ui/Label/Label'
 import {
     describeCheckpointDay,
@@ -45,7 +46,7 @@ export function DetectableEffectTable({ experiment: experimentProp }: Detectable
     return (
         <div className="space-y-2" data-attr="experiment-running-time-outlook">
             <Label intent="menu">What the experiment can detect</Label>
-            <LemonTable
+            <LemonOrQuillTable
                 size="small"
                 embedded
                 dataSource={outlook.checkpoints}

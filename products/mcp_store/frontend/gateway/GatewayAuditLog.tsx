@@ -1,17 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonSelect,
-    LemonSelectOptions,
-    LemonSnack,
-    LemonTable,
-    LemonTag,
-    ProfilePicture,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonSelectOptions, LemonSnack, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { AuditCountsApi } from '../generated/api.schemas'
 import { AUDIT_PAGE_SIZE, AuditQuickFilter, gatewayAuditLogic } from './gatewayAuditLogic'
@@ -99,7 +92,7 @@ export function GatewayAuditLog(): JSX.Element {
                 )}
             </div>
 
-            <LemonTable
+            <LemonOrQuillTable
                 loading={auditResponseLoading}
                 dataSource={auditResponse.results}
                 emptyState={

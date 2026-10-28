@@ -1,6 +1,5 @@
-import { LemonTable } from '@posthog/lemon-ui'
-
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 export interface ItemLogAttributesProps {
     attributes: Record<string, unknown> | null | undefined
@@ -25,7 +24,7 @@ export function ItemLogAttributes({ attributes, title }: ItemLogAttributesProps)
             <div className="px-3 py-2 bg-bg-light border-b border-border">
                 <span className="text-xs font-semibold text-muted uppercase">{title}</span>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 embedded
                 showHeader={false}
                 size="small"

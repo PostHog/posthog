@@ -2,9 +2,10 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonMenu, LemonTable, LemonTableColumns, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonMenu, LemonTableColumns, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
@@ -172,7 +173,7 @@ export function SdkSection({ sdkType }: { sdkType: SdkType }): JSX.Element {
                 </div>
             </div>
 
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={sdk.allReleases}
                 loading={loading}
                 columns={COLUMNS}

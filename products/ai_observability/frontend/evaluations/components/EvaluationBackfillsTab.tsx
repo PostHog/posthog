@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { LemonBanner, LemonButton, LemonSwitch, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSwitch, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -14,6 +14,7 @@ import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { pluralize } from 'lib/utils/strings'
@@ -519,7 +520,7 @@ export function EvaluationBackfillsTab({
                 </LemonBanner>
             )}
 
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={backfills}
                 columns={columns}
                 loading={backfillsLoading}

@@ -3,7 +3,8 @@ import { useActions, useValues } from 'kea'
 import { CountedPaginatedResponse } from 'lib/api'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { fullName } from 'lib/utils/strings'
@@ -60,7 +61,7 @@ function ImpactedMembersTable({
     const count = impact?.count ?? members.length
     return (
         <>
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={members}
                 columns={impactedMemberColumns(user?.uuid)}
                 loading={loading}

@@ -2,12 +2,13 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconCopy, IconInfo } from '@posthog/icons'
-import { LemonInput, LemonSelect, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -214,7 +215,7 @@ export function SqlVariableEditScene(): JSX.Element {
                         {!isNew && (
                             <div className="mt-8">
                                 <h3 className="text-base font-semibold mb-4">Insights using this variable</h3>
-                                <LemonTable
+                                <LemonOrQuillTable
                                     loading={insightsUsingVariableLoading}
                                     dataSource={insightsUsingVariable}
                                     columns={VARIABLE_INSIGHT_COLUMNS}

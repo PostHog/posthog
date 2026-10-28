@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonDialog, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, Tooltip } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { ConnectedApps } from 'scenes/settings/user/ConnectedApps'
 import { connectedAppsLogic } from 'scenes/settings/user/connectedAppsLogic'
@@ -82,7 +83,7 @@ export function CredentialsReviewList(): JSX.Element {
             {showKeys && (
                 <section>
                     <h3 className="text-base font-semibold mb-2">Personal API keys</h3>
-                    <LemonTable
+                    <LemonOrQuillTable
                         dataSource={keys}
                         loading={keysLoading}
                         rowKey={(key) => key.id}
@@ -139,7 +140,7 @@ export function CredentialsReviewList(): JSX.Element {
             {showPasskeys && (
                 <section>
                     <h3 className="text-base font-semibold mb-2">Passkeys</h3>
-                    <LemonTable
+                    <LemonOrQuillTable
                         dataSource={passkeys}
                         loading={passkeysLoading}
                         rowKey={(passkey) => passkey.id}

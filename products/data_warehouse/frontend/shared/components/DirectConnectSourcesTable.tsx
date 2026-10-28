@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonDialog, LemonInput, LemonTable, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, Spinner } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
@@ -23,7 +24,7 @@ export function DirectConnectSourcesTable(): JSX.Element {
                     value={directSearchTerm}
                 />
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 id="direct-connect-sources"
                 dataSource={filteredDirectSources}
                 loading={dataWarehouseSourcesLoading}

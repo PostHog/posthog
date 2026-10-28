@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { getTracingFiltersSummaryLines } from './savedViewsSummary'
 import { tracingViewsListLogic } from './tracingViewsListLogic'
@@ -160,7 +161,7 @@ export function SavedViewsModal(): JSX.Element {
                         </div>
                     }
                 >
-                    <LemonTable
+                    <LemonOrQuillTable
                         columns={columns}
                         dataSource={views}
                         rowKey="id"

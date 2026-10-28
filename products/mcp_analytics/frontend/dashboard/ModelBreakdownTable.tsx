@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { formatPercentage } from 'lib/utils/numbers'
 
@@ -46,7 +46,7 @@ export function ModelBreakdownTable({
     return (
         <div className="flex flex-col gap-2">
             <div className="h-96">
-                <LemonTable<MCPModelBreakdownItem>
+                <LemonOrQuillTable<MCPModelBreakdownItem>
                     key={modelPage?.offset ?? 0}
                     dataSource={modelPage?.results ?? []}
                     rowKey="model"

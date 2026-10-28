@@ -2,16 +2,9 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconWarning } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonTable,
-    LemonTableColumns,
-    LemonTag,
-    LemonTagType,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTableColumns, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
+
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ExternalDataSourceSchema } from '~/types'
@@ -227,7 +220,7 @@ export const SyncProgressStep = (): JSX.Element => {
                     </p>
                 </LemonBanner>
             )}
-            <LemonTable
+            <LemonOrQuillTable
                 emptyState="No schemas selected"
                 dataSource={schemas}
                 loading={dataWarehouseSourcesLoading}

@@ -8,7 +8,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -211,7 +211,7 @@ function RealTimeUsageBody(): JSX.Element {
 
                         <section>
                             <h2 className="mb-3 text-lg font-semibold">Usage breakdown</h2>
-                            <LemonTable<RealTimeUsageRow>
+                            <LemonOrQuillTable<RealTimeUsageRow>
                                 dataSource={usageDataLoading ? [] : (usageData?.rows ?? [])}
                                 loading={usageDataLoading || !usageData}
                                 loadingSkeletonRows={5}

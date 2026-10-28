@@ -2,18 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconInfo, IconWarning } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCheckbox,
-    LemonCollapse,
-    LemonInput,
-    LemonModal,
-    LemonTable,
-    LemonTag,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonCollapse, LemonInput, LemonModal, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { pluralize } from 'lib/utils/strings'
 
 import { ExternalDataSourceSyncSchema } from '~/types'
@@ -584,7 +576,7 @@ export default function SchemaForm(): JSX.Element {
                                             </div>
                                         ),
                                         content: (
-                                            <LemonTable
+                                            <LemonOrQuillTable
                                                 embedded
                                                 showHeader={false}
                                                 dataSource={tables}
@@ -597,7 +589,7 @@ export default function SchemaForm(): JSX.Element {
                             />
                         </div>
                     ) : (
-                        <LemonTable
+                        <LemonOrQuillTable
                             emptyState={schemaNameFilter ? `No tables match "${schemaNameFilter}"` : noTablesMessage}
                             dataSource={filteredDatabaseSchema}
                             pagination={{ pageSize: 100, hideOnSinglePage: true }}

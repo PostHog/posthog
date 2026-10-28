@@ -1,21 +1,14 @@
 import { useActions, useValues } from 'kea'
 
 import { IconBell, IconEllipsis } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonDialog,
-    LemonSwitch,
-    LemonTable,
-    LemonTableColumn,
-    LemonTableColumns,
-    LemonTag,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonSwitch, LemonTableColumn, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
 import type { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
@@ -275,7 +268,7 @@ export function LogsAlertList(): JSX.Element {
                     New alert
                 </LemonButton>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={alerts}
                 rowKey="id"

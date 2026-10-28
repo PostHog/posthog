@@ -8,7 +8,6 @@ import {
     LemonInputSelect,
     LemonLabel,
     LemonSegmentedButton,
-    LemonTable,
     type LemonTableColumns,
     Link,
     Spinner,
@@ -16,6 +15,7 @@ import {
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { BillingChart } from 'scenes/billing/BillingChart'
 
@@ -251,7 +251,7 @@ export function FeatureFlagRequestUsage(): JSX.Element {
                                     interval={interval}
                                 />
                             </LemonCard>
-                            <LemonTable
+                            <LemonOrQuillTable
                                 columns={columns}
                                 dataSource={sdkTotals}
                                 rowKey="sdk"

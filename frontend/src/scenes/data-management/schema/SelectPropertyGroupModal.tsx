@@ -4,7 +4,8 @@ import { useState } from 'react'
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal, LemonTag } from '@posthog/lemon-ui'
 
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { PropertyGroupModal } from './PropertyGroupModal'
 import { SchemaPropertyGroup, SchemaPropertyGroupProperty, schemaManagementLogic } from './schemaManagementLogic'
@@ -132,7 +133,7 @@ export function SelectPropertyGroupModal({
                         </LemonButton>
                     </div>
 
-                    <LemonTable
+                    <LemonOrQuillTable
                         columns={columns}
                         dataSource={filteredPropertyGroups}
                         expandable={{

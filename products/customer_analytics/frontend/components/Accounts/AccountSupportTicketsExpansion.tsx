@@ -2,10 +2,11 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import * as businessEvolutionPng from '@posthog/brand/hoggies/png/business-evolution'
-import { LemonSkeleton, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { SupportTicketApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -99,7 +100,7 @@ export function AccountSupportTicketsExpansion({ accountId }: { accountId: strin
     }
 
     return (
-        <LemonTable<SupportTicketApi>
+        <LemonOrQuillTable<SupportTicketApi>
             size="small"
             embedded
             dataSource={tickets}

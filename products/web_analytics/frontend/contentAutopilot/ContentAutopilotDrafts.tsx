@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonCard, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotProposalStatusTag } from './ContentAutopilotProposalStatusTag'
@@ -35,7 +36,7 @@ export const ContentAutopilotDrafts = (): JSX.Element | null => {
     }
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={draftRows}
             rowKey="id"
             columns={[

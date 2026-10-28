@@ -8,7 +8,8 @@ import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyLargeNumber, humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 
@@ -272,7 +273,7 @@ export function CacheHealth(): JSX.Element {
                     : tables.map((table) => <TableCard key={table.table} table={table} growth={cacheGrowth} />)}
             </div>
             <h3>Partition breakdown by expiry day</h3>
-            <LemonTable
+            <LemonOrQuillTable
                 size="small"
                 columns={partitionColumns}
                 dataSource={cachePartitionRows}

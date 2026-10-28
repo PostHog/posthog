@@ -5,7 +5,6 @@ import {
     LemonButton,
     LemonInput,
     LemonSelect,
-    LemonTable,
     LemonTableColumn,
     LemonTableColumns,
     LemonTag,
@@ -16,6 +15,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
@@ -262,7 +262,7 @@ export function AIObservabilityScoreDefinitions(): JSX.Element {
                 </LemonBanner>
             )}
             {!scoreDefinitionsError && (
-                <LemonTable
+                <LemonOrQuillTable
                     className="@max-[50rem]/scorers:[&_colgroup]:hidden"
                     size="small"
                     loading={scoreDefinitionsLoading || !scoreDefinitionsLoaded}

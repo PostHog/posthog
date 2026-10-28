@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
@@ -51,7 +52,7 @@ export function AgentUsageSettings(): JSX.Element {
                 <SpendStat label={`Last ${AGENT_SPEND_WINDOW_DAYS} days`} value={totals.windowUsd} />
             </div>
             {topModels.length > 0 ? (
-                <LemonTable
+                <LemonOrQuillTable
                     size="small"
                     dataSource={topModels}
                     rowKey={(row) => row.model ?? 'other'}

@@ -1,9 +1,10 @@
 import { BindLogic, useValues } from 'kea'
 
 import { IconArrowRight } from '@posthog/icons'
-import { LemonBanner, LemonTable, LemonTableColumn, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTableColumn, Link, Spinner } from '@posthog/lemon-ui'
 
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
@@ -70,7 +71,7 @@ export function FeedbackTabContent({
         <div className="space-y-6">
             <LemonBanner type="info">{multipleSurveysBannerMessage}</LemonBanner>
 
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={surveys}
                 defaultSorting={{
                     columnKey: 'created_at',

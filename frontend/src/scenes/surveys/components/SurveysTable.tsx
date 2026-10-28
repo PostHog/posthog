@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo } from 'react'
 
-import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonSelect, LemonTable, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
@@ -12,6 +12,7 @@ import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { cn } from 'lib/utils/css-classes'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -419,7 +420,7 @@ export function SurveysTable(): JSX.Element {
                     </div>
                 </div>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={searchedSurveys}
                 defaultSorting={{
                     columnKey: 'created_at',

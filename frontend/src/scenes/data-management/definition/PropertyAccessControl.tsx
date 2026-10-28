@@ -7,7 +7,8 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProfileBubbles, ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -212,7 +213,15 @@ function MembersTab({
         },
     ]
 
-    return <LemonTable dataSource={members} columns={columns} rowKey="id" size="small" emptyState="No members found" />
+    return (
+        <LemonOrQuillTable
+            dataSource={members}
+            columns={columns}
+            rowKey="id"
+            size="small"
+            emptyState="No members found"
+        />
+    )
 }
 
 function RolesTab({
@@ -260,5 +269,7 @@ function RolesTab({
         },
     ]
 
-    return <LemonTable dataSource={roles} columns={columns} rowKey="id" size="small" emptyState="No roles found" />
+    return (
+        <LemonOrQuillTable dataSource={roles} columns={columns} rowKey="id" size="small" emptyState="No roles found" />
+    )
 }

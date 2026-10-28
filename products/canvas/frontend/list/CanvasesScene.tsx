@@ -8,8 +8,9 @@ import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Link, LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -93,7 +94,7 @@ function CanvasesList(): JSX.Element {
                 className="max-w-80"
                 data-attr="canvases-search"
             />
-            <LemonTable
+            <LemonOrQuillTable
                 data-attr="canvases-table"
                 dataSource={canvases}
                 rowKey="id"

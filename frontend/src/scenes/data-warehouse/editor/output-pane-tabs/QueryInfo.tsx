@@ -2,11 +2,12 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconExternal, IconTarget } from '@posthog/icons'
-import { LemonBanner, LemonTable, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
+import { LemonBanner, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -203,7 +204,7 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                                 </div>
                             </div>
                             {upstreamViewMode === 'table' ? (
-                                <LemonTable
+                                <LemonOrQuillTable
                                     size="small"
                                     columns={[
                                         {

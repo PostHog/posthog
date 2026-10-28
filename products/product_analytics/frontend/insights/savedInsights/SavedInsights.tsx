@@ -16,7 +16,8 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -434,7 +435,7 @@ export function SavedInsights(): JSX.Element {
                             tab === SavedInsightsTabs.Yours ? ['insightType', 'tags', 'favorites'] : undefined
                         }
                     />
-                    <LemonTable
+                    <LemonOrQuillTable
                         loading={insightsLoading}
                         columns={columns}
                         dataSource={

@@ -4,7 +4,8 @@ import { IconDatabase, IconPlus, IconRefresh } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
@@ -242,7 +243,7 @@ export function MaterializedColumns(): JSX.Element {
                             </div>
                         </div>
 
-                        <LemonTable
+                        <LemonOrQuillTable
                             loading={slotsLoading}
                             columns={columns}
                             dataSource={slots}

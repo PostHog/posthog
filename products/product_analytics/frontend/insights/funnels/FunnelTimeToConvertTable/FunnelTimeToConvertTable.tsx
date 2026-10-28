@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -68,7 +69,7 @@ export function FunnelTimeToConvertTable(): JSX.Element | null {
     const previousMedianTime = timeConversionResultsPrevious?.median_conversion_time
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={rows}
             columns={columns}
             loading={insightLoading}

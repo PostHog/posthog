@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonButton, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
 import { ReusableWidgetDemoDataLogicProps, reusableWidgetDemoDataLogic } from './reusableWidgetDemoDataLogic'
@@ -132,7 +132,7 @@ export function ReusableWidgetDemoDataModal(props: ReusableWidgetDemoDataLogicPr
                                         {demoFrame.truncated ? ` (sample of ${demoFrame.totalRowCount} rows)` : ''}
                                     </div>
                                     <div className="max-h-96 overflow-auto ph-no-capture">
-                                        <LemonTable
+                                        <LemonOrQuillTable
                                             dataSource={demoFrame.rows.map((cells, index) => ({ cells, index }))}
                                             rowKey="index"
                                             columns={demoFrame.columns.map((column, index) => ({

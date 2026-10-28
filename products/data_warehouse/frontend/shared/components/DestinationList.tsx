@@ -1,7 +1,8 @@
 import { IconPencil } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonTable, LemonTableColumn, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTableColumn, LemonTag } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { DATA_WAREHOUSE_APP_SOURCE } from 'products/data_warehouse/frontend/shared/components/metrics/DataWarehouseMetrics'
@@ -148,7 +149,7 @@ export function DestinationList({
     ]
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={destinations}
             loading={loading}
             rowKey={(destination) => destination.id}

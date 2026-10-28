@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef } from 'react'
 
-import { LemonTable, LemonTableProps } from 'lib/lemon-ui/LemonTable'
+import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 export function ModelsOverviewTable<T extends Record<string, any>>({
     'data-attr': dataAttr,
@@ -36,7 +37,11 @@ export function ModelsOverviewTable<T extends Record<string, any>>({
     return (
         <div ref={containerRef} data-attr={dataAttr}>
             <div ref={contentRef}>
-                <LemonTable {...props} scrollToTopOnPageChange={false} pagination={{ pageSize: 10, useUrl: false }} />
+                <LemonOrQuillTable
+                    {...props}
+                    scrollToTopOnPageChange={false}
+                    pagination={{ pageSize: 10, useUrl: false }}
+                />
             </div>
         </div>
     )

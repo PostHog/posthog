@@ -3,9 +3,10 @@ import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconBookmark, IconFilter, IconPlusSmall, IconShare, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumn, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonTableColumn, lemonToast } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { DataTableNode } from '~/queries/schema/schema-general'
@@ -176,7 +177,7 @@ export function DataTableSavedFilters({ uniqueKey, query, setQuery }: DataTableS
                             </p>
                         </div>
                     ) : (
-                        <LemonTable dataSource={savedFilters} columns={columns} size="small" />
+                        <LemonOrQuillTable dataSource={savedFilters} columns={columns} size="small" />
                     )}
                 </div>
             </div>

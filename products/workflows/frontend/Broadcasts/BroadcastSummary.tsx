@@ -16,7 +16,8 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -173,7 +174,7 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
                     reached.
                 </span>
             ) : null}
-            <LemonTable
+            <LemonOrQuillTable
                 // The loader keeps the previous rows on failure, and they no longer match the search.
                 dataSource={sendsFailed ? [] : sends}
                 loading={sendsLoading}
@@ -231,7 +232,7 @@ function RunsTable({
     const { expandRun, collapseRun } = useActions(broadcastWizardLogic)
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={batchJobs}
             loading={batchJobsLoading}
             rowKey="id"

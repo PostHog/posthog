@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEllipsis, IconPlus } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonMenu, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { urls } from 'scenes/urls'
 
 import type { SandboxCustomImageDTOApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -53,7 +54,7 @@ export function CloudImagesSettings(): JSX.Element {
                     The images did not load.
                 </LemonBanner>
             ) : (
-                <LemonTable
+                <LemonOrQuillTable
                     size="small"
                     loading={imagesLoading && images === null}
                     dataSource={images ?? []}

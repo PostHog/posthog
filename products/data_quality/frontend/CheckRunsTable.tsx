@@ -1,7 +1,8 @@
-import { LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import {
@@ -83,7 +84,7 @@ interface CheckRunsTableProps {
 
 export function CheckRunsTable({ runs, loading, showCheck }: CheckRunsTableProps): JSX.Element {
     return (
-        <LemonTable
+        <LemonOrQuillTable
             size="small"
             dataSource={showCheck ? [...runs].sort(byStatusAttention) : runs}
             loading={loading}

@@ -8,7 +8,8 @@ import { IconX } from '@posthog/icons'
 
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { dayjs } from 'lib/dayjs'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { shortTimeZone } from 'lib/utils/timezones'
 import { formatAggregationValue } from 'scenes/insights/utils'
@@ -272,7 +273,7 @@ export function InsightTooltip({
         return (
             <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')} data-attr="insight-tooltip">
                 <div className="InsightTooltip__scrollable">
-                    <LemonTable
+                    <LemonOrQuillTable
                         dataSource={rowCutoff !== undefined ? dataSource.slice(0, rowCutoff) : dataSource}
                         columns={columns}
                         rowKey="id"
@@ -362,7 +363,7 @@ export function InsightTooltip({
     return (
         <div className={clsx('InsightTooltip', embedded && 'InsightTooltip--embedded')} data-attr="insight-tooltip">
             <div className="InsightTooltip__scrollable">
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={rowCutoff !== undefined ? dataSource.slice(0, rowCutoff) : dataSource}
                     columns={columns}
                     rowKey="id"

@@ -3,10 +3,11 @@ import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconCopy } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { membershipLevelToName } from 'lib/utils/permissioning'
 import { capitalizeFirstLetter, fullName } from 'lib/utils/strings'
@@ -135,7 +136,7 @@ export function AccountRelatedUsersExpansion({
                 />
                 <div ref={setBulkBarTarget} className="flex items-center empty:hidden" />
             </div>
-            <LemonTable<AccountOrganizationMember>
+            <LemonOrQuillTable<AccountOrganizationMember>
                 key={externalId}
                 size="small"
                 embedded={embedded}

@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonInput, LemonSelect, LemonSnack, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect, LemonSnack, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -238,7 +239,7 @@ export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Prop
                     />
                 </div>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 loading={isLoading}
                 dataSource={filteredMappedFlags}

@@ -1,4 +1,6 @@
-import { LemonButton, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTableColumns } from '@posthog/lemon-ui'
+
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { BillingInvoiceItemRow, BillingPlanType } from '~/types'
 
@@ -82,7 +84,7 @@ export function ConfirmAddonChargeModal({
                     now{periodEndLabel ? ` for the remaining period until ${periodEndLabel}` : ''}, and $
                     {targetPlan.unit_amount_usd} every {targetPlan.unit} thereafter.
                 </p>
-                <LemonTable dataSource={rows} columns={columns} className="mt-4" uppercaseHeader={false} />
+                <LemonOrQuillTable dataSource={rows} columns={columns} className="mt-4" uppercaseHeader={false} />
             </div>
         </LemonModal>
     )

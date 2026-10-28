@@ -1,15 +1,8 @@
 import { IconExternal, IconRefresh } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonInput,
-    LemonTable,
-    LemonTableColumns,
-    Spinner,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonTableColumns, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyDuration } from 'lib/utils/durations'
@@ -289,7 +282,7 @@ export function CustomPropertySyncRuns({
                     className="w-full max-w-sm"
                 />
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={runs}
                 loading={loading}

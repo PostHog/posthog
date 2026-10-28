@@ -1,18 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPencil } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonDialog,
-    LemonInput,
-    LemonModal,
-    LemonSelect,
-    LemonTable,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -202,7 +195,7 @@ export function SupabaseAuthEmailsModal(): JSX.Element | null {
                             Couldn't load your templates.
                         </LemonBanner>
                     )}
-                    <LemonTable<SupabaseEmailTypeApi>
+                    <LemonOrQuillTable<SupabaseEmailTypeApi>
                         dataSource={settings.email_types}
                         rowKey="value"
                         size="small"

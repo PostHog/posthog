@@ -5,7 +5,8 @@ import { LemonButton, LemonInput, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DefinitionsSceneTabs } from 'scenes/data-management/DefinitionsSceneTabs'
 
@@ -165,7 +166,7 @@ export function SchemaManagement(): JSX.Element {
                     </LemonButton>
                 </div>
 
-                <LemonTable
+                <LemonOrQuillTable
                     columns={columns}
                     dataSource={filteredPropertyGroups}
                     loading={propertyGroupsLoading}

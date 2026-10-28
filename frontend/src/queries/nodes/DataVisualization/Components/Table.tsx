@@ -4,9 +4,10 @@ import { useActions, useValues } from 'kea'
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -443,7 +444,7 @@ export const Table = (props: TableProps): JSX.Element => {
                     Sorting only reorders the rows already loaded, not the full dataset.
                 </LemonBanner>
             )}
-            <LemonTable
+            <LemonOrQuillTable
                 className="DataVisualizationTable"
                 rowKey="rowIndex"
                 dataSource={tableRows}

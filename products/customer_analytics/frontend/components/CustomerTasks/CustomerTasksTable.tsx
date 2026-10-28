@@ -9,7 +9,8 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjsLocalToTimezone } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
-import { LemonTable, type LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { type LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -194,7 +195,7 @@ export function CustomerTasksTable({
                     Couldn't load tasks. Try again.
                 </LemonBanner>
             )}
-            <LemonTable<CustomerTaskApi, string>
+            <LemonOrQuillTable<CustomerTaskApi, string>
                 embedded={embedded}
                 dataSource={tasks}
                 columns={columns}

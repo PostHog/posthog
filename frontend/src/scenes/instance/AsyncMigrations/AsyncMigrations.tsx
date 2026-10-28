@@ -9,7 +9,8 @@ import { IconPlayCircle, IconReplay } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
@@ -304,7 +305,7 @@ export function AsyncMigrations(): JSX.Element {
                                     Refresh
                                 </LemonButton>
                             </div>
-                            <LemonTable
+                            <LemonOrQuillTable
                                 pagination={{ pageSize: 10 }}
                                 loading={asyncMigrationsLoading}
                                 columns={columns[activeTab]}

@@ -1,7 +1,8 @@
 import { IconClock, IconPerson, IconTarget } from '@posthog/icons'
-import { LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type { IdentityMatchingRunApi } from './generated/api.schemas'
 
@@ -121,7 +122,7 @@ export function RunsHistory({
     ]
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={runs}
             columns={columns}
             loading={loading}

@@ -1,7 +1,8 @@
 import { useState } from 'react'
 
-import { LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { cn } from 'lib/utils/css-classes'
 
 export type NotificationCadence = 'instant' | 'daily' | 'weekly'
@@ -71,7 +72,7 @@ export function NotificationTypesTable({ rows }: { rows: NotificationTypeRow[] }
     const nothingSetUp = rows.every((row) => row.saved && row.saved.total === 0)
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={rows}
             rowKey="key"
             showHeader={false}

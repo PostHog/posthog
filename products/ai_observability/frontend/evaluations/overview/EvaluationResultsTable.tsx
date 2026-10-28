@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconSearch } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -116,7 +117,7 @@ export function EvaluationResultsTable(): JSX.Element {
                 )}
                 <EvaluationAttentionPills />
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={tableRows}
                 loading={overviewLoading}

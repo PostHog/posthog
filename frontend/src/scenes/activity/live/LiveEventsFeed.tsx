@@ -11,7 +11,8 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
 import { LiveEvent } from '~/types'
@@ -135,7 +136,7 @@ export function LiveEventsFeed({
     )
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             className={clsx('LiveEventsTable__table', className)}
             columns={tableColumns}
             data-attr="live-events-table"

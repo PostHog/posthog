@@ -1,21 +1,14 @@
 import { useActions, useValues } from 'kea'
 
 import { IconGear } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonInput,
-    LemonSegmentedButton,
-    LemonSkeleton,
-    LemonTable,
-    Link,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonSegmentedButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -224,7 +217,7 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                     />
 
                     <div className="flex-1 min-w-0">
-                        <LemonTable
+                        <LemonOrQuillTable
                             dataSource={filteredEntries}
                             rowKey={(entry: DecoratedEntry) => `${entry.run_type}::${entry.identifier}`}
                             emptyState="No snapshots match these filters."

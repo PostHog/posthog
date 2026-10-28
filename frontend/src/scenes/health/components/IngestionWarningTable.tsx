@@ -1,5 +1,6 @@
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { WARNING_TYPE_TO_DESCRIPTION } from 'scenes/data-management/ingestion-warnings/IngestionWarningsView'
 
@@ -74,7 +75,7 @@ export function IngestionWarningTable({
     ]
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={issues}
             columns={columns}
             embedded

@@ -1,7 +1,8 @@
 import { IconArrowRight, IconExternal, IconTarget } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { urls } from 'scenes/urls'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
@@ -284,7 +285,7 @@ function PaidAttributionTable({ links }: { links: IdentityMatchingLinkApi[] }): 
     ]
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={links}
             columns={columns}
             rowKey={(link) => `${link.model_version}:${link.orphan_distinct_id}`}

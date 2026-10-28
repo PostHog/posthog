@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
 
-import { LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonTag } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { MetricTypeTag } from 'scenes/experiments/MetricsView/shared/MetricTypeTag'
 import { getDefaultMetricTitle } from 'scenes/experiments/MetricsView/shared/utils'
@@ -61,7 +62,7 @@ const getMetricRows = (experiment: Experiment, type: 'primary' | 'secondary'): M
 const MetricsSection = ({ title, rows }: { title: string; rows: MetricRow[] }): JSX.Element => (
     <div className="flex flex-col gap-2">
         <h2 className="font-semibold text-lg mb-0">{title}</h2>
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={rows}
             rowKey="key"
             emptyState={`No ${title.toLowerCase()}`}

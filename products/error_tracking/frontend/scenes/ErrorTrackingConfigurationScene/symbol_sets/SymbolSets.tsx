@@ -9,7 +9,6 @@ import {
     LemonDialog,
     LemonInput,
     LemonSegmentedButton,
-    LemonTable,
     LemonTableColumns,
     Link,
     Tooltip,
@@ -17,6 +16,7 @@ import {
 
 import { ErrorTrackingSymbolSet, SymbolSetStatusFilter } from 'lib/components/Errors/types'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { pluralize } from 'lib/utils/strings'
 
@@ -306,7 +306,7 @@ const SymbolSetTable = (): JSX.Element => {
     )
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             id="symbol-sets"
             pagination={pagination}
             columns={columns}

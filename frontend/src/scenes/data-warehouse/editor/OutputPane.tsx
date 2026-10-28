@@ -28,7 +28,7 @@ import {
     IconScreen,
     IconWarning,
 } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonMenu, LemonModal, Tooltip } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
@@ -40,6 +40,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { useCellCopyContextMenu } from 'lib/hooks/useCellCopyContextMenu'
 import { IconTableChart } from 'lib/lemon-ui/icons'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -296,7 +297,7 @@ function RowDetailsModal({ isOpen, onClose, row, columns, columnKeys }: RowDetai
     return (
         <LemonModal title="Row Details" isOpen={isOpen} onClose={onClose} width={800}>
             <div className="RowDetailsModal max-h-[70vh] overflow-y-auto px-2 overflow-x-hidden">
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={tableData}
                     className="w-full table-fixed"
                     columns={[

@@ -10,7 +10,6 @@ import {
     LemonSegmentedButton,
     Link,
     LemonSwitch,
-    LemonTable,
     LemonTableColumns,
     LemonTag,
     Tooltip,
@@ -23,6 +22,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyDiff } from 'lib/utils/durations'
 
 import { PropertyFilterType, PropertyOperator, type AnyPropertyFilter } from '~/types'
@@ -501,7 +501,7 @@ function PreviewResult({
                     size="small"
                 />
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 embedded
                 dataSource={[...samples]}
                 columns={columns}
@@ -564,5 +564,7 @@ function RunHistory({ runs, loading }: { runs: AccountTrackRuleRunViewApi[]; loa
             render: (_, run) => run.error ?? '—',
         },
     ]
-    return <LemonTable dataSource={runs} columns={columns} loading={loading} emptyState="No track rules runs yet" />
+    return (
+        <LemonOrQuillTable dataSource={runs} columns={columns} loading={loading} emptyState="No track rules runs yet" />
+    )
 }

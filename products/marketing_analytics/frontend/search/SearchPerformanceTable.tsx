@@ -3,8 +3,9 @@ import './SearchPerformanceTable.scss'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonSkeleton, LemonTable, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { urls } from 'scenes/urls'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -141,7 +142,7 @@ export function SearchPerformanceTable({
                     project admin for help. Traffic data is available.
                 </LemonBanner>
             )}
-            <LemonTable<MarketingAnalyticsSearchRow>
+            <LemonOrQuillTable<MarketingAnalyticsSearchRow>
                 size="small"
                 tableLayout="fixed"
                 firstColumnSticky

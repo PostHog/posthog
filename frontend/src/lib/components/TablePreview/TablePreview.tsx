@@ -1,7 +1,8 @@
 import { useLayoutEffect, useRef } from 'react'
 
-import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonTableColumns } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { cn } from 'lib/utils/css-classes'
 
 import { DatabaseSchemaTable } from '~/queries/schema/schema-general'
@@ -93,7 +94,7 @@ export function TablePreview({
                 }
             >
                 {table ? (
-                    <LemonTable
+                    <LemonOrQuillTable
                         size="small"
                         className="w-full h-full"
                         embedded

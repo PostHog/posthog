@@ -7,7 +7,8 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TeamMembershipLevel } from 'lib/constants'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { GroupType } from '~/types'
 
@@ -147,7 +148,11 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
                 </LemonBanner>
             )}
 
-            <LemonTable columns={columns} dataSource={Array.from(groupTypes.values())} loading={groupTypesLoading} />
+            <LemonOrQuillTable
+                columns={columns}
+                dataSource={Array.from(groupTypes.values())}
+                loading={groupTypesLoading}
+            />
 
             <div className="flex gap-2 mt-4">
                 <LemonButton

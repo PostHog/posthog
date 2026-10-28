@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconClock } from '@posthog/icons'
-import { LemonSkeleton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -125,7 +126,7 @@ export function CohortCalculationHistory(props: CohortCalculationHistoryProps): 
                     <LemonSkeleton className="h-8" />
                 </div>
             ) : (
-                <LemonTable
+                <LemonOrQuillTable
                     columns={columns}
                     dataSource={calculationHistory}
                     pagination={{

@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { getSeriesColor } from 'lib/colors'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -22,7 +22,7 @@ export function BoxPlotResultsTable(): JSX.Element | null {
     const hasMultipleSeries = seriesGroups.length > 1
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={boxplotData}
             columns={[
                 ...(hasMultipleSeries

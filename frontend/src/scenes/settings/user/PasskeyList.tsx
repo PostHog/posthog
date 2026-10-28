@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCheckCircle, IconChip, IconClock, IconLaptop, IconLock, IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTable, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { IconLink, IconSync } from 'lib/lemon-ui/icons'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { PasskeyCredential, passkeySettingsLogic } from './passkeySettingsLogic'
@@ -67,7 +68,7 @@ export function PasskeyList(): JSX.Element {
     }
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={passkeys}
             columns={[
                 {

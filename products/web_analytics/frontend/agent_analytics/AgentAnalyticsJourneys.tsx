@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonSkeleton, LemonTable, LemonTableColumns, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSkeleton, LemonTableColumns, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyLargeNumber, percentage } from 'lib/utils/numbers'
 import { tryDecodeURIComponent } from 'lib/utils/url'
@@ -203,7 +204,7 @@ export const AgentAnalyticsJourneys = (): JSX.Element => {
                     onRetry={loadJourneys}
                     loading={journeysLoading}
                 >
-                    <LemonTable
+                    <LemonOrQuillTable
                         columns={journeyColumns(openJourney)}
                         dataSource={journeys}
                         loading={journeysLoading}
@@ -225,7 +226,7 @@ export const AgentAnalyticsJourneys = (): JSX.Element => {
                     onRetry={loadNextHops}
                     loading={nextHopsLoading}
                 >
-                    <LemonTable
+                    <LemonOrQuillTable
                         columns={nextHopColumns(nextHopTotal)}
                         dataSource={nextHops}
                         loading={nextHopsLoading}

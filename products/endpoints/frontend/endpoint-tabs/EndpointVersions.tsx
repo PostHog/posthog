@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import type { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { atColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { urls } from 'scenes/urls'
@@ -162,7 +163,7 @@ export function EndpointVersions(): JSX.Element {
             title="Endpoint versions"
             description="Updating an endpoint's query creates a new version. However, you can manage each endpoint version's configuration separately. You can also either deactivate a single version, or the entire endpoint."
         >
-            <LemonTable
+            <LemonOrQuillTable
                 data-attr="endpoint-versions-table"
                 dataSource={versions || []}
                 columns={columns}

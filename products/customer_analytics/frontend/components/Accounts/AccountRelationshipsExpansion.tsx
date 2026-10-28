@@ -1,18 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconTrash } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonModal,
-    LemonSelect,
-    LemonTable,
-    LemonTableColumns,
-    LemonTag,
-    ProfilePicture,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonSelect, LemonTableColumns, LemonTag, ProfilePicture } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type {
     AccountRelationshipApi,
@@ -200,7 +193,7 @@ export function AccountRelationshipsExpansion({
                     </MemberSelect>
                 </div>
             </div>
-            <LemonTable<AccountRelationshipApi>
+            <LemonOrQuillTable<AccountRelationshipApi>
                 size="small"
                 embedded={embedded}
                 dataSource={displayedRelationships}

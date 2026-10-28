@@ -6,8 +6,9 @@ import { LemonButton, LemonDialog, LemonMenu, LemonSwitch, Link, Tooltip } from 
 
 import { TZLabel } from 'lib/components/TZLabel'
 import type { LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
@@ -247,7 +248,7 @@ export function InsightAlerts({ alertId }: InsightAlertsProps): JSX.Element {
             )}
 
             <AlertsFiltersBar />
-            <LemonTable
+            <LemonOrQuillTable
                 loading={alertsResponseLoading}
                 columns={columns}
                 dataSource={alertsSortedByState}

@@ -6,7 +6,7 @@ import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordin
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -83,7 +83,7 @@ export function WebAnalyticsRecordingsTile({ tile }: { tile: ReplayTile }): JSX.
     ) : items.length === 0 && emptyMessage ? (
         <EmptyMessage {...emptyMessage} />
     ) : (
-        <LemonTable
+        <LemonOrQuillTable
             className="mt-4"
             columns={[
                 {

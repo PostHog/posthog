@@ -6,7 +6,8 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
@@ -214,7 +215,7 @@ export function OverviewTab(): JSX.Element {
                     <StatusTag readinessState={managedWarehouseDataStatus.sources.readiness_state} />
                 </div>
                 {managedWarehouseDataStatus.sources.sources.length ? (
-                    <LemonTable
+                    <LemonOrQuillTable
                         embedded
                         columns={sourceSummaryColumns}
                         dataSource={managedWarehouseDataStatus.sources.sources}

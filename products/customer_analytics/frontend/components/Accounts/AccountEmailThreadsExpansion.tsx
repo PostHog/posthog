@@ -1,18 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import * as businessEvolutionPng from '@posthog/brand/hoggies/png/business-evolution'
-import {
-    LemonButton,
-    LemonCard,
-    LemonSkeleton,
-    LemonTable,
-    LemonTableColumns,
-    LemonTag,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSkeleton, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { PaginationControl } from 'lib/lemon-ui/PaginationControl'
 
 import type {
@@ -236,7 +229,7 @@ export function AccountEmailThreadsExpansion({ accountId }: { accountId: string 
     ]
 
     return (
-        <LemonTable<AccountEmailThreadApi>
+        <LemonOrQuillTable<AccountEmailThreadApi>
             data-attr="account-email-threads-table"
             size="small"
             embedded

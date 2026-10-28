@@ -10,8 +10,9 @@ import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -200,7 +201,7 @@ export function Annotations(): JSX.Element {
                 <LemonSelect options={annotationScopesMenuOptions()} value={scope} onSelect={setScope} />
             </div>
             <div data-attr="annotations-content">
-                <LemonTable
+                <LemonOrQuillTable
                     data-attr="annotations-table"
                     rowKey="id"
                     dataSource={filteredAnnotations}

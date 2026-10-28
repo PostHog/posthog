@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { getContrastingTextClass } from '~/queries/nodes/DataVisualization/colorUtils'
 import { BIConfig } from '~/queries/schema/schema-business-intelligence'
@@ -121,7 +123,7 @@ export function BIPivotTable({
                     Couldn't load conditional formatting. Reload the page to try again.
                 </LemonBanner>
             )}
-            <LemonTable<BIPivotMember>
+            <LemonOrQuillTable<BIPivotMember>
                 className="DataVisualizationTable"
                 embedded={embedded}
                 allowContentScroll

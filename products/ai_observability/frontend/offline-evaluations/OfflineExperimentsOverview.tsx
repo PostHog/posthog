@@ -2,21 +2,13 @@ import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
 import { IconChevronRight, IconRefresh, IconSearch } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonInput,
-    LemonSelect,
-    LemonSkeleton,
-    LemonTable,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
 import type { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { urls } from 'scenes/urls'
 
@@ -344,7 +336,7 @@ export function OfflineExperimentsOverview({
                         {experimentsError}
                     </LemonBanner>
                 ) : (
-                    <LemonTable
+                    <LemonOrQuillTable
                         className="@max-[50rem]:[&_colgroup]:hidden @max-[50rem]:[&_table]:table-auto"
                         dataSource={experiments?.results || []}
                         columns={columns}

@@ -1,8 +1,9 @@
 import { useValues } from 'kea'
 
-import { LemonButton, LemonDialog, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { urls } from 'scenes/urls'
 
 import { cohortsStaffToolsLogic, StaffCohort } from './cohortsStaffToolsLogic'
@@ -153,7 +154,7 @@ export function StaffCohortsTable({
     ]
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={cohorts}
             columns={columns}
             loading={loading}

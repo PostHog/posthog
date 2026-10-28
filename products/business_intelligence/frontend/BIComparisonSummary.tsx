@@ -1,4 +1,6 @@
-import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { BIConfig } from '~/queries/schema/schema-business-intelligence'
 import { ChartSettings } from '~/queries/schema/schema-general'
@@ -105,7 +107,7 @@ export function BIComparisonSummary({
     }
     return (
         <div className="p-2 w-full min-w-0" data-attr="bi-comparison-table">
-            <LemonTable<BIComparisonRow>
+            <LemonOrQuillTable<BIComparisonRow>
                 dataSource={rows}
                 rowKey="key"
                 size="small"

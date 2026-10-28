@@ -4,7 +4,8 @@ import { ProjectFreshnessIndicator } from 'lib/components/Account/ProjectFreshne
 import { ProjectName } from 'lib/components/Account/ProjectMenu'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { capitalizeFirstLetter, fullNameOrEmail } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -76,7 +77,7 @@ export function MemberProjectAccessModal(): JSX.Element {
             }
             width={720}
         >
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={modalProjects ?? []}
                 columns={columns}
                 rowKey="team_id"

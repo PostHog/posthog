@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
 
-import { LemonBanner, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 
 import { SetupFactsTable } from '../../setupInspector/SetupFactsTable'
@@ -33,7 +34,7 @@ export function HealthDebugFlagTab(): JSX.Element {
                 description="The flag as the health checks read it on the server."
             >
                 <SetupFactsTable facts={flagFacts} />
-                <LemonTable<HealthDebugReleaseCondition>
+                <LemonOrQuillTable<HealthDebugReleaseCondition>
                     size="small"
                     loading={healthInputsLoading}
                     dataSource={releaseConditions}
@@ -89,7 +90,7 @@ export function HealthDebugFlagTab(): JSX.Element {
             >
                 <SetupFactsTable facts={flagHistoryFacts} />
                 {flagChanges.length > 0 && (
-                    <LemonTable<HealthDebugFlagChange>
+                    <LemonOrQuillTable<HealthDebugFlagChange>
                         size="small"
                         dataSource={flagChanges}
                         rowKey={(change, index) => `${change.changedAt}-${index}`}

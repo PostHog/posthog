@@ -14,12 +14,13 @@ import {
     IconStopFilled,
     IconTrash,
 } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonDivider, LemonInput, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { cn } from 'lib/utils/css-classes'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -84,7 +85,7 @@ export function ProductToursTable(): JSX.Element {
                     value={searchTerm || ''}
                 />
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={filteredProductTours}
                 defaultSorting={{
                     columnKey: 'created_at',

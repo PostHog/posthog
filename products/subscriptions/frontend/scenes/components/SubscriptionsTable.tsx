@@ -1,9 +1,10 @@
 import { IconAI, IconDashboard, IconGraph } from '@posthog/icons'
-import { LemonTable, LemonTableColumn, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTableColumn, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import type { PaginationManual, Sorting } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { atColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { urls } from 'scenes/urls'
 
 import type { InsightShortId } from '~/types'
@@ -279,7 +280,7 @@ export function SubscriptionsTable({
     const columns = buildColumns(renderRowActions, renderEnabledToggle)
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={dataSource}
             columns={columns}
             loading={loading}

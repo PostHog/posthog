@@ -1,7 +1,9 @@
 import { useValues } from 'kea'
 
 import { IconArrowRightDown, IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonTable, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
+
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import {
     BillingProductV2AddonType,
@@ -23,7 +25,7 @@ import { billingProductLogic } from './billingProductLogic'
 function Subrows(props: ProductPricingTierSubrows): JSX.Element {
     return (
         <div className="px-2 pt-4 pb-6">
-            <LemonTable dataSource={props.rows} columns={props.columns} embedded showHeader={true} />
+            <LemonOrQuillTable dataSource={props.rows} columns={props.columns} embedded showHeader={true} />
         </div>
     )
 }
@@ -230,7 +232,7 @@ export const BillingProductPricingTable = ({
         <div className="pl-16 pb-8">
             {shouldShowPricingTable ? (
                 <>
-                    <LemonTable
+                    <LemonOrQuillTable
                         stealth
                         embedded
                         size="small"
@@ -251,7 +253,7 @@ export const BillingProductPricingTable = ({
                     )}
                 </>
             ) : parseFloat(product.unit_amount_usd || '0') > 0 ? (
-                <LemonTable
+                <LemonOrQuillTable
                     stealth
                     embedded
                     size="small"

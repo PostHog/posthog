@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type { DevTokenActivityApi, DevUserUsageApi } from '../generated/api.schemas'
 import { PAGE_SIZE_OPTIONS, devModeTeamUsageLogic } from '../logics/devModeTeamUsageLogic'
@@ -49,7 +50,7 @@ export function DevModeTeamUsage(): JSX.Element {
                     size="small"
                 />
             </div>
-            <LemonTable<DevUserUsageApi>
+            <LemonOrQuillTable<DevUserUsageApi>
                 dataSource={filteredUsers}
                 loading={teamUsageLoading}
                 pagination={{ pageSize }}
@@ -111,7 +112,7 @@ export function DevModeTeamUsage(): JSX.Element {
                 ]}
             />
             <h3 className="mb-0">Activity</h3>
-            <LemonTable<DevTokenActivityApi>
+            <LemonOrQuillTable<DevTokenActivityApi>
                 dataSource={filteredActivity}
                 loading={teamUsageLoading}
                 pagination={{ pageSize }}

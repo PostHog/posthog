@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
 
-import { LemonButton, LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 import type { LemonTagType } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type { DataHealthIssueApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
@@ -44,7 +45,7 @@ export function PipelineHealth(): JSX.Element {
     }
 
     return (
-        <LemonTable<DataHealthIssueApi>
+        <LemonOrQuillTable<DataHealthIssueApi>
             id="etl-health"
             dataSource={issuesBySeverity}
             rowKey="id"

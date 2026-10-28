@@ -9,7 +9,6 @@ import {
     LemonInputSelect,
     LemonSelect,
     LemonSwitch,
-    LemonTable,
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
@@ -22,6 +21,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     APPROVAL_ACTIONS,
@@ -191,7 +191,7 @@ export function ApprovalPolicies(): JSX.Element {
                     </LemonButton>
                 </div>
 
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={policies}
                     columns={columns}
                     loading={policiesLoading}

@@ -1,8 +1,9 @@
 import { useValues } from 'kea'
 
-import { LemonBanner, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { metricUrl } from 'products/metrics/frontend/metricsLinks'
@@ -37,7 +38,7 @@ export function TraceMetricSamples({ traceId, spanId, dateFrom, dateTo }: TraceM
     }
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={samples}
             loading={samplesLoading}
             size="small"

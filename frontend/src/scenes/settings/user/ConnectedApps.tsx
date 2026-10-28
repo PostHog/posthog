@@ -3,10 +3,11 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
-import { LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTag } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { IconKey } from 'lib/lemon-ui/icons'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import type { ConnectedAppApi } from '~/generated/core/api.schemas'
@@ -75,7 +76,7 @@ export function ConnectedApps({ apps }: { apps?: ConnectedAppApi[] }): JSX.Eleme
     }
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={apps ?? connectedApps}
             loading={connectedAppsLoading}
             columns={[

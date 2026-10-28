@@ -1,10 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconPlus, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSwitch, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 import type { VisionAlertConfigurationApi } from '../../generated/api.schemas'
@@ -143,7 +144,7 @@ function ScannerAlertsTabContent({ scannerId }: { scannerId: string }): JSX.Elem
 
     return (
         <div className="flex flex-col gap-2">
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={alerts}
                 loading={alertsLoading}

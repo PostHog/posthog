@@ -9,8 +9,9 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -299,7 +300,7 @@ export function MetricsTab(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 id="data-catalog-metrics"
                 data-attr="data-catalog-metrics-table"
                 dataSource={metrics}

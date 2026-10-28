@@ -6,8 +6,9 @@ import { IconChevronDown, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonSkeleton, ProfilePicture } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { fullName } from 'lib/utils/strings'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
@@ -155,7 +156,7 @@ export function AccountNotesTabContent(): JSX.Element {
                 // table's own loading overlay covers subsequent search/pagination fetches.
                 <LemonSkeleton className="h-64 w-full" />
             ) : (
-                <LemonTable
+                <LemonOrQuillTable
                     data-attr="account-notes-table"
                     dataSource={accountNotes}
                     rowKey="short_id"

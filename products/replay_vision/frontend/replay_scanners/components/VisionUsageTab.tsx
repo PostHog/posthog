@@ -4,7 +4,7 @@ import { LemonButton, LemonCard, LemonSwitch, Link, Spinner, Tooltip } from '@po
 
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
@@ -310,7 +310,7 @@ export function VisionUsageTab(): JSX.Element {
                 )}
             </LemonCard>
 
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={usageRows}
                 loading={usageScannersLoading}

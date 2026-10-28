@@ -1,7 +1,9 @@
 import { useValues } from 'kea'
 
 import { IconMinusSquare, IconPlusSquare } from '@posthog/icons'
-import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -33,7 +35,7 @@ export const AttributeBreakdowns = ({
     return (
         <div className="flex flex-col p-2 gap-y-2">
             {attributeValues.length} of the {logCount} logs have the label {attribute}
-            <LemonTable
+            <LemonOrQuillTable
                 className="w-fit"
                 hideScrollbar
                 dataSource={dataSource}

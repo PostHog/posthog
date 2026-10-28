@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonTable } from '@posthog/lemon-ui'
-
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyCurrency, humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { GatewayKeySpendRow, gatewayKeySpendLogic } from './gatewayKeySpendLogic'
@@ -26,7 +25,7 @@ export function GatewayKeySpend(): JSX.Element | null {
             {spendFailed ? (
                 <p className="text-danger">Couldn't load gateway spend. Reload the page to try again.</p>
             ) : (
-                <LemonTable<GatewayKeySpendRow>
+                <LemonOrQuillTable<GatewayKeySpendRow>
                     dataSource={summary.rows}
                     loading={loading}
                     rowKey="id"

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCalendar, IconPin, IconPinFilled } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonInput, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -10,6 +10,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { AccessControlLevel, AccessControlResourceType, SessionRecordingPlaylistType } from '~/types'
 
@@ -168,7 +169,7 @@ export function SessionRecordingCollections(): JSX.Element {
                 {!playlistsLoading && playlists.count < 1 ? (
                     <SessionRecordingCollectionsEmptyState />
                 ) : (
-                    <LemonTable
+                    <LemonOrQuillTable
                         embedded
                         tableLayout="fixed"
                         loading={playlistsLoading}

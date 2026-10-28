@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -30,7 +31,7 @@ export function WorkflowRevisions({ id }: { id: string }): JSX.Element {
                     publish it to go live.
                 </p>
             </div>
-            <LemonTable<HogFlowRevisionBasicApi>
+            <LemonOrQuillTable<HogFlowRevisionBasicApi>
                 dataSource={revisions}
                 loading={revisionsResponseLoading}
                 rowKey="version"

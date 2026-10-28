@@ -8,7 +8,8 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -217,7 +218,7 @@ export function RelationshipsTab(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 id="data-catalog-relationships"
                 data-attr="data-catalog-relationships-table"
                 dataSource={filteredRows}

@@ -1,6 +1,7 @@
-import { LemonButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { LogsAlertDestinationSendApi } from 'products/logs/frontend/generated/api.schemas'
 
@@ -44,7 +45,7 @@ export function DestinationRecentSends({
                     </LemonButton>
                 </div>
             ) : (
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={sends ?? []}
                     loading={loading || sends === null}
                     rowKey={(send) => `${send.hog_function_id}:${send.path}:${send.sent_at}`}

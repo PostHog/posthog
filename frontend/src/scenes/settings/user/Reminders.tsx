@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { DatePicker } from 'lib/components/DatePicker/DatePicker'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -11,6 +11,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
@@ -196,7 +197,7 @@ export function Reminders(): JSX.Element {
                 </LemonButton>
             </div>
 
-            <LemonTable
+            <LemonOrQuillTable
                 loading={remindersLoading}
                 dataSource={reminders}
                 rowKey="id"

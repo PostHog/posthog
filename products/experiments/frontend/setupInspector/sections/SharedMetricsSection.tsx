@@ -1,4 +1,4 @@
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { urls } from 'scenes/urls'
 
@@ -27,7 +27,7 @@ export function SharedMetricsSection({ section }: { section: ExperimentSetupShar
                             be missing.
                         </p>
                     )}
-                    <LemonTable<ExperimentSetupSharedMetricApi>
+                    <LemonOrQuillTable<ExperimentSetupSharedMetricApi>
                         size="small"
                         rowKey="id"
                         dataSource={data.metrics}

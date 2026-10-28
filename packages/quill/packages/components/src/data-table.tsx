@@ -1,11 +1,13 @@
 import {
     type ColumnDef,
+    type ExpandedState,
     type PaginationState,
     type RowData,
     type SortingState,
     type Table as TanstackTable,
     flexRender,
     getCoreRowModel,
+    getExpandedRowModel,
     getPaginationRowModel,
     getSortedRowModel,
     useReactTable,
@@ -133,6 +135,38 @@ export interface DataTableProps<TData, TValue> {
      * `pageSize` is set; omit to hide the selector and keep a fixed page size.
      */
     pageSizeOptions?: number[]
+    /**
+     * Controlled sort order. Omit to let the table own its sort state. Pair with
+     * `onSortingChange` so header clicks reach the owner.
+     */
+    sorting?: SortingState
+    /** Called with the next sort order when the user toggles a sortable header. */
+    onSortingChange?: (sorting: SortingState) => void
+    /**
+     * The rows arrive already sorted (for example by the server). Headers still
+     * toggle and report the sort order, but the table keeps `data` in order.
+     */
+    manualSorting?: boolean
+    /**
+     * Whether a third header click clears the sort (asc → desc → off). Defaults to
+     * `true`. Set to `false` to cycle asc → desc only.
+     */
+    enableSortingRemoval?: boolean
+    /** Stable row identity. Defaults to the row index. */
+    getRowId?: (row: TData, index: number) => string
+    /** Extra props for each body `<tr>`, such as a class name or data attributes. `index` is the rendered position. */
+    getRowProps?: (row: TData, index: number) => React.ComponentProps<'tr'>
+    /**
+     * Renders a full-width row under an expanded row. Toggle a row from a cell with
+     * `row.getToggleExpandedHandler()`.
+     */
+    renderExpandedRow?: (row: TData, index: number) => React.ReactNode
+    /** Whether a row can expand. Defaults to every row when `renderExpandedRow` is set. */
+    getRowCanExpand?: (row: TData) => boolean
+    /** Controlled expansion, keyed by row id. Omit to let the table own it. */
+    expanded?: Record<string, boolean>
+    /** Called with the next expansion map when a row toggles. */
+    onExpandedChange?: (expanded: Record<string, boolean>) => void
 }
 
 // `getIsSorted()` → ARIA sort token for the header cell.
@@ -237,6 +271,19 @@ function DataTablePagination<TData>({
     )
 }
 
+// TanStack reports "expand all" as `true`; expand it into an explicit map so
+// `onExpandedChange` always hands owners a plain record keyed by row id.
+function toExpandedRecord<TData>(
+    state: ExpandedState,
+    data: TData[],
+    getRowId?: (row: TData, index: number) => string
+): Record<string, boolean> {
+    if (state !== true) {
+        return state
+    }
+    return Object.fromEntries(data.map((row, index) => [getRowId ? getRowId(row, index) : String(index), true]))
+}
+
 /**
  * Headless TanStack Table wired onto the quill Table primitive — client-side
  * sorting out of the box (sortable columns render a sort button + indicator and
@@ -257,9 +304,22 @@ function DataTable<TData, TValue>({
     pageSize,
     pageSizeOptions,
     onPageChange,
+    sorting: controlledSorting,
+    onSortingChange,
+    manualSorting = false,
+    enableSortingRemoval = true,
+    getRowId,
+    getRowProps,
+    renderExpandedRow,
+    getRowCanExpand,
+    expanded: controlledExpanded,
+    onExpandedChange,
 }: DataTableProps<TData, TValue>): React.ReactElement {
     const paginated = pageSize != null
-    const [sorting, setSorting] = React.useState<SortingState>([])
+    const [internalSorting, setInternalSorting] = React.useState<SortingState>([])
+    const sorting = controlledSorting ?? internalSorting
+    const [internalExpanded, setInternalExpanded] = React.useState<Record<string, boolean>>({})
+    const expanded = controlledExpanded ?? internalExpanded
     const [pagination, setPagination] = React.useState<PaginationState>({ pageIndex: 0, pageSize: pageSize ?? 10 })
     // Keep the page size in sync when the prop changes at runtime — reset to the
     // first page so the new size applies from a consistent offset.
@@ -271,10 +331,26 @@ function DataTable<TData, TValue>({
     const table = useReactTable({
         data,
         columns,
-        state: { sorting, ...(paginated ? { pagination } : {}) },
-        onSortingChange: setSorting,
+        state: { sorting, expanded, ...(paginated ? { pagination } : {}) },
+        onSortingChange: (updater) => {
+            const next = typeof updater === 'function' ? updater(sorting) : updater
+            setInternalSorting(next)
+            onSortingChange?.(next)
+        },
+        onExpandedChange: (updater) => {
+            const next = toExpandedRecord(typeof updater === 'function' ? updater(expanded) : updater, data, getRowId)
+            setInternalExpanded(next)
+            onExpandedChange?.(next)
+        },
+        manualSorting,
+        enableSortingRemoval,
+        getRowId,
+        getRowCanExpand: renderExpandedRow
+            ? (row) => (getRowCanExpand ? getRowCanExpand(row.original) : true)
+            : () => false,
         ...(paginated ? { onPaginationChange: setPagination } : {}),
         getCoreRowModel: getCoreRowModel(),
+        getExpandedRowModel: getExpandedRowModel(),
         getSortedRowModel: getSortedRowModel(),
         ...(paginated ? { getPaginationRowModel: getPaginationRowModel() } : {}),
     })
@@ -333,53 +409,65 @@ function DataTable<TData, TValue>({
             </TableHeader>
             <TableBody>
                 {rows.length ? (
-                    rows.map((row) => (
-                        <TableRow
-                            key={row.id}
-                            data-state={row.getIsSelected() ? 'selected' : undefined}
-                            className={
-                                onRowClick
-                                    ? 'cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring'
-                                    : undefined
-                            }
-                            tabIndex={onRowClick ? 0 : undefined}
-                            onClick={
-                                onRowClick
-                                    ? (event) => {
-                                          if (!shouldIgnoreRowClick(event.target, event.currentTarget)) {
-                                              onRowClick(row.original)
-                                          }
-                                      }
-                                    : undefined
-                            }
-                            onKeyDown={
-                                onRowClick
-                                    ? (event) => {
-                                          if (
-                                              event.target === event.currentTarget &&
-                                              (event.key === 'Enter' || event.key === ' ')
-                                          ) {
-                                              event.preventDefault()
-                                              onRowClick(row.original)
-                                          }
-                                      }
-                                    : undefined
-                            }
-                        >
-                            {row.getVisibleCells().map((cell) => (
-                                <TableCell
-                                    key={cell.id}
-                                    align={cell.column.columnDef.meta?.align}
-                                    expand={cell.column.columnDef.meta?.expand}
+                    rows.map((row, rowIndex) => {
+                        const rowProps = getRowProps?.(row.original, rowIndex)
+                        return (
+                            <React.Fragment key={row.id}>
+                                <TableRow
+                                    {...rowProps}
+                                    {...(row.getIsSelected() ? { 'data-state': 'selected' } : {})}
+                                    className={cn(
+                                        rowProps?.className,
+                                        onRowClick &&
+                                            'cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring'
+                                    )}
+                                    tabIndex={onRowClick ? 0 : rowProps?.tabIndex}
+                                    onClick={
+                                        onRowClick
+                                            ? (event) => {
+                                                  if (!shouldIgnoreRowClick(event.target, event.currentTarget)) {
+                                                      onRowClick(row.original)
+                                                  }
+                                              }
+                                            : rowProps?.onClick
+                                    }
+                                    onKeyDown={
+                                        onRowClick
+                                            ? (event) => {
+                                                  if (
+                                                      event.target === event.currentTarget &&
+                                                      (event.key === 'Enter' || event.key === ' ')
+                                                  ) {
+                                                      event.preventDefault()
+                                                      onRowClick(row.original)
+                                                  }
+                                              }
+                                            : rowProps?.onKeyDown
+                                    }
                                 >
-                                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                                </TableCell>
-                            ))}
-                        </TableRow>
-                    ))
+                                    {row.getVisibleCells().map((cell) => (
+                                        <TableCell
+                                            key={cell.id}
+                                            align={cell.column.columnDef.meta?.align}
+                                            expand={cell.column.columnDef.meta?.expand}
+                                        >
+                                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                                        </TableCell>
+                                    ))}
+                                </TableRow>
+                                {renderExpandedRow && row.getIsExpanded() ? (
+                                    <TableRow data-slot="table-expanded-row">
+                                        <TableCell colSpan={row.getVisibleCells().length}>
+                                            {renderExpandedRow(row.original, rowIndex)}
+                                        </TableCell>
+                                    </TableRow>
+                                ) : null}
+                            </React.Fragment>
+                        )
+                    })
                 ) : (
                     <TableRow>
-                        <TableCell colSpan={columns.length} className="p-2 hover:bg-transparent">
+                        <TableCell colSpan={table.getVisibleLeafColumns().length} className="p-2 hover:bg-transparent">
                             {empty}
                         </TableCell>
                     </TableRow>

@@ -3,22 +3,14 @@ import { combineUrl } from 'kea-router'
 import type { ReactNode } from 'react'
 
 import { IconCalendar, IconDatabase, IconPlus, IconQuestion, IconUser, IconWarning } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonCard,
-    LemonCollapse,
-    LemonSkeleton,
-    LemonTable,
-    LemonTag,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonCollapse, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import type { LemonCollapsePanel } from 'lib/lemon-ui/LemonCollapse'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
@@ -503,7 +495,7 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                                         />
                                     </LemonCard>
                                 ) : (
-                                    <LemonTable
+                                    <LemonOrQuillTable
                                         columns={evaluationColumns}
                                         dataSource={evaluations}
                                         loading={evaluationReportsLoading}
@@ -594,7 +586,7 @@ export function AIObservabilitySelfDriving(): JSX.Element {
                                         </p>
                                     </LemonCard>
                                 ) : (
-                                    <LemonTable
+                                    <LemonOrQuillTable
                                         columns={anomalyAlertColumns}
                                         dataSource={anomalyAlertInvestigations}
                                         tableLayout="fixed"

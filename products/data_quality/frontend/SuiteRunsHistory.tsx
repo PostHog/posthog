@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
 import { CheckRunsTable } from './CheckRunsTable'
@@ -35,7 +36,7 @@ export function SuiteRunsHistory(props: DataQualityChecksLogicProps): JSX.Elemen
                     aria-label="Refresh check run history"
                 />
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 size="small"
                 dataSource={suiteRuns}
                 rowKey="id"

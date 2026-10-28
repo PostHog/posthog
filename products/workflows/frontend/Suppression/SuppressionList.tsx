@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconChevronLeft, IconChevronRight, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonModal, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type { MessageSuppressionApi } from 'products/messaging/frontend/generated/api.schemas'
 
@@ -116,7 +117,7 @@ export function SuppressionList(): JSX.Element {
                     Reload
                 </LemonButton>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={suppressions.results || []}
                 loading={suppressionsLoading}

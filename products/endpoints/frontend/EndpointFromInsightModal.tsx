@@ -5,7 +5,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Link } from 'lib/lemon-ui/Link'
 import { slugify } from 'lib/utils/strings'
@@ -70,7 +70,7 @@ export function EndpointFromInsightModal({ insightQuery, insightShortId }: Endpo
                     {endpointsFromThisInsight.length > 0 && (
                         <div>
                             <div className="text-muted mb-2">Endpoints already created from this insight:</div>
-                            <LemonTable
+                            <LemonOrQuillTable
                                 dataSource={endpointsFromThisInsight}
                                 columns={[
                                     {

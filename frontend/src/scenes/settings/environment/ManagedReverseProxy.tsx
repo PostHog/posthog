@@ -11,7 +11,6 @@ import {
     LemonDialog,
     LemonInput,
     LemonMenu,
-    LemonTable,
     LemonTableColumns,
     LemonTabs,
     Spinner,
@@ -24,6 +23,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { isKeyOf } from 'lib/utils/guards'
 import { useMaxTool } from 'scenes/max/useMaxTool'
@@ -221,7 +221,7 @@ export function ManagedReverseProxy(): JSX.Element {
                     <LemonMarkdown>{`**${r.domain}**\n ${r.message}`}</LemonMarkdown>
                 </LemonBanner>
             ))}
-            <LemonTable
+            <LemonOrQuillTable
                 loading={proxyRecords.length === 0 && proxyRecordsLoading}
                 columns={columns}
                 dataSource={proxyRecords}

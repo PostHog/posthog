@@ -1,9 +1,10 @@
 import { useMemo } from 'react'
 
-import { LemonCheckbox, LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { BillingSeriesType } from './BillingChart'
 import { BILLING_TABLE_PAGE_SIZE } from './constants'
@@ -127,7 +128,7 @@ export function BillingDataTable({
 
     return (
         <div className="overflow-x-auto border rounded bg-bg-light">
-            <LemonTable
+            <LemonOrQuillTable
                 data-attr="billing-data-table"
                 dataSource={series}
                 columns={columns}

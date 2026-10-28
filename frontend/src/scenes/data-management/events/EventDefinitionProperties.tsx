@@ -6,7 +6,8 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { urls } from 'scenes/urls'
 
@@ -68,7 +69,7 @@ export function EventDefinitionProperties({ definition }: { definition: EventDef
             title="Top properties"
             description="Please note that description and tags are shared across events. PostHog properties are excluded from this list."
         >
-            <LemonTable
+            <LemonOrQuillTable
                 id={`event-properties-definition-table-${definition.id}`}
                 data-attr="event-properties-definition-nested-table"
                 columns={columns}

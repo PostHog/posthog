@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
@@ -63,7 +64,7 @@ export function HogFunctionTemplateList({
                 {extraControls}
             </div>
 
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={filteredTemplates}
                 size="small"
                 loading={loading}

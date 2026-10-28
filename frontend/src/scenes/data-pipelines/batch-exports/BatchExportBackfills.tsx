@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconCancel } from 'lib/lemon-ui/icons'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { BatchExportBackfill } from '~/types'
 
@@ -64,7 +65,7 @@ function BatchExportLatestBackfills({ id, context }: BatchExportBackfillsLogicPr
 
     return (
         <>
-            <LemonTable<BatchExportBackfill>
+            <LemonOrQuillTable<BatchExportBackfill>
                 dataSource={latestBackfills}
                 loading={loading}
                 loadingSkeletonRows={5}

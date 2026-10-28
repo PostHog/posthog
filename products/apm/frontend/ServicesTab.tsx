@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTableColumns, Link } from '@posthog/lemon-ui'
+
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { applicationObservabilityLogic } from './applicationObservabilityLogic'
 import type { ServiceHealthApi } from './generated/api.schemas'
@@ -58,7 +60,7 @@ export function ServicesTab(): JSX.Element {
                     <LemonBanner type={attentionCount > 0 ? 'warning' : 'success'}>{attentionMessage}</LemonBanner>
                 )
             )}
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={services}
                 rowKey="service_name"

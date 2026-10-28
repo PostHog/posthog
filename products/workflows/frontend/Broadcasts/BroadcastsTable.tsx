@@ -7,8 +7,9 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TagSelect } from 'lib/components/TagSelect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
@@ -236,7 +237,7 @@ export function BroadcastsTable(): JSX.Element {
                     />
                 </div>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={hideRows ? [] : broadcasts.results}
                 pagination={{
                     controlled: true,

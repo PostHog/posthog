@@ -9,7 +9,6 @@ import {
     LemonInput,
     LemonSkeleton,
     LemonSwitch,
-    LemonTable,
     LemonTag,
     Link,
     Tooltip,
@@ -21,6 +20,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -306,7 +306,7 @@ function AIObservabilityTagsContent(): JSX.Element {
                 />
             </div>
 
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={filteredTaggers}
                 loading={taggersLoading}

@@ -10,7 +10,7 @@ import { JSONViewer } from 'lib/components/JSONViewer'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import type { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -235,7 +235,7 @@ export function IngestionWarningsV2View(): JSX.Element {
                         />
                     </div>
                     <ActiveFilterTags />
-                    <LemonTable
+                    <LemonOrQuillTable
                         dataSource={warnings}
                         loading={warningsLoading}
                         useURLForSorting={false}
@@ -353,7 +353,7 @@ export function IngestionWarningsV2View(): JSX.Element {
 
 function RenderSamples(summary: IngestionWarningV2Summary): JSX.Element {
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={summary.samples}
             rowKey={(sample) => `${sample.timestamp}-${sample.event_uuid ?? ''}`}
             size="small"

@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { tryDecodeURIComponent } from 'lib/utils/url'
 
@@ -67,7 +68,7 @@ export const AgentIssueDetail = ({ issue }: { issue: AgentIssue }): JSX.Element 
                         onRetry={loadVariants}
                         loading={variantsLoading}
                     >
-                        <LemonTable
+                        <LemonOrQuillTable
                             columns={variantColumns}
                             dataSource={variants}
                             loading={variantsLoading}

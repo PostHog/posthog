@@ -5,7 +5,6 @@ import { IconGraph, IconNotebook } from '@posthog/icons'
 import {
     LemonSegmentedButton,
     LemonSkeleton,
-    LemonTable,
     LemonTag,
     Link,
     Spinner,
@@ -18,6 +17,7 @@ import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { formatDate } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -358,7 +358,7 @@ export function AlertHistorySection({
                         </div>
                     ) : (
                         <div className="h-72 max-h-72 shrink-0 overflow-hidden">
-                            <LemonTable
+                            <LemonOrQuillTable
                                 dataSource={alertHistoryChecksSortedDesc}
                                 columns={checkHistoryColumns}
                                 rowKey="id"

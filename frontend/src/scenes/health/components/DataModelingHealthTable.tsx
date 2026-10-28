@@ -1,5 +1,6 @@
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type { HealthIssue } from '../types'
 import { getErrorLabelForMaterializedView } from '../utils/materializedViewErrors'
@@ -57,7 +58,7 @@ export function DataModelingHealthTable({
     ]
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={issues}
             columns={columns}
             embedded

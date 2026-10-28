@@ -11,7 +11,6 @@ import {
     LemonInputSelect,
     LemonModal,
     LemonSelect,
-    LemonTable,
     LemonTableColumns,
     LemonTag,
     ProfileBubbles,
@@ -23,6 +22,7 @@ import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { fullName } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -117,7 +117,7 @@ export function RolesAccessControls(): JSX.Element {
 
     return (
         <div>
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={sortedRoles ?? []}
                 loading={rolesLoading}
@@ -222,7 +222,7 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                 </LemonButton>
             </div>
 
-            <LemonTable
+            <LemonOrQuillTable
                 columns={[
                     {
                         key: 'user_profile_picture',

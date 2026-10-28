@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconPencil } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, LemonTableColumns, Link, ProfilePicture } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTableColumns, Link, ProfilePicture } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { fullName } from 'lib/utils/strings'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { urls } from 'scenes/urls'
@@ -124,7 +125,7 @@ export function AccountNotesExpansion({
                     New note
                 </LemonButton>
             </div>
-            <LemonTable<AccountNotebookApi>
+            <LemonOrQuillTable<AccountNotebookApi>
                 size="small"
                 embedded={embedded}
                 dataSource={notebooks ?? []}

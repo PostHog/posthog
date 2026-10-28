@@ -2,9 +2,10 @@ import { useValues } from 'kea'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconDownload } from '@posthog/icons'
-import { LemonButton, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { ExportedAsset, advancedActivityLogsLogic } from './advancedActivityLogsLogic'
@@ -85,7 +86,7 @@ export function ExportsList(): JSX.Element {
 
     return (
         <div className="space-y-4">
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={exports}
                 columns={columns}
                 loading={exportsLoading}

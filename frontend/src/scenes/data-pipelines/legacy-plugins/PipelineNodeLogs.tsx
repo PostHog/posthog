@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSearch } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonSnack, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSnack } from '@posthog/lemon-ui'
 
 import { LOGS_PORTION_LIMIT } from 'lib/constants'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { pluralize } from 'lib/utils/strings'
 
 import { ALL_LOG_LEVELS, PipelineNodeLogsLogicProps, pipelineNodeLogsLogic } from './pipelineNodeLogsLogic'
@@ -62,7 +63,7 @@ export function PipelineNodeLogs({ id }: PipelineNodeLogsLogicProps): JSX.Elemen
                     : 'No new entries'}
             </LemonButton>
 
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={logs}
                 columns={columns}
                 loading={logsLoading}

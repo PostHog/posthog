@@ -7,7 +7,7 @@ import { LemonButton, LemonDivider, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { InsightIcon } from 'scenes/saved-insights/InsightIcon'
@@ -154,7 +154,7 @@ export function JourneyTemplatePicker(): JSX.Element {
                             onChange={(value) => setSearchTerm(value)}
                             autoFocus
                         />
-                        <LemonTable
+                        <LemonOrQuillTable
                             dataSource={funnels}
                             columns={[
                                 {

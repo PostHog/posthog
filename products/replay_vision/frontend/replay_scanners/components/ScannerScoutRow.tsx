@@ -6,7 +6,7 @@ import { LemonButton, LemonDialog, LemonSwitch, Tooltip } from '@posthog/lemon-u
 import { ProjectTimezoneHint } from 'lib/components/ScheduledRunStatus'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { cn } from 'lib/utils/css-classes'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
@@ -197,7 +197,7 @@ export function ScannerScoutRow({
             {expanded && !scoutReportsLoading && !scoutReportsFailed && reports.length > 0 && (
                 <div className="border-t border-primary px-4 py-2 pl-12">
                     {/* Same shape as the scanner's observation history, so the two lists read alike. */}
-                    <LemonTable
+                    <LemonOrQuillTable
                         embedded
                         showHeader={false}
                         size="small"

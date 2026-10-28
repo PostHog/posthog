@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 
 import { QuerySummary } from '~/types'
@@ -131,7 +132,7 @@ function QueryTable(props: {
     }
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={props.queries || []}
             columns={columns}
             loading={props.loading}

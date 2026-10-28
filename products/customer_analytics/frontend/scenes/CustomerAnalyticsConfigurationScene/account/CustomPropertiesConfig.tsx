@@ -2,19 +2,13 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconInfo, IconLogomark, IconPencil, IconTrash } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonInput,
-    LemonSegmentedButton,
-    LemonTable,
-    LemonTableColumns,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSegmentedButton, LemonTableColumns, Tooltip } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
@@ -247,7 +241,7 @@ export function CustomPropertiesConfig(): JSX.Element {
                     ]}
                 />
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={filteredDefinitions}
                 loading={definitionsLoading}

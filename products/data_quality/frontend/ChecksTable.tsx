@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonMenu, LemonSwitch, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonMenu, LemonSwitch, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { CheckRunsTable } from './CheckRunsTable'
 import { SEVERITY_TAG_TYPES, checkDisplayName, checkTypeLabel } from './checksConstants'
@@ -37,7 +38,7 @@ export function ChecksTable({ columns, outputSchema, ...props }: ChecksTableProp
     }
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             rowKey="id"
             dataSource={sortedChecks}
             loading={checksLoading}

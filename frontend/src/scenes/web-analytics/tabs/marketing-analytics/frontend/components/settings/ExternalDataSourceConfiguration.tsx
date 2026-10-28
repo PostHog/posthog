@@ -6,7 +6,7 @@ import { LemonBanner, LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -210,7 +210,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                 maxItemsToShow={MAX_ITEMS_TO_SHOW}
                 additionalControls={<AddIntegrationButton />}
             />
-            <LemonTable
+            <LemonOrQuillTable
                 rowKey={(item) => item.id}
                 loading={loading}
                 dataSource={displayedSources}

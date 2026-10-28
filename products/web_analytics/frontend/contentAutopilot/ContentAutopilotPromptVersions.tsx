@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 
@@ -26,7 +27,7 @@ export const ContentAutopilotPromptVersions = ({ promptId }: { promptId: string 
     }
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             size="small"
             dataSource={versions}
             rowKey="version"

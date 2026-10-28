@@ -57,4 +57,25 @@ describe('DataTable', () => {
 
         expect(onPageChange).toHaveBeenCalledWith(1, 2)
     })
+
+    it.each([
+        [false, ['Ada', 'Grace', 'Linus']],
+        [true, ['Linus', 'Ada', 'Grace']],
+    ])('with manualSorting %s, keeps or sorts the rows and reports the sort order', (manualSorting, expected) => {
+        const onSortingChange = jest.fn()
+        const columns: ColumnDef<TestRow>[] = [{ accessorKey: 'name', header: 'Name', sortDescFirst: false }]
+        const { container } = render(
+            <DataTable
+                columns={columns}
+                data={[{ name: 'Linus' }, { name: 'Ada' }, { name: 'Grace' }]}
+                manualSorting={manualSorting}
+                onSortingChange={onSortingChange}
+            />
+        )
+
+        fireEvent.click(container.querySelector('thead button')!)
+
+        expect(onSortingChange).toHaveBeenCalledWith([{ id: 'name', desc: false }])
+        expect(Array.from(container.querySelectorAll('tbody td')).map((cell) => cell.textContent)).toEqual(expected)
+    })
 })

@@ -7,7 +7,8 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 
@@ -150,7 +151,7 @@ export function ScimLogsModal({
                     </LemonButton>
                 </div>
 
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={scimLogs?.results ?? []}
                     columns={columns}
                     loading={scimLogsLoading}

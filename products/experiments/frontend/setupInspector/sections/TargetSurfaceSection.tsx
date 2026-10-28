@@ -1,4 +1,4 @@
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type {
     ExperimentSetupLibReachApi,
@@ -38,7 +38,7 @@ export function TargetSurfaceSection({ section }: { section: ExperimentSetupTarg
                             { label: 'Computed at', value: formatTimestamp(data.computed_at) },
                         ]}
                     />
-                    <LemonTable<ExperimentSetupLibReachApi>
+                    <LemonOrQuillTable<ExperimentSetupLibReachApi>
                         size="small"
                         rowKey={(lib, index) => lib.lib ?? `unknown-${index}`}
                         dataSource={data.libs}

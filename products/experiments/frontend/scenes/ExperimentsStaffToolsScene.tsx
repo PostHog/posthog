@@ -10,7 +10,8 @@ import { dayjs } from 'lib/dayjs'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -563,7 +564,7 @@ export function ExperimentsStaffToolsScene(): JSX.Element {
                                         Refresh
                                     </LemonButton>
                                 </div>
-                                <LemonTable
+                                <LemonOrQuillTable
                                     columns={slowestQueryColumns}
                                     dataSource={slowestQueries}
                                     loading={slowestQueriesLoading}
@@ -595,7 +596,7 @@ export function ExperimentsStaffToolsScene(): JSX.Element {
                                                     {item.sub_queries && item.sub_queries.length > 0 && (
                                                         <div>
                                                             <h4 className="mb-1">Sub-queries (precompute builds)</h4>
-                                                            <LemonTable
+                                                            <LemonOrQuillTable
                                                                 size="small"
                                                                 columns={subQueryColumns}
                                                                 dataSource={item.sub_queries}
@@ -648,7 +649,7 @@ export function ExperimentsStaffToolsScene(): JSX.Element {
                                     onChange={setSearch}
                                     className="mb-4 max-w-md"
                                 />
-                                <LemonTable
+                                <LemonOrQuillTable
                                     columns={precomputationColumns}
                                     dataSource={precomputationTeams}
                                     loading={precomputationTeamsLoading}

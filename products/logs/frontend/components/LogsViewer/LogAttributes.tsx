@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconFilter, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
-import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import ViewRecordingButton, {
@@ -9,6 +9,7 @@ import ViewRecordingButton, {
     ViewRecordingButtonVariant,
 } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconTableChart } from 'lib/lemon-ui/icons'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { cn } from 'lib/utils/css-classes'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -49,7 +50,7 @@ export function LogAttributes({ attributes, type, logUuid, title }: LogAttribute
             <div className="px-3 py-2 bg-bg-light border-b border-border">
                 <span className="text-xs font-semibold text-muted uppercase">{title}</span>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 embedded
                 showHeader={false}
                 size="small"

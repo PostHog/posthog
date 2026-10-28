@@ -6,7 +6,8 @@ import { LemonDivider, LemonModal, Link } from '@posthog/lemon-ui'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { userLogic } from 'scenes/userLogic'
@@ -110,7 +111,7 @@ export function StaffUsersTab(): JSX.Element {
                     </LemonButton>
                 </div>
             </section>
-            <LemonTable dataSource={staffUsers} columns={columns} loading={allUsersLoading} rowKey="uuid" />
+            <LemonOrQuillTable dataSource={staffUsers} columns={columns} loading={allUsersLoading} rowKey="uuid" />
             <StaffUsersRemovalModal
                 myself={myself}
                 user={staffUserToBeDeleted}

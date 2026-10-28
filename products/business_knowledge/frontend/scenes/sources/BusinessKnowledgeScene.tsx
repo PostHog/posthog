@@ -2,12 +2,13 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconPlus, IconPlusSmall, IconRefresh, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -141,7 +142,7 @@ export function BusinessKnowledgeScene(): JSX.Element {
                     />
                 </div>
 
-                <LemonTable<KnowledgeSource>
+                <LemonOrQuillTable<KnowledgeSource>
                     dataSource={sources}
                     loading={sourcesLoading}
                     pagination={{ pageSize: 20 }}

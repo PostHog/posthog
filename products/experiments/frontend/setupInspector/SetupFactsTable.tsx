@@ -1,4 +1,4 @@
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export interface SetupFact {
@@ -10,7 +10,7 @@ export interface SetupFact {
 
 export function SetupFactsTable({ facts }: { facts: SetupFact[] }): JSX.Element {
     return (
-        <LemonTable
+        <LemonOrQuillTable
             size="small"
             showHeader={false}
             rowKey="label"

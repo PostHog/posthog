@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { IconBadge } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonLabel, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonLabel, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -42,7 +43,7 @@ export function DataColorThemes(): JSX.Element {
                     </Link>
                     .
                 </p>
-                <LemonTable
+                <LemonOrQuillTable
                     loading={themesLoading}
                     dataSource={themes}
                     columns={[

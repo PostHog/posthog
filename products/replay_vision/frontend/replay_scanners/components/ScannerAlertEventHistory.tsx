@@ -1,9 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonButton, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { formatLocalizedTime } from 'lib/utils/datetime'
 
 import {
@@ -106,7 +107,7 @@ function ScannerAlertEventTimeline({ alert }: { alert: VisionAlertConfigurationA
                     evaluationNoun="check"
                 />
             ) : null}
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={eventsPage.results}
                 loading={eventsPageLoading}

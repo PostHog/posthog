@@ -17,7 +17,8 @@ import {
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import type { CodeEditorProps } from 'lib/monaco/CodeEditor'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { urls } from 'scenes/urls'
@@ -467,7 +468,7 @@ function CustomSqlField(): JSX.Element {
                                         {customSqlPreview.hasMore ? 'at least ' : ''}
                                         {customSqlPreview.rowCount} failures.
                                     </LemonBanner>
-                                    <LemonTable<unknown[]>
+                                    <LemonOrQuillTable<unknown[]>
                                         className="mt-2"
                                         columns={previewColumns}
                                         dataSource={previewRows}

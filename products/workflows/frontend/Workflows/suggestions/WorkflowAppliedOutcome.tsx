@@ -1,7 +1,7 @@
 import { LemonCollapse, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type {
     WorkflowProposalApi,
@@ -94,7 +94,7 @@ export function WorkflowAppliedOutcome({
                         version was live. Other edits ship in these versions too, so read a move as a signal to look
                         closer, not as proof.
                     </p>
-                    <LemonTable
+                    <LemonOrQuillTable
                         size="small"
                         data-attr="workflow-suggestion-outcome"
                         columns={[
@@ -249,7 +249,7 @@ export function WorkflowAppliedOutcome({
                                                 </span>
                                             </div>
                                             {version.changes?.length ? (
-                                                <LemonTable
+                                                <LemonOrQuillTable
                                                     size="small"
                                                     columns={[
                                                         {

@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCheckbox, LemonInput, LemonTable, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonInput, LemonTableColumn, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
 import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { HogFunctionIcon } from 'scenes/hog-functions/configuration/HogFunctionIcon'
 import { urls } from 'scenes/urls'
@@ -126,7 +127,7 @@ export function BatchExportsList(): JSX.Element {
                 />
             </div>
 
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={filteredBatchExports}
                 // The sparkline loads once per row, so a row must keep its export across a sort or a search.
                 rowKey="id"

@@ -1,7 +1,7 @@
 import { IconClock, IconComment, IconDownload, IconRewindPlay, IconShare, IconWarning } from '@posthog/icons'
-import { LemonTable } from '@posthog/lemon-ui'
 
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { SessionRecordingPlaylistType } from '~/types'
 
@@ -45,7 +45,7 @@ export function BuiltInCollections({
     return (
         <div className="border rounded overflow-hidden bg-surface-primary">
             <CollectionSectionHeading title="Built-in" description="Kept up to date by PostHog." />
-            <LemonTable
+            <LemonOrQuillTable
                 embedded
                 tableLayout="fixed"
                 loading={loading}

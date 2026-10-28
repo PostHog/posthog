@@ -11,7 +11,6 @@ import {
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
-    LemonTable,
     LemonTabs,
     LemonTag,
     LemonTextArea,
@@ -26,6 +25,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { urls } from 'scenes/urls'
 
@@ -318,7 +318,7 @@ function HogTaggerTestSection({ id }: { id: string }): JSX.Element {
             </div>
 
             {hogTestResults && (
-                <LemonTable
+                <LemonOrQuillTable
                     columns={[
                         {
                             title: 'Input',
@@ -716,7 +716,7 @@ function TagRunsTable({ id }: { id: string }): JSX.Element {
                     Refresh
                 </LemonButton>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={tagRuns}
                 loading={tagRunsLoading}

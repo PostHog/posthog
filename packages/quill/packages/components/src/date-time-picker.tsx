@@ -64,7 +64,6 @@ export interface DateTimePickerProps {
     className?: string
 }
 
-
 export function DateTimePicker({
     value,
     onApply,
@@ -208,28 +207,45 @@ export function DateTimePicker({
             {!compact && showHeader && (
                 <div className={hasPresets ? 'hidden lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]' : 'hidden lg:grid'}>
                     <div className="flex items-center gap-2 px-2 py-1 bg-muted/30 border-b border-border rounded-tl-lg">
-                        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Choose date range</span>
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                            Choose date range
+                        </span>
                         {(minDate || hasExplicitMaxDate) && (
                             <div className="flex items-center gap-1 ml-auto">
-                                {minDate && <Badge variant="default" className="text-[10px] px-1.5 py-0">Min: {format(minDate, 'MMM d, yy')}</Badge>}
-                                {minDate && hasExplicitMaxDate && <span className="text-[10px] text-muted-foreground"><ArrowRight className="size-3" /></span>}
-                                {hasExplicitMaxDate && <Badge variant="default" className="text-[10px] px-1.5 py-0">Max: {format(maxDate, 'MMM d, yy')}</Badge>}
+                                {minDate && (
+                                    <Badge variant="default" className="text-[10px] px-1.5 py-0">
+                                        Min: {format(minDate, 'MMM d, yy')}
+                                    </Badge>
+                                )}
+                                {minDate && hasExplicitMaxDate && (
+                                    <span className="text-[10px] text-muted-foreground">
+                                        <ArrowRight className="size-3" />
+                                    </span>
+                                )}
+                                {hasExplicitMaxDate && (
+                                    <Badge variant="default" className="text-[10px] px-1.5 py-0">
+                                        Max: {format(maxDate, 'MMM d, yy')}
+                                    </Badge>
+                                )}
                             </div>
                         )}
                     </div>
                     {hasPresets && (
                         <div className="flex justify-start px-2 py-1 bg-muted/30 border-b border-l border-border rounded-tr-lg">
-                            <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Quick ranges</span>
+                            <span className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                                Quick ranges
+                            </span>
                         </div>
                     )}
                 </div>
             )}
 
             {/* Body */}
-            <div className={compact || !hasPresets
-                ? 'flex flex-col'
-                : 'flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]'
-            }>
+            <div
+                className={
+                    compact || !hasPresets ? 'flex flex-col' : 'flex flex-col lg:grid lg:grid-cols-[minmax(0,1fr)_9rem]'
+                }
+            >
                 {/* Calendars column */}
                 <div className={compact ? 'order-1' : 'order-1 lg:order-none'}>
                     {/* Inputs */}
@@ -247,9 +263,21 @@ export function DateTimePicker({
                                         <SettingsIcon />
                                     </Button>
                                 )}
-                                <SegmentedDateInput date={start} maxDate={maxDate} onChange={handleStartChange} dateFormat={dateFormat} showTime={showTime} />
+                                <SegmentedDateInput
+                                    date={start}
+                                    maxDate={maxDate}
+                                    onChange={handleStartChange}
+                                    dateFormat={dateFormat}
+                                    showTime={showTime}
+                                />
                                 <span className="text-xs text-muted-foreground">to</span>
-                                <SegmentedDateInput date={end} maxDate={maxDate} onChange={handleEndChange} dateFormat={dateFormat} showTime={showTime} />
+                                <SegmentedDateInput
+                                    date={end}
+                                    maxDate={maxDate}
+                                    onChange={handleEndChange}
+                                    dateFormat={dateFormat}
+                                    showTime={showTime}
+                                />
                                 {showTime && (
                                     <Button
                                         variant="link"
@@ -266,10 +294,11 @@ export function DateTimePicker({
                     )}
 
                     {/* Calendars */}
-                    <div className={compact
-                        ? 'flex flex-col justify-between'
-                        : 'flex flex-col lg:flex-row justify-between'
-                    }>
+                    <div
+                        className={
+                            compact ? 'flex flex-col justify-between' : 'flex flex-col lg:flex-row justify-between'
+                        }
+                    >
                         {!compact && (
                             <div className="p-2 hidden lg:block">
                                 <Calendar
@@ -303,38 +332,45 @@ export function DateTimePicker({
 
                 {/* Quick ranges column */}
                 {hasPresets && (
-                <div className={compact
-                    ? 'order-0 border-b border-border'
-                    : 'order-0 lg:order-none lg:relative lg:border-l lg:border-border border-b border-border lg:border-b-0'
-                }>
-                    <ScrollArea className={compact ? 'w-full' : 'w-full lg:absolute lg:inset-0'}>
-                        <ul className={compact
-                            ? 'flex flex-row p-2 gap-px max-h-[320px]'
-                            : 'flex flex-row lg:flex-col p-2 gap-px max-h-[320px]'
-                        }>
-                            {presetRanges.map((quick) => (
-                                <li key={quick.id} className={compact ? undefined : 'lg:w-full'}>
-                                    <Button
-                                        variant="default"
-                                        size="sm"
-                                        left
-                                        className={compact
-                                            ? 'whitespace-nowrap'
-                                            : 'whitespace-nowrap lg:w-full lg:justify-start'
-                                        }
-                                        aria-selected={range.id === quick.id}
-                                        aria-label={`Choose ${quick.name.toLowerCase()}`}
-                                        title={quick.name}
-                                        onClick={() => handleQuickRange(quick)}
-                                        data-attr={`date-time-picker-quick-range-${quick.name.toLowerCase().replace(/\s+/g, '-')}`}
-                                    >
-                                        {quick.name}
-                                    </Button>
-                                </li>
-                            ))}
-                        </ul>
-                    </ScrollArea>
-                </div>
+                    <div
+                        className={
+                            compact
+                                ? 'order-0 border-b border-border'
+                                : 'order-0 lg:order-none lg:relative lg:border-l lg:border-border border-b border-border lg:border-b-0'
+                        }
+                    >
+                        <ScrollArea className={compact ? 'w-full' : 'w-full lg:absolute lg:inset-0'}>
+                            <ul
+                                className={
+                                    compact
+                                        ? 'flex flex-row p-2 gap-px max-h-[320px]'
+                                        : 'flex flex-row lg:flex-col p-2 gap-px max-h-[320px]'
+                                }
+                            >
+                                {presetRanges.map((quick) => (
+                                    <li key={quick.id} className={compact ? undefined : 'lg:w-full'}>
+                                        <Button
+                                            variant="default"
+                                            size="sm"
+                                            left
+                                            className={
+                                                compact
+                                                    ? 'whitespace-nowrap'
+                                                    : 'whitespace-nowrap lg:w-full lg:justify-start'
+                                            }
+                                            aria-selected={range.id === quick.id}
+                                            aria-label={`Choose ${quick.name.toLowerCase()}`}
+                                            title={quick.name}
+                                            onClick={() => handleQuickRange(quick)}
+                                            data-attr={`date-time-picker-quick-range-${quick.name.toLowerCase().replace(/\s+/g, '-')}`}
+                                        >
+                                            {quick.name}
+                                        </Button>
+                                    </li>
+                                ))}
+                            </ul>
+                        </ScrollArea>
+                    </div>
                 )}
             </div>
 
@@ -343,10 +379,22 @@ export function DateTimePicker({
             {/* Actions */}
             <div className="flex justify-end px-3 py-2 items-center gap-2 bg-muted/30">
                 <span className="text-[10px] text-muted-foreground flex items-center gap-1 tabular-nums mr-auto">
-                    {range.id === CUSTOM_RANGE.id ? <>{presentationalStart} <ArrowRight className="size-3" /> {presentationalEnd}</> : range.name}
+                    {range.id === CUSTOM_RANGE.id ? (
+                        <>
+                            {presentationalStart} <ArrowRight className="size-3" /> {presentationalEnd}
+                        </>
+                    ) : (
+                        range.name
+                    )}
                 </span>
                 {onCancel ? (
-                    <Button variant="outline" size="sm" onClick={onCancel} aria-label="Cancel" data-attr="date-time-picker-cancel">
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={onCancel}
+                        aria-label="Cancel"
+                        data-attr="date-time-picker-cancel"
+                    >
                         Cancel
                     </Button>
                 ) : null}

@@ -19,8 +19,9 @@ import { TagSelect } from 'lib/components/TagSelect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
@@ -524,7 +525,7 @@ export function WorkflowsTable(): JSX.Element {
                     </div>
                 )}
 
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={workflows.results}
                     loading={workflowsLoading}
                     rowKey="id"

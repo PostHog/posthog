@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { IconBalance, IconDownload, IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -169,7 +170,7 @@ export function LegalDocumentsScene(): JSX.Element {
                 </div>
             )}
 
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={legalDocuments}
                 loading={legalDocumentsLoading}
                 emptyState="You haven't generated any legal documents yet. Click New to create one."

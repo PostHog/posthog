@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconSort } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
@@ -18,6 +18,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -533,7 +534,7 @@ export function ManagedMigrations(): JSX.Element {
                             )
                         }
                     />
-                    <LemonTable
+                    <LemonOrQuillTable
                         dataSource={migrations}
                         loading={migrationsLoading}
                         defaultSorting={{

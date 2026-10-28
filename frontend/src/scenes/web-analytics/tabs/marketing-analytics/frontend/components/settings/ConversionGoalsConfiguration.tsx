@@ -7,7 +7,7 @@ import { LemonBanner, LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -214,7 +214,7 @@ export function ConversionGoalsConfiguration({
             <div>
                 <h3 className="font-bold mb-4">{getConfiguredConversionGoalsLabel(conversion_goals.length)}</h3>
 
-                <LemonTable
+                <LemonOrQuillTable
                     rowKey={(item) => item.conversion_goal_id}
                     dataSource={conversion_goals}
                     columns={[

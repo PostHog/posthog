@@ -7,7 +7,6 @@ import {
     LemonDialog,
     LemonInput,
     LemonSwitch,
-    LemonTable,
     LemonTableColumns,
     LemonTag,
 } from '@posthog/lemon-ui'
@@ -16,6 +15,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { truncate } from 'lib/utils/strings'
 
 import { featureFlagsStaffTeamConfigSetCreateBodyMaxFeatureFlagsOverrideMax } from '../generated/api.zod'
@@ -387,7 +387,7 @@ export function StaffCacheToolsTab(): JSX.Element {
                 </LemonButton>
             </div>
 
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={selectedTeams}
                 columns={columns}
                 loading={cacheStatusLoading}

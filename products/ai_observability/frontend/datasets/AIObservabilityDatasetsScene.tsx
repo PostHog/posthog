@@ -5,13 +5,14 @@ import type { ReactNode } from 'react'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { LemonInput } from '~/lib/lemon-ui/LemonInput'
 import { LemonSegmentedButton } from '~/lib/lemon-ui/LemonSegmentedButton'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
 import { createdAtColumn, updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTag } from '~/lib/lemon-ui/LemonTag'
 import { toAccessControlLevel } from '~/lib/utils/accessControlUtils'
@@ -220,7 +221,7 @@ export function AIObservabilityDatasetsScene({ navigation }: { navigation?: Reac
                 </div>
             </div>
 
-            <LemonTable
+            <LemonOrQuillTable
                 id="datasets"
                 className="@max-[50rem]/datasets:[&_colgroup]:hidden @max-[50rem]/datasets:[&_table]:table-auto"
                 size="small"

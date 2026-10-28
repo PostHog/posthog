@@ -1,8 +1,9 @@
 import { IconCopy } from '@posthog/icons'
-import { LemonBanner, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { FeatureFlagFiltersSection } from 'scenes/feature-flags/FeatureFlagFilters'
 import { FeatureFlagsFilters } from 'scenes/feature-flags/featureFlagsLogic'
@@ -124,7 +125,7 @@ export function ExperimentFlagKeyInput({
                         searchPlaceholder="Search for feature flags"
                         filtersConfig={{ search: true, type: true }}
                     />
-                    <LemonTable
+                    <LemonOrQuillTable
                         id="ff"
                         className="mt-2"
                         dataSource={featureFlags.results}

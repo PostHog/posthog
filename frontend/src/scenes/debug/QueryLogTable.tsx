@@ -4,7 +4,7 @@ import { IconArrowRight } from '@posthog/icons'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -63,7 +63,7 @@ export function QueryLogTable({ queryKey, onLoadQuery }: QueryLogTableProps): JS
                     Refresh
                 </LemonButton>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={queryLogs}
                 loading={queryLogsLoading}
                 columns={[

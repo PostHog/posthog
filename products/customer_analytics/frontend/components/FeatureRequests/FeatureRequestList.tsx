@@ -7,7 +7,6 @@ import {
     LemonButton,
     LemonInput,
     LemonSkeleton,
-    LemonTable,
     LemonTableColumns,
     LemonTag,
     Link,
@@ -15,6 +14,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -186,7 +186,7 @@ export function FeatureRequestList(): JSX.Element {
                     {featureRequestsError}
                 </LemonBanner>
             )}
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={featureRequestsResponse.results}
                 columns={columns}
                 rowKey="id"

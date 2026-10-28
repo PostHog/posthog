@@ -1,9 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonButton, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { truncate } from 'lib/utils/strings'
 
 import {
@@ -93,7 +94,7 @@ function LogsAlertEventTimeline({ alert }: { alert: LogsAlertConfigurationApi })
                 />
             ) : null}
             <div className="max-h-96 overflow-y-auto">
-                <LemonTable
+                <LemonOrQuillTable
                     columns={columns}
                     dataSource={eventsPage.results}
                     rowKey="id"

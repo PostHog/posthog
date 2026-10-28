@@ -2,21 +2,13 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconCopy, IconEye, IconPlay, IconRefresh, IconSearch, IconX } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonInput,
-    LemonSelect,
-    LemonTable,
-    LemonTag,
-    LemonTagType,
-    Link,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSelect, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { getExperimentVariants } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
@@ -536,7 +528,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                     </Tooltip>
                 </div>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 rowRibbonColor={(obs) => (obs.viewed ? null : 'var(--color-accent)')}
                 columns={columns}
                 dataSource={observations}

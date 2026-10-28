@@ -1,8 +1,9 @@
-import { LemonBanner, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import type { LemonTableColumn } from 'lib/lemon-ui/LemonTable/types'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -37,7 +38,7 @@ export const RelatedExperimentsTable = ({
     return (
         <div className="space-y-6">
             <LemonBanner type="info">{multipleExperimentsBannerMessage}</LemonBanner>
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={relatedExperiments}
                 loading={relatedExperimentsLoading}
                 defaultSorting={{

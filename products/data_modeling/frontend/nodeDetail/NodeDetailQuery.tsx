@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonCollapse, LemonSkeleton, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { DatabaseSchemaField } from '~/queries/schema/schema-general'
 
@@ -60,7 +61,7 @@ export function NodeDetailQuery({ id }: { id: string }): JSX.Element {
                         header: `Columns (${columns.length})`,
                         dataAttr: 'node-detail-query-columns',
                         content: (
-                            <LemonTable
+                            <LemonOrQuillTable
                                 size="small"
                                 pagination={{ pageSize: 10, useUrl: false }}
                                 dataSource={columns}

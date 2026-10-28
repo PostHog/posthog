@@ -15,8 +15,9 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -310,7 +311,7 @@ export function Cohorts(): JSX.Element {
             <RealtimeCohortsWaitlistBanner />
 
             <div>{filtersSection}</div>
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 loading={cohortsLoading}
                 rowKey="id"

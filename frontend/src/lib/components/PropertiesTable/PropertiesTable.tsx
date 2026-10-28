@@ -9,7 +9,8 @@ import { IconPencil, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonCheckbox, LemonDialog, LemonInput, LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { isObject, isKeyOf } from 'lib/utils/guards'
@@ -375,7 +376,7 @@ export function PropertiesTable({
         return (
             <div>
                 {properties.length ? (
-                    <LemonTable
+                    <LemonOrQuillTable
                         columns={[
                             {
                                 key: 'key',
@@ -571,7 +572,7 @@ export function PropertiesTable({
                     </div>
                 )}
 
-                <LemonTable
+                <LemonOrQuillTable
                     columns={columns}
                     showHeader={!embedded}
                     rowKey="0"

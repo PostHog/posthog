@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { cimdVerificationTokensLogic, validateCimdUrl, CIMDVerificationToken } from './cimdVerificationTokensLogic'
@@ -74,7 +75,7 @@ export function CIMDVerificationTokens(): JSX.Element {
                     <p className="text-secondary">Create one to link a CIMD partner app to this organization.</p>
                 </div>
             ) : (
-                <LemonTable
+                <LemonOrQuillTable
                     loading={tokensLoading}
                     dataSource={tokens}
                     columns={[

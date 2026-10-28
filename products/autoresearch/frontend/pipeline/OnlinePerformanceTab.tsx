@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { IconGraph } from '@posthog/icons'
-import { LemonBanner, LemonCollapse, LemonTable, LemonTag, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { pluralize } from 'lib/utils/strings'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
@@ -125,7 +126,7 @@ export function OnlinePerformanceTab(): JSX.Element {
                         header: `All checked dates (${onlinePerformance.length})`,
                         content: (
                             <div className="space-y-2">
-                                <LemonTable
+                                <LemonOrQuillTable
                                     dataSource={onlinePerformance}
                                     rowKey={(row) => `${row.validation_run_id}-${row.model_id}`}
                                     columns={[

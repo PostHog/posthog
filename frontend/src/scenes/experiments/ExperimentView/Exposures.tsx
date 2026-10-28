@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheckCircle, IconCorrelationAnalysis, IconInfo, IconPencil, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonTable, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 import {
     LineChart,
     type LineChartConfig,
@@ -11,6 +11,7 @@ import {
 } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
@@ -368,7 +369,7 @@ export function Exposures(): JSX.Element {
                             {(exposures?.timeseries?.length ?? 0) > 0 && (
                                 <div>
                                     <h3 className="card-secondary">Total exposures</h3>
-                                    <LemonTable
+                                    <LemonOrQuillTable
                                         rowClassName={(series) =>
                                             series.isExcluded || series.isHoldout ? 'opacity-60' : ''
                                         }

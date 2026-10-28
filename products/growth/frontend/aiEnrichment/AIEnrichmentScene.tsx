@@ -8,7 +8,6 @@ import {
     LemonInput,
     LemonInputSelect,
     LemonSelect,
-    LemonTable,
     LemonTableColumns,
     LemonTag,
     LemonTabs,
@@ -18,6 +17,7 @@ import {
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -70,7 +70,7 @@ function AIEnrichmentLabelPicker(): JSX.Element {
     return (
         <div className="space-y-2">
             <h3 className="mb-0">Pick a label</h3>
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={results}
                 loading={labelsLoading}
                 rowKey={(row) => row.label}
@@ -180,7 +180,7 @@ export function AIEnrichmentVersionRail(): JSX.Element {
                     </span>
                 </span>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={versions}
                 loading={configsLoading}
                 rowKey={(version) => version.id}

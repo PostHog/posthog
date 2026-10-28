@@ -1,4 +1,6 @@
-import { LemonTable, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
+
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type { ContentAutopilotSourceLedgerEntryApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
@@ -10,7 +12,7 @@ export interface ContentAutopilotSourceLedgerProps {
 export const ContentAutopilotSourceLedger = ({ entries, notes }: ContentAutopilotSourceLedgerProps): JSX.Element => (
     <div className="flex flex-col gap-3">
         <p className="m-0 text-muted text-sm">Each fact in the draft and the page that backs it up.</p>
-        <LemonTable
+        <LemonOrQuillTable
             dataSource={entries}
             rowKey={(entry, index) => `${index}-${entry.claim}-${entry.source_url}`}
             emptyState="The draft doesn't make any claims that need a source."

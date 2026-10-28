@@ -1,9 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSwitch, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { LogsMetricRuleApi } from 'products/logs/frontend/generated/api.schemas'
 
@@ -36,7 +37,7 @@ function LogsMetricRulesTable(): JSX.Element {
 
     return (
         <div className="space-y-2">
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={rules}
                 loading={rulesLoading}
                 rowKey="id"

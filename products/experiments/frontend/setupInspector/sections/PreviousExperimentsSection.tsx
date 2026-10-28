@@ -1,4 +1,5 @@
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
@@ -184,7 +185,7 @@ export function PreviousExperimentsSection({
                             { label: 'Serving a single variant', value: String(summary.serving_single_variant) },
                         ]}
                     />
-                    <LemonTable
+                    <LemonOrQuillTable
                         size="small"
                         rowKey="id"
                         dataSource={data.experiments}

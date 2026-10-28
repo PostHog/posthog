@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowLeft, IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonModal, LemonSkeleton, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -167,7 +168,7 @@ export function OfflineExperimentContent(props: OfflineExperimentLogicProps): JS
                             {summariesError}
                         </LemonBanner>
                     )}
-                    <LemonTable
+                    <LemonOrQuillTable
                         className="mt-3"
                         tableLayout="fixed"
                         dataSource={summaries}

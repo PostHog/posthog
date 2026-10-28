@@ -1,6 +1,7 @@
 import { IconCopy, IconFilter, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 export type PropertyTableRow = {
@@ -35,7 +36,7 @@ export function PropertiesTable({
         .filter((entry) => entry.value !== undefined)
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             embedded
             size="small"
             tableLayout={tableLayout}

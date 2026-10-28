@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type { AccountRelationshipDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -83,7 +84,7 @@ export function RelationshipsConfig(): JSX.Element {
                     New relationship
                 </LemonButton>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={definitions}
                 loading={definitionsLoading}

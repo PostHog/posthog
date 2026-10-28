@@ -9,7 +9,8 @@ import { HumanizedActivityLogItem, humanizeActivity, humanizeScope } from 'lib/c
 import { parseAgentAttribution } from 'lib/components/ActivityLog/parseAgentAttribution'
 import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -162,7 +163,7 @@ export function AuditLogTable({ logItems, pagination, teamsById }: AuditLogTable
     }
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             columns={columns}
             dataSource={logItems}
             expandable={{

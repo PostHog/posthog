@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCalendar, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonSwitch, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonSwitch, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconCancel } from 'lib/lemon-ui/icons'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyNumber, humanizeBytes } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
@@ -108,7 +109,7 @@ function BatchExportLatestRuns({ id, context }: BatchExportRunsLogicProps): JSX.
 
     return (
         <>
-            <LemonTable<BatchExportRun>
+            <LemonOrQuillTable<BatchExportRun>
                 dataSource={latestRuns}
                 loading={loading}
                 loadingSkeletonRows={5}
@@ -244,7 +245,7 @@ export function BatchExportRunsGrouped({
                     are hidden.
                 </div>
             )}
-            <LemonTable<GroupedBatchExportRuns>
+            <LemonOrQuillTable<GroupedBatchExportRuns>
                 dataSource={groupedRuns}
                 loading={loading}
                 loadingSkeletonRows={5}
@@ -261,7 +262,7 @@ export function BatchExportRunsGrouped({
                     noIndent: true,
                     expandedRowRender: (groupedRuns) => {
                         return (
-                            <LemonTable<BatchExportRun>
+                            <LemonOrQuillTable<BatchExportRun>
                                 dataSource={groupedRuns.runs}
                                 embedded={true}
                                 columns={[

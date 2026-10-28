@@ -4,9 +4,10 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode } from 'react'
 
-import { LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -273,7 +274,7 @@ export function WorkflowHealthTable({
         : columns
 
     return (
-        <LemonTable
+        <LemonOrQuillTable
             data-attr={dataAttr}
             size="small"
             embedded={embedded}

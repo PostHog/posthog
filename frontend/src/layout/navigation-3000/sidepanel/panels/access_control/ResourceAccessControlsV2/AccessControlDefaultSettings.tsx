@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { IconHome, IconInfo, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonDropdown, LemonSelect, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
 
 import { AccessControlLevel, AvailableFeature } from '~/types'
@@ -61,7 +62,7 @@ export function AccessControlDefaultSettings({ projectId }: { projectId: string 
                     </div>
                 </div>
 
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={resourceKeys}
                     loading={loading}
                     columns={[

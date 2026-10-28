@@ -4,8 +4,9 @@ import { IconFlask, IconPlus } from '@posthog/icons'
 import { LemonInput, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { Experiment } from '~/types'
 
@@ -103,7 +104,7 @@ export function ExperimentsNotebookTable({ onSelect }: ExperimentsNotebookTableP
                 />
             </div>
             <div className="overflow-x-hidden">
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={experiments.results}
                     columns={columns}
                     loading={experimentsLoading}

@@ -1,8 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconFlag } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonModal, LemonTable, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonTableColumns, LemonTag } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
@@ -147,7 +148,11 @@ export function ReleaseConditionsTable(): JSX.Element {
                     </div>
                 </div>
             </div>
-            <LemonTable loading={false} columns={columns} dataSource={experiment.feature_flag?.filters.groups || []} />
+            <LemonOrQuillTable
+                loading={false}
+                columns={columns}
+                dataSource={experiment.feature_flag?.filters.groups || []}
+            />
         </div>
     )
 }

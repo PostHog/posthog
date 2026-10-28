@@ -1,8 +1,9 @@
 import { BuiltLogic, useValues } from 'kea'
 
-import { LemonTable, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { urls } from 'scenes/urls'
 
 import { llmEvaluationsLogic } from '../evaluations/llmEvaluationsLogic'
@@ -75,7 +76,7 @@ export function GenerationEvalRunsTable({
 
     return (
         <div>
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={generationEvaluationRuns}
                 loading={generationEvaluationRunsLoading}

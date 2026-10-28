@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { QuickFilter, QuickFilterOption } from '~/types'
@@ -167,7 +168,11 @@ export function QuickFiltersModalContent({
                             <p>No filters match your search.</p>
                         </div>
                     ) : (
-                        <LemonTable dataSource={filteredQuickFilters} loading={quickFiltersLoading} columns={columns} />
+                        <LemonOrQuillTable
+                            dataSource={filteredQuickFilters}
+                            loading={quickFiltersLoading}
+                            columns={columns}
+                        />
                     )}
                     <div className="flex justify-between mt-4">
                         {footerActionsConfig && (

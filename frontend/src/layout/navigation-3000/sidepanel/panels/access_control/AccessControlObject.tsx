@@ -10,7 +10,6 @@ import {
     LemonModal,
     LemonSelect,
     LemonSelectProps,
-    LemonTable,
     Tooltip,
 } from '@posthog/lemon-ui'
 
@@ -18,6 +17,7 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { UserSelectItem } from 'lib/components/UserSelectItem'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfileBubbles, ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { getAccessControlTooltip } from 'lib/utils/accessControlUtils'
@@ -246,7 +246,11 @@ function AccessControlObjectUsers(): JSX.Element | null {
                     </LemonButton>
                 </div>
 
-                <LemonTable columns={columns} dataSource={accessControlMembers} loading={accessControlsLoading} />
+                <LemonOrQuillTable
+                    columns={columns}
+                    dataSource={accessControlMembers}
+                    loading={accessControlsLoading}
+                />
             </div>
 
             <AddItemsControlsModal
@@ -360,7 +364,7 @@ function AccessControlObjectRoles(): JSX.Element | null {
                     </LemonButton>
                 </div>
 
-                <LemonTable columns={columns} dataSource={accessControlRoles} loading={accessControlsLoading} />
+                <LemonOrQuillTable columns={columns} dataSource={accessControlRoles} loading={accessControlsLoading} />
             </div>
 
             <AddItemsControlsModal

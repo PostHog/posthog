@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonBanner, Link } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { ContentAutopilotCheckResultTag } from './ContentAutopilotCheckResultTag'
@@ -28,7 +29,7 @@ export const ContentAutopilotPromptChecks = (): JSX.Element => {
     return (
         <div className="flex flex-col gap-2">
             {checksFailed && errorBanner}
-            <LemonTable
+            <LemonOrQuillTable
                 size="small"
                 dataSource={checks?.results ?? []}
                 rowKey="id"

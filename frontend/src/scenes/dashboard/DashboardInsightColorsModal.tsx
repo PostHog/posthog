@@ -7,10 +7,10 @@ import {
     LemonModal,
     LemonSkeleton,
     LemonTag,
-    LemonTable,
     LemonTableColumns,
 } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
@@ -281,14 +281,14 @@ export function DashboardInsightColorsModal(): JSX.Element {
                 Breakdown colors
             </LemonLabel>
             {breakdownValueGroups.length === 0 ? (
-                <LemonTable columns={columns} dataSource={[]} loading={insightTilesLoading || undefined} />
+                <LemonOrQuillTable columns={columns} dataSource={[]} loading={insightTilesLoading || undefined} />
             ) : (
                 breakdownValueGroups.map((group) => (
                     <div key={group.breakdownProperty ?? ''} className="mb-4">
                         <LemonLabel className="mb-1">
                             <BreakdownPropertyGroupTitle breakdownProperty={group.breakdownProperty} />
                         </LemonLabel>
-                        <LemonTable columns={columns} dataSource={group.values.map(toRow)} showHeader={false} />
+                        <LemonOrQuillTable columns={columns} dataSource={group.values.map(toRow)} showHeader={false} />
                     </div>
                 ))
             )}

@@ -6,7 +6,8 @@ import { Button } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -132,7 +133,7 @@ export function SqlVariablesTable(): JSX.Element {
                     className="w-60"
                 />
             </div>
-            <LemonTable<Variable>
+            <LemonOrQuillTable<Variable>
                 data-attr="sql-variables-table"
                 rowKey="id"
                 dataSource={filteredVariables}

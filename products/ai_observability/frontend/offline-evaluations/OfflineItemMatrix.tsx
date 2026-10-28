@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { LemonBanner, LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import type { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import type { OfflineItemReadApi } from '../generated/api.schemas'
 import { ScorerLabel } from '../scoreDefinitions/ScorerLabel'
@@ -160,7 +161,7 @@ export function OfflineItemMatrix(props: OfflineExperimentLogicProps): JSX.Eleme
                     }
                 }}
             >
-                <LemonTable
+                <LemonOrQuillTable
                     dataSource={itemsError ? [] : items?.results || []}
                     columns={columns}
                     loading={itemsLoading}

@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { urls } from 'scenes/urls'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
@@ -122,7 +123,7 @@ export function EngineeringAnalyticsTeams(): JSX.Element {
                     <CIAnalyticsLoadError onRetry={loadTeams} loading={teamsLoading} />
                 ) : (
                     <div className="flex flex-col gap-2">
-                        <LemonTable
+                        <LemonOrQuillTable
                             data-attr="engineering-analytics-teams-table"
                             size="small"
                             columns={columns}

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconCopy } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCollapse, LemonSkeleton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCollapse, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
@@ -10,6 +10,7 @@ import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { WebhookInfo } from '~/types'
@@ -451,7 +452,7 @@ function MappedTablesSection({
     return (
         <LemonCard hoverEffect={false} className="space-y-3">
             <h3 className="text-lg font-semibold">Mapped tables</h3>
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={mappedTables}
                 columns={[
                     {

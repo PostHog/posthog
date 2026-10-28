@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -153,7 +154,7 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
                         as unowned. Try again in a few minutes.
                     </LemonBanner>
                 )}
-                <LemonTable
+                <LemonOrQuillTable
                     data-attr="engineering-analytics-trunk-debt-teams-table"
                     size="small"
                     columns={teamColumns}

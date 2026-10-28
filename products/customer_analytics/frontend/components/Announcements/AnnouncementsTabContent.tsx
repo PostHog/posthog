@@ -7,7 +7,6 @@ import {
     LemonInputSelect,
     LemonSegmentedButton,
     LemonSnack,
-    LemonTable,
     LemonTableColumns,
     LemonTag,
     LemonTextArea,
@@ -15,6 +14,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
@@ -198,7 +198,7 @@ function DeliveriesTable({ deliveries }: { deliveries: readonly AnnouncementDeli
                 delivery.error ? <span className="text-danger text-xs">{delivery.error}</span> : '—',
         },
     ]
-    return <LemonTable embedded dataSource={[...deliveries]} rowKey="id" columns={columns} />
+    return <LemonOrQuillTable embedded dataSource={[...deliveries]} rowKey="id" columns={columns} />
 }
 
 function AnnouncementHistory(): JSX.Element {
@@ -257,7 +257,7 @@ function AnnouncementHistory(): JSX.Element {
                     Refresh
                 </LemonButton>
             </div>
-            <LemonTable<AnnouncementApi>
+            <LemonOrQuillTable<AnnouncementApi>
                 dataSource={announcements}
                 loading={announcementsLoading}
                 rowKey="id"

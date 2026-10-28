@@ -2,10 +2,11 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import * as businessEvolutionPng from '@posthog/brand/hoggies/png/business-evolution'
-import { LemonSkeleton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonSkeleton, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { dayjs } from 'lib/dayjs'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 
 import { AccountOpportunity, accountOpportunitiesLogic, NOT_LOADED } from './accountOpportunitiesLogic'
@@ -120,7 +121,7 @@ export function AccountOpportunitiesExpansion({
     }
 
     return (
-        <LemonTable<AccountOpportunity>
+        <LemonOrQuillTable<AccountOpportunity>
             size="small"
             embedded={embedded}
             dataSource={opportunities}

@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSegmentedButton, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 
 import { EvaluationExplanation } from '../../components/EvaluationExplanation'
 import { EvaluationResultTag, compareEvaluationResults } from '../../components/EvaluationResultTag'
@@ -219,7 +220,7 @@ export function EvaluationRunsTable(): JSX.Element {
                 </LemonBanner>
             )}
 
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={filteredEvaluationRuns}
                 loading={evaluationRunsLoading}

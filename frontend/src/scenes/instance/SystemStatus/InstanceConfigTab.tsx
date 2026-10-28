@@ -6,7 +6,8 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { pluralize } from 'lib/utils/strings'
 import { EnvironmentConfigOption, preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -153,7 +154,7 @@ export function InstanceConfigTab(): JSX.Element {
                 )}
             </div>
 
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={editableInstanceSettings}
                 columns={columns}
                 loading={instanceSettingsLoading}
@@ -170,7 +171,12 @@ export function InstanceConfigTab(): JSX.Element {
                     .
                 </div>
             </div>
-            <LemonTable dataSource={configOptions} columns={envColumns} loading={preflightLoading} rowKey="key" />
+            <LemonOrQuillTable
+                dataSource={configOptions}
+                columns={envColumns}
+                loading={preflightLoading}
+                rowKey="key"
+            />
             <InstanceConfigSaveModal
                 isOpen={instanceConfigMode === ConfigMode.Saving}
                 onClose={() => setInstanceConfigMode(ConfigMode.Edit)}

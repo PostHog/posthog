@@ -5,7 +5,7 @@ import { LemonDivider } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { userLogic } from 'scenes/userLogic'
@@ -63,7 +63,7 @@ export function MetricsTab(): JSX.Element {
             {tableMetrics.map((row) => (
                 <div key={row.key}>
                     <h2>{row.metric}</h2>
-                    <LemonTable
+                    <LemonOrQuillTable
                         columns={
                             row.subrows?.columns?.map((columnTitle, index) => ({
                                 title: columnTitle,

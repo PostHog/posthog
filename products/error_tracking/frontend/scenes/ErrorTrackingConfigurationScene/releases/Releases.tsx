@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { ErrorTrackingRelease } from 'lib/components/Errors/types'
 import { GitMetadataParser } from 'lib/components/Git/gitMetadataParser'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 import { releasesLogic } from './releasesLogic'
@@ -123,7 +124,7 @@ const ReleasesTable = (): JSX.Element => {
     )
 
     return (
-        <LemonTable<ErrorTrackingRelease>
+        <LemonOrQuillTable<ErrorTrackingRelease>
             id="releases"
             pagination={pagination}
             columns={columns}

@@ -8,7 +8,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -212,7 +213,7 @@ export function CertificationsTab(): JSX.Element {
                     </LemonButton>
                 </div>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 key={highlightedCertificationId ?? CERTIFICATIONS_TABLE_ID}
                 id={CERTIFICATIONS_TABLE_ID}
                 data-attr="data-catalog-certifications-table"

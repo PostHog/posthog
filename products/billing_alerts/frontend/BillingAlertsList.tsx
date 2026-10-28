@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { IconBell, IconPlay, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import type { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 
 import type { BillingAlertConfigurationApi } from 'products/billing/frontend/generated/api.schemas'
@@ -108,7 +109,7 @@ export function BillingAlertsList(): JSX.Element {
                     New alert
                 </LemonButton>
             </div>
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={alerts}
                 columns={columns}
                 rowKey="id"

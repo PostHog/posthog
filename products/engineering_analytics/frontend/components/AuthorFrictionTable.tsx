@@ -1,5 +1,6 @@
-import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonTableColumns, Link } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { urls } from 'scenes/urls'
 
@@ -110,7 +111,7 @@ export function AuthorFrictionTable({
         },
     ]
     return (
-        <LemonTable
+        <LemonOrQuillTable
             data-attr={dataAttr}
             size="small"
             columns={columns}

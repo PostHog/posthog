@@ -1,6 +1,7 @@
-import { LemonTable, LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTableColumns, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { pluralize } from 'lib/utils/strings'
 
 import { githubFileUrl } from '../lib/github'
@@ -74,7 +75,7 @@ export function TeamQuarantinedTestsTable({
         },
     ]
     return (
-        <LemonTable
+        <LemonOrQuillTable
             data-attr="engineering-analytics-trunk-debt-tests-table"
             size="small"
             embedded

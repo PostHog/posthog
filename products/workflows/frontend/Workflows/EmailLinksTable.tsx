@@ -1,5 +1,6 @@
-import { LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { type EmailLinkRow } from './workflowMetricsSummaryLogic'
@@ -49,7 +50,7 @@ export function EmailLinksTable({
     emptyState?: string
 }): JSX.Element {
     return (
-        <LemonTable
+        <LemonOrQuillTable
             columns={EMAIL_LINK_COLUMNS}
             dataSource={links}
             loading={loading}

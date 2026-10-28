@@ -2,20 +2,13 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconGear, IconGithub } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonInput,
-    LemonSegmentedButton,
-    LemonTable,
-    LemonTableColumns,
-    LemonTag,
-    Link,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSegmentedButton, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -210,7 +203,7 @@ export function VisualReviewRunsScene(): JSX.Element {
                 </LemonButton>
             </div>
 
-            <LemonTable
+            <LemonOrQuillTable
                 dataSource={runs}
                 columns={columns}
                 loading={runsLoading}

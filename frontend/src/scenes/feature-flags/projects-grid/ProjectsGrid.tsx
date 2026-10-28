@@ -3,7 +3,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonOrQuillTable } from 'lib/lemon-ui/LemonTable/LemonOrQuillTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -168,7 +169,7 @@ export function ProjectsGrid(): JSX.Element {
         >
             <ProjectsGridToolbar bulkSelectionBarRef={setBulkBarTarget} />
             <BulkCopyFlagsModal />
-            <LemonTable
+            <LemonOrQuillTable
                 columns={columns}
                 dataSource={flags}
                 rowKey="id"
