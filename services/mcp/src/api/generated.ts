@@ -7423,6 +7423,19 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ExperimentWarehouseNativeExposureConfigResponse = { [key: string]: unknown } | null;
+
+    export interface ExperimentWarehouseNativeExposureConfig {
+      /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
+      connection_id: string;
+      kind?: 'ExperimentWarehouseNativeExposureConfig';
+      /** Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies the experiment's date range and multiple-variant handling. */
+      query: string;
+      response?: ExperimentWarehouseNativeExposureConfigResponse;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
     export type MultipleVariantHandling = typeof MultipleVariantHandling[keyof typeof MultipleVariantHandling];
 
 
@@ -7473,6 +7486,32 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type ExperimentWarehouseNativeMathType = typeof ExperimentWarehouseNativeMathType[keyof typeof ExperimentWarehouseNativeMathType];
+
+
+    export const ExperimentWarehouseNativeMathType = {
+      Total: 'total',
+      Sum: 'sum',
+    } as const;
+
+    export type ExperimentWarehouseNativeNodeResponse = { [key: string]: unknown } | null;
+
+    export interface ExperimentWarehouseNativeNode {
+      /** The direct-query source (an ExternalDataSource id) the SQL is written for. */
+      connection_id: string;
+      custom_name?: string | null;
+      kind?: 'ExperimentWarehouseNativeNode';
+      /** How to aggregate the rows per entity. Defaults to `total` (row count). */
+      math?: ExperimentWarehouseNativeMathType | null;
+      /** The numeric column `math` reads. Required when `math` is `sum`. One SQL relation can serve several metrics, each reading a different column. */
+      math_property?: string | null;
+      /** Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure. */
+      query: string;
+      response?: ExperimentWarehouseNativeNodeResponse;
+      /** version of the node, used for schema migrations */
+      version?: number | null;
+    }
+
     export type ExperimentMeanMetricResponse = { [key: string]: unknown } | null;
 
     export interface ExperimentMeanMetric {
@@ -7490,7 +7529,7 @@ export namespace Schemas {
       name?: string | null;
       response?: ExperimentMeanMetricResponse;
       sharedMetricId?: number | null;
-      source: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      source: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode;
       /** When set, reports the percentage of users whose per-user summed/counted value reaches or exceeds this threshold. Only meaningful for sum/count math types. */
       threshold?: number | null;
       /** Winsorization upper percentile bound, as a fraction in [0, 1] (e.g. 0.99 for the 99th percentile). */
@@ -7553,7 +7592,7 @@ export namespace Schemas {
       breakdownFilter?: BreakdownFilter | null;
       conversion_window?: number | null;
       conversion_window_unit?: FunnelConversionWindowTimeUnit | null;
-      denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode;
       denominator_outlier_handling?: ExperimentMetricOutlierHandling | null;
       fingerprint?: string | null;
       goal?: ExperimentMetricGoal | null;
@@ -7561,7 +7600,7 @@ export namespace Schemas {
       kind?: 'ExperimentMetric';
       metric_type: ExperimentRatioMetricMetricType;
       name?: string | null;
-      numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+      numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode;
       numerator_outlier_handling?: ExperimentMetricOutlierHandling | null;
       response?: ExperimentRatioMetricResponse;
       sharedMetricId?: number | null;
@@ -7738,7 +7777,7 @@ export namespace Schemas {
 
     export interface ExperimentActorsQuery {
       /** Exposure configuration for filtering events. Defines when users were first exposed to the experiment. */
-      exposureConfig?: ExperimentEventExposureConfig | ActionsNode | null;
+      exposureConfig?: ExperimentEventExposureConfig | ActionsNode | ExperimentWarehouseNativeExposureConfig | null;
       /** Feature flag key for breakdown filtering. */
       featureFlagKey?: string | null;
       /** Index of the step for which we want to get actors for, per experiment variant. Positive for converted persons, negative for dropped off persons. */
@@ -20260,6 +20299,18 @@ export namespace Schemas {
       Building: 'building',
       Ready: 'ready',
       Failed: 'failed',
+    } as const;
+
+    /**
+     * * `client` - Client
+     * * `server` - Server
+     */
+    export type BuiltInFilterEvaluationEnum = typeof BuiltInFilterEvaluationEnum[keyof typeof BuiltInFilterEvaluationEnum];
+
+
+    export const BuiltInFilterEvaluationEnum = {
+      Client: 'client',
+      Server: 'server',
     } as const;
 
     /**
@@ -43008,6 +43059,27 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface ErrorTrackingBuiltInFilter {
+      /** Stable identifier of the built-in filter, for example `web_crawlers`. */
+      readonly key: string;
+      /** Display name of the built-in filter. */
+      readonly name: string;
+      /** One sentence on which exceptions the filter drops. */
+      readonly description: string;
+      /** Where the filter runs. `client` filters also run in the web SDK, which drops matching exceptions before it sends them. `server` filters run only during ingestion.
+       *
+       * * `client` - Client
+       * * `server` - Server */
+      readonly evaluation: BuiltInFilterEvaluationEnum;
+      /** Whether the filter drops exceptions for this project. */
+      readonly enabled: boolean;
+      /**
+         * Set when ingestion turned the filter off because it failed on an event. Turning the filter on again resets it.
+         * @nullable
+         */
+      readonly disabled_reason: string | null;
+    }
+
     export interface ErrorTrackingBypassRule {
       /** Unique identifier of the bypass rule. */
       readonly id: string;
@@ -47727,9 +47799,9 @@ export namespace Schemas {
     }
 
     export interface ExperimentExposureCriteria {
-      /** Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. */
+      /** Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. Warehouse-native activation has no defined semantics yet, so only events and actions apply here. */
       activation_config?: ExperimentEventExposureConfig | ActionsNode | null;
-      exposure_config?: ExperimentEventExposureConfig | ActionsNode | null;
+      exposure_config?: ExperimentEventExposureConfig | ActionsNode | ExperimentWarehouseNativeExposureConfig | null;
       filterTestAccounts?: boolean | null;
       multiple_variant_handling?: MultipleVariantHandling | null;
     }
@@ -86258,6 +86330,11 @@ export namespace Schemas {
       filters?: PropertyGroupFilterValue | null;
       /** User or role to assign matching issues to. */
       assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
+    }
+
+    export interface PatchedErrorTrackingBuiltInFilterUpdateRequest {
+      /** `true` drops matching exceptions for this project. `false` stops dropping them. */
+      enabled?: boolean;
     }
 
     /**
