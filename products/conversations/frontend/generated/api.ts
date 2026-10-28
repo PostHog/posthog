@@ -459,8 +459,8 @@ export const getConversationsTicketsWriteBriefCreateUrl = (projectId: string, id
 /**
  * Write this ticket's brief now, replacing any brief already stored.
  *
- * Staff only, and deliberately separate from the team's own opt-in: this is how the
- * brief is read on a real ticket before a team turns it on for every new one.
+ * Staff only, and deliberately separate from the rollout flag: this is how the brief is
+ * read on a real ticket before automatic briefs reach every new one.
  */
 export const conversationsTicketsWriteBriefCreate = async (
     projectId: string,
