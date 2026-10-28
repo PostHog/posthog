@@ -20,8 +20,9 @@ export function BIDrilldownModal({
     onNavigate?: (worksheet: BIVisualizationNode) => void
     navigationDisabledReason?: string
 }): JSX.Element {
-    const { selection, queries, showRows, hierarchyDrills, interaction } = useValues(biDrilldownLogic(props))
-    const { close, viewRows } = useActions(biDrilldownLogic(props))
+    const { selection, queries, showRows, hierarchyDrills, interaction, record, dashboardFilterDisabledReason } =
+        useValues(biDrilldownLogic(props))
+    const { close, viewRows, filterDashboard } = useActions(biDrilldownLogic(props))
     return (
         <LemonModal
             title="Explore this result"
@@ -45,6 +46,35 @@ export function BIDrilldownModal({
                         </ul>
                     ) : null}
                     <div className="flex flex-wrap gap-2">
+                        {!interaction && props.onFilterDashboard && (
+                            <LemonButton
+                                type="primary"
+                                disabledReason={dashboardFilterDisabledReason}
+                                to={
+                                    record && !dashboardFilterDisabledReason
+                                        ? props.getDashboardFilterUrl?.(record)
+                                        : undefined
+                                }
+                                disableClientSideRouting
+                                onClick={(event) => {
+                                    if (
+                                        event.button !== 0 ||
+                                        event.metaKey ||
+                                        event.ctrlKey ||
+                                        event.shiftKey ||
+                                        event.altKey
+                                    ) {
+                                        return
+                                    }
+                                    event.preventDefault()
+                                    filterDashboard()
+                                }}
+                            >
+                                {record && props.isDashboardFilterSelected?.(record)
+                                    ? 'Remove filter'
+                                    : 'Filter dashboard by this result'}
+                            </LemonButton>
+                        )}
                         {!interaction &&
                             hierarchyDrills.map(({ hierarchy, next, worksheet }) => (
                                 <LemonButton

@@ -1531,6 +1531,77 @@ export const SignalReportStatusEnumApi = {
 } as const
 
 /**
+ * * `claude` - Claude
+ * * `codex` - Codex
+ * * `pi` - Pi
+ */
+export type StartupProviderEnumApi = (typeof StartupProviderEnumApi)[keyof typeof StartupProviderEnumApi]
+
+export const StartupProviderEnumApi = {
+    Claude: 'claude',
+    Codex: 'codex',
+    Pi: 'pi',
+} as const
+
+/**
+ * * `session_setup` - Session setup
+ * * `sdk_initialization` - SDK initialization
+ * * `setup_hooks` - Setup hooks
+ */
+export type StartupPhaseEnumApi = (typeof StartupPhaseEnumApi)[keyof typeof StartupPhaseEnumApi]
+
+export const StartupPhaseEnumApi = {
+    SessionSetup: 'session_setup',
+    SdkInitialization: 'sdk_initialization',
+    SetupHooks: 'setup_hooks',
+} as const
+
+/**
+ * * `requires_action` - Requires action
+ * * `transient` - Transient
+ * * `unknown` - Unknown
+ */
+export type StartupRetryabilityEnumApi = (typeof StartupRetryabilityEnumApi)[keyof typeof StartupRetryabilityEnumApi]
+
+export const StartupRetryabilityEnumApi = {
+    RequiresAction: 'requires_action',
+    Transient: 'transient',
+    Unknown: 'unknown',
+} as const
+
+export interface ReportStartupFailureApi {
+    /** Agent provider that failed to start.
+     *
+     * * `claude` - Claude
+     * * `codex` - Codex
+     * * `pi` - Pi */
+    provider: StartupProviderEnumApi
+    /** Startup stage that failed.
+     *
+     * * `session_setup` - Session setup
+     * * `sdk_initialization` - SDK initialization
+     * * `setup_hooks` - Setup hooks */
+    phase: StartupPhaseEnumApi
+    /**
+     * Validated provider reason code, when available.
+     * @nullable
+     */
+    reason: string | null
+    /** Whether an unchanged startup can be retried.
+     *
+     * * `requires_action` - Requires action
+     * * `transient` - Transient
+     * * `unknown` - Unknown */
+    retryability: StartupRetryabilityEnumApi
+    /** Research task that could not start. */
+    task_id: string
+    /** Failed research task run. */
+    run_id: string
+    /** Safe explanation and suggested next action. */
+    message: string
+}
+
+/**
  * * `small` - small
  * * `medium` - medium
  * * `large` - large
@@ -2169,6 +2240,8 @@ export interface SignalReportListApi {
     readonly signals_at_run: number
     /** How many scout notes this report received beyond the few its work log keeps as entries. 0 when nothing was dropped. These say the finding still holds, so the count is shown in place of the entries. */
     readonly collapsed_note_count: number
+    /** Startup failure from the latest failed research attempt, when available. */
+    readonly startup_failure: ReportStartupFailureApi | null
     readonly created_at: string
     readonly updated_at: string
     readonly artefact_count: number
@@ -2421,6 +2494,8 @@ export interface SignalReportApi {
     readonly signals_at_run: number
     /** How many scout notes this report received beyond the few its work log keeps as entries. 0 when nothing was dropped. These say the finding still holds, so the count is shown in place of the entries. */
     readonly collapsed_note_count: number
+    /** Startup failure from the latest failed research attempt, when available. */
+    readonly startup_failure: ReportStartupFailureApi | null
     readonly created_at: string
     readonly updated_at: string
     readonly artefact_count: number
@@ -9838,6 +9913,69 @@ export interface LighthouseAuditResponseApi {
     opportunities: AuditOpportunityApi[]
     /** How many audits this run may still spend. Each run gets 5. */
     audits_remaining: number
+}
+
+/**
+ * * `sufficient` - Sufficient
+ * * `insufficient` - Insufficient
+ * * `unsupported` - Unsupported
+ * * `errored` - Errored
+ */
+export type SignalReportMonitoringResultEvidenceStatusEnumApi =
+    (typeof SignalReportMonitoringResultEvidenceStatusEnumApi)[keyof typeof SignalReportMonitoringResultEvidenceStatusEnumApi]
+
+export const SignalReportMonitoringResultEvidenceStatusEnumApi = {
+    Sufficient: 'sufficient',
+    Insufficient: 'insufficient',
+    Unsupported: 'unsupported',
+    Errored: 'errored',
+} as const
+
+export interface SubmitMonitoringResultRequestApi {
+    /** Whether the fixed-window evidence is sufficient, insufficient, unsupported, or errored.
+     *
+     * * `sufficient` - Sufficient
+     * * `insufficient` - Insufficient
+     * * `unsupported` - Unsupported
+     * * `errored` - Errored */
+    evidence_status: SignalReportMonitoringResultEvidenceStatusEnumApi
+    /**
+     * Explain why the evidence supports this qualification. Must not be blank.
+     * @minLength 1
+     * @maxLength 2000
+     */
+    evidence_reason: string
+    /**
+     * Whether the authored expectation holds: a boolean for sufficient evidence, null for unsupported or errored evidence.
+     * @nullable
+     */
+    expectation_matches: boolean | null
+    /**
+     * Explain the conclusion using evidence from the assignment's fixed window.
+     * @minLength 1
+     * @maxLength 16000
+     */
+    explanation: string
+    /**
+     * Evidence references supporting the conclusion, or an empty list when none are available.
+     * @maxItems 50
+     * @items.minLength 1
+     */
+    evidence_refs: string[]
+}
+
+export interface SubmitMonitoringResultResponseApi {
+    /** True when the result is stored, including an identical retry. */
+    accepted: boolean
+    /** The immutable Monitoring result's identifier. */
+    result_id: string
+    /** The recorded verdict; this does not change the report's status.
+     *
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `errored` - Errored
+     * * `inconclusive` - Inconclusive */
+    outcome: SignalReportCheckOutcomeEnumApi
 }
 
 /**

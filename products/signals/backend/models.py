@@ -12,7 +12,8 @@ from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import IntegrityError, connection, models, transaction
-from django.db.models.functions import Upper
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import MD5, Upper
 from django.utils import timezone
 from django.utils.functional import Promise
 
@@ -422,6 +423,7 @@ class SignalReport(UUIDModel):
     title = models.TextField(null=True, blank=True)
     summary = models.TextField(null=True, blank=True)
     error = models.TextField(null=True, blank=True)
+    startup_failure = models.JSONField(null=True, blank=True)
     # The charts this report currently shows, each a `ReportChart` (see report_charts.py). Part of
     # the report's content rather than its artefact log: a chart illustrates the summary, so it is
     # replaced with the summary rather than accumulating versions beside it. `summary` places one
@@ -617,6 +619,8 @@ class SignalReport(UUIDModel):
                 self.last_run_at = timezone.now()
                 self.signals_at_run = self.signal_count + signals_at_run_increment
                 self.run_count += 1
+                self.startup_failure = None
+                updated_fields.add("startup_failure")
                 updated_fields.update(["last_run_at", "signals_at_run", "run_count"])
 
             # A summary run paused mid-workflow by the self-driving credits quota gate returns to
@@ -633,7 +637,8 @@ class SignalReport(UUIDModel):
                 self.title = title
                 self.summary = summary
                 self.error = None
-                updated_fields.update(["title", "summary", "error"])
+                self.startup_failure = None
+                updated_fields.update(["title", "summary", "error", "startup_failure"])
 
             # A `None` title or summary keeps the current one, so a run that did no research (e.g. no
             # repository selected) does not erase the content the report is searched and deduplicated by.
@@ -2563,6 +2568,7 @@ class SignalReportCheck(UUIDModel):
     runs_remaining = models.PositiveIntegerField(default=1)
     expires_at = models.DateTimeField()
     monitoring_fallback_expires_at = models.DateTimeField(null=True, blank=True)
+    monitoring_dispatch_after = models.DateTimeField(null=True, blank=True)
 
     status = models.CharField(max_length=20, choices=Status, default=Status.ACTIVE)
     consecutive_errors = models.PositiveIntegerField(default=0)
@@ -3507,6 +3513,12 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
             # slower for the life of the project.
             GinIndex(fields=["emitted_report_ids"], name="signal_scout_run_emitted_idx"),
             GinIndex(fields=["edited_report_ids"], name="signal_scout_run_edited_idx"),
+            models.Index(
+                models.F("team"),
+                MD5(KeyTextTransform("run_note", "metadata")),
+                condition=models.Q(metadata__triggered_by="monitoring"),
+                name="signal_scout_monitor_note_idx",
+            ),
         ]
 
     def save(self, *args: Any, update_fields: Any = None, **kwargs: Any) -> None:

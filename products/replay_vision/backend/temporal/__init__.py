@@ -53,10 +53,6 @@ from products.replay_vision.backend.temporal.activities.refresh_learned_rules im
     list_due_learned_rules_teams_activity,
     refresh_team_learned_rules_activity,
 )
-from products.replay_vision.backend.temporal.activities.refresh_search_suggestions import (
-    list_stale_search_suggestions_activity,
-    refresh_scanner_search_suggestions_activity,
-)
 from products.replay_vision.backend.temporal.backfill_workflow import BackfillScannerWorkflow
 from products.replay_vision.backend.temporal.benchmark_workflow import BuildBenchmarkWorkflow
 from products.replay_vision.backend.temporal.estimates import RefreshScannerEstimatesWorkflow
@@ -72,7 +68,6 @@ from products.replay_vision.backend.temporal.learned_rules import RefreshLearned
 from products.replay_vision.backend.temporal.media_workflow import ObservationMediaWorkflow
 from products.replay_vision.backend.temporal.read_meter import MeterScannerReadsWorkflow
 from products.replay_vision.backend.temporal.reconciler import ReconcileScannerSchedulesWorkflow
-from products.replay_vision.backend.temporal.search_suggestions import RefreshSearchSuggestionsWorkflow
 from products.replay_vision.backend.temporal.sweep_workflow import SweepScannerWorkflow
 from products.replay_vision.backend.temporal.vision_alerts import (
     VisionAlertCheckWorkflow,
@@ -92,7 +87,6 @@ WORKFLOWS = [
     ReconcileScannerSchedulesWorkflow,
     RefreshScannerEstimatesWorkflow,
     RefreshLearnedRulesWorkflow,
-    RefreshSearchSuggestionsWorkflow,
     ReplayVisionGeminiCleanupSweepWorkflow,
     ReplayVisionJevWatchRankWorkflow,
     SweepScannerWorkflow,
@@ -144,8 +138,6 @@ ACTIVITIES: list[Callable[..., Any]] = [
     complete_observation_requests_activity,
     sweep_gemini_files_activity,
     judge_watch_ranks_activity,
-    list_stale_search_suggestions_activity,
-    refresh_scanner_search_suggestions_activity,
     list_due_learned_rules_teams_activity,
     refresh_team_learned_rules_activity,
     snapshot_benchmark_labels_activity,
@@ -165,7 +157,6 @@ __all__ = [
     "ReconcileScannerSchedulesWorkflow",
     "RefreshScannerEstimatesWorkflow",
     "RefreshLearnedRulesWorkflow",
-    "RefreshSearchSuggestionsWorkflow",
     "ReplayVisionGeminiCleanupSweepWorkflow",
     "SweepScannerWorkflow",
     "advance_scanner_watermark_activity",

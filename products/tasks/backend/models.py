@@ -2376,6 +2376,15 @@ class TaskRun(models.Model):
         db_table = "posthog_task_run"
         ordering = ["-created_at"]
         indexes = [
+            models.Index(
+                models.F("team"),
+                KeyTransform("repository", KeyTransform("agent_startup_success", "state")),
+                KeyTransform("provider", KeyTransform("agent_startup_success", "state")),
+                KeyTransform("runtime", KeyTransform("agent_startup_success", "state")),
+                KeyTransform("started_at", KeyTransform("agent_startup_success", "state")).desc(),
+                name="task_run_startup_success_idx",
+                condition=models.Q(state__has_key="agent_startup_success"),
+            ),
             GinIndex(
                 OpClass(KeyTransform("verified_pr_urls", "state"), name="jsonb_path_ops"),
                 name="task_run_verified_pr_urls_idx",
