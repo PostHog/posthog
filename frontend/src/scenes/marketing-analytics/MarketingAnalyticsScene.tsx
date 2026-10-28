@@ -96,16 +96,12 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
 }
 
 const LegacySearchConnectionCard = (): JSX.Element | null => {
-    const { dataWarehouseSources, isAdPerformance } = useValues(marketingAnalyticsLogic)
+    const { isAdPerformance } = useValues(marketingAnalyticsLogic)
     const { showOnboarding } = useValues(marketingOnboardingLogic)
     if (showOnboarding && !isAdPerformance) {
         return null
     }
-    return dataWarehouseSources?.results.some((source) =>
-        ['GoogleAds', 'BingAds', 'GoogleSearchConsole'].includes(source.source_type)
-    ) ? null : (
-        <SearchConsoleSource />
-    )
+    return <SearchConsoleSource />
 }
 
 const MarketingAnalyticsDashboard = (): JSX.Element => {
