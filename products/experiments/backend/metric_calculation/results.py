@@ -109,8 +109,9 @@ class MetricResultStore:
 
     experiment_id: int
 
-    def for_run(self, run: ExperimentMetricsRecalculation) -> list[ExperimentMetricResult]:
-        """The rows of a recalculation run, one per metric uuid, ordered by metric uuid.
+    def for_run(self, run: ExperimentMetricsRecalculation, *, with_result: bool = True) -> list[ExperimentMetricResult]:
+        """The rows of a recalculation run, one per metric uuid, ordered by metric uuid. With `with_result=False` the
+        rows don't load `result`, which for a funnel holds the sessions of each step, and reading it queries again.
 
         A run has no link to its rows. The rows are found by the salted keys of the run's metrics under the
         current configuration of the experiment, at the run's query_to. A metric that no longer resolves on the
@@ -135,6 +136,8 @@ class MetricResultStore:
         rows = ExperimentMetricResult.objects.filter(
             experiment_id=self.experiment_id, fingerprint__in=fingerprints, query_to=run.query_to
         )
+        if not with_result:
+            rows = rows.defer("result")
         return list(_newest_write_first(rows, "metric_uuid").distinct("metric_uuid"))
 
     def has_completed(self, calculation_config: MetricCalculationConfig, *, window: datetime) -> bool:
