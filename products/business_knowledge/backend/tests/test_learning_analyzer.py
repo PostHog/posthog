@@ -319,6 +319,7 @@ class TestLearningAnalyzer:
                 "unsupported",
             ),
             ({"confidence": 0.4, "rejection_code": "low_confidence"}, "low_confidence"),
+            ({"rejection_code": "contradiction"}, "not_useful"),
         ],
     )
     def test_extraction_rejections_never_search_or_publish(
@@ -390,6 +391,7 @@ class TestLearningAnalyzer:
         for call in entered.messages.create.call_args_list:
             assert call.kwargs["extra_headers"] == {"X-PostHog-Privacy-Mode": "true"}
             assert call.kwargs["tool_choice"]["type"] == "tool"
+            assert call.kwargs["tool_choice"]["disable_parallel_tool_use"] is True
         embed.assert_not_called()
         search.assert_not_called()
         publish.assert_not_called()
@@ -448,7 +450,16 @@ class TestLearningAnalyzer:
         assert search.call_args.kwargs["query_embedding"] == [0.1, 0.2]
         publish.assert_not_called()
 
-    def test_promotion_rechecks_evidence_support_before_publication(self, team: Team) -> None:
+    @pytest.mark.parametrize(
+        "overrides,expected_code",
+        [
+            ({"supported_by_public_human_resolution": False, "rejection_code": "unsupported"}, "unsupported"),
+            ({"rejection_code": "contradiction"}, "not_useful"),
+        ],
+    )
+    def test_promotion_rejections_block_publication(
+        self, team: Team, overrides: dict[str, object], expected_code: str
+    ) -> None:
         run, input = _setup_sync(team)
         provider = _Provider(EvidenceBundle(replies=("Refunds are available within 30 days.",)))
 
@@ -456,11 +467,7 @@ class TestLearningAnalyzer:
             patch(f"{_MODULE}.get_learning_provider", return_value=provider),
             patch(
                 f"{_MODULE}._invoke_structured_model",
-                side_effect=[
-                    _extraction(),
-                    PiiVerdict(verdict="safe"),
-                    _promotion(supported_by_public_human_resolution=False, rejection_code="unsupported"),
-                ],
+                side_effect=[_extraction(), PiiVerdict(verdict="safe"), _promotion(**overrides)],
             ),
             patch(f"{_MODULE}.generate_embedding", return_value=_embedding()),
             patch(f"{_MODULE}.logic.search_knowledge", return_value=[]),
@@ -469,7 +476,7 @@ class TestLearningAnalyzer:
             result = analyze_learning_evidence(input)
 
         run.refresh_from_db()
-        assert result.rejection_code == "unsupported"
+        assert result.rejection_code == expected_code
         assert run.result == LearningRunResult.NO_KNOWLEDGE
         publish.assert_not_called()
 
@@ -521,7 +528,6 @@ class TestLearningAnalyzer:
                     "error_type": "ValidationError",
                     "validation_failures": [
                         "canonical_answer:string_too_short",
-                        "rejection_code:literal_error",
                         "<other>:extra_forbidden",
                     ],
                 },
@@ -576,6 +582,34 @@ class TestLearningAnalyzer:
         )
         client.with_options.assert_called_once_with(timeout=_MODEL_TIMEOUT_SECONDS, max_retries=0)
         assert entered.messages.create.call_args.kwargs["extra_headers"] == {"X-PostHog-Privacy-Mode": "true"}
+
+    def test_several_extraction_tool_calls_use_the_first_instead_of_failing(self, team: Team) -> None:
+        run, input = _setup_sync(team)
+        provider = _Provider(EvidenceBundle(replies=("Refunds are available within 30 days.",)))
+        client, entered = _gateway_client()
+        response = MagicMock()
+        response.stop_reason = "tool_use"
+        response.content = [
+            ToolUseBlock(
+                id=f"toolu_{index}",
+                name="ExtractedKnowledge",
+                input=_extraction(generalizable=generalizable, rejection_code=code).model_dump(),
+                type="tool_use",
+            )
+            for index, (generalizable, code) in enumerate([(False, "case_specific"), (True, "none")])
+        ]
+        entered.messages.create.return_value = response
+
+        with (
+            patch(f"{_MODULE}.get_learning_provider", return_value=provider),
+            patch(f"{_MODULE}.build_ai_gateway_anthropic_client", return_value=client),
+        ):
+            result = analyze_learning_evidence(input)
+
+        run.refresh_from_db()
+        assert result.rejection_code == "case_specific"
+        assert run.status == "completed"
+        assert entered.messages.create.call_count == 1
 
     @pytest.mark.parametrize(
         "content",

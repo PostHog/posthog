@@ -206,8 +206,11 @@ def _parse_tool_result(content: object, output_model: type[ModelOutput], stage: 
     tool_name = output_model.__name__
     blocks = content if isinstance(content, list) else []
     tool_results = [block for block in blocks if isinstance(block, ToolUseBlock) and block.name == tool_name]
-    if len(tool_results) != 1:
+    if not tool_results:
         raise LearningAnalysisError(f"invalid_{stage}_output")
+    if len(tool_results) > 1:
+        # The request disables parallel tool use. If several calls still arrive, every later gate checks the first one.
+        logger.warning("business_knowledge.learning.multiple_tool_calls", stage=stage, count=len(tool_results))
     return output_model.model_validate(tool_results[0].input)
 
 
@@ -250,7 +253,7 @@ def _invoke_structured_model(
                         "input_schema": output_model.model_json_schema(),
                     }
                 ],
-                tool_choice={"type": "tool", "name": tool_name},
+                tool_choice={"type": "tool", "name": tool_name, "disable_parallel_tool_use": True},
                 extra_headers={"X-PostHog-Privacy-Mode": "true"},
             )
         try:
@@ -552,6 +555,7 @@ def _log_analysis_failure(run: KnowledgeLearningRun, error: Exception) -> None:
         provider=run.provider,
         evidence_key=run.evidence_key,
         error_type=type(error).__name__,
+        error_code=error.code if isinstance(error, LearningAnalysisError) else None,
     )
 
 
