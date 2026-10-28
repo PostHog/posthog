@@ -778,10 +778,48 @@ export const MetricsPlatformAlertConfigurationCreateApiSourceKind = {
     Metrics: 'metrics',
 } as const
 
-export interface MetricsAlertConfigApi {
-    /** When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one. */
-    check_ongoing_interval?: boolean | null
-    type?: 'MetricsAlertConfig'
+export type MetricsPlatformAlertConditionKindEnumApi =
+    (typeof MetricsPlatformAlertConditionKindEnumApi)[keyof typeof MetricsPlatformAlertConditionKindEnumApi]
+
+export const MetricsPlatformAlertConditionKindEnumApi = {
+    Threshold: 'threshold',
+    Present: 'present',
+} as const
+
+/**
+ * How a series' value compares with `threshold`. Required for a threshold.
+ */
+export type MetricsPlatformAlertConditionApiOperator =
+    | (typeof MetricsPlatformAlertConditionApiOperator)[keyof typeof MetricsPlatformAlertConditionApiOperator]
+    | null
+
+export const MetricsPlatformAlertConditionApiOperator = {
+    '': '>',
+    '': '>=',
+    '': '<',
+    '': '<=',
+    '': '==',
+    '': '!=',
+} as const
+
+export interface MetricsPlatformAlertConditionApi {
+    /** threshold compares each series' latest value with `threshold`. present fires for every series the query returns, for a query that already filters to the series in breach. */
+    kind?: MetricsPlatformAlertConditionKindEnumApi
+    /** How a series' value compares with `threshold`. Required for a threshold. */
+    operator?: MetricsPlatformAlertConditionApiOperator
+    /** The value a series is compared with. Required for a threshold. */
+    threshold?: number | null
+}
+
+export interface MetricsPlatformAlertConfigApi {
+    /**
+     * A PromQL expression over this project's metrics. Each series it returns is one group. For a threshold condition, leave the comparison out of the expression.
+     * @minLength 1
+     * @maxLength 10000
+     */
+    query: string
+    /** When a series is in breach. */
+    condition: MetricsPlatformAlertConditionApi
 }
 
 /**
@@ -808,7 +846,7 @@ export interface MetricsPlatformAlertConfigurationCreateApi {
     /** Whether the alert is evaluated on schedule. Defaults to true. */
     enabled?: boolean
     /** Settings for a metrics alert. The bound the alert is evaluated against is under condition. */
-    source_config: MetricsAlertConfigApi
+    source_config: MetricsPlatformAlertConfigApi
     /** How the alert splits its results into instances. Defaults to mode single. */
     grouping?: GroupingApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
@@ -1214,7 +1252,7 @@ export interface MetricsPlatformAlertConfigurationEditApi {
     /** Whether the alert is evaluated on schedule. */
     enabled: boolean
     /** Settings for a metrics alert. The bound the alert is evaluated against is under condition. */
-    source_config: MetricsAlertConfigApi
+    source_config: MetricsPlatformAlertConfigApi
     /** How the alert splits its results into instances. */
     grouping: GroupingApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
@@ -1536,7 +1574,7 @@ export interface PatchedMetricsPlatformAlertConfigurationEditApi {
     /** Whether the alert is evaluated on schedule. */
     enabled?: boolean
     /** Settings for a metrics alert. The bound the alert is evaluated against is under condition. */
-    source_config?: MetricsAlertConfigApi
+    source_config?: MetricsPlatformAlertConfigApi
     /** How the alert splits its results into instances. */
     grouping?: GroupingApi
     /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */

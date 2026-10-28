@@ -9,7 +9,7 @@ from parameterized import parameterized
 from pydantic import ValidationError
 from rest_framework import status
 
-from products.metrics.backend.alerts.source_config import MetricsAlertConfig
+from products.metrics.backend.alerts.source_config import MetricsPlatformAlertConfig
 
 _QUERY = 'sum(kafka_consumer_group_lag{group="example"})'
 
@@ -27,7 +27,7 @@ class TestMetricsAlertConfig(SimpleTestCase):
     )
     def test_a_config_that_cannot_be_evaluated_is_refused(self, _name: str, config: dict[str, object]) -> None:
         with self.assertRaises(ValidationError):
-            MetricsAlertConfig.model_validate(config)
+            MetricsPlatformAlertConfig.model_validate(config)
 
 
 class TestMetricsAlertCreate(APIBaseTest):

@@ -72539,6 +72539,49 @@ export namespace Schemas {
     }
 
     /**
+     * How a series' value compares with `threshold`. Required for a threshold.
+     */
+    export type MetricsPlatformAlertConditionOperator = typeof MetricsPlatformAlertConditionOperator[keyof typeof MetricsPlatformAlertConditionOperator] | null;
+
+
+    export const MetricsPlatformAlertConditionOperator = {
+      '': '>',
+      '': '>=',
+      '': '<',
+      '': '<=',
+      '': '==',
+      '': '!=',
+    } as const;
+
+    export type MetricsPlatformAlertConditionKindEnum = typeof MetricsPlatformAlertConditionKindEnum[keyof typeof MetricsPlatformAlertConditionKindEnum];
+
+
+    export const MetricsPlatformAlertConditionKindEnum = {
+      Threshold: 'threshold',
+      Present: 'present',
+    } as const;
+
+    export interface MetricsPlatformAlertCondition {
+      /** threshold compares each series' latest value with `threshold`. present fires for every series the query returns, for a query that already filters to the series in breach. */
+      kind?: MetricsPlatformAlertConditionKindEnum;
+      /** How a series' value compares with `threshold`. Required for a threshold. */
+      operator?: MetricsPlatformAlertConditionOperator;
+      /** The value a series is compared with. Required for a threshold. */
+      threshold?: number | null;
+    }
+
+    export interface MetricsPlatformAlertConfig {
+      /**
+         * A PromQL expression over this project's metrics. Each series it returns is one group. For a threshold condition, leave the comparison out of the expression.
+         * @minLength 1
+         * @maxLength 10000
+         */
+      query: string;
+      /** When a series is in breach. */
+      condition: MetricsPlatformAlertCondition;
+    }
+
+    /**
      * Product whose data the alert evaluates. It cannot change after the create.
      */
     export type MetricsPlatformAlertConfigurationCreateSourceKind = typeof MetricsPlatformAlertConfigurationCreateSourceKind[keyof typeof MetricsPlatformAlertConfigurationCreateSourceKind];
@@ -72572,7 +72615,7 @@ export namespace Schemas {
       /** Whether the alert is evaluated on schedule. Defaults to true. */
       enabled?: boolean;
       /** Settings for a metrics alert. The bound the alert is evaluated against is under condition. */
-      source_config: MetricsAlertConfig;
+      source_config: MetricsPlatformAlertConfig;
       /** How the alert splits its results into instances. Defaults to mode single. */
       grouping?: Grouping;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. Defaults to null. */
@@ -72635,7 +72678,7 @@ export namespace Schemas {
       /** Whether the alert is evaluated on schedule. */
       enabled: boolean;
       /** Settings for a metrics alert. The bound the alert is evaluated against is under condition. */
-      source_config: MetricsAlertConfig;
+      source_config: MetricsPlatformAlertConfig;
       /** How the alert splits its results into instances. */
       grouping: Grouping;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
@@ -89478,7 +89521,7 @@ export namespace Schemas {
       /** Whether the alert is evaluated on schedule. */
       enabled?: boolean;
       /** Settings for a metrics alert. The bound the alert is evaluated against is under condition. */
-      source_config?: MetricsAlertConfig;
+      source_config?: MetricsPlatformAlertConfig;
       /** How the alert splits its results into instances. */
       grouping?: Grouping;
       /** Blocked local time windows (HH:MM in the project timezone) when the alert does not notify. Null means no quiet hours. */
