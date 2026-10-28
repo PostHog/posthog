@@ -224,10 +224,11 @@ _MARKDOWN_ESCAPE = re.compile(r"\\([\\`*_{}\[\]()#+\-.!|])")
 _INVISIBLE_PADDING = re.compile(r"[\u00ad\u034f\u200b\u2060\ufeff]")
 _PADDING_NON_JOINER = re.compile(r"(?:^|(?<=[\s\u200c]))\u200c|\u200c(?=[\s\u200c]|$)")
 
-# Email tracking links carry long base64 IDs, which AI screening reads as encoded instructions. They
-# become "…", so a cut link does not look like the "..." that marks a cut message.
+# Email tracking links carry long base64 IDs, which AI screening reads as encoded instructions. Only
+# runs that mix digits with both letter cases are cut, so readable text in a link stays in front of the
+# screen. They become "…", so a cut link does not look like the "..." that marks a cut message.
 _URL = re.compile(r"(https?://[^/\s\"'<>]+)([^\s\"'<>]*)", re.IGNORECASE)
-_OPAQUE_TOKEN = re.compile(r"\b\w{24,}", re.ASCII)
+_OPAQUE_TOKEN = re.compile(r"\b(?=\w*\d)(?=\w*[a-z])(?=\w*[A-Z])\w{24,}", re.ASCII)
 
 
 def _strip_severed_link(window: str) -> str:
