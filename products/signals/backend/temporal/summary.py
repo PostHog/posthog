@@ -60,6 +60,7 @@ from products.signals.backend.report_generation.research import ActionabilityCho
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.report_metric_query_access import query_filter_shape_allows_read
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS
+from products.signals.backend.report_tags import coerce_report_tags
 from products.signals.backend.spend import (
     begin_report_spend,
     finish_report_spend,
@@ -210,6 +211,9 @@ class ReportDecision:
     # prompts about the old report under the new one. `None` for the no-repo branch, which keeps
     # the prose and so keeps the prompts too.
     suggested_prompts: list[str] | None = field(default_factory=list)
+    # The report's whole tag set to store with the title/summary, or `None` to keep the stored set.
+    # `None` for the no-repo branch, which does no research.
+    tags: list[str] | None = None
     # Work-log note to append with the transition. The no-repo branch records its blocker here
     # instead of in the title/summary.
     note: str | None = None
@@ -644,6 +648,7 @@ class SignalReportSummaryWorkflow:
                     layers=agentic_result.layers or [],
                     research_task_id=agentic_result.research_task_id,
                     charts_enabled=agentic_result.charts_enabled,
+                    tags=agentic_result.tags,
                     pending_reason="agent_requested",
                 )
             if decision.choice == ActionabilityChoice.NOT_ACTIONABLE:
@@ -690,6 +695,7 @@ class SignalReportSummaryWorkflow:
                         checks_task_id=decision.research_task_id,
                         suggested_prompts=decision.suggested_prompts,
                         charts_enabled=decision.charts_enabled,
+                        tags=decision.tags,
                         pending_reason=decision.pending_reason,
                         note=decision.note,
                         keep_existing_content=decision.keep_existing_content,
@@ -721,6 +727,7 @@ class SignalReportSummaryWorkflow:
                     layers=decision.layers,
                     suggested_prompts=decision.suggested_prompts,
                     charts_enabled=decision.charts_enabled,
+                    tags=decision.tags,
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1064,6 +1071,9 @@ class MarkReportReadyInput:
     suggested_prompts: list[str] | None = None
     # The chart rollout state the research run saw, for the completion event. Not persisted.
     charts_enabled: bool | None = None
+    # The report's whole tag set, written alongside title/summary. `None` keeps the stored set, which
+    # is also what an older workflow history replays as.
+    tags: list[str] | None = None
 
 
 def _observation_metrics(report: SignalReport, metrics: list[dict]) -> list[dict]:
@@ -1170,6 +1180,9 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
             if input.suggested_prompts is not None:
                 report.suggested_prompts = input.suggested_prompts
                 updated_fields = [*updated_fields, "suggested_prompts"]
+            if input.tags is not None:
+                report.tags = coerce_report_tags(input.tags)
+                updated_fields = [*updated_fields, "tags"]
             report.save(update_fields=updated_fields)
             # Loop to re-research only if the signals that arrived during the run carried the report
             # to its next bucket. Same predicate as the grouping promotion gate, so a signal landing
@@ -1422,6 +1435,8 @@ class MarkReportPendingInput:
     suggested_prompts: list[str] | None = None
     # See MarkReportReadyInput.charts_enabled — reported, never stored.
     charts_enabled: bool | None = None
+    # See MarkReportReadyInput.tags — same transaction, same replay-safe default.
+    tags: list[str] | None = None
     # Coarse cause of the transition ("repo_selection_required" / "agent_requested"), see
     # ReportDecision.pending_reason.
     pending_reason: str | None = None
@@ -1457,6 +1472,9 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
             if input.suggested_prompts is not None:
                 report.suggested_prompts = input.suggested_prompts
                 updated_fields = [*updated_fields, "suggested_prompts"]
+            if input.tags is not None:
+                report.tags = coerce_report_tags(input.tags)
+                updated_fields = [*updated_fields, "tags"]
             # Read by capture_status_change_analytics's post_save receiver (same instance, same
             # transaction) — not a model field, so it never persists past this save.
             report._pending_reason = input.pending_reason  # type: ignore[attr-defined]
