@@ -430,7 +430,9 @@ impl UrlRewrite {
     pub fn finish(self) -> RewriteReport {
         let covered = |url: &str| match &self.fallback.scrub {
             Scrub::AllRemote => true,
-            Scrub::Hosts(hosts) => url_host(url).is_some_and(|host| hosts.contains(&host)),
+            Scrub::Hosts(hosts) => {
+                url_host(url).is_some_and(|host| hosts.binary_search(&host).is_ok())
+            }
             Scrub::Nothing => false,
         };
         let mut unfound_hosts = Some(Vec::new());
@@ -443,6 +445,11 @@ impl UrlRewrite {
                     _ => unfound_hosts = None,
                 }
             }
+        }
+        // Many declined URLs share a host. The second pass binary-searches this list for every target, so it is sorted.
+        if let Some(hosts) = &mut unfound_hosts {
+            hosts.sort_unstable();
+            hosts.dedup();
         }
         let mut counters = self.counters;
         for target in self.targets {

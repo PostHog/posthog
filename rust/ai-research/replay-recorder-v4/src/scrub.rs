@@ -23,14 +23,13 @@ pub enum Scrub {
     /// Every token that `url_policy::is_remote` reads as remote: `http:` or `https:`, or two slashes or backslashes,
     /// in any letter case and through any escape.
     AllRemote,
-    /// Every token that holds one of these hosts, in any letter case.
+    /// Every token that holds one of these hosts, in any letter case. The list is sorted, without duplicates.
     Hosts(Vec<String>),
 }
 
 pub struct Scrubber {
     all_remote: bool,
     hosts: Option<AhoCorasick>,
-    lower_hosts: Vec<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -345,21 +344,22 @@ fn bare_span(bytes: &[u8], start: usize, end: usize) -> (usize, usize) {
 impl Scrubber {
     pub fn new(scrub: &Scrub) -> Self {
         let hosts = match scrub {
-            Scrub::Hosts(hosts) if !hosts.is_empty() => AhoCorasickBuilder::new()
-                .ascii_case_insensitive(true)
-                .match_kind(MatchKind::LeftmostFirst)
-                .build(hosts)
-                .ok(),
+            Scrub::Hosts(hosts) if !hosts.is_empty() => {
+                let mut hosts: Vec<String> =
+                    hosts.iter().map(|host| host.to_ascii_lowercase()).collect();
+                hosts.sort_unstable();
+                hosts.dedup();
+                AhoCorasickBuilder::new()
+                    .ascii_case_insensitive(true)
+                    .match_kind(MatchKind::LeftmostFirst)
+                    .build(&hosts)
+                    .ok()
+            }
             _ => None,
-        };
-        let lower_hosts = match scrub {
-            Scrub::Hosts(hosts) => hosts.iter().map(|host| host.to_ascii_lowercase()).collect(),
-            _ => Vec::new(),
         };
         Self {
             all_remote: *scrub == Scrub::AllRemote,
             hosts,
-            lower_hosts,
         }
     }
 
@@ -368,7 +368,7 @@ impl Scrubber {
         let spans = if self.all_remote {
             url_spans(bytes)
         } else if let Some(hosts) = &self.hosts {
-            self.host_spans(hosts, bytes)
+            Self::host_spans(hosts, bytes)
         } else {
             Vec::new()
         };
@@ -394,16 +394,11 @@ impl Scrubber {
     }
 
     /// The URL tokens that hold a host, and a bare span around each host no URL token holds, by start.
-    fn host_spans(&self, hosts: &AhoCorasick, bytes: &[u8]) -> Vec<(usize, usize)> {
+    fn host_spans(hosts: &AhoCorasick, bytes: &[u8]) -> Vec<(usize, usize)> {
         let Scan { urls, strings } = scan(bytes);
         let mut spans: Vec<(usize, usize)> = urls
             .into_iter()
-            .filter(|&span| {
-                let text = decoded(bytes, span);
-                self.lower_hosts
-                    .iter()
-                    .any(|host| text.contains(host.as_str()))
-            })
+            .filter(|&span| hosts.is_match(decoded(bytes, span).as_bytes()))
             .collect();
         let inside = |list: &[(usize, usize)], (start, end): (usize, usize)| {
             let first = list.partition_point(|&(_, list_end)| list_end < end);
