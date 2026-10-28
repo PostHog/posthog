@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import sys
+import gzip
 import time
 import shutil
 import asyncio
@@ -39,8 +40,12 @@ CACHE_DIR_ENV = "POSTHOG_TEMPORAL_SERVER_CACHE_DIR"
 ATTEMPTS = 5
 # The read timeout applies per socket read, so a stalled transfer fails while a slow one completes.
 REQUEST_TIMEOUT = (10, 60)
+# A transfer that keeps trickling bytes never trips the read timeout, so each attempt also has a total deadline.
+DOWNLOAD_DEADLINE_SECONDS = 180
 # Longer than ATTEMPTS full downloads, so a waiting process outlasts the lock holder's retries.
-LOCK_TIMEOUT_SECONDS = 900
+LOCK_TIMEOUT_SECONDS = 1200
+# Once one process gives up, the others fall back to the SDK at once instead of repeating the retries.
+FAILURE_MEMORY_SECONDS = 600
 
 
 @frozen
@@ -54,12 +59,14 @@ TEST_SERVER = ServerBinary(artifact="temporal-test-server", file_name="temporal-
 DEV_SERVER = ServerBinary(artifact="cli", file_name="temporal", archive_format="tar.gz")
 
 
-def cache_dir() -> Path:
+def cache_dir(platform_params: dict[str, str]) -> Path:
     if configured := os.environ.get(CACHE_DIR_ENV):
         base = Path(configured)
     else:
         base = Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "posthog" / "temporal-servers"
-    return base / f"sdk-python-{temporalio.service.__version__}"
+    # A shared cache directory can serve machines of several platforms, so each gets its own binaries.
+    platform_key = f"{platform_params['platform']}-{platform_params['arch']}"
+    return base / f"sdk-python-{temporalio.service.__version__}" / platform_key
 
 
 def _platform_params() -> dict[str, str] | None:
@@ -87,14 +94,20 @@ def _download(binary: ServerBinary, platform_params: dict[str, str], dest: Path)
 
     with tempfile.TemporaryDirectory(dir=dest.parent) as work_dir:
         archive_path = Path(work_dir) / "archive.tar.gz"
+        deadline = time.monotonic() + DOWNLOAD_DEADLINE_SECONDS
         with requests.get(archive_url, stream=True, timeout=REQUEST_TIMEOUT) as response:
             response.raise_for_status()
             with archive_path.open("wb") as archive_file:
                 for chunk in response.iter_content(chunk_size=1 << 20):
                     archive_file.write(chunk)
+                    if time.monotonic() > deadline:
+                        raise TimeoutError(f"download took longer than {DOWNLOAD_DEADLINE_SECONDS}s")
+        # Reading the whole gzip stream checks its CRC, which reading one tar member can stop short of.
+        with gzip.open(archive_path) as compressed:
+            while compressed.read(1 << 20):
+                pass
 
         extracted_path = Path(work_dir) / binary.file_name
-        # Reading the member to the end makes gzip verify its CRC, so a corrupt archive raises here.
         with tarfile.open(archive_path, "r:gz") as archive:
             member = archive.extractfile(file_to_extract)
             if member is None:
@@ -116,7 +129,7 @@ def ensure_binary(binary: ServerBinary) -> Path | None:
     platform_params = _platform_params()
     if platform_params is None:
         return None
-    dest = cache_dir() / binary.file_name
+    dest = cache_dir(platform_params) / binary.file_name
     if dest.is_file():
         return dest
     if _sdk_cached_binary(binary).is_file():
@@ -124,17 +137,22 @@ def ensure_binary(binary: ServerBinary) -> Path | None:
         return None
     try:
         dest.parent.mkdir(parents=True, exist_ok=True)
+        failed_marker = Path(f"{dest}.failed")
         with FileLock(f"{dest}.lock", timeout=LOCK_TIMEOUT_SECONDS):
             if dest.is_file():
                 return dest
+            if failed_marker.is_file() and time.time() - failed_marker.stat().st_mtime < FAILURE_MEMORY_SECONDS:
+                return None
             for attempt in range(1, ATTEMPTS + 1):
                 try:
                     _download(binary, platform_params, dest)
+                    failed_marker.unlink(missing_ok=True)
                     return dest
                 except (requests.RequestException, tarfile.TarError, EOFError, OSError, ValueError, KeyError) as error:
                     logger.warning("Temporal %s download attempt %d failed: %s", binary.artifact, attempt, error)
                     if attempt < ATTEMPTS:
                         time.sleep(2**attempt)
+            failed_marker.touch()
     except Exception:
         logger.warning("Could not cache the Temporal %s binary", binary.artifact, exc_info=True)
     return None
@@ -148,6 +166,7 @@ def _with_cached_binary(
         uses_sdk_default = (
             kwargs.get(f"{prefix}_existing_path") is None
             and kwargs.get(f"{prefix}_download_version", "default") == "default"
+            and kwargs.get(f"{prefix}_download_ttl") is None
             and kwargs.get("download_dest_dir") is None
         )
         if uses_sdk_default and (path := await asyncio.to_thread(ensure_binary, binary)) is not None:
