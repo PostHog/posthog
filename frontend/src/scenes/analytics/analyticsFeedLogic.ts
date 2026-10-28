@@ -231,8 +231,14 @@ export const analyticsFeedLogic = kea<analyticsFeedLogicType>([
             if (!cache.unfiledSweep) {
                 cache.unfiledSweep = api.fileSystem.unfiled().catch(() => null)
                 void cache.unfiledSweep.then((result: { count: number } | null) => {
-                    if (result?.count && !cache.disposables.isDisposed) {
-                        actions.refreshFeed(query)
+                    if (!result?.count || cache.disposables.isDisposed) {
+                        return
+                    }
+                    // A new generation makes a read still in flight stale, so rows filed after it started are not lost.
+                    for (const [key, source] of Object.entries(values.sources)) {
+                        if (source.projectId === String(values.currentTeamId)) {
+                            actions.refreshSource(key, source.projectId, source.query, source.type)
+                        }
                     }
                 })
             }

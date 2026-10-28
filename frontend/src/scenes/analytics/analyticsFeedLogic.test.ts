@@ -42,11 +42,15 @@ const entry = (
 describe('analyticsFeedLogic', () => {
     let requests: string[]
     let searches: (string | null)[]
+    let dashboardReads: number
+    let firstDashboardRead: Promise<void>
 
     beforeEach(() => {
         resetAnalyticsFeedSnapshot()
         requests = []
         searches = []
+        dashboardReads = 0
+        firstDashboardRead = Promise.resolve()
         useMocks({
             get: {
                 '/api/projects/:team_id/task_channels/': [],
@@ -54,7 +58,7 @@ describe('analyticsFeedLogic', () => {
                     requests.push('unfiled')
                     return { count: 0 }
                 },
-                '/api/projects/:team_id/file_system/': ({ request }) => {
+                '/api/projects/:team_id/file_system/': async ({ request }) => {
                     const params = new URL(request.url).searchParams
                     const type = params.get('type') ?? params.get('type__startswith') ?? ''
                     const offset = params.get('offset') ?? '0'
@@ -79,6 +83,9 @@ describe('analyticsFeedLogic', () => {
                             users: USERS,
                             next: null,
                         }
+                    }
+                    if (offset === '0' && ++dashboardReads === 1) {
+                        await firstDashboardRead
                     }
                     return offset === '0'
                         ? {
@@ -167,6 +174,29 @@ describe('analyticsFeedLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(requests.filter((request) => request === 'unfiled')).toHaveLength(1)
+    })
+
+    it('reloads rows the sweep filed even while the first read is still in flight', async () => {
+        let finishFirstRead: () => void = () => {}
+        firstDashboardRead = new Promise<void>((resolve) => (finishFirstRead = resolve))
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/unfiled/': () => {
+                    requests.push('unfiled')
+                    return { count: 1 }
+                },
+            },
+        })
+        const logic = analyticsFeedLogic()
+        logic.mount()
+
+        logic.actions.refreshFeed(ALL)
+        await waitFor(() => expect(dashboardReads).toBe(2))
+        finishFirstRead()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(Object.values(logic.values.sources).some((source) => source.refreshing)).toBe(false)
+        expect(feed(logic)).toEqual(['dashboard:10', 'notebook:n9', 'dashboard:8'])
     })
 
     it.each([
