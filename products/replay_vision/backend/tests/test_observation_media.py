@@ -215,9 +215,13 @@ class TestObservationMedia(BaseTest):
                 assert (m.small_asset.content_location or "").endswith("-small.webp")
                 assert m.small_asset.expires_after == m.asset.expires_after
         unlinked = [
-            prepared.frames[2].small_media_asset_id,
-            prepared.frames[3].media_asset_id,
-            prepared.frames[3].small_media_asset_id,
+            asset_id
+            for asset_id in (
+                prepared.frames[2].small_media_asset_id,
+                prepared.frames[3].media_asset_id,
+                prepared.frames[3].small_media_asset_id,
+            )
+            if asset_id is not None
         ]
         for asset in ExportedAsset.objects_including_ttl_deleted.filter(pk__in=unlinked):
             assert asset.expires_after is not None and asset.expires_after <= timezone.now()

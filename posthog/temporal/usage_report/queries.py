@@ -41,7 +41,7 @@ canonical reference.
 import dataclasses
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from django.db.models import Count
 
@@ -108,7 +108,9 @@ def _group_types_total() -> list[dict[str, int]]:
 
 
 def _dashboard_count() -> list[dict[str, int]]:
-    return list(Dashboard.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    return cast(
+        list[dict[str, int]], list(Dashboard.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    )
 
 
 def _dashboard_template_count() -> list[dict[str, int]]:
@@ -139,7 +141,10 @@ def _dashboard_tagged_count() -> list[dict[str, int]]:
 
 
 def _ff_count() -> list[dict[str, int]]:
-    return list(FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    return cast(
+        list[dict[str, int]],
+        list(FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")),
+    )
 
 
 def _ff_active_count() -> list[dict[str, int]]:
@@ -149,16 +154,24 @@ def _ff_active_count() -> list[dict[str, int]]:
 
 
 def _survey_count() -> list[dict[str, int]]:
-    return list(Survey.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    return cast(
+        list[dict[str, int]], list(Survey.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    )
 
 
 def _replay_vision_scanner_count() -> list[dict[str, int]]:
-    return list(ReplayScanner.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    return cast(
+        list[dict[str, int]],
+        list(ReplayScanner.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")),
+    )
 
 
 def _replay_vision_scanner_active_count() -> list[dict[str, int]]:
-    return list(
-        ReplayScanner.objects.filter(enabled=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
+    return cast(
+        list[dict[str, int]],
+        list(
+            ReplayScanner.objects.filter(enabled=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
+        ),
     )
 
 

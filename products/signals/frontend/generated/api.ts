@@ -119,6 +119,7 @@ import type {
     SignalReportRefundResponseApi,
     SignalReportRefundSummaryResponseApi,
     SignalReportReingestionStatusApi,
+    SignalReportSectionCountsApi,
     SignalReportSourceMetadataRequestApi,
     SignalReportSourceMetadataResponseApi,
     SignalReportStateRequestApi,
@@ -158,6 +159,7 @@ import type {
     SignalsReportsAvailableReviewersRetrieveParams,
     SignalsReportsListParams,
     SignalsReportsPrCiStatusesParams,
+    SignalsReportsSectionCountsRetrieveParams,
     SignalsScoutConfigListParams,
     SignalsScoutConfigSyncParams,
     SignalsScoutConfigTrialComparisonHistoryParams,
@@ -1635,6 +1637,39 @@ export const signalsReportsRefundSummaryRetrieve = async (
     options?: RequestInit
 ): Promise<SignalReportRefundSummaryResponseApi> => {
     return apiMutator<SignalReportRefundSummaryResponseApi>(getSignalsReportsRefundSummaryRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportsSectionCountsRetrieveUrl = (
+    projectId: string,
+    params?: SignalsReportsSectionCountsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/section_counts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/section_counts/`
+}
+
+/**
+ * Count the ready reports with and without an implementation pull request, in one query. Accepts the list's filters, so each count matches a `count_only` list request with `status=ready` and the matching `has_implementation_pr`. Rejects `status`, `has_implementation_pr`, `include_all_statuses` and `view`, because the counts set those.
+ */
+export const signalsReportsSectionCountsRetrieve = async (
+    projectId: string,
+    params?: SignalsReportsSectionCountsRetrieveParams,
+    options?: RequestInit
+): Promise<SignalReportSectionCountsApi> => {
+    return apiMutator<SignalReportSectionCountsApi>(getSignalsReportsSectionCountsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

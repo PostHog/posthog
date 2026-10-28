@@ -602,7 +602,7 @@ describe('FetchRunner', () => {
     it.each([
         ['a fetch pass', OPTIONS],
         ['the pod candidate pool', POOL_OPTIONS],
-    ])('marks an image publish failure as lost after all candidate work settles in %s', async (_mode, options) => {
+    ])('retries an image publish failure through the frontier in %s', async (_mode, options) => {
         const harness = build({ bytes: Buffer.from('image'), contentType: 'image/png' }, {}, 'queued', options)
         harness.publishImage.mockRejectedValue(
             new S3ServiceException({
@@ -620,9 +620,16 @@ describe('FetchRunner', () => {
         )
 
         expect(attempts).toEqual([
-            expect.objectContaining({ outcome: 'publish_failed', finished: false, lost: true }),
-            expect.objectContaining({ outcome: 'publish_failed', finished: false, lost: true }),
+            expect.objectContaining({ outcome: 'publish_failed', finished: false, lost: false }),
+            expect.objectContaining({ outcome: 'publish_failed', finished: false, lost: false }),
         ])
+        expect(harness.republish).toHaveBeenCalledTimes(2)
+        expect(harness.republish).toHaveBeenCalledWith(
+            expect.objectContaining({ lastBlockReason: 'transient_backoff' }),
+            expect.any(Object),
+            'retry',
+            60_000
+        )
         // One log for the burst, with the error name and status and nothing that names the image.
         const logged = warn.mock.calls.filter(([, event]) => event === 'ai_research_v4_image_fetch_storage_failed')
         expect(logged).toEqual([
