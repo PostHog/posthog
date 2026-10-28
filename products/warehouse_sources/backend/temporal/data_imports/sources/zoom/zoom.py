@@ -1,5 +1,7 @@
 import dataclasses
+from collections.abc import Callable
 from typing import Any, Optional, cast
+from urllib.parse import quote
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -11,16 +13,24 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     OAuth2Auth,
     OAuth2GrantType,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
+    make_parent_key_name,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.zoom.settings import (
     ZOOM_ENDPOINTS,
+    ZOOM_PARENT_ENDPOINTS,
     ZoomEndpointConfig,
 )
 
@@ -113,6 +123,85 @@ def _top_level_resource(
     )
 
 
+def _encode_uuid(uuid: str) -> str:
+    # Zoom UUIDs are base64 and can hold `/`, `+` and `=`. Zoom asks for a double-encoded UUID when it
+    # starts with `/` or contains `//`, and a single-encoded one otherwise.
+    encoded = quote(uuid, safe="")
+    if uuid.startswith("/") or "//" in uuid:
+        encoded = quote(encoded, safe="")
+    return encoded
+
+
+def _row_map(config: ZoomEndpointConfig) -> Optional[Callable[[dict[str, Any]], dict[str, Any]]]:
+    parent = config.parent
+    renames = (
+        {make_parent_key_name(parent, field): column for field, column in config.parent_columns.items()}
+        if parent is not None
+        else {}
+    )
+    if not renames and not config.adds_uuid_path:
+        return None
+
+    def row_map(row: dict[str, Any]) -> dict[str, Any]:
+        for parent_key, column in renames.items():
+            row[column] = row.pop(parent_key, None)
+        if config.adds_uuid_path and row.get("uuid"):
+            row["_uuid_path"] = _encode_uuid(row["uuid"])
+        return row
+
+    return row_map
+
+
+def _endpoint_config(name: str) -> ZoomEndpointConfig:
+    return ZOOM_ENDPOINTS.get(name) or ZOOM_PARENT_ENDPOINTS[name]
+
+
+def _resource_chain(config: ZoomEndpointConfig) -> list[ZoomEndpointConfig]:
+    chain = [config]
+    while chain[0].parent is not None:
+        chain.insert(0, _endpoint_config(chain[0].parent))
+    return chain
+
+
+def _resource_config(config: ZoomEndpointConfig) -> EndpointResource:
+    params: dict[str, Any] = {**config.params}
+    if config.paginated:
+        params["page_size"] = config.page_size
+    endpoint: Endpoint = {"path": config.path, "params": params, "data_selector": config.data_key}
+    if not config.paginated:
+        endpoint["paginator"] = "single_page"
+
+    resource: EndpointResource = {"name": config.name, "endpoint": endpoint}
+    if config.parent is not None:
+        params[config.parent_param] = {"type": "resolve", "resource": config.parent, "field": config.parent_field}
+        resource["include_from_parent"] = list(config.parent_columns)
+        # A parent this endpoint can't serve (a user without the relevant license or plan, a meeting
+        # that never took place) returns 400/404; skip that parent without aborting the whole sync
+        # (an empty page that stops this parent's pagination). Any other non-2xx still raises.
+        # Code 300 is an invalid or expired `next_page_token`: ignoring it would silently drop the
+        # rest of that parent's pages, so fail the request instead and let the run retry.
+        endpoint["response_actions"] = [
+            {
+                "status_code": 400,
+                "json_field": "code",
+                "json_values": [300],
+                "action": "retry",
+                "message": "Zoom next_page_token is invalid or expired",
+            },
+            {"status_code": 400, "action": "ignore"},
+            {"status_code": 404, "action": "ignore"},
+        ]
+    row_map = _row_map(config)
+    if row_map is not None:
+        resource["data_map"] = row_map
+    return resource
+
+
+def supports_resume(endpoint: str) -> bool:
+    # The REST framework checkpoints a fan-out with one dependent level only.
+    return len(_resource_chain(ZOOM_ENDPOINTS[endpoint])) <= 2
+
+
 def _fan_out_resource(
     client_config: ClientConfig,
     config: ZoomEndpointConfig,
@@ -120,8 +209,8 @@ def _fan_out_resource(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[ZoomResumeConfig],
 ) -> Resource:
-    users_config = ZOOM_ENDPOINTS["users"]
-
+    # The framework resumes a fan-out with one dependent level only. A chained fan-out (e.g.
+    # participants <- instances <- meetings <- users) gets no resume hook and re-reads on retry.
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
@@ -132,41 +221,10 @@ def _fan_out_resource(
         if state is not None:
             resumable_source_manager.save_state(ZoomResumeConfig(fanout_state=state))
 
-    child_params: dict[str, Any] = {
-        "user_id": {"type": "resolve", "resource": "users", "field": "id"},
-        "page_size": config.page_size,
-        **config.params,
-    }
-
     rest_config: RESTAPIConfig = {
         "client": client_config,
         "resource_defaults": {},
-        "resources": [
-            {
-                "name": "users",
-                "endpoint": {
-                    "path": users_config.path,
-                    "params": {"page_size": users_config.page_size},
-                    "data_selector": users_config.data_key,
-                },
-            },
-            {
-                "name": config.name,
-                "include_from_parent": [],
-                "endpoint": {
-                    "path": config.path,
-                    "params": child_params,
-                    "data_selector": config.data_key,
-                    # A user without the relevant license returns 400/404 for that feature; skip that
-                    # user without aborting the whole sync (an empty page that stops this user's
-                    # pagination). Any other non-2xx still raises.
-                    "response_actions": [
-                        {"status_code": 400, "action": "ignore"},
-                        {"status_code": 404, "action": "ignore"},
-                    ],
-                },
-            },
-        ],
+        "resources": [_resource_config(level) for level in _resource_chain(config)],
     }
 
     resources = rest_api_resources(
@@ -192,7 +250,7 @@ def zoom_source(
     config = ZOOM_ENDPOINTS[endpoint]
     client_config = _client_config(account_id, client_id, client_secret)
 
-    if config.fan_out:
+    if config.parent is not None:
         resource = _fan_out_resource(client_config, config, team_id, job_id, resumable_source_manager)
     else:
         resource = _top_level_resource(client_config, config, team_id, job_id, resumable_source_manager)
@@ -200,13 +258,14 @@ def zoom_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
         column_hints=resource.column_hints,
+        supports_resume=supports_resume(endpoint),
     )
 
 

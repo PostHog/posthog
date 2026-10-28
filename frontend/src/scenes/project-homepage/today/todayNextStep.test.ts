@@ -13,6 +13,7 @@ const CLAIMED_BY_TASK = makeReport({
         user: null,
         agent: null,
         claim_id: 'c1',
+        responsible_user: null,
     },
 })
 

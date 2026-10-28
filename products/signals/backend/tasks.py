@@ -14,6 +14,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.celery_queues import CeleryQueue
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.workload import Workload
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
@@ -79,12 +80,29 @@ from products.signals.backend.scout_harness.slack_delivery import (
     post_scout_report_to_slack,
     slack_api_error_code,
 )
+from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
 from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
 from products.signals.backend.slack_report_threads import record_scout_report_slack_replies, scout_report_slack_message
+from products.signals.backend.support_writeback import (
+    post_pull_request_to_tickets,
+    task_can_write_support_ticket_update,
+)
 from products.signals.backend.tracker_issues import close_tracker_issue_for_report, link_pull_request_to_tracker_issue
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
+
+
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@with_team_scope()
+def write_pull_request_to_support_tickets(team_id: int, report_id: str, pr_url: str, task_id: str) -> None:
+    if not task_can_write_support_ticket_update(team_id=team_id, report_id=report_id, task_id=task_id, pr_url=pr_url):
+        return
+    team = Team.objects.filter(id=team_id).first()
+    if team is None:
+        return
+    signals = fetch_signals_for_report_sync(team, report_id, ch_user=ClickHouseUser.SIGNALS, workload=Workload.OFFLINE)
+    post_pull_request_to_tickets(team, report_id, pr_url, signals)
 
 
 @shared_task(
@@ -123,6 +141,24 @@ def reconcile_inbox_onboarding(team_id: int, failed_checks: int = 0) -> None:
         return
     if pending:
         reconcile_inbox_onboarding.apply_async(args=[team_id], countdown=60)
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=10,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+@with_team_scope(canonical=True)
+def settle_scout_spend(team_id: int, run_id: str) -> None:
+    from products.signals.backend.spend import (
+        complete_task_spend,  # noqa: PLC0415 - keeps spend accounting off the task registration import path
+    )
+
+    complete_task_spend(team_id=team_id, run_id=run_id)
 
 
 @shared_task(
