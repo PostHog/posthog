@@ -67,6 +67,26 @@ filters:
         - bin/temporal-django-worker
         - manage.py
         - Dockerfile
+    alertsPlatformSharedOrchestration:
+        - 'products/alerts_platform/backend/**'
+        - posthog/sync.py
+        - posthog/metrics.py
+        - posthog/dataclasses.py
+        - posthog/enums.py
+        - 'posthog/temporal/common/**'
+        - 'posthog/management/commands/start_temporal_worker.py'
+        - 'posthog/settings/temporal.py'
+        - posthog/schema.py
+        - 'posthog/models/**'
+        - 'posthog/migrations/**'
+        - 'products/*/backend/migrations/**'
+        - 'posthog/clickhouse/migrations/**'
+        - posthog/exceptions.py
+        - pyproject.toml
+        - uv.lock
+        - bin/temporal-django-worker
+        - manage.py
+        - Dockerfile
 
 images:
     posthog-cloud:
@@ -79,3 +99,7 @@ images:
                 repository: posthog-temporal-workers/data-warehouse-metadata
                 filter: dataWarehouseMetadata
                 bootstrapPolicyDigest: 49975342dfa3dce5f0c4767e2bc90c295a7ce12cfb5daaa99075026f20dd3620
+            alerts-platform-shared-orchestration:
+                repository: posthog-temporal-workers/alerts-platform-shared-orchestration
+                filter: alertsPlatformSharedOrchestration
+                bootstrapPolicyDigest: 52cef0b81555c48673006c54f543fb855cd478f87dd5bf6332b5d8faab041d3c
