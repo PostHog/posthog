@@ -36,6 +36,7 @@ from posthog.tasks.alerts.utils import AlertEvaluationResult, render_alert_insig
 from posthog.temporal.alerts.admission import admit_evaluation_slots, release_evaluation_slot
 
 from products.alerts.backend.evaluation import check_alert_for_insight
+from products.alerts.backend.evaluation.comparator import MAX_BREACH_MESSAGES
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, check_alert_per_series
 from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, insight_snapshot
@@ -682,7 +683,7 @@ BREAKDOWN_GROUPING_KEY = "breakdown"
 # and every group's detail rides in the outcome Temporal carries, so a long label must not grow it.
 MAX_DETAIL_BREACHES: Final = 10
 MAX_BREACH_CHARS: Final = 500
-MAX_DETAIL_ROWS: Final = 5
+MAX_DETAIL_ROWS: Final = MAX_BREACH_MESSAGES
 MAX_TAGS: Final = 10
 MAX_TAG_CHARS: Final = 100
 
