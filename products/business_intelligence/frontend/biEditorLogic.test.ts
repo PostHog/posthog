@@ -72,11 +72,31 @@ describe('biEditorLogic', () => {
         const querySnapshot = {
             kind: NodeKind.HogQLQuery as const,
             query: 'SELECT {cohort} AS cohort, {minimum} AS minimum, {include_trial} AS include_trial',
-            values: { cohort: 'paid', minimum: 10, include_trial: true, ids: [1, 2], missing: null },
+            values: {
+                cohort: 'paid',
+                minimum: 10,
+                include_trial: true,
+                ids: [1, 2],
+                missing: null,
+                ['__proto__']: 'paid',
+                constructor: 5,
+            },
         }
         logic.actions.restoreState({ editorView: BIEditorView.BI, config: { ...config, querySnapshot } })
         parameters.actions.open()
-        expect(parameters.values.parameters.map(({ name }) => name)).toEqual(['cohort', 'minimum', 'include_trial'])
+        expect(parameters.values.parameters.map(({ name }) => name)).toEqual([
+            'cohort',
+            'minimum',
+            'include_trial',
+            '__proto__',
+            'constructor',
+        ])
+        expect(parameters.values.parameterErrors['__proto__']).toBeUndefined()
+        expect(parameters.values.parameterErrors['constructor']).toBeUndefined()
+        parameters.actions.changeParameter('constructor', '')
+        expect(parameters.values.parameterErrors['constructor']).toBe('Enter a valid number')
+        parameters.actions.changeParameter('constructor', '5')
+        expect(parameters.values.parameterErrors['constructor']).toBeUndefined()
         parameters.actions.changeParameter('minimum', '')
         expect(parameters.values.parameterErrors).toEqual({ minimum: 'Enter a valid number' })
         parameters.actions.apply()

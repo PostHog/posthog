@@ -332,6 +332,7 @@ export const NestedPanesNarrow: StoryObj = {
 }
 
 export const CatalogMetricParameters: StoryObj = {
+    parameters: { testOptions: { waitForSelector: '[role="dialog"]' } },
     render: () => (
         <WorksheetStage
             config={{
@@ -346,7 +347,8 @@ export const CatalogMetricParameters: StoryObj = {
             }}
         />
     ),
-    play: async () => {
+    play: async (context) => {
+        await meta.play?.(context)
         await userEvent.click(
             await waitFor(() => {
                 const button = Array.from(document.querySelectorAll('button')).find(

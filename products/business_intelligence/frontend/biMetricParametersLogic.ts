@@ -118,11 +118,14 @@ export const biMetricParametersLogic = kea<biMetricParametersLogicType>([
         parameterErrors: [
             (s) => [s.parameters],
             (parameters: ParameterDraft[]): Record<string, string> =>
-                Object.fromEntries(
-                    parameters.flatMap(({ name, type, value }) =>
-                        type === 'number' && (String(value).trim() === '' || !Number.isFinite(Number(value)))
-                            ? [[name, 'Enter a valid number']]
-                            : []
+                Object.assign(
+                    Object.create(null) as Record<string, string>,
+                    Object.fromEntries(
+                        parameters.flatMap(({ name, type, value }) =>
+                            type === 'number' && (String(value).trim() === '' || !Number.isFinite(Number(value)))
+                                ? [[name, 'Enter a valid number']]
+                                : []
+                        )
                     )
                 ),
         ],
