@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import * as stampApprovedPng from '@posthog/brand/hoggies/png/stamp-approved'
-import { IconBook, IconX } from '@posthog/icons'
+import { IconBook, IconInfo, IconX } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
@@ -66,9 +66,12 @@ export function CatalogExplainer(): JSX.Element | null {
                                         </li>
                                     ))}
                                 </ol>
-                                <div className="text-secondary">
-                                    Agents can also use proposed and drifted metrics. Their answers then include a
-                                    warning.
+                                <div className="flex items-start gap-2 self-start rounded border border-primary bg-surface-primary px-2 py-1.5 text-secondary">
+                                    <IconInfo className="size-4 shrink-0 mt-0.5" />
+                                    <span>
+                                        Agents can also use proposed and drifted metrics. Their answers then include a
+                                        warning.
+                                    </span>
                                 </div>
                             </div>
                             <HedgehogStampApproved className="hidden @3xl:block size-20 shrink-0" />
