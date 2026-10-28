@@ -128,6 +128,7 @@ class TestWatchRankConsumer(BaseTest):
         with (
             patch(f"{_WATCH_RANK}.anchor_vectors", AsyncMock(side_effect=anchor_error, return_value=self._ANCHORS)),
             patch(f"{_CONSUMER}._RETRY_WINDOW_S", 0),
+            patch(f"{_CONSUMER}._ERROR_RETRY_WINDOW_S", 0),
             # It would close the connection that holds the test transaction.
             patch(f"{_CONSUMER}.close_old_connections"),
         ):
@@ -191,6 +192,8 @@ class TestWatchRankConsumer(BaseTest):
             for _ in range(2):
                 assert async_to_sync(consumer.handle)(message, time.monotonic()) == "deferred"
 
+
+class TestWatchRankConsumerRetries(SimpleTestCase):
     @parameterized.expand(
         [
             # The database being away waits out the full window, so a short outage costs no ranks.
@@ -209,7 +212,7 @@ class TestWatchRankConsumer(BaseTest):
         ):
             assert async_to_sync(consumer.handle)(_result_message(), time.monotonic()) == outcome
 
-    def test_a_hung_naming_call_frees_its_slot(self) -> None:
+    def test_a_hung_naming_call_counts_a_timeout(self) -> None:
         async def never_returns(*_args: Any) -> None:
             await asyncio.Event().wait()
 
@@ -222,6 +225,6 @@ class TestWatchRankConsumer(BaseTest):
             patch(f"{_CONSUMER}.name_theme", never_returns),
             patch(f"{_CONSUMER}._NAMING_TIMEOUT_S", 0.01),
         ):
-            async_to_sync(WatchRankConsumer._name)(self.team.id, uuid.uuid4(), timezone.now())
+            async_to_sync(WatchRankConsumer._name)(7, uuid.uuid4(), timezone.now())
 
         assert timeouts() == before + 1

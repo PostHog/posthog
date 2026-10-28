@@ -34,6 +34,7 @@ from products.replay_vision.backend.embeddings import (
     EMBEDDING_PRODUCT,
     OBSERVATION_EMBEDDING_MODEL,
 )
+from products.replay_vision.backend.watch_feed_groups import feed_group_cache
 from products.replay_vision.backend.watch_rank import RankRequest, rank_observation
 from products.replay_vision.backend.watch_semantics import SemanticAssignment, assign_semantics
 from products.replay_vision.backend.watch_themes import name_theme
@@ -51,8 +52,8 @@ _MAX_POLL_INTERVAL_S = 360.0
 _RETRY_WINDOW_S = 600.0
 # Any other error is unlikely to clear by waiting, and every partition waits behind it, so it gives up sooner.
 _ERROR_RETRY_WINDOW_S = 60.0
-# A model call that hangs would hold a naming slot until a restart.
-_NAMING_TIMEOUT_S = 30.0
+# The model request has its own timeout, so this only catches a naming call stuck somewhere else.
+_NAMING_TIMEOUT_S = 120.0
 _NAMING_DRAIN_S = 20.0
 # A due theme left unnamed while this many are in flight is named when its next member arrives.
 _MAX_NAMING_TASKS = 8
@@ -63,7 +64,7 @@ Outcome = Literal["skipped", "ranked", "already_ranked", "missing", "failed", "d
 
 MESSAGES_TOTAL = Counter(
     "replay_vision_watch_rank_consumer_messages_total",
-    "Embedding results the What to watch rank consumer read, by outcome.",
+    "Embedding results the What to watch rank consumer handled, by outcome. A deferred result counts once per batch it is deferred in.",
     labelnames=["outcome"],
 )
 BATCH_DURATION = Histogram(
@@ -73,7 +74,7 @@ BATCH_DURATION = Histogram(
 )
 THEME_NAMING_TOTAL = Counter(
     "replay_vision_watch_rank_consumer_theme_naming_total",
-    "Theme naming the What to watch rank consumer started or dropped, by outcome.",
+    "Theme naming outcomes of the What to watch rank consumer, including names dropped while every slot was busy.",
     labelnames=["outcome"],
 )
 NAMING_IN_FLIGHT = Gauge(
@@ -124,14 +125,20 @@ def _assign_with_timeouts(
     *, team_id: int, scanner_id: str, observation_id: str, vector: list[float], now: datetime
 ) -> SemanticAssignment | None:
     """Assign under transaction-local timeouts, which survive transaction pooling where a session setting would not."""
-    with transaction.atomic():
-        # A slow query or a long wait on the scanner's lock fails and retries rather than trips liveness.
-        with connection.cursor() as cursor:
-            cursor.execute("SET LOCAL lock_timeout = '30s'")
-            cursor.execute("SET LOCAL statement_timeout = '60s'")
-        return assign_semantics(
-            team_id=team_id, scanner_id=scanner_id, observation_id=observation_id, vector=vector, now=now
-        )
+    try:
+        with transaction.atomic():
+            # A slow statement or a long wait on the scanner's lock fails and retries instead of hanging.
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT set_config('lock_timeout', '30s', true), set_config('statement_timeout', '60s', true)"
+                )
+            return assign_semantics(
+                team_id=team_id, scanner_id=scanner_id, observation_id=observation_id, vector=vector, now=now
+            )
+    except Exception:
+        # The commit happens here, outside the assignment's own guard, so a failed one must still drop the cache.
+        feed_group_cache.forget(scanner_id)
+        raise
 
 
 class BatchConsumer(Protocol):
@@ -148,6 +155,7 @@ class WatchRankConsumer:
         self._first_failed_at: dict[str, float] = {}
         # Naming calls run beside the loop, so a slow model call never holds up ranking. Kept to stop collection.
         self._naming: set[asyncio.Task[Any]] = set()
+        NAMING_IN_FLIGHT.set_function(lambda: len(self._naming))
 
     async def _wait(self, seconds: float) -> bool:
         """Sleep, unless shutdown comes first. True when the full time passed."""
@@ -212,12 +220,7 @@ class WatchRankConsumer:
             return
         task = asyncio.create_task(self._name(request.team_id, assignment.theme.theme_id, now))
         self._naming.add(task)
-        NAMING_IN_FLIGHT.inc()
-        task.add_done_callback(self._naming_done)
-
-    def _naming_done(self, task: asyncio.Task[Any]) -> None:
-        self._naming.discard(task)
-        NAMING_IN_FLIGHT.dec()
+        task.add_done_callback(self._naming.discard)
 
     @staticmethod
     async def _name(team_id: int, theme_id: uuid.UUID, now: datetime) -> None:
