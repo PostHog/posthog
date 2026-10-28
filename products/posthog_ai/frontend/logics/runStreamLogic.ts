@@ -1940,8 +1940,6 @@ export function foldLogFromCheckpoint(
     let timestamp: number | undefined
     let importedRun = resume?.importedRun ?? false
     let entryRunId: string | undefined
-    let entryStart: { boot: string; sequence: number } | null = null
-    let entryEnd: { boot: string; sequence: number } | null = null
     // The agent's `event_id` of the entry being folded. Ids built from it stay the same when older history
     // loads in front of the log, where the per-type counters behind the fallback ids would shift.
     let entryKey: string | undefined
@@ -2016,31 +2014,6 @@ export function foldLogFromCheckpoint(
         new Set(waitingSends.filter((send) => send.turns < SETTLED_AFTER_TURNS).map((send) => send.id))
     const toolItemIds = new Set<string>(resume?.toolItemIds)
     let openAssistantMessages = resume?.counters.openAssistantMessages ?? 0
-    let savedPieceTail: { id: string; runId: string | undefined; end: { boot: string; sequence: number } } | null = null
-    let reopenedPiece: { id: string; text: string } | null = null
-
-    const savedPieceTailIndex = (): number => {
-        if (savedPieceTail === null) {
-            return -1
-        }
-        const waiting = waitingSends.length > 0 ? waitingSendIds() : NO_IDS
-        for (let i = items.length - 1; i >= 0; i--) {
-            const item = items[i]
-            if (item.id === savedPieceTail.id) {
-                const { runId, end } = savedPieceTail
-                const continues =
-                    runId === entryRunId &&
-                    entryStart !== null &&
-                    entryStart.boot === end.boot &&
-                    entryStart.sequence > end.sequence
-                return item.type === 'assistant_message' && item.complete && continues ? i : -1
-            }
-            if (item.type !== 'debug' && !waiting.has(item.id)) {
-                return -1
-            }
-        }
-        return -1
-    }
 
     const takeCheckpoint = (index: number): FoldCheckpoint => ({
         entries: entries.slice(0, index + 1),
@@ -2083,19 +2056,6 @@ export function foldLogFromCheckpoint(
         if (idx === -1) {
             if (type === 'assistant_message') {
                 openAssistantMessages++
-                const tail = savedPieceTailIndex()
-                if (tail !== -1) {
-                    const text = items[tail].text ?? ''
-                    reopenedPiece = { id: items[tail].id, text }
-                    savedPieceTail = null
-                    items[tail] = {
-                        ...items[tail],
-                        text: text + delta,
-                        complete: false,
-                        ...(timestamp !== undefined && { endedAt: timestamp }),
-                    }
-                    return
-                }
             }
             items.push({
                 id: bubbleId(id, bubbleSeq++),
@@ -2113,7 +2073,7 @@ export function foldLogFromCheckpoint(
         }
     }
 
-    const finalizeMessage = (id: string, text: string, savedPiece: boolean): void => {
+    const finalizeMessage = (id: string, text: string): void => {
         let idx = openAssistantMessages > 0 ? findLastBufferIndex(items, id, 'assistant_message', true) : -1
         if (idx === -1 && openAssistantMessages > 0) {
             // The wire isn't consistent about carrying `messageId` across a message's chunks and its
@@ -2133,39 +2093,20 @@ export function foldLogFromCheckpoint(
             }
         }
         if (idx === -1) {
-            const tail = savedPiece ? savedPieceTailIndex() : -1
-            if (tail !== -1) {
-                items[tail] = {
-                    ...items[tail],
-                    text: (items[tail].text ?? '') + text,
-                    ...(timestamp !== undefined && { endedAt: timestamp }),
-                }
-                return
-            }
             // No buffer to close (the common replay case: S3 drops chunks, so a finalized message
             // arrives alone). Push a fresh bubble with a unique id — a bare fallback id would collide
             // as a React key with every other no-`messageId` message in the thread.
-            const pushedId = bubbleId(id, bubbleSeq++)
             items.push({
-                id: pushedId,
+                id: bubbleId(id, bubbleSeq++),
                 type: 'assistant_message',
                 text,
                 complete: true,
                 ...(timestamp !== undefined && { startedAt: timestamp, endedAt: timestamp }),
             })
-            savedPieceTail = savedPiece && entryEnd ? { id: pushedId, runId: entryRunId, end: entryEnd } : null
             return
         }
         openAssistantMessages--
-        const prefix = savedPiece && reopenedPiece?.id === items[idx].id ? reopenedPiece.text : ''
-        reopenedPiece = null
-        items[idx] = {
-            ...items[idx],
-            text: prefix + text,
-            complete: true,
-            ...(timestamp !== undefined && { endedAt: timestamp }),
-        }
-        savedPieceTail = savedPiece && entryEnd ? { id: items[idx].id, runId: entryRunId, end: entryEnd } : null
+        items[idx] = { ...items[idx], text, complete: true, ...(timestamp !== undefined && { endedAt: timestamp }) }
     }
 
     const upsertInvocationItem = (toolCallId: string, hasStart = true): void => {
@@ -2313,8 +2254,6 @@ export function foldLogFromCheckpoint(
     for (let index = resume ? resume.entries.length : 0; index < entries.length; index++) {
         const { entry, source } = entries[index]
         entryRunId = entry.source_run_id ?? options.pendingMessage?.runId
-        entryStart = eventPosition(entry, true)
-        entryEnd = eventPosition(entry)
         const clientId = entry.notification.params?.clientId
         // A saved message that replaces its streamed chunks keeps the first chunk's id, so its row keeps its key.
         const savedKey = savedEntryKey(entry)
@@ -2602,11 +2541,7 @@ export function foldLogFromCheckpoint(
                 )
                 break
             case 'agent_message':
-                finalizeMessage(
-                    String(update.messageId ?? 'current'),
-                    String(content?.text ?? update.text ?? ''),
-                    typeof entry.first_event_id === 'string' && entry.first_event_id !== ''
-                )
+                finalizeMessage(String(update.messageId ?? 'current'), String(content?.text ?? update.text ?? ''))
                 break
             case 'agent_thought_chunk':
                 appendChunk(
