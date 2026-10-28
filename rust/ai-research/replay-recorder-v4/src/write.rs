@@ -753,6 +753,21 @@ mod tests {
             .replace(r#""src""#, r#""\u0073rc""#)
             .replace(r#""srcset""#, r#""src\u0073et""#);
         assert_eq!(stored_lines(&escaped, &[]), lines);
+        // A browser reads backslashes after the scheme as slashes, so such a URL is replaced like its `https://` form.
+        for backslashed in [
+            r"https:\\user:secret@cdn.example.com/a.png",
+            r"https:/\user:secret@cdn.example.com/a.png",
+        ] {
+            let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+                "attributes": [{"id": 99, "attributes": {"src": backslashed}}]}}])
+            .to_string();
+            let lines = stored_lines(&events, &[]);
+            assert!(
+                lines.contains(&crate::rewrite::declined_marker("credential"))
+                    && !lines.contains("secret"),
+                "{lines}"
+            );
+        }
         // The player loads the last of a repeated attribute, so the inspector names that one.
         for events in [
             format!(

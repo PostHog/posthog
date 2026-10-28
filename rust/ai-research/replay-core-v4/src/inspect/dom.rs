@@ -253,14 +253,19 @@ fn fetchable(url: &str) -> Option<&str> {
     (url.len() <= MAX_URL_LEN && is_remote(url)).then_some(url)
 }
 
-/// A URL scheme is not case sensitive, so `HTTPS://` loads as `https://` does. A protocol-relative URL loads from its
-/// host too, so the writer must replace it like any other remote URL.
+/// A URL scheme is not case sensitive, so `HTTPS://` loads as `https://` does. A browser reads any run of slashes and
+/// backslashes after `http:` or `https:` as `//`, so `https:\\host` loads from the host too. A protocol-relative URL
+/// does as well. The writer must replace each of them like any other remote URL.
 fn is_remote(url: &str) -> bool {
-    let starts = |prefix: &str| {
-        url.get(..prefix.len())
-            .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
-    };
-    starts("https://") || starts("http://") || url_policy::is_protocol_relative(url)
+    let after_scheme = ["https:", "http:"].iter().find_map(|scheme| {
+        url.get(..scheme.len())
+            .filter(|start| start.eq_ignore_ascii_case(scheme))
+            .map(|_| &url[scheme.len()..])
+    });
+    match after_scheme {
+        Some(rest) => matches!(rest.as_bytes(), [b'/' | b'\\', ..]),
+        None => url_policy::is_protocol_relative(url),
+    }
 }
 
 impl Urls {
