@@ -645,6 +645,44 @@ export interface PatchedErrorTrackingAssignmentRuleReorderRequestApi {
     orders?: PatchedErrorTrackingAssignmentRuleReorderRequestApiOrders
 }
 
+/**
+ * * `client` - Client
+ * * `server` - Server
+ */
+export type BuiltInFilterEvaluationEnumApi =
+    (typeof BuiltInFilterEvaluationEnumApi)[keyof typeof BuiltInFilterEvaluationEnumApi]
+
+export const BuiltInFilterEvaluationEnumApi = {
+    Client: 'client',
+    Server: 'server',
+} as const
+
+export interface ErrorTrackingBuiltInFilterApi {
+    /** Stable identifier of the built-in filter, for example `web_crawlers`. */
+    readonly key: string
+    /** Display name of the built-in filter. */
+    readonly name: string
+    /** One sentence on which exceptions the filter drops. */
+    readonly description: string
+    /** Where the filter runs. `client` filters also run in the web SDK, which drops matching exceptions before it sends them. `server` filters run only during ingestion.
+     *
+     * * `client` - Client
+     * * `server` - Server */
+    readonly evaluation: BuiltInFilterEvaluationEnumApi
+    /** Whether the filter drops exceptions for this project. */
+    readonly enabled: boolean
+    /**
+     * Set when ingestion turned the filter off because it failed on an event. Turning the filter on again resets it.
+     * @nullable
+     */
+    readonly disabled_reason: string | null
+}
+
+export interface PatchedErrorTrackingBuiltInFilterUpdateRequestApi {
+    /** `true` drops matching exceptions for this project. `false` stops dropping them. */
+    enabled?: boolean
+}
+
 export interface ErrorTrackingBypassRuleApi {
     /** Unique identifier of the bypass rule. */
     readonly id: string
