@@ -265,42 +265,45 @@ describe('signalSourcesLogic', () => {
         toastError.mockRestore()
     })
 
-    it('resumes Intercom setup after OAuth and enables signals on completion', async () => {
-        logic.unmount()
-        router.actions.push(
-            '/inbox',
-            { setup: 'signal-sources', signal_source: 'intercom', integration_id: '7', source: 'saved-filter' },
-            { tab: 'details' }
-        )
-        const callbackPath = router.values.location.pathname
-        const createConfig = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue({
-            ...githubIssuesConfig,
-            source_product: SignalSourceProduct.Intercom,
-            source_type: SignalSourceType.Ticket,
-        })
-        logic = signalSourcesLogic()
-        logic.mount()
-        logic.actions.loadSourceConfigsSuccess([])
+    it.each(['/inbox', '/inbox/sources'])(
+        'resumes Intercom setup after OAuth on %s and enables signals on completion',
+        async (path) => {
+            logic.unmount()
+            router.actions.push(
+                path,
+                { setup: 'signal-sources', signal_source: 'intercom', integration_id: '7', source: 'saved-filter' },
+                { tab: 'details' }
+            )
+            const callbackPath = router.values.location.pathname
+            const createConfig = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue({
+                ...githubIssuesConfig,
+                source_product: SignalSourceProduct.Intercom,
+                source_type: SignalSourceType.Ticket,
+            })
+            logic = signalSourcesLogic()
+            logic.mount()
+            logic.actions.loadSourceConfigsSuccess([])
 
-        expect(logic.values.dataSourceSetupSource).toBe('intercom')
-        const redirect = new URL(logic.values.dataSourceSetupOAuthRedirectUrl!, 'https://example.com')
-        expect(redirect.pathname).toBe(callbackPath)
-        expect(redirect.searchParams.get('signal_source')).toBe('intercom')
-        expect(redirect.searchParams.get('source')).toBe('saved-filter')
+            expect(logic.values.dataSourceSetupSource).toBe('intercom')
+            const redirect = new URL(logic.values.dataSourceSetupOAuthRedirectUrl!, 'https://example.com')
+            expect(redirect.pathname).toBe(callbackPath)
+            expect(redirect.searchParams.get('signal_source')).toBe('intercom')
+            expect(redirect.searchParams.get('source')).toBe('saved-filter')
 
-        await expectLogic(logic, () => logic.actions.onDataSourceSetupComplete()).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.onDataSourceSetupComplete()).toFinishAllListeners()
 
-        expect(createConfig).toHaveBeenCalledWith({
-            source_product: 'intercom',
-            source_type: 'ticket',
-            enabled: true,
-            config: {},
-        })
-        expect(logic.values.dataSourceSetupSource).toBeNull()
-        expect(router.values.searchParams.signal_source).toBeUndefined()
-        expect(router.values.searchParams.source).toBe('saved-filter')
-        createConfig.mockRestore()
-    })
+            expect(createConfig).toHaveBeenCalledWith({
+                source_product: 'intercom',
+                source_type: 'ticket',
+                enabled: true,
+                config: {},
+            })
+            expect(logic.values.dataSourceSetupSource).toBeNull()
+            expect(router.values.searchParams.signal_source).toBeUndefined()
+            expect(router.values.searchParams.source).toBe('saved-filter')
+            createConfig.mockRestore()
+        }
+    )
 
     it.each([
         { status: 200, reason: 'integration' },

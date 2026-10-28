@@ -14,9 +14,9 @@ import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/N
 
 import { ERROR_TRACKING_SIGNAL_SOURCE_TYPES } from '../../signalSourcesLogic'
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../../types'
-import { SignalSourcesPanel } from './SignalSourcesPanel'
+import { SourcesTab } from './SourcesTab'
 
-// Every axis the signal sources dialog renders from: which sources are armed
+// Every axis the sources tab renders from: which sources are armed
 // (SignalSourceConfig rows), which PostHog products are on (team opt-ins), and which usage
 // events exist (event definitions). Each control drives one of the three mocks.
 interface PanelState {
@@ -285,17 +285,17 @@ function PanelHarness(state: PanelState): JSX.Element {
     }, [stateKey, loadCurrentTeam, loadAvailableSources])
 
     return (
-        <div className="w-[760px] p-6 bg-surface-primary border rounded">
-            <SignalSourcesPanel key={stateKey} />
+        <div className="w-full max-w-4xl bg-surface-primary">
+            <SourcesTab key={stateKey} />
         </div>
     )
 }
 
 const meta: Meta<typeof PanelHarness> = {
-    title: 'Scenes-App/Inbox/SignalSourcesPanel',
+    title: 'Scenes-App/Inbox/SourcesTab',
     component: PanelHarness,
     parameters: {
-        layout: 'centered',
+        layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2024-03-20',
     },
