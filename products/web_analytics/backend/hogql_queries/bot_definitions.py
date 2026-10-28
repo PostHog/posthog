@@ -751,6 +751,9 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "scopy-docs-crawler": BotDefinition(
         "scopy docs crawler", "ai_crawler", "AI Agent", "scopy", documentation_url="https://scopy.dev"
     ),
+    "unstale-collector": BotDefinition(
+        "unstale", "ai_crawler", "AI Agent", "unstale", documentation_url="https://github.com/vuca-dev/unstale"
+    ),
     "llms-txt-sync": BotDefinition("llms-txt-sync", "ai_crawler", "AI Agent", "llms-txt-sync"),
     "PromptingBot": BotDefinition("PromptingBot", "ai_crawler", "AI Agent", "PromptingBot"),
     "llm-code-docs-scraper": BotDefinition("LLM code docs scraper", "ai_crawler", "AI Agent", "llm-code-docs-scraper"),
@@ -774,6 +777,46 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "RightAIChoiceBot": BotDefinition(
         "Right AI Choice", "ai_crawler", "AI Agent", "Right AI Choice", documentation_url="https://rightaichoice.com"
     ),
+    "FlashBrain": BotDefinition(
+        "FlashBrain", "ai_crawler", "AI Agent", "Flash Teams", documentation_url="https://flashteams.ai"
+    ),
+    "NagetBot": BotDefinition("NagetBot", "ai_crawler", "AI Agent", "Naget", documentation_url="https://naget.ai/bot"),
+    "ContextRocketBot": BotDefinition(
+        "ContextRocket",
+        "ai_crawler",
+        "AI Agent",
+        "ContextRocket",
+        documentation_url="https://contextrocket.com/llms.txt",
+    ),
+    "AgentNativeSearchBot": BotDefinition(
+        "Agent Native Search",
+        "ai_crawler",
+        "AI Agent",
+        "agent-native-search",
+        documentation_url="https://github.com/agent-native-search",
+    ),
+    "ElevenlabsCrawler": BotDefinition(
+        "ElevenLabs Crawler",
+        "ai_crawler",
+        "AI Agent",
+        "ElevenLabs",
+        documentation_url="https://elevenlabs.io/docs/bots",
+    ),
+    "rag-customer-support-ingest": BotDefinition(
+        "rag-customer-support-ingest", "ai_crawler", "AI Agent", "rag-customer-support-ingest"
+    ),
+    "OmnichannelWebsiteIngestionBot": BotDefinition(
+        "Omnichannel Website Ingestion", "ai_crawler", "AI Agent", "Neurotime", documentation_url="https://neurotime.ai"
+    ),
+    "llms-txt-check/": BotDefinition(
+        "llms-txt-check",
+        "ai_crawler",
+        "AI Agent",
+        "llms-txt-check",
+        documentation_url="https://github.com/portdeveloper/llms-txt-check",
+    ),
+    "ref-tools-crawler": BotDefinition("Ref", "ai_crawler", "AI Agent", "Ref", documentation_url="https://ref.tools"),
+    "LinkupBot": BotDefinition("Linkup", "ai_search", "AI Agent", "Linkup", documentation_url="https://linkup.so/bot"),
     # Search / index crawlers
     "redCactiBot": BotDefinition(
         "redCactiBot", "search_crawler", "Bot", "redCacti", documentation_url="https://redcacti.com/bot"
@@ -908,6 +951,67 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         documentation_url="https://swissaitalent.ch/bot",
     ),
     "AtlasSearchBot": BotDefinition("AtlasSearch", "search_crawler", "Bot", "AtlasSearch"),
+    "KakaoBot": BotDefinition(
+        "KakaoBot", "search_crawler", "Bot", "Kakao", documentation_url="https://cs.kakao.com/helps_html/1073213012"
+    ),
+    "ibou-search": BotDefinition(
+        "Ibou Search", "search_crawler", "Bot", "Ibou", documentation_url="https://ibou.com/crawlers.html"
+    ),
+    # Anchored on the operator URL, because a bare "AtlasBot" token also matches unrelated "FeedAtlasBot" agents.
+    "matnx\\.com/bot": BotDefinition(
+        "AtlasBot", "search_crawler", "Bot", "matnx", documentation_url="https://matnx.com/bot"
+    ),
+    "DittaBot": BotDefinition("DittaBot", "search_crawler", "Bot", "DittaBot"),
+    "T2Bot/": BotDefinition("T2Bot", "search_crawler", "Bot", "T2", documentation_url="https://t2ind.com/bot"),
+    "CitePackBot": BotDefinition(
+        "CitePack", "search_crawler", "Bot", "CitePack", documentation_url="https://citepack.com/bot"
+    ),
+    "ContextFetchBot": BotDefinition(
+        "ContextFetch", "search_crawler", "Bot", "ContextFetch", documentation_url="https://contextfetch.dev/bot"
+    ),
+    "MachBot/": BotDefinition(
+        "MachBot", "search_crawler", "Bot", "Mach GTM", documentation_url="https://machgtm.com/bot"
+    ),
+    "KERN-OSINT-Crawler": BotDefinition("KERN OSINT Crawler", "search_crawler", "Bot", "KERN"),
+    "NCKU-CSIE-WebMining": BotDefinition("NCKU CSIE WebMining Crawler", "search_crawler", "Bot", "NCKU CSIE"),
+    "PoliasBot": BotDefinition(
+        "PoliasBot", "search_crawler", "Bot", "Polias", documentation_url="https://polias.eu/bot"
+    ),
+    "DevParekhResearch": BotDefinition("DevParekhResearch", "search_crawler", "Bot", "DevParekhResearch"),
+    "TalarionSearchBot": BotDefinition("Talarion Search", "search_crawler", "Bot", "Talarion"),
+    "SofyaBot": BotDefinition("SofyaBot", "search_crawler", "Bot", "Sofya", documentation_url="https://sofya.co/bot"),
+    "PkgSeer Documentation Crawler": BotDefinition("PkgSeer Documentation Crawler", "search_crawler", "Bot", "PkgSeer"),
+    "WorklynSearchBot": BotDefinition(
+        "Worklyn Search", "search_crawler", "Bot", "Worklyn", documentation_url="https://worklyn.com/bot"
+    ),
+    "SterkinmatchesLeadgen": BotDefinition(
+        "Sterkinmatches Leadgen",
+        "search_crawler",
+        "Bot",
+        "Sterkinmatches",
+        documentation_url="https://sterkinmatches.nl",
+    ),
+    "Brevva/": BotDefinition("Brevva", "search_crawler", "Bot", "Brevva", documentation_url="https://brevva.ai/bot"),
+    "FastCrawler/": BotDefinition("FastCrawler", "search_crawler", "Bot", "FastCrawler"),
+    "GTMStackResearch": BotDefinition(
+        "GTMStack Research", "search_crawler", "Bot", "GTMStack", documentation_url="https://www.gtmstack.blog"
+    ),
+    "JobSearchBot": BotDefinition("JobSearchBot", "search_crawler", "Bot", "JobSearchBot"),
+    "Walsingham/": BotDefinition(
+        "Walsingham", "search_crawler", "Bot", "Walsingham", documentation_url="https://walsingham.dev"
+    ),
+    "SubBegoneBot": BotDefinition(
+        "SubBegoneBot", "search_crawler", "Bot", "SubBegone", documentation_url="https://subbegone.com"
+    ),
+    "scrape-site/": BotDefinition("scrape-site", "search_crawler", "Bot", "scrape-site"),
+    "RevnoxBot": BotDefinition("RevnoxBot", "search_crawler", "Bot", "Revnox"),
+    "AlterionLabs/": BotDefinition(
+        "AlterionLabs", "search_crawler", "Bot", "AlterionLabs", documentation_url="https://alterionlabs.com/about/bot"
+    ),
+    "usehardal-analytics-crawler": BotDefinition("Hardal Analytics Crawler", "search_crawler", "Bot", "Hardal"),
+    "Yoinka-Events": BotDefinition(
+        "Yoinka Events", "search_crawler", "Bot", "Yoinka", documentation_url="https://yoinka.app"
+    ),
     # SEO / marketing crawlers
     "LaunchReadyCodeBot": BotDefinition(
         "LaunchReadyCodeBot",
@@ -962,6 +1066,10 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "AutozellaBot": BotDefinition(
         "Autozella", "seo_crawler", "Bot", "Autozella", documentation_url="https://autozella.com"
     ),
+    "DottpaceAudit": BotDefinition(
+        "Dottpace Audit", "seo_crawler", "Bot", "Dottpace", documentation_url="https://dottpace.com/how-we-measure/"
+    ),
+    "Clearscopebot": BotDefinition("Clearscope", "seo_crawler", "Bot", "Clearscope"),
     # Social / link-preview crawlers
     "PagePeeker": BotDefinition(
         "PagePeeker", "social_crawler", "Bot", "PagePeeker", documentation_url="https://pagepeeker.com/robots/"
@@ -1006,6 +1114,26 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "NimbusBlocklistSync": BotDefinition(
         "Nimbus Blocklist Sync", "monitoring", "Bot", "Nimbus", documentation_url="https://nimbus.com"
     ),
+    "latency\\.app/bot": BotDefinition(
+        "Latency", "monitoring", "Bot", "Latency", documentation_url="https://latency.app/bot"
+    ),
+    "HonestClaw-Scanner": BotDefinition(
+        "HonestClaw Scanner", "monitoring", "Bot", "HonestClaw", documentation_url="https://honestclaw.ai/scanner"
+    ),
+    "PricingWatchBot": BotDefinition("PricingWatchBot", "monitoring", "Bot", "PricingWatchBot"),
+    "ORBIQ Research Lab": BotDefinition(
+        "ORBIQ Research Lab", "monitoring", "Bot", "ORBIQ", documentation_url="https://orbiqcloud.com"
+    ),
+    "StackClarityWatcher": BotDefinition(
+        "StackClarity Watcher",
+        "monitoring",
+        "Bot",
+        "StackClarity",
+        documentation_url="https://stackclarity-woad.vercel.app",
+    ),
+    "RimetryStatusBot": BotDefinition(
+        "Rimetry Status", "monitoring", "Bot", "Rimetry", documentation_url="https://rimetry.com/about"
+    ),
     # HTTP clients
     "MrAnandPortfolio": BotDefinition(
         "MrAnandPortfolio", "http_client", "Bot", "mranand.com", documentation_url="https://mranand.com"
@@ -1016,5 +1144,8 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         "Bot",
         "PostHog",
         documentation_url="https://posthog.com/docs/ai-research/image-fetcher-bot",
+    ),
+    "1nsight-logo-fetcher": BotDefinition(
+        "1nsight Logo Fetcher", "http_client", "Bot", "1nsight", documentation_url="https://1nsight.ai"
     ),
 }
