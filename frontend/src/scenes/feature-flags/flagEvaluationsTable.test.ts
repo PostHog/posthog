@@ -121,6 +121,30 @@ describe('flagEvaluationsTable', () => {
             { compare: true, compare_to: '-1y' },
             false,
         ],
+        [
+            'a lifecycle that reads the interval before its range from past the window',
+            '-60d',
+            { resolved_date_range: { date_from: daysAgo(60), date_to: now(), read_from: daysAgo(120) } },
+            undefined,
+            true,
+        ],
+        [
+            'a query that reads before its range from inside the window',
+            '-30d',
+            { resolved_date_range: { date_from: daysAgo(30), date_to: now(), read_from: daysAgo(60) } },
+            undefined,
+            false,
+        ],
+        [
+            'a compared period whose monthly active users read from past the window',
+            '-40d',
+            {
+                resolved_date_range: { date_from: daysAgo(40), date_to: now(), read_from: daysAgo(70) },
+                resolved_compare_date_range: { date_from: daysAgo(80), date_to: daysAgo(40), read_from: daysAgo(110) },
+            },
+            { compare: true },
+            true,
+        ],
     ])('insightReachesPastFlagEvaluationsRetention: %s', (_name, dateFrom, response, compareFilter, expected) => {
         expect(insightReachesPastFlagEvaluationsRetention({ dateFrom, response, compareFilter })).toBe(expected)
     })

@@ -87,6 +87,10 @@ export function reachesPastFlagEvaluationsRetention(dateFrom: string | null): bo
     return !parsed || parsed.isBefore(flagEvaluationsRetentionStart())
 }
 
+function earliestRead(range: ResolvedDateRangeResponse): dayjs.Dayjs {
+    return dayjs(range.read_from ?? range.date_from)
+}
+
 // Trends sends the compared range it resolved in the team timezone. The Metric display's change pill gets one
 // even though its query has no compareFilter. Stickiness and funnels send none, so this estimates the range in the
 // browser's timezone. Across a DST change, the estimate can move the start to the previous day.
@@ -95,9 +99,9 @@ function comparedPeriodStart(
     response: FlagCallsInsightResponse | null | undefined,
     compareFilter: CompareFilter | null | undefined
 ): dayjs.Dayjs {
-    const resolvedFrom = response?.resolved_compare_date_range?.date_from
-    if (resolvedFrom) {
-        return dayjs(resolvedFrom)
+    const resolvedCompareDateRange = response?.resolved_compare_date_range
+    if (resolvedCompareDateRange?.date_from) {
+        return earliestRead(resolvedCompareDateRange)
     }
     if (!compareFilter?.compare) {
         return start
@@ -108,7 +112,10 @@ function comparedPeriodStart(
         : start.subtract(dayjs(response?.resolved_date_range?.date_to ?? undefined).diff(start), 'millisecond')
 }
 
-/** Whether the range an insight ran over, or the period it compares against, starts before the table's oldest day. */
+/**
+ * Whether an insight read rows from before the table's oldest day, for its range or the period it compares against.
+ * Some queries read before their range starts, such as lifecycle and weekly or monthly active users.
+ */
 export function insightReachesPastFlagEvaluationsRetention({
     dateFrom,
     response,
@@ -128,8 +135,10 @@ export function insightReachesPastFlagEvaluationsRetention({
         return false
     }
     const comparedStart = comparedPeriodStart(dayjs(resolvedDateRange.date_from), response, compareFilter)
+    const readStart = earliestRead(resolvedDateRange)
+    const earliestStart = readStart.isBefore(comparedStart) ? readStart : comparedStart
     // The window covers whole days in the team timezone. This compares dates, not instants. A DST change can
     // repeat midnight. The backend starts the 90-day preset at the first midnight. An instant comparison against
     // the second midnight would show the notice for the preset.
-    return dateInTimezone(comparedStart, insightTimezone(response)) < flagEvaluationsRetentionStartDate(response)
+    return dateInTimezone(earliestStart, insightTimezone(response)) < flagEvaluationsRetentionStartDate(response)
 }
