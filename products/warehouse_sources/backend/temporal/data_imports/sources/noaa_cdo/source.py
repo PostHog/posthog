@@ -119,7 +119,7 @@ class NoaaCdoSource(ResumableSource[NoaaCdoSourceConfig, NoaaCdoResumeConfig]):
                 "Use a full refresh to collect older corrections. "
                 "NOAA limits each token to five requests per second and 10,000 requests per day."
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [
@@ -133,6 +133,7 @@ class NoaaCdoSource(ResumableSource[NoaaCdoSourceConfig, NoaaCdoResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="dataset_id",
+                        sync_setting=True,
                         label="Dataset ID",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -141,6 +142,7 @@ class NoaaCdoSource(ResumableSource[NoaaCdoSourceConfig, NoaaCdoResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="station_id",
+                        sync_setting=True,
                         label="Station ID",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -149,6 +151,7 @@ class NoaaCdoSource(ResumableSource[NoaaCdoSourceConfig, NoaaCdoResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

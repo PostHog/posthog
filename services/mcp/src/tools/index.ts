@@ -16,8 +16,10 @@ import featureFlagGetDefinitionByKey from './featureFlags/getDefinitionByKey'
 import submitFeedback from './feedback/submit'
 // Generated tools (from definitions/*.yaml)
 import { GENERATED_TOOL_MAP } from './generated'
+import explainChart from './insights/explainChart'
 // Insights
 import queryInsight from './insights/query'
+import insightTrustCheck from './insights/trustCheck'
 // Links (utility — builds canonical app URLs from the frontend's route table)
 import generateAppUrl from './links/generate-app-url'
 import { mergeToolFactories } from './mergeToolFactories'
@@ -98,6 +100,8 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Insights
     'insight-query': queryInsight,
+    'insight-trust-check': insightTrustCheck,
+    'explain-chart': explainChart,
 
     // Links (utility — canonical app URLs so the model never hand-builds/mis-slugs entity links)
     'generate-app-url': generateAppUrl,

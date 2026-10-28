@@ -6,6 +6,7 @@
     "dependencies": {
         "@base-ui/react": "catalog:",
         "@posthog/brand": "catalog:",
+        "@posthog/quill": "workspace:*",
         "fast-equals": "catalog:",
         "kea": "catalog:",
         "kea-loaders": "catalog:",

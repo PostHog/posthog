@@ -6,13 +6,16 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
 from posthog.exceptions_capture import capture_exception
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.notion.settings import (
@@ -165,7 +168,7 @@ def _wait_strategy(retry_state: RetryCallState) -> float:
     return _wait_exponential(retry_state)
 
 
-@retry(
+@retry_with_deadline(
     # ChunkedEncodingError is a sibling of ConnectionError (both RequestException, not subclasses of
     # each other): Notion can break the connection mid-response, surfacing as a malformed chunk
     # ("Connection broken: InvalidChunkLength"). It is a transient connection failure like the others,

@@ -6,7 +6,6 @@ from unittest.mock import MagicMock
 
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import RESTClientRetryableError
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.retellai import (
     RetellAISourceConfig,
 )
@@ -46,11 +45,26 @@ def test_malformed_api_keys_fail_before_http(key: str, http: MagicMock) -> None:
     http.assert_not_called()
 
 
-@pytest.mark.parametrize("status", [400, 429, 500])
+@pytest.mark.parametrize(
+    "status,expected",
+    [
+        (400, HTTPError),
+        (429, (False, "Couldn't reach Retell AI to check your credentials. Try again in a few minutes.")),
+        (500, (False, "Couldn't reach Retell AI to check your credentials. Try again in a few minutes.")),
+    ],
+)
 def test_probe_errors_are_not_reported_as_invalid_credentials(
-    status: int, http: MagicMock, monkeypatch: pytest.MonkeyPatch
+    status: int,
+    expected: type[Exception] | tuple[bool, str],
+    http: MagicMock,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("time.sleep", lambda _: None)
     http.return_value = response({}, status)
-    with pytest.raises(HTTPError if status == 400 else RESTClientRetryableError):
-        RetellAISource().validate_credentials(RetellAISourceConfig(api_key="fake-key"), 1)
+    source = RetellAISource()
+    config = RetellAISourceConfig(api_key="fake-key")
+    if isinstance(expected, tuple):
+        assert source.validate_credentials(config, 1) == expected
+    else:
+        with pytest.raises(expected):
+            source.validate_credentials(config, 1)

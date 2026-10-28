@@ -17,9 +17,6 @@ import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { ExternalReferences } from '../../../components/ExternalReferences'
 import { manageFingerprintsLogic } from '../../../components/FingerprintPreview/manageFingerprintsLogic'
 import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
-import { IssueAffectedBroadcastButton } from './IssueAffectedBroadcastButton'
-import { IssueCohort } from './IssueCohort'
-import { IssueWorkflowButton } from './IssueWorkflowButton'
 
 export const ErrorTrackingIssueScenePanel = ({
     issue,
@@ -33,12 +30,9 @@ export const ErrorTrackingIssueScenePanel = ({
             <ScenePanelInfoSection>
                 <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
                 <IssueExternalReference />
-                <IssueCohort issue={issue} />
             </ScenePanelInfoSection>
             <ScenePanelDivider />
             <ScenePanelActionsSection>
-                <IssueAffectedBroadcastButton issueId={issue.id} issueName={issue.name} />
-                <IssueWorkflowButton issueId={issue.id} />
                 <SceneComment dataAttrKey="issue" />
                 <SceneShareButton
                     dataAttrKey="issue"

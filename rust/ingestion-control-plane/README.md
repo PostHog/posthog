@@ -23,7 +23,11 @@ Lists live ingestion-consumer pods and serves the consumer's routing debug UI pe
 
 ### Personhog topology
 
-Protocol-aware view of personhog's etcd coordination state (`PERSONHOG_ETCD_PREFIX`, default `/personhog/`): the whole prefix is read in one consistent snapshot and interpreted with the `personhog-coordination` types and the coordinator's own pure predicates, so the derived diagnostics cannot drift from the protocol. Shows the elected coordinator, registered pods and routers (with remaining lease TTLs), per-partition ownership, and in-flight handoffs with their phase age and what each is waiting on — distinguishing a stuck participant ("waiting on freeze acks from router-2") from a stuck coordinator ("quorum met; waiting on the coordinator to advance"). Derived issues cover stuck handoffs past their per-phase deadline, assignments owned by unregistered pods with no replanning handoff, lingering `Complete` records the coordinator hasn't cleaned up, dead new owners awaiting cancellation, unassigned partitions, stale acks from previous handoff attempts, and unparseable records. The deadline knobs (`PERSONHOG_HANDOFF_DEADLINE_SECS`, `PERSONHOG_WARMING_DEADLINE_SECS`) must match the coordinator's to agree with its cancellation decisions. Read-only: the tool never writes coordination state, and a force-reassignment must go through a handoff record, never a raw assignment write.
+Protocol-aware view of personhog's etcd coordination state (`PERSONHOG_ETCD_PREFIX`, default `/personhog/`): the whole prefix is read in one consistent snapshot and interpreted with the `personhog-coordination` types and the coordinator's own pure predicates, so the derived diagnostics cannot drift from the protocol. Shows the elected coordinator, registered pods and routers (with remaining lease TTLs), per-partition ownership, and in-flight handoffs with their phase age and what each is waiting on — distinguishing a stuck participant ("waiting on freeze acks from router-2") from a stuck coordinator ("quorum met; waiting on the coordinator to advance"). Derived issues cover stuck handoffs past their per-phase deadline, assignments owned by unregistered pods with no replanning handoff, lingering `Complete` records the coordinator hasn't cleaned up, dead new owners awaiting cancellation, unassigned partitions, stale acks from previous handoff attempts, and unparseable records. The deadline knobs (`PERSONHOG_HANDOFF_DEADLINE_SECS`, `PERSONHOG_WARMING_DEADLINE_SECS`) must match the coordinator's to agree with its cancellation decisions. The tool writes no coordination state except from the changelog panel (seeding `config/changelog`, adding or removing a consumer group that retire waits on, requesting or cancelling a migration, and retiring a drained generation), and a force-reassignment must go through a handoff record, never a raw assignment write.
+
+### Personhog parity
+
+Shows the personhog parity monitor's recent disagreements between the Node and personhog CDC feeds, newest first. A distinct id row shows the mapping each feed ended with, and a merge row shows each feed's survivor and partition, with the differing fields highlighted. The server reads the monitor's `/debug/mismatches` sample with `DEBUG_API_SECRET`, so the monitor must run with the same secret. The monitor keeps the sample in memory, so older disagreements drop out and a monitor restart clears it. The view is disabled (its API returns 503) unless `PARITY_MONITOR_URL` is set.
 
 ### Etcd explorer
 
@@ -55,9 +59,13 @@ Both etcd tools are disabled (their APIs return 503) unless `ETCD_ENDPOINTS` is 
 | `POD_LABEL_SELECTORS` | `ingestion-analytics-main/app=ingestion-analytics-main,ingestion-analytics-async/app=ingestion-analytics-async` | One `namespace/key=value` per entry (each lane runs in its own namespace); bare `key=value` uses `K8S_NAMESPACE` |
 | `K8S_NAMESPACE` | `posthog` | Default namespace for unqualified selector entries |
 | `DEBUG_PORT` | `3301` | Consumer debug API port (kubernetes mode) |
+| `DEBUG_API_SECRET` | empty | Sent as `X-Debug-Api-Secret` to the consumers' debug APIs and to the parity monitor; must match theirs |
+| `PARITY_MONITOR_URL` | empty | Parity monitor base URL, for example `http://personhog-parity-monitor.personhog-parity-monitor.svc.cluster.local:3301`; empty disables the parity view |
 | `ETCD_ENDPOINTS` | empty | Comma-separated etcd endpoints; empty disables the etcd explorer and personhog topology tools |
 | `ETCD_ALLOWED_PREFIXES` | `/` | Comma-separated key prefixes the etcd explorer may read and write |
 | `PERSONHOG_ETCD_PREFIX` | `/personhog/` | Prefix the personhog coordination state lives under; must match the personhog services' `ETCD_PREFIX` |
+| `PERSONHOG_KAFKA_HOSTS` | `KAFKA_HOSTS` | Cluster the personhog changelog lives on, for the changelog panel |
+| `PERSONHOG_KAFKA_TLS` | `KAFKA_TLS` | TLS for `PERSONHOG_KAFKA_HOSTS` |
 | `PERSONHOG_HANDOFF_DEADLINE_SECS` | `120` | Per-phase deadline for flagging stuck handoffs; must match `COORDINATOR_HANDOFF_DEADLINE_SECS` |
 | `PERSONHOG_WARMING_DEADLINE_SECS` | `1800` | Warming-phase deadline; must match `COORDINATOR_WARMING_DEADLINE_SECS` |
 
@@ -83,4 +91,4 @@ Then open `http://localhost:3305/`.
 ## Deployment notes
 
 - Image `ingestion-control-plane` is built via `.github/rust-images.yml`; a deploy needs a matrix entry in `rust-docker-build.yml` plus a charts-repo app.
-- Kubernetes mode needs RBAC: `get`/`list` on `pods` in the ingestion namespace, and network egress to pod IPs on the debug port, Kafka, the Postgres replica, and (when the etcd tools are enabled) the personhog etcd cluster.
+- Kubernetes mode needs RBAC: `get`/`list` on `pods` in the ingestion namespace, and network egress to pod IPs on the debug port, Kafka, the Postgres replica, (when the etcd tools are enabled) the personhog etcd cluster, and (when the parity view is enabled) the parity monitor's Service.

@@ -31,6 +31,9 @@ common-liveness = { path = "../common/liveness" }
 # hold their per-partition maps behind sharded locks (no global mutex on the hot path).
 dashmap = { workspace = true }
 envconfig = { workspace = true }
+# Opt-in profiling. Every hotpath macro and wrapper is a no-op unless the `hotpath` feature is on.
+# Profile an optimized build: `cargo run --release -p cohort-stream-processor --features hotpath`.
+hotpath = { version = "0.28", features = ["tokio", "sqlx"] }
 # `join_all` for routing each poll's per-partition sub-batches concurrently, so a full channel on
 # one partition can't head-of-line-block the sends to the others. Same version dedup uses.
 futures = { workspace = true }
@@ -55,8 +58,8 @@ sha2 = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
-# `CancellationToken` for the rebalance worker's shutdown signal (from `lifecycle::Handle`), the
-# same primitive the sibling consumers use for cooperative cancellation.
+# `CancellationToken` for the sweep loops' and the checkpoint's shutdown signal (from
+# `lifecycle::Handle`), the same primitive the sibling consumers use for cooperative cancellation.
 tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
@@ -65,6 +68,12 @@ uuid = { workspace = true }
 [target.'cfg(unix)'.dependencies]
 # `statvfs` for the store-filesystem utilization sample (`observability::disk`).
 nix = { version = "0.31", features = ["fs"] }
+
+[features]
+default = []
+hotpath = ["hotpath/hotpath"]
+hotpath-alloc = ["hotpath", "hotpath/hotpath-alloc"]
+hotpath-prometheus = ["hotpath", "hotpath/hotpath-prometheus"]
 
 [dev-dependencies]
 # Integration tests in `tests/` build `TeamFilters` via `freeze(UTC)`, so they name `chrono_tz::UTC`

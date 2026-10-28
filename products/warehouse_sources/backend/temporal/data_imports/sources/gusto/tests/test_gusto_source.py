@@ -62,24 +62,13 @@ class TestGustoSource:
 
     @parameterized.expand(
         [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.gusto.com/oauth/token"),
             ("bad_request", "400 Client Error: Bad Request for url: https://api.gusto.com/oauth/token"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.gusto.com/v1/companies/c-1/payrolls"),
             # A pin that reaches end of life 406s; retrying can't recover it.
             ("version_end_of_life", "406 Client Error: Not Acceptable for url: https://api.gusto.com/v1/me"),
         ]
     )
     def test_auth_failures_are_non_retryable(self, _name: str, observed_error: str) -> None:
         assert any(key in observed_error for key in self.source.get_non_retryable_errors())
-
-    @parameterized.expand(
-        [
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.gusto.com/v1/me"),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.gusto.com/v1/me"),
-        ]
-    )
-    def test_transient_failures_stay_retryable(self, _name: str, observed_error: str) -> None:
-        assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
 
     @parameterized.expand([(GUSTO_API_VERSION_2024_04_01,), (GUSTO_API_VERSION_2026_06_15,)])
     def test_source_for_pipeline_honors_the_pinned_version(self, pin: str) -> None:

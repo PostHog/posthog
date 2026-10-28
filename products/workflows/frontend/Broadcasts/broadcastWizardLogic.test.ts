@@ -1,11 +1,12 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -15,6 +16,7 @@ import type { BlastRadiusApi, HogFlowApi } from 'products/workflows/frontend/gen
 
 import { draftMessage } from '../MessageAudience/messageDrafts'
 import { urlForNewBroadcastWithAudience } from './broadcastAudiencePrefill'
+import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 import { DEFAULT_BROADCAST_EMAIL, DELETED_SENDER_ERROR, broadcastWizardLogic } from './broadcastWizardLogic'
 
 const LOCAL_AUDIENCE: AnyPropertyFilter[] = [
@@ -51,6 +53,7 @@ function savedBroadcast(overrides: { name: string; subject: string; updatedAt: s
         abort_action: null,
         billable_action_types: [],
         schedules: [],
+        tags: [],
         user_access_level: 'editor',
         draft: null,
         draft_updated_at: null,
@@ -94,6 +97,10 @@ describe('broadcastWizardLogic', () => {
             },
             post: {
                 '/api/projects/:team_id/hog_flows/user_blast_radius/': () => [200, { affected: 0, total: 0 }],
+                '/api/projects/:team_id/hog_flows/new/invocations/': () => [
+                    200,
+                    { status: 'success', nextActionId: null, logs: [] },
+                ],
                 '/api/projects/:team_id/hog_flows/': async () => {
                     await created
                     return [201, savedBroadcast({ name: '', subject: '', updatedAt: '2026-09-24T10:00:00Z' })]
@@ -132,6 +139,33 @@ describe('broadcastWizardLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    it('remembers a delivered test, for the address it went to, until the email changes', async () => {
+        const testSend = broadcastTestSendLogic({ id: 'new' })
+        testSend.mount()
+        // Let the wizard fill its default sender first, which is an email change of its own.
+        await expectLogic(logic).toFinishAllListeners()
+        const sendTest = async (): Promise<void> => {
+            testSend.actions.setRecipientEmail('reviewer@example.com')
+            testSend.actions.sendTestEmail()
+            // Edited while the send runs, which must not change who the card says got it.
+            testSend.actions.setRecipientEmail('typo@example.com')
+            await expectLogic(testSend).toDispatchActions(['sendTestEmailSuccess']).toFinishAllListeners()
+        }
+
+        await sendTest()
+        expect(testSend.values.lastTestSentTo).toBe('reviewer@example.com')
+        logic.actions.setEmail({ ...logic.values.email, subject: 'Changed after the test' })
+        expect(testSend.values.lastTestSentTo).toBeNull()
+
+        await sendTest()
+        logic.actions.applyExternalEdit(
+            savedBroadcast({ name: '', subject: 'Rewritten by the assistant', updatedAt: '2026-09-24T10:00:09Z' }),
+            null
+        )
+        expect(testSend.values.lastTestSentTo).toBeNull()
+        testSend.unmount()
     })
 
     it('prefills the audience, name and source from a link without creating a draft', async () => {
@@ -223,8 +257,6 @@ describe('broadcastWizardLogic', () => {
                         }).then((body) => [200, body]),
                 },
             })
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AI_EMAIL_DRAFT]: true })
             logic.unmount()
             router.actions.push(
                 urlForNewBroadcastWithAudience({
@@ -264,6 +296,91 @@ describe('broadcastWizardLogic', () => {
             expect(logic.values.name).toEqual(applied ? 'Written by the model' : 'We fixed it')
         }
     )
+
+    it.each([
+        { case: 'lands after the template was branded', withLinkEmail: true },
+        { case: 'comes from a link without a template email', withLinkEmail: false },
+    ])('keeps the project brand on an AI draft that $case', async ({ withLinkEmail }) => {
+        const cell = (inner: string): string =>
+            `<table role="presentation"><tbody><tr><td style="padding:10px;"><div>${inner}</div></td></tr></tbody></table>`
+        const brandEmail = {
+            design: {
+                counters: { u_content_text: 1 },
+                body: {
+                    values: {},
+                    rows: [
+                        {
+                            columns: [
+                                {
+                                    contents: [
+                                        { type: 'image', values: { src: { url: 'https://example.com/logo.png' } } },
+                                        { type: 'text', values: { text: '<p>Template body copy</p>' } },
+                                        { type: 'custom', values: { unsubscribe: true } },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            },
+            html: `<html><body><div class="u-row-container"><div class="u-row"><div class="u-col u-col-100"><div><div>${[
+                cell('<img src="https://example.com/logo.png" />'),
+                cell('<p>Template body copy</p>'),
+                cell('<a href="{{ unsubscribe_url }}">Unsubscribe</a>'),
+            ].join('')}</div></div></div></div></div></body></html>`,
+        }
+        let respond: (value: unknown) => void = () => {}
+        let markRequested: () => void = () => {}
+        const requested = new Promise<void>((resolve) => {
+            markRequested = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_templates/': () => [
+                    200,
+                    { count: 1, results: [{ content: { email: brandEmail } }] },
+                ],
+            },
+            post: {
+                '/api/projects/:team_id/workflow_email_drafts/': () =>
+                    new Promise((resolve) => {
+                        respond = resolve
+                        markRequested()
+                    }).then((body) => [200, body]),
+            },
+        })
+        logic.unmount()
+        router.actions.push(
+            urlForNewBroadcastWithAudience({
+                properties: LOCAL_AUDIENCE,
+                source: 'error_tracking',
+                ...(withLinkEmail ? { email: draftMessage({ kind: 'issue_fixed' }) } : {}),
+                draftSource: { source: 'error_tracking', source_id: 'issue-1' },
+            })
+        )
+        logic = broadcastWizardLogic({ id: 'new' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions([withLinkEmail ? 'brandApplied' : 'loadAiEmailDraft'])
+        await requested
+        respond({
+            subject: 'Written by the model',
+            preheader: '',
+            html: '<p>Model paragraph.</p>',
+            text: 'Model paragraph.',
+            generated_by: 'ai',
+            template_reason: null,
+        })
+        await expectLogic(logic).toDispatchActions(
+            withLinkEmail
+                ? ['loadAiEmailDraftSuccess']
+                : ['loadAiEmailDraftSuccess', 'loadEmailBrandSuccess', 'brandApplied']
+        )
+
+        expect(logic.values.email.subject).toEqual('Written by the model')
+        expect(logic.values.email.html).toContain('Model paragraph.')
+        expect(logic.values.email.html).toContain('https://example.com/logo.png')
+    })
 
     it('blocks the recipients step until the person chooses, when a link has an audience it cannot use', async () => {
         logic.unmount()
@@ -346,6 +463,30 @@ describe('broadcastWizardLogic', () => {
         }
     })
 
+    it.each([
+        { case: 'untouched settings', edit: false, enabled: true, params: { utm_source: 'newsletter' } },
+        { case: 'settings the user changed', edit: true, enabled: false, params: {} },
+    ])('seeds team UTM defaults when the team loads after mount, for $case', ({ edit, enabled, params }) => {
+        logic.unmount()
+        teamLogic.actions.loadCurrentTeamSuccess(null)
+        logic = broadcastWizardLogic({ id: 'new' })
+        logic.mount()
+        if (edit) {
+            logic.actions.setEmailSettings({ trackingEnabled: false })
+        }
+
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            workflows_config: {
+                capture_workflows_engagement_events: false,
+                email_utm_tags_enabled: true,
+                email_utm_params: { utm_source: 'newsletter' },
+            },
+        })
+
+        expect(logic.values.emailSettings).toMatchObject({ utmTagsEnabled: enabled, utmParams: params })
+    })
+
     it('moves a new broadcast onto its draft URL once the draft is created', async () => {
         router.actions.push('/broadcasts/new')
         await expectLogic(logic, () => {
@@ -383,6 +524,19 @@ describe('broadcastWizardLogic', () => {
         expect(patchedSubjects).toEqual([testCase.subject])
         expect(patchedTracking).toEqual([testCase.tracking])
         expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+    })
+
+    it('autosaves a subject edited in place on the review step', async () => {
+        router.actions.push('/broadcasts/new')
+        logic.actions.setStep('content')
+        releaseCreate()
+        await expectLogic(logic).toDispatchActions(['draftAutosaved']).toFinishAllListeners()
+
+        logic.actions.setStep('review')
+        logic.actions.setEmail({ ...logic.values.email, subject: 'Edited on the review step' })
+        await expectLogic(logic).toDispatchActions(['draftAutosaved']).toFinishAllListeners()
+
+        expect(patchedSubjects.at(-1)).toBe('Edited on the review step')
     })
 
     it('retries a failed email autosave and moves to the draft URL once it saves', async () => {

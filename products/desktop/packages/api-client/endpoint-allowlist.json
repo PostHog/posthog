@@ -79,6 +79,7 @@
     "PersonRecord",
     "ProjectBackwardCompat",
     "SessionRecording",
+    "SignalReportArtefactWrite",
     "Survey",
     "TaskCreate",
     "TaskDetailDTO",

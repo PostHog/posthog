@@ -3,13 +3,15 @@ from __future__ import annotations
 import json
 import asyncio
 import hashlib
+from collections import Counter
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
+from typing import Any
 from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Case, DateTimeField, Max, PositiveSmallIntegerField, Q, Value, When
+from django.db.models import Case, Count, DateTimeField, Max, PositiveSmallIntegerField, Q, Value, When
 from django.utils import timezone
 
 import structlog
@@ -113,7 +115,16 @@ TICK_SECONDS = COORDINATOR_INTERVAL_MINUTES * 60
 
 # One event per region per tick that runs the background lane, to chart its backlog and time to first run.
 BACKGROUND_TICK_EVENT = "signals_scout_background_tick"
-BACKGROUND_TICK_DISTINCT_ID = "internal_signals_scout_coordinator"
+# One event per region per tick, and one per project with due runs that tick. Each carries the limits
+# the flag payload resolved next to the usage, so a chart never needs its own copy of the limits.
+COORDINATOR_TICK_EVENT = "signals_scout_coordinator_tick"
+CAPACITY_TICK_EVENT = "signals_scout_capacity_tick"
+COORDINATOR_DISTINCT_ID = "internal_signals_scout_coordinator"
+
+# The cap that kept a project's due runs from dispatching this tick.
+DEFERRED_PER_TICK = "per_tick"
+DEFERRED_PER_DAY = "per_day"
+DEFERRED_GLOBAL = "global"
 
 
 @dataclass(frozen=True)
@@ -181,6 +192,7 @@ class RunDueChecksOutput:
     # Defaulted so a workflow history written before the agent lane existed still decodes.
     dispatched: int = 0
     deferred: int = 0
+    observed: int = 0
 
 
 @activity.defn
@@ -201,6 +213,7 @@ async def run_due_signal_report_checks_activity(_input: RunDueChecksInput) -> Ru
         errored=summary.errored,
         dispatched=summary.dispatched,
         deferred=summary.deferred,
+        observed=summary.observed,
     )
 
 
@@ -694,6 +707,7 @@ def _collect_planned_runs(
         due.extend(admitted)
 
     selected: list[_DueRun] = []
+    runs_today: dict[int, int] = {}
     if due:
         # Only count runs for teams that actually have a resolved daily budget — for the default
         # rollout (no `max_runs_per_day` set anywhere) this skips the aggregate query entirely.
@@ -704,6 +718,7 @@ def _collect_planned_runs(
         }
         runs_today = _runs_today_by_team(capped_team_ids, now - DAILY_BUDGET_WINDOW)
         selected = _allocate_tick_budget(due, team_configs, default_team_config, runs_today, max_runs_per_tick)
+    _capture_capacity_tick(due, selected, team_configs, default_team_config, runs_today, max_runs_per_tick)
     if background is not None and background.enabled:
         _capture_background_tick(background_due, selected, background.budget, runs_last_24h)
     planned = [
@@ -784,10 +799,158 @@ def _capture_background_tick(
     logger.info("signals_scout coordinator: background tick", **properties)
     try:
         posthoganalytics.capture(
-            event=BACKGROUND_TICK_EVENT, distinct_id=BACKGROUND_TICK_DISTINCT_ID, properties=properties
+            event=BACKGROUND_TICK_EVENT, distinct_id=COORDINATOR_DISTINCT_ID, properties=properties
         )
     except Exception:
         logger.warning("signals_scout coordinator: failed to capture background tick event")
+
+
+def _capture_capacity_tick(
+    due: list[_DueRun],
+    selected: list[_DueRun],
+    team_configs: dict[int, dict],
+    default_team_config: dict,
+    runs_today: dict[int, int],
+    max_runs_per_tick: int | None,
+) -> None:
+    """Capture the coordinator tick event and one capacity event per project with due runs.
+
+    Telemetry only: a failure here logs and never fails the tick.
+    """
+    try:
+        enabled_scouts = _enabled_scouts_by_team({d.team_id for d in due})
+        fleet, projects = _tick_capacity_properties(
+            due, selected, team_configs, default_team_config, runs_today, max_runs_per_tick, enabled_scouts
+        )
+        for properties in projects:
+            posthoganalytics.capture(
+                event=CAPACITY_TICK_EVENT, distinct_id=COORDINATOR_DISTINCT_ID, properties=properties
+            )
+        posthoganalytics.capture(event=COORDINATOR_TICK_EVENT, distinct_id=COORDINATOR_DISTINCT_ID, properties=fleet)
+    except Exception:
+        logger.warning("signals_scout coordinator: failed to capture capacity tick events", exc_info=True)
+
+
+def _enabled_scouts_by_team(team_ids: set[int]) -> dict[int, int]:
+    """Enabled scout configs per team, in one grouped query. Counts the same rows as `enabled_scout_count`."""
+    if not team_ids:
+        return {}
+    rows = (
+        SignalScoutConfig.all_teams.filter(team_id__in=team_ids, enabled=True).values("team_id").annotate(n=Count("id"))
+    )
+    return {row["team_id"]: row["n"] for row in rows}
+
+
+def _tick_capacity_properties(
+    due: list[_DueRun],
+    selected: list[_DueRun],
+    team_configs: dict[int, dict],
+    default_team_config: dict,
+    runs_today: dict[int, int],
+    max_runs_per_tick: int | None,
+    enabled_scouts: dict[int, int],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """The coordinator tick properties and the capacity properties of each project with due runs.
+
+    `deferred_reason` names the cap that held back a project's due runs. The per-team caps apply
+    before the global cap in `_allocate_tick_budget`, so a project trimmed by its own cap reports
+    that cap, and a project that lost runs only to the global cap reports `global`.
+    """
+    global_cap = max_runs_per_tick if max_runs_per_tick is not None else MAX_RUNS_PER_TICK
+    due_by_team = Counter(d.team_id for d in due)
+    dispatched_by_team = Counter(d.team_id for d in selected)
+    projects: list[dict[str, Any]] = []
+    due_after_team_caps = 0
+    projects_at_daily_budget = 0
+    for team_id in sorted(due_by_team):
+        cap = _resolve_team_tick_cap(team_id, team_configs, default_team_config, runs_today)
+        team_due = due_by_team[team_id]
+        dispatched = dispatched_by_team[team_id]
+        due_after_team_caps += min(team_due, cap.effective)
+        if cap.remaining_today == 0:
+            projects_at_daily_budget += 1
+        deferred_reason: str | None = None
+        if team_due > cap.effective:
+            deferred_reason = cap.binding_reason
+        elif dispatched < team_due:
+            deferred_reason = DEFERRED_GLOBAL
+        projects.append(
+            {
+                "region": settings.CLOUD_DEPLOYMENT,
+                "project_id": team_id,
+                "due": team_due,
+                "dispatched": dispatched,
+                "deferred": team_due - dispatched,
+                "deferred_reason": deferred_reason,
+                "max_runs_per_tick": cap.max_runs_per_tick,
+                "max_runs_per_day": cap.max_runs_per_day,
+                "runs_last_24h": cap.runs_last_24h,
+                "daily_budget_used_pct": (
+                    round(100 * cap.runs_last_24h / cap.max_runs_per_day, 1)
+                    if cap.max_runs_per_day is not None and cap.runs_last_24h is not None
+                    else None
+                ),
+                "enabled_scouts": enabled_scouts.get(team_id, 0),
+                "max_enabled_scouts": resolve_max_enabled_scouts(
+                    [team_configs.get(team_id) or {}, default_team_config]
+                ),
+            }
+        )
+    fleet = {
+        "region": settings.CLOUD_DEPLOYMENT,
+        "global_max_runs_per_tick": global_cap,
+        "due_after_team_caps": due_after_team_caps,
+        "dispatched": len(selected),
+        "deferred_global": due_after_team_caps - len(selected),
+        "projects_with_due_runs": len(due_by_team),
+        "projects_at_daily_budget": projects_at_daily_budget,
+    }
+    return fleet, projects
+
+
+@dataclass(frozen=True)
+class _TeamTickCap:
+    """A team's per-tick cap and daily budget for one tick, resolved from the flag payload layers."""
+
+    max_runs_per_tick: int
+    max_runs_per_day: int | None
+    # Runs in the trailing daily-budget window. None when the team has no daily budget.
+    runs_last_24h: int | None
+
+    @property
+    def remaining_today(self) -> int | None:
+        if self.max_runs_per_day is None or self.runs_last_24h is None:
+            return None
+        return max(0, self.max_runs_per_day - self.runs_last_24h)
+
+    @property
+    def effective(self) -> int:
+        # Day's remaining headroom caps this tick too: a team that's spent its daily budget gets
+        # 0 this tick, no matter how many scouts are due. Counted runs exclude this tick's
+        # not-yet-started dispatches; the per-tick cap bounds that brief window.
+        remaining_today = self.remaining_today
+        if remaining_today is None:
+            return self.max_runs_per_tick
+        return min(self.max_runs_per_tick, remaining_today)
+
+    @property
+    def binding_reason(self) -> str:
+        """The cap that sets `effective`. On a tie the per-tick cap binds, since it binds every tick."""
+        remaining_today = self.remaining_today
+        if remaining_today is not None and remaining_today < self.max_runs_per_tick:
+            return DEFERRED_PER_DAY
+        return DEFERRED_PER_TICK
+
+
+def _resolve_team_tick_cap(
+    team_id: int, team_configs: dict[int, dict], default_team_config: dict, runs_today: dict[int, int]
+) -> _TeamTickCap:
+    max_runs_per_day = _resolve_max_runs_per_day(team_id, team_configs, default_team_config)
+    return _TeamTickCap(
+        max_runs_per_tick=_resolve_max_runs_per_tick(team_id, team_configs, default_team_config),
+        max_runs_per_day=max_runs_per_day,
+        runs_last_24h=None if max_runs_per_day is None else runs_today.get(team_id, 0),
+    )
 
 
 def _allocate_tick_budget(
@@ -819,15 +982,7 @@ def _allocate_tick_budget(
     global_cap = max_runs_per_tick if max_runs_per_tick is not None else MAX_RUNS_PER_TICK
 
     def _team_cap(team_id: int) -> int:
-        per_tick = _resolve_max_runs_per_tick(team_id, team_configs, default_team_config)
-        per_day = _resolve_max_runs_per_day(team_id, team_configs, default_team_config)
-        if per_day is None:
-            return per_tick
-        # Day's remaining headroom caps this tick too: a team that's spent its daily budget gets
-        # 0 this tick, no matter how many scouts are due. Counted runs exclude this tick's
-        # not-yet-started dispatches; the per-tick cap bounds that brief window.
-        remaining_today = max(0, per_day - runs_today.get(team_id, 0))
-        return min(per_tick, remaining_today)
+        return _resolve_team_tick_cap(team_id, team_configs, default_team_config, runs_today).effective
 
     by_team: dict[int, list[_DueRun]] = {}
     for d in due:

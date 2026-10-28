@@ -65,8 +65,8 @@ class LLMProviderKey(UUIDTModel):
         """Return provider-specific kwargs from encrypted_config.
 
         Used when calling ``Client.validate_key`` / ``Client.list_models`` to pass
-        extra config (e.g. Azure's ``azure_endpoint`` and ``api_version``). Most
-        providers return an empty dict.
+        extra config (e.g. Azure's ``azure_endpoint`` and ``api_version``, or the Microsoft
+        Foundry ``azure_endpoint`` of an Anthropic key). Most providers return an empty dict.
         """
         if self.provider == LLMProvider.SYSTEM_ONE:
             return {
@@ -79,6 +79,8 @@ class LLMProviderKey(UUIDTModel):
             }
         if self.provider == LLMProvider.OPENAI_COMPATIBLE:
             return {"base_url": self.encrypted_config.get("base_url", "")}
+        if self.provider == LLMProvider.ANTHROPIC and self.encrypted_config.get("azure_endpoint"):
+            return {"azure_endpoint": self.encrypted_config["azure_endpoint"]}
         return {}
 
 

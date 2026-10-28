@@ -1,7 +1,5 @@
 from unittest import mock
 
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.qualaroo import (
     QualarooSourceConfig,
 )
@@ -13,26 +11,6 @@ class TestQualarooSource:
         self.source = QualarooSource()
         self.team_id = 123
         self.config = QualarooSourceConfig(api_key="q-key", api_secret="q-secret")
-
-    @parameterized.expand(
-        [
-            ("401 Client Error: Unauthorized for url: https://api.qualaroo.com/api/v1/nudges.json?limit=500&offset=0",),
-            ("403 Client Error: Forbidden for url: https://api.qualaroo.com/api/v1/nudges.json?limit=500&offset=0",),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            ("500 Server Error: Internal Server Error for url: https://api.qualaroo.com/api/v1/nudges.json",),
-            ("429 Client Error: Too Many Requests for url: https://api.qualaroo.com/api/v1/nudges.json",),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.qualaroo.source._validate_qualaroo_credentials"

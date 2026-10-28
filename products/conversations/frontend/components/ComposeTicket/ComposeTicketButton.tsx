@@ -6,6 +6,7 @@ import { IconLetter } from '@posthog/icons'
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -13,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { composeTicketLogic } from './composeTicketLogic'
+import { QuillComposeTicketButton } from './QuillComposeTicketButton'
 
 interface ComposeTicketButtonProps {
     size?: LemonButtonProps['size']
@@ -35,6 +37,20 @@ export function ComposeTicketButton({
     const { openComposeModal } = useActions(composeTicketLogic)
     const [showDisabledPopover, setShowDisabledPopover] = useState(false)
     const conversationsEnabled = !!currentTeam?.conversations_enabled
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return (
+            <QuillComposeTicketButton
+                size={size}
+                type={type}
+                distinctId={distinctId}
+                email={email}
+                iconOnly={iconOnly}
+                onCompose={onCompose}
+            />
+        )
+    }
 
     return (
         <>

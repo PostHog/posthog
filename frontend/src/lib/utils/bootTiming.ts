@@ -4,6 +4,7 @@ const SAMPLE_RATE = 0.05
 
 export type BootPhase =
     | 'entry'
+    | 'app_context_loaded'
     | 'app_modules_loaded'
     | 'css_ready'
     | 'app_booted'
@@ -15,6 +16,7 @@ export type BootPhase =
 export interface BootContext {
     scene?: string
     logged_in?: boolean
+    deferred_app_context?: boolean
 }
 
 const phaseTimes: Partial<Record<BootPhase, number>> = {}
@@ -27,8 +29,14 @@ function getNavigationProperties(): Record<string, string | number | null> {
     if (!navigation) {
         return { navigation_type: null }
     }
+    const openedNewConnection = navigation.connectEnd > navigation.connectStart
+    const didTlsHandshake = openedNewConnection && navigation.secureConnectionStart > 0
     return {
         navigation_type: navigation.type,
+        next_hop_protocol: navigation.nextHopProtocol || null,
+        dns_ms: Math.round(navigation.domainLookupEnd - navigation.domainLookupStart),
+        connect_ms: openedNewConnection ? Math.round(navigation.connectEnd - navigation.connectStart) : null,
+        tls_ms: didTlsHandshake ? Math.round(navigation.connectEnd - navigation.secureConnectionStart) : null,
         request_start_ms: Math.round(navigation.requestStart),
         response_start_ms: Math.round(navigation.responseStart),
         response_end_ms: Math.round(navigation.responseEnd),
@@ -93,5 +101,50 @@ export function markBootPhase(phase: BootPhase, phaseContext?: BootContext): voi
     Object.assign(context, phaseContext)
     if (phase === 'scene_rendered') {
         void sendBootTiming().catch(() => {})
+    }
+}
+
+export interface SceneRenderedMark {
+    /** Holds the mark while a Suspense fallback stands in for the scene's lazy content. Returns the release. */
+    holdUntilContent: () => () => void
+    sceneCommitted: () => void
+    sceneUncommitted: () => void
+}
+
+/**
+ * Marks `scene_rendered` when the scene has committed and no fallback for its lazy content is on screen.
+ * Without this, a scene that wraps its content in its own Suspense marks the commit of its spinner.
+ */
+export function createSceneRenderedMark(): SceneRenderedMark {
+    let committed = false
+    let holds = 0
+    const markIfReady = (): void => {
+        if (committed && holds === 0) {
+            queueMicrotask(() => {
+                if (committed && holds === 0) {
+                    markBootPhase('scene_rendered')
+                }
+            })
+        }
+    }
+    return {
+        holdUntilContent: () => {
+            holds++
+            let released = false
+            return () => {
+                if (!released) {
+                    released = true
+                    holds--
+                    markIfReady()
+                }
+            }
+        },
+        sceneCommitted: () => {
+            committed = true
+            markIfReady()
+        },
+        sceneUncommitted: () => {
+            committed = false
+        },
     }
 }

@@ -1,3 +1,4 @@
+import { logger, serializeError } from '~/common/utils/logger'
 import { SessionBatchMetrics } from '~/ingestion/pipelines/sessionreplay/sessions/metrics'
 import {
     deserializeSessionKey,
@@ -36,13 +37,20 @@ export class RedisCachedKeyStore implements KeyStore {
         }
     }
 
+    // Best effort: the caller already has the key, so a failed write (e.g. READONLY after a failover) must not fail the request.
     private async setCached(sessionId: string, teamId: number, key: SessionKey): Promise<void> {
         const startTime = performance.now()
-        const client = await this.redisPool.acquire()
         try {
-            await client.setex(this.cacheKey(sessionId, teamId), this.ttlSeconds, serializeSessionKey(key))
+            const client = await this.redisPool.acquire()
+            try {
+                await client.setex(this.cacheKey(sessionId, teamId), this.ttlSeconds, serializeSessionKey(key))
+            } finally {
+                await this.redisPool.release(client)
+            }
+        } catch (error) {
+            SessionBatchMetrics.incrementKeystoreRedisWriteErrors()
+            logger.warn('🔑', 'keystore_redis_cache_write_failed', { sessionId, teamId, error: serializeError(error) })
         } finally {
-            await this.redisPool.release(client)
             SessionBatchMetrics.observeKeystoreRedisLatency((performance.now() - startTime) / 1000)
         }
     }

@@ -19,6 +19,8 @@ import { BIVisualizationNode } from './schema/schema-business-intelligence'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
+    dashboardResultMenu?: boolean
+
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
     tableLayout?: 'auto' | 'fixed'
@@ -68,10 +70,15 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataTableMaxPaginationRows?: number
     /** Keep the Data Table toolbar fixed while its table content scrolls. */
     dataTableAllowContentScroll?: boolean
+    /** Virtualize rows in an embedded SQL result table with a bounded height. */
+    dataVisualizationTableVirtualized?: boolean
+    dataVisualizationTableVirtualizationCellThreshold?: number
     /** Keep the Data Table header row visible while the page scrolls. See `LemonTable`'s `stickyHeader`. */
     dataTableStickyHeader?: boolean
     /** Override the nouns used by Data Table counts and pagination. */
     dataTableNouns?: [string, string]
+    /** Expected total row count from another source. The footer shows "X of Y" when all rows are loaded and the counts differ. */
+    dataTableExpectedTotalRows?: number
     compactDataTableToolbar?: boolean
     hideRecordingButton?: boolean
     /** Custom expandable config for DataTable rows */

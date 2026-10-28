@@ -72,7 +72,7 @@ class ZonkaFeedbackSource(ResumableSource[ZonkaFeedbackSourceConfig, ZonkaFeedba
             name=ExternalDataSourceType.ZONKAFEEDBACK,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="Zonka Feedback",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Zonka Feedback auth token to pull your survey and feedback data into the PostHog Data warehouse.
 
 An Admin can generate an auth token under **Company Settings → Developers → API** in Zonka Feedback. Select the data center that matches your account's region (shown in the same settings area).

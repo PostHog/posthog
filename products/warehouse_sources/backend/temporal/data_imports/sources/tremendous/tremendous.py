@@ -4,6 +4,8 @@ from collections.abc import Callable
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 
+from requests import Request, Response
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     Endpoint,
@@ -39,6 +41,34 @@ class TremendousResumeConfig:
     # by creation date DESC, so rows created mid-sync shift the window and can re-appear on a later
     # page — merge dedupes them on `id`; rows are never skipped.
     offset: int = 0
+
+
+class TremendousOffsetOnlyPaginator(OffsetPaginator):
+    """Pagination for endpoints that accept `offset` but no `limit` (e.g. /topups).
+
+    The server picks the page size and does not document it, so the offset advances by the rows
+    actually received instead of a fixed limit. A short page therefore never ends the walk early;
+    `total_count` or an empty page does.
+    """
+
+    def __init__(self, offset: int = 0) -> None:
+        super().__init__(limit=0, offset=offset, total_path=None)
+
+    def init_request(self, request: Request) -> None:
+        # The base update_request sends only the offset, never the limit.
+        self.update_request(request)
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        if not data:
+            self._has_next_page = False
+            return
+
+        self.offset += len(data)
+        try:
+            total = response.json().get("total_count")
+        except (ValueError, AttributeError):
+            total = None
+        self._has_next_page = not (isinstance(total, int) and self.offset >= total)
 
 
 def base_url_for_environment(environment: str) -> str:
@@ -119,11 +149,14 @@ def tremendous_source(
         "data_selector_malformed_retryable": True,
     }
 
-    if config.paginated:
+    if config.offset_only:
+        endpoint_config["paginator"] = TremendousOffsetOnlyPaginator()
+    elif config.paginated:
         # Termination is a short/empty page (OffsetPaginator default); resume by row offset.
         endpoint_config["paginator"] = OffsetPaginator(limit=config.page_size, total_path=None)
     else:
-        # Members, campaigns, products, and funding sources return the whole collection at once.
+        # Members, campaigns, products, funding sources, roles, fields, and organizations return the
+        # whole collection at once.
         endpoint_config["paginator"] = SinglePagePaginator()
 
     incremental_value: Any = None

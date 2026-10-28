@@ -8,6 +8,8 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { EvaluationsTabs } from '../evaluations/EvaluationsTabs'
+import { OfflineEvaluationsTabs } from '../offline-evaluations/OfflineEvaluationsTabs'
 import { DatasetsPreview } from './DatasetsPreview'
 import { datasetsSetupLogic } from './datasetsSetupLogic'
 
@@ -15,6 +17,13 @@ const HedgehogResearch = pngHoggie(researchPng)
 
 export const datasetsEmptyState: SceneProductEmptyState = {
     statusLogic: datasetsSetupLogic,
+    SceneNav: function DatasetsEmptyStateNav(): JSX.Element {
+        return (
+            <EvaluationsTabs activeTab="offline-evals">
+                <OfflineEvaluationsTabs activeTab="datasets" />
+            </EvaluationsTabs>
+        )
+    },
     config: {
         productKey: ProductKey.LLM_DATASETS,
         productName: 'Datasets',
@@ -24,8 +33,8 @@ export const datasetsEmptyState: SceneProductEmptyState = {
         hedgehog: HedgehogResearch,
         text: {
             'needs-setup': {
-                headline: 'Check changes before they reach production',
-                lead: 'Datasets are the input and output pairs you expect from your AI. Add items manually or save them from production traces. Then pull them in wherever you test changes to catch regressions before they go live.',
+                headline: 'Build test cases for your agents',
+                lead: 'Datasets are the input and output pairs you expect from your agent. Add items manually or save them from production traces. Then pull them in wherever you test changes to catch regressions before they go live.',
             },
         },
         primaryAction: {

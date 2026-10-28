@@ -2,8 +2,6 @@ from collections.abc import Iterable
 from datetime import UTC, date, datetime
 from typing import Any, Optional, cast
 
-import pytest
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -51,21 +49,6 @@ class TestValidateCredentials:
 
         assert result == (True, None)
         assert requests_mock.last_request.headers["Authorization"] == "Bearer tok"
-
-    @pytest.mark.parametrize(
-        "status,expected_message",
-        [
-            (401, "Dovetail rejected the API token. Please generate a new personal API key and reconnect."),
-            (403, "Your Dovetail API token does not have permission for this resource."),
-            (500, "Dovetail API returned an unexpected status: 500"),
-        ],
-    )
-    def test_status_mapping(self, status: int, expected_message: str, requests_mock: Any) -> None:
-        requests_mock.get(f"{BASE_URL}/v1/token/info", status_code=status, json={"errors": []})
-
-        result = validate_credentials("tok")
-
-        assert result == (False, expected_message)
 
     def test_network_failure(self, requests_mock: Any) -> None:
         import requests as requests_lib

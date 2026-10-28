@@ -27,6 +27,7 @@ import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { isDefinitionsTabHref } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { recentItemsModel } from '~/models/recentItemsModel'
@@ -44,6 +45,10 @@ const isEnabledByFlag = (flag: string | undefined, featureFlags: FeatureFlagsSet
     !flag || !!(featureFlags as Record<string, boolean>)[flag]
 
 const displayNameOf = (item: SearchItem): string => item.displayName || item.name
+
+const CATEGORY_SEARCH_KEYWORDS: Record<string, string[]> = {
+    CDP: ['data pipelines', 'data pipeline', 'pipeline'],
+}
 
 const toSearchTabItems = (
     parents: SearchItem[],
@@ -254,9 +259,13 @@ export const searchListsLogic = kea<searchListsLogicType>([
                 user: null | import('~/types').UserType,
                 sceneLogViewsByRef: Record<string, string>
             ): SearchItem[] => {
-                const allProducts = getTreeItemsProducts()
+                const allProducts = [
+                    ...getTreeItemsProducts(),
+                    ...getTreeItemsMetadata().filter((item) => !isDefinitionsTabHref(item.href)),
+                ]
+                const seenHrefs = new Set<string>()
                 const filteredProducts = allProducts.filter((product) => {
-                    if (!product.href) {
+                    if (!product.href || seenHrefs.has(product.href)) {
                         return false
                     }
                     if (!isDev && !user?.is_staff && product.category === 'Unreleased') {
@@ -265,6 +274,7 @@ export const searchListsLogic = kea<searchListsLogicType>([
                     if (!isFileSystemImportFlagEnabled(product, featureFlags)) {
                         return false
                     }
+                    seenHrefs.add(product.href)
                     return true
                 })
 
@@ -276,7 +286,10 @@ export const searchListsLogic = kea<searchListsLogicType>([
                     productCategory: product.category || null,
                     href: product.href || PLACEHOLDER_HREF,
                     itemType: product.iconType || product.type || null,
-                    searchKeywords: product.searchKeywords,
+                    searchKeywords: [
+                        ...(product.category ? (CATEGORY_SEARCH_KEYWORDS[product.category] ?? []) : []),
+                        ...(product.searchKeywords ?? []),
+                    ],
                     lastViewedAt: product.sceneKey ? (sceneLogViewsByRef[product.sceneKey] ?? null) : null,
                     disabledReason: getProductAccessDisabledReason(product),
                     record: {
@@ -314,7 +327,7 @@ export const searchListsLogic = kea<searchListsLogicType>([
                 user: null | import('~/types').UserType,
                 sceneLogViewsByRef: Record<string, string>
             ): SearchItem[] => {
-                const allMetadata = getTreeItemsMetadata()
+                const allMetadata = getTreeItemsMetadata().filter((item) => isDefinitionsTabHref(item.href))
                 const filteredMetadata = allMetadata.filter((item) => {
                     if (!isDev && !user?.is_staff && item.category === 'Unreleased') {
                         return false
@@ -325,10 +338,6 @@ export const searchListsLogic = kea<searchListsLogicType>([
                     return true
                 })
 
-                const categorySearchKeywords: Record<string, string[]> = {
-                    CDP: ['data pipelines', 'data pipeline', 'pipeline'],
-                }
-
                 const items: SearchItem[] = filteredMetadata.map((item) => ({
                     id: `data-management-${item.path}`,
                     name: item.path,
@@ -337,10 +346,7 @@ export const searchListsLogic = kea<searchListsLogicType>([
                     productCategory: item.category || null,
                     href: item.href || PLACEHOLDER_HREF,
                     itemType: item.iconType || item.type || null,
-                    searchKeywords: [
-                        ...(item.category ? (categorySearchKeywords[item.category] ?? []) : []),
-                        ...(item.searchKeywords ?? []),
-                    ],
+                    searchKeywords: item.searchKeywords,
                     lastViewedAt: item.sceneKey ? (sceneLogViewsByRef[item.sceneKey] ?? null) : null,
                     disabledReason: getProductAccessDisabledReason(item),
                     record: {

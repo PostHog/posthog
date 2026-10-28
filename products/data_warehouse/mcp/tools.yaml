@@ -149,6 +149,20 @@ tools:
             Update an existing SQL variable by ID. You can change the name, type, default_value, or allowed values for
             List variables. If the name changes, check the response for the current code_name before writing queries
             that reference it.
+    view-check-incremental:
+        operation: warehouse_saved_queries_check_incremental_create
+        enabled: true
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Check incremental refresh
+        description: >
+            Check whether a view's HogQL query can refresh incrementally, without running it. Pass the query from
+            view-get. Returns key_candidates, the date, datetime and number columns that can be the incremental key, and
+            unique_key_candidates, the columns a unique key can use. Pass incremental_key and unique_key to check a
+            specific choice: blockers then says why it cannot work. Use it before accepting a materialize suggestion
+            with keys the person chose.
     view-create:
         operation: warehouse_saved_queries_create
         enabled: true
@@ -267,8 +281,10 @@ tools:
         enrich_url: ?open_view={params.id}
         title: Run saved query
         description: >
-            Trigger a manual materialization run for a saved query. This immediately refreshes the materialized table
-            with the latest data. The view must already be materialized. Use 'view-run-history' to check run status.
+            Trigger a manual materialization run for a saved query. By default, this refreshes only the selected view.
+            Set direction to upstream to also run all dependencies. Set direction to downstream to also run all
+            dependents. Both options include the selected view and run the views in dependency order. Do not set
+            full_refresh when you set direction. Use 'view-run-history' to check each view's status.
     view-run-history:
         operation: warehouse_saved_queries_run_history_retrieve
         enabled: true
@@ -278,7 +294,7 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: ?open_view={id}
+        enrich_url: ?open_view={params.id}
         title: Get run history
         description: >
             Get the 5 most recent materialization run statuses for a saved query. Each entry includes the run status and
@@ -292,7 +308,7 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        enrich_url: ?open_view={id}
+        enrich_url: ?open_view={params.id}
         title: Revert materialization
         description: |
             Undo materialization for a saved query. Deletes the materialized table and removes the sync schedule,

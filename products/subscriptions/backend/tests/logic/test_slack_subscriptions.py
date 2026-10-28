@@ -1,3 +1,4 @@
+import json
 import asyncio
 from typing import Any
 
@@ -20,7 +21,7 @@ from products.subscriptions.backend.logic import SLACK_USER_CONFIG_ERRORS
 from products.subscriptions.backend.logic.slack_subscriptions import (
     MAX_SLACK_UPLOAD_BYTES,
     SlackGallery,
-    _block_for_asset,
+    _blocks_for_asset,
     _prepare_slack_gallery,
     _prepare_slack_message,
     deliver_slack_gallery,
@@ -87,16 +88,15 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
         assert first_call["unfurl_links"] is False
         assert first_call["unfurl_media"] is False
         assert first_call["blocks"] == [
+            {"type": "divider"},
             {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "Your subscription to the Insight *My Test subscription* is ready! 🎉",
-                },
+                "type": "header",
+                "text": {"type": "plain_text", "text": "Your subscription to My Test subscription is ready! 🎉"},
             },
+            {"type": "context", "elements": [{"type": "plain_text", "text": "📊 Insight: My Test subscription"}]},
             {
                 "type": "image",
-                "image_url": post_message_calls[0].kwargs["blocks"][1]["image_url"],
+                "image_url": post_message_calls[0].kwargs["blocks"][3]["image_url"],
                 "alt_text": "My Test subscription",
             },
             {"type": "divider"},
@@ -144,18 +144,47 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
                 "new_without_title",
                 None,
                 True,
-                "This channel has been subscribed to the Insight *My Test subscription* on PostHog! 🎉\nThis subscription is sent every day. The next one will be sent on Wednesday February 02, 2022",
+                "This channel has been subscribed to the Insight *My Test subscription* on PostHog! 🎉\n\nThe next one will be sent on Wednesday February 02, 2022",
             ),
             (
                 "new_with_title",
                 "Weekly KPI Report",
                 True,
-                "This channel has been subscribed to *Weekly KPI Report* (Insight: My Test subscription) on PostHog! 🎉\nThis subscription is sent every day. The next one will be sent on Wednesday February 02, 2022",
+                "This channel has been subscribed to *Weekly KPI Report* (Insight: My Test subscription) on PostHog! 🎉\n\nThe next one will be sent on Wednesday February 02, 2022",
+            ),
+            (
+                "recurring_with_failed_export",
+                None,
+                False,
+                "Your subscription to the Insight *My Test subscription* contains insights that could not be generated.",
+                True,
+            ),
+            (
+                "new_with_failed_export",
+                None,
+                True,
+                "Your subscription to the Insight *My Test subscription* contains insights that could not be generated.",
+                True,
+            ),
+            (
+                "failed_export_in_thread",
+                None,
+                False,
+                "Your subscription to the Insight *My Test subscription* contains insights that could not be generated.",
+                False,
+                True,
             ),
         ]
     )
     def test_subscription_delivery_title(
-        self, MockSlackIntegration: MagicMock, _name: str, title: str | None, is_new: bool, expected_text: str
+        self,
+        MockSlackIntegration: MagicMock,
+        _name: str,
+        title: str | None,
+        is_new: bool,
+        expected_text: str,
+        has_failed_export: bool = False,
+        has_failed_thread_export: bool = False,
     ) -> None:
         mock_slack_integration = MagicMock()
         MockSlackIntegration.return_value = mock_slack_integration
@@ -165,11 +194,28 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
             self.subscription.title = title
             self.subscription.save()
 
-        send_slack_subscription_report(self.subscription, [self.asset], 1, is_new_subscription=is_new)
+        if has_failed_export:
+            self.asset.exception = "Sample export failed"
 
-        assert mock_slack_integration.client.chat_postMessage.call_count == 1
+        assets = [self.asset]
+        if has_failed_thread_export:
+            assets.append(ExportedAsset(insight=self.insight, exception="Sample export failed"))
+
+        send_slack_subscription_report(self.subscription, assets, len(assets), is_new_subscription=is_new)
+
+        assert mock_slack_integration.client.chat_postMessage.call_count == len(assets)
         first_call = mock_slack_integration.client.chat_postMessage.call_args_list[0].kwargs
         assert first_call["text"] == expected_text
+        if has_failed_export or has_failed_thread_export:
+            assert (
+                first_call["blocks"][1]["text"]["text"] == "⚠️ Your subscription to My Test subscription needs attention"
+            )
+            assert first_call["blocks"][2]["elements"][0]["text"] == "📊 Insight: My Test subscription"
+        if has_failed_thread_export:
+            thread_call = mock_slack_integration.client.chat_postMessage.call_args_list[1].kwargs
+            error_card = thread_call["blocks"][0]
+            assert error_card["type"] == "container"
+            assert error_card["child_blocks"][0]["elements"][1]["elements"][0]["text"] == "Sample export failed"
 
     def test_subscription_dashboard_delivery(self, MockSlackIntegration: MagicMock) -> None:
         mock_slack_integration = MagicMock()
@@ -194,16 +240,24 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
         assert first_call["text"] == "Your subscription to the Dashboard *private dashboard* is ready! 🎉"
 
         assert first_call["blocks"] == [
+            {"type": "divider"},
             {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "Your subscription to the Dashboard *private dashboard* is ready! 🎉",
-                },
+                "type": "header",
+                "text": {"type": "plain_text", "text": "Your subscription to private dashboard is ready! 🎉"},
+            },
+            {"type": "context", "elements": [{"type": "plain_text", "text": "📊 Dashboard: private dashboard"}]},
+            {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_section",
+                        "elements": [{"type": "link", "url": self.insight.url, "text": "My Test subscription"}],
+                    }
+                ],
             },
             {
                 "type": "image",
-                "image_url": post_message_calls[0].kwargs["blocks"][1]["image_url"],
+                "image_url": post_message_calls[0].kwargs["blocks"][4]["image_url"],
                 "alt_text": "My Test subscription",
             },
             {
@@ -243,20 +297,38 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
         assert second_call["thread_ts"] == "1.234"
         assert second_call["blocks"] == [
             {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_section",
+                        "elements": [{"type": "link", "url": self.insight.url, "text": "My Test subscription"}],
+                    }
+                ],
+            },
+            {
                 "type": "image",
-                "image_url": second_call["blocks"][0]["image_url"],
+                "image_url": second_call["blocks"][1]["image_url"],
                 "alt_text": "My Test subscription",
-            }
+            },
         ]
 
         # Third call - other asset
         third_call = post_message_calls[2].kwargs
         assert third_call["blocks"] == [
             {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_section",
+                        "elements": [{"type": "link", "url": self.insight.url, "text": "My Test subscription"}],
+                    }
+                ],
+            },
+            {
                 "type": "image",
-                "image_url": third_call["blocks"][0]["image_url"],
+                "image_url": third_call["blocks"][1]["image_url"],
                 "alt_text": "My Test subscription",
-            }
+            },
         ]
 
         # Fourth call - notice that more exists
@@ -628,20 +700,30 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             assert mock_async_client.chat_postMessage.call_count == 1
             mock_sleep.assert_not_awaited()
 
-    def test_deliver_slack_gallery_uploads_files(self, MockSlackIntegration: MagicMock) -> None:
+    @parameterized.expand([(1,), (10,)])
+    def test_deliver_slack_gallery_uploads_files(self, MockSlackIntegration: MagicMock, file_count: int) -> None:
         mock_async = self._setup_async_mock(MockSlackIntegration)
-        mock_async.files_upload_v2 = AsyncMock(return_value={"ok": True, "files": [{"id": "F1"}]})
+        mock_async.files_upload_v2 = AsyncMock(return_value={"ok": True})
         gallery = SlackGallery(
             channel="C1",
             initial_comment="hi",
-            file_uploads=[{"content": b"x", "filename": "a.png", "title": "A"}],
+            file_uploads=[
+                {"content": b"x", "filename": f"chart-{index}.png", "title": f"Chart {index}"}
+                for index in range(file_count)
+            ],
+            blocks=[
+                {"type": "header", "text": {"type": "plain_text", "text": "Your subscription is ready! 🎉"}},
+                {"type": "divider"},
+            ],
         )
         result = asyncio.run(deliver_slack_gallery(self.integration, self.subscription, gallery))
         mock_async.files_upload_v2.assert_awaited_once()
         kwargs = mock_async.files_upload_v2.await_args.kwargs
         assert kwargs["channel"] == "C1"
-        assert kwargs["initial_comment"] == "hi"
+        assert "initial_comment" not in kwargs
+        assert json.loads(kwargs["blocks"]) == gallery.blocks
         assert kwargs["file_uploads"] == gallery.file_uploads
+        mock_async.chat_postMessage.assert_not_awaited()
         assert result.main_message_sent is True
 
     @patch("products.subscriptions.backend.logic.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
@@ -677,7 +759,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
 
     def test_async_send_routes_to_gallery_when_flag_set(self, MockSlackIntegration: MagicMock) -> None:
         mock_async = self._setup_async_mock(MockSlackIntegration)
-        mock_async.files_upload_v2 = AsyncMock(return_value={"ok": True})
+        mock_async.files_upload_v2 = AsyncMock(return_value={"ok": True, "files": [{"id": "F1"}]})
         self.subscription.delivery_config = {"post_all_insights_in_main_message": True}
         self.subscription.save()
         # Use inline content so _asset_image_bytes doesn't hit object storage in the test.
@@ -692,7 +774,7 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             send_slack_message_with_integration_async(self.integration, self.subscription, assets, total_asset_count=1)
         )
         mock_async.files_upload_v2.assert_awaited_once()
-        mock_async.chat_postMessage.assert_not_called()
+        mock_async.chat_postMessage.assert_not_awaited()
 
 
 class TestSlackErrorTruncation(APIBaseTest):
@@ -705,12 +787,25 @@ class TestSlackErrorTruncation(APIBaseTest):
             team=self.team, insight_id=self.insight.id, export_format="image/png", exception=short_error
         )
 
-        block = _block_for_asset(asset, resource_url="https://app.posthog.com/insights/123456")
+        blocks = _blocks_for_asset(asset, resource_url="https://app.posthog.com/insights/123456")
+        card = blocks[0]
+        error_blocks = card["child_blocks"]
+        block = error_blocks[0]
 
-        assert block["type"] == "section"
-        assert short_error in block["text"]["text"]
-        assert "truncated" not in block["text"]["text"]
-        assert len(block["text"]["text"]) < 3000
+        assert block["type"] == "rich_text"
+        assert card["type"] == "container"
+        assert card["title"]["text"] == "Could not generate My Test subscription"
+        assert block["elements"][1] == {
+            "type": "rich_text_preformatted",
+            "elements": [{"type": "text", "text": short_error}],
+        }
+        assert [b["type"] for b in error_blocks] == ["rich_text", "divider", "section", "actions"]
+        assert "*Next steps*" in error_blocks[2]["text"]["text"]
+        assert error_blocks[3]["elements"][0]["text"]["text"] == "Open report"
+        assert error_blocks[3]["elements"][0]["url"] == "https://app.posthog.com/insights/123456"
+        assert error_blocks[3]["elements"][1]["text"]["text"] == "Contact support"
+        assert "truncated" not in block["elements"][1]["elements"][0]["text"]
+        assert len(block["elements"][1]["elements"][0]["text"]) < 3000
 
     def test_block_for_asset_with_long_error(self) -> None:
         long_error = "A" * 5000
@@ -718,23 +813,28 @@ class TestSlackErrorTruncation(APIBaseTest):
             team=self.team, insight_id=self.insight.id, export_format="image/png", exception=long_error
         )
 
-        block = _block_for_asset(asset, resource_url="https://app.posthog.com/insights/123456")
+        blocks = _blocks_for_asset(asset, resource_url="https://app.posthog.com/insights/123456")
+        card = blocks[0]
+        error_blocks = card["child_blocks"]
+        block = error_blocks[0]
 
-        assert block["type"] == "section"
-        text = block["text"]["text"]
+        assert block["type"] == "rich_text"
+        text = block["elements"][1]["elements"][0]["text"]
         assert "truncated" in text
         assert len(text) < 3000
-        assert "*My Test subscription*" in text
-        assert "There was an error generating your asset:" in text
+        assert card["title"]["text"] == "Could not generate My Test subscription"
 
     def test_block_for_asset_without_content_or_location(self) -> None:
         asset = ExportedAsset.objects.create(team=self.team, insight_id=self.insight.id, export_format="image/png")
 
-        block = _block_for_asset(asset, resource_url="https://app.posthog.com/insights/123456")
+        blocks = _blocks_for_asset(asset, resource_url="https://app.posthog.com/insights/123456")
+        card = blocks[0]
+        error_blocks = card["child_blocks"]
+        block = error_blocks[0]
 
-        assert block["type"] == "section"
-        text = block["text"]["text"]
-        assert "*My Test subscription*" in text
+        assert block["type"] == "rich_text"
+        text = block["elements"][1]["elements"][0]["text"]
+        assert card["title"]["text"] == "Could not generate My Test subscription"
         assert ASSET_GENERATION_FAILED_MESSAGE in text
 
     def test_block_for_asset_hides_out_of_memory_cause(self) -> None:
@@ -746,9 +846,12 @@ class TestSlackErrorTruncation(APIBaseTest):
             team=self.team, insight_id=self.insight.id, export_format="image/png", exception=oom_error
         )
 
-        block = _block_for_asset(asset, resource_url="https://app.posthog.com/insights/123456")
+        blocks = _blocks_for_asset(asset, resource_url="https://app.posthog.com/insights/123456")
+        card = blocks[0]
+        error_blocks = card["child_blocks"]
+        block = error_blocks[0]
 
-        text = block["text"]["text"]
+        text = block["elements"][1]["elements"][0]["text"]
         assert "ran out of memory" not in text
         assert "shorter date range" not in text
         assert ASSET_GENERATION_FAILED_MESSAGE in text
@@ -797,7 +900,33 @@ class TestSlackSummaryNotice(APIBaseTest):
     def test_no_notice_when_summary_present(self) -> None:
         # A generated summary wins — the over-budget notice never doubles up with it.
         texts = self._block_texts(change_summary="- trending up", summary_skipped_over_budget=True)
-        assert any("*AI summary:*" in text for text in texts)
+        message = _prepare_slack_message(
+            self.subscription,
+            [self.asset],
+            total_asset_count=1,
+            change_summary="• **Requests** reached *80* in _this interval_, with <u>missing source data</u>. See [report](https://posthog.com/docs) or [other](https://example.com/).\n\n• *Latency* fell.",
+        )
+        summary_card = next(block for block in message.blocks if block["type"] == "container")
+        assert summary_card["title"]["text"] == "✨ AI summary"
+        rich_text = summary_card["child_blocks"][0]
+        assert rich_text["type"] == "rich_text"
+        bullet_list = rich_text["elements"][0]
+        assert bullet_list["type"] == "rich_text_list"
+        assert bullet_list["style"] == "bullet"
+        spans = bullet_list["elements"][0]["elements"]
+        styles = {span["text"]: span["style"] for span in spans}
+        assert styles["Requests"] == {"bold": True}
+        assert styles["80"] == {"bold": True}
+        assert styles["this interval"] == {"italic": True}
+        assert styles["missing source data"] == {"underline": True}
+        assert styles[" reached "] == {}
+        assert {"type": "link", "url": "https://posthog.com/docs", "text": "report", "style": {}} in spans
+        assert {"type": "text", "text": "other", "style": {}} in spans
+        assert [element["type"] for element in rich_text["elements"]] == [
+            "rich_text_list",
+            "rich_text_section",
+            "rich_text_list",
+        ]
         assert all("AI summary skipped" not in text for text in texts)
 
     def test_no_notice_when_under_budget_and_no_summary(self) -> None:
@@ -820,7 +949,8 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
             delivery_config={"post_all_insights_in_main_message": post_all_in_main},
         )
 
-    def test_prepare_slack_gallery_builds_comment_and_uploads(self) -> None:
+    @parameterized.expand([("insight", False), ("dashboard", True)])
+    def test_prepare_slack_gallery_builds_comment_and_uploads(self, _name: str, is_dashboard: bool) -> None:
         subscription = create_subscription(
             team=self.team,
             created_by=self.user,
@@ -829,6 +959,9 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
             insight=self.insight,
             delivery_config={"post_all_insights_in_main_message": True},
         )
+        if is_dashboard:
+            subscription.insight = None
+            subscription.dashboard = Dashboard.objects.create(team=self.team, name="Test dashboard")
         ok = ExportedAsset.objects.create(
             team=self.team, export_format="image/png", content=b"PNGBYTES", insight_id=self.insight.id
         )
@@ -839,6 +972,19 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
         assert gallery.channel == "C123"
         assert len(gallery.file_uploads) == 1  # failed asset excluded
         assert gallery.file_uploads[0]["content"] == b"PNGBYTES"
+        links = [block for block in gallery.blocks if block["type"] == "rich_text"]
+        expected_links = [
+            {
+                "type": "rich_text",
+                "elements": [
+                    {
+                        "type": "rich_text_section",
+                        "elements": [{"type": "link", "url": self.insight.url, "text": self.insight.name}],
+                    }
+                ],
+            }
+        ]
+        assert links == (expected_links if is_dashboard else [])
         assert "View in PostHog" in gallery.initial_comment
         # Failed assets are listed by name with a "Could not generate" notice
         assert "Could not generate" in gallery.initial_comment
@@ -909,9 +1055,22 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
             export_format="image/png",
             content=b"x" * (MAX_SLACK_UPLOAD_BYTES + 1),
         )
-        assets = list(ExportedAsset.objects.filter(id=oversized.id).select_related("insight"))
+        successful = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            content=b"PNG",
+        )
+        assets = list(ExportedAsset.objects.filter(id__in=[oversized.id, successful.id]).select_related("insight"))
         gallery = _prepare_slack_gallery(subscription, assets, total_asset_count=1)
-        assert gallery.file_uploads == []
+        assert len(gallery.file_uploads) == 1
+        assert gallery.file_uploads[0]["content"] == b"PNG"
+        attachment_errors = [
+            block
+            for block in gallery.blocks
+            if block["type"] == "section" and block["text"].get("text") == "Could not attach My Test subscription"
+        ]
+        assert len(attachment_errors) == 1
         assert "Could not generate" in gallery.initial_comment
         assert "My Test subscription" in gallery.initial_comment
 
@@ -992,7 +1151,13 @@ class TestSlackExploreHint(APIBaseTest):
             total_asset_count=1,
             integration=integration,
         )
-        return [el["text"] for block in message.blocks if block.get("type") == "context" for el in block["elements"]]
+        return [
+            el["text"]
+            for block in message.blocks
+            if block.get("type") == "context"
+            for el in block["elements"]
+            if el["type"] == "mrkdwn"
+        ]
 
     def _make_integration(self, scopes: frozenset[str]) -> Integration:
         return Integration.objects.create(

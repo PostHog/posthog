@@ -223,4 +223,31 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "LastModifiedDate": "When the task was last modified.",
         },
     },
+    "Relationships": {
+        "description": "A link between two constituents, such as spouse, employer, or board member, listed once for each constituent on it.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "ConstituentId": "ID of the constituent whose relationships list returned this row.",
+            "Id": "Unique identifier for the relationship used by the API.",
+            "AccountId1": "ID of the first constituent in the relationship.",
+            "AccountId2": "ID of the second constituent in the relationship.",
+            "RelationshipRole1": "Role of the first constituent in the relationship.",
+            "RelationshipRole2": "Role of the second constituent in the relationship.",
+            "Note": "Free-form note on the relationship.",
+        },
+    },
+    "PledgePaymentFailures": {
+        "description": "A failed payment against a pledge installment.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "Id": "Unique identifier for the pledge payment failure.",
+            "PledgeId": "Designation ID of the pledge the failed payment was for.",
+            "InstallmentId": "ID of the pledge installment the failed payment was for.",
+            "Date": "Date the payment failed.",
+            "Amount": "Amount of the failed payment.",
+            "Reason": "Reason the payment failed.",
+            "IsResolved": "Whether the payment failure has been resolved.",
+            "IsSuppressed": "Whether the payment failure has been suppressed.",
+        },
+    },
 }

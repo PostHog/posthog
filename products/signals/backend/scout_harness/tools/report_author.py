@@ -88,7 +88,20 @@ class ScoutRunReportAuthor:
         """Shared dimensions for the report-channel lifecycle events, mirroring the `signals_scout_run_*`
         events so the two join on `run_id` / `task_run_id` — a report event sits under the run that authored
         it. All fields are plain columns on the bridge row (no FK query)."""
+        metadata = self.run.metadata or {}
         return {
+            **{
+                key: metadata[key]
+                for key in (
+                    "experiment_key",
+                    "experiment_variant",
+                    "$feature/self-driving-banger-scout",
+                    "runtime",
+                    "model",
+                    "service_tier",
+                )
+                if key in metadata
+            },
             "skill_name": self.run.skill_name,
             "skill_version": self.run.skill_version,
             "scout_config_id": str(self.run.scout_config_id) if self.run.scout_config_id else None,

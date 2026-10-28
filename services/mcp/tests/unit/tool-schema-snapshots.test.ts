@@ -86,26 +86,34 @@ async function formatSnapshotJson(snapshotPath: string, schema: unknown): Promis
 
 async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
     // Enable flag-gated tools we snapshot here: tracing (APM spans), tasks, loops,
-    // dashboard-widgets and experiment setup context. Other flag-gated tools (logs-alerts,
+    // experiment setup context. Other flag-gated tools (logs-alerts,
     // visual-review, etc.) stay off to keep the surface stable.
     // agent-feedback is always_available and no longer flag-gated, so it appears regardless.
     const featureFlags = {
         tracing: true,
+        'logs-agent-tools': true,
         tasks: true,
         'tasks-mcp-agent-run-start': true,
         loops: true,
-        'dashboard-widgets': true,
         'agent-platform': true,
         'experiment-setup-context': true,
         'scout-trials': true,
         'signals-report-checks-replace': true,
         'inbox-report-actions-mcp': true,
+        'signals-reviewer-exclusions-mcp': true,
         'ai-observability-offline-evaluations': true,
         'warehouse-suggestions': true,
         'scouts-tool-access': true,
         'subscription-source-summaries': true,
-        'workflows-data-suggestions': true,
+        'marketing-analytics-conversion-setup-ai': true,
         'workflows-mcp-onboarding': true,
+        'workflows-sending-tier-requests': true,
+        'insight-data-checks': true,
+        'workflows-transactional-email-api': true,
+        'activity-summary': true,
+        'aeo-citation-tracking': true,
+        'anomalies-search': true,
+        'feature-flag-rules-v2-mcp': true,
     }
     return [...(await getToolsFromContext(createMockContext(), { featureFlags }))].sort((a, b) =>
         a.name.localeCompare(b.name)
@@ -152,7 +160,7 @@ describe('Tool schema snapshots', () => {
 
     describe('schema budgets', () => {
         // Ratchet: the number of oversized tool schemas may only go down.
-        const OVERSIZED_SCHEMA_COUNT = 44
+        const OVERSIZED_SCHEMA_COUNT = 41
         // Ratchet: the share of nested properties with a description may only go up.
         const NESTED_DESCRIPTION_COVERAGE_FLOOR_PERCENT = 55
 

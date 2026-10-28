@@ -6,6 +6,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconInsightNumber, IconInsightPie, IconInsightTable, IconInsightWorldMap } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -35,6 +36,7 @@ import {
     TableSketch,
     WorldMapSketch,
 } from './InsightTypeSketch'
+import { QuillNewInsightButton } from './QuillNewInsightButton'
 
 interface NewInsightCardSpec {
     key: string
@@ -356,6 +358,10 @@ export function NewInsightMenuOverlay(): JSX.Element {
 }
 
 export function NewInsightButton({ compact = false }: { compact?: boolean }): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav) {
+        return <QuillNewInsightButton compact={compact} overlay={<NewInsightMenuOverlay />} />
+    }
     const button = (
         <LemonButton
             type="primary"

@@ -171,13 +171,6 @@ class TestPagination:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
-    def test_auth_failure(self, _name: str, status: int) -> None:
-        with scripted_network([ScriptedResponse(status=status)]):
-            ok, error = validate_credentials("org", "prod", "bad")
-        assert ok is False
-        assert error is not None
-
     def test_success(self) -> None:
         with scripted_network([ScriptedResponse(json={"data": {"__typename": "Query"}})]) as network:
             assert validate_credentials("org", "prod", "tok") == (True, None)

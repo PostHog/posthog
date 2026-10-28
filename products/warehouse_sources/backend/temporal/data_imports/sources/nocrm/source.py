@@ -55,7 +55,7 @@ class NoCRMSource(ResumableSource[NoCRMSourceConfig, NoCRMResumeConfig]):
             name=ExternalDataSourceType.NOCRM,
             category=DataWarehouseSourceCategory.CRM,
             label="noCRM.io",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your noCRM.io account subdomain and API key to automatically pull your noCRM.io data into the PostHog Data warehouse.
 
 Your subdomain is the first part of your noCRM.io URL — for `acme.nocrm.io`, enter `acme`.

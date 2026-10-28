@@ -145,6 +145,8 @@ def _match_accounts_for_emails(
     emails: list[str],
     *,
     use_organization_membership: bool,
+    account_properties_only: bool = False,
+    existing_matches: dict[str, MatchedAccount] | None = None,
 ) -> dict[str, MatchedAccount]:
     normalized_emails = sorted(
         email for email in normalize_emails(emails) if not email.endswith(POSTHOG_INTERNAL_EMAIL_SUFFIX)
@@ -168,6 +170,12 @@ def _match_accounts_for_emails(
     )
     matched.update(domain_matches)
     ambiguous.update(domain_ambiguous)
+    if account_properties_only:
+        for email in _unresolved_emails(normalized_emails, matched, ambiguous):
+            existing_match = (existing_matches or {}).get(email)
+            if existing_match is not None and existing_match.source in {PERSON_GROUP_MATCH, ORGANIZATION_MEMBER_MATCH}:
+                matched[email] = existing_match
+        return matched
 
     person_group_matches, person_group_ambiguous = _match_accounts_by_person_group(
         team,
@@ -185,6 +193,21 @@ def _match_accounts_for_emails(
         ambiguous.update(organization_ambiguous)
 
     return matched
+
+
+def match_accounts_for_account_properties(
+    team: Team,
+    emails: list[str],
+    *,
+    existing_matches: dict[str, MatchedAccount] | None = None,
+) -> dict[str, MatchedAccount]:
+    return _match_accounts_for_emails(
+        team,
+        emails,
+        use_organization_membership=False,
+        account_properties_only=True,
+        existing_matches=existing_matches,
+    )
 
 
 def match_accounts_for_emails(team: Team, emails: list[str]) -> dict[str, MatchedAccount]:

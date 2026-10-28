@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.facade.source_config import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.bluesky.bluesky import (
     BlueskyResumeConfig,
     bluesky_source,
+    normalize_actor,
     post_fanout_rows,
     validate_credentials as validate_bluesky_credentials,
 )
@@ -124,18 +125,19 @@ class BlueskySource(ResumableSource[BlueskySourceConfig, BlueskyResumeConfig]):
         resumable_source_manager: ResumableSourceManager[BlueskyResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        actor = normalize_actor(config.actor)
         partition_keys = PARTITION_FIELDS.get(inputs.schema_name)
         if inputs.schema_name in POST_FANOUT_ENDPOINTS:
             return SourceResponse(
                 name=inputs.schema_name,
-                items=lambda: post_fanout_rows(config.actor, inputs.schema_name, resumable_source_manager),
+                items=lambda: post_fanout_rows(actor, inputs.schema_name, resumable_source_manager),
                 primary_keys=PRIMARY_KEYS[inputs.schema_name],
                 partition_mode="datetime",
                 partition_keys=partition_keys,
             )
 
         resource = bluesky_source(
-            actor=config.actor,
+            actor=actor,
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
@@ -165,7 +167,7 @@ class BlueskySource(ResumableSource[BlueskySourceConfig, BlueskyResumeConfig]):
             docsUrl="https://posthog.com/docs/cdp/sources/bluesky",
             iconPath="/static/services/bluesky.png",
             keywords=["social", "atproto", "at protocol"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

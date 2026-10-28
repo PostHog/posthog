@@ -47,6 +47,8 @@ import {
     DataNode,
     DataVisualizationNode,
     ErrorTrackingQuery,
+    ErrorTrackingIssueEventsQuery,
+    ErrorTrackingIssueEventsQueryResponse,
     ErrorTrackingQueryResponse,
     EventsQuery,
     EventsQueryResponse,
@@ -79,6 +81,7 @@ import {
     isAccountsQuery,
     isAccountsTableQuery,
     isActorsQuery,
+    isErrorTrackingIssueEventsQuery,
     isErrorTrackingQuery,
     isEventsQuery,
     isGroupsQuery,
@@ -220,7 +223,7 @@ function getConcurrencyController(query: DataNode, currentTeam: TeamType): Concu
         return marketingAnalyticsConcurrencyController
     }
 
-    if (activeScene === Scene.SavedInsights) {
+    if (activeScene === Scene.SavedInsights || activeScene === Scene.AnalyticsProductHome) {
         return productAnalyticsHomeConcurrencyController
     }
 
@@ -1327,6 +1330,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         isTracesQuery(props.query) ||
                         isSessionQuery(props.query) ||
                         isErrorTrackingQuery(props.query) ||
+                        isErrorTrackingIssueEventsQuery(props.query) ||
                         isSessionsQuery(props.query) ||
                         isMarketingAnalyticsTableQuery(props.query) ||
                         isAccountsQuery(props.query) ||
@@ -1369,6 +1373,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             ...queryResponse,
                             results: results,
                             hasMore: newResponse?.hasMore,
+                            ...(isErrorTrackingIssueEventsQuery(props.query)
+                                ? {
+                                      nextCursor: (newResponse as ErrorTrackingIssueEventsQueryResponse | null)
+                                          ?.nextCursor,
+                                  }
+                                : {}),
                         }
                     } else if (isPersonsNode(props.query)) {
                         const newResponse =
@@ -1745,6 +1755,24 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 }
 
                 const effectivePaginationLimit = maxPaginationLimit ?? LOAD_MORE_ROWS_LIMIT
+                // The page's source query is nested, so the server's cursor goes onto `source.before`.
+                if (isErrorTrackingIssueEventsQuery(query)) {
+                    const issueEventsResponse = response as ErrorTrackingIssueEventsQueryResponse | null
+                    if (
+                        responseError ||
+                        dataLoading ||
+                        !issueEventsResponse?.hasMore ||
+                        !issueEventsResponse.nextCursor ||
+                        (maxPaginationRows !== undefined && issueEventsResponse.results.length >= maxPaginationRows)
+                    ) {
+                        return null
+                    }
+                    const nextIssueEventsQuery: ErrorTrackingIssueEventsQuery = {
+                        ...query,
+                        source: { ...query.source, before: issueEventsResponse.nextCursor },
+                    }
+                    return nextIssueEventsQuery
+                }
                 if (
                     (isEventsQuery(query) ||
                         isActorsQuery(query) ||

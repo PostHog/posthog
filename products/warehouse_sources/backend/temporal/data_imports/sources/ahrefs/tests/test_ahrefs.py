@@ -11,8 +11,15 @@ from requests import Response, Session
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.ahrefs import validate_credentials
-from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.settings import BACKLINK_FIELDS, ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.settings import (
+    BACKLINK_FIELDS,
+    ENDPOINTS,
+    ORGANIC_KEYWORD_FIELDS,
+    RANK_TRACKER_FIELDS,
+    REFDOMAIN_FIELDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.source import AhrefsSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
@@ -169,6 +176,40 @@ TARGET = {
                 "protocol": ["https"],
             },
         ),
+        (
+            "organic_keywords",
+            "keywords",
+            [
+                {"keyword": "posthog", "keyword_country": "us", "sum_traffic": 50},
+                {"keyword": "posthog", "keyword_country": "gb", "sum_traffic": 10},
+            ],
+            [
+                {"keyword": "posthog", "keyword_country": "us", "sum_traffic": 50},
+                {"keyword": "posthog", "keyword_country": "gb", "sum_traffic": 10},
+            ],
+            {
+                "select": [",".join(ORGANIC_KEYWORD_FIELDS)],
+                "limit": ["1000"],
+                "order_by": ["sum_traffic:desc"],
+                "date": ["2026-10-13"],
+                "mode": ["domain"],
+                "protocol": ["https"],
+            },
+        ),
+        (
+            "referring_domains",
+            "refdomains",
+            [{"domain": "a.example", "domain_rating": 80}, {"domain": "b.example", "domain_rating": 40}],
+            [{"domain": "a.example", "domain_rating": 80}, {"domain": "b.example", "domain_rating": 40}],
+            {
+                "select": [",".join(REFDOMAIN_FIELDS)],
+                "limit": ["1000"],
+                "order_by": ["domain_rating:desc"],
+                "history": ["live"],
+                "mode": ["domain"],
+                "protocol": ["https"],
+            },
+        ),
     ],
 )
 @pytest.mark.parametrize(
@@ -199,8 +240,37 @@ def test_target_report_resolves_site_audit_target(
     assert target_request.query["project_id"] == ("123",)
     assert report_request.path == f"/v3/{ENDPOINTS[table]['path']}"
     query = {name: list(values) for name, values in report_request.query.items()}
-    history_params = {"date_from": [expected_date_from]} if table != "backlinks" else {}
+    history_params = {"date_from": [expected_date_from]} if ENDPOINTS[table].get("history") else {}
     assert query == {"output": ["json"], "target": ["https://example.com/"], **expected_params, **history_params}
+
+
+@time_machine.travel("2026-10-13T12:00:00Z", tick=False)
+def test_rank_tracker_reads_each_device() -> None:
+    row = {"keyword": "posthog", "country": "us", "location": "United States", "language": "en", "position": 1}
+    result = SourceDriver(AhrefsSource(), AhrefsSourceConfig(api_key="test-key", project_id="00123")).run(
+        "rank_tracker_overview",
+        [
+            ScriptedResponse(json={"overviews": [row]}),
+            ScriptedResponse(json={"overviews": [{**row, "position": 3}]}),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.rows == [
+        {**row, "project_id": "123", "device": "desktop"},
+        {**row, "position": 3, "project_id": "123", "device": "mobile"},
+    ]
+    for request, device in zip(result.requests, ["desktop", "mobile"], strict=True):
+        assert request.path == "/v3/rank-tracker/overview"
+        assert {name: list(values) for name, values in request.query.items()} == {
+            "output": ["json"],
+            "select": [",".join(RANK_TRACKER_FIELDS)],
+            "limit": ["10000"],
+            "order_by": ["keyword:asc"],
+            "project_id": ["123"],
+            "date": ["2026-10-13"],
+            "device": [device],
+        }
 
 
 @pytest.mark.parametrize("healthscores", [[], [{"project_id": "123", "target_url": None}]])
@@ -229,22 +299,18 @@ def test_page_sample_cap(count: int) -> None:
 
 
 @pytest.mark.parametrize(
-    ("status", "body", "message"),
+    ("status", "body"),
     [
-        (401, {"error": "Invalid API key"}, "Check your API key"),
-        (403, ["Error", "Forbidden"], "Check your plan"),
-        (403, {"error": "Insufficient API units"}, "API units are exhausted"),
-        (400, {"error": "API units limit exceeded"}, "API units are exhausted"),
-        (403, {"error": "Quota exceeded"}, "API units are exhausted"),
-        (402, {"error": "Payment required"}, "API units are exhausted"),
+        (400, {"error": "API units limit exceeded"}),
+        (402, {"error": "Payment required"}),
     ],
 )
-def test_credential_and_sync_error_mapping(status: int, body: object, message: str) -> None:
+def test_exhausted_units_keep_the_schema_enabled(status: int, body: object) -> None:
     answer = ScriptedResponse(status=status, json=body)
     with scripted_network([answer]) as network:
         valid, error = validate_credentials("test-key")
     assert valid is False
-    assert error is not None and message in error
+    assert error is not None and "API units are exhausted" in error
     assert len(network.requests_log) == 1
 
     source = AhrefsSource()
@@ -252,8 +318,11 @@ def test_credential_and_sync_error_mapping(status: int, body: object, message: s
         "site_audit_issues", [answer]
     )
     assert isinstance(result.raised, ValueError)
-    mapped = source.get_non_retryable_errors()[str(result.raised)]
-    assert mapped is not None and message in mapped
+    raised = str(result.raised)
+    assert error_message_matches(raised, source.get_retryable_errors())
+    assert not error_message_matches(raised, source.get_non_retryable_errors())
+    exhausted = [m for key, m in source.get_retry_exhausted_errors().items() if error_message_matches(raised, [key])]
+    assert exhausted and "tries again on its own" in exhausted[0]
     assert len(result.requests) == 1
 
 

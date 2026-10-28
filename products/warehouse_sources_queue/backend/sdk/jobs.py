@@ -32,6 +32,7 @@ from products.warehouse_sources_queue.backend.core.generic_jobs import (
     Job,
     JobsTable,
 )
+from products.warehouse_sources_queue.backend.core.jobs_db import ExecutingAttempt, InterruptionHistory
 from products.warehouse_sources_queue.backend.core.metrics import ConsumerMetrics, make_consumer_metrics
 
 if TYPE_CHECKING:
@@ -331,6 +332,24 @@ class GenericJobAdapter:
             grace_seconds=grace_seconds,
             limit=self._recovery_sweep_limit,
         )
+
+    async def mark_shutdown_interruptions(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        attempts: list[ExecutingAttempt],
+    ) -> int:
+        # Generic jobs do not record shutdown markers yet, so every lost attempt uses a retry.
+        return 0
+
+    async def get_interruption_history(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batch_id: str,
+        attempt: int,
+    ) -> InterruptionHistory:
+        return InterruptionHistory()
 
     async def reconcile_failed_runs(
         self,

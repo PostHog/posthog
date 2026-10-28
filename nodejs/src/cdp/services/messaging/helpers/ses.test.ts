@@ -1,6 +1,7 @@
 import { register } from 'prom-client'
 
 import { defaultConfig } from '~/common/config/config'
+import { logger } from '~/common/utils/logger'
 
 import { SesWebhookHandler, normalizeClickUrl, resolveClickDestination } from './ses'
 import { EmailTrackingCodeSigner } from './tracking-code'
@@ -129,6 +130,31 @@ describe('SesWebhookHandler', () => {
             $link_url: 'https://example.com/pricing?a=1',
             $link_index: '2',
         })
+    })
+
+    it('records a click from a sensitive email with only the link origin and no subject', async () => {
+        const body = [
+            {
+                eventType: 'Click',
+                mail: {
+                    ...baseMail,
+                    commonHeaders: { subject: 'Your login code is 482913' },
+                    tags: { ...baseMail.tags, ph_sensitive: ['true'] },
+                },
+                click: {
+                    link: 'https://app.posthog.com/reset/Xk3pR9mQ2a?token=s3cret',
+                    linkTags: { phl: ['1'] },
+                    timestamp: '2025-10-03T12:02:00Z',
+                },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        expect(result.metrics?.[0].properties).toEqual({
+            $email_to: 'to@example.com',
+            $link_url: 'https://app.posthog.com',
+            $link_index: '1',
+        })
+        expect(result.metrics?.[1].instanceIdOverride).toEqual('act789|1|https://app.posthog.com')
     })
 
     it('emits a per-link companion metric keyed by action, link index and normalized url', async () => {
@@ -608,14 +634,19 @@ describe('SesWebhookHandler', () => {
         }
     )
 
-    it('returns 200 and no metrics if tracking code is missing from both carriers', async () => {
+    it('returns 200, no metrics and no logged payload if tracking code is missing from both carriers', async () => {
+        const logSpies = (['info', 'warn', 'error'] as const).map((level) => jest.spyOn(logger, level))
         const body = [
             {
-                eventType: 'Open',
-                mail: { ...baseMail, tags: {}, headers: [] },
-                open: {
-                    ipAddress: '1.2.3.4',
-                    userAgent: 'UA',
+                eventType: 'Click',
+                mail: {
+                    ...baseMail,
+                    commonHeaders: { subject: 'Your login code is 482913' },
+                    tags: { ph_sensitive: ['true'] },
+                    headers: [],
+                },
+                click: {
+                    link: 'https://app.example.com/reset?token=s3cret',
                     timestamp: '2025-10-03T12:01:00Z',
                 },
             },
@@ -623,6 +654,10 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.status).toBe(200)
         expect(result.metrics).toEqual([])
+        const logged = JSON.stringify(logSpies.flatMap((spy) => spy.mock.calls))
+        expect(logged).not.toContain('s3cret')
+        expect(logged).not.toContain('482913')
+        logSpies.forEach((spy) => spy.mockRestore())
     })
 
     it('labels a dropped record "missing" when no code is present and "invalid" when it is present but unparseable', async () => {

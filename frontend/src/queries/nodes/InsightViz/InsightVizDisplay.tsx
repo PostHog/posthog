@@ -49,9 +49,9 @@ import {
 
 import { ChartAlternatives } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives'
 import { InsightDataChecks } from 'products/product_analytics/frontend/insights/dataChecks/InsightDataChecks'
+import { InsightDisplayConfig } from 'products/product_analytics/frontend/insights/editor/InsightDisplayConfig'
 import { Funnel } from 'products/product_analytics/frontend/insights/funnels/Funnel'
 import { FunnelCanvasLabel } from 'products/product_analytics/frontend/insights/funnels/FunnelCanvasLabel'
-import { FunnelCorrelation } from 'products/product_analytics/frontend/insights/funnels/FunnelCorrelation/FunnelCorrelation'
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
 import { FunnelStepsTable } from 'products/product_analytics/frontend/insights/funnels/FunnelStepsTable/FunnelStepsTable'
 import { FunnelTimeToConvertTable } from 'products/product_analytics/frontend/insights/funnels/FunnelTimeToConvertTable/FunnelTimeToConvertTable'
@@ -66,7 +66,6 @@ import { BoxPlotResultsTable } from 'products/product_analytics/frontend/insight
 import { TrendInsight } from 'products/product_analytics/frontend/insights/trends/Trends'
 
 import { FlagCallsRetentionNotice } from './FlagCallsRetentionNotice'
-import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
 import { ResultCustomizationsModal } from './ResultCustomizationsModal'
 
@@ -174,7 +173,6 @@ export function shouldShowDashboardInsightRefreshHint({
 export function InsightVizDisplay({
     disableHeader,
     disableTable,
-    disableCorrelationTable,
     disableLastComputation,
     disableLastComputationRefresh,
     showingResults,
@@ -185,7 +183,6 @@ export function InsightVizDisplay({
 }: {
     disableHeader?: boolean
     disableTable?: boolean
-    disableCorrelationTable?: boolean
     disableLastComputation?: boolean
     disableLastComputationRefresh?: boolean
     showingResults?: boolean
@@ -632,7 +629,6 @@ export function InsightVizDisplay({
             <ResultCustomizationsModal />
             {renderAIAnalysisSection()}
             {renderTable()}
-            {!disableCorrelationTable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>
     )
 }

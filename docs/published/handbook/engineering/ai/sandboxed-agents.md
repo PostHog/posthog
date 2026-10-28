@@ -77,7 +77,7 @@ The thinking indicator stops at stream end, and a history error stays visible ev
 `sandbox_stream_recovered` records successful recovery after history reconciliation, with the phase, run status, attempt counts, and elapsed time.
 Neither event includes transcript contents or proxy tokens.
 
-After deployment, verify recovery with `tasks-stream-via-proxy` both enabled and disabled: interrupt a live stream, let the agent persist output, and confirm the restored transcript contains it once.
+After deployment, verify recovery on both stream legs (agent proxy and Django): interrupt a live stream, let the agent persist output, and confirm the restored transcript contains it once.
 Also exhaust retries and verify that Retry works for both an active run and an ended run with an unreadable history snapshot.
 
 ```text
@@ -108,6 +108,15 @@ The run's `state.systemPrompt` is server-owned. Set it through trusted server-si
 or state updates. The run PATCH endpoint silently ignores attempts to replace, remove, or append
 to this key, including requests from the sandbox itself. The run detail endpoint serves the prompt
 only to the task-bound sandbox, so it can initialize the agent session.
+
+### Pi project resources
+
+Cloud Pi sessions treat checked-out projects as untrusted, including when resuming a session.
+Project extensions, settings, prompt templates, system prompt overrides, and `.pi/mcp.json` are not loaded.
+Project skills in `.pi/skills` and `.agents/skills` are not automatically discovered.
+Repository `AGENTS.md` instructions continue to load.
+Bundled extensions and MCP servers supplied by the task runtime remain available.
+Local Desktop Pi sessions retain their existing project-resource behavior.
 
 ## Creating a sandboxed agent
 
@@ -242,8 +251,23 @@ Sandbox-bound tokens cannot change either tool-selection field.
 Both fields and their initial values are activity-logged.
 
 The write path is gated by `scouts-tool-access` and fails closed when the flag is absent or unavailable.
-Keep the flag disabled until tool enforcement ships: storing a list alone does not restrict tools at runtime.
-The tool picker and runtime enforcement are separate changes.
+
+While the flag is on, a run stamps the list on its task at dispatch, and a config edit applies from the next run.
+The run holds the listed tools, the built-in run-context tools, and the tools the MCP server offers every client.
+The run-context tools include `skill-get` and `skill-file-get`, so even an empty selection can load its skill and reference files without granting skill writes.
+The tool catalogue returns `run_context_tools` for the picker’s always-available group. The picker excludes these from choices and removes redundant entries from saved lists when editing them.
+The API refuses a request that uses a method other than GET, HEAD, or OPTIONS, or that needs a write scope, unless a tool the run holds calls that endpoint or the endpoint belongs to the sandbox harness.
+The method counts because some actions change state behind a read scope.
+Harness run writes and run-context writes are restricted to the token-bound task’s current run.
+Report artefacts require a held tool; they are not a harness exception.
+For soft-delete endpoints, updating an object does not grant deletion, and a delete-only grant cannot change other fields.
+A narrowed run cannot call external MCP server tools or change tool approvals through the MCP Store endpoints.
+The refusal is a 403 with the code `scout_tool_not_granted`.
+The check reads the run from the token's task binding, never from a request header.
+GET reads stay governed by the token scopes.
+Token introspection supplies the dispatch snapshot to the MCP server, which hides unpicked tools and refuses direct and exec calls with `tool_not_granted`.
+Refused exec calls retain the catalogued target tool name in analytics; unknown names are recorded as `unrecognized`.
+Keep the flag disabled for customers until the settings picker ships.
 
 ### Activity attribution
 
@@ -279,6 +303,10 @@ They're copied to three discovery locations during image build:
 - `/scripts/plugins/posthog/skills/` – plugin discovery
 - `~/.agents/skills/` – Codex agent discovery
 - `~/.claude/skills/` – Claude Code CLI discovery
+
+Evals build skills from the local checkout into a new output directory, then capture a snapshot. Model comparisons share one saved snapshot across their model runs, so rendered examples cannot change between models. `--skill-snapshot-report <results.json>` reuses a previous run's archived snapshot only if its source fingerprint and commit match the checkout. The fingerprint includes staged and unstaged changes plus untracked source files, so schema edits outside the skill folders also invalidate reuse. It excludes configured result files and comparison output directories, including outputs inside the checkout. Docker mounts the snapshot at all three discovery paths, replacing image-only skills as well. Modal builds use the same snapshot. Before the agent starts, the harness checks every skill file against a SHA-256 manifest in the agent's task filesystem and stops on missing, changed, or extra files. MCP delivery pins the archive hash and clears native bundled skills. Verification reads the delivery mode inside the running sandbox, including when a worker retrieves it by ID. Desktop skill-source preferences and shell-level MCP archive URLs cannot replace the eval snapshot.
+
+Run reports and PostHog eval metadata record the skill snapshot hash alongside the commit and dirty-worktree flag. The local run report includes the full file manifest's path. Model comparisons reject missing or different snapshot hashes. These checks confirm which files the agent can read; separate tool-call checks confirm whether it reads a skill.
 
 For details on writing skills, see [Writing skills](/handbook/engineering/ai/writing-skills).
 
@@ -480,7 +508,9 @@ that landed since the last bake. The snapshot clones the migrated Postgres datab
 `test_posthog`, so pytest's default `--reuse-db` path also applies only newer migrations.
 The pnpm store and Playwright's Chromium are prewarmed too:
 `pnpm install --frozen-lockfile --prefer-offline` is a fast linking pass and browser installs
-are no-ops. Build outputs (node_modules, Storybook dist, Vite/Turbo caches) are deliberately
+are no-ops. The image also has `ffmpeg`, because the lean VM base ships no codec tooling,
+and the CI-pinned `semgrep`, `actionlint` and `shellcheck`, so agents can run the repo's lint gates before they push.
+Build outputs (node_modules, Storybook dist, Vite/Turbo caches) are deliberately
 not baked — the bake's checkout is deleted before the snapshot — so frontend builds always run
 from the task's own source. The bake must run on the real VM runtime —
 dockerd cannot run inside Modal's gVisor image builder — which is why it is a sandbox filesystem
@@ -494,6 +524,9 @@ at boot and dockerd does not autostart. Run the baked `bootstrap-dev-stack` help
 required — the sandbox has no TTY, and running phrocs under a pseudo-TTY makes it balloon in
 memory until it is OOM-killed — and the detached start returns while the stack is still booting,
 so `hogli wait` is what blocks until every process reports ready.
+On a 16 GiB self-driving run the full stack takes about 12 GiB and leaves no room for tests,
+so the agent should start only the datastores unless the task needs the running app
+(see `docs/internal/cloud-task-sandbox.md`).
 
 Provisioning also fires that helper detached as soon as the sandbox is up (best-effort, only on
 runs that booted the PostHog-published `posthog-dev-stack` image itself — never a user-authored
@@ -517,7 +550,7 @@ the agent up. The in-sandbox script (`start-dev-stack-preview.sh`) runs `pnpm in
 dev-stack process fails the preview instead of publishing a half-working one, and each click on the
 link re-probes Django and Vite inside the sandbox before redirecting. Startup peaks around 19 GB, so
 these runs default to 32 GB rather than the standard VM memory size; the core limit stays at the
-VM default, but a box that actually boots the dev-stack image reserves 4 cores instead of the
+VM default, but a box that actually boots the dev-stack image reserves 2 cores instead of the
 burstable 0.5 floor (a fallback to the plain base image keeps the plain floor), and a per-task
 `sandbox_resources` override still wins. The launcher starts with a scrubbed
 environment (`env -i`, fixed PATH), so the stack and its containers never inherit the run's
@@ -549,10 +582,7 @@ When a sandbox was sized by a worker that does not know the preview flag, the pr
 Known limit for v1: the dev stack runs with `DEBUG=1`, so a server error renders Django's debug
 page inside the preview.
 
-Restricted runs can use the VM runtime only when `tasks-modal-network-allowlist` is also enabled.
-The network flag interlock runs before state overrides, image-builder routing, custom-image routing,
-and the VM rollout flag. A trusted `use_modal_vm_sandbox` state value cannot bypass it.
-Modal is the authoritative network enforcement layer whenever that flag is enabled, including on VMs.
+Modal is the authoritative network enforcement layer on every restricted Modal run, including on VMs.
 AgentSH also applies the compiled policy to the agent-server process tree as defense in depth. The
 provider policy applies outside the sandbox, so it covers traffic from the VM and its Docker containers
 without relying on AgentSH process tracing.
@@ -626,9 +656,8 @@ task = Task.create_and_run(
 
 The temporal workflow resolves and compiles allowed domains at execution time, so environment updates
 take effect on the next run. The compiled policy and its fingerprint stay fixed across activity retries.
-Modal enforces the network boundary on every restricted run when
-`tasks-modal-network-allowlist` is enabled. During the rollout, restricted runs without that flag stay
-on gVisor and use agentsh; they cannot route to a VM without the provider policy.
+Modal enforces the network boundary on every restricted run that provisions on Modal.
+Hogland runs rely on agentsh inside the sandbox.
 
 Environments can also be managed via the REST API (`SandboxEnvironmentViewSet`)
 or the PostHog Desktop settings UI.
@@ -722,6 +751,7 @@ or stream echo, and never submits the message again.
 
 The `phai-context-selection` feature flag enables hidden organizational context on human prompts in web and Slack cloud runs using Claude or Codex.
 The `phai-context-selection` flag selects `control`, `shadow`, or `treatment` using the task ID.
+Person-property conditions use the current actor's email and staff status, so an email-targeted rollout applies to that actor's eligible tasks while percentage and variant bucketing remain task-based.
 Other flag values disable selection. Local runs, Pi, and other runtime adapters skip it.
 An explicit disabled response stops further preparation requests for that sandbox session, including after conversation history is cleared.
 Flag changes can enable selection in a new session. Preparation errors do not disable later attempts.

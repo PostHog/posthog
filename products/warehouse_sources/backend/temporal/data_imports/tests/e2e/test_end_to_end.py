@@ -113,7 +113,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     REFUND_RESOURCE_NAME as STRIPE_REFUND_RESOURCE_NAME,
     SUBSCRIPTION_RESOURCE_NAME as STRIPE_SUBSCRIPTION_RESOURCE_NAME,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
+from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import (
+    CreditNoteListWithAllLines,
+    InvoiceListWithAllLines,
+)
 from products.warehouse_sources.backend.temporal.data_imports.tests.e2e.queue_replay import (
     PostgresQueueReplay,
     replay_v3_consumer,
@@ -596,6 +599,7 @@ async def _execute_run(
         mock.patch.object(PostHogRESTClient, "paginate", mock_paginate_pages),
         mock.patch.object(ListObject, "auto_paging_iter", return_value=iter(mock_data_response)),
         mock.patch.object(InvoiceListWithAllLines, "auto_paging_iter", return_value=iter(mock_data_response)),
+        mock.patch.object(CreditNoteListWithAllLines, "auto_paging_iter", return_value=iter(mock_data_response)),
         override_settings(
             BUCKET_URL=f"s3://{BUCKET_NAME}",
             BUCKET_PATH=BUCKET_NAME,

@@ -299,7 +299,12 @@ class TestBuildFixVerificationPrompt:
             agent_checks_enabled=agent_checks_enabled,
         )
         preferred = metric_checks_enabled
-        for field in ("reference_period_minutes", "threshold_scaling", "baseline_period_minutes"):
+        for field in (
+            "reference_period_minutes",
+            "threshold_scaling",
+            "baseline_period_minutes",
+            "run_interval_minutes",
+        ):
             assert (field in prompt) is (metric_checks_enabled and monitoring_enabled)
         assert ("70-80% confidence" in prompt) is preferred
         assert ('Prefer `kind: "metric_threshold"`' in prompt) is preferred
@@ -656,6 +661,31 @@ class TestReportPresentationOutputCharts:
 
         assert parsed.charts == []
         assert parsed.summary == "Signups fell 60% over the week."
+
+
+class TestReportPresentationOutputTags:
+    @pytest.mark.parametrize(
+        "tags,expected",
+        [
+            (["Session Replay", "session_replay", "!!!", 3], ["session-replay"]),
+            ("billing", None),
+            (None, None),
+        ],
+    )
+    def test_invalid_tags_are_dropped_and_the_prose_survives(self, tags: object, expected: list[str] | None):
+        parsed = ReportPresentationOutput.model_validate(
+            {"title": "fix(checkout): Handle the timeout", "summary": "Checkout times out.", "tags": tags}
+        )
+
+        assert parsed.tags == expected
+        assert parsed.summary == "Checkout times out."
+
+    def test_prompt_offers_current_and_team_tags(self) -> None:
+        prompt = build_report_presentation_prompt(1, current_tags=["billing"], team_tags=["api", "billing"])
+
+        assert 'Current tags on this report: ["billing"]' in prompt
+        assert 'most-used first: ["api", "billing"]' in prompt
+        assert "Do not repeat the title type" in prompt
 
 
 class TestReportPresentationOutputSourceSuggestion:

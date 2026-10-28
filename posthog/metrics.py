@@ -1,4 +1,5 @@
 # Shared metrics and labels for prometheus metrics
+from collections.abc import Iterator
 from contextlib import contextmanager
 
 from django.conf import settings
@@ -9,7 +10,7 @@ import structlog
 # The pushgateway is an internal service — the outbound proxy would reject it.
 # ProxyHandler({}) tells urllib to ignore proxy env vars.
 import prometheus_client.exposition as _expo
-from prometheus_client import CollectorRegistry, Counter, push_to_gateway
+from prometheus_client import CollectorRegistry, Counter, push_to_gateway, pushadd_to_gateway
 
 from posthog.exceptions_capture import capture_exception
 
@@ -59,8 +60,31 @@ def _make_handler_no_proxy(url, method, timeout, headers, data, base_handler):
 _expo._make_handler = _make_handler_no_proxy  # ty: ignore[invalid-assignment]
 
 
+def push_registry(job_name: str, registry: CollectorRegistry, *, replace_group: bool, timeout: float = 30) -> None:
+    """
+    Push the registry to the PushGateway under job_name. It logs and captures a failed push instead of raising it.
+
+    With replace_group=True the push is a PUT, which deletes every metric in the job's group that the registry does not carry.
+    With replace_group=False the push is a POST, which replaces only the metrics the registry carries.
+    The timeout applies to each socket operation of the push. The connect and the response can each take that long.
+    """
+    try:
+        if settings.PROM_PUSHGATEWAY_ADDRESS:
+            push = push_to_gateway if replace_group else pushadd_to_gateway
+            push(settings.PROM_PUSHGATEWAY_ADDRESS, job=job_name, registry=registry, timeout=timeout)
+    except Exception as err:
+        logger.exception(
+            "push_to_gateway",
+            target=settings.PROM_PUSHGATEWAY_ADDRESS,
+            job=job_name,
+            replace_group=replace_group,
+            exception=err,
+        )
+        capture_exception(err)
+
+
 @contextmanager
-def pushed_metrics_registry(job_name: str):
+def pushed_metrics_registry(job_name: str, *, timeout: float = 30) -> Iterator[CollectorRegistry]:
     """
     Return a temporary Prometheus registry that will be pushed to the
     PushGateway when the context closes.
@@ -68,15 +92,13 @@ def pushed_metrics_registry(job_name: str):
     Parameter job_name: a unique job name to use, all metrics previously
     pushed with that name will be deleted.
 
+    If the body raises, the context pushes nothing. The group keeps the metrics of the last push.
+    PushGatewayTask and alerts on a stale push_time_seconds depend on this.
+
     NOTE: only use to expose gauges, for use cases where one value per
     region makes sense (e.g. instance metrics computed by celery jobs).
     """
 
     registry = CollectorRegistry()
     yield registry
-    try:
-        if settings.PROM_PUSHGATEWAY_ADDRESS:
-            push_to_gateway(settings.PROM_PUSHGATEWAY_ADDRESS, job=job_name, registry=registry)
-    except Exception as err:
-        logger.exception("push_to_gateway", target=settings.PROM_PUSHGATEWAY_ADDRESS, exception=err)
-        capture_exception(err)
+    push_registry(job_name, registry, replace_group=True, timeout=timeout)

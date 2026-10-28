@@ -25,6 +25,7 @@ from temporalio.client import (
     ScheduleSpec,
 )
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.search_attributes import (
@@ -34,12 +35,27 @@ from posthog.temporal.common.search_attributes import (
     POSTHOG_TEAM_ID_KEY,
 )
 
-from products.data_modeling.backend.logic.cohort_scheduling import dag_id_from_schedule_id, is_tier_schedule_id
+from products.data_modeling.backend.logic.cohort_scheduling import dag_id_from_schedule_id
 from products.data_modeling.backend.models.node import Node
 
 # A schedule id is the bare DAG id, or "{dag_id}:{interval_seconds}" for a per-cadence-tier
 # schedule, optionally followed by ":{anchor}". Parsers must handle all three shapes.
 DATA_MODELING_EXECUTE_DAG_WORKFLOW = "data-modeling-execute-dag"
+
+_TRANSIENT_RPC_STATUSES = (
+    RPCStatusCode.UNAVAILABLE,
+    RPCStatusCode.DEADLINE_EXCEEDED,
+    RPCStatusCode.RESOURCE_EXHAUSTED,
+)
+
+
+def is_transient_temporal_error(exc: BaseException) -> bool:
+    """True when Temporal could not answer at all, so a retry can succeed with no change on our side."""
+    if isinstance(exc, RPCError):
+        return exc.status in _TRANSIENT_RPC_STATUSES
+    # A failed connect (TLS handshake, DNS, refused) happens before any RPC, so the Rust bridge
+    # raises an untyped RuntimeError instead of an RPCError.
+    return isinstance(exc, RuntimeError) and str(exc).startswith("Failed client connect:")
 
 
 def dag_schedule_search_attributes(*, team_id: int, organization_id: str, dag_id: str) -> TypedSearchAttributes:
@@ -55,14 +71,9 @@ def dag_schedule_search_attributes(*, team_id: int, organization_id: str, dag_id
 
 @async_to_sync
 async def get_v2_scheduled_dag_ids(
-    candidate_dag_ids: Collection[str] | None = None, *, tiered_only: bool = False
+    candidate_dag_ids: Collection[str] | None = None,
 ) -> set[str]:
     """Return the IDs of DAGs that already have a v2 `data-modeling-execute-dag` Temporal schedule.
-
-    `tiered_only` counts only cadence-tier schedules (`{dag_id}:{seconds}`), ignoring the bare
-    whole-DAG `{dag_id}` schedule the legacy migration left behind. A bare schedule fires the DAG
-    but honours no frequency target, so a caller about to apply one must treat such a DAG as not
-    yet on tiers and bootstrap it instead.
 
     When `candidate_dag_ids` is given, the listing is scoped server-side to those DAGs via the
     `PostHogDagId` search attribute so we never paginate every schedule in the namespace — a
@@ -90,18 +101,15 @@ async def get_v2_scheduled_dag_ids(
         if (
             isinstance(action, ScheduleListActionStartWorkflow)
             and action.workflow == DATA_MODELING_EXECUTE_DAG_WORKFLOW
-            and (not tiered_only or is_tier_schedule_id(listing.id))
         ):
             dag_ids.add(dag_id_from_schedule_id(listing.id))
     return dag_ids
 
 
 def get_v2_saved_query_ids(
-    candidate_ids: Collection[uuid.UUID] | None = None, *, tiered_only: bool = False
+    candidate_ids: Collection[uuid.UUID] | None = None,
 ) -> set[uuid.UUID]:
     """Return saved query IDs whose DAG already runs on a v2 schedule.
-
-    `tiered_only` narrows "on v2" to DAGs with a cadence tier, as on `get_v2_scheduled_dag_ids`.
 
     Optionally restrict the lookup to `candidate_ids` to keep the query bounded.
     """
@@ -120,12 +128,10 @@ def get_v2_saved_query_ids(
         if not dag_ids_by_saved_query:
             return set()
 
-        v2_dag_ids = get_v2_scheduled_dag_ids(
-            {dag_id for ids in dag_ids_by_saved_query.values() for dag_id in ids}, tiered_only=tiered_only
-        )
+        v2_dag_ids = get_v2_scheduled_dag_ids({dag_id for ids in dag_ids_by_saved_query.values() for dag_id in ids})
         return {saved_query_id for saved_query_id, ids in dag_ids_by_saved_query.items() if ids & v2_dag_ids}
 
-    v2_dag_ids = get_v2_scheduled_dag_ids(tiered_only=tiered_only)
+    v2_dag_ids = get_v2_scheduled_dag_ids()
     if not v2_dag_ids:
         return set()
 

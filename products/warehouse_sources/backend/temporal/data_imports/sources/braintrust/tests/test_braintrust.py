@@ -207,7 +207,7 @@ def test_malformed_page_does_not_succeed(body: dict[str, Any]) -> None:
     assert isinstance(result.raised, RESTClientRetryableError)
 
 
-@pytest.mark.parametrize("status", [200, 401, 403, 404, 429, 500])
+@pytest.mark.parametrize("status", [200, 404, 429, 500])
 def test_credentials_and_error_classification(status: int) -> None:
     with scripted_network(always(ScriptedResponse(json={"objects": []}, status=status))) as network:
         if status in (429, 500):

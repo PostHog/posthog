@@ -48,6 +48,8 @@ from posthog.personhog_client.proto import (
     DeleteTombstonedPersonsResponse,
     EnsurePersonVersionFloorsRequest,
     EnsurePersonVersionFloorsResponse,
+    GetDistinctIdRowsRequest,
+    GetDistinctIdRowsResponse,
     GetDistinctIdsForPersonRequest,
     GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest,
@@ -81,11 +83,17 @@ from posthog.personhog_client.proto import (
     ListCohortMemberIdsResponse,
     ListGroupsRequest,
     ListGroupsResponse,
+    ListPersonsForTeamRequest,
+    ListPersonsForTeamResponse,
     ListPersonTombstoneQueueRequest,
     ListPersonTombstoneQueueResponse,
     PersonHogServiceStub,
     PersonsByDistinctIdsInTeamResponse,
     PersonsResponse,
+    RaisePersonVersionFloorsRequest,
+    RaisePersonVersionFloorsResponse,
+    RestorePersonsRequest,
+    RestorePersonsResponse,
     SetPersonDistinctIdVersionFloorRequest,
     SetPersonDistinctIdVersionFloorResponse,
     SetPersonVersionFloorRequest,
@@ -96,6 +104,8 @@ from posthog.personhog_client.proto import (
     UpdateGroupResponse,
     UpdateGroupTypeMappingRequest,
     UpdateGroupTypeMappingResponse,
+    WriteDistinctIdsRequest,
+    WriteDistinctIdsResponse,
 )
 
 logger = structlog.get_logger(__name__)
@@ -269,6 +279,29 @@ class PersonHogClient:
         self, request: EnsurePersonVersionFloorsRequest, timeout: float | None = None
     ) -> EnsurePersonVersionFloorsResponse:
         return self._stub.EnsurePersonVersionFloors(request, timeout=timeout or self._timeout)
+
+    def get_distinct_id_rows(
+        self, request: GetDistinctIdRowsRequest, timeout: float | None = None
+    ) -> GetDistinctIdRowsResponse:
+        return self._stub.GetDistinctIdRows(request, timeout=timeout or self._timeout)
+
+    def list_persons_for_team(
+        self, request: ListPersonsForTeamRequest, timeout: float | None = None
+    ) -> ListPersonsForTeamResponse:
+        return self._stub.ListPersonsForTeam(request, timeout=timeout or self._timeout)
+
+    def raise_person_version_floors(
+        self, request: RaisePersonVersionFloorsRequest, timeout: float | None = None
+    ) -> RaisePersonVersionFloorsResponse:
+        return self._stub.RaisePersonVersionFloors(request, timeout=timeout or self._timeout)
+
+    def restore_persons(self, request: RestorePersonsRequest, timeout: float | None = None) -> RestorePersonsResponse:
+        return self._stub.RestorePersons(request, timeout=timeout or self._timeout)
+
+    def write_distinct_ids(
+        self, request: WriteDistinctIdsRequest, timeout: float | None = None
+    ) -> WriteDistinctIdsResponse:
+        return self._stub.WriteDistinctIds(request, timeout=timeout or self._timeout)
 
     # -- Person lookups --
 

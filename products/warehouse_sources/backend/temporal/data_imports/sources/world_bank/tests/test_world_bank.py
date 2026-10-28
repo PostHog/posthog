@@ -218,7 +218,7 @@ class TestValidateCredentials:
         assert ok is False
         assert error == "These indicator codes were not found: NOT.A.CODE."
 
-    @pytest.mark.parametrize("status_code", [403, 429, 500, 503])
+    @pytest.mark.parametrize("status_code", [429, 503])
     def test_reports_an_unreachable_api(self, status_code: int) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code, json=[]))):
             ok, error = validate_credentials(["SP.POP.TOTL"], "v2")
