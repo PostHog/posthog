@@ -1,4 +1,5 @@
-from collections.abc import Callable, Iterator
+import threading
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
@@ -497,6 +498,24 @@ class TestIntegrationAccessors(BaseTest):
             ("warehouse_source", "b"),
         ]
         load.assert_called_once_with("integration_usages")
+
+    def test_a_provider_module_that_registers_at_import_does_not_deadlock(self) -> None:
+        def import_a_module_that_registers(_name: str) -> Iterable[SimpleNamespace]:
+            register_usage_provider(lambda team_id, integration_id: [])
+            return [SimpleNamespace(integration_usages=lambda team_id, integration_id: [])]
+
+        with (
+            patch.object(usages, "_registered", []),
+            patch.object(usages, "_product_providers", None),
+            patch.object(usages, "load_product_modules", side_effect=import_a_module_that_registers),
+        ):
+            # A daemon thread, so a deadlock fails the test instead of hanging the run.
+            loader = threading.Thread(target=usages.integration_usages, args=(self.team.id, 1), daemon=True)
+            loader.start()
+            loader.join(timeout=10)
+
+            assert not loader.is_alive()
+            assert len(usages._registered) == 1
 
     @parameterized.expand(
         [

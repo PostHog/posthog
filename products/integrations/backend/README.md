@@ -16,7 +16,7 @@ An accessor fixes the kind, the auth type, or both. Each operation takes `team_i
 | ---------------------------------------- | ------------------------------------------------------ | ---------------- |
 | `IntegrationManager.github.oauth`        | One kind with one auth type                            | Reads and writes |
 | `IntegrationManager.stripe.any`          | One kind with every auth type                          | Reads and delete |
-| `IntegrationManager.kinds("slack", ...)` | Several kinds with every auth type                     | Reads and delete |
+| `IntegrationManager.kinds("slack", ...)` | Several kinds, with every auth type by default         | Reads and delete |
 | `IntegrationManager.any`                 | Every row, warehouse source rows too                   | Reads and delete |
 | `IntegrationManager.source(kind).token`  | Warehouse source rows of one kind with one auth type   | Reads and writes |
 | `IntegrationManager.source(kind).any`    | Warehouse source rows of one kind with every auth type | Reads and delete |
@@ -27,10 +27,14 @@ Reads:
 - `get_many(team_id, ids)` returns `{id: row}` for the ids in the scope.
 - `find(team_id, external_id=..., where={...})` returns the oldest matching row or `None`.
 - `list(team_id, external_id=..., where={...}, newest_first=False)` and `exists(...)`.
-- `list_by_external_id(external_id, team_ids=None)` reads across teams, for example the teams that share one GitHub installation.
+- `list_by_external_id(external_id, team_ids=None)` reads across teams, for example the teams that share one GitHub installation. It needs an accessor with a kind: on `IntegrationManager.any` it raises `ValueError`, because external ids are unique only per provider.
 - `usages(team_id, id)` returns the PostHog objects that use the row.
 
-`where` compares named config keys for equality, for example `where={"installation_id": "123"}`.
+`IntegrationManager.kinds(...)` takes `auth_types`: `"any"` (the default), `"default"` for the default auth type of each kind, or a list of auth types.
+
+`where` compares named config keys for equality, for example `where={"region": "eu"}`.
+Equality also compares the JSON type, so `where={"installation_id": "123"}` misses a row that stores the number `123`.
+For a GitHub installation, use the external id, which always holds the installation id as a string: `IntegrationManager.github.oauth.find(team_id, external_id=str(installation_id))`.
 It does not accept lookups (`a__b`), nested values or the keys that the SDK writes (`auth_type`, `warehouse_source_type`), and raises `UnsupportedIntegrationFilter`.
 When you need more, add a named method to the SDK.
 
@@ -40,14 +44,14 @@ Each operation has an async form with an `a` prefix: `aget`, `alist`, `aupdate`,
 
 Only an accessor with one auth type can write, because a new row has exactly one auth type.
 
-- `create(team_id, external_id=..., config=..., sensitive_config=..., created_by_id=...)`.
+- `create(team_id, external_id=..., config=..., sensitive_config=..., created_by_id=...)`. It raises `IntegrationConflict` when the team already has a row of the kind with this external id, of any auth type.
 - `upsert(team_id, external_id, config=..., ...)` returns `(row, created)`. It replaces the config of an existing row. It raises `IntegrationConflict` when the existing row is not in the scope, for example a row with another auth type.
 - `update(team_id, id, config_patch=..., config_remove=..., sensitive_config_patch=..., errors=...)` merges a patch. `errors=None` keeps the errors.
 - `update_atomically(team_id, id, change)` locks the row, calls `change(row)`, and applies the `IntegrationPatch` that it returns.
-- `update_by_external_id(external_id, patch)` patches the rows of every team.
+- `update_by_external_id(external_id, patch)` patches the rows of every team that are in the scope.
 
 Delete rows with `delete(team_id, id)`. It raises `IntegrationInUse` with the usages when other objects use the row. Pass `ignore_usages=True` to delete it anyway.
-`delete_by_external_id(external_id)` deletes the rows of every team.
+`delete_by_external_id(external_id)` deletes the rows of every team. Like `list_by_external_id`, it needs an accessor with a kind.
 
 Do not call `.save()` or `.delete()` on a row, and do not set `row.config[...]`.
 `IntegrationRecord` is the Django model now. A later change makes it a frozen record, and those calls stop working.
@@ -94,11 +98,15 @@ The SDK finds the module on the first call to `usages` or `delete`. Code outside
 Use `IntegrationReferenceField` from `presentation/fields.py` instead of a `PrimaryKeyRelatedField` on `Integration`.
 It reads the team from the serializer context, so a row of another team does not exist for the field.
 Pass `kinds=[...]` to accept only rows of these kinds.
+With `kinds`, the field accepts only the default auth type of each kind, because code that reads a kind expects its usual config shape.
+Pass `auth_types=[AuthType.TOKEN]` to accept other auth types, or `auth_types="any"` to accept every auth type.
+A field with `kinds` never accepts a warehouse source row.
 
 ## Why direct model use fails CI
 
-The semgrep rule `.semgrep/rules/devex/integration-model-through-sdk.yaml` finds uses of the model outside the SDK: imports of `Integration`, `Integration.objects`, foreign keys to it, `select_related` and `prefetch_related` on an integration relation, `integration__` lookups, `integration_set`, and `.save()` on a row.
+The semgrep rule `.semgrep/rules/devex/integration-model-through-sdk.yaml` finds uses of the model outside the SDK: imports of `Integration`, its managers (`objects`, `_default_manager`, `_base_manager`, also through `IntegrationRecord`), `apps.get_model` lookups of it, relation fields to it, `select_related` and `prefetch_related` on an integration relation, `integration__` lookups (as keyword arguments or as strings), `integration_set`, and `.save()` on a row.
 The "Integration model ratchet" step in `.github/workflows/ci-security.yaml` compares the findings per file with `model_access_baseline.txt`.
 It fails when a file has more findings than its baseline count, and also when it has fewer.
+A file that semgrep reports an error for (a timeout or a parse error) is not checked for fewer findings, and `--update` keeps its count.
 When you move a file to the SDK, lower its count in the baseline, or remove the line at zero.
 Tests, migrations, Django admin, the model and its per-kind adapters (`posthog/models/integration/`) are outside the rule.
