@@ -1,7 +1,9 @@
 import time
 from collections import Counter
 
-from botocore.exceptions import ClientError
+from django.conf import settings
+
+from botocore.exceptions import ClientError, NoCredentialsError
 from celery import shared_task
 from prometheus_client import Gauge
 from structlog import get_logger
@@ -34,6 +36,10 @@ def _record_poll_failure(poll: str, job_name: str, error: Exception) -> None:
     from a broken poller. Regions without SES access (self-hosted, dev) land here every tick, and
     those regions have no pushgateway, so the push is a no-op there.
     """
+    if isinstance(error, NoCredentialsError):
+        logger.info("SES reputation poll skipped: no AWS credentials configured", poll=poll)
+        return
+
     reason = _failure_reason(error)
     logger.warning("SES reputation poll failed", poll=poll, reason=reason, exc_info=error)
     with pushed_metrics_registry(f"{job_name}_failure") as registry:
@@ -59,6 +65,9 @@ def poll_ses_account_enforcement() -> None:
     timestamp. The timestamp exists because pushgateway gauges never expire. Without it, a dead
     poller freezes the last "healthy" value forever and nothing would fire.
     """
+    if not getattr(settings, "SES_ACCESS_KEY_ID", None):
+        return
+
     try:
         enforcement_status = SESProvider().get_account_enforcement_status()
     except Exception as error:
@@ -89,6 +98,9 @@ def poll_ses_reputation_findings() -> None:
     than the enforcement poll and has its own timestamp, which keeps a throttled walk from making
     the enforcement signal look stale.
     """
+    if not getattr(settings, "SES_ACCESS_KEY_ID", None):
+        return
+
     try:
         findings = SESProvider().get_account_reputation_findings()
     except Exception as error:

@@ -492,22 +492,23 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="archive inactive tasks",
     )
 
-    # AWS SES account reputation → gauges for team-facing alerting (charts alerts/specs/ses.yaml)
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/10"),
-        poll_ses_account_enforcement.s(),
-        name="poll SES account enforcement status",
-        expires_seconds=10 * 60,
-    )
+    if settings.SES_ACCESS_KEY_ID:
+        # AWS SES account reputation → gauges for team-facing alerting (charts alerts/specs/ses.yaml)
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(minute="*/10"),
+            poll_ses_account_enforcement.s(),
+            name="poll SES account enforcement status",
+            expires_seconds=10 * 60,
+        )
 
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="20"),
-        poll_ses_reputation_findings.s(),
-        name="poll SES reputation findings",
-        expires_seconds=30 * 60,
-    )
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(minute="20"),
+            poll_ses_reputation_findings.s(),
+            name="poll SES reputation findings",
+            expires_seconds=30 * 60,
+        )
 
     # Pause the email of any workflow whose complaint or hard bounce rate breaches a threshold
     # Hourly rather than a tight poll: the tier system's hourly send bucket bounds how much a
