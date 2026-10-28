@@ -14,6 +14,11 @@ export interface QuillComposerLayoutProps {
     singleRow?: boolean
 }
 
+const SINGLE_ROW_CLASS =
+    'flex-nowrap pr-1.5 pb-1.5 ' +
+    '[&_.quill-button--size-sm]:h-7 [&_.quill-button--size-lg]:h-7 [&_.quill-button--size-lg]:px-2 [&_.quill-button--size-lg]:text-xs ' +
+    '[&_.quill-button--size-icon-sm]:size-7 [&_.quill-button--size-icon-sm_svg]:size-3.5 [&_[data-attr=task-composer-add-menu]]:-ml-[3px]'
+
 export function QuillComposerLayout({
     groupRef,
     textAreaRef,
@@ -80,7 +85,7 @@ export function QuillComposerLayout({
                 <div className="relative w-full min-w-0">{field}</div>
                 <div
                     data-quill
-                    className={`@container/composer flex w-full items-center gap-1 pr-1 pb-1 pl-1.5 text-[var(--muted-foreground)] ${singleRow ? 'flex-nowrap' : 'flex-wrap'}`}
+                    className={`@container/composer flex w-full items-center gap-1 pl-1.5 text-[var(--muted-foreground)] ${singleRow ? SINGLE_ROW_CLASS : 'flex-wrap pr-1 pb-1'}`}
                 >
                     {controls}
                     <div className={`ml-auto flex items-center gap-1 ${singleRow ? 'min-w-0 shrink' : 'shrink-0'}`}>
