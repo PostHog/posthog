@@ -33,6 +33,7 @@ from products.signals.backend.quota import (
     notify_scout_quota_paused,
     self_driving_quota_gate,
 )
+from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.scout_harness.limits import (
     TRIAL_ACTIVITY_TIMEOUT_S,
     TRIGGERED_BY_CHECK,
@@ -259,9 +260,10 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
     which run outside the run-row try/except — so a transient drop is reported as a failed
     run rather than escaping the activity and breaching the "never raises" contract.
     """
-    # Queued check workflows can outlive their dispatch, so retiring the coordinator lane alone
-    # cannot prevent them from starting paid scout work.
-    if input.check_id is not None or input.triggered_by == TRIGGERED_BY_CHECK:
+    # Recheck the rollout because queued legacy dispatches can outlive a flag change.
+    if (input.check_id is not None or input.triggered_by == TRIGGERED_BY_CHECK) and await database_sync_to_async(
+        team_report_monitoring_enabled, thread_sensitive=False
+    )(input.team_id):
         return RunSignalsScoutOutput(
             run_id=None,
             task_run_id=None,

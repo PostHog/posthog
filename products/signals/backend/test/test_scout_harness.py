@@ -3578,21 +3578,44 @@ async def test_activity_returns_skip_outcome_when_already_running(ateam):
 
 
 @pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize("monitoring_enabled", [True, False])
 @pytest.mark.parametrize(
     ("triggered_by", "check_id"),
     [("manual", "00000000-0000-0000-0000-000000000001"), (TRIGGERED_BY_CHECK, None)],
 )
-async def test_activity_skips_queued_report_checks_without_starting_scout_work(
-    triggered_by: str, check_id: str | None
+async def test_activity_only_starts_legacy_report_checks_with_monitoring_off(
+    ateam, triggered_by: str, check_id: str | None, monitoring_enabled: bool
 ) -> None:
-    with patch(
-        "products.signals.backend.scout_harness.runner.arun_signals_scout",
-        side_effect=AssertionError("Report checks must not start scout work"),
+    fake_arun = AsyncMock(
+        return_value=RunResult(
+            run_id="abc",
+            task_run_id="def",
+            status="completed",
+            last_message="ok",
+            runtime_s=1.5,
+            skill_name="signals-scout-errors",
+            skill_version=2,
+        )
+    )
+    with (
+        patch(
+            "products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=monitoring_enabled
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.self_driving_quota_gate",
+            return_value=SelfDrivingQuotaGate(limited=False, enforced=False),
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.scout_scheduler.daily_report_limit_gate",
+            return_value=DailyReportLimitGate(limited=False, limit=2, reports_today=0),
+        ),
+        patch("products.signals.backend.scout_harness.runner.arun_signals_scout", fake_arun),
     ):
         output = await ActivityEnvironment().run(
             run_signals_scout_activity,
             RunSignalsScoutInput(
-                team_id=7,
+                team_id=ateam.id,
                 skill_name="signals-scout-errors",
                 skill_version=2,
                 triggered_by=triggered_by,
@@ -3600,15 +3623,15 @@ async def test_activity_skips_queued_report_checks_without_starting_scout_work(
             ),
         )
 
-    assert output == RunSignalsScoutOutput(
-        run_id=None,
-        task_run_id=None,
-        status=None,
-        runtime_s=0.0,
-        skill_name="signals-scout-errors",
-        skill_version=2,
-        skip_reason="report_check_execution_disabled",
-    )
+    if monitoring_enabled:
+        fake_arun.assert_not_called()
+        assert output.skip_reason == "report_check_execution_disabled"
+    else:
+        fake_arun.assert_called_once()
+        assert fake_arun.call_args.kwargs["check_id"] == check_id
+        assert fake_arun.call_args.kwargs["triggered_by"] == triggered_by
+        assert output.run_id == "abc"
+        assert output.skip_reason is None
 
 
 @pytest.mark.asyncio

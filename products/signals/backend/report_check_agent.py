@@ -33,7 +33,11 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCheck, SignalScoutConfig
 from products.signals.backend.report_check_telemetry import capture_report_check_dispatch
 from products.signals.backend.report_checks import AgentCheckConfig, parse_check_config
-from products.signals.backend.report_lifecycle import check_monitoring_disabled_organizations, report_status_filter
+from products.signals.backend.report_lifecycle import (
+    check_monitoring_disabled_organizations,
+    legacy_agent_checks_enabled,
+    report_status_filter,
+)
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates, check_run_in_flight, check_spend_gates
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.skills.backend.models.skills import LLMSkill
@@ -405,7 +409,7 @@ def _claim_for_dispatch(check: SignalReportCheck, now: datetime) -> bool:
     """
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().filter(id=check.report_id, team_id=check.team_id).first()
-        if report is None or report.effective_status != SignalReport.Status.RESOLVED:
+        if report is None or not legacy_agent_checks_enabled(report):
             return False
         claimed = (
             SignalReportCheck.objects.for_team(check.team_id)
