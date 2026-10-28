@@ -139,7 +139,9 @@ def _mock_cleanup(_input) -> None:
     pass
 
 
-pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
+# A timed-out test leaves its coroutine pending on a shared loop, and it would keep writing to the
+# module-level recorders while the next test runs. A loop per test cancels it at teardown.
+pytestmark = [pytest.mark.asyncio(loop_scope="function"), pytest.mark.django_db]
 
 
 class TestFollowupDeliveryFailure:
