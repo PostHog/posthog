@@ -20,12 +20,10 @@ pub struct ConditionSlot(u32);
 pub struct NewestDayConditions(HashMap<ConditionHash, ConditionSlot>);
 
 impl NewestDayConditions {
-    /// `None` when no condition of the run qualifies.
-    ///
     /// The processor routes a tile to every leaf on its hash in the team's live catalog. A hash
     /// qualifies only when every leaf on it in this run's frozen catalog does. A live leaf outside
     /// the run gets every day from its own run.
-    pub fn of(conditions: &[PinnedCondition], filters: &TeamFilters) -> Option<Self> {
+    pub fn of(conditions: &[PinnedCondition], filters: &TeamFilters) -> Self {
         let mut slots = HashMap::new();
         for condition in conditions {
             if slots.contains_key(&condition.hash)
@@ -37,7 +35,7 @@ impl NewestDayConditions {
                 .expect("a pinned catalog holds fewer than 2^32 conditions");
             slots.insert(condition.hash, ConditionSlot(slot));
         }
-        (!slots.is_empty()).then_some(Self(slots))
+        Self(slots)
     }
 
     pub fn slot(&self, hash: ConditionHash) -> Option<ConditionSlot> {
@@ -141,7 +139,7 @@ mod tests {
             lookback: Lookback::SlidingDays(7),
         }];
         NewestDayConditions::of(&conditions, &filters)
-            .and_then(|qualifying| qualifying.slot(hash))
+            .slot(hash)
             .is_some()
     }
 

@@ -60,7 +60,6 @@ pub fn prime_zero_series() {
     for outcome in ScanFilterOutcome::ALL {
         counter!(PERSON_SCAN_FILTER, "outcome" => outcome.as_str()).increment(0);
     }
-    // The newest-day rollout reads skips from this, so a run that skipped nothing must read 0.
     counter!(TILES_SKIPPED).increment(0);
 }
 

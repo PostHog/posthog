@@ -20,7 +20,7 @@ use crate::domain::{
 use crate::kafka::pacing::TilePacer;
 use crate::kafka::producer::{EnqueueError, SeedTileProducer};
 use crate::observability::metrics::{
-    PRODUCE_ACK_SECONDS, TILES_SKIPPED, TILE_PRODUCE_ERRORS, TILE_PRODUCE_QUEUE_FULL,
+    PRODUCE_ACK_SECONDS, TILE_PRODUCE_ERRORS, TILE_PRODUCE_QUEUE_FULL,
 };
 use crate::store::chunks::ChunkStoreError;
 
@@ -106,20 +106,19 @@ pub(super) async fn enqueue_one(
 pub(super) async fn enqueue_tiles(
     producer: &SeedTileProducer,
     chunk: ScannedChunk,
-    newest_day: Option<&NewestDayIndex>,
+    newest_day: &NewestDayIndex,
     pacer: &TilePacer,
     settings: ProducerSettings,
     lease_cancel: &CancellationToken,
     shutdown: &CancellationToken,
 ) -> Result<(StreamedChunk, InFlight), Halted<ScannedChunk, ProduceError>> {
     let mut inflight = InFlight::new(settings.max_inflight.get());
-    let skipped = counter!(TILES_SKIPPED);
     let mut sent = 0;
     for tile in chunk.tiles() {
         // Checked before the pacer, so a newer day recorded while this chunk waits still prunes
-        // its queue, and a skipped tile takes no pacer token.
-        if newest_day.is_some_and(|index| index.has_newer_day(tile)) {
-            skipped.increment(1);
+        // its queue. A skipped tile takes no pacer token, so the task budget makes it yield.
+        if newest_day.has_newer_day(tile) {
+            tokio::task::coop::consume_budget().await;
             continue;
         }
         if let Err(stop) = enqueue_one(

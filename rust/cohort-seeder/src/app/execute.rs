@@ -23,7 +23,7 @@ use crate::domain::{
 use crate::kafka::pacing::TilePacer;
 use crate::kafka::producer::SeedTileProducer;
 use crate::observability::metrics::{
-    CHUNKS_CONFIRMED, CHUNKS_FAILED, CLICKHOUSE_RESOURCE_ERRORS, TILES_PRODUCED,
+    CHUNKS_CONFIRMED, CHUNKS_FAILED, CLICKHOUSE_RESOURCE_ERRORS, TILES_PRODUCED, TILES_SKIPPED,
 };
 use crate::store::chunks::{ChunkStoreError, PgChunkStore};
 use crate::store::lease::LeaseHandle;
@@ -41,8 +41,7 @@ pub(super) struct ChunkTaskContext {
     pub(super) chunk: ClaimedChunk,
     pub(super) lease: LeaseHandle,
     pub(super) prepared: Arc<PreparedBehavioral>,
-    /// `None` when no condition of the run qualifies.
-    pub(super) newest_day: Option<Arc<NewestDayIndex>>,
+    pub(super) newest_day: Arc<NewestDayIndex>,
     pub(super) store: PgChunkStore,
     pub(super) scanner: ChunkScanner,
     pub(super) producer: SeedTileProducer,
@@ -84,15 +83,15 @@ pub(super) async fn execute_chunk(
         Err(halt) => return resolve_halt(&store, halt, &shutdown, retry_backoff).await,
     };
     // PreMark: record this scan's days before enqueuing, so an older day's chunk skips its tiles.
-    if let Some(index) = &newest_day {
-        index.record(scanned.tiles());
-    }
+    // A large chunk takes seconds, so the worker's other tasks move to another thread meanwhile.
+    tokio::task::block_in_place(|| newest_day.record(scanned.tiles()));
+    let scanned_tiles = scanned.tiles().len() as u64;
     // PreMark: pace and enqueue every tile not superseded by a newer day, holding the in-flight
     // deliveries.
     let (streamed, inflight) = match deliver::enqueue_tiles(
         &producer,
         scanned,
-        newest_day.as_deref(),
+        &newest_day,
         &pacer,
         producer_settings,
         &lease_cancel,
@@ -114,6 +113,7 @@ pub(super) async fn execute_chunk(
     let produced = match deliver::await_deliveries(enqueued, inflight, &lease_cancel).await {
         Ok(produced) => {
             counter!(TILES_PRODUCED).increment(produced.tiles_produced());
+            counter!(TILES_SKIPPED).increment(scanned_tiles - produced.tiles_produced());
             produced
         }
         Err(halt) => return resolve_halt(&store, halt, &shutdown, retry_backoff).await,

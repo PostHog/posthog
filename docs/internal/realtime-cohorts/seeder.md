@@ -154,7 +154,14 @@ At the end of the chunk, each count becomes one **day tile**:
 Tiles are keyed `"{team_id}:{person_id}"`, so each lands on the partition of the worker that owns the person.
 A shared rate limiter paces production, and a cap bounds the tiles in flight.
 
-The chunk then moves to `produced`, which means every tile was handed to the producer, waits for every acknowledgment, and moves to `confirmed`.
+On a condition where every leaf of the run keeps only the newest matching day, as a `performed_event` leaf does, an older tile changes nothing.
+Each run keeps an in-memory index of the newest day it has scanned for each person on such a condition.
+A chunk records its days right after its scan, and skips a tile when the index holds a strictly newer day.
+Losing the index on a restart only sends more tiles.
+`SEEDER_NEWEST_DAY_INDEX_MAX_ENTRIES` caps the entries of all indexes together, and past the cap a new pair sends every day.
+`seeder_tiles_skipped_total` counts the skipped tiles, and `seeder_newest_day_index_entries` shows how full the cap is.
+
+The chunk then moves to `produced`, which means every tile it sends was handed to the producer, waits for every acknowledgment, and moves to `confirmed`.
 
 ### Chunk states and retries
 

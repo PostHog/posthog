@@ -2,8 +2,8 @@
 //! lets an older day's chunk skip the tiles the processor would merge away. Depends on `domain` and
 //! `app::prepare`.
 //!
-//! The state is process-local, like the run breakers. Losing an index, on a restart or when its run
-//! drops out of one refresh's eligible set, only sends more tiles.
+//! The state is process-local, like the run breakers. Losing an index, on a restart or when an idle
+//! run drops out of one refresh's eligible set, only sends more tiles.
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
@@ -28,8 +28,7 @@ type Key = (Uuid, ConditionSlot);
 /// The newest-day indexes of the runs this process seeds, and the entry budget they share.
 pub(super) struct NewestDayIndexes {
     budget: IndexBudget,
-    /// `None` caches a run with no qualifying condition, so its catalog is walked once.
-    by_run: HashMap<RunId, Option<Arc<NewestDayIndex>>>,
+    by_run: HashMap<RunId, Arc<NewestDayIndex>>,
 }
 
 impl NewestDayIndexes {
@@ -45,22 +44,24 @@ impl NewestDayIndexes {
 
     /// Built on the run's first claim. A run's frozen catalog only loses leaves after the run is
     /// created, so a policy built early can miss a skip but never allow a wrong one.
-    pub(super) fn for_run(&mut self, run: &PinnedRun) -> Option<Arc<NewestDayIndex>> {
+    pub(super) fn for_run(&mut self, run: &PinnedRun) -> Arc<NewestDayIndex> {
         let budget = &self.budget;
         self.by_run
             .entry(run.run_id)
             .or_insert_with(|| {
-                NewestDayConditions::of(&run.conditions, &run.filters)
-                    .map(|conditions| Arc::new(NewestDayIndex::new(conditions, budget.clone())))
+                let conditions = NewestDayConditions::of(&run.conditions, &run.filters);
+                Arc::new(NewestDayIndex::new(conditions, budget.clone()))
             })
             .clone()
     }
 
-    /// A chunk task still holding a dropped run's index keeps it until the task ends, and the
-    /// index gives its budget back then.
-    pub(super) fn retain_eligible(&mut self, eligible: &HashMap<RunId, PreparedRun>) {
+    /// Keeps an index while a chunk task holds it, because a discovery error yields an empty
+    /// eligible set, and a second index for the run would split its days and its budget. The gauge
+    /// is set only here, so two chunk tasks can never set it out of order.
+    pub(super) fn release_idle(&mut self, eligible: &HashMap<RunId, PreparedRun>) {
         self.by_run
-            .retain(|run_id, _| eligible.contains_key(run_id));
+            .retain(|run_id, index| eligible.contains_key(run_id) || Arc::strong_count(index) > 1);
+        gauge!(NEWEST_DAY_INDEX_ENTRIES).set(self.budget.used.load(Ordering::Relaxed) as f64);
     }
 }
 
@@ -103,11 +104,11 @@ impl NewestDayIndex {
                 }
             }
         }
-        self.budget.publish();
     }
 
     /// Only a strictly newer day counts, so a retried chunk never skips its own tiles, and the
-    /// chunk holding a pair's newest day always sends it.
+    /// chunk holding a pair's newest day always sends it, unless events deleted before its retry
+    /// remove the pair.
     pub(super) fn has_newer_day(&self, tile: &SeedTile) -> bool {
         self.key(tile).is_some_and(|key| {
             self.shard(key)
@@ -145,7 +146,7 @@ impl Drop for NewestDayIndex {
                     .len()
             })
             .sum();
-        self.budget.give_back(entries);
+        self.budget.used.fetch_sub(entries, Ordering::Relaxed);
     }
 }
 
@@ -163,15 +164,6 @@ impl IndexBudget {
                 (used < self.max.get()).then_some(used + 1)
             })
             .is_ok()
-    }
-
-    fn give_back(&self, entries: usize) {
-        self.used.fetch_sub(entries, Ordering::Relaxed);
-        self.publish();
-    }
-
-    fn publish(&self) {
-        gauge!(NEWEST_DAY_INDEX_ENTRIES).set(self.used.load(Ordering::Relaxed) as f64);
     }
 }
 
@@ -209,7 +201,7 @@ mod tests {
             event_name: "$pageview".to_owned(),
             lookback: Lookback::SlidingDays(7),
         });
-        let conditions = NewestDayConditions::of(&conditions, &filters).unwrap();
+        let conditions = NewestDayConditions::of(&conditions, &filters);
         NewestDayIndex::new(conditions, budget.clone())
     }
 
@@ -266,6 +258,30 @@ mod tests {
         assert!(
             second.has_newer_day(&tile(2, SLIDING, 9)),
             "a dropped index kept its budget"
+        );
+    }
+
+    #[test]
+    fn a_refresh_keeps_an_index_a_chunk_task_holds_and_releases_an_idle_one() {
+        let mut indexes = NewestDayIndexes::new(NonZeroUsize::MIN);
+        let (held, idle) = (RunId(Uuid::from_u128(1)), RunId(Uuid::from_u128(2)));
+        for run in [held, idle] {
+            indexes.by_run.insert(run, Arc::new(index(&indexes.budget)));
+        }
+        let task = Arc::clone(&indexes.by_run[&held]);
+
+        // A discovery error yields an empty eligible set.
+        indexes.release_idle(&HashMap::new());
+        assert!(
+            indexes
+                .by_run
+                .get(&held)
+                .is_some_and(|kept| Arc::ptr_eq(kept, &task)),
+            "a held index was released, so the run's next chunk gets a second one"
+        );
+        assert!(
+            !indexes.by_run.contains_key(&idle),
+            "an idle index outlived its run and kept its budget"
         );
     }
 }

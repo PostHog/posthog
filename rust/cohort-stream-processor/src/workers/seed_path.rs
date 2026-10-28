@@ -1472,9 +1472,12 @@ mod tests {
         fn single_state_is_the_newest_tiles_alone(
             tiles in prop::collection::vec((0i32..=12, 1u32..=5), 1..10),
             window in prop_oneof![
-                Just(EvictionWindow::RelativeDays { days: 7 }),
-                Just(EvictionWindow::RelativeSeconds { seconds: 3_600 }),
-                Just(EvictionWindow::Explicit { from_day: Some(now_day() - 5), to_day: None }),
+                (1u32..=14).prop_map(|days| EvictionWindow::RelativeDays { days }),
+                (1i64..=172_800).prop_map(|seconds| EvictionWindow::RelativeSeconds { seconds }),
+                prop::option::of(0i32..=12).prop_map(|back| EvictionWindow::Explicit {
+                    from_day: back.map(|back| now_day() - back),
+                    to_day: None,
+                }),
             ],
         ) {
             let meta = single_meta(window);

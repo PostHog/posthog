@@ -237,7 +237,7 @@ impl SeederOrchestrator {
                     self.complete_trailing_runs(&eligible_runs).await;
                     claims.breakers.expire_idle(Instant::now());
                     publish_open_breakers(&eligible_runs, &claims.breakers);
-                    claims.newest_day.retain_eligible(&eligible_runs);
+                    claims.newest_day.release_idle(&eligible_runs);
                     self.fill_claim_slots(
                         &eligible_runs,
                         &mut tasks,
