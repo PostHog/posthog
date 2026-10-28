@@ -37,7 +37,8 @@ export const collapseToolsPanelCustomJs = `
                 // Opening the panel clears the selection, so select the block again to show its properties.
                 toggle.click()
                 setTimeout(function () {
-                    if (selected.isConnected) {
+                    // A block selected in the meantime is the newer choice, so keep it.
+                    if (selected.isConnected && !document.querySelector('.blockbuilder-layer-selected')) {
                         ;['mousedown', 'mouseup', 'click'].forEach(function (type) {
                             selected.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }))
                         })
