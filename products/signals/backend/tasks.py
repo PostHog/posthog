@@ -62,6 +62,7 @@ from products.signals.backend.report_generation.repo_activity import (
     rebuild_repository_activity,
     repository_activity_needs_rebuild,
 )
+from products.signals.backend.report_inbox_state import reconcile_report_inbox_state, teams_with_reports
 from products.signals.backend.reviewer_pr_assignment import deliver_pull_request_assignment
 from products.signals.backend.reviewer_pr_ready import open_pull_request_ready_for_review
 from products.signals.backend.scout_harness.background_bands import refresh_background_bands
@@ -1261,6 +1262,24 @@ def refresh_signal_scout_background_bands() -> None:
     """
     outcome = refresh_background_bands()
     logger.info("signals_scout background bands refreshed", written=outcome.written, removed=outcome.removed)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.reconcile_report_inbox_state_cache",
+    ignore_result=True,
+    max_retries=0,
+)
+@skip_team_scope_audit
+def reconcile_report_inbox_state_cache() -> None:
+    """Daily: correct cached implementation PR flags that drifted from the link tables, and count the drift."""
+    corrected = failed = 0
+    for team_id in teams_with_reports():
+        try:
+            corrected += reconcile_report_inbox_state(team_id)
+        except Exception as error:
+            failed += 1
+            capture_exception(error, {"team_id": team_id})
+    logger.info("signals report inbox state reconciled", implementation_pr=corrected, failed_teams=failed)
 
 
 @shared_task(
