@@ -40,6 +40,9 @@ class TestUnwakeableWaitRejection(APIBaseTest):
             ("direct", "group_0.properties.plan == 'pro'"),
             ("higher_index", "group_2.properties.seats > 5"),
             ("bracket_notation", "group_0['properties']['plan'] == 'pro'"),
+            # The groups join carries more than properties, and key is as unobservable as the rest.
+            ("group_key", "group_0.key == 'acme'"),
+            ("bracket_key", "group_0['key'] == 'acme'"),
             # One group term is enough, so an AND with a person property must not launder it past.
             ("anded_with_a_person_property", "person.properties.plan == 'pro' and group_0.properties.seats > 5"),
         ]
