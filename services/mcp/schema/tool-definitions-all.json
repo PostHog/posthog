@@ -13503,6 +13503,21 @@
             "readOnlyHint": true
         }
     },
+    "scout-monitoring-result-submit": {
+        "description": "Submit the evidence qualification and verdict for this run's authored Monitoring assignment. Only an assigned Monitoring scout has access. The server binds the check and fixed window. Invalid submissions record nothing: use the returned field errors to correct and retry in this run. Finish only after accepted=true. Identical accepted submissions are safe to retry.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Submit a Monitoring check result",
+        "title": "Submit a Monitoring check result",
+        "required_scopes": ["signal_scout_monitoring:write"],
+        "api_operations": ["POST /api/projects/{project_id}/signals/scout/runs/{run_id}/monitoring_result/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "scout-notes-create": {
         "description": "Leave a steering note the scout fleet picks up on its next runs — the lightweight way to nudge the scouts without editing a scout's skill: feedback on past reports ('the staging spike you keep flagging is known noise'), pointers ('we shipped a new checkout Tuesday, watch conversion'), or focus requests ('dig into the EU signup funnel this week'). Address the note to one scout via `skill_name` (the scout's exact name; it must match a skill on this project that holds a scout config, so check `scout-config-list` for the roster), or omit it for a general note every scout sees. A `skill_name` from the reserved `pipeline:*` family addresses one stage of the report pipeline instead of a scout: use `pipeline:report-research` for guidance about how reports get researched, judged, and routed ('route billing-adjacent reports to the billing folks'), so it reaches that stage and no scout. `pipeline:report-research` is the only pipeline audience today; any other `pipeline:*` value is rejected. Optionally set `expires_at` so a time-boxed note retires itself. Notes are advisory: scouts weigh them seriously as prior context but still apply their own evidence bar. Because scouts read notes verbatim, writing one requires the same authorization as editing a scout's skill: the `llm_skill:write` scope plus skill editor access. Each call creates a new note (NOT idempotent — a retry leaves a duplicate); use `scout-notes-delete` to retire one that's been acted on.",
         "category": "Signals",
@@ -15036,6 +15051,54 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "supabase-auth-emails-settings-get": {
+        "description": "Get how the project sends a Supabase project's auth emails through PostHog email templates, including the hook URL to paste into Supabase and every email type it can map. Call this before supabase-auth-emails-settings-update, because that tool replaces the whole template mapping.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "Get the Supabase auth email settings",
+        "title": "Get the Supabase auth email settings",
+        "required_scopes": ["hog_flow:read"],
+        "api_operations": ["GET /api/projects/{project_id}/messaging_supabase_auth_emails/settings/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-supabase-auth-emails"
+    },
+    "supabase-auth-emails-settings-update": {
+        "description": "Update how the project sends a Supabase project's auth emails. Send only the fields to change. To get templates to map, call supabase-auth-emails-starter-templates-create or use the email template tools. Ask the user for the hook secret. Never invent one. Sending starts when the user turns on the Send Email hook in Supabase, so map the core emails before telling them to.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "Update the Supabase auth email settings",
+        "title": "Update the Supabase auth email settings",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/messaging_supabase_auth_emails/settings/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-supabase-auth-emails"
+    },
+    "supabase-auth-emails-starter-templates-create": {
+        "description": "Create and map an email template for each core Supabase auth email that has no usable template yet. A repeat call skips types that still have one. Needs a verified email sender on the project. Edit the templates afterwards with the email template tools.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "Create starter templates for the Supabase auth emails",
+        "title": "Create starter templates for the Supabase auth emails",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["POST /api/projects/{project_id}/messaging_supabase_auth_emails/starter_templates/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-supabase-auth-emails"
     },
     "survey-create": {
         "description": "Creates a new survey in the project. For the draft, targeting, preview, and launch workflow, load the creating-surveys skill when available. Use this for both in-app surveys and hosted forms. Prefer draft creation by default and do not set start_date unless the user explicitly asks to launch immediately. For in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use external_survey. Keep surveys short unless the user asks for a longer flow. Survey content is public: anyone can read the name, questions, and appearance text. In-app surveys send them to every visitor's browser, and a hosted survey shows them on its public page. Tell the user before putting a customer name or other private detail in a survey. For substantial visual changes, preview the final draft once before launch if browser access is already available. Skip browser checks for small edits.",
