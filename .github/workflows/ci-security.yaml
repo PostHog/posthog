@@ -150,7 +150,18 @@ jobs:
     semgrep-python:
         needs: changes
         if: needs.changes.outputs.python == 'true'
-        runs-on: ubuntu-24.04
+        name: semgrep-python (${{ matrix.runner }}, jobs ${{ matrix.jobs }})
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - runner: ubuntu-24.04
+                      jobs: 4
+                    - runner: depot-ubuntu-24.04-8
+                      jobs: 8
+                    - runner: depot-ubuntu-24.04-16
+                      jobs: 16
+        runs-on: ${{ matrix.runner }}
         # A copy of the repository lands on a slower GitHub-hosted runner pool, so
         # it gets a longer budget for the full scan.
         timeout-minutes: ${{ github.repository == 'PostHog/posthog' && 45 || 75 }}
@@ -198,7 +209,7 @@ jobs:
                       --include /services/stripe-mock
                       --include /tools
                       --exclude products/desktop
-                      --jobs 4
+                      --jobs ${{ matrix.jobs }}
 
     semgrep-go:
         needs: changes
