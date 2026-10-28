@@ -1870,17 +1870,18 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             const projectId = String(values.currentProjectId)
             let savedEditGeneration: number | undefined
             try {
-                const saved = await saves.run(() => {
+                const saved = await saves.run(async () => {
                     savedEditGeneration = cache.emailEditGeneration
-                    return values.broadcastId
-                        ? saveWithoutClobbering(projectId, values.broadcastId, values)
-                        : createDraft(projectId, values)
+                    const draft = values.broadcastId
+                        ? await saveWithoutClobbering(projectId, values.broadcastId, values)
+                        : await createDraft(projectId, values)
+                    // Store the draft before its schedule, so a failed schedule save can't make the next Continue
+                    // create a second draft. The draft URL reloads the wizard from the server, which forgets
+                    // a send time that only the page held.
+                    actions.draftAutosaved(draft)
+                    return await saveDraftSchedule(projectId, draft, values)
                 })
-                // Store the draft before its schedule, so a failed schedule save can't make the next Continue
-                // create a second draft. The draft URL reloads the wizard from the server, which forgets
-                // a send time that only the page held.
-                actions.draftAutosaved(saved)
-                actions.saveBroadcastFinished(await saveDraftSchedule(projectId, saved, values))
+                actions.saveBroadcastFinished(saved)
                 // This save carried the email edits made before it started. A later one keeps its own autosave.
                 if (cache.emailEditGeneration === savedEditGeneration) {
                     cache.emailEditPending = false
@@ -2153,7 +2154,9 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     actions.draftAutosaved(saved)
                 } while (cache.emailEditGeneration !== savedEditGeneration)
                 cache.emailEditPending = false
-                actions.saveBroadcastFinished(await saveDraftSchedule(projectId, values.broadcast!, values))
+                actions.saveBroadcastFinished(
+                    await saves.run(() => saveDraftSchedule(projectId, values.broadcast!, values))
+                )
             } catch (error: any) {
                 actions.saveBroadcastFinished(null)
                 if (error instanceof EditedElsewhereError) {
