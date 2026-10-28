@@ -717,4 +717,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             }
         ),
     },
+    "search_term_conversion_action_stats": {
+        "description": "Daily search term conversions broken out by conversion action. Only conversion metrics are available alongside this segmentation, so clicks, impressions and cost are in search_term_stats.",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v25/search_term_view",
+        "columns": {
+            **_IDS,
+            "search_term_view_search_term": "The search query a user entered that triggered an ad.",
+            "segments_conversion_action": "Resource name of the conversion action the conversions are attributed to. Join to conversion_action.",
+            "segments_conversion_action_name": "Name of the conversion action.",
+            "segments_conversion_action_category": "Category of the conversion action (e.g. purchase, lead, sign-up).",
+            "segments_date": _SEGMENTS["segments_date"],
+            "metrics_conversions": _METRICS["metrics_conversions"],
+            "metrics_conversions_value": _METRICS["metrics_conversions_value"],
+            "metrics_all_conversions": _METRICS["metrics_all_conversions"],
+            "metrics_all_conversions_value": _METRICS["metrics_all_conversions_value"],
+        },
+    },
 }
