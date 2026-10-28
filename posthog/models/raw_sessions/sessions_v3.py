@@ -258,8 +258,11 @@ def _ad_id_value_sql(ad_id: str) -> str:
     # The lookups read _attribution_url, which is empty outside $pageview/$screen, so the
     # per-event string scans stay off the bulk of the ingestion hot path.
     # left() caps what a client can pad into the URL; observed click IDs stay under ~120 chars
+    # toValidUTF8 wraps the truncation because both inner steps can emit invalid UTF-8:
+    # decodeURLComponent turns '%FF' into a raw byte, and left() counts bytes so it can cut a
+    # multi-byte character in half. Stored bytes then break every reader that expects text.
     url_lookups = ", ".join(
-        f"nullIf(left(decodeURLComponent(extractURLParameter(_attribution_url, '{param}')), 2048), '')"
+        f"nullIf(toValidUTF8(left(decodeURLComponent(extractURLParameter(_attribution_url, '{param}')), 2048)), '')"
         for param in session_ad_id_url_params(ad_id)
     )
     return f"coalesce(nullIf(tupleElement(p, '{ad_id}'), ''), {url_lookups}) as {ad_id}"
