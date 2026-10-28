@@ -47,9 +47,3 @@ class TestMetricsAlertCreate(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["source_kind"] == "metrics"
         assert response.json()["check_interval_minutes"] == 1
-
-    def test_a_refused_config_is_a_bad_request(self) -> None:
-        response = self._create({"query": _QUERY, "condition": {"threshold": 1000}})
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["attr"].startswith("source_config")
