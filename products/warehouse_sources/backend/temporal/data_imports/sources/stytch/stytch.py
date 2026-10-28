@@ -59,7 +59,7 @@ class StytchAPIError(Exception):
         self.error_type = error_type
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class StytchResumeConfig:
     # Search cursor for the page chain currently being walked. For the sessions fan-out this is the
     # users-search cursor of the next page of users to fan out over (the interrupted page's sessions
@@ -68,6 +68,8 @@ class StytchResumeConfig:
     # Members fan-out bookmark: first organization_id of the chunk currently being processed.
     # Organization ids are sorted before chunking, so chunks are deterministic across resumes.
     org_bookmark: str | None = None
+    # member_connected_apps bookmark: next unread member on the member-search page at `cursor`.
+    member_bookmark: str | None = None
 
 
 def base_url_for_project(project_id: str) -> str:
@@ -461,13 +463,15 @@ def _get_member_fan_out_rows(
     resumable_source_manager: ResumableSourceManager[StytchResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     """One GET per member, over the same chunked member search as the members table. The staged
-    state re-reads the current member page, so a resume re-fetches that page's members and merge
-    dedupes on the primary key."""
+    state points at the next unread member, so a resume skips the members already written."""
     remaining, cursor = _remaining_member_search_chunks(session, base_url, auth, logger, resumable_source_manager)
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    skip_to_member = (
+        resume.member_bookmark if resume is not None and remaining and resume.org_bookmark == remaining[0][0] else None
+    )
 
-    for chunk in remaining:
+    for chunk_index, chunk in enumerate(remaining):
         while True:
-            resumable_source_manager.save_state(StytchResumeConfig(cursor=cursor, org_bookmark=chunk[0]))
             body: dict[str, Any] = {"limit": PAGE_SIZE, "organization_ids": chunk}
             if cursor:
                 body["cursor"] = cursor
@@ -475,22 +479,48 @@ def _get_member_fan_out_rows(
                 session, "POST", f"{base_url}/v1/b2b/organizations/members/search", auth, logger, json_body=body
             )
             members = page.get("members", []) or []
+            next_cursor = (page.get("results_metadata") or {}).get("next_cursor")
+
+            if skip_to_member is not None:
+                # A bookmarked member deleted since the last attempt is not on the page; re-read the whole page.
+                member_ids = [member["member_id"] for member in members]
+                if skip_to_member in member_ids:
+                    members = members[member_ids.index(skip_to_member) :]
+                skip_to_member = None
+
+            if next_cursor:
+                after_page: StytchResumeConfig | None = StytchResumeConfig(cursor=next_cursor, org_bookmark=chunk[0])
+            elif chunk_index + 1 < len(remaining):
+                after_page = StytchResumeConfig(org_bookmark=remaining[chunk_index + 1][0])
+            else:
+                after_page = None
+
             if not members:
+                if after_page is not None:
+                    resumable_source_manager.save_state(after_page)
                 resumable_source_manager.safe_point()
 
-            for member in members:
+            for index, member in enumerate(members):
                 path = config.path.format(organization_id=member["organization_id"], member_id=member["member_id"])
                 payload = _get_or_skip_deleted(session, f"{base_url}{path}", auth, logger)
                 rows = [
                     {**item, "organization_id": member["organization_id"], "member_id": member["member_id"]}
                     for item in payload.get(config.data_key) or []
                 ]
+                if index + 1 < len(members):
+                    resumable_source_manager.save_state(
+                        StytchResumeConfig(
+                            cursor=cursor, org_bookmark=chunk[0], member_bookmark=members[index + 1]["member_id"]
+                        )
+                    )
+                elif after_page is not None:
+                    resumable_source_manager.save_state(after_page)
                 if rows:
                     yield rows
                 else:
                     resumable_source_manager.safe_point()
 
-            cursor = (page.get("results_metadata") or {}).get("next_cursor")
+            cursor = next_cursor
             if not cursor:
                 break
 

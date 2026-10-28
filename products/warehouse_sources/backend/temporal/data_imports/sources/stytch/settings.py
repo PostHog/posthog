@@ -6,7 +6,7 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 StytchFanOut = Literal["users", "organizations", "organization", "member"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class StytchEndpointConfig:
     name: str
     path: str

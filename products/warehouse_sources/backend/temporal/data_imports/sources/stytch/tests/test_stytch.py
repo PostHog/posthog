@@ -314,9 +314,42 @@ class TestGetRowsMemberConnectedApps:
         ]
         member_searches = [request.json() for request in result.requests if request.path.endswith("/members/search")]
         assert [body.get("cursor") for body in member_searches] == [None, "page-2"]
-        assert [(state.org_bookmark, state.cursor) for state in result.saved_states] == [
-            ("org-1", None),
-            ("org-1", "page-2"),
+        assert [(state.org_bookmark, state.cursor) for state in result.saved_states] == [("org-1", "page-2")]
+
+    @pytest.mark.parametrize(
+        "member_bookmark, expected_members",
+        [
+            (None, ["m-1", "m-2", "m-3"]),
+            ("m-2", ["m-2", "m-3"]),
+            # The bookmarked member was deleted between attempts: re-read the whole page.
+            ("m-gone", ["m-1", "m-2", "m-3"]),
+        ],
+    )
+    def test_resumes_at_the_bookmarked_member(self, member_bookmark, expected_members):
+        members = [{"member_id": member_id, "organization_id": "org-1"} for member_id in ["m-1", "m-2", "m-3"]]
+        apps = {"connected_apps": [{"connected_app_id": "app-1"}]}
+        result = _driver().run(
+            "member_connected_apps",
+            route(
+                {
+                    "/v1/b2b/organizations/search": [_org_search(["org-1"])],
+                    "/v1/b2b/organizations/members/search": [_response(_search_page("members", members, None))],
+                    **{
+                        f"/v1/b2b/organizations/org-1/members/{member_id}/connected_apps": [_response(apps)]
+                        for member_id in ["m-1", "m-2", "m-3"]
+                    },
+                }
+            ),
+            resume_state=StytchResumeConfig(cursor="page-2", org_bookmark="org-1", member_bookmark=member_bookmark),
+        )
+
+        assert result.raised is None
+        assert [row["member_id"] for row in result.rows] == expected_members
+        member_searches = [request.json() for request in result.requests if request.path.endswith("/members/search")]
+        assert [body.get("cursor") for body in member_searches] == ["page-2"]
+        # Each yield stages the next unread member on the same page.
+        assert [(state.cursor, state.member_bookmark) for state in result.saved_states] == [
+            ("page-2", member_id) for member_id in expected_members[1:]
         ]
 
 
