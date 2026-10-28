@@ -743,13 +743,18 @@ export class FetchRunner implements FetchPass {
                 }
             } catch (error) {
                 this.logStorageFailure(result.outcome === 'ok' ? 'publish' : 'refresh', error)
-                return {
-                    candidate: attemptedCandidate,
-                    outcome: 'publish_failed',
-                    finished: false,
-                    lost: true,
+                // The republish keeps the URL on the frontier, so one failed write does not fail the whole batch. The
+                // origin did nothing wrong, so its budget records no failure. The block reason is one that pods on
+                // older code can still parse, because they dead-letter a record with a reason they do not know.
+                return await this.republish(
+                    republishBatch,
+                    attemptedCandidate,
+                    'publish_failed',
+                    'retry',
+                    ONE_MINUTE_MS,
                     configurationUpdates,
-                }
+                    'transient_backoff'
+                )
             }
             if (!stored) {
                 return await this.refetchWithoutValidators(

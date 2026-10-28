@@ -130,6 +130,18 @@ CREATE TABLE posthog.duplicate_events (
   _partition UInt64,
   INDEX kafka_timestamp_minmax_duplicate_events _timestamp TYPE minmax GRANULARITY 3
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.duplicate_events', '{replica}-{shard}') ORDER BY (team_id, distinct_id, event, inserted_at) PARTITION BY toYYYYMMDD(inserted_at) TTL inserted_at + toIntervalDay(7) SETTINGS index_granularity = 512;
+CREATE TABLE posthog.email_status_data (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.email_status_data', '{replica}-{shard}', version) ORDER BY (team_id, message_id) PARTITION BY toYYYYMMDD(created_at) TTL toDate(created_at) + toIntervalDay(31) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.error_tracking_issue_fingerprint_overrides (
   team_id Int64,
   fingerprint String,
@@ -348,6 +360,15 @@ CREATE TABLE posthog.kafka_duplicate_events (
   distinct_fields String,
   inserted_at DateTime64(3, 'UTC')
 ) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_duplicate_events', kafka_topic_list = 'clickhouse_ingestion_events_duplicates';
+CREATE TABLE posthog.kafka_email_status (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String
+) ENGINE = Kafka(warpstream_cyclotron) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_email_status', kafka_max_block_size = 100000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_email_status';
 CREATE TABLE posthog.kafka_error_tracking_fingerprint_issue_state (
   team_id Int64,
   fingerprint String,
@@ -2170,7 +2191,7 @@ CREATE TABLE posthog.sharded_flag_evaluations (
   INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter GRANULARITY 1,
   INDEX person_properties_map_custom_keys_bf mapKeys(person_properties_map_custom) TYPE bloom_filter GRANULARITY 1,
   INDEX person_properties_map_custom_values_bf mapValues(person_properties_map_custom) TYPE bloom_filter GRANULARITY 1
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.flag_evaluations', '{replica}', _timestamp) ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.flag_evaluations', '{replica}', _timestamp) ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalDay(92) SETTINGS index_granularity = 8192, materialize_ttl_recalculate_only = 1, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_heatmaps (
   session_id String,
   team_id Int64,
@@ -4537,6 +4558,18 @@ CREATE MATERIALIZED VIEW posthog.duplicate_events_mv TO posthog.writable_duplica
   _offset,
   _partition
 FROM posthog.kafka_duplicate_events;
+CREATE MATERIALIZED VIEW posthog.email_status_mv TO posthog.email_status_data (team_id Int64, message_id UUID, status LowCardinality(String), version UInt64, created_at DateTime64(6, 'UTC'), status_at DateTime64(6, 'UTC'), reason String, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  message_id,
+  status,
+  version,
+  created_at,
+  status_at,
+  reason,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_email_status;
 CREATE MATERIALIZED VIEW posthog.error_tracking_fingerprint_issue_state_mv TO posthog.writable_error_tracking_fingerprint_issue_state (team_id Int64, fingerprint String, issue_id UUID, issue_name Nullable(String), issue_description Nullable(String), issue_status String, issue_severity Nullable(String), assigned_user_id Nullable(Int64), assigned_role_id Nullable(UUID), first_seen DateTime64(3, 'UTC'), is_deleted Int8, version Int64, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   team_id,
   fingerprint,
@@ -6394,6 +6427,18 @@ CREATE TABLE posthog.distributed_posthog_document_embeddings_text_embedding_3_sm
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_posthog_document_embeddings_text_embedding_3_small_1536', cityHash64(document_id));
+CREATE TABLE posthog.email_status (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'email_status_data');
 CREATE TABLE posthog.error_tracking_fingerprint_issue_state (
   team_id Int64,
   fingerprint String,

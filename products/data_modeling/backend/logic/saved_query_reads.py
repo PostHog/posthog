@@ -358,21 +358,13 @@ def _node_ids_standing_for(team_id: int, saved_query_ids: set[str]) -> set[str]:
     }
 
 
-def reachable_node_ids(
-    team_id: int,
-    start_node_ids: set[str],
-    *,
-    upstream: bool,
-    max_depth: int | None,
-    hidden_ids: frozenset[str] = frozenset(),
-) -> set[str]:
+def reachable_node_ids(team_id: int, start_node_ids: set[str], *, upstream: bool, max_depth: int | None) -> set[str]:
     """Node ids reachable from `start_node_ids` within `max_depth` hops, the start nodes excluded.
 
     One query per hop, each reading the frontier's edges off the `Edge` foreign-key indexes, so
     the work is bounded by the cone that is reached rather than by every edge the team owns.
     Upstream follows edges into the frontier back to their sources; downstream follows edges
-    out of it to their targets. The walk stops at a node in `hidden_ids`, so it neither returns a
-    node the reader may not see nor reaches past one.
+    out of it to their targets.
     """
     edges = Edge.objects.filter(team_id=team_id)
 
@@ -384,7 +376,7 @@ def reachable_node_ids(
             neighbor_ids = edges.filter(target_id__in=frontier).values_list("source_id", flat=True)
         else:
             neighbor_ids = edges.filter(source_id__in=frontier).values_list("target_id", flat=True)
-        frontier = {str(neighbor_id) for neighbor_id in neighbor_ids} - reached - start_node_ids - hidden_ids
+        frontier = {str(neighbor_id) for neighbor_id in neighbor_ids} - reached - start_node_ids
         reached |= frontier
         depth += 1
     return reached

@@ -1391,13 +1391,21 @@ class TestSingleTableRunIsUntouched:
 
 class TestColumnNamesReachTheWrite:
     @pytest.mark.parametrize(
-        "preserve, expected",
+        "preserve, internal_columns, expected",
         [
-            (False, ["order_id", "total_amount", "_ph_debug"]),
-            (True, ["Order ID", "totalAmount", "_ph_debug"]),
+            (False, {}, ["order_id", "total_amount", "_ph_debug"]),
+            (True, {}, ["Order ID", "totalAmount", "_ph_debug"]),
+            # A Delta table PostHog wrote, read back from a bucket, already holds the columns the pipeline adds.
+            (
+                False,
+                {"_ph_debug": '{"load_id": 1}', "_ph_partition_key": "2024-05"},
+                ["order_id", "total_amount", "_ph_debug"],
+            ),
         ],
     )
-    async def test_preserving_names_skips_the_snake_case_rename(self, preserve: bool, expected: list[str]) -> None:
+    async def test_preserving_names_skips_the_snake_case_rename(
+        self, preserve: bool, internal_columns: dict[str, str], expected: list[str]
+    ) -> None:
         # A self-managed table moved into a source keeps the column names its queries use.
         pipeline = _make_pipeline()
         pipeline._resource = SourceResponse(
@@ -1406,7 +1414,13 @@ class TestColumnNamesReachTheWrite:
         cast(MagicMock, pipeline._schema).configure_mock(incremental_field=None, enabled_columns=None)
         pipeline._last_incremental_field_value = None
         pipeline._earliest_incremental_field_value = None
-        table = pa.table({"Order ID": pa.array([1], pa.int64()), "totalAmount": pa.array([2.5], pa.float64())})
+        table = pa.table(
+            {
+                "Order ID": pa.array([1], pa.int64()),
+                "totalAmount": pa.array([2.5], pa.float64()),
+                **{name: pa.array([value], pa.string()) for name, value in internal_columns.items()},
+            }
+        )
 
         with (
             patch.object(PipelineV3, "_stage_batch", AsyncMock(return_value=1)),

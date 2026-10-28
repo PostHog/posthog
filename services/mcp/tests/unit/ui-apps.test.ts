@@ -277,8 +277,8 @@ describe('ui-apps', () => {
             }
             const storyConfig = resolveCustomApp({
                 type: 'custom',
-                app_name: 'Chart Walkthrough',
-                description: 'A walkthrough of a chart',
+                app_name: 'Chart Explanation',
+                description: 'An explanation of a chart',
                 render_ui: {
                     component_import: '../components/ExplainChart',
                     view_component: 'ExplainChart',
@@ -289,7 +289,7 @@ describe('ui-apps', () => {
                 },
             })
             if (!storyConfig.render_ui) {
-                throw new Error('Expected the walkthrough to configure render-ui dispatch')
+                throw new Error('Expected the explanation to configure render-ui dispatch')
             }
 
             const code = generateDispatchModule([

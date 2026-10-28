@@ -1001,6 +1001,78 @@ describe('SesWebhookHandler', () => {
         })
     })
 
+    describe('email status updates', () => {
+        // A transactional send carries the status tag and is addressed To one recipient; the cc copy
+        // shares the message, so its feedback must not move the email's status.
+        const transactionalMail = {
+            ...baseMail,
+            destination: ['to@example.com', 'cc@example.com'],
+            commonHeaders: { subject: 'Reset your password', to: ['"Jane Doe" <To@Example.com>'] },
+            tags: { ...baseMail.tags, ph_email_status: ['true'] },
+        }
+        const delivery = (recipients: string[]) => ({
+            eventType: 'Delivery',
+            delivery: { timestamp: '2025-10-03T12:01:00Z', recipients },
+        })
+        const bounce = (bounceType: string, emailAddress = 'to@example.com') => ({
+            eventType: 'Bounce',
+            bounce: { bounceType, bouncedRecipients: [{ emailAddress }], timestamp: '2025-10-03T12:02:00Z' },
+        })
+        const complaint = (emailAddress = 'to@example.com', complaintFeedbackType?: string) => ({
+            eventType: 'Complaint',
+            complaint: {
+                complainedRecipients: [{ emailAddress }],
+                timestamp: '2025-10-03T12:03:00Z',
+                ...(complaintFeedbackType ? { complaintFeedbackType } : {}),
+            },
+        })
+        const update = (status: string, timestamp: string, reason?: string) => [
+            { teamId: '1', invocationId: 'inv456', status, timestamp, ...(reason ? { reason } : {}) },
+        ]
+
+        it.each([
+            [
+                'a delivery to the To recipient',
+                {},
+                delivery(['to@example.com']),
+                update('delivered', '2025-10-03T12:01:00Z'),
+            ],
+            ['a hard bounce', {}, bounce('Permanent'), update('bounced', '2025-10-03T12:02:00Z', 'hard')],
+            ['a soft bounce', {}, bounce('Transient'), update('bounced', '2025-10-03T12:02:00Z', 'soft')],
+            [
+                'an undetermined bounce',
+                {},
+                bounce('Undetermined'),
+                update('bounced', '2025-10-03T12:02:00Z', 'unknown'),
+            ],
+            ['a complaint', {}, complaint(), update('complained', '2025-10-03T12:03:00Z')],
+            ['a not-spam correction', {}, complaint('to@example.com', 'Not-Spam'), []],
+            [
+                'a rejection after SES accepted the send',
+                {},
+                { eventType: 'Reject', reject: { reason: 'Bad content' } },
+                update('failed', transactionalMail.timestamp, 'provider_rejected'),
+            ],
+            ['a delivery of an untagged email', { tags: baseMail.tags }, delivery(['to@example.com']), []],
+            ['a delivery to the cc recipient only', {}, delivery(['cc@example.com']), []],
+            ['a bounce of the cc recipient', {}, bounce('Permanent', 'cc@example.com'), []],
+            ['a complaint from a bcc recipient', {}, complaint('bcc@example.com'), []],
+            [
+                'a bounce of a test send',
+                { headers: [{ name: TRACKING_CODE_HEADER, value: signer.generate(baseInvocation, true) }] },
+                bounce('Permanent'),
+                [],
+            ],
+            ['a bounce with only the unsigned tag code', { headers: undefined }, bounce('Permanent'), []],
+        ])('gives the status update for %s', async (_desc, mailOverrides, eventFields, expected) => {
+            const body = [{ mail: { ...transactionalMail, ...mailOverrides }, ...eventFields }]
+
+            const result = await handler.handleWebhook({ body, headers: {} })
+
+            expect(result.emailStatusUpdates).toEqual(expected)
+        })
+    })
+
     describe('security: TopicArn allowlist + signed-code gate', () => {
         // Two-layer hardening: the TopicArn allowlist restricts which SNS topics we accept events from,
         // and state-changing writes require a signed tracking code (unsigned carriers only contribute
