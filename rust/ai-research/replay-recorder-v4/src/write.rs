@@ -171,6 +171,8 @@ pub fn prepare_block(
             .map(|i| i.bytes.len() as u64)
             .sum::<u64>();
         counts.inline += sink.left_inline;
+        counter!("ai_research_v4_recorder_removed_images_total", "format" => "avif")
+            .increment(u64::from(sink.removed_avif));
         images.extend(
             sink.images
                 .into_iter()
@@ -818,10 +820,15 @@ mod tests {
         let svg =
             "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E";
         let remote_svg = "https://cdn.example.com/a.svg";
+        // The dataset keeps no AVIF, so an inline one leaves the list too.
+        let inline_avif = format!(
+            "data:image/avif;base64,{}",
+            STANDARD.encode(b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1miaf")
+        );
         let picture = json!({"type": 2, "tagName": "picture", "attributes": {}, "id": 2, "childNodes": [
             source(6, json!({"type": "image/svg+xml", "srcset": format!("{svg} 1x")})),
             source(7, json!({"type": "image/svg+xml", "srcset": format!("{remote_svg} 1x")})),
-            source(3, json!({"type": "image/avif", "srcset": format!("{avif} 1x")})),
+            source(3, json!({"type": "image/avif", "srcset": format!("{avif} 1x, {inline_avif} 2x")})),
             // A bare srcset equal to the img's src below: only the srcset empties.
             source(8, json!({"type": "image/avif", "srcset": bare})),
             // An empty type gives no hint, so the source keeps its candidate.
@@ -877,6 +884,8 @@ mod tests {
         );
         assert!(
             !lines.contains("a.avif")
+                && !lines.contains("ftypavif")
+                && !lines.contains("data:image/avif")
                 && !lines.contains("X-Amz-Signature")
                 && !lines.contains("declined"),
             "{lines}"

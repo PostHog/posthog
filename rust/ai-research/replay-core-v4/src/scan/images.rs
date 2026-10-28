@@ -1,5 +1,6 @@
 //! Moves inline images out of a v4 block. Each base64 raster data URI becomes an `image:v4` reference, and its
-//! decoded bytes go to the flush's image pack.
+//! decoded bytes go to the flush's image pack. A base64 AVIF data URI becomes [`AVIF_MARKER`], so the block holds no
+//! AVIF image.
 //!
 //! The scan is one pass over the colons, for `data:image/` in any case. A data URI looks the same in an attribute, a CSS `url()`, a
 //! `srcset` candidate or stylesheet text, so the scan needs no knowledge of where it sits. Every other byte is
@@ -12,6 +13,9 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 
 use crate::refs::{image_ref, reference_hash};
+
+/// What an AVIF data URI becomes. The dataset keeps no AVIF image, inline or fetched.
+pub const AVIF_MARKER: &str = "image:v4:declined:avif";
 
 /// The longest media type and parameters a taken data URI has before its comma. A raster type with parameters, such
 /// as `image/png;charset=utf-8;base64`, fits. The bound keeps the scan linear.
@@ -54,6 +58,8 @@ pub struct ImageSink<'k> {
     pub images: Vec<Image>,
     /// Images left inline: over a cap, not decodable, or not a supported raster type.
     pub left_inline: u32,
+    /// AVIF images replaced by [`AVIF_MARKER`].
+    pub removed_avif: u32,
 }
 
 impl<'k> ImageSink<'k> {
@@ -72,6 +78,7 @@ impl<'k> ImageSink<'k> {
             total_bytes: 0,
             images: Vec::new(),
             left_inline: 0,
+            removed_avif: 0,
         }
     }
 
@@ -212,6 +219,43 @@ enum DataUri {
     Inline,
     /// The reference, and where the payload ends.
     Taken(String, usize),
+    /// An AVIF image, and where its payload ends.
+    Avif(usize),
+}
+
+/// Whether the base64 payload starts with an ISO-BMFF `ftyp` box of an AVIF brand.
+fn is_avif_payload(payload: &[u8]) -> bool {
+    let head = &payload[..payload.len().min(16)];
+    STANDARD
+        .decode(&head[..head.len() / 4 * 4])
+        .is_ok_and(|bytes| {
+            bytes.get(4..8) == Some(b"ftyp") && matches!(bytes.get(8..12), Some(b"avif" | b"avis"))
+        })
+}
+
+/// Where a base64 payload that `continues_past` its first break really ends: after the line breaks, whitespace and
+/// escaped slashes inside it. `None` when it holds an escape that the scan does not read, so the URI cannot be cut out.
+fn wrapped_end(bytes: &[u8], mut end: usize) -> Option<usize> {
+    while continues_past(bytes, end) {
+        let before = end;
+        loop {
+            match bytes.get(end..) {
+                Some([b'\\', b'n' | b'r' | b't' | b'/', ..]) => end += 2,
+                Some([b'\\', b'u', b'0', b'0', b'2', b'f' | b'F', ..]) => end += 6,
+                Some([b' ' | b'\t' | b'\n' | b'\r', ..]) => end += 1,
+                Some([b'\\', ..]) => return None,
+                _ => break,
+            }
+        }
+        end += bytes[end..]
+            .iter()
+            .position(|&b| !is_base64(b))
+            .unwrap_or(bytes.len() - end);
+        if end == before {
+            return None;
+        }
+    }
+    Some(end)
 }
 
 /// Reads the data URI whose `data:` starts at `start`, with the rules of v3 `collectable_data_uri_bytes`: the media
@@ -235,7 +279,8 @@ fn read_data_uri(bytes: &[u8], start: usize, sink: &mut ImageSink<'_>) -> DataUr
     };
     let meta = String::from_utf8_lossy(&window[..comma]).to_ascii_lowercase();
     let media_type = meta.split(';').next().unwrap_or_default();
-    if raster_mime(&media_type["image/".len()..]).is_none() || !meta.contains("base64") {
+    let subtype = &media_type["image/".len()..];
+    if !meta.contains("base64") {
         return DataUri::Inline;
     }
     let payload_start = meta_start + comma + 1;
@@ -243,6 +288,16 @@ fn read_data_uri(bytes: &[u8], start: usize, sink: &mut ImageSink<'_>) -> DataUr
         .iter()
         .position(|&b| !is_base64(b))
         .map_or(bytes.len(), |length| payload_start + length);
+    // The label or the bytes can name AVIF, so both count.
+    if subtype.starts_with("avif") || is_avif_payload(&bytes[payload_start..end]) {
+        return match wrapped_end(bytes, end) {
+            Some(end) => DataUri::Avif(end),
+            None => DataUri::Inline,
+        };
+    }
+    if raster_mime(subtype).is_none() {
+        return DataUri::Inline;
+    }
     if continues_past(bytes, end) {
         return DataUri::Inline;
     }
@@ -275,6 +330,13 @@ pub fn extract_images<'b>(bytes: &'b [u8], sink: &mut ImageSink<'_>) -> Cow<'b, 
                 let out = out.get_or_insert_with(|| Vec::with_capacity(bytes.len()));
                 out.extend_from_slice(&bytes[copied_to..start]);
                 out.extend_from_slice(reference.as_bytes());
+                copied_to = end;
+            }
+            DataUri::Avif(end) => {
+                sink.removed_avif += 1;
+                let out = out.get_or_insert_with(|| Vec::with_capacity(bytes.len()));
+                out.extend_from_slice(&bytes[copied_to..start]);
+                out.extend_from_slice(AVIF_MARKER.as_bytes());
                 copied_to = end;
             }
         }
@@ -419,6 +481,28 @@ mod tests {
                 "{uri}"
             );
             assert_eq!((images.images.len(), images.left_inline), (0, 1), "{uri}");
+        }
+    }
+
+    #[test]
+    fn replaces_every_avif_data_uri_with_the_marker() {
+        let avif = STANDARD.encode(b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1miaf");
+        for uri in [
+            format!("data:image/avif;base64,{avif}"),
+            // The bytes name AVIF under another label.
+            format!("data:image/png;base64,{avif}"),
+            // A line-wrapped payload is cut out whole.
+            format!("data:image/avif;base64,{}\\n{}", &avif[..16], &avif[16..]),
+        ] {
+            let event = format!(r#"{{"src":"{uri}","alt":"x"}}"#);
+            let mut images = sink(ImageLimits::default());
+            let out = extract_images(event.as_bytes(), &mut images);
+            assert_eq!(
+                String::from_utf8_lossy(&out),
+                format!(r#"{{"src":"{AVIF_MARKER}","alt":"x"}}"#),
+                "{uri}"
+            );
+            assert_eq!((images.images.len(), images.removed_avif), (0, 1), "{uri}");
         }
     }
 

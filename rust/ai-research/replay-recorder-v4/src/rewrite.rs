@@ -14,7 +14,8 @@ use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use metrics::counter;
 use replay_core_v4::bytescan::{unescape, write_json_string};
 use replay_core_v4::inspect::dom::{srcset_candidates, Srcset};
-use replay_core_v4::seal::image_url_key;
+use replay_core_v4::scan::images::{extract_images, ImageLimits, ImageSink, AVIF_MARKER};
+use replay_core_v4::seal::{image_content_key, image_url_key};
 use replay_core_v4::url_policy::is_remote;
 
 use crate::urls::url_reference;
@@ -167,15 +168,28 @@ impl UrlRewrite {
             .enumerate()
             .map(|(index, url)| (url.as_str(), index))
             .collect();
+        let content_key = image_content_key(team_key);
         for srcset in srcsets {
-            let Some((value, outcome, covers)) =
-                rebuilt_srcset(srcset, &url_targets, team_id, key_month, &url_key)
-            else {
+            // The writer moves inline images out before this rewrite runs, so the pattern is the value as it reads then.
+            let mut original = Vec::with_capacity(srcset.text.len() + 2);
+            write_json_string(&srcset.text, &mut original);
+            let mut sink = ImageSink::new(&content_key, team_id, key_month, ImageLimits::default());
+            let pattern = extract_images(&original, &mut sink).into_owned();
+            let Ok(text) = unescape(&pattern, (0, pattern.len())) else {
+                continue;
+            };
+            let Some((value, outcome, covers)) = rebuilt_srcset(
+                &text,
+                srcset.unfetched_type,
+                &url_targets,
+                team_id,
+                key_month,
+                &url_key,
+            ) else {
                 continue;
             };
             // The key keeps the pattern to srcset attributes, so a `src` or `href` with the same value stays.
-            let mut pattern = SRCSET_KEY.to_vec();
-            write_json_string(&srcset.text, &mut pattern);
+            let pattern = [SRCSET_KEY, pattern.as_slice()].concat();
             patterns.push(pattern);
             let mut replacement = SRCSET_KEY.to_vec();
             write_json_string(&value, &mut replacement);
@@ -296,7 +310,8 @@ impl UrlRewrite {
 /// The srcset with only the candidates the block keeps, each remote URL as its reference, how it was rebuilt, and the
 /// URL targets of the remote URLs it held. `None` when every candidate stays, because the URL targets then replace it.
 fn rebuilt_srcset(
-    srcset: &Srcset,
+    text: &str,
+    unfetched_type: bool,
     url_targets: &HashMap<&str, usize>,
     team_id: i64,
     key_month: &str,
@@ -305,14 +320,18 @@ fn rebuilt_srcset(
     let mut kept = Vec::new();
     let mut covers = Vec::new();
     let mut removed = false;
-    for (url, descriptors) in srcset_candidates(&srcset.text) {
+    for (url, descriptors) in srcset_candidates(text) {
+        if url == AVIF_MARKER {
+            removed = true;
+            continue;
+        }
         if !is_remote(url) {
             kept.push((Cow::Borrowed(url), descriptors));
             continue;
         }
         covers.extend(url_targets.get(url));
         match url_reference(url, team_id, key_month, url_key) {
-            Ok((_, reference)) if !srcset.unfetched_type => {
+            Ok((_, reference)) if !unfetched_type => {
                 kept.push((Cow::Owned(reference), descriptors))
             }
             _ => removed = true,
