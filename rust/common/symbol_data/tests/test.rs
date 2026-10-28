@@ -1,9 +1,9 @@
 use std::io::Write;
 
 use posthog_symbol_data::{
-    read_symbol_data, symbol_data_known_decompressed_size, write_symbol_data,
-    write_symbol_data_uncompressed, AppleDsym, ElfDebugInfo, HermesMap, ProguardMapping,
-    SourceAndMap,
+    read_symbol_data, symbol_data_decompressed_size, symbol_data_known_decompressed_size,
+    write_symbol_data, write_symbol_data_uncompressed, AppleDsym, ElfDebugInfo, HermesMap,
+    ProguardMapping, SourceAndMap,
 };
 
 const MAGIC_LEN: usize = b"posthog_error_tracking".len();
@@ -79,6 +79,10 @@ fn test_v2_compressed_without_content_size() {
     bytes.extend(compressed);
 
     assert_eq!(symbol_data_known_decompressed_size(&bytes).unwrap(), None);
+    assert_eq!(
+        symbol_data_decompressed_size(&bytes).unwrap(),
+        b"legacy payload".len()
+    );
 }
 
 #[test]

@@ -76,6 +76,11 @@ pub enum FrameError {
     Native(#[from] NativeError),
     #[error("No symbol set for chunk id: {0}")]
     MissingChunkIdData(String),
+    #[error("Symbol set is too large to process (estimated parse memory {estimated_bytes} bytes, limit {limit_bytes} bytes)")]
+    SymbolSetTooLarge {
+        estimated_bytes: usize,
+        limit_bytes: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error, Serialize, Deserialize)]
@@ -313,6 +318,7 @@ impl FrameError {
             Self::Apple(e) => e.metric_reason(),
             Self::Native(e) => e.metric_reason(),
             Self::MissingChunkIdData(_) => "no_symbol_set",
+            Self::SymbolSetTooLarge { .. } => "symbol_set_too_large",
         }
     }
 }

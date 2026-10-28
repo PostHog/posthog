@@ -1,13 +1,23 @@
-use std::{any::Any, collections::HashMap, sync::Arc, time::Instant};
+use std::{
+    any::Any,
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use moka::future::{Cache, CacheBuilder};
 use tokio::sync::{Mutex, Semaphore};
-use tracing::info;
+use tracing::{info, warn};
 
-use crate::metric_consts::{
-    STORE_CACHED_BYTES, STORE_CACHE_EVICTIONS, STORE_CACHE_EVICTION_RUNS, STORE_CACHE_HITS,
-    STORE_CACHE_MISSES, SYMBOL_SET_LARGE_PARSE_WAIT_MS, SYMBOL_SET_PARSE_INPUT_BYTES,
+use crate::{
+    error::{FrameError, ResolveError, UnhandledError},
+    metric_consts::{
+        STORE_CACHED_BYTES, STORE_CACHE_EVICTIONS, STORE_CACHE_EVICTION_RUNS, STORE_CACHE_HITS,
+        STORE_CACHE_MISSES, SYMBOL_SET_LARGE_PARSE_WAIT_MS, SYMBOL_SET_PARSE_INPUT_BYTES,
+        SYMBOL_SET_PARSE_REFUSED,
+    },
 };
 
 use super::{chunk_id::SymbolSetCacheKey, Fetcher, ParsePermit, Parser, Provider};
@@ -30,19 +40,31 @@ pub struct Caching<P> {
 // `u32::MAX` permits in one call.
 const PARSE_BUDGET_UNIT_BYTES: usize = 1 << 20;
 
+// Total byte budget for the cache of refused parses. Its keys contain event-controlled refs, so
+// the cache is weighed by key size and not by entry count.
+const REFUSED_PARSE_CACHE_MAX_WEIGHT: u64 = 16 * 1024 * 1024;
+
 // Bounds the transient memory of large symbol set parses. A parse can need many times its
 // decompressed size, and the cache budget does not count it. Each large parse reserves its
 // estimated peak memory from a shared budget. It also reserves at least an equal share of the
-// budget, so no more than `max_concurrent_large_parses` run at once. A parse estimated above
-// the whole budget reserves all of it and runs alone. Clones share one budget, so a single
-// limiter covers every provider it is given to.
+// budget, so no more than `max_concurrent_large_parses` run at once. Clones share one budget,
+// so a single limiter covers every provider it is given to.
+//
+// A parse of a known input size with an estimate above the whole budget is refused, because
+// it can use more memory than the pod has free. The limiter remembers the refusal for
+// `refusal_ttl`, so frames that use the same symbol set do not fetch it again. A parse of an
+// unknown input size is never refused, because its estimate comes from the fetched size only.
+// Such a parse reserves at most the whole budget and runs alone.
 #[derive(Clone)]
 pub struct ParseLimiter {
     large_parse_bytes: usize,
     memory_multiplier: usize,
+    budget_bytes: usize,
     budget_units: u32,
     min_units: u32,
     permits: Arc<Semaphore>,
+    // Maps a refused symbol set to the estimate that caused the refusal.
+    refused: Cache<String, usize>,
 }
 
 impl ParseLimiter {
@@ -51,6 +73,7 @@ impl ParseLimiter {
         max_concurrent_large_parses: usize,
         memory_budget_bytes: usize,
         memory_multiplier: usize,
+        refusal_ttl: Duration,
     ) -> Self {
         assert!(
             large_parse_bytes > 0,
@@ -70,12 +93,18 @@ impl ParseLimiter {
         );
         let budget_units = units_for_bytes(memory_budget_bytes);
         let max_concurrent = u32::try_from(max_concurrent_large_parses).unwrap_or(u32::MAX);
+        let refused = CacheBuilder::new(REFUSED_PARSE_CACHE_MAX_WEIGHT)
+            .weigher(|key: &String, _: &usize| key.len().try_into().unwrap_or(u32::MAX))
+            .time_to_live(refusal_ttl)
+            .build();
         Self {
             large_parse_bytes,
             memory_multiplier,
+            budget_bytes: memory_budget_bytes,
             budget_units,
             min_units: budget_units.div_ceil(max_concurrent),
             permits: Arc::new(Semaphore::new(budget_units as usize)),
+            refused,
         }
     }
 
@@ -92,6 +121,26 @@ impl ParseLimiter {
             None => fetched_bytes.max(self.large_parse_bytes),
         };
         Some(input_bytes.saturating_mul(self.memory_multiplier))
+    }
+
+    // Returns the estimate when the parse must be refused. Only a known input size can cause
+    // a refusal.
+    fn refused_estimate(
+        &self,
+        input_bytes: Option<usize>,
+        estimated_bytes: Option<usize>,
+    ) -> Option<usize> {
+        input_bytes
+            .and(estimated_bytes)
+            .filter(|bytes| *bytes > self.budget_bytes)
+    }
+
+    fn refusal_error(&self, estimated_bytes: usize) -> ResolveError {
+        FrameError::SymbolSetTooLarge {
+            estimated_bytes,
+            limit_bytes: self.budget_bytes,
+        }
+        .into()
     }
 
     async fn acquire(&self, estimated_bytes: Option<usize>) -> ParsePermit {
@@ -121,8 +170,9 @@ impl<P> Caching<P>
 where
     P: Fetcher + Parser<Source = P::Fetched, Err = <P as Fetcher>::Err>,
     P::Ref: SymbolSetCacheKey + Send,
-    P::Fetched: Countable + Send,
+    P::Fetched: Countable + Send + 'static,
     P::Set: Countable + Any + Send + Sync,
+    <P as Fetcher>::Err: From<ResolveError>,
 {
     pub fn new(inner: P, cache: Arc<Mutex<SymbolSetCache>>) -> Self {
         Self {
@@ -143,8 +193,9 @@ impl<P> Provider for Caching<P>
 where
     P: Fetcher + Parser<Source = P::Fetched, Err = <P as Fetcher>::Err>,
     P::Ref: SymbolSetCacheKey + Send,
-    P::Fetched: Countable + Send,
+    P::Fetched: Countable + Send + 'static,
     P::Set: Countable + Any + Send + Sync,
+    <P as Fetcher>::Err: From<ResolveError>,
 {
     type Ref = P::Ref;
     type Set = P::Set;
@@ -160,14 +211,31 @@ where
         metrics::counter!(STORE_CACHE_MISSES).increment(1);
         drop(cache);
 
+        let set_type = set_type_name::<P::Set>();
+        let refused_key = format!("{set_type}:{cache_key}");
+        if let Some(limiter) = &self.parse_limiter {
+            if let Some(estimated_bytes) = limiter.refused.get(&refused_key).await {
+                metrics::counter!(SYMBOL_SET_PARSE_REFUSED, "kind" => set_type, "cached" => "true")
+                    .increment(1);
+                return Err(limiter.refusal_error(estimated_bytes).into());
+            }
+        }
+
         // Do the fetch, not holding the lock across it to allow
         // concurrent fetches to occur. De-duping fetches is handled by the
         // `AtMostOne` provider wrapper in the production catalog.
         let found = self.inner.fetch(team_id, r).await?;
         let fetched_bytes = found.byte_count();
-        let set_type = set_type_name::<P::Set>();
 
-        let parse_input_bytes = found.parse_input_bytes();
+        let known_input_bytes = found.parse_input_bytes();
+        let (found, parse_input_bytes) =
+            if known_input_bytes.is_none() && self.parse_limiter.is_some() {
+                measure_parse_input_bytes(found)
+                    .await
+                    .map_err(ResolveError::from)?
+            } else {
+                (found, known_input_bytes)
+            };
         if let Some(bytes) = parse_input_bytes {
             metrics::histogram!(SYMBOL_SET_PARSE_INPUT_BYTES, "kind" => set_type)
                 .record(bytes as f64);
@@ -176,6 +244,27 @@ where
             .parse_limiter
             .as_ref()
             .and_then(|limiter| limiter.estimate_parse_bytes(parse_input_bytes, fetched_bytes));
+
+        if let Some(limiter) = &self.parse_limiter {
+            if let Some(estimated_bytes) =
+                limiter.refused_estimate(parse_input_bytes, estimated_parse_bytes)
+            {
+                limiter.refused.insert(refused_key, estimated_bytes).await;
+                metrics::counter!(SYMBOL_SET_PARSE_REFUSED, "kind" => set_type, "cached" => "false")
+                    .increment(1);
+                warn!(
+                    team_id,
+                    cache_key,
+                    set_type,
+                    fetched_bytes,
+                    parse_input_bytes,
+                    estimated_parse_bytes = estimated_bytes,
+                    budget_bytes = limiter.budget_bytes,
+                    "Refusing symbol set parse above the parse memory budget"
+                );
+                return Err(limiter.refusal_error(estimated_bytes).into());
+            }
+        }
 
         let wait_start = Instant::now();
         let permit = match &self.parse_limiter {
@@ -324,6 +413,12 @@ pub trait Countable {
     fn parse_input_bytes(&self) -> Option<usize> {
         Some(self.byte_count())
     }
+
+    // Like `parse_input_bytes`, but it can decode the data to find a size that is not stored.
+    // It can be slow, so call it from a blocking thread.
+    fn measure_parse_input_bytes(&self) -> Option<usize> {
+        self.parse_input_bytes()
+    }
 }
 
 impl Countable for Vec<u8> {
@@ -343,6 +438,26 @@ impl Countable for Bytes {
             Ok(None) | Err(_) => None,
         }
     }
+
+    fn measure_parse_input_bytes(&self) -> Option<usize> {
+        posthog_symbol_data::symbol_data_decompressed_size(self)
+            .ok()
+            .map(|size| size.max(self.len()))
+    }
+}
+
+// Measuring can decode the whole payload, so it runs on a blocking thread and not on a tokio
+// worker.
+async fn measure_parse_input_bytes<F>(found: F) -> Result<(F, Option<usize>), UnhandledError>
+where
+    F: Countable + Send + 'static,
+{
+    tokio::task::spawn_blocking(move || {
+        let bytes = found.measure_parse_input_bytes();
+        (found, bytes)
+    })
+    .await
+    .map_err(|e| UnhandledError::Other(format!("symbol set measure task failed: {e}")))
 }
 
 fn set_type_name<T>() -> &'static str {
@@ -353,7 +468,6 @@ fn set_type_name<T>() -> &'static str {
 #[cfg(test)]
 mod tests {
     use std::{
-        convert::Infallible,
         io::{Cursor, Write},
         sync::atomic::{AtomicUsize, Ordering},
         sync::{Arc, Condvar, Mutex as StdMutex},
@@ -373,7 +487,7 @@ mod tests {
     impl Fetcher for FakeProvider {
         type Ref = OrChunkId<Url>;
         type Fetched = Vec<u8>;
-        type Err = Infallible;
+        type Err = ResolveError;
 
         async fn fetch(&self, _team_id: i32, r: Self::Ref) -> Result<Self::Fetched, Self::Err> {
             self.fetches.fetch_add(1, Ordering::SeqCst);
@@ -390,7 +504,7 @@ mod tests {
     impl Parser for FakeProvider {
         type Source = Vec<u8>;
         type Set = Vec<u8>;
-        type Err = Infallible;
+        type Err = ResolveError;
 
         async fn parse(
             &self,
@@ -437,7 +551,7 @@ mod tests {
     impl Fetcher for SizedProvider {
         type Ref = OrChunkId<Url>;
         type Fetched = Vec<u8>;
-        type Err = Infallible;
+        type Err = ResolveError;
 
         async fn fetch(&self, _team_id: i32, _r: Self::Ref) -> Result<Self::Fetched, Self::Err> {
             Ok(vec![0; self.fetched_bytes])
@@ -448,7 +562,7 @@ mod tests {
     impl Parser for SizedProvider {
         type Source = Vec<u8>;
         type Set = Vec<u8>;
-        type Err = Infallible;
+        type Err = ResolveError;
 
         async fn parse(
             &self,
@@ -476,7 +590,7 @@ mod tests {
     impl Fetcher for BlockingProvider {
         type Ref = OrChunkId<Url>;
         type Fetched = Vec<u8>;
-        type Err = Infallible;
+        type Err = ResolveError;
 
         async fn fetch(&self, _team_id: i32, _r: Self::Ref) -> Result<Self::Fetched, Self::Err> {
             Ok(vec![0])
@@ -487,7 +601,7 @@ mod tests {
     impl Parser for BlockingProvider {
         type Source = Vec<u8>;
         type Set = Vec<u8>;
-        type Err = Infallible;
+        type Err = ResolveError;
 
         async fn parse(
             &self,
@@ -540,6 +654,7 @@ mod tests {
                 max_concurrent,
                 3 << 20,
                 memory_multiplier,
+                Duration::from_secs(60),
             ));
 
             futures::future::join_all(
@@ -578,6 +693,109 @@ mod tests {
         assert_eq!(raw_zip.parse_input_bytes(), None);
     }
 
+    struct PayloadProvider {
+        payload: Bytes,
+        fetches: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl Fetcher for PayloadProvider {
+        type Ref = OrChunkId<Url>;
+        type Fetched = Bytes;
+        type Err = ResolveError;
+
+        async fn fetch(&self, _team_id: i32, _r: Self::Ref) -> Result<Self::Fetched, Self::Err> {
+            self.fetches.fetch_add(1, Ordering::SeqCst);
+            Ok(self.payload.clone())
+        }
+    }
+
+    #[async_trait]
+    impl Parser for PayloadProvider {
+        type Source = Bytes;
+        type Set = Bytes;
+        type Err = ResolveError;
+
+        async fn parse(
+            &self,
+            data: Self::Source,
+            _permit: ParsePermit,
+        ) -> Result<Self::Set, Self::Err> {
+            Ok(data)
+        }
+    }
+
+    #[tokio::test]
+    async fn parse_limiter_refuses_known_parses_above_budget() {
+        let source_and_map = SourceAndMap {
+            minified_source: "a".repeat(1000),
+            sourcemap: "b".repeat(1000),
+        };
+        let with_size = Bytes::from(write_symbol_data(source_and_map.clone()).unwrap());
+
+        // Older writers made zstd frames with no content size in the header. The container
+        // header is the magic, the version, the type and the compression byte.
+        let header_len = b"posthog_error_tracking".len() + 4 + 4 + 1;
+        let raw = posthog_symbol_data::write_symbol_data_uncompressed(source_and_map).unwrap();
+        let mut encoder = zstd::Encoder::new(Vec::new(), 3).unwrap();
+        encoder.write_all(&raw[header_len..]).unwrap();
+        let mut without_size = with_size[..header_len].to_vec();
+        without_size.extend(encoder.finish().unwrap());
+        let without_size = Bytes::from(without_size);
+        assert_eq!(without_size.parse_input_bytes(), None);
+
+        let mut raw_zip = Cursor::new(Vec::new());
+        {
+            let mut writer = zip::ZipWriter::new(&mut raw_zip);
+            writer
+                .start_file("symbols", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(&[0; 1000]).unwrap();
+            writer.finish().unwrap();
+        }
+        let raw_zip = Bytes::from(raw_zip.into_inner());
+
+        // The budget is 1 MiB. A 2000 byte input times 1000 estimates about 2 MB.
+        for (name, payload, memory_multiplier, refused) in [
+            ("known size", with_size.clone(), 1000, true),
+            ("measured size", without_size, 1000, true),
+            ("known size within budget", with_size, 100, false),
+            ("unknown size", raw_zip, 10_000, false),
+        ] {
+            let fetches = Arc::new(AtomicUsize::new(0));
+            let provider = PayloadProvider {
+                payload,
+                fetches: fetches.clone(),
+            };
+            let caching =
+                Caching::new(provider, Arc::new(Mutex::new(SymbolSetCache::new(1 << 20))))
+                    .with_parse_limiter(ParseLimiter::new(
+                        1,
+                        1,
+                        1 << 20,
+                        memory_multiplier,
+                        Duration::from_secs(60),
+                    ));
+
+            for _ in 0..2 {
+                let result = caching
+                    .lookup(1, OrChunkId::<Url>::chunk_id("set".to_string()))
+                    .await;
+                assert_eq!(
+                    matches!(
+                        result,
+                        Err(ResolveError::ResolutionError(
+                            FrameError::SymbolSetTooLarge { .. }
+                        ))
+                    ),
+                    refused,
+                    "{name}: {result:?}"
+                );
+            }
+            assert_eq!(fetches.load(Ordering::SeqCst), 1, "{name}");
+        }
+    }
+
     #[tokio::test]
     async fn cancelled_lookup_keeps_permit_until_blocking_parse_finishes() {
         let active = Arc::new(AtomicUsize::new(0));
@@ -588,7 +806,7 @@ mod tests {
             started: started_tx,
             release: release.clone(),
         };
-        let limiter = ParseLimiter::new(1, 1, 1 << 20, 1);
+        let limiter = ParseLimiter::new(1, 1, 1 << 20, 1, Duration::from_secs(60));
         let caching = Arc::new(
             Caching::new(provider, Arc::new(Mutex::new(SymbolSetCache::new(1024))))
                 .with_parse_limiter(limiter.clone()),

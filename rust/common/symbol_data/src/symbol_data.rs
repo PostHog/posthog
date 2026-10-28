@@ -114,6 +114,21 @@ pub fn known_decompressed_size(data: &[u8]) -> Result<Option<usize>, Error> {
     }
 }
 
+// Like `known_decompressed_size`, but a zstd payload without a content size in its frame
+// headers is decoded to count its size. The decode streams to a sink, so it uses little
+// memory. Containers that older writers made have no content size.
+pub fn decompressed_size(data: &[u8]) -> Result<usize, Error> {
+    if let Some(size) = known_decompressed_size(data)? {
+        return Ok(size);
+    }
+    let payload = &data[v2_header_len()..];
+    let mut decoder = zstd::Decoder::new(Cursor::new(payload))
+        .map_err(|e| Error::CompressionError(e.to_string()))?;
+    let size = std::io::copy(&mut decoder, &mut std::io::sink())
+        .map_err(|e| Error::CompressionError(e.to_string()))?;
+    usize::try_from(size).map_err(|e| Error::CompressionError(e.to_string()))
+}
+
 fn known_zstd_decompressed_size(mut data: &[u8]) -> Result<Option<usize>, Error> {
     let mut total = 0usize;
     while !data.is_empty() {
