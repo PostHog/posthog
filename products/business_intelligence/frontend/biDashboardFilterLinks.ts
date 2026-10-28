@@ -35,6 +35,7 @@ export function getBIDashboardFilterLink(
         hash.delete('bi_filter')
         return `${url.pathname}${url.search}#${hash}`
     }
+    hash.delete('insight_filter')
     const columns = [...getBIResultDimensions(config).map(({ column }) => column), 'bi_comparison']
     hash.set(
         'bi_filter',

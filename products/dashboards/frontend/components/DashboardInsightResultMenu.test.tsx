@@ -13,6 +13,8 @@ import { insightOnDashboard } from '~/scenes/dashboard/dashboardLogic.testHelper
 import { initKeaTests } from '~/test/init'
 import { BaseMathType, ChartDisplayType, GroupMathType } from '~/types'
 
+import { dashboardResultFilterLogic } from '../dashboardResultFilterLogic'
+import { readDashboardResultFilter } from '../dashboardResultFilters'
 import { DashboardInsightResultMenu } from './DashboardInsightResultMenu'
 
 const openedModal = jest.fn()
@@ -39,6 +41,43 @@ beforeEach(() => {
 })
 
 describe('dashboard result menu', () => {
+    it('filters only through the explicit menu action and offers a removable new-tab link', () => {
+        const request: OpenPersonsModalProps = {
+            title: 'Chrome',
+            query: {
+                kind: NodeKind.InsightActorsQuery,
+                source: { kind: NodeKind.TrendsQuery, series: [{ kind: NodeKind.EventsNode, event: '$pageview' }] },
+                breakdown: 'Chrome',
+            },
+        }
+        const logic = dashboardResultFilterLogic({ dashboardId: 777 })
+        const unmount = logic.mount()
+        try {
+            render(
+                <DashboardInsightResultMenu insight={insightOnDashboard(1, [777])} dashboardId={777} tileId={1}>
+                    <button onClick={() => openPersonsModal(request)}>Browser result</button>
+                </DashboardInsightResultMenu>
+            )
+            fireEvent.contextMenu(screen.getByText('Browser result'))
+            expect(logic.values.selection).toBeNull()
+            const action = screen.getByText('Filter dashboard by this result')
+            const link = new URL(action.closest('a')!.href)
+            const selection = readDashboardResultFilter(new URLSearchParams(link.hash.slice(1)).get('insight_filter'))
+            expect(selection).toMatchObject({ dashboardId: 777, tileId: 1, label: 'Chrome' })
+            fireEvent.click(action, { ctrlKey: true })
+            expect(logic.values.selection).toBeNull()
+            fireEvent.click(action)
+            expect(logic.values.selection).toEqual(selection)
+            expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+            expect(openedModal).not.toHaveBeenCalled()
+            fireEvent.contextMenu(screen.getByText('Browser result'))
+            fireEvent.click(screen.getByText('Remove filter'))
+            expect(logic.values.selection).toBeNull()
+        } finally {
+            unmount()
+        }
+    })
+
     it('loads lifecycle people and SQL without requesting unsupported recordings', async () => {
         const request: OpenPersonsModalProps = {
             title: 'Resurrecting users',

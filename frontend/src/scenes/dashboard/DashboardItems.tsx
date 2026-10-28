@@ -48,6 +48,7 @@ import { DashboardTileGroupTabs } from 'products/dashboards/frontend/components/
 import { DashboardTileSectionBand } from 'products/dashboards/frontend/components/DashboardTileSectionBand'
 import { TileGroupTakeOutDropZone } from 'products/dashboards/frontend/components/TileGroupTakeOutDropZone'
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
+import { dashboardResultFilterLogic } from 'products/dashboards/frontend/dashboardResultFilterLogic'
 import { getGroupTitlesByTileId, hasTileDecorations } from 'products/dashboards/frontend/dashboardTileGroups'
 import { type DashboardSection, getSectionGroupKey } from 'products/dashboards/frontend/dashboardTileSections'
 import { useDashboardContainerWidth } from 'products/dashboards/frontend/useDashboardContainerWidth'
@@ -134,6 +135,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const canCrossFilter = placement === DashboardPlacement.Dashboard && !isSharedView() && !layoutEditMode
     useMountedLogic(
         biDashboardCrossFilterLogic({
+            dashboardId: dashboard?.id ?? 0,
+            tiles: canCrossFilter ? (tiles ?? []) : [],
+            loadQueue: queryLoadQueue,
+        })
+    )
+    useMountedLogic(
+        dashboardResultFilterLogic({
             dashboardId: dashboard?.id ?? 0,
             tiles: canCrossFilter ? (tiles ?? []) : [],
             loadQueue: queryLoadQueue,
@@ -543,7 +551,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         if (dashboard?.id) {
             reportDashboardTileRepositioned(dashboard.id, 'resized', effectiveZoom)
         }
-    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
+    }, [dashboard?.id, effectiveZoom, flushPendingLayouts])
 
     const handleDragStart = useCallback(
         (
@@ -598,14 +606,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom)
             }
         },
-        [
-            dashboard?.id,
-            reportDashboardTileRepositioned,
-            effectiveZoom,
-            flushPendingLayouts,
-            finishTileDrag,
-            stopAutoScroll,
-        ]
+        [dashboard?.id, effectiveZoom, flushPendingLayouts, finishTileDrag, stopAutoScroll]
     )
 
     const renderTile = (tile: DashboardTile): JSX.Element | undefined => {
