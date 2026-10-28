@@ -606,6 +606,34 @@ describe('loginLogic', () => {
             expect(posthog.capture).toHaveBeenCalledWith('signed-out page redirect repeated')
         })
 
+        it('stays client-side when sessionStorage is blocked, so it cannot reload forever', () => {
+            window.POSTHOG_APP_CONTEXT = { anonymous: true, current_team: { id: 5 } } as any
+            const getItem = jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+                throw new Error('blocked')
+            })
+            try {
+                router.actions.push(`/login?next=${encodeURIComponent('/project/5/dashboard/1')}`)
+                handleLoginRedirect()
+            } finally {
+                getItem.mockRestore()
+            }
+
+            expect(replaceSpy).not.toHaveBeenCalled()
+            expect(posthog.capture).toHaveBeenCalledWith('signed-out page redirect skipped', {
+                reason: 'storage_unavailable',
+            })
+        })
+
+        it.each(['/.//evil.example/path', '/a/..//evil.example/path', '/../\\evil.example/path'])(
+            'keeps the signed-out full load on our origin for next=%s',
+            (next) => {
+                window.POSTHOG_APP_CONTEXT = { anonymous: true, current_team: { id: 5 } } as any
+                router.actions.push(`/login?next=${encodeURIComponent(next)}`)
+                handleLoginRedirect()
+                expect(replaceSpy).toHaveBeenCalledWith('/')
+            }
+        )
+
         it('does a full navigation for a project token the middleware resolves server-side', () => {
             // A `phc_` key or a legacy allowlisted api_token can't be compared to the numeric team id,
             // so it must reach AutoProjectMiddleware for resolution — client-side routing wouldn't switch.

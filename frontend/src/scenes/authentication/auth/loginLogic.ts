@@ -126,19 +126,21 @@ function loginRedirectTarget(): string {
 const SIGNED_OUT_PAGE_FULL_LOAD_KEY = 'ph_signed_out_page_full_load'
 const SIGNED_OUT_PAGE_FULL_LOAD_WINDOW_MS = 30_000
 
+type SignedOutPageFullLoadClaim = 'claimed' | 'repeated' | 'storage_unavailable'
+
 /** A server that keeps rendering the session signed out would send the new document straight back to
  * /login, so a target gets one full load per window and the next attempt stays client-side. */
-function claimFullLoadFromSignedOutPage(nextURL: string): boolean {
+function claimFullLoadFromSignedOutPage(nextURL: string): SignedOutPageFullLoadClaim {
     try {
         const previous = JSON.parse(window.sessionStorage.getItem(SIGNED_OUT_PAGE_FULL_LOAD_KEY) ?? 'null')
         if (previous?.url === nextURL && Date.now() - previous.at < SIGNED_OUT_PAGE_FULL_LOAD_WINDOW_MS) {
-            return false
+            return 'repeated'
         }
         window.sessionStorage.setItem(SIGNED_OUT_PAGE_FULL_LOAD_KEY, JSON.stringify({ url: nextURL, at: Date.now() }))
-        return true
+        return 'claimed'
     } catch {
-        // sessionStorage being unavailable isn't a repeat redirect, so still claim the full load.
-        return true
+        // Without storage there is no loop guard, and an unguarded full load can reload forever.
+        return 'storage_unavailable'
     }
 }
 
@@ -151,13 +153,18 @@ export function handleLoginRedirect(): void {
     // The server rendered this page for a signed-out visitor, so its app context has no user and its
     // stable chunk import map holds only the signed-out scenes. The app must arrive as a new document.
     if (!isUserLoggedIn()) {
-        if (claimFullLoadFromSignedOutPage(nextURL)) {
+        const claim = claimFullLoadFromSignedOutPage(nextURL)
+        if (claim === 'claimed') {
             // Replace rather than assign so the stale signed-out document doesn't stay in history —
             // otherwise Back would return to /login, or redirect into the app again.
             window.location.replace(nextURL)
             return
         }
-        posthog.capture('signed-out page redirect repeated')
+        if (claim === 'repeated') {
+            posthog.capture('signed-out page redirect repeated')
+        } else {
+            posthog.capture('signed-out page redirect skipped', { reason: claim })
+        }
     }
 
     // Check if this is a backend-only route that shouldn't go through the React router
