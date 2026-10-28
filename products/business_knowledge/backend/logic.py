@@ -54,6 +54,7 @@ from .constants import (
     BK_QUERY_EMBEDDING_TIMEOUT,
     BK_RERANK_MODEL,
     BK_RERANK_SNIPPET_CHARS,
+    BK_RERANK_TIMEOUT,
     BK_RRF_K,
     BK_RRF_SCORE_FLOOR,
     BK_SEARCH_MAX_LIMIT,
@@ -2953,7 +2954,7 @@ def rerank_chunks(
             team_id=team.id,
             properties={"ai_feature": llm_telemetry.RETRIEVAL_RERANK_FEATURE, "surface": trace.surface},
         )
-        with client.with_options(max_retries=3) as bounded:
+        with client.with_options(timeout=BK_RERANK_TIMEOUT, max_retries=3) as bounded:
             response = bounded.messages.create(
                 model=BK_RERANK_MODEL,
                 max_tokens=1024,

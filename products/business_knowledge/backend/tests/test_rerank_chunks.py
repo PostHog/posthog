@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from anthropic.types import Message, TextBlock, Usage
 from parameterized import parameterized
 
+from products.business_knowledge.backend.constants import BK_RERANK_TIMEOUT
 from products.business_knowledge.backend.llm_telemetry import RetrievalTrace
 from products.business_knowledge.backend.logic import KnowledgeSearchResult, rerank_chunks
 
@@ -99,6 +100,7 @@ class TestRerankChunks(BaseTest):
             "ai_feature": "bk_retrieval_rerank",
             "surface": "support",
         }
+        assert client.with_options.call_args.kwargs == {"timeout": BK_RERANK_TIMEOUT, "max_retries": 3}
         assert client.with_options.return_value.__enter__.return_value.messages.create.call_args.kwargs[
             "extra_headers"
         ] == {
