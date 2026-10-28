@@ -13,6 +13,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import aretry_on_db_connection_drop, close_db_connections
 
+from products.signals.backend.recurrence import recurrence_rejects_repository
 from products.signals.backend.report_generation.select_repo import (
     RepoSelectionResult,
     persisted_repo_selection,
@@ -162,6 +163,18 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 spend_signal_id=input.signal_id,
                 sandbox_environment_id=sandbox_env_id,
             )
+            # The shared selector takes a sole eligible repository without reading corrections.
+            # A recurrence must honor its parent's rejection before spending on research there.
+            if result.repository is not None and await database_sync_to_async(
+                recurrence_rejects_repository, thread_sensitive=False
+            )(team_id=input.team_id, report_id=input.report_id, repository=result.repository):
+                result = RepoSelectionResult(
+                    repository=None,
+                    reason=(
+                        "This repository was rejected for the previous report. "
+                        "Choose a repository to continue research."
+                    ),
+                )
             logger.info(
                 "signals repo selection completed",
                 report_id=input.report_id,

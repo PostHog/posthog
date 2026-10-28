@@ -52,6 +52,7 @@ import {
     TaxonomicFilterValue,
     isQuickFilterItem,
 } from 'lib/components/TaxonomicFilter/types'
+import { fuzzyEventSearchEnabled } from 'lib/components/TaxonomicFilter/utils/fuzzyEventSearch'
 import { hiddenEventNames } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import {
     MCP_TOOL_CALL_EVENT,
@@ -1250,8 +1251,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     showNumericalPropsOnly,
                     allowNonCapturedEvents,
                 } = propertyFilters
-                const fuzzyEventSearch =
-                    !!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_FUZZY_EVENT_SEARCH] && !allowNonCapturedEvents
+                const fuzzyEventSearch = fuzzyEventSearchEnabled(featureFlags, allowNonCapturedEvents)
                 const groups: TaxonomicFilterGroup[] = [
                     {
                         name: 'Events',

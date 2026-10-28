@@ -264,6 +264,10 @@ from products.managed_warehouse.backend.facade.temporal import (
     ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
     WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
 )
+from products.messaging.backend.facade.temporal import (
+    ACTIVITIES as MESSAGING_IMPORT_ACTIVITIES,
+    WORKFLOWS as MESSAGING_IMPORT_WORKFLOWS,
+)
 from products.metrics.backend.facade.temporal import (
     ACTIVITIES as METRICS_ACTIVITIES,
     WORKFLOWS as METRICS_WORKFLOWS,
@@ -470,6 +474,13 @@ _task_queue_specs = [
         settings.CANVAS_BUILD_TASK_QUEUE,
         CANVAS_BUILD_WORKFLOWS,
         CANVAS_BUILD_ACTIVITIES,
+    ),
+    # Messaging provider imports. MESSAGING_IMPORT_TASK_QUEUE defaults to the general-purpose queue name (so it
+    # merges into that fleet until a dedicated worker exists).
+    (
+        settings.MESSAGING_IMPORT_TASK_QUEUE,
+        MESSAGING_IMPORT_WORKFLOWS,
+        MESSAGING_IMPORT_ACTIVITIES,
     ),
     (
         settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,

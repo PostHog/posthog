@@ -1602,8 +1602,6 @@ depends_on = [
     "products.product_analytics",
     "products.warehouse_sources",
     "products.data_modeling", "products.access_control",
-    # Facade-only: data catalog declares its Today highlight sources against the Today facade contract.
-    "products.today",
 ]
 layer = "modules"
 
@@ -1791,6 +1789,8 @@ depends_on = [
     "products.data_catalog",
     "products.data_modeling",
     "products.notifications",
+    # Facade-only: warehouse suggestions declares its Today highlight sources against the Today facade contract.
+    "products.today",
     "products.warehouse_sources",
 ]
 layer = "modules"
