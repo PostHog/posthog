@@ -33,6 +33,7 @@ registerAsyncFunction('fetch', {
             url,
             method,
             body,
+            ...(fetchOptions?.expires_at !== undefined ? { expires_at: fetchOptions.expires_at } : {}),
             headers: pickBy(headers, (v) => typeof v == 'string'),
             ...(fetchOptions?.aws_sigv4 ? { aws_sigv4: fetchOptions.aws_sigv4 } : {}),
             ...(fetchOptions?.secret_headers_input ? { secret_headers_input: fetchOptions.secret_headers_input } : {}),

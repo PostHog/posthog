@@ -1228,12 +1228,39 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         self.initial_data = data
         return super().to_internal_value(data)
 
+    def _validate_event_entries(self, data: dict[str, Any]) -> None:
+        for key in ("events", "actions"):
+            for entry in data.get(key) or []:
+                entry_type = entry.get("type")
+                identifier = entry.get("id")
+                if entry_type not in ("events", "actions") or "id" not in entry:
+                    raise serializers.ValidationError({key: "Each entry needs an events/actions type and an id."})
+                if entry_type == "events":
+                    if identifier is not None and (not isinstance(identifier, str) or not identifier):
+                        raise serializers.ValidationError({key: "Event ids must be names or null for all events."})
+                else:
+                    try:
+                        action_id = int(identifier)
+                    except (TypeError, ValueError, OverflowError):
+                        raise serializers.ValidationError({key: "Action ids must be positive integers."}) from None
+                    if (
+                        isinstance(identifier, bool)
+                        or not isinstance(identifier, str | int | float)
+                        or isinstance(identifier, float)
+                        and identifier != action_id
+                        or not 0 < action_id < 2**63
+                    ):
+                        raise serializers.ValidationError({key: "Action ids must be positive integers."})
+
     def validate(self, data):
         function_type = self.context.get("function_type")
         team = self.context["get_team"]()
 
         # Ensure data is initialized as an empty dict if it's None
         data = data or {}
+
+        if self.context.get("strict_event_filters"):
+            self._validate_event_entries(data)
 
         # The compiler writes the stamp below, so a value a client echoes back is never kept.
         data.pop("bytecode_contract", None)
