@@ -13,6 +13,7 @@ import { highlightPicksLogic } from '../highlightPicksLogic'
 import { HighlightPicksBlockedState } from './HighlightPicksBlockedState'
 import { HighlightPicksQuietState } from './HighlightPicksQuietState'
 import { HighlightPicksReplayOffState } from './HighlightPicksReplayOffState'
+import { HighlightPicksShadowPreview } from './HighlightPicksShadowPreview'
 import { HighlightPicksStarter } from './HighlightPicksStarter'
 
 export function HighlightPicksEmptyState({ size }: { size: 'small' | 'large' }): JSX.Element {
@@ -46,7 +47,12 @@ export function HighlightPicksEmptyState({ size }: { size: 'small' | 'large' }):
         return <HighlightPicksReplayOffState size={size} />
     }
     if (reason === 'no-scanners') {
-        return <HighlightPicksStarter size={size} />
+        return (
+            <>
+                <HighlightPicksShadowPreview />
+                <HighlightPicksStarter size={size} />
+            </>
+        )
     }
     if (reason === 'all-disabled' || reason === 'all-capped' || reason === 'quota-exhausted') {
         return <HighlightPicksBlockedState reason={reason} size={size} />
