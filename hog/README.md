@@ -29,6 +29,35 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog commands`                          | Lists every command, its arguments, options and scopes.                                                                 |
 | Everything else                         | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.         |
 
+## What's left
+
+hog replaces posthog-cli once everything below is done.
+
+First, the commands that make hog a complete CLI:
+
+- [ ] `hog api`: the agent-first MCP tool catalog, with `tools`, `search`, `info`, `schema`, `call`, `skill` and `agents-md`. posthog-cli runs an embedded JavaScript bundle through Node. hog can import the bundle and drop the Node requirement.
+- [ ] `hog endpoints`: `list`, `get`, `open`, `run`, `push`, `pull` and `diff`.
+- [ ] `hog schema`: `pull` and `status`, which download event definitions and generate a typed SDK.
+
+Then, once the commands above work:
+
+- [ ] Global options from posthog-cli: `--dry-run` and `POSTHOG_CLI_DRY_RUN`, which skip the whole command without credentials, `--no-fail`, `--skip-ssl-verification`, and `--rate-limit` with `POSTHOG_CLIENT_RATE_LIMIT`.
+- [ ] Telemetry: the `posthog cli command run` and `error_tracking_cli_sourcemaps_upload_*` events posthog-cli sends.
+- [ ] Callers: the SDKs, build plugins and scripts that run `posthog-cli` with its arguments. Move them to hog, or give hog a `posthog-cli` entry point that translates the arguments.
+- [ ] Distribution: a binary for each platform, macOS signing and notarization, the npm package, the Homebrew formula, `hog update`, and CI on Linux and Windows.
+
+Smaller follow-ups, none of them blocking:
+
+- [ ] PostHog: keep an approved CLI login key until its code expires, and let a repeated poll return it again. Then `hog auth login --wait` works however long the person takes to resume the agent, and a poll whose response is lost can retry. posthog-cli polls in one process, so only hog's agent flow needs this.
+- [ ] `hog error-tracking upload --include-source`: read `DW_LNE_define_file` entries in the DWARF line program, so hog bundles the same source files as posthog-cli. Current compilers don't emit them, and DWARF 5 removed them.
+- [ ] `hog error-tracking upload --include-source`: write ZIP64, so a binary that names more than 65,533 source files keeps its sources. hog uploads it without sources and warns.
+
+Not planned:
+
+- `posthog-cli exp query editor`, the interactive query editor in the terminal. hog won't port it.
+- `posthog-cli exp task`. hog won't port it.
+- `posthog-cli exp logs import`, which imports historical logs from Loki. Not planned for now.
+
 ## Agents, people and pipes
 
 `hog` detects an agent from the env vars agents set for the commands they run, such as `CLAUDECODE`, `CODEX_SANDBOX`, `CURSOR_AGENT`, `GEMINI_CLI` and the generic `AI_AGENT`.
