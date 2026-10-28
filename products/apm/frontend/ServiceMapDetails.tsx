@@ -2,12 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
-import { urls } from 'scenes/urls'
-
-import { applicationObservabilityLogic, drillDownParams } from './applicationObservabilityLogic'
+import { applicationObservabilityLogic } from './applicationObservabilityLogic'
 import type { ServiceEdgeApi } from './generated/api.schemas'
 import { formatMs, formatPercent, formatRate } from './healthDisplay'
 import { HealthStatusTag } from './HealthStatusTag'
+import { TelemetryLinks } from './TelemetryLinks'
 
 function CallList({
     title,
@@ -49,7 +48,7 @@ export function ServiceMapDetails(): JSX.Element | null {
 
     return (
         <div
-            className="flex w-72 flex-col gap-3 rounded border bg-surface-primary p-3 shadow"
+            className="flex max-h-[520px] w-72 flex-col gap-3 overflow-y-auto rounded border bg-surface-primary p-3 shadow"
             data-attr="apm-map-details"
         >
             <div className="flex items-center justify-between gap-2">
@@ -90,18 +89,7 @@ export function ServiceMapDetails(): JSX.Element | null {
                 <Link onClick={() => showServiceEndpoints(selectedMapServiceName)} data-attr="apm-map-endpoints">
                     Endpoints
                 </Link>
-                <Link
-                    to={`${urls.tracing()}?${drillDownParams(selectedMapServiceName, timeRange)}`}
-                    data-attr="apm-map-traces"
-                >
-                    Traces
-                </Link>
-                <Link
-                    to={`${urls.logs()}?${drillDownParams(selectedMapServiceName, timeRange)}`}
-                    data-attr="apm-map-logs"
-                >
-                    Logs
-                </Link>
+                <TelemetryLinks serviceName={selectedMapServiceName} timeRange={timeRange} />
             </div>
         </div>
     )

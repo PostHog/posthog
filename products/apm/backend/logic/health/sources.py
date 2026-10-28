@@ -148,12 +148,13 @@ def _endpoints_query(date_from: datetime, date_to: datetime, environment: str, s
 
 
 def _sampled_traces_query(date_from: datetime, date_to: datetime, environment: str) -> ast.SelectQuery:
+    # DISTINCT with LIMIT stops reading once it has enough trace IDs, where GROUP BY would first
+    # aggregate every trace in the window.
     query = parse_select(
         """
-        SELECT trace_id
+        SELECT DISTINCT trace_id
         FROM posthog.trace_spans
         WHERE {where} AND {env_expr} = {environment}
-        GROUP BY trace_id
         LIMIT {limit}
         """,
         placeholders={
@@ -167,15 +168,18 @@ def _sampled_traces_query(date_from: datetime, date_to: datetime, environment: s
     return query
 
 
-def _service_edges_query(date_from: datetime, date_to: datetime, environment: str) -> ast.SelectQuery:
+def _service_edges_query(
+    date_from: datetime, date_to: datetime, environment: str, trace_ids: list[str]
+) -> ast.SelectQuery:
     # A call shows up as a callee span whose parent span belongs to another service, so each call
-    # counts once however many client spans the caller wraps around it.
+    # counts once however many client spans the caller wraps around it. Both ends must be in the
+    # environment: a sampled trace can also hold spans from another environment.
     query = parse_select(
         """
         WITH spans AS (
             SELECT trace_id, span_id, parent_span_id, service_name, status_code, duration_nano
             FROM posthog.trace_spans
-            WHERE {where} AND trace_id IN ({sampled})
+            WHERE {where} AND {env_expr} = {environment} AND trace_id IN {trace_ids}
         )
         SELECT
             p.service_name AS caller,
@@ -192,7 +196,9 @@ def _service_edges_query(date_from: datetime, date_to: datetime, environment: st
         """,
         placeholders={
             "where": _window_where(date_from, date_to),
-            "sampled": _sampled_traces_query(date_from, date_to, environment),
+            "env_expr": environment_expr(),
+            "environment": ast.Constant(value=environment),
+            "trace_ids": ast.Tuple(exprs=[ast.Constant(value=trace_id) for trace_id in trace_ids]),
             "limit": ast.Constant(value=MAP_EDGES_LIMIT),
         },
     )
@@ -307,11 +313,10 @@ def list_endpoints_health(
 
 
 def get_service_map(*, team: Team, date_from: datetime, date_to: datetime, environment: str) -> ServiceMapResult:
-    trace_count_query = parse_select(
-        "SELECT count() FROM ({sampled})",
-        placeholders={"sampled": _sampled_traces_query(date_from, date_to, environment)},
-    )
-    assert isinstance(trace_count_query, ast.SelectQuery)
+    # The sample runs once, so the edges and the reported trace count describe the same traces.
+    trace_ids = [row[0] for row in _run(team, _sampled_traces_query(date_from, date_to, environment))]
+    if not trace_ids:
+        return ServiceMapResult(edges=[], trace_count=0)
     edges = [
         ServiceEdge(
             caller=caller,
@@ -321,7 +326,7 @@ def get_service_map(*, team: Team, date_from: datetime, date_to: datetime, envir
             p95_ms=float(p95_ms) if p95_ms is not None else None,
         )
         for caller, callee, calls, error_count, p95_ms in _run(
-            team, _service_edges_query(date_from, date_to, environment)
+            team, _service_edges_query(date_from, date_to, environment, trace_ids)
         )
     ]
-    return ServiceMapResult(edges=edges, trace_count=int(_run(team, trace_count_query)[0][0]))
+    return ServiceMapResult(edges=edges, trace_count=len(trace_ids))

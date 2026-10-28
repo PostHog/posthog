@@ -12,7 +12,7 @@ from products.apm.backend.tests.span_fixtures import SpanWriter, recreate_trace_
 DATE_FROM = "2026-06-02T07:00:00Z"
 DATE_TO = "2026-06-02T09:00:00Z"
 FLAG_PATCH = "products.apm.backend.presentation.views.is_apm_enabled"
-URL = "/api/projects/{}/apm/service-map/"
+URL = "/api/projects/{}/apm/service_map/"
 
 
 class TestServiceMapAPI(ClickhouseTestMixin, APIBaseTest):
@@ -42,6 +42,10 @@ class TestServiceMapAPI(ClickhouseTestMixin, APIBaseTest):
         # A trace in another environment must not add an edge to the prod map.
         root = w.span("eu-web", name="GET /", env="staging", trace=10)
         w.span("eu-api", name="GET /", env="staging", trace=10, parent=root)
+        # A prod trace that calls into staging is sampled for prod, but its staging spans add no prod edges.
+        prod_root = w.span("web", name="GET /sync", env="prod", trace=20)
+        staging_child = w.span("eu-sync", name="POST /sync", env="staging", trace=20, parent=prod_root)
+        w.span("eu-store", name="write", env="staging", trace=20, parent=staging_child)
         w.insert()
 
     def _get(self, **params) -> dict:
@@ -60,12 +64,15 @@ class TestServiceMapAPI(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(edges[("api", "db-svc")]["calls"], 3)
         self.assertEqual(edges[("api", "db-svc")]["error_count"], 1)
         self.assertGreaterEqual(edges[("web", "api")]["p95_ms"], 40)
-        self.assertEqual(data["trace_count"], 3)
+        self.assertEqual(data["trace_count"], 4)
 
     def test_environment_filter(self) -> None:
         data = self._get(environment="staging")
-        self.assertEqual([(e["caller"], e["callee"]) for e in data["edges"]], [("eu-web", "eu-api")])
-        self.assertEqual(data["trace_count"], 1)
+        # The cross-environment trace adds its staging-only edge here, and not the prod -> staging call.
+        self.assertEqual(
+            sorted((e["caller"], e["callee"]) for e in data["edges"]), [("eu-sync", "eu-store"), ("eu-web", "eu-api")]
+        )
+        self.assertEqual(data["trace_count"], 2)
 
     def test_trace_sample_is_capped(self) -> None:
         with patch("products.apm.backend.logic.health.sources.MAP_TRACE_LIMIT", 1):
@@ -99,6 +106,6 @@ class TestServiceMapAPI(ClickhouseTestMixin, APIBaseTest):
 class TestServiceMapOpenApiSchema(SimpleTestCase):
     def test_list_response_schema_is_a_single_object_not_an_array(self) -> None:
         schema = SchemaGenerator().get_schema(request=None, public=True)
-        operation = schema["paths"]["/api/projects/{project_id}/apm/service-map/"]["get"]
+        operation = schema["paths"]["/api/projects/{project_id}/apm/service_map/"]["get"]
         response_schema = operation["responses"]["200"]["content"]["application/json"]["schema"]
         self.assertNotEqual(response_schema.get("type"), "array")

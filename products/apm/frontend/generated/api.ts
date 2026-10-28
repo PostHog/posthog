@@ -59,8 +59,8 @@ export const getApmServiceMapListUrl = (projectId: string, params?: ApmServiceMa
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/apm/service-map/?${stringifiedParams}`
-        : `/api/projects/${projectId}/apm/service-map/`
+        ? `/api/projects/${projectId}/apm/service_map/?${stringifiedParams}`
+        : `/api/projects/${projectId}/apm/service_map/`
 }
 
 /**

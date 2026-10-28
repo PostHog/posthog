@@ -135,14 +135,16 @@ class ServiceMapViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def list(self, request: Request, *args, **kwargs) -> Response:
         _check_flag(self.team)
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
-        date_from, date_to, environment = _window(ServicesHealthRequestSerializer(data=request.query_params))
+        window = _window(ServicesHealthRequestSerializer(data=request.query_params))
 
-        result = get_service_map(team=self.team, date_from=date_from, date_to=date_to, environment=environment)
+        result = get_service_map(
+            team=self.team, date_from=window.date_from, date_to=window.date_to, environment=window.environment
+        )
         payload = {
             "edges": [asdict(edge) for edge in result.edges],
             "trace_count": result.trace_count,
-            "environment": environment,
-            "date_from": date_from,
-            "date_to": date_to,
+            "environment": window.environment,
+            "date_from": window.date_from,
+            "date_to": window.date_to,
         }
         return Response(ServiceMapResponseSerializer(payload).data, status=status.HTTP_200_OK)
