@@ -87,7 +87,8 @@ describe('HogFunctionHandler', () => {
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
             new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-            new RecipientsManagerService(hub.postgres)
+            new RecipientsManagerService(hub.postgres),
+            null
         )
         mockHogFunctionExecutor = new HogExecutorAsyncService(
             new HogExecutorService({ executionTimeoutMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS }, hogInputsService),

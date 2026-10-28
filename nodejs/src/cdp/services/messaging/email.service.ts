@@ -21,6 +21,7 @@ import { RecipientManagerRecipient, RecipientsManagerService } from '../managers
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
+import { EmailStatusService, isTransactionalEmailSend } from './email-status.service'
 import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
 import {
     addTrackingToEmail,
@@ -364,6 +365,9 @@ export class EmailService {
         private trackingCodeSigner: EmailTrackingCodeSigner,
         private emailSuppressionService: EmailSuppressionService,
         private recipientsManager: RecipientsManagerService,
+        // Required, so that a caller which builds the service without it fails to compile. Pass null
+        // only where no email status is recorded.
+        private emailStatusService: EmailStatusService | null,
         private messageAssetsService?: MessageAssetsService,
         private workflowEmailRateLimiter: RateLimiterService | null = null,
         private teamEmailRateLimiter: RateLimiterService | null = null
@@ -752,6 +756,17 @@ export class EmailService {
 
             if (success && assetRow) {
                 result.messageAssets.push(assetRow)
+            }
+
+            // A failure here is final: SES throttling returned above to reschedule, and nothing
+            // retries a failed send.
+            if (this.emailStatusService && isTransactionalEmailSend(invocation)) {
+                this.emailStatusService.queue({
+                    teamId: invocation.teamId,
+                    messageId: invocation.id,
+                    status: success ? 'sent' : 'failed',
+                    reason: success ? undefined : 'provider_error',
+                })
             }
         }
 

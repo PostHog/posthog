@@ -64,6 +64,7 @@ import { GroupsManagerService } from './services/managers/groups-manager.service
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import { EMAIL_QUEUE_PRIORITY } from './services/messaging/email-priority'
+import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
@@ -202,6 +203,7 @@ export class CdpApi {
     private emailValidationService: EmailValidationService
     private teamWorkflowsConfigService: TeamWorkflowsConfigService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
+    private emailStatusService: EmailStatusService
     private resumeBatchJwt: ScopedServiceJwt
 
     constructor(
@@ -226,6 +228,7 @@ export class CdpApi {
         this.hogWatcher = services.hogWatcher
         this.hogWatcherMirror = services.hogWatcherMirror
         this.invocationResultsService = services.invocationResultsService
+        this.emailStatusService = services.emailStatusService
 
         // API-only services. The hog-transformer's monitoring service reuses the same
         // resolved outputs registry as the core CDP services — no separate construction.
@@ -1260,7 +1263,12 @@ export class CdpApi {
             if (idempotencyKey) {
                 await idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id)
             }
-            await this.invocationResultsService.invocationResultsRowsService.flush()
+            this.emailStatusService.queue({ teamId: team.id, messageId: invocation.id, status: 'queued' })
+            // Flushed together, and bounded, so the best-effort status row can't hold up the 202.
+            await Promise.all([
+                this.invocationResultsService.invocationResultsRowsService.flush(),
+                this.emailStatusService.flush(),
+            ])
             // The run skips the trigger pipeline that counts runs for event-triggered workflows.
             this.hogFunctionMonitoringService.queueAppMetric(
                 {
