@@ -19,11 +19,13 @@ from posthog.hogql.database.models import (
     ExpressionField,
     IntegerDatabaseField,
     SavedQuery,
+    StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
     TableNode,
     UUIDDatabaseField,
 )
+from posthog.hogql.database.s3_table import DataWarehouseTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_trino_identifier
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
@@ -226,6 +228,26 @@ def test_prepared_trino_transpiler_does_not_rebuild_the_schema_database(
     assert (transpiled.sql, transpiled.values) == snapshot
 
 
+@pytest.mark.parametrize(
+    "week_start_day, expected",
+    [
+        (0, "date_add('day', -1, date_trunc('week', date_add('day', 1, "),
+        (1, "CAST(date_trunc('week', "),
+    ],
+)
+def test_to_start_of_week_accepts_the_week_start_day_stored_on_the_team(week_start_day: int, expected: str) -> None:
+    context = _context_with_trino_table()
+    assert context.database is not None
+    users = context.database.tables.children["users"]
+    # The team row stores the week start day as a plain integer, not as the enum.
+    context.database = Database(week_start_day=week_start_day, include_posthog_tables=False)  # type: ignore[arg-type]
+    context.database.tables.add_child(users)
+
+    sql, _ = prepare_and_print_ast(parse_select("SELECT toStartOfWeek(created_at) FROM users"), context, "trino")
+
+    assert expected in sql
+
+
 def test_prints_trino_lambda_syntax() -> None:
     context = HogQLContext()
     node = ast.Lambda(args=["value"], expr=ast.Field(chain=["value"], type=ast.LambdaArgumentType(name="value")))
@@ -373,6 +395,7 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("domain(user_id)", "coalesce(TRY(url_extract_host(CAST("),
         ("multiplyDecimal(1, 2)", "CAST((1 * 2) AS DECIMAL(38, 0))"),
         ("quantileExact(0.9)(length(user_id))", "filter(coalesce(array_agg(length("),
+        ("quantileExact(0.5)(log10(1 + length(user_id)))", "filter(coalesce(array_agg(log10("),
         ("ngramDistance(user_id, 'abc')", "MAP(VARBINARY, BIGINT)"),
         ("formatReadableTimeDelta(3661)", "'hour', 'hours'"),
         (
@@ -724,10 +747,10 @@ def test_coerces_strict_trino_types_after_property_lowering() -> None:
         "trino",
     )
 
-    assert 'CAST(json_extract_scalar("users"."properties", %(hogql_val_0)s) AS DOUBLE) / CAST(1000 AS DOUBLE)' in sql
-    assert 'sum(CAST(json_extract_scalar("users"."properties", %(hogql_val_1)s) AS DOUBLE))' in sql
-    assert 'CAST(json_extract_scalar("users"."properties", %(hogql_val_2)s) AS BOOLEAN) = true' in sql
-    assert '"users"."created_at" >= CAST(%(hogql_val_3)s AS TIMESTAMP)' in sql
+    assert 'CAST(json_extract_scalar("users"."properties", \'$["duration"]\') AS DOUBLE) / CAST(1000 AS DOUBLE)' in sql
+    assert 'sum(CAST(json_extract_scalar("users"."properties", \'$["amount"]\') AS DOUBLE))' in sql
+    assert 'CAST(json_extract_scalar("users"."properties", \'$["failed"]\') AS BOOLEAN) = true' in sql
+    assert '"users"."created_at" >= CAST(%(hogql_val_0)s AS TIMESTAMP)' in sql
 
 
 def test_prints_iso_datetime_and_heterogeneous_concat_for_trino() -> None:
@@ -792,9 +815,10 @@ def test_preserves_clickhouse_json_array_indexing() -> None:
     assert "AS ARRAY(JSON)), 2)" in sql
     assert 'AS ARRAY(JSON)), CAST(length("users"."user_id") AS INTEGER))' in sql
     assert sql.count("element_at(") == 9
-    assert 'CAST(json_extract("users"."properties", %(hogql_val_1)s) AS ARRAY(JSON))' in sql
+    assert 'CAST(json_extract("users"."properties", \'$["items"]\') AS ARRAY(JSON))' in sql
+    assert 'json_extract("users"."user_id", \'$["key.with.dot"]\')' in sql
     assert "CAST(TRY(element_at(" in sql
-    assert context.values == {"hogql_val_0": '$["key.with.dot"]', "hogql_val_1": '$["items"]'}
+    assert context.values == {}
 
 
 @pytest.mark.parametrize("operator", ["+", "-", "*", "/", "%"])
@@ -804,10 +828,10 @@ def test_chained_arithmetic_keeps_only_used_parameters(operator: str) -> None:
 
     sql, _ = prepare_and_print_ast(parse_select(f"SELECT {f' {operator} '.join(terms)} FROM users"), context, "trino")
 
-    assert context.values == {f"hogql_val_{index}": f'$["metric_{index}"]' for index in range(6)}
+    assert context.values == {}
     rendered_terms = [
         'coalesce(TRY(CAST(json_extract_scalar("users"."user_id", '
-        f"%(hogql_val_{index})s) AS DOUBLE)), CAST(0 AS DOUBLE))"
+        f"'$[\"metric_{index}\"]') AS DOUBLE)), CAST(0 AS DOUBLE))"
         for index in range(6)
     ]
     expected = rendered_terms[0]
@@ -899,14 +923,9 @@ def test_lowers_event_property_backed_fields_to_the_physical_json_column() -> No
         "trino",
     )
 
-    assert 'json_extract_scalar("tenant"."posthog"."events"."properties", %(hogql_val_0)s)' in sql
-    assert 'json_extract_scalar("tenant"."posthog"."events"."properties", %(hogql_val_1)s)' in sql
-    assert 'json_extract_scalar("tenant"."posthog"."events"."properties", %(hogql_val_2)s)' in sql
-    assert context.values == {
-        "hogql_val_0": '$["$session_id"]',
-        "hogql_val_1": '$["$window_id"]',
-        "hogql_val_2": '$["$group_0"]',
-    }
+    for key in ("$session_id", "$window_id", "$group_0"):
+        assert f'json_extract_scalar("tenant"."posthog"."events"."properties", \'$["{key}"]\')' in sql
+    assert context.values == {}
 
 
 def test_lowers_event_element_materializations_to_the_physical_chain() -> None:
@@ -944,6 +963,35 @@ def test_uuid_comparison_on_exported_table_compares_as_varchar() -> None:
 
 
 @pytest.mark.parametrize(
+    "key, expected_path",
+    [
+        ("plan", "'$[\"plan\"]'"),
+        ("it's", "'$[\"it''s\"]'"),
+        ("%(hogql_val_0)s", "'$[\"%(hogql_val_0)s\"]'"),
+        ('a"b\\c', '\'$["a\\"b\\\\c"]\''),
+    ],
+)
+def test_grouped_json_property_prints_the_same_path_in_projection_and_group_by(key: str, expected_path: str) -> None:
+    context = _context_with_trino_table()
+    escaped_key = key.replace("\\", "\\\\").replace("'", "\\'")
+
+    sql, _ = prepare_and_print_ast(
+        parse_select(
+            f"SELECT JSONExtractString(properties, '{escaped_key}') = '' AS missing, count() FROM users "
+            f"GROUP BY JSONExtractString(properties, '{escaped_key}')"
+        ),
+        context,
+        "trino",
+    )
+    sql, values = convert_pyformat_placeholders(sql, context.values)
+
+    grouped = f'json_extract_scalar("users"."properties", {expected_path})'
+    assert sql.count(grouped) == 2
+    assert sql.split(" GROUP BY ")[1].count(grouped) == 1
+    assert values == [""]
+
+
+@pytest.mark.parametrize(
     "expression, group_by, order_by, expected_order, expected_values",
     [
         ("user_id", "account_id", "total", "2 ASC", []),
@@ -954,7 +1002,7 @@ def test_uuid_comparison_on_exported_table_compares_as_varchar() -> None:
             "1 DESC",
             ["suffix"],
         ),
-        ("properties.color", "account_id", "account_id", "1 ASC", ['$["color"]']),
+        ("properties.color", "account_id", "account_id", "1 ASC", []),
         ("0", "account_id", "account_id", "1 ASC", []),
         ("user_id", "account_id", "2", "2 ASC", []),
         (
@@ -1176,8 +1224,8 @@ def test_prints_empty_for_lowered_json_property_after_second_resolution() -> Non
         "trino",
     )
 
-    assert 'json_extract_scalar("users"."properties", %(hogql_val_0)s) <> \'\'' in sql
-    assert context.values == {"hogql_val_0": '$["task_run_id"]'}
+    assert 'json_extract_scalar("users"."properties", \'$["task_run_id"]\') <> \'\'' in sql
+    assert context.values == {}
 
 
 def test_lowers_nested_json_keys_and_values_raw() -> None:
@@ -1185,7 +1233,8 @@ def test_lowers_nested_json_keys_and_values_raw() -> None:
     sql, _ = prepare_and_print_ast(parse_select("SELECT JSONExtractKeysAndValuesRaw('{}', 'teams')"), context, "trino")
 
     assert "map_entries(CAST(json_extract(" in sql
-    assert context.values == {"hogql_val_0": "{}", "hogql_val_1": '$["teams"]'}
+    assert context.values == {"hogql_val_0": "{}"}
+    assert "'$[\"teams\"]'" in sql
 
 
 def test_lowers_currency_conversion_with_the_trino_exchange_rate_table() -> None:
@@ -1930,7 +1979,7 @@ def test_rejects_with_fill_before_printing_invalid_trino_sql() -> None:
         ("date_part('year', created_at)", 'EXTRACT(YEAR FROM "users"."created_at")'),
         (
             "JSONExtractKeysAndValues(properties, 'Float64')",
-            'map_entries(transform_values(CAST(json_extract("users"."properties", %(hogql_val_0)s) AS MAP(VARCHAR, JSON))',
+            'map_entries(transform_values(CAST(json_extract("users"."properties", \'$\') AS MAP(VARCHAR, JSON))',
         ),
         ("['a', 'b'][2:]", "slice(ARRAY[%(hogql_val_0)s, %(hogql_val_1)s], 2, 2147483647)"),
     ],
@@ -2109,6 +2158,11 @@ def test_prints_additional_semantics_safe_trino_expressions(expression: str, exp
         ("arrayCumSum([1, -3, 2])", "ROW(total BIGINT, items ARRAY(BIGINT))"),
         ("arrayCumSumNonNegative([1, -3, 2])", "greatest(__hogql_scan_state[1] + __hogql_item, 0)"),
         ("arrayCumSum(value -> value / 2, [1, 2])", "ROW(total DOUBLE, items ARRAY(DOUBLE))"),
+        ("arraySum(value -> value * 2, [1, 2])", 'reduce(transform(ARRAY[1, 2], "value" -> ("value" * 2)), '),
+        ("arrayMax(value -> value * 2, [1, 2])", 'array_max(transform(ARRAY[1, 2], "value" -> ("value" * 2)))'),
+        ("arrayMin(value -> value * 2, [1, 2])", 'array_min(transform(ARRAY[1, 2], "value" -> ("value" * 2)))'),
+        ("arrayMax(value -> toString(value), [1, 2]) = '2'", "))) = %(hogql_val_0)s)"),
+        ("arrayMin(value -> toString(value), [1, 2]) = '2'", "))) = %(hogql_val_0)s)"),
         ("arrayResize(arrayCumSum(value -> value / 2, [1, 2]), 4)", "repeat(DOUBLE '0',"),
         ("arrayFill(value -> value > 0, [0, 1, 0])", "element_at(__hogql_filled, -1)"),
         ("arrayReverseFill(value -> value > 0, [0, 1, 0])", "reverse(reduce(reverse(zip("),
@@ -2653,7 +2707,15 @@ def test_lowers_multi_key_any_join_with_a_right_expression() -> None:
     assert '"users"."user_id" = CAST("other"."user_id" AS VARCHAR)' in sql
 
 
-def test_lowers_unaliased_left_any_join() -> None:
+@pytest.mark.parametrize(
+    "people_column, error",
+    [
+        ("people.created_at", None),
+        # Property reads through a derived table are not lowered yet, but the hidden column must still resolve.
+        ("people.raw.key", "TRINO_PROPERTY_NOT_LOWERED"),
+    ],
+)
+def test_lowers_unaliased_left_any_join(people_column: str, error: str | None) -> None:
     context = _context_with_trino_table()
     assert context.database is not None
     context.database.tables.add_child(
@@ -2664,6 +2726,8 @@ def test_lowers_unaliased_left_any_join() -> None:
                 fields={
                     "user_id": StringDatabaseField(name="user_id", nullable=False),
                     "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
+                    "__sync_id": StringDatabaseField(name="_sync_id", hidden=True),
+                    "raw": StringJSONDatabaseField(name="_raw", hidden=True),
                 },
                 external_data_source_id="source-id",
                 trino_catalog="ducklake",
@@ -2673,16 +2737,80 @@ def test_lowers_unaliased_left_any_join() -> None:
             ),
         )
     )
-    sql, _ = prepare_and_print_ast(
-        parse_select(
-            "SELECT users.user_id, people.created_at FROM users LEFT ANY JOIN people ON users.user_id = people.user_id"
-        ),
-        context,
-        "trino",
+    query = parse_select(
+        f"SELECT users.user_id, {people_column} FROM users LEFT ANY JOIN people ON users.user_id = people.user_id"
     )
+    if error is not None:
+        with pytest.raises(TrinoLoweringError, match=error):
+            prepare_and_print_ast(query, context, "trino")
+        return
+    sql, _ = prepare_and_print_ast(query, context, "trino")
 
     assert "LEFT ANY JOIN" not in sql
+    assert "_sync_id" not in sql
+    assert "_raw" not in sql
     assert ') AS "people" ON ("users"."user_id" = "people"."user_id")' in sql
+
+
+@pytest.mark.parametrize(
+    "structure, query, expected",
+    [
+        (
+            "`id` String, `tiers` Nullable(String)",
+            "SELECT tiers != '[]' FROM prices",
+            '("prices"."tiers" != %(hogql_val_0)s)',
+        ),
+        (
+            "`id` String, `tiers` Array(String)",
+            "SELECT tiers != '[]' FROM prices",
+            '(cardinality("prices"."tiers") != 0)',
+        ),
+        (
+            "`id` String, `tiers` Nullable(Array(String))",
+            "SELECT tiers != '[]' FROM prices",
+            '(cardinality("prices"."tiers") != 0)',
+        ),
+        (
+            "`id` String, `tiers` Nullable(String)",
+            "SELECT p.tiers != '[]' FROM (SELECT tiers FROM prices) AS p",
+            '("p"."tiers" != %(hogql_val_0)s)',
+        ),
+        (
+            "`id` String, `tiers` Nullable(String)",
+            "SELECT p.tiers != '[]' FROM prices LEFT ANY JOIN prices AS p ON prices.id = p.id",
+            '("p"."tiers" != %(hogql_val_0)s)',
+        ),
+    ],
+)
+def test_curated_array_field_over_a_text_column_compares_as_text(structure: str, query: str, expected: str) -> None:
+    database = Database(include_posthog_tables=False)
+    database.tables.add_child(
+        TableNode(
+            name="prices",
+            table=DataWarehouseTable(
+                name="prices",
+                url="http://example.com/prices",
+                format="Parquet",
+                structure=structure,
+                fields={
+                    "id": StringDatabaseField(name="id"),
+                    "tiers": StringArrayDatabaseField(name="tiers"),
+                },
+            ),
+        )
+    )
+    context = HogQLContext(
+        database=database,
+        modifiers=_trino_modifiers(),
+        enable_select_queries=True,
+        limit_top_select=False,
+        restricted_properties=set(),
+        trino_table_locators={"prices": ("ducklake", "stripe", "prices")},
+    )
+
+    sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
+
+    assert expected in sql
 
 
 def test_lowers_any_join_to_the_deduplicated_trino_persons_relation() -> None:
