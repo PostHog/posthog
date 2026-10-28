@@ -377,7 +377,13 @@ pub fn extract_resource_attributes(resource: Option<Resource>) -> HashMap<String
 }
 
 // TODO - pull this from PG
-const SEVERITY_KEYS: [&str; 4] = ["level", "severity", "log.level", "config.log_level"];
+const SEVERITY_KEYS: [&str; 5] = [
+    "level",
+    "severity",
+    "log.level",
+    "config.log_level",
+    "levelname",
+];
 
 pub(crate) fn try_extract_severity(body: &str) -> Option<&'static str> {
     if !body.trim_start().starts_with('{') {
