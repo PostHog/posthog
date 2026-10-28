@@ -212,8 +212,10 @@ def is_transient_rpc_error(exc: BaseException, codes: Collection[grpc.StatusCode
 def semantic_refusal_reason(exc: BaseException) -> str | None:
     """The reason slug of a definitive FAILED_PRECONDITION refusal, or None for any other error.
 
-    Follows ``__cause__`` like ``is_transient_rpc_error``. Callers branch on the slug (the identity
-    server's ``op_id_reused`` means the op_id belongs to a different request) instead of the message.
+    Follows ``__cause__`` like ``is_transient_rpc_error``. Any reason is final, so a caller never retries
+    under the same op_id; it branches on the slug instead of the message. The identity server emits
+    ``op_id_reused`` (the op_id belongs to a different request); the leader's own refusals pass through
+    the saga unchanged.
     """
     current: BaseException | None = exc
     while current is not None:

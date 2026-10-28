@@ -80,7 +80,7 @@ The sagas live under `client.lifecycle` because the facade has a `delete_persons
 They go out on a second channel to `PERSONHOG_LIFECYCLE_ADDR` (a router with the identity proxy enabled); without that setting `client.lifecycle.configured` is false and every saga method raises `PersonHogLifecycleUnavailable`.
 The call waits for the saga to complete, so its deadline is `PERSONHOG_LIFECYCLE_TIMEOUT_MS` rather than `PERSONHOG_TIMEOUT_MS`.
 Every request carries a caller-generated `op_id`. Retry a transient failure with the same `op_id` and the identical `person_ids` list; the retry attaches to the existing operation and returns its recorded outcome.
-A `FAILED_PRECONDITION` whose `semantic_refusal_reason()` (in `interceptor.py`) is `op_id_reused` means the `op_id` belongs to a different request; reissue under a fresh `op_id` instead of retrying.
+A `FAILED_PRECONDITION` with a reason from `semantic_refusal_reason()` (in `interceptor.py`) is final: never retry it under the same `op_id`. The identity server's own reason is `op_id_reused` (the `op_id` belongs to a different request; reissue under a fresh one). The leader's reasons (`release-unverified`, `uuid-mismatch`, `no-lifecycle-db`) pass through the saga unchanged and mean the operation cannot finish as issued; surface them rather than looping.
 The request and response types are re-exported from `posthog.personhog_client.proto` as `LifecycleDeletePersonsRequest` and `LifecycleDeletePersonsResponse`, because the facade's delete messages share their names.
 
 **Version floors:**

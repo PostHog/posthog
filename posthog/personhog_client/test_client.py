@@ -95,7 +95,7 @@ class TestLifecycleChannel:
         [
             ("unavailable_is_retried", grpc.StatusCode.UNAVAILABLE, (), True, grpc.StatusCode.OK, 2, None),
             (
-                "semantic_refusal_is_not_retried",
+                "refusal_trailer_reaches_the_caller_on_the_first_call",
                 grpc.StatusCode.FAILED_PRECONDITION,
                 (("x-semantic-refusal", "op_id_reused"),),
                 False,
