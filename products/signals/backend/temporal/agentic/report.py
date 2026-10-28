@@ -52,6 +52,7 @@ from products.signals.backend.report_generation.research import (
     LinkedReportContext,
     Priority,
     PriorityAssessment,
+    RecurrenceReportContext,
     ReportResearchOutput,
     SignalFinding,
     run_multi_turn_research,
@@ -328,15 +329,7 @@ def _load_previous_checks(team_id: int, report_id: str, *, monitoring_enabled: b
     ]
 
 
-async def _load_resolved_report_context(team_id: int, report_id: str) -> tuple[str | None, str | None]:
-    """Title/summary of the report claimed as fixed that this one recurred from, if any.
-
-    When a signal that would have grouped into a report already closed as fixed spawns a fresh
-    report instead (such a report never reopens), the grouping pipeline writes a `recurrence_of`
-    report link. Legacy reports use symmetric `related_to` artefacts. The source makes that claim:
-    resolved, or dismissed as fixed (see recurrence.py). Handing it to the research agent lets it
-    judge regression vs. new dimension vs. distinct.
-    """
+async def _load_recurrence_report_context(team_id: int, report_id: str) -> RecurrenceReportContext | None:
     related_ids: list[str] = []
     recurrence_ids: list[str] = []
     async for artefact in SignalReportArtefact.objects.filter(
@@ -355,9 +348,9 @@ async def _load_resolved_report_context(team_id: int, report_id: str) -> tuple[s
             continue
     related_ids = recurrence_ids or related_ids
     if not related_ids:
-        return None, None
+        return None
     closed_filter = await database_sync_to_async(report_status_filter)(
-        [SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED], team_id=team_id
+        [SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED, SignalReport.Status.SUPPRESSED], team_id=team_id
     )
     async for candidate in (
         SignalReport.objects.filter(
@@ -365,24 +358,33 @@ async def _load_resolved_report_context(team_id: int, report_id: str) -> tuple[s
             id__in=related_ids,
             team_id=team_id,
         )
-        .only("title", "summary", "status", "team")
+        .only("title", "summary", "status", "status_before_suppression", "team")
         .order_by("-created_at")
     ):
         if await database_sync_to_async(_is_safety_suppressed, thread_sensitive=False)(str(candidate.id), team_id):
             continue
-        if (
-            await database_sync_to_async(lambda report=candidate: report.effective_status)()
-            == SignalReport.Status.RESOLVED
-        ):
-            return candidate.title, candidate.summary
+        candidate_status = await database_sync_to_async(lambda report=candidate: report.effective_status)()
+        if candidate_status in {
+            SignalReport.Status.RESOLVED,
+            SignalReport.Status.CLOSED,
+        }:
+            return RecurrenceReportContext(
+                title=candidate.title,
+                summary=candidate.summary,
+                status="closed" if candidate_status == SignalReport.Status.CLOSED else "resolved",
+            )
         # Only an archived candidate costs the dismissal read, and the newest match wins, so the
         # loop stops at the first one rather than reading every link.
-        if (
-            str(candidate.id) in recurrence_ids
-            and await database_sync_to_async(fixed_dismissal_at, thread_sensitive=False)(candidate) is not None
+        if str(candidate.id) in recurrence_ids and (
+            candidate.status_before_suppression == SignalReport.Status.CLOSED
+            or await database_sync_to_async(fixed_dismissal_at, thread_sensitive=False)(candidate) is not None
         ):
-            return candidate.title, candidate.summary
-    return None, None
+            return RecurrenceReportContext(
+                title=candidate.title,
+                summary=candidate.summary,
+                status="closed" if candidate.status_before_suppression == SignalReport.Status.CLOSED else "resolved",
+            )
+    return None
 
 
 # Kinds whose target carries context this report should start from. `duplicate_of` is absent
@@ -1227,10 +1229,7 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
             previous_checks = await database_sync_to_async(_load_previous_checks, thread_sensitive=False)(
                 input.team_id, input.report_id, monitoring_enabled=monitoring_enabled
             )
-            # 2b. Load the resolved report this one recurred from, if any, as extra research context
-            resolved_report_title, resolved_report_summary = await _load_resolved_report_context(
-                input.team_id, input.report_id
-            )
+            recurrence_report = await _load_recurrence_report_context(input.team_id, input.report_id)
             # Load the reports this one follows up, depends on, or is a step of, so the agent starts
             # from their findings and pull requests instead of re-deriving them.
             linked_reports = await _load_linked_report_context(input.team_id, input.report_id)
@@ -1262,8 +1261,7 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                 signal_report_id=input.report_id,
                 spend_signal_id=input.signal_id,
                 has_business_knowledge=has_bk,
-                resolved_report_title=resolved_report_title,
-                resolved_report_summary=resolved_report_summary,
+                recurrence_report=recurrence_report,
                 linked_reports=linked_reports,
                 metrics_enabled=metrics_enabled,
                 monitoring_enabled=monitoring_enabled,
