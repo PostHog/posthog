@@ -83,6 +83,9 @@ filters:
         - 'products/access_control/backend/**'
         - posthog/user_permissions.py
         - posthog/organization_caching.py
+        - 'products/data_modeling/backend/models/**'
+        - 'products/warehouse_sources/backend/models/**'
+        - products/warehouse_sources/backend/logic/source_inputs.py
         - 'products/notifications/backend/**'
         - products/cdp/backend/internal_events.py
         - ee/billing/quota_limiting.py
@@ -115,4 +118,4 @@ images:
             generic:
                 repository: posthog-temporal-workers/generic
                 filter: genericWorker
-                bootstrapPolicyDigest: 3555594bc141236febf69f9a03367200e19ad854f47a3601f476dbb979e2aeeb
+                bootstrapPolicyDigest: 116d1244519a4cbaf4221d87bf510a7a530283112c9d2952dd167f460e4c681f
