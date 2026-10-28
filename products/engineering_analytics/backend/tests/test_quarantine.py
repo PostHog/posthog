@@ -806,6 +806,7 @@ class TestTrunkQuarantineDebtTruncation(TestCase):
                 f"products/a/test_{index}.py",
                 "",
                 "flaky",
+                f"case-{index}",
                 f"https://app.trunk.io/example/tests/case-{index}",
                 datetime(2026, 1, 1, tzinfo=UTC),
             )

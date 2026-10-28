@@ -23,7 +23,7 @@ from products.engineering_analytics.backend.logic.queries._curated import Curate
 _LIMIT = 5000
 
 _QUARANTINED_SELECT = f"""
-    SELECT runner, nodeid, source_path, crate, status, trunk_url, quarantined_at
+    SELECT runner, nodeid, source_path, crate, status, test_case_id, trunk_url, quarantined_at
     FROM __TRUNK_SOURCE__
     ORDER BY quarantined_at ASC, nodeid ASC
     LIMIT {_LIMIT + 1}
@@ -34,6 +34,14 @@ def _trunk_url(org_url_slug: str | None, repository: str) -> str | None:
     if not org_url_slug:
         return None
     return f"https://app.trunk.io/{org_url_slug}/flaky-tests?repo={repository}"
+
+
+def _trunk_test_url(org_url_slug: str | None, repository: str, test_case_id: str) -> str | None:
+    """The Trunk app's per-test page for a v1 row, which carries no URL. The ``?repo`` form is what
+    Trunk itself redirects to the canonical repo-uuid URL (verified against the live app)."""
+    if not org_url_slug or not test_case_id:
+        return None
+    return f"https://app.trunk.io/{org_url_slug}/flaky-tests/test/{test_case_id}?repo={repository}"
 
 
 def query_trunk_quarantine_debt(
@@ -82,8 +90,8 @@ def query_trunk_quarantine_debt(
         )
 
     parsed = [
-        (runner, nodeid, QuarantinedTestFile(source_path=source_path, crate=crate), status, test_url, at)
-        for runner, nodeid, source_path, crate, status, test_url, at in rows
+        (runner, nodeid, QuarantinedTestFile(source_path=source_path, crate=crate), status, case_id, test_url, at)
+        for runner, nodeid, source_path, crate, status, case_id, test_url, at in rows
     ]
     owned_by_test = resolve_test_ownership(
         curated.repository,
@@ -92,7 +100,7 @@ def query_trunk_quarantine_debt(
         files=repo_files(curated.team, curated.repository, source_id=curated.source_id, priority=Priority.NORMAL),
     )
     tests: list[TrunkQuarantinedTest] = []
-    for (runner, nodeid, _file, status, test_url, quarantined_at), owned in zip(
+    for (runner, nodeid, _file, status, test_case_id, test_url, quarantined_at), owned in zip(
         parsed, owned_by_test.tests, strict=True
     ):
         if quarantined_at.tzinfo is None:
@@ -108,7 +116,7 @@ def query_trunk_quarantine_debt(
                 quarantined_at=quarantined_at,
                 age_days=age_days,
                 overdue=age_days > ttl_days,
-                trunk_url=test_url or None,
+                trunk_url=test_url or _trunk_test_url(org_url_slug, curated.repository, test_case_id),
             )
         )
     tests.sort(key=lambda test: (-test.age_days, test.nodeid))

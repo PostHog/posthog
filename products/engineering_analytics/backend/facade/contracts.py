@@ -887,7 +887,7 @@ class TrunkQuarantinedTest:
     quarantined_at: datetime
     age_days: int
     overdue: bool
-    # The Trunk app's page for this test; None when the row carries no URL.
+    # The Trunk app's page for this test; None when the row has no URL and no org slug or test id.
     trunk_url: str | None
 
 

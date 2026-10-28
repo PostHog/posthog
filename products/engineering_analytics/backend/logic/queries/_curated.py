@@ -345,7 +345,7 @@ class CuratedGitHubSource:
         source = self._trunk_quarantine()
         if source is None:
             return None
-        return f"({trunk_quarantined_tests.build_query(source.table)})"
+        return f"({trunk_quarantined_tests.build_query(source.table, v2_shape=source.v2_shape)})"
 
     def trunk_org_url_slug(self) -> str | None:
         """The TrunkIo source's org slug, for links into the Trunk app; None when unsynced or unset."""
