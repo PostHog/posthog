@@ -245,7 +245,10 @@ class TestCustomerioCampaignTranslation(BaseTest):
         source = _onboarding_campaign()
         campaign = {**source.campaign, "filters": _encode([{"type": "segments", "segments": [9]}])}
         actions = [
-            {**action, "subscription_topic_id": 3} if action["id"] == "1" else action for action in source.actions
+            {**action, "subscription_topic_id": 3, "name": "Welcome {{ customer.first_name }} !"}
+            if action["id"] == "1"
+            else action
+            for action in source.actions
         ]
         templates = {
             **source.templates,
@@ -255,7 +258,10 @@ class TestCustomerioCampaignTranslation(BaseTest):
         options = ImportOptions(
             snippets={},
             segment_cohorts={},
-            layouts={"5": "<html><body>{{ content }}<p>{{ customer.city }}</p></body></html>"},
+            layouts={
+                "5": "<html><body><!-- header --><!--[if mso]><table><![endif]-->{{ content }}"
+                "<p>{{ customer.city }}</p></body></html>"
+            },
             sender_addresses={"77": "Team <team@example.com>"},
             senders={"team@example.com": ImportSender(integration_id=12, email="team@example.com", name="PostHog")},
             topic_categories={"3": ImportCategory(id="cat-1", category_type="marketing")},
@@ -268,12 +274,17 @@ class TestCustomerioCampaignTranslation(BaseTest):
         actions_by_id = {action["id"]: action for action in translated.workflow["actions"]}
         welcome = actions_by_id["cio_1"]["config"]
         email = welcome["inputs"]["email"]["value"]
-        assert email["html"].startswith("<html><body><p>Hi {{ person.properties.first_name")
+        assert actions_by_id["cio_1"]["name"] == "Welcome!"
+        assert email["html"].startswith(
+            "<html><body><!--[if mso]><table><![endif]--><p>Hi {{ person.properties.first_name"
+        )
         assert email["html"].endswith("<p>{{ person.properties.city }}</p></body></html>")
         assert email["from"] == {"integrationId": 12, "email": "team@example.com", "name": "Team"}
         assert email["replyTo"] == "help@example.com"
         assert (welcome["message_category_id"], welcome["message_category_type"]) == ("cat-1", "marketing")
-        assert actions_by_id["cio_5"]["config"]["inputs"]["email"]["value"]["from"]["email"] == "ops@example.com"
+        activated = actions_by_id["cio_5"]["config"]["inputs"]["email"]["value"]
+        assert activated["from"]["email"] == "ops@example.com"
+        assert activated["html"].startswith('<div style="font-family: Arial, Helvetica, sans-serif;">')
         messages = [(note.level, note.step_id, note.message) for note in translated.notes]
         assert any(
             level == NoteLevel.NEEDS_INPUT and step == "cio_5" and "ops@example.com" in text
@@ -615,7 +626,9 @@ class TestWorkflowImportAPI(APIBaseTest):
         flow = HogFlow.objects.get(pk=result["workflow_id"])
         flow_actions = {action["id"]: action for action in flow.actions}
         welcome = flow_actions["cio_1"]["config"]
-        assert welcome["inputs"]["email"]["value"]["html"] == "<p>Fetched {{person.properties.first_name}}</p>"
+        assert welcome["inputs"]["email"]["value"]["html"] == (
+            '<div style="font-family: Arial, Helvetica, sans-serif;"><p>Fetched {{person.properties.first_name}}</p></div>'
+        )
         assert welcome["inputs"]["email"]["value"]["from"]["email"] == "team@example.com"
         assert welcome["message_category_type"] == "marketing"
         assert flow_actions["cio_5"]["config"]["inputs"]["email"]["value"]["subject"] == "Tips"

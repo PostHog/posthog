@@ -47,6 +47,10 @@ _DAY_NAMES = {
 }
 _WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday"]
 _LAYOUT_CONTENT = re.compile(r"\{\{-?\s*content\s*-?\}\}")
+# A plain HTML comment. Outlook's conditional comments (`<!--[if mso]>`, `<!--<![endif]-->`) are kept.
+_HTML_COMMENT = re.compile(r"<!--(?!>)(?!\s*\[if)(?:(?!-->|<!\[endif\]).){0,5000}?-->", re.DOTALL)
+_LIQUID_TAG = re.compile(r"\{\{.{0,500}?\}\}|\{%.{0,500}?%\}", re.DOTALL)
+_SANS_SERIF = "font-family: Arial, Helvetica, sans-serif;"
 _STATIC_SEGMENT_TYPES = {"static", "manual"}
 _SEGMENT_IDS = re.compile(r"\b(segments?) (\d+(?:, \d+)*)\b")
 _CHANNEL_NAMES = {
@@ -340,7 +344,7 @@ class _Builder:
     def _action(self, source: dict[str, Any]) -> dict[str, Any] | None:
         kind = source.get("type")
         action_id = f"cio_{source['id']}"
-        name = str(source.get("name") or kind or "Step")[:400]
+        name = _plain_name(source.get("name")) or str(kind or "Step")
         base: dict[str, Any] = {"id": action_id, "name": name, "description": ""}
         translated: dict[str, Any] | None
         match kind:
@@ -493,7 +497,8 @@ class _Builder:
         if layout is None and isinstance(template.get("layout"), str):
             layout = template["layout"]
         if layout and _LAYOUT_CONTENT.search(layout):
-            return _LAYOUT_CONTENT.sub(lambda _: body, layout, count=1)
+            # A comment in the layout shows up as text in the plain-text version of the email.
+            return _LAYOUT_CONTENT.sub(lambda _: body, _HTML_COMMENT.sub("", layout), count=1)
         if layout_id:
             self.note(
                 NoteLevel.NEEDS_INPUT,
@@ -501,6 +506,9 @@ class _Builder:
                 "again with the layout, or add its header and footer to the HTML.",
                 action,
             )
+        if body and "<html" not in body.lower() and "font-family" not in body.lower():
+            # With no layout, mail clients fall back to a serif font such as Times.
+            return f'<div style="{_SANS_SERIF}">{body}</div>'
         return body
 
     def _address(self, template: dict[str, Any], *keys: str) -> "_Address":
@@ -972,3 +980,10 @@ def _prune_unreachable(actions: list[dict[str, Any]], edges: list[dict[str, Any]
         actions=[action for action in actions if action["id"] in reachable],
         edges=[edge for edge in edges if edge["from"] in reachable and edge["to"] in reachable],
     )
+
+
+def _plain_name(name: Any) -> str:
+    """A step name without Liquid, which the editor shows as raw `{{ ... }}`. Customer.io often names emails by subject."""
+    text = _LIQUID_TAG.sub("", str(name or ""))
+    text = re.sub(r"\s+([!?.,:;])", r"\1", re.sub(r"\s+", " ", text)).strip()
+    return text[:400]
