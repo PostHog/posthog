@@ -148,6 +148,8 @@ class TestLockfileVersions(SimpleTestCase):
             ("not_numeric", "1.0.0", "next", "a major update"),
             ("patch_downgrade", "1.2.4", "1.2.3", "a downgrade"),
             ("minor_downgrade", "1.10.0", "1.9.5", "a downgrade"),
+            ("onto_a_prerelease", "1.2.0", "1.2.0-rc.1", "a prerelease"),
+            ("between_prereleases", "1.2.0-rc.1", "1.2.0-rc.2", None),
         ]
     )
     def test_update_refusal(self, _name: str, old: str, new: str, expected: str | None) -> None:
@@ -157,6 +159,7 @@ class TestLockfileVersions(SimpleTestCase):
         [
             ("replaces_its_only_version", ["1.0.0"], ["1.1.0"], [("1.0.0", "1.1.0")]),
             ("sits_beside_another_major", ["10.0.0", "9.0.0"], ["10.0.0", "10.1.0", "9.0.0"], [("10.0.0", "10.1.0")]),
+            ("replaces_the_highest_of_its_line", ["1.5.0", "1.2.0"], ["1.3.0"], [("1.5.0", "1.3.0")]),
             (
                 "pairs_zero_versions_by_minor",
                 ["0.4.1", "0.5.0"],

@@ -270,6 +270,9 @@ def update_refusal(change: VersionChange) -> str | None:
         return "a major update"
     if _numeric_version(change.new_version) < _numeric_version(change.old_version):
         return "a downgrade"
+    # A prerelease sorts below its release, so 1.2.0 -> 1.2.0-rc.1 is a downgrade the numbers miss.
+    if "-" in change.new_version and "-" not in change.old_version:
+        return "a prerelease"
     return None
 
 
@@ -279,12 +282,13 @@ def _replaced_version(base_versions: list[str], *, kept: set[str], new_version: 
     A lockfile can hold several versions of one package, so a new version only replaces one of
     them when the head drops it. Otherwise the new version sits beside the old ones. Among the
     candidates, one in the new version's release line is the one the major-update check compares
-    against, so two updates in one lockfile pair up by line and not by lockfile order.
+    against, so two updates in one lockfile pair up by line and not by lockfile order. The highest
+    candidate is the one compared, so a downgrade from any of them is caught.
     """
     candidates = [version for version in base_versions if version not in kept] or base_versions
     new_line = _release_line(new_version)
     same_line = [version for version in candidates if new_line is not None and _release_line(version) == new_line]
-    return (same_line or candidates)[-1]
+    return max(same_line or candidates, key=_numeric_version)
 
 
 def _split_pnpm_key(key: str) -> tuple[str, str] | None:
