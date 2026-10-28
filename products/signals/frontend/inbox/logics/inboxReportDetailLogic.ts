@@ -1021,7 +1021,13 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     const artefacts = values.reportArtefacts ?? []
                     const associations = new Map<
                         string,
-                        { purpose: ReportTaskPurpose; purposeLabel: string; startedAt: string }
+                        {
+                            purpose: ReportTaskPurpose
+                            purposeLabel: string
+                            startedAt: string
+                            latestRunId?: string | null
+                            latestRunAt: string
+                        }
                     >()
                     for (const artefact of artefacts) {
                         if (artefact.type !== 'task_run') {
@@ -1037,15 +1043,39 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                         }
                         const existing = associations.get(content.task_id)
                         if (!existing) {
-                            associations.set(content.task_id, { ...derived, startedAt: artefact.created_at })
+                            associations.set(content.task_id, {
+                                ...derived,
+                                startedAt: artefact.created_at,
+                                latestRunId: content.run_id,
+                                latestRunAt: artefact.created_at,
+                            })
                         } else if (artefact.created_at < existing.startedAt) {
                             // Keep the earliest association's timestamp + purpose for this task.
-                            associations.set(content.task_id, { ...derived, startedAt: artefact.created_at })
+                            associations.set(content.task_id, {
+                                ...existing,
+                                ...derived,
+                                startedAt: artefact.created_at,
+                            })
+                        } else if (artefact.created_at > existing.latestRunAt) {
+                            associations.set(content.task_id, {
+                                ...existing,
+                                latestRunId: content.run_id,
+                                latestRunAt: artefact.created_at,
+                            })
                         }
                     }
                     let incomplete = false
                     const entries = await Promise.all(
                         [...associations.entries()].map(async ([taskId, meta]): Promise<ReportTaskEntry | null> => {
+                            const cached = values.reportTasks?.find((entry) => entry.task.id === taskId)
+                            if (
+                                values.report?.status === SignalReportStatus.MONITORING &&
+                                cached?.task.latest_run &&
+                                TERMINAL_RUN_STATUSES.includes(cached.task.latest_run.status) &&
+                                (!meta.latestRunId || meta.latestRunId === cached.task.latest_run.id)
+                            ) {
+                                return { task: cached.task, ...meta }
+                            }
                             try {
                                 const task = await api.tasks.get(taskId)
                                 return { task, ...meta }
@@ -2225,6 +2255,9 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             actions.setReport(props.report ?? null)
             if (props.report?.status !== oldProps.report?.status) {
                 actions.loadReportChecks()
+                if (oldProps.report?.status === SignalReportStatus.MONITORING) {
+                    actions.loadReportArtefacts()
+                }
             }
         }
     }),
@@ -2247,6 +2280,15 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         }
         cache.disposables.add(() => {
             const interval = setInterval(() => {
+                if (values.report?.status === SignalReportStatus.MONITORING) {
+                    if (!values.reportArtefactsLoading) {
+                        actions.loadReportArtefacts()
+                    }
+                    const scene = inboxSceneLogic.findMounted()
+                    if (scene?.values.selectedReportId === props.reportId && !scene.values.selectedReportLoading) {
+                        scene.actions.loadSelectedReport({ id: props.reportId })
+                    }
+                }
                 if (
                     values.report?.status !== SignalReportStatus.RESOLVED &&
                     values.report?.status !== SignalReportStatus.CLOSED &&
