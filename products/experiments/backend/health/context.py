@@ -19,6 +19,8 @@ from posthog.schema import (
     PropertyOperator,
 )
 
+from posthog.hogql.property import operator_is_negative
+
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
@@ -30,11 +32,11 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthMetricCompileErrorKind,
 )
 from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD, LAST_CALLED_AT_LAG_DURATION
+from products.experiments.backend.hogql_queries.experiment_query_builder import get_exposure_config_params_for_builder
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
     get_exposure_event_and_property,
-    has_activation_config,
     normalize_to_exposure_criteria,
 )
 from products.experiments.backend.logic.result_stats import MetricResultStats
@@ -324,40 +326,6 @@ class FlagKeyFilter:
 
 ExposurePropertyType = Literal["event", "person"]
 
-# `semver_neq` is left out: it fails a missing scalar, but passes a missing array such as `$exception_types`, as every
-# negated operator does.
-_FAIL_WHEN_MISSING = frozenset(
-    {
-        PropertyOperator.EXACT,
-        PropertyOperator.ICONTAINS,
-        PropertyOperator.ICONTAINS_MULTI,
-        PropertyOperator.STARTS_WITH,
-        PropertyOperator.ENDS_WITH,
-        PropertyOperator.REGEX,
-        PropertyOperator.GT,
-        PropertyOperator.GTE,
-        PropertyOperator.LT,
-        PropertyOperator.LTE,
-        PropertyOperator.MIN,
-        PropertyOperator.MAX,
-        PropertyOperator.IS_SET,
-        PropertyOperator.IS_DATE_EXACT,
-        PropertyOperator.IS_DATE_BEFORE,
-        PropertyOperator.IS_DATE_AFTER,
-        PropertyOperator.BETWEEN,
-        PropertyOperator.IN_,
-        PropertyOperator.IS_CLEANED_PATH_EXACT,
-        PropertyOperator.SEMVER_EQ,
-        PropertyOperator.SEMVER_GT,
-        PropertyOperator.SEMVER_GTE,
-        PropertyOperator.SEMVER_LT,
-        PropertyOperator.SEMVER_LTE,
-        PropertyOperator.SEMVER_TILDE,
-        PropertyOperator.SEMVER_CARET,
-        PropertyOperator.SEMVER_WILDCARD,
-    }
-)
-
 
 @frozen
 class ExposurePropertyFilter:
@@ -374,13 +342,15 @@ class ExposurePropertyFilter:
 
     @property
     def fails_when_missing(self) -> bool:
-        """Whether no event without the property passes the filter. The query reads a missing property as null, and
-        `property_to_expr` compares null as false for these operators. The negated operators pass it."""
+        """Whether no event without the property passes the filter. The query reads a missing property as null, which
+        `property_to_expr` compares as false, except for a negated operator. `flag_evaluates_to` doesn't compile."""
+        if operator_is_negative(self.operator) or self.operator == PropertyOperator.FLAG_EVALUATES_TO:
+            return False
         if self.operator == PropertyOperator.IS_SET:
             # The test ignores a value, but an empty list of values matches every event.
             return self.values is None or len(self.values) > 0
         # Without a value, `exact` tests that the property is missing.
-        return self.operator in _FAIL_WHEN_MISSING and bool(self.values)
+        return bool(self.values)
 
     @property
     def definition_recorded(self) -> bool:
@@ -674,10 +644,10 @@ def _exposure_events(experiment: Experiment) -> ExposureEvents | None:
         flag_key or "", criteria, default_exposure_event=DEFAULT_EXPOSURE_EVENT
     )
     reads_flag_calls = event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT)
-    config = criteria.exposure_config if criteria else None
+    # The configs that the exposure query builds from, so the filters read here are the ones it applies.
+    params = get_exposure_config_params_for_builder(criteria, experiment.team, experiment.start_date)
+    config, activation = params.exposure_config, params.activation_config
     properties = config.properties if isinstance(config, ExperimentEventExposureConfig) else []
-    activation = criteria.activation_config if criteria and has_activation_config(criteria) else None
-    # As in the exposure query, the activation's filters apply only next to the default exposure event.
     filters = [(prop, source) for source in (config, activation) if source for prop in source.properties or []]
     return ExposureEvents(
         custom_event=event if event is not None and not reads_flag_calls else None,

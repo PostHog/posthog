@@ -97,6 +97,65 @@ NOT_CHECKED_PROPERTY = not_checked(
 )
 
 
+Op = PropertyOperator
+# Every operator in one of the two sets, so that a new operator fails the test until someone reads how
+# `property_to_expr` compiles it for a missing property.
+FAILS_A_MISSING_PROPERTY = {
+    Op.EXACT,
+    Op.ICONTAINS,
+    Op.ICONTAINS_MULTI,
+    Op.STARTS_WITH,
+    Op.ENDS_WITH,
+    Op.REGEX,
+    Op.GT,
+    Op.GTE,
+    Op.LT,
+    Op.LTE,
+    Op.MIN,
+    Op.MAX,
+    Op.IS_SET,
+    Op.IS_DATE_EXACT,
+    Op.IS_DATE_BEFORE,
+    Op.IS_DATE_AFTER,
+    Op.BETWEEN,
+    Op.IN_,
+    Op.IS_CLEANED_PATH_EXACT,
+    Op.SEMVER_EQ,
+    Op.SEMVER_GT,
+    Op.SEMVER_GTE,
+    Op.SEMVER_LT,
+    Op.SEMVER_LTE,
+    Op.SEMVER_TILDE,
+    Op.SEMVER_CARET,
+    Op.SEMVER_WILDCARD,
+}
+PASSES_A_MISSING_PROPERTY = {
+    Op.IS_NOT,
+    Op.NOT_ICONTAINS,
+    Op.NOT_ICONTAINS_MULTI,
+    Op.NOT_STARTS_WITH,
+    Op.NOT_ENDS_WITH,
+    Op.NOT_REGEX,
+    Op.IS_NOT_SET,
+    Op.NOT_BETWEEN,
+    Op.NOT_IN,
+    Op.IS_CLEANED_PATH_NOT_EXACT,
+    Op.SEMVER_NEQ,
+    Op.FLAG_EVALUATES_TO,
+}
+
+
+class TestFailsWhenMissing(TestCase):
+    @parameterized.expand([(operator.value, operator) for operator in PropertyOperator])
+    def test_fails_when_missing(self, _name: str, operator: PropertyOperator) -> None:
+        self.assertIn(operator, FAILS_A_MISSING_PROPERTY | PASSES_A_MISSING_PROPERTY)
+        property_filter = ExposurePropertyFilter(
+            type="event", key="plan", operator=operator, values=("pro",), event="$feature_flag_called"
+        )
+
+        self.assertEqual(property_filter.fails_when_missing, operator in FAILS_A_MISSING_PROPERTY)
+
+
 class TestExposureCriteriaCannotMatch(TestCase):
     @parameterized.expand(
         [
@@ -188,7 +247,6 @@ class TestExposureCriteriaCannotMatch(TestCase):
             ("a_missing_property_passes_a_negated_filter", _property_filter(False, PropertyOperator.IS_NOT), None),
             ("an_empty_list_matches_every_event", _property_filter(False, values=()), None),
             ("is_set_with_an_empty_list", _property_filter(False, PropertyOperator.IS_SET, ()), None),
-            ("semver_neq_passes_a_missing_array", _property_filter(False, PropertyOperator.SEMVER_NEQ), None),
             ("exact_without_a_value_matches_a_missing_property", _property_filter(False, values=None), None),
             ("property_without_a_definition", _property_filter(None), NOT_CHECKED_PROPERTY),
             (
