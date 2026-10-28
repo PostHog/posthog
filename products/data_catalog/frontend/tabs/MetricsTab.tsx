@@ -267,7 +267,8 @@ export function MetricsTab(): JSX.Element {
 
     return (
         <div className="@container flex flex-col gap-4">
-            <CatalogExplainer />
+            {/* The explainer describes agent behavior that ships with the review queue, so it shares its flag. */}
+            {reviewQueueEnabled && <CatalogExplainer />}
             {reviewQueueEnabled && (
                 <LifecycleStrip counts={stageCounts} status={filters.status} onToggle={toggleStage} />
             )}
