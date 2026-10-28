@@ -68,10 +68,15 @@ from products.subscriptions.backend.temporal.ai_subscription.spec_generator impo
     get_ai_query_plan_status,
     resolve_ai_query_plan_status,
 )
-from products.subscriptions.backend.temporal.types import safe_query_error_details
+from products.subscriptions.backend.temporal.types import QueryErrorDetails, safe_query_error_details
 
+from ee.hogai.context.insight.clickhouse_rejections import describe_clickhouse_rejection
 from ee.hogai.context.insight.format import format_access_control_warnings, format_warehouse_sync_warnings
-from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
+from ee.hogai.context.insight.query_executor import (
+    HOGQL_ERROR_CODES_BY_MESSAGE_PREFIX,
+    HOGQL_INPUT_ERROR_CODES,
+    AssistantQueryExecutor,
+)
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool_errors import MaxToolRetryableError
 
@@ -120,6 +125,20 @@ _RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
     ExposedHogQLError,
     InternalHogQLError,
 )
+
+
+_HOGQL_INPUT_ERROR_CODES = HOGQL_INPUT_ERROR_CODES | {code for _, code in HOGQL_ERROR_CODES_BY_MESSAGE_PREFIX}
+
+
+def _safe_step_error_details(exc: BaseException) -> QueryErrorDetails | None:
+    if details := safe_query_error_details(exc):
+        return details
+    if not isinstance(exc, MaxToolRetryableError) or not exc.error_code:
+        return None
+    message = str(exc) if exc.error_code in _HOGQL_INPUT_ERROR_CODES else describe_clickhouse_rejection(exc.error_code)
+    if not message:
+        return None
+    return {"type": type(exc).__name__, "code": exc.error_code, "message": message}
 
 
 def _all_queries_failed_notice(total_steps: int, *, include_manage_link: bool = True) -> str:
@@ -686,7 +705,7 @@ async def _run_steps(
                     max_retries=_MAX_QUERY_FIX_RETRIES,
                     error_type=type(exc).__name__,
                 )
-                error_details = safe_query_error_details(exc)
+                error_details = _safe_step_error_details(exc)
                 fixed = await _arequest_hogql_fix(
                     original_hogql=current_hogql,
                     # Forward explicitly safe detail when available; fall back to the type name.
@@ -704,7 +723,7 @@ async def _run_steps(
                 current_hogql = fixed
 
         type_name = type(last_exc).__name__ if last_exc is not None else "UnknownError"
-        error_details = safe_query_error_details(last_exc) if last_exc is not None else None
+        error_details = _safe_step_error_details(last_exc) if last_exc is not None else None
         logger.warning(
             "ai_report.query_failed",
             trace_correlation_id=trace_correlation_id,

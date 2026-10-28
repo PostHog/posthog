@@ -463,6 +463,59 @@ async def test_run_steps_keeps_wrapped_error_out_of_recipient_copy_and_records_s
     mock_hogql_fix.assert_awaited_once()
 
 
+@pytest.mark.parametrize(
+    "error,expected_code,expected_message",
+    [
+        pytest.param(
+            MaxToolRetryableError(
+                "Unable to resolve field: plan_name", error_type="validation", error_code="hogql_unresolved_field"
+            ),
+            "hogql_unresolved_field",
+            "Unable to resolve field: plan_name",
+            id="hogql_input_error",
+        ),
+        pytest.param(
+            MaxToolRetryableError(
+                "Cannot parse 'jane@example.com' as DateTime",
+                error_type="validation",
+                error_code="cannot_parse_datetime",
+            ),
+            "cannot_parse_datetime",
+            "ClickHouse rejected the query with error CANNOT_PARSE_DATETIME.",
+            id="clickhouse_rejection_uses_curated_text",
+        ),
+        pytest.param(
+            MaxToolRetryableError("Code: 999. boom on host ch-1", error_type="internal", error_code="internal_error"),
+            None,
+            None,
+            id="internal_error",
+        ),
+        pytest.param(MaxToolRetryableError("something failed"), None, None, id="no_error_code"),
+    ],
+)
+@patch(f"{_RP}.AssistantQueryExecutor")
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
+async def test_run_steps_records_owner_safe_reason_for_an_async_query_failure(
+    mock_hogql_fix: AsyncMock,
+    mock_executor_cls: MagicMock,
+    error: MaxToolRetryableError,
+    expected_code: str | None,
+    expected_message: str | None,
+) -> None:
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=error)
+
+    execution = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+
+    cause = "" if expected_message else " (MaxToolRetryableError)"
+    assert execution.rendered[0] == f"### s0\n\n_{QUERY_FAILED_PREFIX}{cause} — metric not computed, not empty data._"
+    assert execution.diagnostics[0].error_code == expected_code
+    assert execution.diagnostics[0].human_readable_error == expected_message
+    assert mock_hogql_fix.await_args is not None
+    assert mock_hogql_fix.await_args.kwargs["error_message"] == (expected_message or "MaxToolRetryableError")
+
+
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
 @patch(f"{_RP}.AssistantQueryExecutor")
 async def test_run_steps_forwards_exposed_query_error_message_to_fix(
