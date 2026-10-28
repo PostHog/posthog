@@ -340,6 +340,33 @@ def test_monitor_history_rows_keep_each_delivery_once() -> None:
 
 
 @time_machine.travel("2025-03-01T00:00:00Z", tick=False)
+def test_monitor_history_keeps_rows_near_fractional_window_bounds() -> None:
+    row = history_row("2025-02-24T00:00:00.250Z")
+
+    result = SourceDriver(AxiomSource(), AxiomSourceConfig(api_token="test-token")).run(
+        "monitor_history",
+        [
+            ScriptedResponse(json=[{"id": "monitor-1", "createdAt": "2025-02-17T00:00:00.500Z"}]),
+            ScriptedResponse(json=[]),
+            ScriptedResponse(json=[row]),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.queries[1:] == [
+        history_query("2025-02-17T00:00:00Z", "2025-02-24T00:00:00Z"),
+        history_query("2025-02-24T00:00:00Z", "2025-03-01T00:00:00Z"),
+    ]
+    assert result.rows == [{**row, "deliveryIndex": 0}]
+
+
+def test_monitor_history_does_not_claim_resumability() -> None:
+    inputs = cast(SourceInputs, MagicMock(schema_name="monitor_history", should_use_incremental_field=False))
+    response = axiom_source(AxiomSourceConfig(api_token="test-token"), inputs, MagicMock())
+    assert response.supports_resume is False
+
+
+@time_machine.travel("2025-03-01T00:00:00Z", tick=False)
 @pytest.mark.parametrize("status,raises", [(404, False), (403, True)])
 def test_monitor_history_skips_only_deleted_monitors(status: int, raises: bool) -> None:
     monitors = [

@@ -131,6 +131,9 @@ def axiom_monitor_history_source(
             start = _parse_time(monitor.get("createdAt")) or end - MONITOR_HISTORY_DEFAULT_LOOKBACK
             if last_value is not None:
                 start = max(start, last_value)
+            # Request bounds are whole seconds, so windows must be too or rows between a truncated
+            # bound and the precise one would fall outside every window.
+            start = start.replace(microsecond=0)
             while start < end:
                 window_end = min(start + MONITOR_HISTORY_WINDOW, end)
                 try:
@@ -165,6 +168,8 @@ def axiom_monitor_history_source(
         partition_mode="datetime",
         partition_format="month",
         partition_keys=["timestamp"],
+        # No cursor is saved across monitors and windows, so a handoff would replay from the start.
+        supports_resume=False,
     )
 
 
