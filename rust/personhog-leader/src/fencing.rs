@@ -184,12 +184,35 @@ struct Dial {
     broker_txn_timeout: Duration,
     #[cfg(any(test, feature = "test-support"))]
     attempts: Arc<AtomicUsize>,
+    #[cfg(any(test, feature = "test-support"))]
+    hold: Arc<DialHold>,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+#[derive(Default)]
+struct DialHold {
+    held: Mutex<bool>,
+    released: std::sync::Condvar,
 }
 
 /// Connect one lane's producer, with no transactional state yet.
 fn connect_lane(dial: &Dial, lane: usize) -> Result<ConnectedFencedProducer, String> {
     #[cfg(any(test, feature = "test-support"))]
     dial.attempts.fetch_add(1, Ordering::SeqCst);
+    #[cfg(any(test, feature = "test-support"))]
+    {
+        let held = dial
+            .hold
+            .held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        drop(
+            dial.hold
+                .released
+                .wait_while(held, |held| *held)
+                .unwrap_or_else(PoisonError::into_inner),
+        );
+    }
     let tid = transactional_id(&dial.topic, dial.partition, lane);
     ConnectedFencedProducer::connect_bounded_with_context(
         &dial.kafka,
@@ -731,6 +754,10 @@ pub struct FencedChangelogProducers {
     /// pod is already dying.
     #[cfg(any(test, feature = "test-support"))]
     connect_attempts: Arc<AtomicUsize>,
+    #[cfg(any(test, feature = "test-support"))]
+    dial_hold: Arc<DialHold>,
+    #[cfg(any(test, feature = "test-support"))]
+    dial_waits: AtomicUsize,
 
     /// Outcomes a test stages for the next produce on a partition.
     ///
@@ -791,6 +818,10 @@ impl FencedChangelogProducers {
             #[cfg(any(test, feature = "test-support"))]
             connect_attempts: Arc::new(AtomicUsize::new(0)),
             #[cfg(any(test, feature = "test-support"))]
+            dial_hold: Arc::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            dial_waits: AtomicUsize::new(0),
+            #[cfg(any(test, feature = "test-support"))]
             staged_failures: DashMap::new(),
         }
     }
@@ -815,10 +846,8 @@ impl FencedChangelogProducers {
     ) -> Result<Arc<PartitionLanes>, String> {
         let topic = target.topic.as_str();
         let start = Instant::now();
-        // The removal also clears a Connecting claim: acquisition is
-        // happening now, so a dial still in flight is too late to help,
-        // and losing its claim makes it discard on completion instead
-        // of parking a connection nothing will consume.
+        self.await_dial_in_flight(partition).await;
+        // A claim still Connecting has outlived its dial; removing it discards the late result.
         let mut parked = self.take_prepared(partition, topic);
         let path = if parked.is_empty() {
             "cold"
@@ -936,6 +965,40 @@ impl FencedChangelogProducers {
             broker_txn_timeout: self.broker_txn_timeout,
             #[cfg(any(test, feature = "test-support"))]
             attempts: Arc::clone(&self.connect_attempts),
+            #[cfg(any(test, feature = "test-support"))]
+            hold: Arc::clone(&self.dial_hold),
+        }
+    }
+
+    /// Wait for the first dial seen to finish, up to its own bound, so a claim reuses its connection.
+    async fn await_dial_in_flight(&self, partition: u32) {
+        let mut followed = None;
+        let mut waited = false;
+        loop {
+            let dial = self
+                .prepared
+                .get(&partition)
+                .and_then(|slot| match slot.value() {
+                    Prepared::Connecting { token, since } => Some((*token, *since)),
+                    Prepared::Ready { .. } => None,
+                });
+            let first = *followed.get_or_insert(dial);
+            match (dial, first) {
+                (Some((token, since)), Some((first_token, _)))
+                    if token == first_token && since.elapsed() < self.init_timeout =>
+                {
+                    #[cfg(any(test, feature = "test-support"))]
+                    if !waited {
+                        self.dial_waits.fetch_add(1, Ordering::SeqCst);
+                    }
+                    waited = true;
+                    sleep(Duration::from_millis(10)).await;
+                }
+                _ => break,
+            }
+        }
+        if waited {
+            counter!("personhog_leader_fence_dial_waits_total").increment(1);
         }
     }
 
@@ -975,14 +1038,7 @@ impl FencedChangelogProducers {
     ) -> Result<&'static str, String> {
         let topic = target.topic.as_str();
         let start = Instant::now();
-        while start.elapsed() < self.init_timeout
-            && self
-                .prepared
-                .get(&partition)
-                .is_some_and(|slot| matches!(slot.value(), Prepared::Connecting { .. }))
-        {
-            sleep(Duration::from_millis(10)).await;
-        }
+        self.await_dial_in_flight(partition).await;
         let mut parked = self.take_prepared(partition, topic);
         let path = if parked.is_empty() {
             "cold"
@@ -1217,6 +1273,30 @@ impl FencedChangelogProducers {
     #[cfg(any(test, feature = "test-support"))]
     pub fn connect_attempts_for_test(&self) -> usize {
         self.connect_attempts.load(Ordering::SeqCst)
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn hold_dials_for_test(&self) {
+        *self
+            .dial_hold
+            .held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = true;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn release_dials_for_test(&self) {
+        *self
+            .dial_hold
+            .held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = false;
+        self.dial_hold.released.notify_all();
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn dial_waits_for_test(&self) -> usize {
+        self.dial_waits.load(Ordering::SeqCst)
     }
 
     /// Stage a Connecting claim of a given age, standing in for a dial

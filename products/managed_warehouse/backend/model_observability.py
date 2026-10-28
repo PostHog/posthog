@@ -123,7 +123,8 @@ class DuckgresServerQuerySet(models.QuerySet["DuckgresServer"]):
         record_duckgres_server_access("read")
         return super().exists()
 
-    def iterator(self, chunk_size: int | None = None) -> Iterator[DuckgresServer]:
+    # The django-stubs plugin rebinds this subclass to its own row TypeVar, so a concrete row type cannot match.
+    def iterator(self, chunk_size: int | None = None) -> Iterator[DuckgresServer]:  # type: ignore[override]
         record_duckgres_server_access("read")
         return super().iterator(chunk_size=chunk_size)
 

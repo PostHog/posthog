@@ -28,6 +28,11 @@ class UnsupportedSyncTypeError(ValueError):
     """The stored sync type is not a mode PostHog can run."""
 
 
+class UnreadableSourceInputsError(ValueError):
+    """A source's stored inputs do not decode to a mapping. The message never holds the value, because the
+    value can hold credentials."""
+
+
 class UndecryptedConfigError(ValueError):
     """Raised when a config value reaches conversion still Fernet-encrypted.
 
@@ -44,6 +49,12 @@ class ConfigValueError(ValueError):
     opaque, value-leaking builtin error such as ``invalid literal for int() with base 10: 'lakjsd'``.
     We name the field but never its value, so nothing a user typed reaches logs or error tracking.
     """
+
+
+@dataclass(frozen=True)
+class SyncedWarehouseTable:
+    table_id: UUID
+    name: str
 
 
 @dataclass(frozen=True)
@@ -404,11 +415,15 @@ class ClaimedWarehouseMigrationItem:
     name: str
     caveats: list[str]
     source_type: str
-    prefix: str
+    # The prefix this attempt creates the source with: the caller's override, else the planned one.
+    prefix: str | None
+    description: str
     sync_frequency: str
     start_paused: bool
     # The stored plan, passed back to `plan_migration_schemas`.
     proposal: dict[str, Any]
+    # Set when an earlier attempt already created the source: the claim linked it and applied the item.
+    recovered_source_id: UUID | None = None
 
 
 @dataclass(frozen=True)

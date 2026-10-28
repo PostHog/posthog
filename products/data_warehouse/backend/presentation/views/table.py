@@ -7,7 +7,13 @@ from django.db.models import QuerySet
 
 import boto3
 import posthoganalytics
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
 from rest_framework import filters, parsers, request, response, serializers, status, viewsets
 
 from posthog.schema import DatabaseSerializedFieldType
@@ -581,6 +587,18 @@ class CreateTableFromUploadSerializer(UploadedFileSerializer):
         return table_name
 
 
+@extend_schema_view(
+    list=extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "include_columns",
+                bool,
+                description="Include table columns. Disable for lightweight table existence or name lookups.",
+                default=True,
+            )
+        ]
+    )
+)
 class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.
@@ -673,8 +691,12 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             credential.save()
 
         old_csv_allow_double_quotes = instance.csv_allow_double_quotes
+        was_history_table = instance.is_history_table
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
+        # The sync owns this marker, and an `options` edit through this API must not drop it.
+        if was_history_table:
+            instance.mark_as_history_table()
 
         if (
             instance._is_csv_format()

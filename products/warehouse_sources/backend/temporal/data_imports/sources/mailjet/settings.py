@@ -78,6 +78,22 @@ MAILJET_ENDPOINTS: dict[str, MailjetEndpointConfig] = {
         name="template",
         path="template",
     ),
+    # Property values per contact. Row `ID` equals `ContactID`. No server-side change filter exists,
+    # so this is full refresh only.
+    "contactdata": MailjetEndpointConfig(
+        name="contactdata",
+        path="contactdata",
+    ),
+    # `FromTS` filters on send time, which is never before `CreatedAt`, so a `CreatedAt` watermark
+    # loses no rows. Mailjet does not document `Sort=CreatedAt` here, so pages stay sorted by ID.
+    "messageinformation": MailjetEndpointConfig(
+        name="messageinformation",
+        path="messageinformation",
+        partition_key="CreatedAt",
+        sort="ID",
+        from_ts_field="CreatedAt",
+        incremental_fields=[_datetime_incremental_field("CreatedAt")],
+    ),
     "openinformation": MailjetEndpointConfig(
         name="openinformation",
         path="openinformation",

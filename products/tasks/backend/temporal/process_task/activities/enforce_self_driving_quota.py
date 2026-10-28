@@ -72,7 +72,10 @@ def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> st
         if run is None or run.is_terminal:
             return SELF_DRIVING_QUOTA_STOP_CHECKING
         task = run.task
-        if task.origin_product != Task.OriginProduct.SIGNAL_REPORT:
+        if (
+            task.origin_product != Task.OriginProduct.SIGNAL_REPORT
+            or (run.state or {}).get("billing_product") == "posthog_ai"
+        ):
             return SELF_DRIVING_QUOTA_STOP_CHECKING
         if _has_billable_pr_url(run.output):
             return SELF_DRIVING_QUOTA_STOP_CHECKING

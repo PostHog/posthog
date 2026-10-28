@@ -41,12 +41,10 @@ export function EvaluationDirectoryTile({ tile, selected }: { tile: DirectoryTil
                 </span>
                 <span className="flex flex-col min-w-0">
                     <span className="font-semibold truncate">{directory.name}</span>
-                    <span className="text-xs text-secondary truncate">
-                        <span>{pluralize(evaluationCount, 'evaluation')}</span>
-                        {needAttentionCount ? (
-                            <span className="text-danger">{` · ${needAttentionCount} need attention`}</span>
-                        ) : null}
-                    </span>
+                    <span className="text-xs text-secondary">{pluralize(evaluationCount, 'evaluation')}</span>
+                    {needAttentionCount ? (
+                        <span className="text-xs text-danger">{`${needAttentionCount} need attention`}</span>
+                    ) : null}
                 </span>
             </button>
             <div className="absolute right-1 top-1/2 -translate-y-1/2">

@@ -486,8 +486,8 @@ export const VisionObservationsLabelCreateBody = /* @__PURE__ */ zod
     .describe("The team's shared judgement on whether the scanner scored this session correctly.")
 
 /**
- * Record that the Search tab showed suggestions for this scope. The scheduled refresher serves viewed
- * scanners first, so the stamp lives on a CSRF-protected POST rather than the read.
+ * Warm the query vectors for the suggestions the Search tab showed, so a click on one searches at once.
+ * It embeds text, so it is a POST rather than part of the read.
  */
 export const VisionObservationsSearchViewedCreateBody = /* @__PURE__ */ zod.object({
     scanner_id: zod
@@ -1540,46 +1540,6 @@ export const VisionScannersInlineScanCreateBody = /* @__PURE__ */ zod
     .describe(
         'Body of POST \/vision\/scanners\/inline_scan\/ - a prompt or built-in scan plus the sessions to point it at.'
     )
-
-/**
- * Suggest classifier tags grounded in the scanner's own observations and the org's product data.
- */
-export const visionScannersSuggestTagsCreateBodyPromptMax = 10000
-
-export const visionScannersSuggestTagsCreateBodyTagsItemMax = 200
-
-export const visionScannersSuggestTagsCreateBodyTagsMax = 200
-
-export const visionScannersSuggestTagsCreateBodyMultiLabelDefault = true
-export const visionScannersSuggestTagsCreateBodyAllowFreeformTagsDefault = false
-
-export const VisionScannersSuggestTagsCreateBody = /* @__PURE__ */ zod
-    .object({
-        prompt: zod
-            .string()
-            .max(visionScannersSuggestTagsCreateBodyPromptMax)
-            .describe("The classifier's instruction prompt — the single dimension to categorize sessions by."),
-        tags: zod
-            .array(zod.string().max(visionScannersSuggestTagsCreateBodyTagsItemMax))
-            .max(visionScannersSuggestTagsCreateBodyTagsMax)
-            .optional()
-            .describe('The categories already configured, so suggestions never duplicate one the user has.'),
-        multi_label: zod
-            .boolean()
-            .default(visionScannersSuggestTagsCreateBodyMultiLabelDefault)
-            .describe('Whether the classifier assigns multiple tags per session.'),
-        allow_freeform_tags: zod
-            .boolean()
-            .default(visionScannersSuggestTagsCreateBodyAllowFreeformTagsDefault)
-            .describe('Whether the classifier may emit tags outside the fixed vocabulary.'),
-        scanner_id: zod
-            .uuid()
-            .nullish()
-            .describe(
-                'Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner.'
-            ),
-    })
-    .describe('Body of POST \/vision\/scanners\/suggest_tags\/ — the classifier config currently being edited.')
 
 /**
  * Record that the calling user saw these cards in What to watch, so the feed ranks them lower next time.
