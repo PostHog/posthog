@@ -58,6 +58,7 @@ _LAZY = {
     "upstream_saved_query_ids": "logic.saved_query_reads",
     "refresh_view_columns": "logic.view_column_refresh",
     "views_updated_since": "logic.view_column_refresh",
+    "schedule_downstream_view_column_refresh": "tasks.refresh_downstream_view_columns",
     "unbuilt_upstream_saved_query_ids": "logic.saved_query_reads",
     "last_query_change_at": "logic.saved_query_reads",
     "completed_full_refresh_workflow_ids": "logic.saved_query_reads",

@@ -37,6 +37,7 @@ from products.data_modeling.backend.facade.models import (
     Node,
     NodeType,
 )
+from products.data_modeling.backend.facade.tasks import refresh_downstream_view_columns
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.presentation.views.saved_query.editing import (
@@ -1855,6 +1856,45 @@ class TestSavedQuery(APIBaseTest):
 
             # Verify get_columns was called
             mock_get_columns.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("renamed_column", "select 1 as new_id", ["new_id"], True),
+            ("unchanged_columns", "select 2 as old_id", ["old_id"], False),
+        ]
+    )
+    def test_update_refreshes_the_columns_of_downstream_views(
+        self, _name: str, upstream_sql: str, expected_downstream_columns: list[str], refreshes: bool
+    ) -> None:
+        upstream = self._create_view("upstream_view", "select 1 as old_id")
+        self._create_view("downstream_view", "select * from upstream_view")
+
+        with (
+            patch.object(
+                refresh_downstream_view_columns, "delay", wraps=refresh_downstream_view_columns.delay
+            ) as delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}",
+                {
+                    "query": {"kind": "HogQLQuery", "query": upstream_sql},
+                    "edited_history_id": upstream["latest_history_id"],
+                },
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        downstream = DataWarehouseSavedQuery.objects.get(team=self.team, name="downstream_view")
+        assert downstream.column_order == expected_downstream_columns
+        assert delay.called == refreshes
+
+    def _create_view(self, name: str, sql: str) -> dict[str, Any]:
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {"name": name, "query": {"kind": "HogQLQuery", "query": sql}},
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        return response.json()
 
     @parameterized.expand([("direct", False), ("through_another_view", True)])
     def test_update_rejects_query_cycle(self, _name: str, use_intermediate_view: bool) -> None:

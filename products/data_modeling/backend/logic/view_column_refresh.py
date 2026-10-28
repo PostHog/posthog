@@ -9,7 +9,12 @@ from django.utils import timezone
 import structlog
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
-from products.data_modeling.backend.logic.saved_query_reads import dependent_saved_query_ids
+from products.data_modeling.backend.logic.saved_query_reads import (
+    dependent_saved_query_ids,
+    get_saved_query_ids_for_nodes,
+    reachable_node_ids,
+    saved_query_node_ids,
+)
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 if TYPE_CHECKING:
@@ -37,6 +42,14 @@ def views_updated_since(team: "Team", saved_query_ids: Collection[UUID | str], s
     return DataWarehouseSavedQuery.objects.filter(
         team_id=team.pk, id__in=list(saved_query_ids), updated_at__gt=since
     ).exists()
+
+
+def refresh_downstream_view_columns(team: "Team", saved_query_id: UUID | str, user: "User | None") -> set[UUID]:
+    """Re-infer the stored columns of every view that reads from this one, directly or through other views."""
+    downstream_node_ids = reachable_node_ids(
+        team.pk, saved_query_node_ids(team.pk, saved_query_id), upstream=False, max_depth=None
+    )
+    return refresh_view_columns(team, get_saved_query_ids_for_nodes(team.pk, downstream_node_ids), user)
 
 
 def _infers_masked_columns(team: "Team", user: "User | None") -> bool:
