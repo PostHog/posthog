@@ -86,8 +86,8 @@ tools:
 
 
             A flag whose `filters.version` is 2 requires `version`, so read the flag first and send its current
-            `version`; never guess it. A stale `version` returns 409: read the flag again and decide against its current
-            state.
+            `version`; never guess it. On such a flag a stale `version` returns 409: read the flag again and decide
+            against its current state. Other flags do not check `version`.
         include_params:
             - version
         inject_body:
@@ -919,7 +919,7 @@ tools:
             `feature-flag-set-release-condition-rollout` changes one release condition's percentage and
             `feature-flag-roll-out-to-everyone` serves the flag to its whole audience. Both send no `filters` and both
             refuse the write when the flag changed after the version you read, so a concurrent edit cannot be lost. On a
-            flag whose `filters.version` is 1, this tool does not check `version`, so it writes even when the flag
+            flag without `filters.version` 2, this tool does not check `version`, so it writes even when the flag
             changed after your read. It replaces the whole `filters` object with your copy of it. Use it for a rollout
             change only when those two tools cannot express it, such as changing the split between variants while
             leaving the audience alone.

@@ -45,6 +45,16 @@ const ROLLOUT_TOOLS = [
     },
 ] as const
 
+function createMockContext(requestMock: ReturnType<typeof vi.fn>): Context {
+    return {
+        api: {
+            request: requestMock,
+            getProjectBaseUrl: () => 'https://app.posthog.com/project/17',
+        },
+        stateManager: { getProjectId: vi.fn().mockResolvedValue('17') },
+    } as unknown as Context
+}
+
 describe('feature flag lifecycle tools', () => {
     // The snapshot test would also catch a `filters` param appearing here, but it is
     // silenced by `vitest -u`. These assertions are not: the whole point of the lifecycle
@@ -80,13 +90,7 @@ describe('feature flag lifecycle tools', () => {
     // turn a flag on would turn it off.
     it.each(LIFECYCLE_TOOLS)('$name posts to its own endpoint ($case)', async ({ name, input, body }) => {
         const requestMock = vi.fn().mockResolvedValue({ id: 42 })
-        const context = {
-            api: {
-                request: requestMock,
-                getProjectBaseUrl: () => 'https://app.posthog.com/project/17',
-            },
-            stateManager: { getProjectId: vi.fn().mockResolvedValue('17') },
-        } as unknown as Context
+        const context = createMockContext(requestMock)
 
         await GENERATED_TOOL_MAP[name]!().handler(context, input)
 
@@ -119,13 +123,7 @@ describe('feature flag lifecycle tools', () => {
         '$name posts the version and rollout fields to its endpoint',
         async ({ name, input, path, body }) => {
             const requestMock = vi.fn().mockResolvedValue({ id: 42 })
-            const context = {
-                api: {
-                    request: requestMock,
-                    getProjectBaseUrl: () => 'https://app.posthog.com/project/17',
-                },
-                stateManager: { getProjectId: vi.fn().mockResolvedValue('17') },
-            } as unknown as Context
+            const context = createMockContext(requestMock)
 
             await GENERATED_TOOL_MAP[name]!().handler(context, input)
 
@@ -174,13 +172,7 @@ describe('feature flag PATCH tools', () => {
 
     it.each(VERSIONED_PATCH_TOOLS)('$name sends version only when given ($case)', async ({ name, input, body }) => {
         const requestMock = vi.fn().mockResolvedValue({ id: 42 })
-        const context = {
-            api: {
-                request: requestMock,
-                getProjectBaseUrl: () => 'https://app.posthog.com/project/17',
-            },
-            stateManager: { getProjectId: vi.fn().mockResolvedValue('17') },
-        } as unknown as Context
+        const context = createMockContext(requestMock)
 
         await GENERATED_TOOL_MAP[name]!().handler(context, input)
 
@@ -193,10 +185,7 @@ describe('feature flag PATCH tools', () => {
 
     it('delete-feature-flag always soft-deletes, whatever else the caller sends', async () => {
         const requestMock = vi.fn().mockResolvedValue({ id: 42 })
-        const context = {
-            api: { request: requestMock, getProjectBaseUrl: () => 'https://app.posthog.com/project/17' },
-            stateManager: { getProjectId: vi.fn().mockResolvedValue('17') },
-        } as unknown as Context
+        const context = createMockContext(requestMock)
         const tool = GENERATED_TOOL_MAP['delete-feature-flag']!()
 
         await tool.handler(context, tool.schema.parse({ id: 42, version: 3, deleted: false, name: 'Renamed' }))
