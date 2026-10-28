@@ -1,17 +1,17 @@
-"""The structured brief a support engineer reads before the ticket itself.
+"""The shape of the structured brief a support engineer reads before the ticket itself.
 
 The field order is the order the brief is read in: the ask, why they want it, what they
-already tried, then the evidence. The caps are deliberate. A brief is a ten-second read,
-and the writer is an agent, so a field without a cap grows until it is no faster to read
-than the ticket.
-"""
+already tried, then the evidence.
 
-from typing import Any
+The serializer is the contract for both sides of the brief. It validates what the writer
+produces before the brief is stored, and it types the read-only `ticket_brief` field on the
+ticket API, so the OpenAPI schema and the frontend types derive from this one declaration.
+"""
 
 from rest_framework import serializers
 
 from products.conversations.backend.models.constants import TicketBriefItemKind
-from products.conversations.backend.models.ticket_brief_limits import (
+from products.conversations.backend.ticket_brief.limits import (
     MAX_AFFECTED_ITEMS,
     MAX_AREA,
     MAX_ASK,
@@ -27,25 +27,11 @@ from products.conversations.backend.models.ticket_brief_limits import (
     MAX_URL_LENGTH,
 )
 
-# The fields a brief is unreadable without. Enforced in validate() rather than by `required`
-# alone, because a PATCH makes the parent serializer partial and DRF propagates that into a
-# nested serializer, which would skip every required field here.
-#
-# `purpose` is deliberately not here. A customer often states what they want without saying
-# why, and an agent made to fill the field every time invents a goal instead of reporting one.
-# A support engineer who answers an invented purpose answers the wrong ticket.
-REQUIRED_FIELDS = ("ask", "area", "questions")
-
-# Every field of an affected item. DRF propagates the parent's partial flag through the
-# ListField into its child too, so an item needs the same validate() as the brief above it.
-# Without it a PATCH stores an item with no url, which the panel renders as a dead link.
-ITEM_REQUIRED_FIELDS = ("kind", "url", "label")
-
 
 class TicketBriefAffectedItemSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
         choices=TicketBriefItemKind.choices,
-        help_text="What the customer is asking about: dashboard, experiment, feature_flag, insight, project, replay, survey, or other.",
+        help_text="What the customer is asking about: dashboard, experiment, feature_flag, insight, project, replay, survey, external, or other.",
     )
     url = serializers.URLField(
         max_length=MAX_URL_LENGTH,
@@ -56,18 +42,15 @@ class TicketBriefAffectedItemSerializer(serializers.Serializer):
         help_text="Name of the item as the customer would recognize it.",
     )
 
-    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
-        missing = sorted(set(ITEM_REQUIRED_FIELDS) - set(data))
-        if missing:
-            raise serializers.ValidationError(dict.fromkeys(missing, "This field is required."))
-        return data
-
 
 class TicketBriefSerializer(serializers.Serializer):
     ask = serializers.CharField(
         max_length=MAX_ASK,
         help_text="What the customer needs from PostHog, in one or two sentences. The line to read first.",
     )
+    # Optional because a customer often states what they want without saying why. An agent made
+    # to fill the field every time invents a goal instead of reporting one, and a support
+    # engineer who answers an invented purpose answers the wrong ticket.
     purpose = serializers.CharField(
         max_length=MAX_PURPOSE,
         required=False,
@@ -97,11 +80,10 @@ class TicketBriefSerializer(serializers.Serializer):
         max_length=MAX_ERROR_MESSAGE,
         required=False,
         allow_null=True,
-        help_text=("The error the customer reported, copied exactly. Omitted when the ticket reports no error."),
+        help_text="The error the customer reported, copied exactly. Omitted when the ticket reports no error.",
     )
     # A ListField rather than many=True, because the generated OpenAPI schema carries the cap
-    # from a ListField and silently drops it from a nested many=True. Without it an agent's tool
-    # schema permits six items the server then rejects.
+    # from a ListField and silently drops it from a nested many=True.
     affected_items = serializers.ListField(
         child=TicketBriefAffectedItemSerializer(),
         max_length=MAX_AFFECTED_ITEMS,
@@ -126,9 +108,3 @@ class TicketBriefSerializer(serializers.Serializer):
         required=False,
         help_text="Details the engineer needs to act on, such as region, plan, versions, and ids. One per line.",
     )
-
-    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
-        missing = sorted(set(REQUIRED_FIELDS) - set(data))
-        if missing:
-            raise serializers.ValidationError(dict.fromkeys(missing, "This field is required."))
-        return data

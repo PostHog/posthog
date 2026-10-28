@@ -7,13 +7,12 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.conversations.backend.api.ticket_brief import TicketBriefSerializer
-from products.conversations.backend.temporal.ai_reply.activities.write_brief import _build_brief, _write_brief
-from products.conversations.backend.temporal.ai_reply.schemas import WriteBriefInput
+from products.conversations.backend.ticket_brief.schema import TicketBriefSerializer
+from products.conversations.backend.ticket_brief.writer import _build_brief, write_brief
 
 BASE = {"ask": "Explain why the export is empty.", "area": "Batch exports", "questions": ["Why?"]}
 
-MODULE = "products.conversations.backend.temporal.ai_reply.activities.write_brief"
+MODULE = "products.conversations.backend.ticket_brief.writer"
 
 
 class TestWriteBrief(SimpleTestCase):
@@ -70,14 +69,14 @@ class TestWriteBrief(SimpleTestCase):
         brief = _build_brief({**BASE, field: ""})
         assert field not in brief
 
-    async def test_a_team_that_has_not_opted_in_gets_no_brief_and_no_model_call(self) -> None:
-        # The gate is the whole safety story for shipping this: until a team turns the setting
-        # on, merging must change nothing a support engineer sees and must spend no tokens.
+    async def test_a_team_without_the_flag_gets_no_brief_and_no_model_call(self) -> None:
+        # The gate is the whole safety story for shipping this: until the flag is rolled out,
+        # merging must change nothing a support engineer sees and must spend no tokens.
         with (
-            patch(f"{MODULE}._brief_enabled", return_value=False),
+            patch(f"{MODULE}.brief_enabled", return_value=False),
             patch(f"{MODULE}.get_async_anthropic_gateway_client") as client,
         ):
-            output = await _write_brief(WriteBriefInput(team_id=1, ticket_id="t", ticket_context="ctx"))
+            output = await write_brief(team_id=1, ticket_id="t", ticket_context="ctx")
         assert output.written is False
         assert output.reason == "disabled"
         assert client.call_count == 0
@@ -86,10 +85,10 @@ class TestWriteBrief(SimpleTestCase):
         # The gate is a database read, and an exception from it would fail the activity. Temporal
         # would then retry, paying for a model call to recover from something like a lock wait.
         with (
-            patch(f"{MODULE}._brief_enabled", side_effect=RuntimeError("connection reset")),
+            patch(f"{MODULE}.brief_enabled", side_effect=RuntimeError("connection reset")),
             patch(f"{MODULE}.get_async_anthropic_gateway_client") as client,
         ):
-            output = await _write_brief(WriteBriefInput(team_id=1, ticket_id="t", ticket_context="ctx"))
+            output = await write_brief(team_id=1, ticket_id="t", ticket_context="ctx")
         assert output.written is False
         assert output.reason == "gate_failed"
         assert client.call_count == 0
@@ -98,13 +97,13 @@ class TestWriteBrief(SimpleTestCase):
         # Same reason as the gate check, and this one happens after the model call, so a raise
         # here buys a second call to redo work that already succeeded.
         with (
-            patch(f"{MODULE}._brief_enabled", return_value=True),
+            patch(f"{MODULE}.brief_enabled", return_value=True),
             patch(f"{MODULE}.get_async_anthropic_gateway_client"),
             patch(f"{MODULE}.create_message", new_callable=AsyncMock),
             patch(f"{MODULE}.anthropic_text", return_value=json.dumps(BASE)),
             patch(f"{MODULE}._store_brief", side_effect=RuntimeError("deadlock detected")),
         ):
-            output = await _write_brief(WriteBriefInput(team_id=1, ticket_id="t", ticket_context="ctx"))
+            output = await write_brief(team_id=1, ticket_id="t", ticket_context="ctx")
         assert output.written is False
         assert output.reason == "store_failed"
 
@@ -112,9 +111,9 @@ class TestWriteBrief(SimpleTestCase):
         # The brief rides inside the reply pipeline. An exception here would fail a run whose
         # real job is drafting a reply, so a gateway blip must cost the brief and nothing else.
         with (
-            patch(f"{MODULE}._brief_enabled", return_value=True),
+            patch(f"{MODULE}.brief_enabled", return_value=True),
             patch(f"{MODULE}.get_async_anthropic_gateway_client", side_effect=RuntimeError("gateway down")),
         ):
-            output = await _write_brief(WriteBriefInput(team_id=1, ticket_id="t", ticket_context="ctx"))
+            output = await write_brief(team_id=1, ticket_id="t", ticket_context="ctx")
         assert output.written is False
         assert output.reason == "llm_failed"
