@@ -16,7 +16,11 @@ from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, CohortType
-from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
+from products.cohorts.backend.models.util import (
+    get_all_cohort_dependencies,
+    legacy_groups_to_filters,
+    sort_cohorts_topologically,
+)
 from products.cohorts.backend.realtime_teams import (
     backfill_triggers_suppressed,
     is_processing_team,
@@ -475,6 +479,8 @@ class Command(BaseCommand):
         cohort_dependencies: dict[int, set[int]] = {}
         unreadable_ids: set[int] = set()
         for cohort in all_cohorts:
+            if not cohort.filters and cohort.groups:
+                cohort.filters = legacy_groups_to_filters(cohort.groups)
             if not cohort.filters:
                 continue
             try:
@@ -504,7 +510,8 @@ class Command(BaseCommand):
         This only mutates the cohort in memory and returns the outcome; the caller persists the
         change and counts it.
         """
-        filters = cohort.filters
+        filters = cohort.filters or legacy_groups_to_filters(cohort.groups)
+
         # Nothing to recompute without filters.
         if not filters:
             return UNTOUCHED_COHORT

@@ -170,6 +170,20 @@ COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to 
 logger = structlog.get_logger(__name__)
 
 
+def legacy_groups_to_filters(groups: list[dict] | None) -> dict | None:
+    """Convert legacy cohort groups into filters format with deepcopy protection."""
+    if not groups:
+        return None
+    try:
+        dummy_cohort = Cohort(filters=None, groups=copy.deepcopy(groups))
+        prop_group = dummy_cohort.properties
+        if prop_group and prop_group.values:
+            return {"properties": prop_group.to_dict()}
+    except Exception:
+        logger.warning("cohort_legacy_groups_conversion_failed", exc_info=True)
+    return None
+
+
 def close_open_population_attempts(
     cohort_id: int, *, finished_at: datetime, started_before: datetime | None = None
 ) -> int:
