@@ -3724,9 +3724,6 @@ jobs:
                           --junitxml=junit-temporal.xml \
                           $PYTEST_ARGS
                   else
-                      # No per-test pytest --timeout; rely on the job-level timeout-minutes as the single
-                      # safety net. The per-test timeout also terminates the whole process, so it adds
-                      # no protection beyond the job timeout.
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/signals/backend/emission -m "not async_migrations" \
                           --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                           --durations=100 --durations-min=1.0 --store-durations \
