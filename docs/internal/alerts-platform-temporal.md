@@ -53,6 +53,9 @@ Parent completion does not prove either succeeded. Schedule creation also does n
 - Insight alert firings use the same attachment and control builders as their HogFunction templates.
 - Sources without a custom renderer, and insight transitions other than firings, use the platform's default layout.
 - The Slack transport preserves attachments for later message updates. If Slack rejects a chart image, it retries without the image and retains the remaining content.
+- A renderer always sets `text`. A push notification and a screen reader read it, and an attachment does not carry it.
+- A renderer that raises is counted on `alerts_platform_slack_renderer_failures_total` and the message goes out in the platform's layout.
+- A card that lives in an attachment also stores one stand-in block. A reader from before attachments edits `blocks` and indexes its last element, so an empty list would fail that edit during a rolling deploy.
 
 ### Turning a production deployment on
 

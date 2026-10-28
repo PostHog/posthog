@@ -1,3 +1,4 @@
+import json
 import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -158,6 +159,23 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         expected = {"Chrome": "firing"} | ({"Firefox": missing_state} if missing_state else {})
         assert {group.grouping_key: group.new_state for group in resolved.groups} == expected
 
+    def test_a_wide_breakdown_firing_stays_inside_what_temporal_carries(self) -> None:
+        # Every firing group repeats the card fields, so a field added per group multiplies by the
+        # group limit. The whole outcome crosses an activity boundary that refuses ~2 MiB.
+        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("breakdown",))
+        configuration = self._copy(self._alert(), grouping=grouping.to_stored())
+
+        fired = self._evaluate_per_series(
+            configuration, {f"value-{index}": 150.0 for index in range(120)}, breach="x" * 2000
+        )
+
+        assert len(fired.groups) > 1
+        assert len(json.dumps([group.source_detail for group in fired.groups], default=str)) < 1_000_000
+        # Trimming drops the repeated fields, never the group's own identity or its breaches.
+        for group in fired.groups:
+            assert group.source_detail["alert_id"]
+            assert group.source_detail["breaches"]
+
     def test_a_breakdown_value_reported_twice_keeps_the_breach_of_the_row_that_fired(self) -> None:
         grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("breakdown",))
         configuration = self._copy(self._alert(), grouping=grouping.to_stored())
@@ -219,7 +237,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             "metric_name": alert.insight.name,
             "timezone": self.team.timezone,
             "is_anomaly": False,
-            "insight_interval": (alert.insight.query or {}).get("source", alert.insight.query or {}).get("interval"),
+            "insight_interval": "day",
             "tags": [],
             "team_name": self.team.name,
             **({CHART_PENDING_KEY: str(alert.id)} if wants_chart else {}),
@@ -234,6 +252,28 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         assert outcome.groups[0].source_detail == expected
         # A render takes up to a minute and a half, so it never runs while the check holds its pool slot.
         render.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("a_wrapped_query", {"kind": "InsightVizNode", "source": {"interval": "week"}}, "week"),
+            # A `.get("source", default)` never replaces an explicit null, so this shape used to
+            # raise inside the check — losing the firing over a label on its card.
+            ("an_explicit_null_source", {"kind": "InsightVizNode", "source": None, "interval": "hour"}, "hour"),
+            ("a_source_that_is_not_a_query", {"source": "trends", "interval": "month"}, "month"),
+        ]
+    )
+    def test_a_firing_records_the_interval_of_any_stored_query_shape(
+        self, _name: str, query: dict[str, Any], interval: str
+    ) -> None:
+        alert = self._alert()
+        alert.insight.query = query
+        alert.insight.save(update_fields=["query"])
+        configuration = self._copy(alert)
+
+        outcome, _ = self._evaluate(configuration, result=AlertEvaluationResult(value=150.0, breaches=["above 100"]))
+
+        assert outcome is not None
+        assert outcome.groups[0].source_detail["insight_interval"] == interval
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS=1)
     def test_a_chart_render_holds_a_render_slot_only_while_it_runs(self) -> None:

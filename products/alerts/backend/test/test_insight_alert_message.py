@@ -6,7 +6,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.alerts.backend.logic.insight_alert_destinations import _slack_attachments
+from products.alerts.backend.logic.insight_alert_destinations import hog_slack_attachments
 from products.alerts.backend.logic.insight_alert_message import insight_alert_slack_properties
 from products.alerts.backend.platform_alert_slack import render_insight_slack_message
 from products.alerts_platform.backend.facade.contracts import AlertEventKind, AnnouncedTransition
@@ -59,7 +59,9 @@ class TestInsightAlertMessage(SimpleTestCase):
                 return {key: render(item) for key, item in value.items()}
             return value
 
-        blocks = render(generate_template_bytecode(_slack_attachments(), set(), function_type="internal_destination"))
+        blocks = render(
+            generate_template_bytecode(hog_slack_attachments(), set(), function_type="internal_destination")
+        )
         assert "23 Oct 2026, 10:00 to 23 Oct 2026, 11:00 (America/Toronto)" in json.dumps(blocks)
         assert "https://example.com/project/1" in json.dumps(blocks)
         assert blocks[-1]["blocks"][-1]["elements"][-1]["action_id"] == "insight_alert_snooze"
@@ -115,7 +117,49 @@ class TestInsightAlertMessage(SimpleTestCase):
         assert first in timing
         assert last in timing
 
-    def test_native_message_links_to_the_insight_that_fired(self) -> None:
+    @parameterized.expand(
+        [
+            ("that_fired", "original-insight"),
+            # A transition recorded before the check stored the short id would otherwise link to
+            # `/insights/None`, which is a live button onto a dead page.
+            ("it_does_not_know", None),
+        ]
+    )
+    def test_native_message_links_to_the_insight(self, _name: str, short_id: str | None) -> None:
+        now = datetime(2026, 1, 1, tzinfo=UTC)
+        detail: dict[str, Any] = {"alert_id": "00000000-0000-4000-8000-000000000001"}
+        if short_id is not None:
+            detail["insight_short_id"] = short_id
+        transition = AnnouncedTransition(
+            grouping_key="",
+            kind=AlertEventKind.FIRING,
+            episode_started_at=now,
+            value=240,
+            labels={},
+            condition={},
+            source_config={},
+            error_message=None,
+            occurred_at=now,
+            source_detail=detail,
+        )
+        content = render_insight_slack_message(
+            team_id=1,
+            transition=transition,
+            alert_name="Example alert",
+            alert_url="https://example.com/alert",
+            project=None,
+            image=None,
+        )
+        assert content is not None
+        links = [
+            element["url"]
+            for element in content.attachments[1]["blocks"][-1]["elements"]
+            if element.get("text", {}).get("text") == "📊 View insight"
+        ]
+        assert [link.split("/project/")[-1] for link in links] == ([f"1/insights/{short_id}"] if short_id else [])
+
+    def test_a_native_message_says_what_it_is_in_the_text_slack_notifies_with(self) -> None:
+        # The card is an attachment, which a push notification and a screen reader do not read.
         now = datetime(2026, 1, 1, tzinfo=UTC)
         transition = AnnouncedTransition(
             grouping_key="",
@@ -127,7 +171,7 @@ class TestInsightAlertMessage(SimpleTestCase):
             source_config={},
             error_message=None,
             occurred_at=now,
-            source_detail={"alert_id": "00000000-0000-4000-8000-000000000001", "insight_short_id": "original-insight"},
+            source_detail={"alert_id": "00000000-0000-4000-8000-000000000001"},
         )
         content = render_insight_slack_message(
             team_id=1,
@@ -138,8 +182,7 @@ class TestInsightAlertMessage(SimpleTestCase):
             image=None,
         )
         assert content is not None
-        insight_link = content.attachments[1]["blocks"][-1]["elements"][1]["url"]
-        assert insight_link.endswith("/insights/original-insight")
+        assert content.text == "Insight alert ‘Example alert’ triggered"
 
     def test_native_anomaly_message_shows_the_affected_period(self) -> None:
         now = datetime(2026, 1, 2, tzinfo=UTC)

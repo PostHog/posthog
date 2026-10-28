@@ -109,17 +109,44 @@ def content_for(*, team_id: int, message: AlertMessage) -> SlackMessageContent:
                 return _with_untracked_groups(content, message)
         except Exception:
             logger.exception("alerts_platform.slack_renderer_failed", source=message.source.value)
+            # Counted as well as logged: the fallback is invisible to the recipient, so a renderer
+            # broken for every message would otherwise show up only as a card nobody recognizes.
+            # Imported here because source apps reach this module from ready(), and the metrics
+            # module would load temporalio into every process at startup.
+            from products.alerts_platform.backend.temporal.metrics import (  # noqa: PLC0415 - keeps temporalio off the import path
+                increment_slack_renderer_failures,
+                safe_record,
+            )
+
+            safe_record(increment_slack_renderer_failures, message.source.value)
     return SlackMessageContent(text=escape_slack_mrkdwn(message.title), blocks=blocks_for(message))
+
+
+def _above_actions(blocks: list[dict[str, Any]], notice: dict[str, Any]) -> list[dict[str, Any]]:
+    """`notice` inserted above the action row, or appended when the blocks have none.
+
+    By position rather than by index from the end, because `SourceSlackRenderer` promises nothing
+    about the block order a source returns.
+    """
+    for index, block in enumerate(blocks):
+        if block.get("type") == "actions":
+            return [*blocks[:index], notice, *blocks[index:]]
+    return [*blocks, notice]
 
 
 def _with_untracked_groups(content: SlackMessageContent, message: AlertMessage) -> SlackMessageContent:
     notices = [detail for detail in message.details if detail.label == UNTRACKED_GROUPS_LABEL]
-    if not notices or not content.attachments:
+    if not notices:
         return content
-    last = content.attachments[-1]
-    blocks = last.get("blocks", [])
     notice = section_block(_body(tuple(notices)))
-    attachments = [*content.attachments[:-1], {**last, "blocks": [*blocks[:-1], notice, *blocks[-1:]]}]
+    # The warning says the alert is at its group limit, so a reader who misses it reads a truncated
+    # alert as a complete one. It goes wherever the renderer left room, never nowhere.
+    if not content.attachments:
+        return SlackMessageContent(
+            text=content.text, blocks=_above_actions(content.blocks, notice), attachments=content.attachments
+        )
+    last = content.attachments[-1]
+    attachments = [*content.attachments[:-1], {**last, "blocks": _above_actions(last.get("blocks", []), notice)}]
     return SlackMessageContent(text=content.text, blocks=content.blocks, attachments=attachments)
 
 
@@ -142,7 +169,10 @@ def _with_state_line(blocks: list[dict[str, Any]], state_line: str) -> list[dict
     """The opening blocks unchanged, with the state line above the buttons `blocks_for` ends with.
 
     The state line is platform text, built from a state and a time, so it is not escaped.
+    A source renderer promises no trailing action row, so an empty list appends instead.
     """
+    if not blocks:
+        return [context_block(state_line)]
     return [*blocks[:-1], context_block(state_line), blocks[-1]]
 
 
@@ -203,6 +233,11 @@ class SlackTransport:
             root_content = {"blocks": content.blocks, "text": content.text}
             if content.attachments:
                 root_content["attachments"] = content.attachments
+                # An attachment card posts no blocks, but a reader from before attachments existed
+                # edits `blocks` and indexes its last element. During a rolling deploy or a
+                # rollback that reader handles the resolve, so it is given one block to work on.
+                # `edit_root` below ignores this and sends the posted blocks instead.
+                root_content["blocks"] = content.blocks or [section_block(content.text)]
         return MessageHandle(external_ref={"channel": channel, "ts": timestamp}, root_content=root_content)
 
     def edit_root(self, *, team_id: int, target: AlertDestinationData, root: MessageHandle, state_line: str) -> None:
@@ -226,7 +261,9 @@ class SlackTransport:
                     "blocks": _with_state_line(attachments[-1].get("blocks", []), state_line),
                 },
             ]
-            blocks = original["blocks"]
+            # The card is the attachment. `original["blocks"]` holds only the stand-in an older
+            # reader would need, so the edit restores what the opening message actually posted.
+            blocks: list[dict[str, Any]] = []
         else:
             blocks = _with_state_line(original["blocks"], state_line)
         content = SlackMessageContent(text=text, blocks=blocks, attachments=attachments)

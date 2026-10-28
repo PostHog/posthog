@@ -258,19 +258,41 @@ class TestSlackAttachmentTransport(SimpleTestCase):
             assert sent[1]["blocks"][-1] == actions
             assert any(block["type"] == "image" for block in sent[1]["blocks"]) is not refuse_image
             transport.edit_root(team_id=1, target=target, root=handle, state_line="Resolved")
-            updated = integration.return_value.client.chat_update.call_args.kwargs["attachments"]
+            update = integration.return_value.client.chat_update.call_args.kwargs
+            updated = update["attachments"]
             assert updated[0] == metadata
             assert updated[1]["blocks"][-1] == actions
             assert updated[1]["blocks"][-2]["elements"][0]["text"] == "Resolved"
+            # The card is the attachment, so the edit must not promote the stand-in below.
+            assert update["blocks"] == []
             assert handle.root_content is not None
             assert handle.root_content["attachments"] == sent
+            # A reader from before attachments existed edits `blocks` and indexes its last element,
+            # so an attachment card leaves it something to work on rather than an empty list.
+            assert handle.root_content["blocks"]
             assert content.attachments[1]["blocks"] == [image, actions]
 
 
 class TestSourceRendererKeepsGroupLimitNotice(SimpleTestCase):
-    def test_untracked_groups_detail_reaches_custom_attachment(self) -> None:
-        content = SlackMessageContent(
-            text="", blocks=[], attachments=[{"blocks": [{"type": "divider"}, {"type": "actions", "elements": []}]}]
+    @parameterized.expand(
+        [
+            # The renderer contract promises neither an attachment nor a trailing action row, and
+            # the notice is the only sign that the alert stopped at its group limit.
+            ("an_attachment", False, False),
+            ("blocks_alone", True, False),
+            ("blocks_without_an_action_row", True, True),
+        ]
+    )
+    def test_untracked_groups_detail_survives_any_renderer_shape(
+        self, _name: str, blocks_only: bool, without_actions: bool
+    ) -> None:
+        rendered: list[dict[str, Any]] = [{"type": "divider"}]
+        if not without_actions:
+            rendered.append({"type": "actions", "elements": []})
+        content = (
+            SlackMessageContent(text="Alert", blocks=rendered)
+            if blocks_only
+            else SlackMessageContent(text="Alert", blocks=[], attachments=[{"blocks": rendered}])
         )
         message = replace(
             MESSAGE, details=(MessageDetail(label=UNTRACKED_GROUPS_LABEL, value="2 more groups not tracked"),)
@@ -278,5 +300,7 @@ class TestSourceRendererKeepsGroupLimitNotice(SimpleTestCase):
         with patch("products.alerts_platform.backend.delivery.slack.slack_renderer_for") as renderer:
             renderer.return_value.return_value = content
             result = content_for(team_id=1, message=message)
-        assert "2 more groups not tracked" in str(result.attachments[0]["blocks"][-2])
-        assert result.attachments[0]["blocks"][-1]["type"] == "actions"
+        blocks = result.blocks if blocks_only else result.attachments[0]["blocks"]
+        assert "2 more groups not tracked" in str(blocks)
+        # Above the buttons when there are buttons, so the notice is never read as one of them.
+        assert blocks[-1]["type"] == ("section" if without_actions else "actions")
