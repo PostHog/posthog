@@ -330,3 +330,31 @@ export const NestedPanes: StoryObj = {
 export const NestedPanesNarrow: StoryObj = {
     render: () => <WorksheetStage config={paneConfig} chartSettings={paneSettings} width={520} />,
 }
+
+export const CatalogMetricParameters: StoryObj = {
+    render: () => (
+        <WorksheetStage
+            config={{
+                ...config,
+                source: null,
+                catalogMetric: 'regional_revenue',
+                querySnapshot: {
+                    kind: NodeKind.HogQLQuery,
+                    query: 'SELECT region, sum(revenue) AS revenue FROM example_orders WHERE channel = {channel} AND revenue >= {minimum_revenue} GROUP BY region',
+                    values: { channel: 'direct', minimum_revenue: 100 },
+                },
+            }}
+        />
+    ),
+    play: async () => {
+        await userEvent.click(
+            await waitFor(() => {
+                const button = Array.from(document.querySelectorAll('button')).find(
+                    (button) => button.textContent === 'Edit parameters'
+                )
+                expect(button).toBeTruthy()
+                return button!
+            })
+        )
+    },
+}
