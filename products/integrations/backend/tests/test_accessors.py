@@ -1,4 +1,5 @@
-from collections.abc import Callable, Iterator
+import threading
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
@@ -12,9 +13,10 @@ from parameterized import parameterized
 from posthog.models import Team
 from posthog.models.integration import ANY, Integration, auth_types
 from posthog.models.integration.auth_types import default_auth_type, kind_auth_types
+from posthog.models.integration.model import IntegrationQuerySet
 
 from products.integrations.backend.facade.api import IntegrationManager, register_source_kinds, register_usage_provider
-from products.integrations.backend.facade.api_accessors import IntegrationReader
+from products.integrations.backend.facade.api_accessors import AuthAccessor, IntegrationReader, SourceRows
 from products.integrations.backend.facade.contracts import (
     IntegrationConflict,
     IntegrationInUse,
@@ -39,8 +41,10 @@ ROWS: dict[str, tuple[str, dict[str, Any]]] = {
     "stripe_token": ("stripe", {"auth_type": "token"}),
     "stripe_source": ("stripe", {"auth_type": "token", MARKER: "Stripe"}),
     "postgres": ("postgresql", {"host": "db.example.com"}),
+    "postgres_source": ("postgresql", {"host": "db.example.com", MARKER: "Postgres"}),
     "ably_source": ("ably", {MARKER: "Ably"}),
 }
+SOURCE_ROWS = {name for name, (_kind, config) in ROWS.items() if MARKER in config}
 
 
 @contextmanager
@@ -74,15 +78,47 @@ class TestIntegrationAccessors(BaseTest):
             ("skips_source_rows", lambda: IntegrationManager.stripe.token, {"stripe_token"}),
             ("kind_any_skips_source_rows", lambda: IntegrationManager.stripe.any, {"stripe_oauth", "stripe_token"}),
             ("credentials_default", lambda: IntegrationManager.postgresql.credentials, {"postgres"}),
-            ("everything", lambda: IntegrationManager.any, set(ROWS)),
+            ("everything_but_source_rows", lambda: IntegrationManager.any, set(ROWS) - SOURCE_ROWS),
+            ("everything_with_source_rows", lambda: IntegrationManager.any.with_source_rows(), set(ROWS)),
+            (
+                "kind_any_with_source_rows",
+                lambda: IntegrationManager.stripe.any.with_source_rows(),
+                {"stripe_oauth", "stripe_token", "stripe_source"},
+            ),
             ("source_of_a_catalogue_kind", lambda: IntegrationManager.source("stripe").token, {"stripe_source"}),
             ("source_any", lambda: IntegrationManager.source("stripe").any, {"stripe_source"}),
             ("source_of_a_registered_kind", lambda: IntegrationManager.source("ably").token, {"ably_source"}),
             ("source_other_auth_type", lambda: IntegrationManager.source("ably").credentials, set()),
             (
-                "several_kinds",
+                "several_kinds_default_auth_type_by_default",
                 lambda: IntegrationManager.kinds("github", "slack"),
+                {"github_oauth", "slack_oauth"},
+            ),
+            (
+                "several_kinds_any_auth_type",
+                lambda: IntegrationManager.kinds("github", "slack", auth_types="any"),
                 {"github_oauth", "github_token", "slack_oauth"},
+            ),
+            # The source rows join the scope, and the auth type filter still applies to them.
+            (
+                "several_kinds_default_auth_type_with_source_rows",
+                lambda: IntegrationManager.kinds("stripe", "postgresql").with_source_rows(),
+                {"stripe_oauth", "postgres", "postgres_source"},
+            ),
+            (
+                "several_kinds_any_auth_type_with_source_rows",
+                lambda: IntegrationManager.kinds("stripe", auth_types="any").with_source_rows(),
+                {"stripe_oauth", "stripe_token", "stripe_source"},
+            ),
+            (
+                "several_kinds_default_auth_type",
+                lambda: IntegrationManager.kinds("github", "stripe", "postgresql", auth_types="default"),
+                {"github_oauth", "stripe_oauth", "postgres"},
+            ),
+            (
+                "several_kinds_listed_auth_types",
+                lambda: IntegrationManager.kinds("github", "stripe", "postgresql", auth_types=[AuthType.TOKEN]),
+                {"github_token", "stripe_token"},
             ),
         ]
     )
@@ -97,6 +133,8 @@ class TestIntegrationAccessors(BaseTest):
             ("source_row_through_named_accessor", lambda: IntegrationManager.stripe.any, "stripe_source"),
             ("named_row_through_source_accessor", lambda: IntegrationManager.source("stripe").token, "stripe_token"),
             ("other_kind", lambda: IntegrationManager.slack.oauth, "github_oauth"),
+            ("source_row_through_any", lambda: IntegrationManager.any, "stripe_source"),
+            ("other_auth_type_through_kinds", lambda: IntegrationManager.kinds("github"), "github_token"),
         ]
     )
     def test_get_raises_for_a_row_out_of_scope(
@@ -109,6 +147,18 @@ class TestIntegrationAccessors(BaseTest):
     def test_get_raises_for_a_bad_id(self, _name: str, row_id: Any) -> None:
         with self.assertRaises(IntegrationNotFound):
             IntegrationManager.any.get(self.team.id, row_id)
+
+    def test_a_stored_default_auth_type_reads_as_the_default(self) -> None:
+        row = self.rows["github_oauth"]
+        # `QuerySet.update()` skips `save()`, so it can store the default auth type of the kind.
+        Integration._base_manager.filter(id=row.id).update(config={"auth_type": "oauth"})
+
+        assert IntegrationManager.github.oauth.get(self.team.id, row.id).id == row.id
+        assert self._names(IntegrationManager.kinds("github", auth_types="default").list(self.team.id)) == {
+            "github_oauth"
+        }
+        with self.assertRaises(IntegrationNotFound):
+            IntegrationManager.github.token.get(self.team.id, row.id)
 
     def test_get_does_not_cross_teams(self) -> None:
         with self.assertRaises(IntegrationNotFound):
@@ -174,6 +224,120 @@ class TestIntegrationAccessors(BaseTest):
 
     @parameterized.expand(
         [
+            ("both_teams", ["own", "other"], "github_oauth"),
+            ("other_team_only", ["other"], "other"),
+            ("empty", [], None),
+            ("unknown_team", [10**9], None),
+        ]
+    )
+    def test_find_and_exists_with_team_ids(self, _name: str, teams: list[Any], expected: str | None) -> None:
+        by_name = {"own": self.team.id, "other": self.other_team.id}
+        team_ids = [by_name.get(team, team) for team in teams]
+        expected_row = {"github_oauth": self.rows["github_oauth"], "other": self.other_row}.get(expected or "")
+
+        row = IntegrationManager.github.oauth.find(team_ids=team_ids, external_id="github_oauth")
+
+        assert row == expected_row
+        assert IntegrationManager.github.oauth.exists(team_ids=iter(team_ids)) is (expected_row is not None)
+        assert async_to_sync(IntegrationManager.github.oauth.afind)(team_ids=team_ids) == expected_row
+        assert async_to_sync(IntegrationManager.github.oauth.aexists)(team_ids=team_ids) is (expected_row is not None)
+
+    @parameterized.expand(
+        [
+            ("neither", {}),
+            ("both", {"team_id": 1, "team_ids": [1]}),
+        ]
+    )
+    def test_find_and_exists_need_exactly_one_team_argument(self, _name: str, kwargs: dict[str, Any]) -> None:
+        for read in (IntegrationManager.github.oauth.find, IntegrationManager.github.oauth.exists):
+            with self.assertRaises(ValueError):
+                read(**kwargs)
+
+    @parameterized.expand(
+        [
+            ("own_row", "github_oauth", lambda self: self.rows["github_oauth"], True),
+            ("row_of_another_team", "github_oauth", lambda self: self.other_row, True),
+            ("row_with_another_external_id", "github_oauth", lambda self: self.rows["github_token"], False),
+            ("another_workspace_id_for_the_external_id", "github_token", lambda self: self.other_row, False),
+            ("missing_id", "github_oauth", lambda self: SimpleNamespace(id=10**9), False),
+            ("not_a_number", "github_oauth", lambda self: SimpleNamespace(id="abc"), False),
+        ]
+    )
+    def test_get_by_external_id(self, _name: str, external_id: str, row: Callable[[Any], Any], found: bool) -> None:
+        expected = row(self)
+
+        if found:
+            assert IntegrationManager.github.oauth.get_by_external_id(external_id, expected.id) == expected
+        else:
+            with self.assertRaises(IntegrationNotFound):
+                IntegrationManager.github.oauth.get_by_external_id(external_id, expected.id)
+
+    @parameterized.expand(
+        [
+            ("every_team", lambda: IntegrationManager.github.oauth, "github_oauth", 2),
+            ("other_auth_type_is_out_of_scope", lambda: IntegrationManager.github.oauth, "github_token", 0),
+            ("kind_any", lambda: IntegrationManager.github.any, "github_token", 1),
+            ("source_row_is_out_of_scope", lambda: IntegrationManager.stripe.any, "stripe_source", 0),
+            ("missing", lambda: IntegrationManager.github.oauth, "missing", 0),
+        ]
+    )
+    def test_count_and_exists_by_external_id(
+        self, _name: str, accessor: Callable[[], IntegrationReader], external_id: str, expected: int
+    ) -> None:
+        assert accessor().count_by_external_id(external_id) == expected
+        assert accessor().exists_by_external_id(external_id) is (expected > 0)
+
+    @parameterized.expand(
+        [
+            ("get", lambda self, a: [a.get(self.team.id, self.rows["github_oauth"].id)]),
+            ("get_many", lambda self, a: list(a.get_many(self.team.id, [self.rows["github_oauth"].id]).values())),
+            ("find", lambda self, a: [a.find(self.team.id)]),
+            ("list", lambda self, a: a.list(self.team.id)),
+            ("list_by_external_id", lambda self, a: a.list_by_external_id("github_oauth")),
+            ("get_by_external_id", lambda self, a: [a.get_by_external_id("github_oauth", self.other_row.id)]),
+            (
+                "update_atomically",
+                lambda self, a: [
+                    a.update_atomically(self.team.id, self.rows["github_oauth"].id, lambda row: IntegrationPatch())
+                ],
+            ),
+            ("upsert_of_an_existing_row", lambda self, a: [a.upsert(self.team.id, "github_oauth", config={})[0]]),
+        ]
+    )
+    def test_reads_defer_the_repository_cache(
+        self, _name: str, read: Callable[[Any, AuthAccessor], list[Integration]]
+    ) -> None:
+        Integration._base_manager.filter(integration_id="github_oauth").update(repository_cache=[{"name": "repo"}])
+
+        rows = read(self, IntegrationManager.github.oauth)
+
+        assert rows
+        for row in rows:
+            assert {"repository_cache", "repository_cache_updated_at"} <= row.get_deferred_fields()
+            assert row.repository_cache == [{"name": "repo"}]
+
+    def test_with_source_rows_refuses_a_source_only_accessor(self) -> None:
+        with self.assertRaises(ValueError):
+            IntegrationManager.source("stripe").any.with_source_rows()
+
+    @parameterized.expand(
+        [
+            ("list_by_external_id", lambda: IntegrationManager.any.list_by_external_id("github_oauth")),
+            ("delete_by_external_id", lambda: IntegrationManager.any.delete_by_external_id("github_oauth")),
+            ("get_by_external_id", lambda: IntegrationManager.any.get_by_external_id("github_oauth", 1)),
+            ("count_by_external_id", lambda: IntegrationManager.any.count_by_external_id("github_oauth")),
+            ("exists_by_external_id", lambda: IntegrationManager.any.exists_by_external_id("github_oauth")),
+        ]
+    )
+    def test_cross_team_operations_need_a_kind(self, _name: str, call: Callable[[], Any]) -> None:
+        with self.assertRaises(ValueError):
+            call()
+
+        assert Integration._base_manager.filter(integration_id="github_oauth").count() == 2
+        assert len(IntegrationManager.kinds("github").list_by_external_id("github_oauth")) == 2
+
+    @parameterized.expand(
+        [
             ("default_auth_type_stores_nothing", lambda: IntegrationManager.github.oauth, {}),
             ("non_default_auth_type_is_stored", lambda: IntegrationManager.github.token, {"auth_type": "token"}),
             (
@@ -225,6 +389,30 @@ class TestIntegrationAccessors(BaseTest):
     ) -> None:
         with self.assertRaises(error):
             accessor().create(self.team.id, external_id="new", config=config)
+
+    @parameterized.expand(
+        [
+            ("same_scope", lambda: IntegrationManager.github.oauth, "github_oauth", {}),
+            ("other_auth_type", lambda: IntegrationManager.github.token, "github_oauth", {}),
+            ("source_row_through_named_accessor", lambda: IntegrationManager.stripe.oauth, "stripe_source", {}),
+            (
+                "named_row_through_source_accessor",
+                lambda: IntegrationManager.source("stripe").token,
+                "stripe_token",
+                {MARKER: "Stripe"},
+            ),
+        ]
+    )
+    def test_create_raises_conflict_on_the_unique_key(
+        self, _name: str, accessor: Callable[[], Any], external_id: str, config: dict[str, Any]
+    ) -> None:
+        with self.assertRaises(IntegrationConflict):
+            accessor().create(self.team.id, external_id=external_id, config=config)
+
+        # The failed insert rolls back to a savepoint, so the transaction stays usable.
+        assert IntegrationManager.any.with_source_rows().list(self.team.id, external_id=external_id) == [
+            self.rows[external_id]
+        ]
 
     def test_upsert_creates_then_replaces_the_config(self) -> None:
         row, created = IntegrationManager.github.token.upsert(self.team.id, "new", config={"a": 1})
@@ -292,6 +480,74 @@ class TestIntegrationAccessors(BaseTest):
         with self.assertRaises(error):
             IntegrationManager.github.token.update(self.team.id, self.rows["github_token"].id, **kwargs)
 
+    def test_upsert_without_created_by_keeps_the_creator(self) -> None:
+        row = IntegrationManager.github.token.create(
+            self.team.id, external_id="new", config={}, created_by_id=self.user.id
+        )
+
+        again, created = IntegrationManager.github.token.upsert(self.team.id, "new", config={"b": 2})
+
+        assert (created, again.id) == (False, row.id)
+        assert Integration._base_manager.get(id=row.id).created_by_id == self.user.id
+
+    def test_upsert_updates_the_row_that_a_concurrent_insert_won(self) -> None:
+        original_first = IntegrationQuerySet.first
+        reads: list[int] = []
+
+        def first_after_a_competing_insert(queryset: Any) -> Integration | None:
+            result = original_first(queryset)
+            reads.append(1)
+            if len(reads) == 1:
+                assert result is None
+                Integration.objects._with_auth(ANY).create(
+                    team=self.team, kind="github", integration_id="raced", config={"auth_type": "token", "old": True}
+                )
+            return result
+
+        with patch.object(IntegrationQuerySet, "first", autospec=True, side_effect=first_after_a_competing_insert):
+            row, created = IntegrationManager.github.token.upsert(
+                self.team.id, "raced", config={"new": True}, created_by_id=self.user.id
+            )
+
+        stored = Integration._base_manager.filter(team=self.team, kind="github", integration_id="raced")
+        saved = stored.get()
+        assert (created, stored.count(), saved.id) == (False, 1, row.id)
+        assert (saved.config, saved.created_by_id) == ({"new": True, "auth_type": "token"}, self.user.id)
+
+    @parameterized.expand(
+        [
+            ("nothing", {}),
+            ("empty_collections", {"config_patch": {}, "config_remove": (), "sensitive_config_patch": {}}),
+        ]
+    )
+    def test_an_empty_patch_writes_nothing(self, _name: str, kwargs: dict[str, Any]) -> None:
+        row = self.rows["github_oauth"]
+        before = Integration._base_manager.get(id=row.id)
+
+        with patch.object(Integration, "save") as save:
+            updated = IntegrationManager.github.oauth.update(self.team.id, row.id, **kwargs)
+
+        save.assert_not_called()
+        assert (updated.config, updated.sensitive_config, updated.errors) == (
+            before.config,
+            before.sensitive_config,
+            before.errors,
+        )
+
+    @parameterized.expand(
+        [
+            ("auth_type_without_kinds", {"kinds": None, "auth_type": AuthType.TOKEN}),
+            ("auth_type_with_empty_kinds", {"kinds": frozenset(), "auth_type": AuthType.TOKEN}),
+        ]
+    )
+    def test_a_reader_with_an_auth_type_needs_kinds(self, _name: str, kwargs: dict[str, Any]) -> None:
+        with self.assertRaises(ValueError):
+            IntegrationReader(**kwargs)
+
+    def test_a_write_accessor_refuses_to_include_source_rows(self) -> None:
+        with self.assertRaises(ValueError):
+            AuthAccessor(kind="github", auth_type=AuthType.OAUTH, source_rows=SourceRows.INCLUDE)
+
     def test_update_raises_for_a_row_out_of_scope(self) -> None:
         with self.assertRaises(IntegrationNotFound):
             IntegrationManager.github.oauth.update(self.team.id, self.rows["github_token"].id, errors="")
@@ -310,16 +566,48 @@ class TestIntegrationAccessors(BaseTest):
         assert [current.id for current in seen] == [row.id, row.id]
         assert updated.config["count"] == 2
 
-    def test_update_by_external_id_reaches_every_team(self) -> None:
-        count = IntegrationManager.github.oauth.update_by_external_id(
-            "github_oauth", IntegrationPatch(config_patch={"suspended": True})
-        )
+    @parameterized.expand(
+        [
+            # Queries: the savepoint, the locked read, the one bulk update, the savepoint release.
+            ("changes_every_team", [], IntegrationPatch(config_patch={"suspended": True}), 2, 4),
+            ("skips_a_row_that_already_matches", ["other"], IntegrationPatch(config_patch={"suspended": True}), 1, 4),
+            (
+                "writes_nothing_when_nothing_changes",
+                ["own", "other"],
+                IntegrationPatch(config_patch={"suspended": True}),
+                0,
+                3,
+            ),
+            ("removes_a_key", ["own"], IntegrationPatch(config_remove=("suspended",)), 1, 4),
+            ("errors_only", [], IntegrationPatch(errors="SUSPENDED"), 2, 4),
+            ("empty_patch", [], IntegrationPatch(), 0, 3),
+        ]
+    )
+    def test_update_by_external_id_reaches_every_team(
+        self, _name: str, already_suspended: list[str], patch: IntegrationPatch, changed: int, queries: int
+    ) -> None:
+        by_name = {"own": self.rows["github_oauth"], "other": self.other_row}
+        for name in already_suspended:
+            Integration._base_manager.filter(id=by_name[name].id).update(config={"suspended": True})
 
-        assert count == 2
-        assert {
-            row.config.get("suspended") for row in Integration._base_manager.filter(integration_id="github_oauth")
-        } == {True}
+        with self.assertNumQueries(queries):
+            count = IntegrationManager.github.oauth.update_by_external_id("github_oauth", patch)
+
+        stored = Integration._base_manager.filter(integration_id="github_oauth")
+        assert count == changed
+        if patch.config_patch:
+            assert {row.config.get("suspended") for row in stored} == {True}
+        if patch.config_remove:
+            assert {row.config.get("suspended") for row in stored} == {None}
+        if patch.errors:
+            assert {row.errors for row in stored} == {"SUSPENDED"}
         assert "suspended" not in Integration._base_manager.get(id=self.rows["github_token"].id).config
+
+    def test_update_by_external_id_rejects_reserved_keys(self) -> None:
+        with self.assertRaises(ValueError):
+            IntegrationManager.github.oauth.update_by_external_id(
+                "github_oauth", IntegrationPatch(config_patch={MARKER: "Github"})
+            )
 
     def test_delete_checks_usages(self) -> None:
         row = self.rows["github_oauth"]
@@ -343,7 +631,25 @@ class TestIntegrationAccessors(BaseTest):
 
     def test_delete_by_external_id_reaches_every_team(self) -> None:
         assert IntegrationManager.github.oauth.delete_by_external_id("github_oauth") == 2
+        assert not Integration._base_manager.filter(integration_id="github_oauth").exists()
         assert Integration._base_manager.filter(id=self.rows["github_token"].id).exists()
+
+    def test_delete_by_external_id_rolls_back_every_row_when_one_delete_fails(self) -> None:
+        original_delete = Integration.delete
+        calls: list[int] = []
+
+        def delete_then_fail_on_the_second_row(row: Integration, *args: Any, **kwargs: Any) -> Any:
+            calls.append(row.id)
+            if len(calls) == 2:
+                raise RuntimeError("delete failed")
+            return original_delete(row, *args, **kwargs)
+
+        with patch.object(Integration, "delete", autospec=True, side_effect=delete_then_fail_on_the_second_row):
+            with self.assertRaises(RuntimeError):
+                IntegrationManager.github.oauth.delete_by_external_id("github_oauth")
+
+        assert len(calls) == 2
+        assert Integration._base_manager.filter(integration_id="github_oauth").count() == 2
 
     def test_usages_reads_registered_and_product_providers_in_order(self) -> None:
         row = self.rows["postgres"]
@@ -372,17 +678,85 @@ class TestIntegrationAccessors(BaseTest):
         ]
         load.assert_called_once_with("integration_usages")
 
-    def test_async_forms_match_the_sync_forms(self) -> None:
+    def test_a_provider_module_that_registers_at_import_does_not_deadlock(self) -> None:
+        def import_a_module_that_registers(_name: str) -> Iterable[SimpleNamespace]:
+            register_usage_provider(lambda team_id, integration_id: [])
+            return [SimpleNamespace(integration_usages=lambda team_id, integration_id: [])]
+
+        with (
+            patch.object(usages, "_registered", []),
+            patch.object(usages, "_product_providers", None),
+            patch.object(usages, "load_product_modules", side_effect=import_a_module_that_registers),
+        ):
+            # A daemon thread, so a deadlock fails the test instead of hanging the run.
+            loader = threading.Thread(target=usages.integration_usages, args=(self.team.id, 1), daemon=True)
+            loader.start()
+            loader.join(timeout=10)
+
+            assert not loader.is_alive()
+            assert len(usages._registered) == 1
+
+    @parameterized.expand(
+        [
+            ("aget", lambda t, r: ("get", (t, r), {})),
+            ("aget_many", lambda t, r: ("get_many", (t, [r]), {})),
+            ("afind", lambda t, r: ("find", (t,), {"external_id": "github_oauth"})),
+            ("alist", lambda t, r: ("list", (t,), {})),
+            ("aexists", lambda t, r: ("exists", (t,), {"external_id": "github_oauth"})),
+            ("ausages", lambda t, r: ("usages", (t, r), {})),
+        ]
+    )
+    def test_async_reads_match_the_sync_reads(
+        self, name: str, args: Callable[[int, int], tuple[str, tuple[Any, ...], dict[str, Any]]]
+    ) -> None:
+        accessor = IntegrationManager.github.oauth
+        sync_name, call_args, call_kwargs = args(self.team.id, self.rows["github_oauth"].id)
+
+        with _usage_providers(
+            lambda team_id, integration_id: [IntegrationUsage(type="warehouse_source", id="1", name="a")]
+        ):
+            expected = getattr(accessor, sync_name)(*call_args, **call_kwargs)
+            actual = async_to_sync(getattr(accessor, name))(*call_args, **call_kwargs)
+
+        assert actual == expected
+        assert actual not in (None, [], {}, False)
+
+    def test_async_delete_deletes_and_honors_usages(self) -> None:
+        accessor = IntegrationManager.github.oauth
         row = self.rows["github_oauth"]
 
-        assert async_to_sync(IntegrationManager.github.oauth.aget)(self.team.id, row.id) == row
-        assert self._names(async_to_sync(IntegrationManager.github.any.alist)(self.team.id)) == {
-            "github_oauth",
-            "github_token",
-        }
-        assert async_to_sync(IntegrationManager.github.token.aexists)(self.team.id) is True
-        updated = async_to_sync(IntegrationManager.github.oauth.aupdate)(self.team.id, row.id, config_patch={"x": 1})
-        assert updated.config["x"] == 1
+        with _usage_providers(
+            lambda team_id, integration_id: [IntegrationUsage(type="warehouse_source", id="1", name="a")]
+        ):
+            with self.assertRaises(IntegrationInUse):
+                async_to_sync(accessor.adelete)(self.team.id, row.id)
+            assert Integration._base_manager.filter(id=row.id).exists()
+            async_to_sync(accessor.adelete)(self.team.id, row.id, ignore_usages=True)
+
+        assert not Integration._base_manager.filter(id=row.id).exists()
+
+    def test_async_writes_match_the_sync_writes(self) -> None:
+        accessor = IntegrationManager.github.token
+        row = self.rows["github_token"]
+
+        created = async_to_sync(accessor.acreate)(
+            self.team.id, external_id="made", config={"a": 1}, sensitive_config={"s": 1}, created_by_id=self.user.id
+        )
+        upserted, was_created = async_to_sync(accessor.aupsert)(self.team.id, "made", config={"b": 2})
+        updated = async_to_sync(accessor.aupdate)(self.team.id, row.id, config_patch={"x": 1}, errors="boom")
+        atomic = async_to_sync(accessor.aupdate_atomically)(
+            self.team.id, row.id, lambda current: IntegrationPatch(config_patch={"y": current.config["x"] + 1})
+        )
+
+        assert (created.config, created.sensitive_config, created.created_by_id) == (
+            {"a": 1, "auth_type": "token"},
+            {"s": 1},
+            self.user.id,
+        )
+        assert (upserted.id, was_created, upserted.config) == (created.id, False, {"b": 2, "auth_type": "token"})
+        assert (updated.config["x"], updated.errors) == (1, "boom")
+        assert atomic.config["y"] == 2
+        assert Integration._base_manager.get(id=row.id).config["y"] == 2
 
 
 class TestRegistration(BaseTest):

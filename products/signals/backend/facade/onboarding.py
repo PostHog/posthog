@@ -14,6 +14,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.transactional_email import is_transactional_email_configured
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.facade.api import signal_emitting_scanner_ids
 from products.signals.backend.first_report_completion import first_report_completion_notifications_enabled
 from products.signals.backend.first_report_experiment import (
@@ -23,6 +24,7 @@ from products.signals.backend.first_report_experiment import (
 from products.signals.backend.first_report_notification import register_first_report_notification
 from products.signals.backend.first_report_scout import first_report_state
 from products.signals.backend.first_report_scout_types import FirstReportStatus
+from products.signals.backend.github_optional import GITHUB_OPTIONAL_ACTIVATION, ResearchAccessPolicy
 from products.signals.backend.models import (
     AutonomyPriority,
     SignalFirstReportNotification,
@@ -44,6 +46,10 @@ if TYPE_CHECKING:
 
 
 class InboxOnboardingValidationError(ValueError):
+    pass
+
+
+class InboxOnboardingPermissionError(PermissionError):
     pass
 
 
@@ -96,6 +102,7 @@ class InboxOnboarding:
         ):
             jobs["recommendations"] = "failed"
         return {
+            "github_optional_available": ResearchAccessPolicy.enabled(self.team_id),
             "draft": state.get("draft"),
             "completed_at": state.get("completed_at"),
             "variant": state.get("variant"),
@@ -146,7 +153,19 @@ class InboxOnboarding:
                 transaction.on_commit(lambda: self._report_exposure(self.user, config), robust=True)
         return self._state(config)
 
+    def _validate_pilot(self, draft: dict[str, Any]) -> bool:
+        if draft.get("activation_mode") != GITHUB_OPTIONAL_ACTIVATION:
+            return False
+        if not ResearchAccessPolicy.enabled(self.team_id):
+            raise InboxOnboardingValidationError("The GitHub-optional pilot is not enabled for this project.")
+        if draft["automatic_implementation"]:
+            raise InboxOnboardingValidationError(
+                "Activate without automatic implementation. You can enable it later in settings."
+            )
+        return True
+
     def save_draft(self, draft: dict[str, Any]) -> dict[str, Any]:
+        self._validate_pilot(draft)
         config = get_or_create_team_extension(self.team, SignalTeamConfig)
         with transaction.atomic():
             config = SignalTeamConfig.objects.select_for_update().get(team_id=self.team_id, pk=config.pk)
@@ -166,9 +185,17 @@ class InboxOnboarding:
             self._enqueue_activation_jobs(config)
             return self._state(config)
 
-        if (config.onboarding or {}).get("variant") in ("test-github", "test-ui"):
+        pilot = self._validate_pilot(draft)
+        if pilot and self.team.parent_team_id:
+            if not UserAccessControl(user=self.user, team=self.team.parent_team).check_access_level_for_resource(
+                "task", "editor"
+            ):
+                raise InboxOnboardingPermissionError(
+                    "Activating this pilot requires task editor access on the parent project."
+                )
+        if pilot or (config.onboarding or {}).get("variant") in ("test-github", "test-ui"):
             self.authorize_scouts(True)
-        if (config.onboarding or {}).get("variant") == "test-github":
+        if pilot or (config.onboarding or {}).get("variant") == "test-github":
             if not any(
                 item["kind"] == "canonical" and item["skill_name"] == "signals-scout-general"
                 for item in draft["suggestions"]
@@ -186,7 +213,7 @@ class InboxOnboarding:
                     "Scout findings are disabled. Enable the scout source before activating."
                 )
 
-        if not InboxOnboardingReconciler(self.team_id).has_repository():
+        if not pilot and not InboxOnboardingReconciler(self.team_id).has_repository():
             raise InboxOnboardingValidationError("Connect GitHub with access to at least one repository.")
 
         selected_source = False
@@ -238,6 +265,11 @@ class InboxOnboarding:
             config = SignalTeamConfig.objects.select_for_update().get(team_id=self.team_id, pk=config.pk)
             state = config.onboarding or {}
             if not state.get("completed_at"):
+                if pilot and (parent_team := self.team.parent_team) is not None:
+                    parent_config = get_or_create_team_extension(parent_team, SignalTeamConfig)
+                    SignalTeamConfig.objects.filter(pk=parent_config.pk, team_id=scout_team_id).update(
+                        autostart_enabled=False, updated_at=timezone.now()
+                    )
                 config.autostart_enabled = draft["automatic_implementation"]
                 config.default_autostart_priority = draft["implementation_priority"]
                 config.onboarding = {
@@ -246,14 +278,16 @@ class InboxOnboarding:
                     "completed_at": timezone.now().isoformat(),
                     "activated_by": user.pk,
                 }
-                if state.get("variant") in ("test-github", "test-ui"):
+                if pilot or state.get("variant") in ("test-github", "test-ui"):
                     config.onboarding["jobs"] = {
-                        "scout": "pending" if experiment or state.get("variant") == "test-github" else "skipped",
+                        "scout": "pending"
+                        if pilot or experiment or state.get("variant") == "test-github"
+                        else "skipped",
                         "recommendations": "skipped",
                     }
                 if experiment:
                     config.onboarding["first_report_variant"] = experiment.variant
-                if state.get("variant") == "test-github":
+                if pilot or state.get("variant") == "test-github":
                     config.onboarding["jobs"]["recommendations"] = "pending"
                 config.save(
                     update_fields=["onboarding", "autostart_enabled", "default_autostart_priority", "updated_at"]
@@ -267,7 +301,10 @@ class InboxOnboarding:
 
     def _enqueue_activation_jobs(self, config: SignalTeamConfig) -> None:
         state = config.onboarding or {}
-        if state.get("variant") not in ("test-github", "test-ui"):
+        if (
+            state.get("variant") not in ("test-github", "test-ui")
+            and (state.get("draft") or {}).get("activation_mode") != GITHUB_OPTIONAL_ACTIVATION
+        ):
             return
         self.authorize_scouts(True)
         from products.signals.backend.tasks import (

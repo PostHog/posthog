@@ -23,7 +23,7 @@ from django.db.models import Q
 from posthog.dataclasses import frozen
 
 from products.integrations.backend.facade.catalogue import KINDS
-from products.integrations.backend.facade.contracts import KindSpec
+from products.integrations.backend.facade.contracts import SOURCE_MARKER_CONFIG_KEY, KindSpec
 from products.integrations.backend.facade.enums import IntegrationAuthType
 
 AUTH_TYPE_CONFIG_KEY = "auth_type"
@@ -118,6 +118,10 @@ def rows_with_auth_type_q(auth_type: IntegrationAuthType) -> Q:
 def rows_with_default_auth_type_q() -> Q:
     # Correct because `normalized_config` never lets a row store the default auth type of its kind.
     return _unset_q()
+
+
+def rows_without_source_marker_q() -> Q:
+    return ~Q(config__has_key=SOURCE_MARKER_CONFIG_KEY)
 
 
 def normalized_config(kind: Any, config: Any) -> Any:

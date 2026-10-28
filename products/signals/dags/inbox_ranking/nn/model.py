@@ -24,8 +24,8 @@ from products.signals.dags.inbox_ranking.multihead.inputs import ONNX_INPUTS, ON
 from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable
 from products.signals.dags.inbox_ranking.nn.examples import NN_HEAD_NAMES, NN_HEADS
 from products.signals.dags.inbox_ranking.training.calibration import CalibrationBucket
-from products.signals.dags.inbox_ranking.training.families import ModelFamily
-from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME
+from products.signals.dags.inbox_ranking.training.families import PAIR_GRAIN, ModelFamily
+from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
 from products.signals.dags.inbox_ranking.training.recipe import model_recipe, with_recipe
 from products.signals.dags.inbox_ranking.training.train import HeadMetrics, HoldoutGrade, _auc, holdout_grade
 from products.signals.dags.inbox_ranking.training.within_team import within_team_auc
@@ -60,14 +60,31 @@ def network_vector_kinds(inputs: NetworkInputs) -> tuple[str, ...]:
     return VECTOR_KINDS if inputs.context is not None else ()
 
 
-def network_recipe(family: ModelFamily, config: NetworkConfig, vector_kinds: Sequence[str]) -> dict[str, Any]:
-    return model_recipe(
+def family_heads(family: ModelFamily) -> tuple[Head, ...]:
+    """The heads a `family` network is fit on, in its label and output column order."""
+    if family.grain == PAIR_GRAIN:
+        return tuple(HEADS_BY_NAME[name] for name in family.heads)
+    return NN_HEADS
+
+
+def network_recipe(
+    family: ModelFamily,
+    config: NetworkConfig,
+    vector_kinds: Sequence[str],
+    pair_settings: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    """`pair_settings` is the pair examples' label horizon and schema, for a pair-grain family only,
+    so a report-grain family's recipe and hash stay as they were."""
+    recipe = model_recipe(
         model_kind=ONNX_MODEL_KIND,
         feature_set=family.feature_set,
-        heads=NN_HEADS,
+        heads=family_heads(family),
         learner_params=dataclasses.asdict(config),
         project_vector_kinds=vector_kinds,
     )
+    if family.grain == PAIR_GRAIN:
+        recipe = {**recipe, "grain": PAIR_GRAIN, "pair": dict(pair_settings or {})}
+    return recipe
 
 
 def candidate_metadata(
@@ -79,11 +96,13 @@ def candidate_metadata(
     windows: Mapping[str, Mapping[str, object]],
     trained_at: datetime.datetime,
     run_id: str,
+    pair_settings: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The `metadata.json` of a `family` candidate, in the layout of the per-head families.
 
     The heads carry the metric fields of `HeadMetrics`, the fields the per-head booster families
-    wrote, so the promotion rule, the events and the manifest read every family alike.
+    wrote, so the promotion rule, the events and the manifest read every family alike. A pair-grain
+    candidate also records its grain, and its heads carry the pair labels' horizon.
     """
     feature_set = family.feature_set
     metadata = {
@@ -109,7 +128,9 @@ def candidate_metadata(
             head.metrics.as_dict()
             | {
                 "cohort": HEADS_BY_NAME[head.metrics.head].cohort.__name__,
-                "horizon_days": HEADS_BY_NAME[head.metrics.head].horizon_days,
+                "horizon_days": (pair_settings or {}).get(
+                    "label_horizon_days", HEADS_BY_NAME[head.metrics.head].horizon_days
+                ),
                 "example_window_start": windows.get(head.metrics.head, {}).get("example_window_start"),
                 "example_cap_bound": windows.get(head.metrics.head, {}).get("example_cap_bound"),
                 "file": ONNX_MODEL_FILE,
@@ -119,7 +140,9 @@ def candidate_metadata(
         ],
         "skipped_heads": list(trained.skipped),
     }
-    return with_recipe(metadata, network_recipe(family, config, trained.vector_kinds))
+    if family.grain == PAIR_GRAIN:
+        metadata["grain"] = PAIR_GRAIN
+    return with_recipe(metadata, network_recipe(family, config, trained.vector_kinds, pair_settings))
 
 
 def onnx_probabilities(model: bytes, inputs: NetworkInputs, output_heads: Sequence[str]) -> dict[str, np.ndarray]:

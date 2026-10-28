@@ -324,11 +324,7 @@ export function ReplayScannersScene(): JSX.Element {
                 tabs={[
                     {
                         key: 'watch',
-                        // The new name ships with the embedding ranker, so it stays off the arms it does not describe.
-                        label:
-                            featureFlags[FEATURE_FLAGS.VISION_WATCH_FEED_RANKER] === 'embedding'
-                                ? 'Highlights'
-                                : 'What to watch',
+                        label: 'Highlights',
                         content: <></>,
                     },
                     { key: 'scanners', label: 'Scanners', content: <></> },
