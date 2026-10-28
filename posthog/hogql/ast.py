@@ -24,7 +24,7 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     VirtualTable,
 )
-from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionError
+from posthog.hogql.errors import FIELD_NOT_FOUND_MESSAGE, NotImplementedError, QueryError, ResolutionError
 
 # :NOTE: when you add new AST fields or nodes, add them to CloningVisitor and TraversingVisitor in visitor.py as well.
 # :NOTE2: also search for ":TRICKY:" in "resolver.py" when modifying SelectQuery or JoinExpr
@@ -212,7 +212,7 @@ class FieldAliasType(Type):
         raise NotImplementedError("FieldAliasType.resolve_table_type not implemented")
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class BaseTableType(Type):
     def resolve_database_table(self, context: HogQLContext) -> Table:
         raise NotImplementedError("BaseTableType.resolve_database_table not overridden")
@@ -239,7 +239,7 @@ class BaseTableType(Type):
                 )
             return FieldType(name=name, table_type=self)
 
-        raise QueryError(f"Field not found: {name}")
+        raise QueryError(f"{FIELD_NOT_FOUND_MESSAGE}: {name}")
 
 
 TableOrSelectType = Union[BaseTableType, "SelectSetQueryType", "SelectQueryType", "SelectQueryAliasType"]

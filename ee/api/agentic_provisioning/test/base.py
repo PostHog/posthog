@@ -1,9 +1,10 @@
 import json
+import time
+import uuid
 import base64
 import hashlib
 import secrets
 import dataclasses
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from urllib.parse import quote_plus
 
@@ -11,11 +12,17 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import override_settings
 from django.utils import timezone
 
+import jwt
+from cryptography.hazmat.primitives.asymmetric import rsa
 from rest_framework.test import APIClient
 
+from posthog.api.oauth.client_assertion import (
+    AGENTIC_TOKEN_ENDPOINT_PATH,
+    CLIENT_ASSERTION_TYPE_JWT_BEARER,
+    expected_assertion_audiences,
+)
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -33,6 +40,22 @@ TEST_PARTNER_CLIENT_ID = "test_partner_client_id"
 # Stored hashed by ClientSecretField.pre_save, so the plaintext has to live here for
 # requests to present it.
 TEST_PARTNER_CLIENT_SECRET = "test_partner_client_secret"
+
+# The test partner can create accounts, so it has to sign its requests with a private key.
+TEST_PARTNER_JWKS_URI = "https://partner.example.com/.well-known/jwks.json"
+TEST_PARTNER_KID = "test-partner-key"
+# Generated once at import: RSA keygen is slow, and no test mutates the key.
+TEST_PARTNER_KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+TEST_PARTNER_JWKS = {
+    "keys": [
+        {
+            **json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(TEST_PARTNER_KEY.public_key())),
+            "kid": TEST_PARTNER_KID,
+            "use": "sig",
+            "alg": "RS256",
+        }
+    ]
+}
 
 # Broad ceiling so token exchanges in tests aren't rejected by the per-app scope cap.
 TEST_PARTNER_SCOPES = [
@@ -59,18 +82,6 @@ TEST_PARTNER_PROVISIONING: dict[str, bool] = {
 }
 
 
-# Signing depends on the clock, so tests pin the window rather than age against the real dates.
-SIGNING_WINDOW_IN_THE_FUTURE = datetime(2100, 1, 1, tzinfo=UTC)
-SIGNING_WINDOW_IN_THE_PAST = datetime(2000, 1, 1, tzinfo=UTC)
-
-
-def signing_required() -> override_settings:
-    return override_settings(
-        PROVISIONING_SIGNING_REQUIRED_SINCE=SIGNING_WINDOW_IN_THE_PAST,
-        PROVISIONING_UNSIGNED_GRACE_UNTIL=SIGNING_WINDOW_IN_THE_PAST,
-    )
-
-
 def provisioning_config(**overrides) -> dict:
     """The stored form of the test partner's config. Goes into ``_provisioning_config``."""
     from posthog.models.oauth_provisioning import ProvisioningConfig
@@ -93,14 +104,15 @@ def patched_budget(view_cls, method: str, endpoint: str, budget, *, multipliers=
     return patch.dict(budgets, {endpoint: dataclasses.replace(budgets[endpoint], **changes)})
 
 
-@override_settings(
-    PROVISIONING_SIGNING_REQUIRED_SINCE=SIGNING_WINDOW_IN_THE_FUTURE,
-    PROVISIONING_UNSIGNED_GRACE_UNTIL=SIGNING_WINDOW_IN_THE_FUTURE,
-)
 class ProvisioningTestBase(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.client = APIClient()
+        jwks_fetch = patch(
+            "posthog.api.oauth.client_assertion.fetch_client_json_document", return_value=(TEST_PARTNER_JWKS, None)
+        )
+        jwks_fetch.start()
+        self.addCleanup(jwks_fetch.stop)
         self.partner = self._ensure_partner_app()
 
     def _ensure_partner_app(self):
@@ -110,8 +122,9 @@ class ProvisioningTestBase(APIBaseTest):
             client_id=TEST_PARTNER_CLIENT_ID,
             defaults={
                 "name": "Test Provisioning Partner",
-                "client_secret": TEST_PARTNER_CLIENT_SECRET,
+                "client_secret": "",
                 "client_type": OAuthApplication.CLIENT_CONFIDENTIAL,
+                "jwks_uri": TEST_PARTNER_JWKS_URI,
                 "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
                 "redirect_uris": "https://partner.example.com/callback",
                 "algorithm": "RS256",
@@ -146,9 +159,30 @@ class ProvisioningTestBase(APIBaseTest):
     def _post_with_bearer(self, url: str, data: dict | None = None, token: str = "", **kwargs):
         return self._post_api(url, data, HTTP_AUTHORIZATION=f"Bearer {token}", **kwargs)
 
-    def _client_credentials(self, partner=None, secret: str | None = None) -> dict[str, str]:
-        """The client_secret_post form: credentials merged into the request body."""
+    def _client_assertion(self, partner=None) -> str:
         partner = partner or self.partner
+        now = int(time.time())
+        claims = {
+            "iss": partner.client_id,
+            "sub": partner.client_id,
+            "aud": expected_assertion_audiences(AGENTIC_TOKEN_ENDPOINT_PATH)[0],
+            # Each assertion is single use, so every request needs its own jti.
+            "jti": str(uuid.uuid4()),
+            "iat": now,
+            "exp": now + 60,
+        }
+        return jwt.encode(claims, TEST_PARTNER_KEY, algorithm="RS256", headers={"kid": TEST_PARTNER_KID})
+
+    def _client_auth(self, partner=None, secret: str | None = None) -> dict[str, str]:
+        """The body fields that authenticate the partner: a signed assertion for a private_key_jwt
+        partner, and the client_secret_post form for a partner registered with a secret."""
+        partner = partner or self.partner
+        if partner.uses_private_key_jwt_auth:
+            return {
+                "client_id": partner.client_id,
+                "client_assertion": self._client_assertion(partner),
+                "client_assertion_type": CLIENT_ASSERTION_TYPE_JWT_BEARER,
+            }
         return {
             "client_id": partner.client_id,
             "client_secret": TEST_PARTNER_CLIENT_SECRET if secret is None else secret,
@@ -160,8 +194,8 @@ class ProvisioningTestBase(APIBaseTest):
         raw = f"{quote_plus(partner.client_id)}:{quote_plus(TEST_PARTNER_CLIENT_SECRET if secret is None else secret)}"
         return f"Basic {base64.b64encode(raw.encode()).decode()}"
 
-    def _post_with_client_secret(self, url: str, data: dict | None = None, partner=None, **kwargs):
-        return self._post_api(url, {**(data or {}), **self._client_credentials(partner)}, **kwargs)
+    def _post_as_partner(self, url: str, data: dict | None = None, partner=None, **kwargs):
+        return self._post_api(url, {**(data or {}), **self._client_auth(partner)}, **kwargs)
 
     def _pkce_pair(self) -> tuple[str, str]:
         verifier = secrets.token_urlsafe(48)
@@ -204,8 +238,8 @@ class ProvisioningTestBase(APIBaseTest):
         data = {"grant_type": "authorization_code", "code": code, "code_verifier": verifier}
         # A confidential partner has to authenticate at the token endpoint; a public one
         # exchanges on the code_verifier alone.
-        if partner.uses_client_secret_auth:
-            data.update(self._client_credentials(partner, secret=secret))
+        if partner.requires_client_authentication:
+            data.update(self._client_auth(partner, secret=secret))
         return self.client.post("/api/agentic/oauth/token", data=data)
 
     def _get_bearer_token(self) -> str:

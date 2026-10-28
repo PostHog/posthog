@@ -136,7 +136,7 @@ const width =
         </div>
     )
 
-// Opts the subtree into Quill's tokens, which the walkthrough reads directly as `var(--card)` and the like.
+// Opts the subtree into Quill's tokens, which the explanation reads directly as `var(--card)` and the like.
 const quillTokens = (Story: StoryFn): ReactElement => (
     <div data-quill data-mcp-storybook>
         <Story />

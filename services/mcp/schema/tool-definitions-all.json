@@ -6369,11 +6369,11 @@
         "feature_flag": "experiment-behavior-comparison"
     },
     "explain-chart": {
-        "description": "Show the person a walkthrough of a trends chart: the chart with each moment that stands out highlighted, and a panel that steps through them one chapter at a time, with what happened, the likely cause and the evidence.\n\nCall it at the end of an investigation, after you have looked into the chart yourself (the investigate-metric skill describes how). Pass the saved insight's `insightId`, or the TrendsQuery you ran as `query`, plus a one-sentence `headline` and the chapters in reading order.\n\nThe app works out each chapter's numbers from the chart itself (the value, and how it compares with a typical point), so leave the chart's numbers out of your text. Numbers from your own follow-up queries belong in `evidence`, with the `query` that found them so the person can open it. Say how sure you are with `confidence`, and word a cause you could not confirm as a guess. Wrap each name that explains a moment (a referrer, a page, a country, a release) in **double asterisks** to highlight it, in the headline as well as in the chapters.\n\nTrends only, one series at a time. A chart that shows a total, such as a number, pie, table or map, is drawn as the line behind it. A box plot, 2D heatmap or scatter plot is refused. The response says which chapters' dates matched no point on the chart.\n\nA direct call checks the chapters against the chart. Where the host draws apps from `exec`, as Claude Code does, the call also shows the walkthrough and the response says so. Otherwise it returns only a short summary: show the walkthrough with `render-ui` where that tool exists, and write the findings in the chat where it does not.",
+        "description": "Show the person an explanation of a trends chart: the chart with each moment that stands out highlighted, and a panel that steps through them one chapter at a time, with what happened, the likely cause and the evidence.\n\nCall it at the end of an investigation, after you have looked into the chart yourself (the investigate-metric skill describes how). Pass the saved insight's `insightId`, or the TrendsQuery you ran as `query`, plus a one-sentence `headline` and the chapters in reading order.\n\nThe app works out each chapter's numbers from the chart itself (the value, and how it compares with a typical point), so leave the chart's numbers out of your text. Numbers from your own follow-up queries belong in `evidence`, with the `query` that found them so the person can open it. Say how sure you are with `confidence`, and word a cause you could not confirm as a guess. Wrap each name that explains a moment (a referrer, a page, a country, a release) in **double asterisks** to highlight it, in the headline as well as in the chapters.\n\nTrends only, one series at a time. A chart that shows a total, such as a number, pie, table or map, is drawn as the line behind it. A box plot, 2D heatmap or scatter plot is refused. The response says which chapters' dates matched no point on the chart.\n\nA direct call checks the chapters against the chart. Where the host draws apps from `exec`, as Claude Code does, the call also shows the explanation and the response says so. Otherwise it returns only a short summary: show the explanation with `render-ui` where that tool exists, and write the findings in the chat where it does not.",
         "category": "Insights & analytics",
         "feature": "insights",
         "summary": "Walk the person through a trends chart, one highlighted moment at a time.",
-        "title": "Show chart walkthrough",
+        "title": "Explain this chart",
         "required_scopes": ["insight:read", "query:read"],
         "api_operations": ["GET /api/projects/{project_id}/insights/{id}/", "POST /api/projects/{project_id}/query/"],
         "feature_flag": "investigate-insight",
@@ -13503,6 +13503,21 @@
             "readOnlyHint": true
         }
     },
+    "scout-monitoring-result-submit": {
+        "description": "Submit the evidence qualification and verdict for this run's authored Monitoring assignment. Only an assigned Monitoring scout has access. The server binds the check and fixed window. Invalid submissions record nothing: use the returned field errors to correct and retry in this run. Finish only after accepted=true. Identical accepted submissions are safe to retry.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Submit a Monitoring check result",
+        "title": "Submit a Monitoring check result",
+        "required_scopes": ["signal_scout_monitoring:write"],
+        "api_operations": ["POST /api/projects/{project_id}/signals/scout/runs/{run_id}/monitoring_result/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "scout-notes-create": {
         "description": "Leave a steering note the scout fleet picks up on its next runs — the lightweight way to nudge the scouts without editing a scout's skill: feedback on past reports ('the staging spike you keep flagging is known noise'), pointers ('we shipped a new checkout Tuesday, watch conversion'), or focus requests ('dig into the EU signup funnel this week'). Address the note to one scout via `skill_name` (the scout's exact name; it must match a skill on this project that holds a scout config, so check `scout-config-list` for the roster), or omit it for a general note every scout sees. A `skill_name` from the reserved `pipeline:*` family addresses one stage of the report pipeline instead of a scout: use `pipeline:report-research` for guidance about how reports get researched, judged, and routed ('route billing-adjacent reports to the billing folks'), so it reaches that stage and no scout. `pipeline:report-research` is the only pipeline audience today; any other `pipeline:*` value is rejected. Optionally set `expires_at` so a time-boxed note retires itself. Notes are advisory: scouts weigh them seriously as prior context but still apply their own evidence bar. Because scouts read notes verbatim, writing one requires the same authorization as editing a scout's skill: the `llm_skill:write` scope plus skill editor access. Each call creates a new note (NOT idempotent — a retry leaves a duplicate); use `scout-notes-delete` to retire one that's been acted on.",
         "category": "Signals",
@@ -13963,6 +13978,23 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "session-recording-console-logs-list": {
+        "description": "List the browser console messages captured during a session recording, oldest first. Use this after `session-recording-get` reports console log, warning, or error counts and you need the actual text, for example to tell a JavaScript exception apart from a failed network or resource load. Filter with `level` (`info`, `warn`, or `error`), narrow the time range with `after` and `before`, and page with `limit` and `offset` while `has_more` is true. Results never extend outside the recording's own start and end time. Identical messages logged close together can be collapsed into one entry, so the number of entries can be lower than the counts on the recording. Entries carry only the message text: there are no stack traces here. For an exception's stack trace, look up `$exception` events with the same `$session_id` through the error tracking tools. An empty `results` list does not always mean the session logged nothing: check `console_log_capture_enabled` (false means the project does not capture console logs) and `logs_expired` (true means the recording is older than the console log retention period).",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "List session recording console logs",
+        "title": "List session recording console logs",
+        "required_scopes": ["session_recording:read"],
+        "api_operations": ["GET /api/projects/{project_id}/session_recordings/{id}/console_logs/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-session-recording-console-logs",
+        "reads_ingested_data": "events"
     },
     "session-recording-delete": {
         "description": "Delete a session recording by ID. This permanently removes the recording data. Use for privacy or compliance workflows. To delete more than one recording, use `session-recording-bulk-delete` instead of calling this repeatedly.",
@@ -15036,6 +15068,54 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "supabase-auth-emails-settings-get": {
+        "description": "Get how the project sends a Supabase project's auth emails through PostHog email templates, including the hook URL to paste into Supabase and every email type it can map. Call this before supabase-auth-emails-settings-update, because that tool replaces the whole template mapping.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "Get the Supabase auth email settings",
+        "title": "Get the Supabase auth email settings",
+        "required_scopes": ["hog_flow:read"],
+        "api_operations": ["GET /api/projects/{project_id}/messaging_supabase_auth_emails/settings/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-supabase-auth-emails"
+    },
+    "supabase-auth-emails-settings-update": {
+        "description": "Update how the project sends a Supabase project's auth emails. Send only the fields to change. To get templates to map, call supabase-auth-emails-starter-templates-create or use the email template tools. Ask the user for the hook secret. Never invent one. Sending starts when the user turns on the Send Email hook in Supabase, so map the core emails before telling them to.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "Update the Supabase auth email settings",
+        "title": "Update the Supabase auth email settings",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/messaging_supabase_auth_emails/settings/"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-supabase-auth-emails"
+    },
+    "supabase-auth-emails-starter-templates-create": {
+        "description": "Create and map an email template for each core Supabase auth email that has no usable template yet. A repeat call skips types that still have one. Needs a verified email sender on the project. Edit the templates afterwards with the email template tools.",
+        "category": "Messaging",
+        "feature": "messaging",
+        "summary": "Create starter templates for the Supabase auth emails",
+        "title": "Create starter templates for the Supabase auth emails",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["POST /api/projects/{project_id}/messaging_supabase_auth_emails/starter_templates/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-supabase-auth-emails"
     },
     "survey-create": {
         "description": "Creates a new survey in the project. For the draft, targeting, preview, and launch workflow, load the creating-surveys skill when available. Use this for both in-app surveys and hosted forms. Prefer draft creation by default and do not set start_date unless the user explicitly asks to launch immediately. For in-app surveys, popover is the default unless the user asks for widget or api. For hosted forms, use external_survey. Keep surveys short unless the user asks for a longer flow. Survey content is public: anyone can read the name, questions, and appearance text. In-app surveys send them to every visitor's browser, and a hosted survey shows them on its public page. Tell the user before putting a customer name or other private detail in a survey. For substantial visual changes, preview the final draft once before launch if browser access is already available. Skip browser checks for small edits.",
