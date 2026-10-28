@@ -85,7 +85,7 @@ impl ChunkScanner {
             chunk,
             run,
             analyses,
-            Utc::now().timestamp_millis(),
+            || Utc::now().timestamp_millis(),
             lease_cancel,
             shutdown,
         )
@@ -97,12 +97,12 @@ impl ChunkScanner {
         chunk: ClaimedChunk,
         run: &PinnedRun,
         analyses: &ConditionAnalyses,
-        now_ms: i64,
+        clock: fn() -> i64,
         lease_cancel: &CancellationToken,
         shutdown: &CancellationToken,
     ) -> Result<ScannedChunk, Halted<ClaimedChunk, ScanError>> {
         match self
-            .scan_tiles(&chunk, run, analyses, now_ms, lease_cancel, shutdown)
+            .scan_tiles(&chunk, run, analyses, clock, lease_cancel, shutdown)
             .await
         {
             Ok((tiles, volume)) => Ok(chunk.into_scanned(tiles, volume)),
@@ -116,11 +116,12 @@ impl ChunkScanner {
         chunk: &ClaimedChunk,
         run: &PinnedRun,
         analyses: &ConditionAnalyses,
-        now_ms: i64,
+        clock: fn() -> i64,
         lease_cancel: &CancellationToken,
         shutdown: &CancellationToken,
     ) -> Result<(Vec<SeedTile>, ScanVolume), ScanHalt> {
         let timer = MetricTimer::start(CHUNK_SCAN_DURATION_SECONDS);
+        let now_ms = clock();
         let spec = chunk.spec();
         let domain = run.domain_for(&spec).map_err(ScanError::from)?;
         let active = active_conditions_at(spec.day, run.tz, now_ms, &run.conditions);
@@ -148,16 +149,8 @@ impl ChunkScanner {
         }
         // The TTL may already have dropped some of this day's rows, so the tiles would undercount
         // and the run would still complete.
-        if let Some((expired, ..)) = planned
-            .iter()
-            .find(|(table, ..)| table.past_retention(&domain, now_ms))
-        {
-            return Err(ScanError::PastRetention {
-                table: expired.as_str(),
-                day: spec.day,
-            }
-            .into());
-        }
+        let tables = planned.iter().map(|(table, ..)| *table).collect::<Vec<_>>();
+        check_retention(&tables, &domain, spec.day, now_ms)?;
         let comment = ScanLogComment::BehavioralChunk {
             spec,
             cohort_id: run.sole_cohort_id(),
@@ -192,6 +185,8 @@ impl ChunkScanner {
                 shutdown,
             )
             .await?;
+        // A query can run for hours, so the TTL can reach the day while the chunk scans.
+        check_retention(&tables, &domain, spec.day, clock())?;
         // Closed before the diagnostic arm, which must not lengthen the chunk's reported scan.
         drop(timer);
 
@@ -462,11 +457,14 @@ impl ChunkScanner {
         {
             Ok(Ok(columns)) => columns,
             Ok(Err(error)) => {
-                warn!(error = ?error, "materialized column lookup failed; the scan reads the properties blob");
+                warn!(table = table.as_str(), error = ?error, "materialized column lookup failed; the scan reads the properties blob");
                 MaterializedColumns::default()
             }
             Err(_) => {
-                warn!("materialized column lookup timed out; the scan reads the properties blob");
+                warn!(
+                    table = table.as_str(),
+                    "materialized column lookup timed out; the scan reads the properties blob"
+                );
                 MaterializedColumns::default()
             }
         }
@@ -787,6 +785,24 @@ async fn fold_cursor(
                 }
             }
         }
+    }
+}
+
+fn check_retention(
+    tables: &[ScanTable],
+    domain: &SeedDomain,
+    day: DayIdx,
+    now_ms: i64,
+) -> Result<(), ScanError> {
+    match tables
+        .iter()
+        .find(|table| table.past_retention(domain, now_ms))
+    {
+        Some(expired) => Err(ScanError::PastRetention {
+            table: expired.as_str(),
+            day,
+        }),
+        None => Ok(()),
     }
 }
 
@@ -1561,7 +1577,7 @@ mod tests {
     async fn scan_day_one(
         scanner: &ChunkScanner,
         run: &PinnedRun,
-        now_ms: i64,
+        clock: fn() -> i64,
     ) -> Result<ScannedChunk, Halted<ClaimedChunk, ScanError>> {
         use crate::domain::{AttemptCount, ChunkId, ChunkLease};
 
@@ -1580,7 +1596,7 @@ mod tests {
                 chunk,
                 run,
                 &ConditionAnalyses::build(&run.conditions, &run.filters),
-                now_ms,
+                clock,
                 &never,
                 &never,
             )
@@ -1615,7 +1631,7 @@ mod tests {
         );
         let run = mixed_run(120);
 
-        let error = failure_of(scan_day_one(&scanner, &run, 101 * 86_400_000).await);
+        let error = failure_of(scan_day_one(&scanner, &run, || 101 * 86_400_000).await);
 
         assert!(
             matches!(error, ScanError::PastRetention { .. }),
@@ -1628,6 +1644,7 @@ mod tests {
     #[cfg(feature = "ch-test-support")]
     mod live {
         use std::collections::HashSet;
+        use std::sync::atomic::{AtomicUsize, Ordering};
 
         use envconfig::Envconfig;
 
@@ -1748,7 +1765,7 @@ mod tests {
             let client = mixed_chunk_database("seeder_scanner_mixed_chunk").await;
             let run = mixed_run(7);
 
-            let scanned = match scan_day_one(&scanner(client, false), &run, NOW_MS).await {
+            let scanned = match scan_day_one(&scanner(client, false), &run, || NOW_MS).await {
                 Ok(scanned) => scanned,
                 failed => panic!("{:?}", failure_of(failed)),
             };
@@ -1769,6 +1786,27 @@ mod tests {
             );
         }
 
+        #[tokio::test]
+        async fn a_chunk_that_crosses_the_ttl_while_it_scans_fails() {
+            static CALLS: AtomicUsize = AtomicUsize::new(0);
+            fn crosses_the_ttl() -> i64 {
+                match CALLS.fetch_add(1, Ordering::SeqCst) {
+                    0 => NOW_MS,
+                    _ => 101 * 86_400_000,
+                }
+            }
+            let client = mixed_chunk_database("seeder_scanner_crosses_ttl").await;
+            let run = mixed_run(120);
+
+            let error =
+                failure_of(scan_day_one(&scanner(client, false), &run, crosses_the_ttl).await);
+
+            assert!(
+                matches!(error, ScanError::PastRetention { .. }),
+                "the chunk failed for another reason: {error:?}"
+            );
+        }
+
         /// The verdict the backfill gate reads. A compare that re-scanned one table, or read flag
         /// calls from `events`, would report a diff on every mixed chunk.
         #[test]
@@ -1784,7 +1822,7 @@ mod tests {
                     let client = mixed_chunk_database("seeder_scanner_mixed_compare").await;
                     let run = mixed_run(7);
                     if let failed @ Err(_) =
-                        scan_day_one(&scanner(client, true), &run, NOW_MS).await
+                        scan_day_one(&scanner(client, true), &run, || NOW_MS).await
                     {
                         panic!("{:?}", failure_of(failed));
                     }
