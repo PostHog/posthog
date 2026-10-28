@@ -38,8 +38,8 @@ from products.signals.backend.report_check_final_agents import (
     MonitoringScoutCheck,
     bound_monitoring_scout_run,
     build_monitoring_run_note,
+    finalize_monitoring_scout_run,
     ready_monitoring_scout_check,
-    save_monitoring_scout_result,
 )
 from products.signals.backend.report_monitoring_results import InvalidMonitoringResult
 from products.signals.backend.scout_harness.limits import (
@@ -448,22 +448,19 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
 
 @temporalio.activity.defn
 @close_db_connections
-def deliver_monitoring_scout_result(input: RunSignalsScoutInput, run_id: str | None, failed: bool = False) -> None:
+def finalize_monitoring_scout_run_activity(
+    input: RunSignalsScoutInput, run_id: str | None, failed: bool = False, execution_finished: bool = True
+) -> None:
     if input.monitoring_check is not None and input.run_note is not None:
-        settled = save_monitoring_scout_result(
+        finalize_monitoring_scout_run(
             input.monitoring_check,
             canonical_team_id=input.team_id,
             skill_name=input.skill_name,
             run_note=input.run_note,
             run_id=run_id,
             failed=failed,
+            execution_finished=execution_finished,
         )
-        if not settled:
-            raise ApplicationError(
-                "The scout task is still finalizing.",
-                type="MonitoringScoutRunPending",
-                next_retry_delay=timedelta(seconds=5),
-            )
 
 
 @temporalio.workflow.defn
@@ -520,7 +517,7 @@ class RunSignalsScoutWorkflow:
             )
         except (ActivityError, asyncio.CancelledError) as error:
             if input.monitoring_check is not None:
-                await asyncio.shield(self._deliver_monitoring_result(input, None, failed=True))
+                await asyncio.shield(self._finalize_monitoring_run(input, None, failed=True))
 
             if input.trial_launch_id is not None and temporalio.workflow.patched("cancel-failed-scout-trial"):
                 try:
@@ -553,17 +550,22 @@ class RunSignalsScoutWorkflow:
         if input.monitoring_check is not None and (
             output.run_id is not None or output.status in {"failed", "cancelled"}
         ):
-            await self._deliver_monitoring_result(input, output.run_id, failed=output.status in {"failed", "cancelled"})
+            await self._finalize_monitoring_run(
+                input,
+                output.run_id,
+                failed=output.status in {"failed", "cancelled"},
+                execution_finished=output.status in {"completed", "failed", "cancelled"},
+            )
         if managed_resume:
             await self._resume_step(input, output)
         return output
 
-    async def _deliver_monitoring_result(
-        self, input: RunSignalsScoutInput, run_id: str | None, *, failed: bool = False
+    async def _finalize_monitoring_run(
+        self, input: RunSignalsScoutInput, run_id: str | None, *, failed: bool = False, execution_finished: bool = True
     ) -> None:
         await temporalio.workflow.execute_activity(
-            deliver_monitoring_scout_result,
-            args=[input, run_id, failed],
+            finalize_monitoring_scout_run_activity,
+            args=[input, run_id, failed, execution_finished],
             start_to_close_timeout=timedelta(seconds=30),
             schedule_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=5),

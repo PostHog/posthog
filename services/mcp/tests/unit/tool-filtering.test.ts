@@ -317,6 +317,16 @@ const createMockContext = (
 
 describe('Tool Filtering - API Scopes', () => {
     it.each([
+        { scopes: ['*'], visible: false },
+        { scopes: ['signal_scout_internal:write'], visible: false },
+        { scopes: ['signal_scout_report:write'], visible: false },
+        { scopes: ['signal_scout_monitoring:write'], visible: true },
+    ])('restricts Monitoring submission to its run capability: %j', async ({ scopes, visible }) => {
+        const tools = await getToolsFromContext(createMockContext(scopes))
+        expect(tools.some((tool) => tool.name === 'scout-monitoring-result-submit')).toBe(visible)
+    })
+
+    it.each([
         { scopes: ['task:write'], rollout: true, visible: false },
         { scopes: ['query:read'], rollout: true, visible: false },
         { scopes: ['task:write', 'query:read'], rollout: true, visible: true },
@@ -572,6 +582,7 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
         'internal_run:read',
         'signal_scout_internal:read',
         'signal_scout_internal:write',
+        'signal_scout_monitoring:write',
         'signal_scout_report:read',
         'signal_scout_report:write',
         'signal_scratchpad_internal:read',

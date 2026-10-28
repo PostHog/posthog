@@ -109940,6 +109940,22 @@ export namespace Schemas {
       readonly reports: readonly SignalReportMetricSnapshots[];
     }
 
+    /**
+     * * `sufficient` - Sufficient
+     * * `insufficient` - Insufficient
+     * * `unsupported` - Unsupported
+     * * `errored` - Errored
+     */
+    export type SignalReportMonitoringResultEvidenceStatusEnum = typeof SignalReportMonitoringResultEvidenceStatusEnum[keyof typeof SignalReportMonitoringResultEvidenceStatusEnum];
+
+
+    export const SignalReportMonitoringResultEvidenceStatusEnum = {
+      Sufficient: 'sufficient',
+      Insufficient: 'insufficient',
+      Unsupported: 'unsupported',
+      Errored: 'errored',
+    } as const;
+
     export interface SignalReportPriorityUpdate {
       /** New report priority, from P0 (critical) to P4 (minimal).
        *
@@ -116391,6 +116407,53 @@ export namespace Schemas {
       summary_bullets: SummaryBullet[];
       /** Interesting notes (0-2 for minimal, more for detailed) */
       interesting_notes: InterestingNote[];
+    }
+
+    export interface SubmitMonitoringResultRequest {
+      /** Whether the fixed-window evidence is sufficient, insufficient, unsupported, or errored.
+       *
+       * * `sufficient` - Sufficient
+       * * `insufficient` - Insufficient
+       * * `unsupported` - Unsupported
+       * * `errored` - Errored */
+      evidence_status: SignalReportMonitoringResultEvidenceStatusEnum;
+      /**
+         * Explain why the evidence supports this qualification. Must not be blank.
+         * @minLength 1
+         * @maxLength 2000
+         */
+      evidence_reason: string;
+      /**
+         * Whether the authored expectation holds: a boolean for sufficient evidence, null for unsupported or errored evidence.
+         * @nullable
+         */
+      expectation_matches: boolean | null;
+      /**
+         * Explain the conclusion using evidence from the assignment's fixed window.
+         * @minLength 1
+         * @maxLength 16000
+         */
+      explanation: string;
+      /**
+         * Evidence references supporting the conclusion, or an empty list when none are available.
+         * @maxItems 50
+         * @items.minLength 1
+         */
+      evidence_refs: string[];
+    }
+
+    export interface SubmitMonitoringResultResponse {
+      /** True when the result is stored, including an identical retry. */
+      accepted: boolean;
+      /** The immutable Monitoring result's identifier. */
+      result_id: string;
+      /** The recorded verdict; this does not change the report's status.
+       *
+       * * `passed` - Passed
+       * * `failed` - Failed
+       * * `errored` - Errored
+       * * `inconclusive` - Inconclusive */
+      outcome: SignalReportCheckOutcomeEnum;
     }
 
     export type SubscriptionWriteContextsItem = {

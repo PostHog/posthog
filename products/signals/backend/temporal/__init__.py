@@ -27,8 +27,8 @@ from products.signals.backend.temporal.agentic.scout_scheduler import (
     RunSignalsScoutWorkflow,
     cancel_failed_scout_trial_activity,
     check_signals_scout_config_runnable_activity,
-    deliver_monitoring_scout_result,
     evaluate_signals_scout_precheck_activity,
+    finalize_monitoring_scout_run_activity,
     resume_signals_scout_workflow_step,
     run_signals_scout_activity,
 )
@@ -221,7 +221,7 @@ ACTIVITIES = [
     run_custom_signal_agent_activity,
     run_signal_semantic_search_activity,
     run_signals_scout_activity,
-    deliver_monitoring_scout_result,
+    finalize_monitoring_scout_run_activity,
     evaluate_signals_scout_precheck_activity,
     check_signals_scout_config_runnable_activity,
     cancel_failed_scout_trial_activity,

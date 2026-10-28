@@ -17,11 +17,12 @@ from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from rest_framework.test import APIClient
 from temporalio.converter import default
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ActivityError
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models import Team
+from posthog.models import OAuthApplication, Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import (
@@ -38,9 +39,10 @@ from products.signals.backend.report_check_final_agents import (
     MonitoringScoutCheck,
     MonitoringScoutResult,
     build_monitoring_run_note,
+    finalize_monitoring_scout_run,
     monitoring_scout_check,
     run_due_final_agents,
-    save_monitoring_scout_result,
+    submit_monitoring_scout_result,
 )
 from products.signals.backend.report_check_final_candidates import DueFinalCheck, collect_due_final_checks
 from products.signals.backend.report_metric_refresh import MetricMeasurement
@@ -51,12 +53,13 @@ from products.signals.backend.temporal.agentic.scout_scheduler import (
     RunSignalsScoutInput,
     RunSignalsScoutOutput,
     RunSignalsScoutWorkflow,
-    deliver_monitoring_scout_result,
+    finalize_monitoring_scout_run_activity,
     run_signals_scout_activity,
 )
 from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+from products.tasks.backend.facade.testing import create_task_run_oauth_access_token
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -155,7 +158,7 @@ class FinalAuthoredAgentChecksSetup(PostHogTestCase):
         note: str | None = None,
         run_id: str | None = None,
     ) -> None:
-        save_monitoring_scout_result(
+        finalize_monitoring_scout_run(
             binding or self.binding,
             canonical_team_id=self.team.id,
             skill_name=self.skill.name,
@@ -200,16 +203,17 @@ class TestFinalAuthoredAgentChecks(FinalAuthoredAgentChecksSetup, BaseTest):
             ("insufficient", None, "inconclusive"),
             ("unsupported", None, "inconclusive"),
             ("errored", None, "errored"),
-            ("sufficient", None, "errored"),
-            ("unsupported", True, "errored"),
         ]
     )
-    def test_structured_closeout_preserves_qualification_separately_from_match(
+    def test_submission_preserves_qualification_separately_from_match(
         self, evidence_status: str, matches: bool | None, outcome: str
     ) -> None:
         self.check.monitoring_dispatch_after = self.now + MONITORING_AGENT_DISPATCH_BACKOFF
         self.check.save(update_fields=["monitoring_dispatch_after"])
-        run = self._run(self._payload(evidence_status, matches))
+        run = self._run("The Monitoring result was submitted.", status="in_progress")
+        submit_monitoring_scout_result(
+            run, MonitoringScoutResult.model_validate_json(self._payload(evidence_status, matches))
+        )
         self._deliver(run)
         result = SignalReportMonitoringResult.objects.for_team(self.team.id).get()
         assert result.outcome == outcome
@@ -262,69 +266,45 @@ class TestFinalAuthoredAgentChecks(FinalAuthoredAgentChecksSetup, BaseTest):
         self._deliver(run, binding=binding, run_id=run_id, note=note)
         assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
 
-    @parameterized.expand(
-        ["prose", "boolean_string", "extra_identity", "failed_run"]
-        + [
-            f"{character}_{field}"
-            for character in ("null", "surrogate")
-            for field in ("evidence_reason", "explanation", "evidence_refs")
-        ]
-    )
-    def test_invalid_or_failed_closeout_is_an_execution_error(self, shape: str) -> None:
-        payload = json.loads(self._payload())
-        if shape == "boolean_string":
-            payload["expectation_matches"] = "false"
-        elif shape == "extra_identity":
-            payload["team_id"] = self.team.id
-        elif shape.startswith(("null_", "surrogate_")):
-            character, field = shape.split("_", 1)
-            value = chr(0) if character == "null" else chr(0xD800)
-            payload[field] = [value] if field == "evidence_refs" else value
+    @parameterized.expand(["prose", "json", "failed"])
+    def test_a_closeout_without_a_submission_records_a_bounded_execution_error(self, shape: str) -> None:
         run = self._run(
-            "No errors found." if shape == "prose" else json.dumps(payload),
-            status="failed" if shape == "failed_run" else "completed",
+            self._payload("sufficient", True) if shape == "json" else "No errors found.",
+            status="failed" if shape == "failed" else "completed",
         )
         self._deliver(run)
         result = SignalReportMonitoringResult.objects.for_team(self.team.id).get()
         assert result.evidence_status == "errored" and result.expectation_matches is None
+        assert self._due() == []
 
-    @parameterized.expand([("queued", False), ("in_progress", False), ("in_progress", True)])
-    def test_recovery_waits_for_live_runs_and_records_orphaned_runs_as_errors(
-        self, status: str, finalizes: bool
-    ) -> None:
-        run = self._run(self._payload("sufficient", True), status=status)
-        input = RunSignalsScoutInput(
-            team_id=self.team.id,
-            skill_name=self.skill.name,
-            triggered_by=TRIGGERED_BY_MONITORING,
-            monitoring_check=self.binding,
-            run_note=self.note,
+    @parameterized.expand(["in_progress", "completed"])
+    def test_accepted_submission_does_not_wait_for_task_finalization(self, status: str) -> None:
+        run = self._run("Submitted the evidence.", status="in_progress")
+        accepted = submit_monitoring_scout_result(
+            run, MonitoringScoutResult.model_validate_json(self._payload("sufficient", True))
         )
-        environment = ActivityEnvironment()
-        with self.assertRaises(ApplicationError) as pending:
-            environment.run(deliver_monitoring_scout_result, input, str(run.id))
-        assert pending.exception.type == "MonitoringScoutRunPending"
-        assert pending.exception.next_retry_delay == timedelta(seconds=5)
-        assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
-        if finalizes:
-            run.task_run.status = "completed"
-            run.task_run.save(update_fields=["status"])
-            environment.run(deliver_monitoring_scout_result, input, str(run.id))
-        else:
-            with time_machine.travel(self.now + timedelta(seconds=STALE_RUN_CUTOFF_S + 1), tick=False):
-                environment.run(deliver_monitoring_scout_result, input, str(run.id))
+        run.task_run.status = status
+        run.task_run.save(update_fields=["status"])
+        self._deliver(run)
         result = SignalReportMonitoringResult.objects.for_team(self.team.id).get()
-        assert result.evidence_status == ("sufficient" if finalizes else "errored")
-        assert result.expectation_matches is (True if finalizes else None)
-        assert SignalScoutRun.objects.for_team(self.team.id).count() == 1
+        assert result.id == accepted.id and result.outcome == "passed"
+        run.task_run.refresh_from_db()
+        assert run.task_run.status == status
 
-    def test_completed_summary_recovers_without_activity_output_and_preserves_accepted_result(self) -> None:
-        run = self._run(self._payload("sufficient", True))
-        save_monitoring_scout_result(
-            self.binding, canonical_team_id=self.team.id, skill_name=self.skill.name, run_note=self.note, run_id=None
+    @parameterized.expand(["queued", "in_progress"])
+    def test_recovery_leaves_live_runs_time_to_submit_and_expires_orphans(self, status: str) -> None:
+        run = self._run("Still investigating.", status=status)
+        self._deliver(run)
+        assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
+        with time_machine.travel(self.now + timedelta(seconds=STALE_RUN_CUTOFF_S + 1), tick=False):
+            self._deliver(run)
+        assert SignalReportMonitoringResult.objects.for_team(self.team.id).get().evidence_status == "errored"
+
+    def test_finalization_preserves_a_submitted_result_independently_of_summary(self) -> None:
+        run = self._run("Submission accepted.", status="in_progress")
+        accepted = submit_monitoring_scout_result(
+            run, MonitoringScoutResult.model_validate_json(self._payload("sufficient", True))
         )
-        accepted = SignalReportMonitoringResult.objects.for_team(self.team.id).get()
-        self.assertEqual(accepted.outcome, "passed")
         run.summary = self._payload("sufficient", False)
         run.save(update_fields=["summary"])
         self._deliver(run)
@@ -333,7 +313,7 @@ class TestFinalAuthoredAgentChecks(FinalAuthoredAgentChecksSetup, BaseTest):
         assert self._due() == []
 
     def test_failures_before_a_run_exists_consume_only_the_bounded_retry_budget(self) -> None:
-        save_monitoring_scout_result(
+        finalize_monitoring_scout_run(
             self.binding, canonical_team_id=self.team.id, skill_name=self.skill.name, run_note=self.note, run_id=None
         )
         assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
@@ -342,7 +322,7 @@ class TestFinalAuthoredAgentChecks(FinalAuthoredAgentChecksSetup, BaseTest):
                 binding = monitoring_scout_check(self._due()[0])
                 note = build_monitoring_run_note(binding, self.check)
                 for _ in range(2):
-                    save_monitoring_scout_result(
+                    finalize_monitoring_scout_run(
                         binding,
                         canonical_team_id=self.team.id,
                         skill_name=self.skill.name,
@@ -589,7 +569,7 @@ class TestFinalAuthoredAgentExecution(FinalAuthoredAgentChecksSetup, NonAtomicBa
         check.refresh_from_db()
         assert check.monitoring_dispatch_after is None
 
-    def test_monitoring_uses_the_full_normal_runner_and_reuses_its_stored_run(self) -> None:
+    def test_monitoring_uses_the_full_runner_and_corrects_submission_without_a_second_run(self) -> None:
         memory = SignalScratchpad.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             key="checkout-context",
@@ -608,12 +588,41 @@ class TestFinalAuthoredAgentExecution(FinalAuthoredAgentChecksSetup, NonAtomicBa
             task = Task.objects.create(team=self.team, title="Scout", origin_product=Task.OriginProduct.SIGNALS_SCOUT)
             return TaskRun.objects.create(team=self.team, task=task, status="in_progress")
 
+        def submit_with_correction(task_run_id: UUID) -> None:
+            run = SignalScoutRun.objects.for_team(self.team.id).get(task_run_id=task_run_id)
+            application = OAuthApplication.objects.create(
+                name="Synthetic Monitoring scout",
+                client_type=OAuthApplication.CLIENT_PUBLIC,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="http://localhost:8237/callback",
+                algorithm="RS256",
+            )
+            with patch("posthog.temporal.oauth.get_sandbox_oauth_app", return_value=application):
+                token = create_task_run_oauth_access_token(
+                    team_id=self.team.id,
+                    task_run_id=task_run_id,
+                    user_id=self.user.id,
+                    scopes=cast(CustomPromptSandboxContext, captured["context"]).posthog_mcp_scopes or "signals_scout",
+                )
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            url = f"/api/projects/{self.team.id}/signals/scout/runs/{run.id}/monitoring_result/"
+            invalid = client.post(url, json.loads(self._payload("sufficient", None)), format="json")
+            assert invalid.status_code == 400, invalid.data
+            assert "expectation_matches" in str(invalid.data)
+            assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
+            accepted = client.post(url, json.loads(self._payload("sufficient", False)), format="json")
+            assert accepted.status_code == 200, accepted.data
+            assert accepted.data["accepted"] is True
+            captured["submission_statuses"] = [invalid.status_code, accepted.status_code]
+
         async def start(
             *, before_task_dispatch: Callable[[UUID], None], **kwargs: object
         ) -> tuple[MagicMock, SignalScoutRunSummary]:
             captured.update(kwargs)
             task_run = await database_sync_to_async(make_task_run)()
             await database_sync_to_async(before_task_dispatch)(task_run.id)
+            await database_sync_to_async(submit_with_correction)(task_run.id)
             session = MagicMock(task_run=task_run)
 
             async def end() -> None:
@@ -621,7 +630,9 @@ class TestFinalAuthoredAgentExecution(FinalAuthoredAgentChecksSetup, NonAtomicBa
                 await database_sync_to_async(task_run.save)(update_fields=["status"])
 
             session.end = AsyncMock(side_effect=end)
-            return session, SignalScoutRunSummary(summary=self._payload())
+            return session, SignalScoutRunSummary(
+                summary="Submitted the Monitoring verdict after correcting validation errors."
+            )
 
         async def activity() -> RunSignalsScoutOutput:
             return await ActivityEnvironment().run(run_signals_scout_activity, input)
@@ -648,6 +659,7 @@ class TestFinalAuthoredAgentExecution(FinalAuthoredAgentChecksSetup, NonAtomicBa
         ):
             output = async_to_sync(activity)()
         assert output.status == "completed", output
+        assert captured["submission_statuses"] == [400, 200]
         assert output.last_message is None
         context = cast(CustomPromptSandboxContext, captured["context"])
         assert context.user_id == self.user.id
@@ -672,7 +684,8 @@ class TestFinalAuthoredAgentExecution(FinalAuthoredAgentChecksSetup, NonAtomicBa
         assert "sole assignment and takes precedence" in prompt
         assert "Do not call scout-check-record-result" in prompt
         assert "Skip the skill's scheduled queues, empty-queue early exits" in prompt
-        assert json.dumps(MonitoringScoutResult.model_json_schema(), sort_keys=True) in prompt
+        assert "scout-monitoring-result-submit" in prompt
+        assert "Do not finish until the tool returns accepted=true" in prompt
         assert output.run_id is not None
         run = SignalScoutRun.objects.for_team(self.team.id).get(id=output.run_id)
         assert run.metadata is not None
@@ -684,8 +697,8 @@ class TestFinalAuthoredAgentExecution(FinalAuthoredAgentChecksSetup, NonAtomicBa
         ) as second_start:
             replay = async_to_sync(activity)()
         second_start.assert_not_called()
-        assert replay.run_id == output.run_id
-        deliver_monitoring_scout_result(input, output.run_id)
+        assert replay.run_id is None and replay.skip_reason == "monitoring_check_unavailable"
+        finalize_monitoring_scout_run_activity(input, output.run_id)
         result = SignalReportMonitoringResult.objects.for_team(self.team.id).get()
         assert result.outcome == "failed" and result.report_check_id == self.check.id
         assert run.team_id == self.team.id and run.task_run.team_id == self.team.id
@@ -724,7 +737,7 @@ class TestMonitoringScoutWorkflow(SimpleTestCase):
     @parameterized.expand(
         ["completed", "failed", "failed_without_run", "cancelled_without_run", "worker_error", "skipped"]
     )
-    def test_delivery_retries_independently_of_the_normal_scout_activity(self, outcome: str) -> None:
+    def test_finalization_retries_independently_of_the_normal_scout_activity(self, outcome: str) -> None:
         now = timezone.now()
         binding = MonitoringScoutCheck(
             team_id=1,
@@ -780,10 +793,11 @@ class TestMonitoringScoutWorkflow(SimpleTestCase):
         else:
             assert execute.call_count == 2
             delivery = execute.call_args_list[1]
-            assert delivery.args == (deliver_monitoring_scout_result,)
+            assert delivery.args == (finalize_monitoring_scout_run_activity,)
             assert delivery.kwargs["args"] == [
                 input,
                 None if outcome == "worker_error" or outcome.endswith("_without_run") else "run",
                 outcome in {"failed", "failed_without_run", "cancelled_without_run", "worker_error"},
+                True,
             ]
             assert delivery.kwargs["retry_policy"].maximum_attempts == 5

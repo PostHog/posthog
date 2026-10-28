@@ -1267,6 +1267,47 @@ const inboxSteeringInstructionsUpdate = (): ToolBase<
     },
 })
 
+const ScoutMonitoringResultSubmitSchema = () => {
+    const SignalsScoutSubmitMonitoringResultBody = orvalSchemas.SignalsScoutSubmitMonitoringResultBody()
+    const SignalsScoutSubmitMonitoringResultParams = orvalSchemas.SignalsScoutSubmitMonitoringResultParams()
+    return SignalsScoutSubmitMonitoringResultParams.omit({ project_id: true }).extend(
+        SignalsScoutSubmitMonitoringResultBody.shape
+    )
+}
+
+const scoutMonitoringResultSubmit = (): ToolBase<
+    ReturnType<typeof ScoutMonitoringResultSubmitSchema>,
+    Schemas.SubmitMonitoringResultResponse
+> => ({
+    name: 'scout-monitoring-result-submit',
+    schema: ScoutMonitoringResultSubmitSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ScoutMonitoringResultSubmitSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.evidence_status !== undefined) {
+            body['evidence_status'] = params.evidence_status
+        }
+        if (params.evidence_reason !== undefined) {
+            body['evidence_reason'] = params.evidence_reason
+        }
+        if (params.expectation_matches !== undefined) {
+            body['expectation_matches'] = params.expectation_matches
+        }
+        if (params.explanation !== undefined) {
+            body['explanation'] = params.explanation
+        }
+        if (params.evidence_refs !== undefined) {
+            body['evidence_refs'] = params.evidence_refs
+        }
+        const result = await context.api.request<Schemas.SubmitMonitoringResultResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/monitoring_result/`,
+            body,
+        })
+        return result
+    },
+})
+
 const ScoutCheckRecordResultSchema = () => {
     const SignalsScoutRecordCheckResultBody = orvalSchemas.SignalsScoutRecordCheckResultBody()
     const SignalsScoutRecordCheckResultParams = orvalSchemas.SignalsScoutRecordCheckResultParams()
@@ -3585,6 +3626,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-update': inboxSourceConfigsUpdate,
     'inbox-steering-instructions-get': inboxSteeringInstructionsGet,
     'inbox-steering-instructions-update': inboxSteeringInstructionsUpdate,
+    'scout-monitoring-result-submit': scoutMonitoringResultSubmit,
     'scout-check-record-result': scoutCheckRecordResult,
     'scout-config-create': scoutConfigCreate,
     'scout-config-delete': scoutConfigDelete,

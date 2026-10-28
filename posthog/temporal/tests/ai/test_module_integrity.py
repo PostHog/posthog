@@ -187,7 +187,7 @@ class TestSignalsProductModuleIntegrity:
             "evaluate_signals_scout_precheck_activity",
             "check_signals_scout_config_runnable_activity",
             "run_signals_scout_activity",
-            "deliver_monitoring_scout_result",
+            "finalize_monitoring_scout_run_activity",
             "cancel_failed_scout_trial_activity",
             "load_scout_trial_evaluation_activity",
             "dispatch_scout_trial_comparison_activity",

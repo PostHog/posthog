@@ -3498,6 +3498,47 @@ export const SignalsScoutLighthouseAuditBody = /* @__PURE__ */ zod
     .describe('Request body for `scout-lighthouse-audit`: one page, one device profile.')
 
 /**
+ * Submit the assigned Monitoring check's evidence and verdict while the scout is running. Only the owning Monitoring scout can call this endpoint. The server derives the check, attempt, definition, and fixed window from the run. Validation errors record nothing: correct the fields and retry in the same run. An identical accepted submission is idempotent. This records an evaluation and leaves the report in Monitoring.
+ * @summary Submit the result of an authored Monitoring check
+ */
+export const signalsScoutSubmitMonitoringResultBodyEvidenceReasonMax = 2000
+
+export const signalsScoutSubmitMonitoringResultBodyExplanationMax = 16000
+
+export const signalsScoutSubmitMonitoringResultBodyEvidenceRefsMax = 50
+
+export const SignalsScoutSubmitMonitoringResultBody = /* @__PURE__ */ zod.object({
+    evidence_status: zod
+        .enum(['sufficient', 'insufficient', 'unsupported', 'errored'])
+        .describe(
+            '\* `sufficient` - Sufficient\n\* `insufficient` - Insufficient\n\* `unsupported` - Unsupported\n\* `errored` - Errored'
+        )
+        .describe(
+            'Whether the fixed-window evidence is sufficient, insufficient, unsupported, or errored.\n\n\* `sufficient` - Sufficient\n\* `insufficient` - Insufficient\n\* `unsupported` - Unsupported\n\* `errored` - Errored'
+        ),
+    evidence_reason: zod
+        .string()
+        .min(1)
+        .max(signalsScoutSubmitMonitoringResultBodyEvidenceReasonMax)
+        .describe('Explain why the evidence supports this qualification. Must not be blank.'),
+    expectation_matches: zod
+        .boolean()
+        .nullable()
+        .describe(
+            'Whether the authored expectation holds: a boolean for sufficient evidence, null for unsupported or errored evidence.'
+        ),
+    explanation: zod
+        .string()
+        .min(1)
+        .max(signalsScoutSubmitMonitoringResultBodyExplanationMax)
+        .describe("Explain the conclusion using evidence from the assignment's fixed window."),
+    evidence_refs: zod
+        .array(zod.string().min(1))
+        .max(signalsScoutSubmitMonitoringResultBodyEvidenceRefsMax)
+        .describe('Evidence references supporting the conclusion, or an empty list when none are available.'),
+})
+
+/**
  * The structured-output channel: record schema-validated records this run produced. Opt-in via the scout config's `structured_output_schema` (a JSON Schema describing one record) — without it the call fails closed, as it does for a dry-run scout (emit off). All-or-nothing: any invalid record fails the whole call with nothing written, so fix and resubmit the batch. Each accepted record lands in the project's event stream as a `$scout_structured_output` event — query them like any event (insights, SQL over `events`). Recording is idempotent: event ids are deterministic, so resubmitting an identical batch (e.g. retrying after a 503) cannot double-count.
  * @summary Record structured output for a run
  */
