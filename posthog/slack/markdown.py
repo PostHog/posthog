@@ -62,6 +62,17 @@ _INLINE_MARKUP = re.compile(
 )
 
 
+def rendered_code_spans(line: str) -> list[tuple[int, int]]:
+    """The regions of one line this module renders as code.
+
+    Found with the pairing the renderer itself uses, so a caller that must know what is already
+    inert cannot disagree with what Slack will draw. A second, independent parser can: an emphasis
+    marker before the opening backtick makes this scan pair the bold first, and the backticks after
+    it are then ordinary text.
+    """
+    return [match.span() for match in _INLINE_MARKUP.finditer(line) if match.group("code") is not None]
+
+
 def _inline_elements(text: str, style: dict[str, bool], allowed_root: str) -> list[dict[str, Any]]:
     # Deferred: markdown_safety pulls in posthog.api.utils, which is too heavy for the django.setup() path.
     from posthog.helpers.markdown_safety import is_allowed_link_url

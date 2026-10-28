@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -12,6 +13,7 @@ from posthog.tasks.alerts.utils import (
     record_alert_delivery,
 )
 
+from products.alerts.backend.logic.insight_alert_message import INVESTIGATION_SUMMARY_MAX_CHARS
 from products.alerts.backend.models import AlertCheck, AlertConfiguration
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 
@@ -168,3 +170,23 @@ def test_destination_summary_truncated_inside_autolink_does_not_leak_url() -> No
     text = _destination_breach_text([summary], summary_index=0)
     assert text.endswith("…")
     assert "https://evil" not in text
+
+
+@pytest.mark.parametrize(
+    "breaches,summary_index",
+    [
+        # Defanging adds two characters per URL, so a summary dense with URLs grew past the cap when
+        # the cut was taken before it. Discord rejects the whole payload and the alert is lost.
+        (["https://evil.example.com/x " * 300], 0),
+        # The per-summary floor keeps a readable summary when our own breach lines are long, so the
+        # composed message needs the cap too.
+        (["breach " * 400, "summary " * 200], 1),
+        # An index the caller got wrong must not raise and lose the delivery.
+        (["one", "two"], 7),
+        (["one", "two"], -1),
+    ],
+)
+def test_destination_text_stays_within_the_cap(breaches: list[str], summary_index: int) -> None:
+    text = _destination_breach_text(breaches, summary_index=summary_index)
+    assert len(text) <= INVESTIGATION_SUMMARY_MAX_CHARS
+    assert "https://evil.example.com" not in text.replace("`https://evil.example.com", "")

@@ -13,6 +13,7 @@ from markdown_it.token import Token
 from markdown_it.utils import EnvType
 
 from posthog.api.utils import hostname_in_allowed_url_list
+from posthog.slack.markdown import rendered_code_spans
 
 _ALLOWED_LINK_URLS = ["https://posthog.com", "https://*.posthog.com"]
 # Match all CommonMark title forms (double/single-quoted, parenthesized) and allow whitespace before
@@ -31,12 +32,6 @@ _MARKDOWN_IMAGE_RE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
 _ORPHAN_DEST_RE = re.compile(r"\]\(((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)
 _AUTOLINK_RE = re.compile(r"<(https?://[^\s>]+)>", re.IGNORECASE)
 _BARE_URL_RE = re.compile(r"(?<!\]\()((?:https?://|www\.)[^\s<>)\]`]+)", re.IGNORECASE)
-# A code span that every destination renderer agrees is code: one backtick, content on one line, one
-# backtick. Content inside one is already inert, and wrapping it again would split the span and
-# release the URL as plain text. The shape is deliberately narrower than CommonMark, because Slack's
-# renderer reads one line at a time: a multi-line span or a fenced block is code to CommonMark but
-# plain text to Slack, so those must keep going through the bare-URL rule.
-_CODE_SPAN_RE = re.compile(r"(?<!`)`(?!`)[^`\n]+`(?!`)")
 
 
 def is_allowed_link_url(url: str, additional_allowed_origin: str | None = None) -> bool:
@@ -85,14 +80,24 @@ def _neutralize_bare_url(match: re.Match[str]) -> str:
 
 
 def _neutralize_urls_outside_code(markdown: str) -> str:
-    parts: list[str] = []
-    cursor = 0
-    for span in _CODE_SPAN_RE.finditer(markdown):
-        parts.append(_BARE_URL_RE.sub(_neutralize_bare_url, markdown[cursor : span.start()]))
-        parts.append(span.group(0))
-        cursor = span.end()
-    parts.append(_BARE_URL_RE.sub(_neutralize_bare_url, markdown[cursor:]))
-    return "".join(parts)
+    """Wrap every URL that the delivery renderer would draw as ordinary text.
+
+    A URL already inside a code span is inert, and wrapping it again would split the span open and
+    release it. Which regions count as code comes from the renderer, never from a second parser
+    here: the two disagree on input the summary author controls, and the renderer is the one the
+    recipient sees.
+    """
+    lines: list[str] = []
+    for line in markdown.splitlines(keepends=True):
+        parts: list[str] = []
+        cursor = 0
+        for start, end in rendered_code_spans(line):
+            parts.append(_BARE_URL_RE.sub(_neutralize_bare_url, line[cursor:start]))
+            parts.append(line[start:end])
+            cursor = end
+        parts.append(_BARE_URL_RE.sub(_neutralize_bare_url, line[cursor:]))
+        lines.append("".join(parts))
+    return "".join(lines)
 
 
 def _strip_inline_links(markdown: str, additional_allowed_origin: str | None) -> str:

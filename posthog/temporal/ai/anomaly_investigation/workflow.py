@@ -41,6 +41,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.utils import absolute_uri
 
 from products.alerts.backend.investigation_episode import EpisodeInvestigations, episode_investigations
+from products.alerts.backend.logic.insight_alert_message import truncate_markdown_safely
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.notebooks.backend.facade import api as notebooks
 from products.notebooks.backend.facade.content import build_markdown_notebook_content
@@ -83,6 +84,9 @@ _VERDICT_CHANGE_FOLLOWUP_KEY = "investigation_verdict_change"
 # (a conservative margin even for token-dense text) so a long agent report can't get the signal
 # rejected and silently dropped.
 _MAX_DESCRIPTION_CHARS = 3000
+# The history page returns this field for every row, so the stored write-up needs a ceiling of
+# its own. It matches the cap the metrics investigation path already applies to the column.
+STORED_SUMMARY_MAX_CHARS = 4000
 
 
 @dataclass
@@ -230,11 +234,15 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     # last verdict of an earlier check in the same firing episode.
     episode = await sync_to_async(episode_investigations, thread_sensitive=False)(alert, alert_check)
 
+    # The prompt asks for a few short bullets, but prompt output is not a bound: the stored value is
+    # returned for every row of the alert history page. The notebook holds the full write-up.
+    summary = truncate_markdown_safely(result.report.summary.strip(), STORED_SUMMARY_MAX_CHARS)
+
     await sync_to_async(AlertCheck.objects.filter(id=alert_check.id).update, thread_sensitive=False)(
         investigation_notebook_id=notebook.id,
         investigation_status=InvestigationStatus.DONE,
         investigation_verdict=result.report.verdict,
-        investigation_summary=result.report.summary.strip() or None,
+        investigation_summary=summary or None,
         investigation_error=None,
     )
 
@@ -251,7 +259,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         alert_check=alert_check,
         verdict=result.report.verdict,
         previous_verdict=episode.previous_verdict,
-        summary=result.report.summary,
+        summary=summary,
         notebook_short_id=notebook.short_id,
         insight_chart_url=insight_chart_url,
     )

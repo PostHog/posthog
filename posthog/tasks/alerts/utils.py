@@ -1,4 +1,3 @@
-import re
 from collections.abc import Collection
 from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
@@ -8,6 +7,7 @@ from zoneinfo import ZoneInfo
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.html import format_html
+from django.utils.safestring import SafeString
 
 import pytz
 import structlog
@@ -16,7 +16,6 @@ from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayTyp
 
 from posthog.dataclasses import frozen
 from posthog.helpers.email_formatting import render_markdown_email_html
-from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.models.user import User
 from posthog.ph_client import ph_background_capture
 from posthog.slo.context import get_current_slo
@@ -42,6 +41,7 @@ from products.alerts.backend.insight_alert_state_machine import (
     evaluate_alert_check,
     should_notify,
 )
+from products.alerts.backend.logic.insight_alert_message import bounded_destination_summary, truncate_markdown_safely
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.alerts_platform.backend.facade.delivery_slo import alert_delivery_slo
@@ -268,27 +268,41 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
     return receipts
 
 
+def _investigation_email_html(breaches: list[str], summary_index: int) -> list[SafeString]:
+    """The email body, or an empty list when the summary cannot be rendered.
+
+    The caller falls back to the plain-text breach lines. The render reads untrusted Markdown, and
+    the chat notification is dispatched after this point, so a failure here must not take it down
+    with it.
+    """
+    try:
+        return [
+            render_markdown_email_html(breach) if index == summary_index else format_html("<p>{}</p>", breach)
+            for index, breach in enumerate(breaches)
+        ]
+    except Exception:
+        logger.exception("alert_investigation_email_render_failed", summary_index=summary_index)
+        return []
+
+
 def _destination_breach_text(breaches: list[str], summary_index: int | None) -> str:
-    if summary_index is None:
-        return "\n".join(breaches)
+    if summary_index is None or not 0 <= summary_index < len(breaches):
+        return truncate_markdown_safely("\n".join(breaches), _DESTINATION_MAX_CHARS)
     other_lines = [breach for index, breach in enumerate(breaches) if index != summary_index]
     budget = max(_DESTINATION_MAX_CHARS - len("\n".join(other_lines)) - 1, _DESTINATION_MIN_SUMMARY_CHARS)
-    summary = breaches[summary_index]
-    if len(summary) > budget:
-        # Cut at whitespace so a URL is never split, and drop a dangling `<…` autolink: without its
-        # closing `>` neither the autolink nor the bare-URL rule in the defanger would match it.
-        cut = summary[: budget - 1]
-        cut = re.sub(r"\s+\S*$", "", cut) or cut
-        summary = re.sub(r"<\S*$", "", cut).rstrip() + "…"
-    summary = strip_external_links_markdown(summary)
-    return "\n".join([*breaches[:summary_index], summary, *breaches[summary_index + 1 :]])
+    summary = bounded_destination_summary(breaches[summary_index], limit=budget, allowed_root=absolute_uri("/"))
+    text = "\n".join([*breaches[:summary_index], summary, *breaches[summary_index + 1 :]])
+    # The floor above keeps a readable summary when our own breach lines are long by themselves, so
+    # the total can still pass the cap. Cut the composed message, because Discord rejects the whole
+    # payload over its own limit and the alert is then lost without a trace.
+    return truncate_markdown_safely(text, _DESTINATION_MAX_CHARS)
 
 
 def send_notifications_for_breaches(
     alert: AlertConfiguration,
     breaches: list[str],
     idempotency_key: str,
-    extra_properties: dict[str, str] | None = None,
+    extra_properties: dict[str, Any] | None = None,
     summary_index: int | None = None,
 ) -> list[AlertDelivery]:
     """A stable idempotency_key (typically alert_check.id) lets MessagingRecord enforce
@@ -311,10 +325,7 @@ def send_notifications_for_breaches(
         logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
         match_descriptions_html = []
         if summary_index is not None:
-            match_descriptions_html = [
-                render_markdown_email_html(breach) if index == summary_index else format_html("<p>{}</p>", breach)
-                for index, breach in enumerate(breaches)
-            ]
+            match_descriptions_html = _investigation_email_html(breaches, summary_index)
         email_sent = send_alert_email(
             recipients=email_targets,
             campaign_key=campaign_key,
@@ -574,7 +585,7 @@ def dispatch_alert_notification(
     alert: AlertConfiguration,
     alert_check: AlertCheck,
     breaches: list[str] | None,
-    extra_properties: dict[str, str] | None = None,
+    extra_properties: dict[str, Any] | None = None,
     idempotency_key: str | None = None,
     render_chart: bool = True,
     summary_index: int | None = None,

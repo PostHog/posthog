@@ -143,6 +143,14 @@ class TestStripExternalLinks(SimpleTestCase):
             # to CommonMark and plain text to Slack. The URL in it must still be defanged.
             ("multiline_code_span", "See `start\nhttps://evil.example.com/collect\nend`"),
             ("fenced_block", "```\nhttps://evil.example.com/collect\n```"),
+            # An emphasis marker before the opening backtick makes Slack pair the bold first, so the
+            # backticks around the URL are ordinary text to the renderer and the URL is live.
+            ("emphasis_before_span", "*a `b* https://evil.example.com/x` c"),
+            ("strong_before_span", "**a `b** https://evil.example.com/x` c"),
+            # A stray backtick next to the URL leaves a backtick run the renderer does not read as
+            # code.
+            ("backtick_after_autolink", "see <https://evil.example.com/x>` trailing"),
+            ("backtick_before_url", "`x`https://evil.example.com/q"),
         ]
     )
     def test_defanged_urls_never_reach_a_plain_slack_element(self, _label: str, markdown: str) -> None:

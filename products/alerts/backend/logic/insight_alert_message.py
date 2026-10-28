@@ -25,6 +25,29 @@ _TIME_OR_VALUE = re.compile(
 INVESTIGATION_SUMMARY_MAX_CHARS = 1500
 
 
+def truncate_markdown_safely(text: str, limit: int) -> str:
+    """Cut `text` to `limit` characters without releasing a defanged URL.
+
+    The cut lands on a whitespace boundary, and a code span the cut left unterminated is dropped:
+    an orphaned backtick turns the URL inside it back into plain text that Slack linkifies.
+    """
+    if len(text) <= limit:
+        return text
+    cut = re.sub(r"\s+\S*$", "", text[: limit - 1]) or text[: limit - 1]
+    head, separator, last_line = cut.rpartition("\n")
+    if last_line.count("`") % 2:
+        last_line = last_line[: last_line.rfind("`")]
+        cut = f"{head}{separator}{last_line}"
+    return cut.rstrip() + "\u2026"
+
+
+def bounded_destination_summary(summary: str, *, limit: int, allowed_root: str | None = None) -> str:
+    """Defang before the cut. Defanging only adds characters, so a cut taken before it is not a bound."""
+    return truncate_markdown_safely(
+        strip_external_links_markdown(summary, additional_allowed_origin=allowed_root), limit
+    )
+
+
 def _breach_elements(text: str, metric_name: str) -> list[dict[str, Any]]:
     pattern = _TIME_OR_VALUE
     if metric_name:
@@ -180,10 +203,9 @@ def insight_alert_slack_properties(
                 )
         content = {"type": "rich_text", "elements": sections}
     elif summary and summary.strip():
-        if len(summary) > INVESTIGATION_SUMMARY_MAX_CHARS:
-            summary = summary[: INVESTIGATION_SUMMARY_MAX_CHARS - 3] + "..."
         content = slack_rich_text(
-            strip_external_links_markdown(summary, additional_allowed_origin=allowed_root), allowed_root=allowed_root
+            bounded_destination_summary(summary, limit=INVESTIGATION_SUMMARY_MAX_CHARS, allowed_root=allowed_root),
+            allowed_root=allowed_root,
         )
     else:
         sections = []
