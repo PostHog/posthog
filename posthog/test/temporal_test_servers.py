@@ -17,6 +17,8 @@ import os
 import sys
 import gzip
 import time
+import uuid
+import zlib
 import shutil
 import asyncio
 import logging
@@ -46,8 +48,9 @@ REQUEST_TIMEOUT = (10, 60)
 DOWNLOAD_DEADLINE_SECONDS = 180
 # Longer than ATTEMPTS full downloads, so a waiting process outlasts the lock holder's retries.
 LOCK_TIMEOUT_SECONDS = 1200
-# Once one process gives up, the others fail at once instead of repeating the retries.
-FAILURE_MEMORY_SECONDS = 600
+# xdist gives every worker of one run the same id, so a failure one worker records stops the others in that run
+# only, and a later run tries again.
+_RUN_ID = os.environ.get("PYTEST_XDIST_TESTRUNUID") or uuid.uuid4().hex
 
 
 class TemporalServerDownloadError(RuntimeError):
@@ -148,10 +151,8 @@ def ensure_binary(binary: ServerBinary) -> Path | None:
         with FileLock(f"{dest}.lock", timeout=LOCK_TIMEOUT_SECONDS):
             if dest.is_file():
                 return dest
-            recently_failed = (
-                failed_marker.is_file() and time.time() - failed_marker.stat().st_mtime < FAILURE_MEMORY_SECONDS
-            )
-            if not recently_failed:
+            failed_in_this_run = failed_marker.is_file() and failed_marker.read_text() == _RUN_ID
+            if not failed_in_this_run:
                 for attempt in range(1, ATTEMPTS + 1):
                     try:
                         _download(binary, platform_params, dest)
@@ -160,6 +161,7 @@ def ensure_binary(binary: ServerBinary) -> Path | None:
                     except (
                         requests.RequestException,
                         tarfile.TarError,
+                        zlib.error,
                         EOFError,
                         OSError,
                         ValueError,
@@ -168,7 +170,7 @@ def ensure_binary(binary: ServerBinary) -> Path | None:
                         logger.warning("Temporal %s download attempt %d failed: %s", binary.artifact, attempt, error)
                         if attempt < ATTEMPTS:
                             time.sleep(2**attempt)
-                failed_marker.touch()
+                failed_marker.write_text(_RUN_ID)
     except Exception:
         # A broken cache directory or lock is not a network failure, so the SDK can still try its own download.
         logger.warning("Could not cache the Temporal %s binary", binary.artifact, exc_info=True)
