@@ -370,7 +370,7 @@ _FLAG_CALL_TABLE_CASES = [
         True,
         "flag_evaluations",
     ),
-    # events holds no new flag calls in this mode, so flag_evaluations is the only table that has any of them.
+    # events holds no new flag calls in this mode. flag_evaluations is the only table that has any of them.
     (
         "fixed_range_only_in_flag_evaluations",
         {**_FLAG_CALL_LEAF, "explicit_datetime": _TEN_DAYS_AGO},
