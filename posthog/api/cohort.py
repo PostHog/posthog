@@ -40,7 +40,6 @@ from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT, LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import BaseHogQLError, TableAccessDeniedError
-from posthog.hogql.flag_called_warnings import count_flag_calls_read_from_events
 from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
@@ -67,7 +66,12 @@ from posthog.helpers.trigram_search import (
     normalize_search_term,
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery, behavioral_date_range
+from posthog.hogql_queries.hogql_cohort_query import (
+    FlagCallReads,
+    HogQLCohortQuery,
+    batch_flag_call_reads,
+    behavioral_date_range,
+)
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.hogql_queries.serialized_actors import get_serialized_people
 from posthog.metrics import LABEL_TEAM_ID
@@ -139,7 +143,8 @@ from products.cohorts.backend.realtime_state import (
     resolve_realtime_readiness,
 )
 from products.feature_flags.backend.facade.config import ConfigFormatError, UnsupportedConfig, decode_config
-from products.feature_flags.backend.facade.flags import hides_flag_calls_from_query_builders
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
 from products.feature_flags.backend.facade.references import references
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flags_config import (
@@ -998,6 +1003,10 @@ _FLAG_CALL_KEY_REASON = (
     'Add an event property filter where "Feature flag" equals one or more flag keys, and filter only on event '
     "properties."
 )
+_FLAG_CALL_REALTIME_REASON = (
+    "Real-time cohorts can't use this event on your organization yet. "
+    "To see who called a flag, open the flag and check its Usage tab."
+)
 _FLAG_CALL_COMPILE_REASON = "PostHog can't calculate this criterion. Check its count and its event property filters."
 
 
@@ -1039,32 +1048,25 @@ def _static_hidden_event_reasons(references: Iterable[tuple[str, Property]]) -> 
     return reasons
 
 
-@frozen
-class _BatchFlagCallReads:
-    rewrite_enabled: bool
-    reads_from_events: int
+def _batch_flag_call_reads(criteria: Sequence[Property], team: Team) -> FlagCallReads | None:
+    """The batch query's flag-call reads for these criteria, or None when it doesn't compile.
 
-
-def _batch_flag_call_reads(criteria: Sequence[Property], team: Team) -> _BatchFlagCallReads | None:
-    """How many flag-call reads the batch query for these criteria leaves on events, or None when it doesn't compile.
-
-    It compiles the criteria the way the batch calculation does. The batch calculation keeps the flag_evaluations
-    swap only when the whole rewritten query resolves. So one criterion that reads a field flag_evaluations lacks
-    sends every flag-call criterion in the cohort to events, and the criteria compile together.
+    The batch calculation keeps the flag_evaluations swap only when the whole rewritten query resolves. So one
+    criterion that reads a field flag_evaluations lacks sends every flag-call criterion in the cohort to events, and
+    the criteria compile together.
     """
     # The query reads the same events scans with or without negation. A cohort can't negate every criterion.
     values = [{**prop.to_dict(), "negation": False} for prop in criteria]
-    cohort = Cohort(team=team, filters={"properties": {"type": "OR", "values": values}})
     try:
-        executor = HogQLCohortQuery(cohort=cohort, team=team).get_query_executor(bypass_warehouse_access_control=True)
-        _, context = executor.generate_clickhouse_sql()
+        return batch_flag_call_reads(Cohort(team=team, filters={"properties": {"type": "OR", "values": values}}), team)
     except (BaseHogQLError, ValidationError, ValueError):
         return None
-    prepared = executor.clickhouse_prepared_ast
-    return _BatchFlagCallReads(
-        rewrite_enabled=context.database is not None and context.database.read_flag_calls_from_flag_evaluations,
-        reads_from_events=count_flag_calls_read_from_events(prepared) if prepared is not None else 0,
-    )
+
+
+def _flag_call_criterion_keys(properties: Iterable[Property]) -> Iterator[str]:
+    for event, prop in _hidden_event_references(properties):
+        if event == FLAG_EVALUATIONS_SOURCE_EVENT:
+            yield _criteria_key(prop.to_dict())
 
 
 def added_unsupported_hidden_event_reference(
@@ -1083,12 +1085,12 @@ def added_unsupported_hidden_event_reference(
     if added:
         return next(iter(added))
 
-    new_flag_calls = [prop for event, prop in new_references if event == FLAG_EVALUATIONS_SOURCE_EVENT]
-    existing_flag_calls = [prop for event, prop in existing_references if event == FLAG_EVALUATIONS_SOURCE_EVENT]
-    if collections.Counter(_criteria_key(prop.to_dict()) for prop in new_flag_calls) == collections.Counter(
-        _criteria_key(prop.to_dict()) for prop in existing_flag_calls
+    if collections.Counter(_flag_call_criterion_keys(new_properties)) == collections.Counter(
+        _flag_call_criterion_keys(existing_properties)
     ):
         return None
+    new_flag_calls = [prop for event, prop in new_references if event == FLAG_EVALUATIONS_SOURCE_EVENT]
+    existing_flag_calls = [prop for event, prop in existing_references if event == FLAG_EVALUATIONS_SOURCE_EVENT]
     new_reads = _batch_flag_call_reads(new_flag_calls, team)
     if new_reads is None:
         return HiddenEventRefusal(event=FLAG_EVALUATIONS_SOURCE_EVENT, reason=_FLAG_CALL_COMPILE_REASON)
@@ -1899,17 +1901,55 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         new_properties = _flat_properties(self._effective_filters_after_update(attrs, team=team))
         if team is None or next(_hidden_event_references(new_properties), None) is None:
             return
-        if not hides_flag_calls_from_query_builders(team.organization_id):
+        mode = get_flag_evaluations_read_mode(team.organization_id)
+        if mode == FlagEvaluationsMode.EVENTS:
             return
         # Passing no attrs reads the stored definition. Cohort.properties would rewrite the stored
         # legacy groups in place.
-        existing = self._effective_filters_after_update({}, team=team)
-        added = added_unsupported_hidden_event_reference(new_properties, _flat_properties(existing), team)
+        existing_properties = _flat_properties(self._effective_filters_after_update({}, team=team))
+        added = added_unsupported_hidden_event_reference(new_properties, existing_properties, team)
+        if added is None and mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY:
+            added = self._added_realtime_flag_call_criterion(attrs, new_properties, existing_properties, team)
         if added is not None:
             raise ValidationError(
                 {"filters": f"You can't save this criterion on {added.event}. {added.reason}"},
                 code="hidden_event",
             )
+
+    def _added_realtime_flag_call_criterion(
+        self, attrs: dict, new_properties: list[Property], existing_properties: list[Property], team: Team
+    ) -> HiddenEventRefusal | None:
+        """A flag-call criterion that a save puts on a realtime cohort, or None.
+
+        On FLAG_EVALUATIONS_ONLY, events holds no flag calls, and cohort-seeder backfills a realtime cohort from
+        events. A new or edited criterion starts a backfill, and so does a cohort that becomes realtime.
+        """
+        if not self._saves_realtime_cohort(attrs, team):
+            return None
+        instance = cast(Optional[Cohort], self.instance)
+        was_realtime = instance is not None and not instance.is_static and instance.cohort_type == CohortType.REALTIME
+        added = collections.Counter(_flag_call_criterion_keys(new_properties))
+        if was_realtime:
+            added -= collections.Counter(_flag_call_criterion_keys(existing_properties))
+        if not added:
+            return None
+        return HiddenEventRefusal(event=FLAG_EVALUATIONS_SOURCE_EVENT, reason=_FLAG_CALL_REALTIME_REASON)
+
+    def _saves_realtime_cohort(self, attrs: dict, team: Team) -> bool:
+        # Mirrors how create() and update() set cohort_type.
+        instance = cast(Optional[Cohort], self.instance)
+        if attrs.get("is_static", instance.is_static if instance is not None else False):
+            return False
+        filters = attrs.get("filters")
+        if not filters:
+            return instance is not None and instance.cohort_type == CohortType.REALTIME
+        _, cohort_type, _ = validate_filters_and_compute_realtime_support(
+            filters,
+            team,
+            current_cohort_type=attrs.get("cohort_type", instance.cohort_type if instance is not None else None),
+            cohort_count=instance.count if instance is not None else None,
+        )
+        return cohort_type == CohortType.REALTIME
 
     @staticmethod
     def _cohort_error_message(exc: PydanticValidationError) -> str:

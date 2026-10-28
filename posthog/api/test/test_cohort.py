@@ -120,6 +120,7 @@ _FLAG_CALL_TYPE_REFUSAL = "can use this event"
 _FLAG_CALL_WINDOW_REFUSAL = "88 days or less"
 _FLAG_CALL_KEY_REFUSAL = '"Feature flag" equals'
 _FLAG_CALL_COMPILE_REFUSAL = "can't calculate"
+_FLAG_CALL_REALTIME_REFUSAL = "Real-time cohorts can't use this event"
 
 
 class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -4878,7 +4879,7 @@ email@example.org,
 
     @parameterized.expand(
         [
-            ("event", [_FLAG_CALLED_CRITERION], FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True, None),
+            ("event", [_FLAG_CALLED_CRITERION], FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, None),
             (
                 "multiple_times",
                 [
@@ -4889,7 +4890,7 @@ email@example.org,
                         "operator_value": 2,
                     }
                 ],
-                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
                 True,
                 None,
             ),
@@ -5063,10 +5064,50 @@ email@example.org,
             self.assertIn(expected_refusal, response.json()["detail"])
             self.assertEqual(cohort.filters["properties"]["values"], stored_criteria)
 
+    @parameterized.expand(
+        [
+            ("realtime", None, False, _FLAG_CALL_REALTIME_REFUSAL),
+            ("batch", None, True, None),
+            ("becomes_realtime", True, False, _FLAG_CALL_REALTIME_REFUSAL),
+            ("stays_batch", True, True, None),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_flag_call_criterion_on_realtime_cohort_in_flag_evaluations_only_mode(
+        self, _name, stored_filter_test_accounts, filter_test_accounts, expected_refusal, patch_capture
+    ):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        filters = {
+            "properties": {"type": "OR", "values": [_FLAG_CALLED_CRITERION]},
+            "filterTestAccounts": filter_test_accounts,
+        }
+
+        with self._flag_calls_rewrite(True):
+            if stored_filter_test_accounts is None:
+                response = self.client.post(
+                    f"/api/projects/{self.team.id}/cohorts", data={"name": "flag callers", "filters": filters}
+                )
+            else:
+                cohort = Cohort.objects.create(
+                    team=self.team,
+                    name="flag callers",
+                    filters={**filters, "filterTestAccounts": stored_filter_test_accounts},
+                )
+                response = self.client.patch(
+                    f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", data={"filters": filters}
+                )
+
+        if expected_refusal is None:
+            self.assertIn(response.status_code, (200, 201), response.json())
+            self.assertNotEqual(response.json()["cohort_type"], "realtime")
+        else:
+            self.assertEqual(response.status_code, 400, response.json())
+            self.assertIn(expected_refusal, response.json()["detail"])
+
     @parameterized.expand([("farthest_east", "Pacific/Kiritimati"), ("farthest_west", "Pacific/Pago_Pago")])
     @patch("posthog.api.cohort.report_user_action")
     def test_create_cohort_with_longest_flag_call_window_at_the_tightest_hour(self, _name, timezone, patch_capture):
-        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
         self.team.timezone = timezone
         self.team.save()
         criterion = {**_FLAG_CALLED_CRITERION, "time_value": 88}
