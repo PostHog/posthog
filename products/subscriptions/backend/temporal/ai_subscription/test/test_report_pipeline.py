@@ -491,6 +491,32 @@ async def test_run_steps_keeps_wrapped_error_out_of_recipient_copy_and_records_s
             id="internal_error",
         ),
         pytest.param(MaxToolRetryableError("something failed"), None, None, id="no_error_code"),
+        pytest.param(
+            MaxToolRetryableError(
+                "Code: 6. DB::Exception: Cannot parse 'jane@example.com' on ch-internal-3",
+                error_type="internal",
+                error_code="unhandled_dbexception",
+            ),
+            None,
+            None,
+            id="raw_unhandled_error_stays_generic",
+        ),
+        pytest.param(
+            MaxToolRetryableError(
+                "Unable to resolve field: plan_name", error_type="internal", error_code="hogql_unresolved_field"
+            ),
+            None,
+            None,
+            id="input_code_on_an_internal_error_stays_generic",
+        ),
+        pytest.param(
+            MaxToolRetryableError(
+                "Unknown table `plans\x00`.", error_type="validation", error_code="hogql_unknown_table"
+            ),
+            "hogql_unknown_table",
+            "Unknown table `plans`.",
+            id="nul_is_stripped",
+        ),
     ],
 )
 @patch(f"{_RP}.AssistantQueryExecutor")

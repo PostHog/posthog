@@ -135,10 +135,13 @@ def _safe_step_error_details(exc: BaseException) -> QueryErrorDetails | None:
         return details
     if not isinstance(exc, MaxToolRetryableError) or not exc.error_code:
         return None
-    message = str(exc) if exc.error_code in _HOGQL_INPUT_ERROR_CODES else describe_clickhouse_rejection(exc.error_code)
+    if exc.error_code in _HOGQL_INPUT_ERROR_CODES and exc.error_type == "validation":
+        message: str | None = str(exc)
+    else:
+        message = describe_clickhouse_rejection(exc.error_code)
     if not message:
         return None
-    return {"type": type(exc).__name__, "code": exc.error_code, "message": message}
+    return {"type": type(exc).__name__, "code": exc.error_code, "message": message.replace("\x00", "")}
 
 
 def _all_queries_failed_notice(total_steps: int, *, include_manage_link: bool = True) -> str:
