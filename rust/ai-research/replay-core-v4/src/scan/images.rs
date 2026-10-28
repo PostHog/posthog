@@ -75,19 +75,17 @@ impl<'k> ImageSink<'k> {
         }
     }
 
-    /// Takes a base64 image and returns its reference, with the checks and caps of v3 `ImageCollector::collect`.
-    pub(crate) fn take(&mut self, mime: &str, payload: &[u8]) -> Option<String> {
+    /// Takes a base64 image and returns its reference, with the caps of v3 `ImageCollector::collect`. The bytes name
+    /// the media type, because a page can label a data URI with any type: a font as `image/ttf`, or nothing at all.
+    pub(crate) fn take(&mut self, payload: &[u8]) -> Option<String> {
         if payload.len() > self.limits.max_image_bytes.div_ceil(3) * 4 {
             return None;
         }
         let bytes = STANDARD.decode(payload).ok()?;
-        // v3 refuses BMP and ISO-BMFF (AVIF, HEIC) bytes under any label.
-        if bytes.len() > self.limits.max_image_bytes
-            || bytes.starts_with(b"BM")
-            || bytes.get(4..8) == Some(b"ftyp")
-        {
+        if bytes.len() > self.limits.max_image_bytes {
             return None;
         }
+        let mime = raster_type(&bytes)?;
         let reference = image_ref(
             self.team_id,
             self.key_month,
@@ -110,6 +108,22 @@ impl<'k> ImageSink<'k> {
             bytes,
         });
         Some(reference)
+    }
+}
+
+/// The raster format of the bytes, by its signature: PNG, JPEG, GIF or WebP, the formats the image fetcher also stores.
+/// Anything else stays inline in the sealed block.
+fn raster_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        Some("image/png")
+    } else if bytes.starts_with(b"\xff\xd8\xff") {
+        Some("image/jpeg")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("image/gif")
+    } else if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WEBP") {
+        Some("image/webp")
+    } else {
+        None
     }
 }
 
@@ -221,10 +235,9 @@ fn read_data_uri(bytes: &[u8], start: usize, sink: &mut ImageSink<'_>) -> DataUr
     };
     let meta = String::from_utf8_lossy(&window[..comma]).to_ascii_lowercase();
     let media_type = meta.split(';').next().unwrap_or_default();
-    let Some(mime) = raster_mime(&media_type["image/".len()..]).filter(|_| meta.contains("base64"))
-    else {
+    if raster_mime(&media_type["image/".len()..]).is_none() || !meta.contains("base64") {
         return DataUri::Inline;
-    };
+    }
     let payload_start = meta_start + comma + 1;
     let end = bytes[payload_start..]
         .iter()
@@ -233,7 +246,7 @@ fn read_data_uri(bytes: &[u8], start: usize, sink: &mut ImageSink<'_>) -> DataUr
     if continues_past(bytes, end) {
         return DataUri::Inline;
     }
-    match sink.take(&mime, &bytes[payload_start..end]) {
+    match sink.take(&bytes[payload_start..end]) {
         Some(reference) => DataUri::Taken(reference, end),
         None => DataUri::Inline,
     }
@@ -281,6 +294,15 @@ mod tests {
 
     const KEY: [u8; 32] = [3; 32];
 
+    /// Image bytes that start with a raster signature, so that the scan takes them.
+    fn png(body: &[u8]) -> Vec<u8> {
+        [b"\x89PNG\r\n\x1a\n".as_slice(), body].concat()
+    }
+
+    fn jpeg(body: &[u8]) -> Vec<u8> {
+        [b"\xff\xd8\xff".as_slice(), body].concat()
+    }
+
     fn sink(limits: ImageLimits) -> ImageSink<'static> {
         ImageSink::new(&KEY, 7, "2026-10", limits)
     }
@@ -300,8 +322,8 @@ mod tests {
 
     #[test]
     fn moves_images_out_of_every_slot_and_back_without_changing_a_byte() {
-        let png = data_uri("image/png", b"png bytes");
-        let jpeg = data_uri("image/JPEG", b"jpeg bytes");
+        let png = data_uri("image/png", &png(b"png bytes"));
+        let jpeg = data_uri("image/JPEG", &jpeg(b"jpeg bytes"));
         // The stylesheet text sits inside a JSON string, so its quotes arrive escaped.
         let event = format!(
             r#"{{"type":2,"data":{{"node":{{"attributes":{{"src":"{png}","srcset":"{jpeg} 1x, {png} 2x","style":"background:url({jpeg})"}},"childNodes":[{{"textContent":".a{{background:url(\"{png}\")}}"}}]}}}}}}"#
@@ -320,10 +342,24 @@ mod tests {
 
     #[test]
     fn leaves_what_it_cannot_take_inline() {
-        let big = vec![1u8; 1000];
+        let big = png(&[1u8; 992]);
         let cases = [
             (data_uri("image/svg+xml", b"<svg/>"), ImageLimits::default()),
             (data_uri("image/bmp", b"BM"), ImageLimits::default()),
+            // The bytes name the type, so a font, an icon, an empty payload or a mislabeled text stays inline.
+            (
+                data_uri("image/ttf", b"\x00\x01\x00\x00font"),
+                ImageLimits::default(),
+            ),
+            (
+                data_uri("image/x-icon", b"\x00\x00\x01\x00icon"),
+                ImageLimits::default(),
+            ),
+            ("data:image/gif;base64,".to_owned(), ImageLimits::default()),
+            (
+                data_uri("image/png", b"not an image"),
+                ImageLimits::default(),
+            ),
             ("data:image/png;utf8,abc".to_owned(), ImageLimits::default()),
             // A URI without a comma before its string ends: the next comma separates JSON fields.
             (
@@ -338,7 +374,7 @@ mod tests {
             (
                 format!(
                     "{}\\\\2f {}",
-                    data_uri("image/png", &[7; 60]),
+                    data_uri("image/png", &png(&[7; 52])),
                     STANDARD.encode([8; 30])
                 ),
                 ImageLimits::default(),
@@ -347,14 +383,14 @@ mod tests {
             (
                 format!(
                     "{}\\n{}",
-                    data_uri("image/png", &[7; 60]),
+                    data_uri("image/png", &png(&[7; 52])),
                     STANDARD.encode([8; 30])
                 ),
                 ImageLimits::default(),
             ),
             // A wrapped tail that looks like a srcset descriptor.
             (
-                format!("{}\\n123x", data_uri("image/png", &[7; 60])),
+                format!("{}\\n123x", data_uri("image/png", &png(&[7; 52]))),
                 ImageLimits::default(),
             ),
             (
@@ -388,16 +424,19 @@ mod tests {
 
     #[test]
     fn takes_the_data_uris_v3_collects() {
-        let payload = STANDARD.encode(b"icon bytes");
+        let payload = STANDARD.encode(png(b"icon bytes"));
         for uri in [
             format!("data:image/png;charset=utf-8;base64,{payload}"),
             format!("DATA:image/PNG;BASE64,{payload}"),
-            format!("data:image/x-icon;base64,{payload}"),
+            // A label that does not name the bytes: the stored type comes from the bytes.
+            format!("data:image/jpeg;base64,{payload}"),
+            format!("data:image/png+xml;base64,{payload}"),
         ] {
             let event = format!(r#"{{"src":"{uri}"}}"#);
             let mut images = sink(ImageLimits::default());
             let out = extract_images(event.as_bytes(), &mut images);
             assert_eq!(images.images.len(), 1, "{uri}");
+            assert_eq!(images.images[0].mime, "image/png", "{uri}");
             assert_eq!(
                 out.as_ref(),
                 format!(r#"{{"src":"{}"}}"#, images.images[0].reference).as_bytes()
@@ -407,10 +446,10 @@ mod tests {
 
     #[test]
     fn references_a_repeated_image_after_the_count_cap() {
-        let first = data_uri("image/png", b"first");
+        let first = data_uri("image/png", &png(b"first"));
         let event = format!(
             r#"["{first}","{}","{first}"]"#,
-            data_uri("image/png", b"second")
+            data_uri("image/png", &png(b"second"))
         );
         let mut images = sink(ImageLimits {
             max_images: 1,

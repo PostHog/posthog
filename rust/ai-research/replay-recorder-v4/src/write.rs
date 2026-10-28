@@ -689,8 +689,13 @@ mod tests {
         }
     }
 
-    fn uri(bytes: &[u8]) -> String {
-        format!("data:image/png;base64,{}", STANDARD.encode(bytes))
+    /// PNG bytes: the signature, then `body`. The image scan takes only bytes of a raster format.
+    fn png(body: &[u8]) -> Vec<u8> {
+        [b"\x89PNG\r\n\x1a\n".as_slice(), body].concat()
+    }
+
+    fn uri(body: &[u8]) -> String {
+        format!("data:image/png;base64,{}", STANDARD.encode(png(body)))
     }
 
     /// The block's stored lines, after the inspector named its remote URLs.
@@ -1027,7 +1032,7 @@ mod tests {
         let old_ref = replay_core_v4::refs::image_ref(
             7,
             "2026-10",
-            &replay_core_v4::refs::reference_hash(&image_content_key(&[6; 32]), b"old"),
+            &replay_core_v4::refs::reference_hash(&image_content_key(&[6; 32]), &png(b"old")),
         );
         let object = object_key("2026-10-15", at());
         let mut sealed: Vec<SealedBlock> = blocks
@@ -1047,7 +1052,7 @@ mod tests {
             sealed[0].counts,
             WriterCounts {
                 extracted: 2,
-                bytes: 6,
+                bytes: 2 * 8 + 6,
                 inline: 0,
                 ..sealed[0].counts
             }
@@ -1129,7 +1134,7 @@ mod tests {
         let sealed_image = &pack[row.byte_start as usize..=row.byte_end as usize];
         assert_eq!(
             open_frame(&[6; 32], Version::V4, &image_context, sealed_image).unwrap(),
-            b"new"
+            png(b"new")
         );
         // The team month key seals images, as the fetcher's, so a session key does not open them.
         assert!(open_frame(&[5; 32], Version::V4, &image_context, sealed_image).is_err());
