@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kong_konne
     KONG_KONNECT_ENDPOINTS,
     LIST_PAGE_SIZE,
     MAX_PAGE_SIZE,
+    METRICS_MAX_LOOKBACK_DAYS,
     METRICS_QUERY_LIMIT,
     REGION_BASE_URLS,
     SERVICE_METRICS_GROUPS,
@@ -259,6 +260,12 @@ def _iter_offset(session: requests.Session, url: str, logger: FilteringBoundLogg
             break
 
 
+def _without_fields(row: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
+    if not fields:
+        return row
+    return {key: value for key, value in row.items() if key not in fields}
+
+
 def _iter_core_entities(
     session: requests.Session,
     base_url: str,
@@ -278,7 +285,10 @@ def _iter_core_entities(
 
             if parent_config is None or endpoint_config.parent_id_field is None:
                 for rows in _iter_offset(session, f"{control_plane_url}{endpoint_config.path}", logger):
-                    yield [{**row, "control_plane_id": control_plane_id} for row in rows]
+                    yield [
+                        {**_without_fields(row, endpoint_config.excluded_fields), "control_plane_id": control_plane_id}
+                        for row in rows
+                    ]
                 resumable_source_manager.safe_point()
                 continue
 
@@ -287,7 +297,11 @@ def _iter_core_entities(
                     child_url = f"{control_plane_url}{endpoint_config.path.replace('{id}', parent['id'])}"
                     for rows in _iter_offset(session, child_url, logger):
                         yield [
-                            {**row, "control_plane_id": control_plane_id, endpoint_config.parent_id_field: parent["id"]}
+                            {
+                                **_without_fields(row, endpoint_config.excluded_fields),
+                                "control_plane_id": control_plane_id,
+                                endpoint_config.parent_id_field: parent["id"],
+                            }
                             for row in rows
                         ]
                     resumable_source_manager.safe_point()
@@ -445,6 +459,7 @@ def get_daily_service_metrics(
         day = _to_day(_clamp_future_value_to_now(db_incremental_field_last_value))
     else:
         day = (now - timedelta(days=lookback_days)).date()
+    day = max(day, (now - timedelta(days=METRICS_MAX_LOOKBACK_DAYS)).date())
 
     day_start = datetime.combine(day, datetime.min.time(), tzinfo=UTC)
     while day_start < now:
@@ -466,8 +481,10 @@ def get_daily_service_metrics(
                 service = event.pop("gateway_service", None) or ""
                 rows_by_service.setdefault(service, {"day": day_start, "gateway_service": service}).update(event)
 
+        # A day still in progress is queried again on resume. A completed day, even an empty one, is not.
+        resume_day = next_day_start if next_day_start <= now else day_start
+        resumable_source_manager.save_state(KongKonnectResumeConfig(start=_format_datetime(resume_day)))
         if rows_by_service:
-            resumable_source_manager.save_state(KongKonnectResumeConfig(start=_format_datetime(next_day_start)))
             yield list(rows_by_service.values())
         else:
             resumable_source_manager.safe_point()

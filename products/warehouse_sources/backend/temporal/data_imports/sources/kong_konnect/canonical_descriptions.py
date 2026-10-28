@@ -146,7 +146,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "The name of the plugin, such as rate-limiting or key-auth.",
             "instance_name": "A unique name for this plugin instance.",
             "enabled": "Whether the plugin is applied.",
-            "config": "The configuration properties of the plugin.",
             "service": "If set, the plugin only runs for requests to this service, as an object with the service id.",
             "route": "If set, the plugin only runs for requests matched by this route, as an object with the route id.",
             "consumer": "If set, the plugin only runs for requests authenticated as this consumer, as an object with the consumer id.",

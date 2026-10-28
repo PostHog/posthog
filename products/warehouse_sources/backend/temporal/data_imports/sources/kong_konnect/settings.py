@@ -44,6 +44,9 @@ SERVICE_METRICS_GROUPS: tuple[tuple[str, ...], ...] = (
 # Above this many services in one day, Konnect folds the rest into a single `____OTHER____` row.
 METRICS_QUERY_LIMIT = 1000
 
+# The metrics API rejects time ranges older than 32 days, whatever the configured initial sync window.
+METRICS_MAX_LOOKBACK_DAYS = 31
+
 
 @dataclass(frozen=True)
 class KongKonnectEndpointConfig:
@@ -66,6 +69,8 @@ class KongKonnectEndpointConfig:
     # is the parent row ID, which is copied onto each child row as `parent_id_field`.
     parent: Optional[str] = None
     parent_id_field: Optional[str] = None
+    # Fields dropped from every row before it is written, such as plugin config that can hold credentials.
+    excluded_fields: tuple[str, ...] = ()
     description: Optional[str] = None
 
 
@@ -149,6 +154,7 @@ KONG_KONNECT_ENDPOINTS: dict[str, KongKonnectEndpointConfig] = {
         path="/core-entities/plugins",
         kind="core_entity",
         primary_keys=["control_plane_id", "id"],
+        excluded_fields=("config",),
         incremental_fields=[],
         description="Gateway plugins across all control planes, with the service, route, or consumer each one is scoped to.",
     ),

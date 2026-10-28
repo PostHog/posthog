@@ -171,7 +171,8 @@ class TestDailyServiceMetrics:
             ("2026-06-15T00:00:00Z", "2026-06-15T12:00:00Z"),
             ("2026-06-15T00:00:00Z", "2026-06-15T12:00:00Z"),
         ]
-        assert [state.start for state in result.saved_states] == ["2026-06-15T00:00:00Z"]
+        # The completed day moves the cursor on; the day still in progress keeps it there.
+        assert [state.start for state in result.saved_states] == ["2026-06-15T00:00:00Z", "2026-06-15T00:00:00Z"]
         assert result.response is not None
         assert result.response.sort_mode == "asc"
 
@@ -192,6 +193,12 @@ class TestDailyServiceMetrics:
                 {"incremental_field": "day", "db_incremental_field_last_value": datetime(2027, 1, 1, tzinfo=UTC)},
                 None,
                 "2026-06-15T00:00:00Z",
+            ),
+            (
+                "stale_watermark_clamped_to_metrics_api_limit",
+                {"incremental_field": "day", "db_incremental_field_last_value": datetime(2026, 1, 1, tzinfo=UTC)},
+                None,
+                "2026-05-15T00:00:00Z",
             ),
             (
                 "resume_state_wins_over_watermark",
@@ -322,6 +329,18 @@ class TestLookupRows:
             "/v2/control-planes/cp-b/core-entities/services",
         ]
         assert result.params("offset") == [None, None, "next-token", None, None]
+
+    def test_plugins_drop_config(self) -> None:
+        result = _driver().run(
+            "plugins",
+            [
+                ScriptedResponse(json={"data": [_control_plane("cp-a")], "meta": {"page": {"total": 1}}}),
+                ScriptedResponse(json={"data": [{"id": "p-1", "name": "aws-lambda", "config": {"aws_secret": "shh"}}]}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": "p-1", "name": "aws-lambda", "control_plane_id": "cp-a"}]
 
     def test_core_entities_raise_on_auth_error(self) -> None:
         result = _driver().run(

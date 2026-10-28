@@ -138,7 +138,14 @@ How far back the initial sync can reach depends on your Konnect plan's Advanced 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, descriptions=DESCRIPTIONS)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            # Each run re-reads the last synced day, so append would duplicate its rows.
+            merge_only=("daily_service_metrics",),
+            descriptions=DESCRIPTIONS,
+        )
 
     def validate_credentials(
         self,
