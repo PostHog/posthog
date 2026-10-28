@@ -578,6 +578,9 @@ def signed_out_session_reason(request: HttpRequest) -> Optional[str]:
         return None
     if SESSION_KEY in request.session:
         return "user_not_resolved"
+    # Auth flushes a session whose hash fails before this runs, so only the loaded row tells it apart from a miss.
+    if getattr(request.session, "loaded_row", None) is None:
+        return "session_not_found"
     return "session_without_user"
 
 

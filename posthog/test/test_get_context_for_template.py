@@ -17,6 +17,8 @@ from parameterized import parameterized
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.frontend_views import app_context
 from posthog.models import Team, User, UserHomeSettings
+from posthog.session.backend import SessionStore
+from posthog.session.models import Session
 from posthog.stable_chunks import StableChunks
 from posthog.templatetags.posthog_filters import TolerantJSONEncoder
 from posthog.utils import (
@@ -133,15 +135,27 @@ class TestFlagsForAppEvaluationContext(SimpleTestCase):
 class TestSignedOutSessionReason(SimpleTestCase):
     @parameterized.expand(
         [
-            ("no session cookie", False, {}, None),
-            ("a session the store did not return", True, {}, "session_without_user"),
-            ("a session that names a user who did not authenticate", True, {"_auth_user_id": "1"}, "user_not_resolved"),
+            ("no session cookie", False, False, {}, None),
+            ("a session the store did not return", True, False, {}, "session_not_found"),
+            ("a stored session that auth flushed", True, True, {}, "session_without_user"),
+            (
+                "a session that names a user who did not authenticate",
+                True,
+                True,
+                {"_auth_user_id": "1"},
+                "user_not_resolved",
+            ),
         ]
     )
-    def test_names_why_a_request_with_a_session_cookie_is_signed_out(self, _name, has_cookie, session, expected):
+    def test_names_why_a_request_with_a_session_cookie_is_signed_out(
+        self, _name, has_cookie, store_found_row, session_data, expected
+    ):
         request = RequestFactory().get("/login")
         if has_cookie:
             request.COOKIES[settings.SESSION_COOKIE_NAME] = "a-session-key"
+        session = SessionStore()
+        session._session_cache = session_data
+        session.loaded_row = Session() if store_found_row else None
         request.session = session
 
         assert signed_out_session_reason(request) == expected
