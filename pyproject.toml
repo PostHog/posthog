@@ -236,10 +236,10 @@ dev = [
     "import-linter~=2.11",
     "deepdiff~=8.6.1",
     "django-linear-migrations~=2.19.0",
-    "django-stubs~=5.2.0",
+    "django-stubs~=6.1.0",
     # django-stubs requires this unbounded, so an upgrade run drifts it to a version
     # that models a different Django. Hold it on the line django-stubs is on.
-    "django-stubs-ext~=5.2.5",
+    "django-stubs-ext~=6.1.0",
     "djangorestframework-stubs~=3.16.0",
     "faker==17.5.0",
     "fakeredis[lua]==2.23.3",
