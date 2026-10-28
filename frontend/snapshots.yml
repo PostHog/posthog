@@ -13183,7 +13183,7 @@ snapshots:
     scenes-app-insights-error-empty-states--estimated-query-execution-time-too-long--dark:
         hash: v1.k794b7964.e0473e6f7eb58c89a80c08ec543c29e320420d11f5fd36a1a23deb9d4e56f87d.0sq-zpW9diaDH00hEneRULtCIT6Qz-2r3z_Pl39w41U
     scenes-app-insights-error-empty-states--estimated-query-execution-time-too-long--light:
-        hash: v1.k794b7964.454f1f247dec8482d74057ab3ba11381fd7ba2adfa4d856552ccc3a9e93b9e42.MuzbVKgH9JFwJzo7SEeGeDwKY4uDkleBeaEwUXbj9TQ
+        hash: v1.k794b7964.1d1005cd0f4788e51d0195f89fc61ba4dc7186e5557665ca82ccf4c54b997ab6.6nlNzn64aXGfI_HmxsnYSkF39FZcmWHan0EmQE8HUWk
     scenes-app-insights-error-empty-states--funnel-single-step--dark:
         hash: v1.k794b7964.4b434a83047b9d303f76b1439f9b3a7b397aef561eed7e70873d54c2ee1c7e79.xQdyc0fgel2MgvkZo8jGQy4dAAvF0B6LHFYONMLFdI0
     scenes-app-insights-error-empty-states--funnel-single-step--light:
@@ -13207,7 +13207,7 @@ snapshots:
     scenes-app-insights-error-empty-states--validation-error--dark:
         hash: v1.k794b7964.f09f5f76b208577ef1cfc6223e1828628428746bd3c17fb5fe841d9f04d6de7a.sQCm8nQekUWsf7vdwEaP3HshN-fMEozAMyvvVrqZmAA
     scenes-app-insights-error-empty-states--validation-error--light:
-        hash: v1.k794b7964.b6e11cfba354f46512f0909f31666f8d0318bc56ee0dcce111ef895bbce4be6a.RDM-1EMK2YZEI-mvQo9N4dYEuQdGDfSGrY2sazgq2YA
+        hash: v1.k794b7964.d8c9d259d2e55546b9c5945e2382e8ff356d393e5fe1738e95cb830f71d2e354.Z_Wwc4UH-ZHEQJ714Arvkmdm9I8Y4ZPsepU2bHcVHKc
     scenes-app-insights-flag-called-rebuild-banner--insight-on-flag-calls--dark:
         hash: v1.k794b7964.6e0dbf185860e9334d5f47bd37bc3c83fb7c80a6f67aec420dc4c3e84c7be1da.Qwx2T2FkdkOHXJUXSl4wGbz6wZHvzM-jkljApsLUVuk
     scenes-app-insights-flag-called-rebuild-banner--insight-on-flag-calls--light:
