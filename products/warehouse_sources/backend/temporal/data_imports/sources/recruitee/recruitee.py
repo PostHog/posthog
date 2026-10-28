@@ -34,7 +34,7 @@ DEFAULT_PROBE_PATH = "/departments"
 COMPANY_ID_REGEX = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class RecruiteeResumeConfig:
     # Offset of the next page to fetch. Offset pagination is deterministic, so a crashed
     # full-refresh sync resumes from the page after the last one yielded; merge dedupes on `id`.
@@ -112,6 +112,8 @@ def _candidate_notes_source(
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
+        # No checkpoints are saved, so a shutdown handoff would repeat every candidate's notes call.
+        supports_resume=False,
     )
 
 

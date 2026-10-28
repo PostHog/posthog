@@ -10,7 +10,7 @@ from products.warehouse_sources.backend.types import IncrementalField
 PAGE_SIZE = 100
 
 
-@dataclass
+@dataclass(frozen=True)
 class RecruiteeEndpointConfig:
     name: str
     # Path relative to https://api.recruitee.com/c/<company_id> (leading slash included).
