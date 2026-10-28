@@ -20,8 +20,11 @@ jobs:
                   KNOWLEDGE_WRITER_MERGE_PUSHES_URL: ${{ vars.KNOWLEDGE_WRITER_MERGE_PUSHES_URL }}
               run: |
                   set -euo pipefail
+                  failed_commit_shas=()
                   for commit_sha in $(jq -r '.commits[].id' "$GITHUB_EVENT_PATH"); do
                       curl --fail-with-body --silent --show-error --retry 3 --retry-all-errors --max-time 10 \
                           -H "Authorization: Bearer $KNOWLEDGE_WRITER_API_TOKEN" -H "Content-Type: application/json" \
-                          --data "{\"commit_sha\": \"$commit_sha\"}" "$KNOWLEDGE_WRITER_MERGE_PUSHES_URL"
+                          --data "{\"commit_sha\": \"$commit_sha\"}" "$KNOWLEDGE_WRITER_MERGE_PUSHES_URL" \
+                          || failed_commit_shas+=("$commit_sha")
                   done
+                  [ ${#failed_commit_shas[@]} -eq 0 ] || { echo "::error::Merge push delivery failed for: ${failed_commit_shas[*]}"; exit 1; }
