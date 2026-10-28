@@ -9523,7 +9523,9 @@
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."is_platform"
   FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  WHERE (NOT ("posthog_organization"."deleted"
+              AND "posthog_organization"."deleted" IS NOT NULL)
+         AND "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid)
   LIMIT 21
   '''
 # ---
@@ -10599,7 +10601,9 @@
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."is_platform"
   FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  WHERE (NOT ("posthog_organization"."deleted"
+              AND "posthog_organization"."deleted" IS NOT NULL)
+         AND "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid)
   LIMIT 21
   '''
 # ---
@@ -13230,7 +13234,9 @@
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."is_platform"
   FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  WHERE (NOT ("posthog_organization"."deleted"
+              AND "posthog_organization"."deleted" IS NOT NULL)
+         AND "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid)
   LIMIT 21
   '''
 # ---
@@ -13483,7 +13489,9 @@
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."is_platform"
   FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  WHERE (NOT ("posthog_organization"."deleted"
+              AND "posthog_organization"."deleted" IS NOT NULL)
+         AND "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid)
   ORDER BY "posthog_organization"."id" ASC
   LIMIT 1
   '''
@@ -14324,7 +14332,9 @@
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."is_platform"
   FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  WHERE (NOT ("posthog_organization"."deleted"
+              AND "posthog_organization"."deleted" IS NOT NULL)
+         AND "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid)
   LIMIT 21
   '''
 # ---
@@ -15398,7 +15408,9 @@
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."is_platform"
   FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  WHERE (NOT ("posthog_organization"."deleted"
+              AND "posthog_organization"."deleted" IS NOT NULL)
+         AND "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid)
   LIMIT 21
   '''
 # ---
@@ -18011,7 +18023,9 @@
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."is_platform"
   FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  WHERE (NOT ("posthog_organization"."deleted"
+              AND "posthog_organization"."deleted" IS NOT NULL)
+         AND "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid)
   LIMIT 21
   '''
 # ---
@@ -18209,7 +18223,9 @@
   SELECT "posthog_organization"."is_active" AS "is_active",
          "posthog_organization"."has_active_subscription" AS "has_active_subscription"
   FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  WHERE (NOT ("posthog_organization"."deleted"
+              AND "posthog_organization"."deleted" IS NOT NULL)
+         AND "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid)
   ORDER BY "posthog_organization"."id" ASC
   LIMIT 1
   '''
@@ -19057,7 +19073,9 @@
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."is_platform"
   FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  WHERE (NOT ("posthog_organization"."deleted"
+              AND "posthog_organization"."deleted" IS NOT NULL)
+         AND "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid)
   LIMIT 21
   '''
 # ---
@@ -20105,7 +20123,9 @@
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."is_platform"
   FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  WHERE (NOT ("posthog_organization"."deleted"
+              AND "posthog_organization"."deleted" IS NOT NULL)
+         AND "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid)
   LIMIT 21
   '''
 # ---
@@ -22835,7 +22855,9 @@
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."is_platform"
   FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  WHERE (NOT ("posthog_organization"."deleted"
+              AND "posthog_organization"."deleted" IS NOT NULL)
+         AND "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid)
   LIMIT 21
   '''
 # ---
@@ -24017,7 +24039,9 @@
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."is_platform"
   FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  WHERE (NOT ("posthog_organization"."deleted"
+              AND "posthog_organization"."deleted" IS NOT NULL)
+         AND "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid)
   LIMIT 21
   '''
 # ---
@@ -25060,7 +25084,9 @@
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."is_platform"
   FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  WHERE (NOT ("posthog_organization"."deleted"
+              AND "posthog_organization"."deleted" IS NOT NULL)
+         AND "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid)
   LIMIT 21
   '''
 # ---
@@ -27662,7 +27688,9 @@
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."is_platform"
   FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  WHERE (NOT ("posthog_organization"."deleted"
+              AND "posthog_organization"."deleted" IS NOT NULL)
+         AND "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid)
   LIMIT 21
   '''
 # ---
@@ -28924,7 +28952,9 @@
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."is_platform"
   FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  WHERE (NOT ("posthog_organization"."deleted"
+              AND "posthog_organization"."deleted" IS NOT NULL)
+         AND "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid)
   LIMIT 21
   '''
 # ---
@@ -30017,7 +30047,9 @@
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."is_platform"
   FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  WHERE (NOT ("posthog_organization"."deleted"
+              AND "posthog_organization"."deleted" IS NOT NULL)
+         AND "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid)
   LIMIT 21
   '''
 # ---
@@ -32733,7 +32765,9 @@
          "posthog_organization"."domain_whitelist",
          "posthog_organization"."is_platform"
   FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  WHERE (NOT ("posthog_organization"."deleted"
+              AND "posthog_organization"."deleted" IS NOT NULL)
+         AND "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid)
   LIMIT 21
   '''
 # ---
