@@ -82,9 +82,9 @@ class Scd2DeltaWriter:
         data = relax_batch_nullability(data)
 
         delta_table = await self._table.get_delta_table()
-        partition_column = self._partition_column
-        partitioned = partition_column is not None and (delta_table is None or self._partitioned(delta_table))
-        if partition_column is not None and partitioned:
+        # A table created before partitioning stays unpartitioned, and its rows get no partition column.
+        partition_column = self._partition_column if delta_table is None or self._partitioned(delta_table) else None
+        if partition_column is not None:
             if partition_column in data.column_names:
                 data = data.drop_columns([partition_column])
             data = data.append_column(
@@ -115,7 +115,7 @@ class Scd2DeltaWriter:
                 predicate_parts = [f"source.{col} = target.{col}" for col in normalized_pks]
                 predicate_parts.append(f"target.{self._valid_to_column} IS NULL")
                 updates = {self._valid_to_column: f"source.{self._valid_from_column}"}
-                if partition_column is not None and partitioned:
+                if partition_column is not None:
                     # Open rows only sit in the current partition, so the merge reads and rewrites no other.
                     predicate_parts.append(f"target.{partition_column} = '{self._current_partition}'")
                     # The merge reads only the keys and `valid_from`, and a source column cannot then
@@ -162,7 +162,7 @@ class Scd2DeltaWriter:
                 deltalake.DeltaTable.create,
                 table_uri=delta_uri,
                 schema=data.schema,
-                partition_by=[partition_column] if partition_column is not None and partitioned else None,
+                partition_by=[partition_column] if partition_column is not None else None,
                 storage_options=storage_options,
                 configuration=DELTA_TABLE_PROPERTIES,
             )
@@ -188,5 +188,4 @@ class Scd2DeltaWriter:
         return pc.if_else(pc.is_null(version_ends), self._current_partition, pc.strftime(version_ends, format="%Y-%m"))
 
     def _partitioned(self, delta_table: deltalake.DeltaTable) -> bool:
-        partition_columns = delta_table.metadata().partition_columns or []
-        return self._partition_column is not None and self._partition_column in partition_columns
+        return self._partition_column in (delta_table.metadata().partition_columns or [])

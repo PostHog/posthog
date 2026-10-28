@@ -49,7 +49,7 @@ class HistoryNaming:
 
     @property
     def stamped_columns(self) -> frozenset[str]:
-        """Every column the history lane adds to a change row."""
+        """Every column a history table carries next to the source's own columns."""
         return self.validity_columns | ({self.partition_column} if self.partition_column else set())
 
 
@@ -140,8 +140,8 @@ def reserved_column_collisions(
 def metadata_columns(history: HistoryNaming | None) -> frozenset[str]:
     """Columns always filled from the change event itself, never from the last known row.
 
-    `history` names the columns stamped on a history batch. A source column that only shares a validity
-    name with another naming is data.
+    `history` names the columns a history table carries next to the source's. A source column that only
+    shares a validity name with another naming is data.
     """
     return CAPTURE_COLUMNS if history is None else CAPTURE_COLUMNS | history.stamped_columns
 
