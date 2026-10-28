@@ -23,7 +23,6 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { TeamPublicType, TeamType, UserType } from '~/types'
 
 import { signalsReportsList, signalsReportsRetrieve } from 'products/signals/frontend/generated/api'
-import { createdAfterForWindow } from 'products/signals/frontend/inbox/filterOptions'
 import {
     TodayReportList,
     TodayReportSnapshot,
@@ -62,7 +61,7 @@ function todayReportListParams(): Record<string, string | undefined> {
     return {
         view: 'for_you',
         sort: 'recommended',
-        created_after: createdAfterForWindow('7d'),
+        created_after: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
     }
 }
 
