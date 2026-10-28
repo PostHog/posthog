@@ -66,7 +66,7 @@ export function ComposerModelEffortSheet({
         <>
             <Button
                 size="sm"
-                className="h-auto! min-h-7 min-w-0 shrink py-0.5 text-left"
+                className="min-w-0 shrink"
                 onClick={() => setOpen(true)}
                 data-attr="composer-model-sheet-open"
             >
@@ -74,15 +74,7 @@ export function ComposerModelEffortSheet({
                     model={selectedModel}
                     ownPlan={billing?.value === ModelAccessEnumApi.OwnSubscription}
                 />
-                <span
-                    className={
-                        modelLabel.split(' ').length >= 3
-                            ? 'min-w-0 leading-tight whitespace-normal [text-wrap:balance]'
-                            : 'whitespace-nowrap'
-                    }
-                >
-                    {modelLabel}
-                </span>
+                <span className="whitespace-nowrap">{modelLabel}</span>
                 {effortOptions.length > 0 && (
                     <span className="text-muted @max-[400px]/composer:hidden">{getEffortLabel(selectedEffort)}</span>
                 )}
