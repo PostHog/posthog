@@ -291,6 +291,11 @@ FAILURE_STREAK_RUNS_KEY = "runs"
 FAILURE_STREAK_LAST_FAILED_AT_KEY = "last_failed_at"
 
 
+# Set when a user chooses history for an incremental schema. `cdc_table_mode` alone is not enough,
+# because a schema that left CDC keeps the mode it had there.
+INCREMENTAL_HISTORY_KEY = "incremental_history"
+
+
 class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-django-pk -- grandfathered UUIDT primary key
     ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields
 ):
@@ -589,7 +594,9 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
 
     @property
     def keeps_history(self) -> bool:
-        return self.is_cdc and self.cdc_table_mode in ("cdc_only", "both")
+        if self.cdc_table_mode not in ("cdc_only", "both"):
+            return False
+        return self.is_cdc or (self.is_incremental and bool(self.sync_type_config.get(INCREMENTAL_HISTORY_KEY)))
 
     @property
     def should_use_incremental_field(self):
