@@ -1662,9 +1662,12 @@ class TestUpdateBillingOrganizationUsersPrivilegeEscalation(BaseTest):
         BillingManager(self.license, user=owner).sync_organization_users(self.organization)
 
         payload = mock_patch.call_args.kwargs["json"]
-        assert sorted(payload["distinct_ids"]) == sorted(
-            [self.user.distinct_id, owner.distinct_id, admin_with_invalid_email.distinct_id]
-        )
+        assert len(payload["distinct_ids"]) == 3
+        assert set(payload["distinct_ids"]) == {
+            self.user.distinct_id,
+            owner.distinct_id,
+            admin_with_invalid_email.distinct_id,
+        }
         assert payload["org_customer_email"] == "owner@example.com"
         assert sorted(payload["org_admin_emails"]) == ["admin@example.com", "owner@example.com"]
         assert payload["org_users"] == [
