@@ -21,10 +21,13 @@ from posthog.llm.gateway_client import (
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
 
-from products.replay_vision.backend.temporal.gemini import gemini_api_key
-
 AI_PRODUCT = "replay_vision"
 GATEWAY_FLAG = "replay-vision-ai-gateway"
+
+
+def gemini_api_key() -> str:
+    """Replay Vision's dedicated key (own GCP project), falling back to the shared key where unset."""
+    return settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY
 
 
 async def replay_gemini_client(team_id: int, *, properties: Mapping[str, Any] | None = None) -> "ReplayGemini":

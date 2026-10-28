@@ -9,7 +9,7 @@ import { ChangeRequest } from '~/types'
 export interface ChangeRequestActionsProps {
     changeRequest: ChangeRequest
     onApprove: (id: string) => void
-    onReject: (id: string, reason?: string) => void
+    onReject: (id: string, reason: string) => void
     onCancel: (id: string, reason?: string) => void
     showViewButton?: boolean
     /** When the user can't approve, show a disabled Approve button explaining why instead of hiding it. */
@@ -21,7 +21,8 @@ export function changeRequestDialogHandlers({
     onApprove,
     onReject,
     onCancel,
-}: Pick<ChangeRequestActionsProps, 'changeRequest' | 'onApprove' | 'onReject' | 'onCancel'>): {
+}: Pick<ChangeRequestActionsProps, 'changeRequest' | 'onApprove' | 'onReject'> &
+    Partial<Pick<ChangeRequestActionsProps, 'onCancel'>>): {
     handleApprove: () => void
     handleReject: () => void
     handleCancel: () => void
@@ -98,7 +99,7 @@ export function changeRequestDialogHandlers({
                 status: 'danger',
                 onClick: () => {
                     const reason = (document.getElementById('cancel-reason') as HTMLInputElement)?.value
-                    onCancel(changeRequest.id, reason || undefined)
+                    onCancel?.(changeRequest.id, reason || undefined)
                 },
                 size: 'small',
             },

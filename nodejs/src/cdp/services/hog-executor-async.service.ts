@@ -18,7 +18,12 @@ import type {
 } from '../types'
 import { createAddLogFunction, destinationE2eLagMsSummary } from '../utils'
 import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
-import { cdpTrackedFetch, fetchErrorDetail, isFetchResponseRetriable } from '../utils/cdp-fetch'
+import {
+    MAX_FETCH_RESPONSE_BYTES,
+    cdpTrackedFetch,
+    fetchErrorDetail,
+    isFetchResponseRetriable,
+} from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
@@ -579,7 +584,12 @@ export class HogExecutorAsyncService {
                 }
             }
         } catch (e) {
-            addLog('error', `Failed to parse response body: ${e.message}`)
+            addLog(
+                'error',
+                e.name === 'ResponseTooLargeError'
+                    ? `The response body is larger than ${MAX_FETCH_RESPONSE_BYTES / 1024 / 1024} MB, so it was not read.`
+                    : `Failed to parse response body: ${e.message}`
+            )
             body = undefined
         }
 
