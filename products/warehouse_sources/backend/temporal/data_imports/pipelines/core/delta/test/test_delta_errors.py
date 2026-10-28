@@ -8,6 +8,7 @@ import botocore.exceptions
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    _EREMOTEIO,
     TransientObjectStoreError,
     is_invalid_version_race,
     is_missing_scan_file_race,
@@ -94,7 +95,7 @@ class TestIsTransientObjectStoreError:
                 # response s3fs always maps to this errno (see s3fs/errors.py::translate_boto_error) -
                 # the message needle above only catches AWS's fixed text, so this must match by errno.
                 "s3_compatible_internal_error_non_aws_wording_eremoteio",
-                OSError(errno.EREMOTEIO, "Please contact the server administrator, oss@service.aliyun.com"),
+                OSError(_EREMOTEIO, "Please contact the server administrator, oss@service.aliyun.com"),
                 True,
             ),
             (

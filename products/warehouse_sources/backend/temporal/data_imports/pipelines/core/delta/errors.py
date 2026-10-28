@@ -9,6 +9,12 @@ import deltalake.exceptions
 
 from posthog.temporal.common.errors import NonReportableError
 
+# `errno` only defines EREMOTEIO on platforms that have it (Linux); referencing it directly breaks
+# import on a Mac dev machine. s3fs's own translation table (s3fs/errors.py) falls back to EIO for
+# the same reason, so matching with the identical fallback stays consistent with what s3fs actually
+# sets there.
+_EREMOTEIO = getattr(errno, "EREMOTEIO", errno.EIO)
+
 # Substrings of the object-store errors raised talking to our own S3-backed data-warehouse bucket
 # that are transient and self-recovering, not a bug in our code or a customer credential problem:
 # - the first three come from delta-rs's Rust `object_store` crate inside `DeltaTable.is_deltatable()`
@@ -132,7 +138,7 @@ def is_transient_object_store_error(error: BaseException) -> bool:
         # re-runs this classifier on the wrapper, rather than the original OSError/DeltaError it
         # wraps, must still treat it as transient.
         return True
-    if isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE, errno.EBUSY, errno.EREMOTEIO):
+    if isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE, errno.EBUSY, _EREMOTEIO):
         return True
     if isinstance(error, OSError) and _is_bodyless_5xx_unknown_error(error):
         return True
