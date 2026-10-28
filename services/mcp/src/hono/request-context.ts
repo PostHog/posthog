@@ -157,6 +157,8 @@ export class RequestContext {
                 // the moment introspection resolves it — otherwise a token's first request would
                 // reach the API unattributed.
                 oauthClientName: await this.readCachedOAuthClientName(),
+                mcpSessionId: this.requestContext.mcpSessionId,
+                mcpConversationId: this.requestContext.mcpConversationId,
                 taskId: this.props.taskId,
                 clientIp: this.props.clientIp,
                 clientIpSigningKeys: getClientIpSigningKeys(),

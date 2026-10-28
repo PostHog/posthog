@@ -437,6 +437,8 @@ AnalyticsProps = TypedDict(
         "mcp_client_version": NotRequired[str | None],
         "mcp_protocol_version": NotRequired[str | None],
         "mcp_oauth_client_name": NotRequired[str | None],
+        "mcp_session_id": NotRequired[str],
+        "mcp_conversation_id": NotRequired[str],
         "upload_attempt_id": NotRequired[str],
         "upload_run_id": NotRequired[str],
     },
@@ -588,6 +590,18 @@ def get_mcp_properties(request) -> McpProps:
     }
 
 
+# MCP session and conversation ids are UUIDs in practice. The MCP spec limits session ids to
+# visible ASCII, so anything else is not an id the MCP server stamped on its own events.
+_MCP_ID_RE = re.compile(r"[\x21-\x7e]{1,128}")
+
+
+def _get_mcp_id_header(request, header: str) -> str | None:
+    value = request.headers.get(header)
+    if not isinstance(value, str) or not _MCP_ID_RE.fullmatch(value):
+        return None
+    return value
+
+
 def get_request_analytics_properties(request) -> AnalyticsProps:
     """Extract standard analytics properties from a request."""
     current_url = request.headers.get("Referer")
@@ -602,7 +616,7 @@ def get_request_analytics_properties(request) -> AnalyticsProps:
     # Auth classes tag the query context with access_method during DRF dispatch
     # (personal_api_key, oauth, id_jag, ...); session auth leaves it unset.
     access_method = get_query_tag_value("access_method")
-    return {
+    props: AnalyticsProps = {
         "source": get_event_source(request),
         "$current_url": current_url,
         "$host": host,
@@ -613,6 +627,13 @@ def get_request_analytics_properties(request) -> AnalyticsProps:
         "user_agent": sanitize_header_value(request.headers.get("User-Agent")),
         **get_mcp_properties(request),
     }
+    # Same values as `$mcp_session_id` / `$mcp_conversation_id` on the MCP server's own events,
+    # so a backend event joins to the tool calls of the MCP session that caused it.
+    if mcp_session_id := _get_mcp_id_header(request, "X-Posthog-Mcp-Session-Id"):
+        props["mcp_session_id"] = mcp_session_id
+    if mcp_conversation_id := _get_mcp_id_header(request, "X-Posthog-Mcp-Conversation-Id"):
+        props["mcp_conversation_id"] = mcp_conversation_id
+    return props
 
 
 _tracer = trace.get_tracer(__name__)

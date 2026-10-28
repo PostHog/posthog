@@ -146,6 +146,8 @@ When the Worker calls PostHog's Django backend (any `ApiClient.fetch`), the outb
 - `X-Posthog-Mcp-Conversation-Id: <mcpConversationId>` — when set on `ApiClient.config`
 
 On the Django side, `per_request_logging_context_middleware` reads both headers (sanitized through the existing `sanitize_header_value` helper), binds them to structlog contextvars (`mcp_session_id`, `mcp_conversation_id`), and sets them on the current OTLP span as `mcp.session_id` / `mcp.conversation_id`.
+`report_user_action` also stamps them on backend product events as `mcp_session_id` / `mcp_conversation_id` (through `get_request_analytics_properties`), so an event such as `data warehouse source created` joins to the `$mcp_tool_call` events of the same MCP session.
+That path drops a value that is not 1–128 visible ASCII characters.
 
 The headers are caller-asserted — anyone can spoof them on a request — so backend consumers should treat them as correlation hints, not authoritative identifiers.
 

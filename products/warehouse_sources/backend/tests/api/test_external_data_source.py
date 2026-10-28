@@ -1224,6 +1224,7 @@ class TestExternalDataSource(APIBaseTest):
                 },
             },
             HTTP_X_POSTHOG_CLIENT="mcp",
+            HTTP_X_POSTHOG_MCP_SESSION_ID="0f8fad5b-d9cb-469f-a165-70867728950e",
         )
 
         assert response.status_code == 201, response.json()
@@ -1231,6 +1232,7 @@ class TestExternalDataSource(APIBaseTest):
         assert len(events) == 1
         properties = events[0].kwargs["properties"]
         assert properties["source"] == "mcp"  # request-derived transport
+        assert properties["mcp_session_id"] == "0f8fad5b-d9cb-469f-a165-70867728950e"
         assert properties["created_via"] == "mcp"  # caller's explicit intent
         assert properties["source_type"] == "Stripe"
         assert properties["source_id"] == str(response.json()["id"])

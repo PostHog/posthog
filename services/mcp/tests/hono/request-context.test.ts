@@ -167,6 +167,21 @@ describe('RequestContext', () => {
             expect(mockApiClientCtor.mock.calls[0]![0].oauthClientName).toBe(expected)
         })
 
+        it('passes the MCP session and conversation ids that the events carry', async () => {
+            mockMe.mockResolvedValue({ success: true, data: { distinct_id: 'user-1' } })
+            const ctx = new RequestContext(
+                fakeRedis(),
+                env,
+                makeProps({ mcpSessionId: 'session-abc', mcpConversationId: 'conversation-xyz' })
+            )
+            await ctx.getDistinctId()
+
+            expect(mockApiClientCtor.mock.calls[0]![0]).toMatchObject({
+                mcpSessionId: 'session-abc',
+                mcpConversationId: 'conversation-xyz',
+            })
+        })
+
         it('forwards the session client identity after the API client already exists', async () => {
             mockMe.mockResolvedValue({ success: true, data: { distinct_id: 'user-1' } })
             const ctx = new RequestContext(fakeRedis(), env, makeProps({ mcpClientName: undefined }))
