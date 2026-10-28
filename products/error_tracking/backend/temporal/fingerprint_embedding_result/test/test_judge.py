@@ -189,12 +189,18 @@ class TestAskJudge:
         assert client.decide.call_count == 2
         assert build.call_args_list[1].kwargs["timeout"] < 3
 
-    def test_other_failures_are_not_retried(self) -> None:
+    @parameterized.expand([("bad_request", 400), ("transport_error", None)])
+    def test_other_failures_are_not_retried(self, _name: str, status_code: int | None) -> None:
         client = MagicMock()
-        client.decide.side_effect = SystemOneRequestFailed("bad request", status_code=400)
-        with patch(f"{JUDGE}.build_system_one_client", return_value=client), pytest.raises(JudgeUnavailableError):
+        client.decide.side_effect = SystemOneRequestFailed("failed", status_code=status_code)
+        with (
+            patch(f"{JUDGE}.build_system_one_client", return_value=client),
+            patch(f"{JUDGE}.time.sleep") as sleep,
+            pytest.raises(JudgeUnavailableError),
+        ):
             ask_judge(7, "Error: a", "Error: b", timeout_seconds=3)
         assert client.decide.call_count == 1
+        sleep.assert_not_called()
 
     def test_retries_stop_within_the_timeout(self) -> None:
         client = MagicMock()
@@ -212,7 +218,6 @@ class TestAskJudge:
             pytest.raises(JudgeUnavailableError),
         ):
             ask_judge(7, "Error: a", "Error: b", timeout_seconds=2)
-        # 2s budget: after 0.25s and 0.5s pauses, a 1s pause would leave less than MIN_ATTEMPT_SECONDS.
         assert client.decide.call_count == 3
 
     def test_long_documents_keep_the_message_and_the_throw_site(self) -> None:

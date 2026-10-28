@@ -37,11 +37,9 @@ JUDGE_MODEL: JudgeModel = JEEVES_MODEL
 JUDGE_PROMPT_VERSION = "v5"
 JUDGE_QUESTION_KEY = "same_issue"
 MAX_DOCUMENT_CHARS = 6000  # what the judge was evaluated with
-# Gateway rate limits (429) and upstream overload (529) clear within seconds, so they are retried
-# inside the judge timeout; anything else falls back to no merge at once.
+# Rate limits and overload clear within seconds; retries stay inside the judge timeout.
 RETRYABLE_STATUS_CODES = frozenset({429, 529})
 RETRY_BACKOFF_SECONDS = (0.25, 0.5, 1.0)
-# A retry with less budget than this left would most likely time out.
 MIN_ATTEMPT_SECONDS = 1.0
 
 
@@ -239,14 +237,12 @@ def ask_judge(
         except SystemOneNotConfigured as err:
             raise JudgeUnavailableError(str(err)) from err
         except SystemOneRequestFailed as err:
+            if backoff is None or err.status_code not in RETRYABLE_STATUS_CODES:
+                raise JudgeUnavailableError(str(err)) from err
             # Jitter spreads the retries of workers that were throttled together.
-            delay = backoff * random.uniform(1, 2) if backoff is not None else 0
+            delay = backoff * random.uniform(1, 2)
             remaining_seconds = timeout_seconds - (time.monotonic() - start) - delay
-            if (
-                backoff is None
-                or err.status_code not in RETRYABLE_STATUS_CODES
-                or remaining_seconds < MIN_ATTEMPT_SECONDS
-            ):
+            if remaining_seconds < MIN_ATTEMPT_SECONDS:
                 raise JudgeUnavailableError(str(err)) from err
             time.sleep(delay)
     answer = result.answers.get(JUDGE_QUESTION_KEY)
